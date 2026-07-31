@@ -23,7 +23,9 @@ import 'package:rhythm_desktop/app/core/layout/background_activity_indicator.dar
 class _FakeDataSource extends BackgroundStatusDataSource {
   _FakeDataSource(this._status);
 
-  final BackgroundStatus _status;
+  BackgroundStatus _status;
+
+  set status(BackgroundStatus value) => _status = value;
 
   @override
   Future<BackgroundStatus> fetch() async => _status;
@@ -269,6 +271,24 @@ void main() {
       ctrl.dispose();
     });
 
+    testWidgets('idle does not schedule repeating animation frames',
+        (tester) async {
+      final ctrl = BackgroundActivityController(
+        _FakeDataSource(_makeStatus()),
+        pollInterval: const Duration(hours: 1),
+      );
+
+      await tester.pumpWidget(_buildTestWidget(ctrl));
+      ctrl.startPolling();
+      await tester.pump();
+      await tester.pump();
+
+      expect(ctrl.hasActivity, isFalse);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+
+      ctrl.dispose();
+    });
+
     testWidgets('renders active count when loops are running', (tester) async {
       final ctrl = BackgroundActivityController(
         _FakeDataSource(_makeRunningStatus()),
@@ -281,6 +301,39 @@ void main() {
 
       // Active count '2' should appear.
       expect(find.text('2'), findsOneWidget);
+
+      ctrl.dispose();
+    });
+
+    testWidgets('active-to-idle-to-active restarts the pulse', (tester) async {
+      final source = _FakeDataSource(_makeRunningStatus());
+      final ctrl = BackgroundActivityController(
+        source,
+        pollInterval: const Duration(milliseconds: 10),
+      );
+
+      await tester.pumpWidget(_buildTestWidget(ctrl));
+      ctrl.startPolling();
+      await tester.pump();
+      expect(ctrl.hasActivity, isTrue);
+      expect(tester.binding.hasScheduledFrame, isTrue);
+
+      source.status = _makeStatus();
+      await tester.pump(const Duration(milliseconds: 11));
+      await tester.pump();
+      expect(ctrl.hasActivity, isFalse);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+
+      source.status = _makeRunningStatus();
+      await tester.pump(const Duration(milliseconds: 11));
+      await tester.pump();
+      expect(ctrl.hasActivity, isTrue);
+      expect(tester.binding.hasScheduledFrame, isTrue);
+
+      final before = tester.widget<Opacity>(find.byType(Opacity)).opacity;
+      await tester.pump(const Duration(milliseconds: 300));
+      final after = tester.widget<Opacity>(find.byType(Opacity)).opacity;
+      expect(after, isNot(before));
 
       ctrl.dispose();
     });

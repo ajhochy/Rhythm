@@ -292,7 +292,9 @@ describe('MEM-OKF cross-link resolution and writes (#1195)', () => {
     await expect(syncMemoryVault({ vaultPath: vaultRoot })).resolves.toMatchObject({
       scanned: 1,
     });
-    const preface = await buildMemoryPreface('danglingtoken', null);
+    // P0: automatic injection requires ≥2 meaningful query tokens (single-token
+    // prompts like 'resume?' must never inject), so probe with a two-token query.
+    const preface = await buildMemoryPreface('danglingtoken remains useful', null);
     expect(preface.text).toContain('Danglingtoken remains useful.');
     await expect(runMemoryConsolidation({ memoryDir, index, repo }))
       .resolves.toMatchObject({ mergedClusters: 0, retiredCount: 0 });

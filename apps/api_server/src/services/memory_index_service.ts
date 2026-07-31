@@ -35,6 +35,7 @@ import { logger } from '../utils/logger';
 import {
   MEMORY_VAULT_SOURCE,
   classifyVaultNoteKind,
+  classifyVaultNoteInjectability,
   scanVaultNotes,
   type ParsedNote,
 } from './memoryVaultSyncService';
@@ -122,6 +123,7 @@ export class MemoryIndexService {
       generatedBy: note.parsed.generated?.by ?? null,
       generatedAt: note.parsed.generated?.at ?? null,
       trustTier: note.parsed.trustTier ?? 'unverified',
+      autoInjectable: classifyVaultNoteInjectability(note.sourceId, note.parsed),
       ownerUserId: this.ownerUserId,
     });
   }

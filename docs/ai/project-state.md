@@ -65,17 +65,19 @@ verify launch on a real Mac → then TestFlight and PR #1252 merge.
 
 ## Recent coding-agent runs
 
-### 2026-07-30 — R3 scheduled-failure classification
-- Files modified: `agentSchedulerService.ts` (real engine readiness gate,
-  categorized deferral/restart results), `agent_runner.ts` (model-quality-only
-  teacher decision), `agent_run_failure_classification.ts` (taxonomy), focused
-  tests, acceptance contract, and env-gated live contract.
-- Checks run: red contract 0/10; `npx tsc --noEmit` pass after one
-  CommonJS-test-loader repair; scheduler/teacher suites 56/56; runner/refiner
-  suites 75/75; final contract 10/10.
-- Decisions made: a successful `listMcp()` round-trip is the scheduled-work
-  readiness probe; unknown failures fail closed to `infra_config`.
-- Deviations from spec: live test written but not run, as explicitly required.
-- Concerns: full socket-based suite is sandbox-blocked (`listen EPERM`), the
-  live test is intentionally unrun, and GitHub Actions watch could not connect
-  to `api.github.com` after the branch push.
+### 2026-07-30 — local-agent-cloud-token-auth
+
+- Files modified: `auth_middleware.ts` (Cloud bearer fallback + bounded
+  positive cache), `agent_sessions_routes.ts` (authenticated owner guard), new
+  contract/live tests, acceptance contract, and
+  [run log](runs/2026-07-30-local-agent-cloud-token-auth.md).
+- Checks run: contract RED 8 failed/2 passed → GREEN 10/10; `tsc --noEmit`
+  pass; 16 non-socket identity/auth/session regressions pass; `git diff
+  --check` pass.
+- Decisions made: reuse `MobileCloudIdentityService` unchanged; cache only
+  positive results under SHA-256 digests for five minutes with a 256-entry
+  oldest-eviction bound and in-flight request coalescing.
+- Deviations from spec: none; the live test was written and intentionally not
+  run as required.
+- Concerns: live c11 remains pending; older regression files that bind
+  `listen(0)` are environment-blocked by `EPERM`.

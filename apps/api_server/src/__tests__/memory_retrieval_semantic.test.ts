@@ -17,6 +17,7 @@ function memory(overrides: Partial<AgentMemory>): AgentMemory {
     sourceId: 'fact/memory.md', tagsJson: '[]', ownerUserId: 1,
     status: 'stable', staleAfter: null, verifiedJson: '[]', sourcesJson: '[]',
     generatedBy: null, generatedAt: null, trustTier: 'unverified',
+    autoInjectable: true,
     createdAt: 'now', updatedAt: 'now', ...overrides,
   };
 }
@@ -39,7 +40,12 @@ describe('Engraph HTTP client', () => {
       results: [{ file_path: 'fact/x.md', snippet: 'untrusted' }],
     }), { status: 200 }));
     const hits = await new EngraphHttpClient('http://127.0.0.1:7777', fetchImpl).search('query', 5);
-    expect(hits).toEqual([{ file: 'fact/x.md' }]);
+    expect(hits).toEqual([{
+      file: 'fact/x.md',
+      score: null,
+      confidence: null,
+      distance: null,
+    }]);
     expect(fetchImpl).toHaveBeenCalledWith('http://127.0.0.1:7777/api/search', expect.any(Object));
   });
 
@@ -83,21 +89,17 @@ describe('Engraph path confinement', () => {
 });
 
 describe('hybrid memory retrieval', () => {
-  it('joins exact source ids, rejects a cross-owner row after the join, and preserves FTS', async () => {
+  it('fails path-only semantic hits closed and preserves FTS', async () => {
     const fresh = memory({ id: 'fresh', sourceId: 'fact/fresh.md', content: 'fresh FTS memory' });
     const otherOwner = memory({ id: 'other', sourceId: 'fact/semantic.md', ownerUserId: 2, content: 'private' });
     const fakeRepo = repo([fresh], [otherOwner]);
     const engraph = { search: vi.fn().mockResolvedValue([{ file: 'fact/semantic.md' }]) };
 
     await expect(getRelevantMemoriesSemantic('query', 1, 2, fakeRepo, engraph)).resolves.toEqual([fresh]);
-    expect(fakeRepo.findBySourceIdsAsync).toHaveBeenCalledWith(
-      'obsidian-memory',
-      ['fact/semantic.md'],
-      1,
-    );
+    expect(fakeRepo.findBySourceIdsAsync).not.toHaveBeenCalled();
   });
 
-  it('keeps null-owner rows while excluding user-owned joined rows for a null owner', async () => {
+  it('fails path-only semantic hits closed for a null owner', async () => {
     const privateMemory = memory({ id: 'private', sourceId: 'fact/private.md', ownerUserId: 2 });
     const ownerless = memory({ id: 'ownerless', sourceId: 'fact/ownerless.md', ownerUserId: null });
     const fakeRepo = repo([], [privateMemory, ownerless]);
@@ -107,26 +109,22 @@ describe('hybrid memory retrieval', () => {
     ]) };
 
     const result = await getRelevantMemoriesSemantic('query', undefined, 2, fakeRepo, engraph);
-    expect(fakeRepo.findBySourceIdsAsync).toHaveBeenCalledWith(
-      'obsidian-memory',
-      ['fact/private.md', 'fact/ownerless.md'],
-      undefined,
-    );
-    expect(result.map(({ id }) => id)).toEqual(['ownerless']);
+    expect(fakeRepo.findBySourceIdsAsync).not.toHaveBeenCalled();
+    expect(result).toEqual([]);
     expect(result.map(({ id }) => id)).not.toContain('private');
   });
 
   it('fuses deduped FTS and semantic ranks with deterministic RRF while retaining fresh FTS', async () => {
-    const fresh = memory({ id: 'fresh', sourceId: 'fact/fresh.md' });
-    const shared = memory({ id: 'shared', sourceId: 'fact/shared.md' });
-    const semantic = memory({ id: 'semantic', sourceId: 'fact/semantic.md' });
+    const fresh = memory({ id: 'fresh', sourceId: 'fact/fresh.md', content: 'collector cup facts' });
+    const shared = memory({ id: 'shared', sourceId: 'fact/shared.md', content: 'collector cup facts' });
+    const semantic = memory({ id: 'semantic', sourceId: 'fact/semantic.md', content: 'collector cup facts' });
     const fakeRepo = repo([fresh, shared], [semantic, shared]);
     const engraph = { search: vi.fn().mockResolvedValue([
-      { file: 'fact/semantic.md' },
-      { file: 'fact/shared.md' },
+      { file: 'fact/semantic.md', confidence: 0.9 },
+      { file: 'fact/shared.md', confidence: 0.9 },
     ]) };
 
-    const result = await getRelevantMemoriesSemantic('query', 1, 3, fakeRepo, engraph);
+    const result = await getRelevantMemoriesSemantic('collector cup', 1, 3, fakeRepo, engraph);
     expect(result.map(({ id }) => id)).toEqual(['shared', 'fresh', 'semantic']);
     expect(new Set(result.map(({ id }) => id)).size).toBe(result.length);
   });
@@ -139,13 +137,13 @@ describe('hybrid memory retrieval', () => {
       .resolves.toEqual([first, second]);
   });
 
-  it('uses hybrid by default and only disables the HTTP lane for explicit fts mode', async () => {
+  it('uses hybrid by default but fails RRF-only HTTP hits closed', async () => {
     const semantic = memory({ id: 'semantic', sourceId: 'fact/semantic.md', content: 'semantic only' });
     const ftsSpy = vi.spyOn(AgentMemoryRepository.prototype, 'searchAsync').mockResolvedValue([]);
     vi.spyOn(AgentMemoryRepository.prototype, 'findBySourceIdsAsync').mockResolvedValue([semantic]);
     const engraphSpy = vi.spyOn(EngraphHttpClient.prototype, 'search').mockResolvedValue([{ file: 'fact/semantic.md' }]);
 
-    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ memoryIds: ['semantic'] });
+    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ memoryIds: [] });
     expect(engraphSpy).toHaveBeenCalledOnce();
     expect(ftsSpy).toHaveBeenCalled();
 
@@ -177,35 +175,35 @@ describe('hybrid memory retrieval', () => {
 
   it('overfetches semantic candidates and replaces inactive top hits with live rows', async () => {
     const hits = Array.from({ length: 8 }, (_, index) => ({
-      file: `fact/${index + 1}.md`,
+      file: `fact/${index + 1}.md`, confidence: 0.9,
     }));
     const joined = [
       memory({ id: 'stale', sourceId: 'fact/1.md', staleAfter: '2000-01-01' }),
       memory({ id: 'deprecated', sourceId: 'fact/2.md', status: 'deprecated' }),
       ...Array.from({ length: 6 }, (_, index) => memory({
         id: `live-${index + 1}`,
-        sourceId: `fact/${index + 3}.md`,
+        sourceId: `fact/${index + 3}.md`, content: 'collector cup fact',
       })),
     ];
     const fakeRepo = repo([], joined);
     const engraph = { search: vi.fn().mockResolvedValue(hits) };
 
     const result = await getRelevantMemoriesSemantic(
-      'query',
+      'collector cup',
       1,
       5,
       fakeRepo,
       engraph,
     );
 
-    expect(engraph.search).toHaveBeenCalledWith('query', 20);
+    expect(engraph.search).toHaveBeenCalledWith('collector cup', 20);
     expect(result).toHaveLength(5);
     expect(result.every(({ id }) => id.startsWith('live-'))).toBe(true);
   });
 
   it('progressively widens past 25 inactive hits to recover 5 live rows', async () => {
     const hits = Array.from({ length: 30 }, (_, index) => ({
-      file: `fact/${index + 1}.md`,
+      file: `fact/${index + 1}.md`, confidence: 0.9,
     }));
     const joinedBySourceId = new Map([
       ...Array.from({ length: 25 }, (_, index) => {
@@ -215,6 +213,7 @@ describe('hybrid memory retrieval', () => {
           memory({
             id: `inactive-${index + 1}`,
             sourceId,
+            content: 'collector cup fact',
             staleAfter: '2000-01-01',
           }),
         ] as const;
@@ -226,6 +225,7 @@ describe('hybrid memory retrieval', () => {
           memory({
             id: `live-${index + 1}`,
             sourceId,
+            content: 'collector cup fact',
           }),
         ] as const;
       }),
@@ -246,7 +246,7 @@ describe('hybrid memory retrieval', () => {
     };
 
     const result = await getRelevantMemoriesSemantic(
-      'query',
+      'collector cup',
       1,
       5,
       fakeRepo,
@@ -266,9 +266,9 @@ describe('hybrid memory retrieval', () => {
 
   it('stops widening when Engraph reports that its result set is exhausted', async () => {
     const hits = [
-      { file: 'fact/stale-1.md' },
-      { file: 'fact/stale-2.md' },
-      { file: 'fact/live.md' },
+      { file: 'fact/stale-1.md', confidence: 0.9 },
+      { file: 'fact/stale-2.md', confidence: 0.9 },
+      { file: 'fact/live.md', confidence: 0.9 },
     ];
     const joined = [
       memory({
@@ -281,24 +281,24 @@ describe('hybrid memory retrieval', () => {
         sourceId: 'fact/stale-2.md',
         staleAfter: '2000-01-01',
       }),
-      memory({ id: 'live', sourceId: 'fact/live.md' }),
+      memory({ id: 'live', sourceId: 'fact/live.md', content: 'collector cup fact' }),
     ];
     const fakeRepo = repo([], joined);
     const engraph = { search: vi.fn().mockResolvedValue(hits) };
 
     await expect(getRelevantMemoriesSemantic(
-      'query',
+      'collector cup',
       1,
       5,
       fakeRepo,
       engraph,
     )).resolves.toMatchObject([{ id: 'live' }]);
     expect(engraph.search).toHaveBeenCalledTimes(1);
-    expect(engraph.search).toHaveBeenCalledWith('query', 20);
+    expect(engraph.search).toHaveBeenCalledWith('collector cup', 20);
   });
 
   it('rejects an ambiguous source id before gating its stale duplicate', async () => {
-    const active = memory({ id: 'active', sourceId: 'fact/shared.md' });
+    const active = memory({ id: 'active', sourceId: 'fact/shared.md', content: 'collector cup fact' });
     const staleDuplicate = memory({
       id: 'stale-duplicate',
       sourceId: 'fact/shared.md',
@@ -306,11 +306,11 @@ describe('hybrid memory retrieval', () => {
     });
     const fakeRepo = repo([], [active, staleDuplicate]);
     const engraph = {
-      search: vi.fn().mockResolvedValue([{ file: 'fact/shared.md' }]),
+      search: vi.fn().mockResolvedValue([{ file: 'fact/shared.md', confidence: 0.9 }]),
     };
 
     await expect(getRelevantMemoriesSemantic(
-      'query',
+      'collector cup',
       1,
       5,
       fakeRepo,
