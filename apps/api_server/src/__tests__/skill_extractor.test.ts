@@ -34,7 +34,13 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
-import { distillFromSession, type LlmCall } from '../services/skill_extractor';
+import { env } from '../config/env';
+import {
+  _setCuratorExtractRunning,
+  distillFromSession,
+  getCuratorExtractStatus,
+  type LlmCall,
+} from '../services/skill_extractor';
 import { draftSkillExists, draftsRoot } from '../services/rhythm_managed_skills';
 
 // #1112 — distillFromSession's gap-write branch dynamically imports
@@ -118,6 +124,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
   let tempDir: string;
 
   beforeEach(() => {
+    _setCuratorExtractRunning(false);
     setDb(makeDb());
     seedSession(SESSION_ID);
     // Redirect the managed-skills root to a per-test temp dir so draft file
@@ -133,6 +140,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
   });
 
   afterEach(() => {
+    _setCuratorExtractRunning(false);
     if (savedVitest === undefined) delete process.env.VITEST;
     else process.env.VITEST = savedVitest;
     if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
@@ -184,6 +192,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     const bound = JSON.parse(config!.allowedSkillsJson!) as string[];
     expect(bound).toContain('existing-skill');
     expect(bound).toContain(EXPECTED_SKILL_NAME);
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 
   it('#1112 — a genuinely NEW capability-gap schedules a gap-driven discovery pass', async () => {
@@ -277,6 +286,18 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     expect(called).toBe(false); // gate short-circuits before the LLM call
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
     expect(draftSkillExists(EXPECTED_SKILL_NAME)).toBe(false);
+    expect(getCuratorExtractStatus().running).toBe(false);
+  });
+
+  it('clears running state when there are no recent text messages', async () => {
+    seedScopedAgentConfig();
+
+    const result = await distillFromSession(SESSION_ID, {
+      llmCall: async () => VALID_SKILL_JSON,
+    });
+
+    expect(result).toBeNull();
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 
   it('skips (returns null, no write) when confidence below 0.6', async () => {
@@ -297,6 +318,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     expect(result).toBeNull();
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
     expect(draftSkillExists('low-confidence-skill')).toBe(false);
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 
   it('skips (dedup) when a skill with the same title already exists in the DB', async () => {
@@ -320,6 +342,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     expect(new AgentSkillsRepository().findByTitle('Rebuild better-sqlite3 ABI')?.source).toBe('manual');
     // No draft file written either.
     expect(draftSkillExists(EXPECTED_SKILL_NAME)).toBe(false);
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 
   it('skips (dedup) when a draft file with the same name already exists on disk', async () => {
@@ -342,6 +365,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     // The pre-existing draft file is untouched; no DB row created.
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
     expect(draftSkillExists(EXPECTED_SKILL_NAME)).toBe(true);
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 
   it("returns null (no throw, no write) when the LLM returns the bare word 'null'", async () => {
@@ -354,6 +378,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     expect(result).toBeNull();
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
     expect(draftSkillExists(EXPECTED_SKILL_NAME)).toBe(false);
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 
   it('returns null (no throw, no write) when the LLM returns garbage', async () => {
@@ -366,6 +391,21 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     expect(result).toBeNull();
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
     expect(draftSkillExists(EXPECTED_SKILL_NAME)).toBe(false);
+    expect(getCuratorExtractStatus().running).toBe(false);
+  });
+
+  it('clears running state when the LLM call throws', async () => {
+    seedRounds(SESSION_ID, 2);
+    seedScopedAgentConfig();
+
+    const result = await distillFromSession(SESSION_ID, {
+      llmCall: async () => {
+        throw new Error('contract LLM failure');
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(getCuratorExtractStatus().running).toBe(false);
   });
 });
 
@@ -374,6 +414,7 @@ describe('skill_extractor — VITEST guard (default real llmCall)', () => {
   let tempDir: string;
 
   beforeEach(() => {
+    _setCuratorExtractRunning(false);
     setDb(makeDb());
     seedSession(SESSION_ID);
     tempDir = mkdtempSync(join(tmpdir(), 'rhythm-drafts-'));
@@ -384,6 +425,7 @@ describe('skill_extractor — VITEST guard (default real llmCall)', () => {
   });
 
   afterEach(() => {
+    _setCuratorExtractRunning(false);
     if (savedManagedDir === undefined) delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
     else process.env.RHYTHM_MANAGED_SKILLS_DIR = savedManagedDir;
     rmSync(tempDir, { recursive: true, force: true });
@@ -399,5 +441,21 @@ describe('skill_extractor — VITEST guard (default real llmCall)', () => {
     expect(result).toBeNull();
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
     expect(existsSync(draftsRoot())).toBe(false);
+    expect(getCuratorExtractStatus().running).toBe(false);
+  });
+
+  it('returns idle from the postgres guard without starting extraction', async () => {
+    const originalDbClient = env.dbClient;
+    (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = 'postgres';
+    try {
+      const result = await distillFromSession(SESSION_ID, {
+        llmCall: async () => VALID_SKILL_JSON,
+      });
+
+      expect(result).toBeNull();
+      expect(getCuratorExtractStatus().running).toBe(false);
+    } finally {
+      (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = originalDbClient;
+    }
   });
 });
