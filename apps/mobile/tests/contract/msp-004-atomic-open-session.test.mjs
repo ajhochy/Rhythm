@@ -444,3 +444,34 @@ test('issue-4-c10: missing unauthorized and transient failures stay distinct', a
     0,
   );
 });
+
+test('issue-1285-c7: owner-discovered projectless chat opens with its transcript', async () => {
+  // Regression caught: the Agents list can discover a projectless desktop
+  // chat, but the atomic opener rejects it because it is absent from the
+  // selected project's normal session catalog.
+  const projectless = session(null, 'session-projectless');
+  const harness = createHarness({
+    transport: {
+      async listSessions() {
+        return [];
+      },
+      async resolveSession(projectId, sessionId) {
+        assert.equal(projectId, 'project-a');
+        assert.equal(sessionId, projectless.id);
+        return projectless;
+      },
+    },
+  });
+
+  const result = await harness.controller.openProjectSession(
+    'project-a',
+    projectless.id,
+  );
+
+  assert.equal(result.kind, 'ready');
+  assert.equal(harness.commits.length, 1);
+  assert.equal(harness.commits[0].session.id, projectless.id);
+  assert.deepEqual(harness.commits[0].messages, [
+    { id: `message-${projectless.id}` },
+  ]);
+});

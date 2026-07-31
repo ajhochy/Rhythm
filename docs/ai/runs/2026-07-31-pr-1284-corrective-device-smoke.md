@@ -50,3 +50,31 @@ tags: [run, Rhythm]
   `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-corrective-device-smoke.json`.
 - A second physical-iPhone smoke is still required after installing the new PR
   build.
+
+## Second smoke divergence and repair
+
+- The second physical pass could list projectless desktop chats but the atomic
+  opener reported the target missing from the selected project before loading
+  transcript data.
+- The prior contract covered classification and direct gateway message reads,
+  not the mobile discovery → tap/open path. A new #1285 c7 contract first
+  reproduced `missing-session`, then passed after the opener gained an
+  exact-owner catalog fallback.
+- Direct `GET /session/:id` remains intentionally unavailable to mobile. The
+  fallback uses the existing approved owner-unscoped catalog with an exact
+  session-ID filter, then loads bounded messages/todos through the
+  authoritative desktop `cwd` path.
+- Final focused verification passed: atomic opener 11/11, mobile service Jest
+  4/4, mobile typecheck, API build, and `git diff --check`.
+- Rebuilt isolated API/fork live behavior passed 1/1 for exact-owner lookup,
+  messages, todos, and cross-owner exclusion. The final rerun used API 4698 and
+  engine 4697 with fresh throwaway approval credentials and passed in 3.25
+  seconds; the sandbox was then removed.
+- A repository-wide PR-gate rerun exposed an unrelated pre-existing real-server
+  test-harness timeout in issue #653/#674 contract files. The failure moves
+  between old files and reproduces as a `beforeEach`/teardown timeout when those
+  files are run alone; the feature-specific checks and live sandbox remain
+  green. This is classified out of scope for the transcript-opening repair.
+- GitNexus final change detection reports LOW risk: 13 source/test files, 21
+  symbols, and zero affected indexed processes.
+- Commit/push, GitHub CI, and a third physical-device smoke remain pending.

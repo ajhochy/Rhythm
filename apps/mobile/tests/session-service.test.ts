@@ -1,10 +1,30 @@
 import {
+  resolveOwnerDiscoveredSession,
   getSessionDiff,
   getSessionMessages,
   MOBILE_SESSION_MESSAGE_PAGE_SIZE,
 } from '@/providers/services/session-service';
 
 describe('mobile session transcript loading', () => {
+  test('resolves one owner-authorized session outside the selected catalog', async () => {
+    const list = jest.fn().mockResolvedValue({
+      data: [{ id: 'ses-projectless', title: 'Desktop chat' }],
+    });
+    const client = { experimental: { session: { list } } } as never;
+
+    await expect(
+      resolveOwnerDiscoveredSession(client, 'ses-projectless'),
+    ).resolves.toMatchObject({ id: 'ses-projectless' });
+    expect(list).toHaveBeenCalledWith(
+      { archived: false, search: 'ses-projectless', limit: 1 },
+      {
+        headers: {
+          'x-rhythm-session-discovery': 'owner-unscoped',
+        },
+      },
+    );
+  });
+
   test('requests a bounded recent message page', async () => {
     const messages = jest.fn().mockResolvedValue({ data: [] });
     const client = { session: { messages } } as never;

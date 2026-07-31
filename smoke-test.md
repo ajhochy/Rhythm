@@ -42,6 +42,21 @@ Device evidence is recorded without a UDID, pairing code, or device token.
   including mobile web E2E. A second physical-device smoke remains required
   after the corrected PR build is installed.
 
+### Second physical-device pass
+
+- **Fail** — projectless desktop rows appeared in Chats, but tapping one
+  produced “This chat is no longer available in the selected project” while
+  the same chat remained active on desktop.
+- Root cause: the list used owner-unscoped discovery, but the atomic opener
+  revalidated the row only against the selected project's normal session list
+  and rejected it before requesting the transcript.
+- Contract gap: #1285 asserted classification into Chats but did not exercise
+  discovery → tap/open → readable transcript. This is recorded as C1 in
+  `.agent-stack/postmortems/2026-07-31-issue-1285-projectless-transcript-open.json`.
+- Repair verification in progress: the new atomic-open regression passes, and
+  the rebuilt isolated API/fork live test passes exact-owner lookup, messages,
+  todos, and cross-owner exclusion.
+
 Scope: issue #1174, complete mobile OpenCode 1.14.49 API parity.
 Date: 2026-07-25
 

@@ -164,6 +164,22 @@ export async function listSessionsAcrossProjects(
 
 export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;
 
+export async function resolveOwnerDiscoveredSession(
+  client: OpencodeClient,
+  sessionId: string,
+) {
+  const response = await client.experimental.session.list(
+    { archived: false, search: sessionId, limit: 1 },
+    {
+      headers: {
+        'x-rhythm-session-discovery': 'owner-unscoped',
+      },
+    },
+  );
+  return requireData(response.data, 'owner session lookup request')
+    .find((session) => session.id === sessionId);
+}
+
 export async function getSessionMessages(client: OpencodeClient, sessionId: string) {
   const response = await client.session.messages({
     sessionID: sessionId,

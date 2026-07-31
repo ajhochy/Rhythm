@@ -853,6 +853,7 @@ export class MobileOpenCodeProxy {
         cursor,
         limit,
         ownerUserId: input.userId,
+        sessionId: query.get('search')?.trim() || undefined,
       });
       const safeBody = Buffer.from(JSON.stringify(
         page.items.map((item) => ({

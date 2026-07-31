@@ -140,6 +140,7 @@ import {
   archiveSession as svcArchiveSession,
   listArchivedSessions as svcListArchivedSessions,
   listSessions as svcListSessions,
+  resolveOwnerDiscoveredSession,
   getSessionMessages as svcGetSessionMessages,
   getSessionDiff as svcGetSessionDiff,
   getSessionTodos as svcGetSessionTodos,
@@ -262,6 +263,10 @@ type OpenProjectSessionRuntime = {
   commit(payload: OpenProjectSessionPayload): void;
   confirmProject(projectId: string): Promise<boolean>;
   listSessions(projectId: string): Promise<OpenProjectSessionCatalog>;
+  resolveSession(
+    projectId: string,
+    sessionId: string,
+  ): Promise<MobileSession | undefined>;
   loadSessionState(
     projectId: string,
     sessionId: string,
@@ -746,6 +751,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         statuses: result.statuses,
       };
     },
+    async resolveSession(projectId, sessionId) {
+      return resolveOwnerDiscoveredSession(
+        buildScopedClient(projectId),
+        sessionId,
+      ) as Promise<MobileSession | undefined>;
+    },
     async loadSessionState(
       projectId,
       sessionId,
@@ -840,6 +851,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             const runtime = openProjectSessionRuntimeRef.current;
             if (!runtime) throw new Error('Session opener is unavailable.');
             return runtime.listSessions(projectId);
+          },
+          resolveSession(projectId, sessionId) {
+            const runtime = openProjectSessionRuntimeRef.current;
+            if (!runtime) throw new Error('Session opener is unavailable.');
+            return runtime.resolveSession(projectId, sessionId);
           },
           loadSessionState(projectId, sessionId, session, catalog) {
             const runtime = openProjectSessionRuntimeRef.current;

@@ -34,6 +34,9 @@ bounded, and the overflow menu scrolls within the device safe area. Integrated p
 - Initial aggregate verification exposed two non-reproducible shared-state /
   timing failures. Both exact files passed in isolation, both full failed
   commands passed independently, and the complete PR matrix passed on rerun.
+- The final corrective rerun exposed a separate legacy real-server harness
+  timeout in issue #653/#674 contract files. It reproduces before their product
+  assertions and is out of scope for the projectless transcript-opening fix.
 - GitHub Mobile CI exposed a production refresh race in the shared session
   configuration sheet: live profile/preferences updates could clear a typed
   title while the sheet stayed open. Initialization is now limited to the
@@ -66,6 +69,10 @@ bounded, and the overflow menu scrolls within the device safe area. Integrated p
 - Corrective focused mobile tests passed 3 suites / 4 tests; focused API
   discovery and paging regressions passed; the isolated real API + engine test
   passed projectless exact-owner transcript access and cross-owner HTTP 404.
+- Final c7 verification passed atomic opener 11/11, mobile service Jest 4/4,
+  mobile typecheck, API build, and the fresh live owner/cross-owner sandbox 1/1.
+- Final GitNexus working-change scan: LOW risk, 13 source/test files, 21
+  symbols, zero affected indexed processes.
 - GitNexus exact-base change detection: MEDIUM aggregate rollup scope, 70
   files / 167 symbols / 3 existing mobile-gateway flows; no HIGH/CRITICAL
   warning.
@@ -77,6 +84,13 @@ Agents, Chats/Activity, Gallery, Review Queue, and profile-scoped first-turn
 checks on a physical iPhone before a human merge.
 
 ## Recent coding-agent runs
+
+### 2026-07-31 — issue-1285-projectless-transcript-open-repair
+- Files modified: `open-project-session.ts` adds an exact-session fallback after normal selected-project validation; `opencode-provider.tsx` wires it to owner-unscoped discovery; `session-service.ts` performs the exact lookup; `mobile_chat_catalog.ts` and `mobile_opencode_proxy.ts` apply the exact owner-scoped DB filter; contract, focused, live, postmortem, and smoke records cover the failure.
+- Checks run: new atomic-open contract failed first with `missing-session`, then passed 11/11; session-service/discovery Jest passed 4/4; mobile typecheck passed; API build passed; rebuilt isolated API/fork live test passed 1/1 for exact-owner lookup/messages/todos and cross-owner exclusion.
+- Decisions made: preserved the mobile manifest's denial of direct `GET /session/:id`; resolved metadata through the already-approved owner-unscoped catalog and continued to trust only the server-recorded `cwd`.
+- Deviations from spec: the original #1285 contract omitted discovery → tap/open → transcript; added criterion c7 and recorded C1 divergence.
+- Concerns: a legacy real-server harness timeout blocks a fully green final PR-gate rerun; CI and another physical-device open remain pending.
 
 ### 2026-07-31 — issue-1285-c1-c6-agents-overflow-native-warnings
 - Files modified: `apps/mobile/app/(tabs)/agents.tsx`, `apps/mobile/components/chat/chat-list.tsx`, and new `chat-list-controller.ts` move workspace, terminal, new chat, project, and lifecycle controls into the compact Agents overflow; `session-configuration-sheet.tsx` and new `components/ui/profile-icon.ts` remove the Fragment action child and normalize server icon tokens; focused chat tests cover the composed behavior.

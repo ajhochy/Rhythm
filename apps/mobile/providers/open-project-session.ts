@@ -112,6 +112,10 @@ export interface OpenProjectSessionTransport<
 > {
   confirmProject(projectId: string): Promise<boolean>;
   listSessions(projectId: string): Promise<ProjectSessionCatalog<TSession>>;
+  resolveSession?(
+    projectId: string,
+    sessionId: string,
+  ): Promise<TSession | undefined>;
   loadSessionState(
     projectId: string,
     sessionId: string,
@@ -314,9 +318,13 @@ export function createOpenProjectSessionController<
 
         const catalog = await transport.listSessions(projectId);
         ensureCurrent();
-        const target = sessionsFromCatalog(catalog).find(
+        let target = sessionsFromCatalog(catalog).find(
           (session) => session.id === sessionId,
         );
+        if (!target && transport.resolveSession) {
+          target = await transport.resolveSession(projectId, sessionId);
+          ensureCurrent();
+        }
         if (!target) {
           throw new OpenProjectSessionFailure(
             'missing-session',

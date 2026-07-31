@@ -27,6 +27,7 @@ export async function listOwnerUnscopedMobileChats(input: {
   archived: boolean;
   cursor: number;
   limit: number;
+  sessionId?: string;
 }): Promise<MobileChatCatalogPage> {
   const archiveClause = input.archived
     ? 'session.archived_at IS NOT NULL'
@@ -43,6 +44,7 @@ export async function listOwnerUnscopedMobileChats(input: {
        AND session.is_system = 0
        AND session.scheduled_task_id IS NULL
        AND session.sdk_session_id IS NOT NULL
+       %SESSION_CLAUSE%
        AND ${archiveClause}
      ORDER BY COALESCE(session.last_activity_at, session.updated_at, session.created_at) DESC,
               session.sdk_session_id DESC
@@ -52,16 +54,30 @@ export async function listOwnerUnscopedMobileChats(input: {
     ? (await getPostgresPool().query<MobileChatCatalogRow>(
         select
           .replace('%OWNER%', '$1')
-          .replace('%LIMIT%', '$2')
-          .replace('%OFFSET%', '$3'),
-        [input.ownerUserId, pageSize, input.cursor],
+          .replace(
+            '%SESSION_CLAUSE%',
+            input.sessionId ? 'AND session.sdk_session_id = $2' : '',
+          )
+          .replace('%LIMIT%', input.sessionId ? '$3' : '$2')
+          .replace('%OFFSET%', input.sessionId ? '$4' : '$3'),
+        input.sessionId
+          ? [input.ownerUserId, input.sessionId, pageSize, input.cursor]
+          : [input.ownerUserId, pageSize, input.cursor],
       )).rows
     : getDb().prepare(
         select
           .replace('%OWNER%', '?')
+          .replace(
+            '%SESSION_CLAUSE%',
+            input.sessionId ? 'AND session.sdk_session_id = ?' : '',
+          )
           .replace('%LIMIT%', '?')
           .replace('%OFFSET%', '?'),
-      ).all(input.ownerUserId, pageSize, input.cursor) as MobileChatCatalogRow[];
+      ).all(
+        ...(input.sessionId
+          ? [input.ownerUserId, input.sessionId, pageSize, input.cursor]
+          : [input.ownerUserId, pageSize, input.cursor]),
+      ) as MobileChatCatalogRow[];
   const hasMore = rows.length > input.limit;
   const items = rows.slice(0, input.limit).map((row) => ({
     id: row.sdk_session_id,

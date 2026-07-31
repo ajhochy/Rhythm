@@ -268,6 +268,30 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       });
       expect(unscoped[0]).not.toHaveProperty('directory');
 
+      const unscopedLookup = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/experimental/session?limit=1&search=${encodeURIComponent(unscopedHuman)}`,
+        {
+          headers: gatewayHeaders(ownerA.deviceToken!, projectId, true),
+        },
+      );
+      const unscopedLookupBody = await unscopedLookup.json();
+      expect({
+        status: unscopedLookup.status,
+        body: unscopedLookupBody,
+      }).toEqual({
+        status: 200,
+        body: [expect.objectContaining({ id: unscopedHuman })],
+      });
+
+      const crossOwnerLookup = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/experimental/session?limit=1&search=${encodeURIComponent(unscopedHuman)}`,
+        {
+          headers: gatewayHeaders(ownerB.deviceToken!, projectId, true),
+        },
+      );
+      expect(crossOwnerLookup.status).toBe(200);
+      expect(await crossOwnerLookup.json()).toEqual([]);
+
       const otherOwnerIds = await sessionIds(await fetch(
         `${baseUrl}/mobile-gateway/opencode/experimental/session?limit=100`,
         {
@@ -286,6 +310,13 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       );
       expect(unscopedRead.status).toBe(200);
       expect(await unscopedRead.json()).toEqual([]);
+
+      const unscopedTodos = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/todo`,
+        { headers: gatewayHeaders(ownerA.deviceToken!, projectId) },
+      );
+      expect(unscopedTodos.status).toBe(200);
+      expect(await unscopedTodos.json()).toEqual([]);
 
       const crossOwnerRead = await fetch(
         `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/message`,

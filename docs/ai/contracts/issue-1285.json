@@ -49,6 +49,14 @@
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c6: native Agents and Tools paths cannot emit Fragment-prop or invalid-icon warnings",
       "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1285-c7",
+      "text": "An exact-owner projectless desktop human chat discovered in mobile Chats can be opened and its transcript can be read without treating it as missing from the selected project.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-1285-c7: owner-discovered projectless chat opens with its transcript",
+      "status": "pending"
     }
   ],
   "stack": "typescript",

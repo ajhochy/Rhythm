@@ -561,3 +561,10 @@
 - **Suggested fix**: Require native viewport scrolling, real-data desktop-chat composition, and bounded single-fetch transcript loading with recoverable error navigation in the acceptance contract.
 - See
   `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-corrective-device-smoke.json`.
+## 2026-07-31 — Issue 1285 — projectless desktop chats list but cannot open
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract
+- **Criteria affected**: projectless desktop chat transcript opening
+- **Root cause**: The contract asserted Chats classification and direct gateway access, but never exercised the mobile card-to-provider open path that reconciles the session against the selected project's catalog.
+- **Suggested fix**: Add a regression that taps a projectless discovered row and asserts readable transcript content through the same provider path used on device.
