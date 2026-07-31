@@ -52,7 +52,11 @@ test('issue-1173-c1: Email and Gallery use production cloud transport independen
   // the paired transport and becomes unusable when that Mac is offline.
   const cloud = recordingTransport('cloud');
   const paired = recordingTransport('paired');
-  const service = new RhythmToolsService({ cloud, paired });
+  const service = new RhythmToolsService({
+    cloud,
+    paired,
+    projectId: 'project-test',
+  });
 
   await service.listEmailSignals();
   await service.listGalleryDesigns();
@@ -131,7 +135,11 @@ test('issue-1173-c4: profile scope preserves null versus empty and projection co
 
   const cloud = recordingTransport('cloud');
   const paired = recordingTransport('paired');
-  const service = new RhythmToolsService({ cloud, paired });
+  const service = new RhythmToolsService({
+    cloud,
+    paired,
+    projectId: 'project-test',
+  });
   await service.updateProfile('secretary', { allowedMcpsJson: null });
   await service.updateProfile('secretary', { allowedMcpsJson: '[]' });
 
@@ -196,8 +204,8 @@ test('issue-1173-c5: every destructive run-now or high-risk tool action is confi
 });
 
 test('issue-1173-c6: all fourteen tool screens handle every resilient state', () => {
-  // Regression caught: a tool is added to navigation without loading, empty, offline,
-  // forbidden, expired-auth, or server-error handling.
+  // Regression caught: a tool is added to navigation without loading, empty,
+  // scoped-failure, offline, auth, or server-error handling.
   const expectedTools = [
     'brain',
     'research',
@@ -218,6 +226,11 @@ test('issue-1173-c6: all fourteen tool screens handle every resilient state', ()
     'loading',
     'empty',
     'offline-cache',
+    'missing-scope',
+    'stale-project',
+    'unauthorized-pairing',
+    'version-mismatch',
+    'network-failure',
     'expired-auth',
     'forbidden',
     'error',

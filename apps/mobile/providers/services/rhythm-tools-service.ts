@@ -1,3 +1,8 @@
+import {
+  MissingProjectScopeError,
+  withProjectScope,
+} from '../../lib/transport/project-scoped-request.ts';
+
 export type ToolRequestInit = Omit<RequestInit, 'headers'> & {
   headers?: Record<string, string>;
 };
@@ -13,6 +18,7 @@ const TOOLS_CACHE_PREFIX = 'rhythm.tools.read-cache.v1';
 
 export interface ToolsCacheScopeInput {
   accountUserId: string | number | null;
+  activeProjectId?: string | null;
   pairedHost: {
     hostId: string;
     deviceId: string;
@@ -22,17 +28,21 @@ export interface ToolsCacheScopeInput {
 
 export function deriveToolsCacheScope({
   accountUserId,
+  activeProjectId,
   pairedHost,
   runtimeCacheScope,
 }: ToolsCacheScopeInput): string {
+  const projectScope = activeProjectId?.trim()
+    ? `:project:${activeProjectId.trim()}`
+    : ':project:none';
   if (accountUserId !== null) {
     return pairedHost
-      ? `account:${accountUserId}:host:${pairedHost.hostId}:device:${pairedHost.deviceId}`
-      : `account:${accountUserId}:unpaired`;
+      ? `account:${accountUserId}:host:${pairedHost.hostId}:device:${pairedHost.deviceId}${projectScope}`
+      : `account:${accountUserId}:unpaired${projectScope}`;
   }
   return runtimeCacheScope
-    ? `runtime:${runtimeCacheScope}`
-    : 'signed-out';
+    ? `runtime:${runtimeCacheScope}${projectScope}`
+    : `signed-out${projectScope}`;
 }
 
 export function getToolCacheStorageKey(
@@ -48,9 +58,29 @@ export type ToolScreenState =
   | 'loading'
   | 'empty'
   | 'offline-cache'
+  | 'missing-scope'
+  | 'stale-project'
+  | 'unauthorized-pairing'
+  | 'version-mismatch'
+  | 'network-failure'
   | 'expired-auth'
   | 'forbidden'
   | 'error';
+
+export type ToolFailureState = Exclude<
+  ToolScreenState,
+  'loading' | 'empty' | 'offline-cache'
+>;
+
+export type ToolServiceAvailability =
+  | 'connected'
+  | 'offline'
+  | 'expired-auth'
+  | 'forbidden'
+  | 'missing-scope'
+  | 'unauthorized-pairing'
+  | 'version-mismatch'
+  | 'network-failure';
 
 const TOOL_SCREEN_DEFINITIONS = [
   { id: 'brain', title: 'Brain', route: '/tools/brain', origin: 'paired' },
@@ -80,6 +110,11 @@ export const TOOL_RESILIENT_STATES = [
   'loading',
   'empty',
   'offline-cache',
+  'missing-scope',
+  'stale-project',
+  'unauthorized-pairing',
+  'version-mismatch',
+  'network-failure',
   'expired-auth',
   'forbidden',
   'error',
@@ -342,6 +377,184 @@ function safeCacheValue(value: unknown): unknown {
   );
 }
 
+export function redactProviderAuthMetadata<T>(value: T): T {
+  return safeCacheValue(value) as T;
+}
+
+function failureStatus(reason: unknown): number {
+  return reason && typeof reason === 'object'
+    ? Number((reason as { status?: unknown }).status) || 0
+    : 0;
+}
+
+function failureCode(reason: unknown): string {
+  return reason && typeof reason === 'object'
+    ? String((reason as { code?: unknown }).code ?? '').toUpperCase()
+    : '';
+}
+
+export function classifyToolFailure(
+  reason: unknown,
+  availability: ToolServiceAvailability,
+  origin: 'cloud' | 'paired' = 'paired',
+): ToolFailureState | null {
+  if (availability === 'missing-scope') return 'missing-scope';
+  if (availability === 'unauthorized-pairing') return 'unauthorized-pairing';
+  if (availability === 'version-mismatch') return 'version-mismatch';
+  if (availability === 'network-failure' || availability === 'offline') {
+    return 'network-failure';
+  }
+  if (availability === 'expired-auth') return 'expired-auth';
+  if (availability === 'forbidden') return 'forbidden';
+  if (!reason) return null;
+
+  const status = failureStatus(reason);
+  const code = failureCode(reason);
+  if (status === 404) return 'stale-project';
+  if (status === 401) {
+    if (code === 'EXPIRED_AUTH') return 'expired-auth';
+    return origin === 'cloud' ? 'expired-auth' : 'unauthorized-pairing';
+  }
+  if (status === 403) return 'forbidden';
+  if (
+    status === 0 ||
+    (
+      reason &&
+      typeof reason === 'object' &&
+      (reason as { retryable?: unknown }).retryable === true
+    )
+  ) {
+    return 'network-failure';
+  }
+  if (
+    status === 400 &&
+    reason &&
+    typeof reason === 'object' &&
+    (
+      (reason as { kind?: unknown }).kind === 'missing-scope' ||
+      /project|scope|X-Rhythm-Project-ID/i.test(
+        String((reason as { message?: unknown }).message ?? ''),
+      )
+    )
+  ) {
+    return 'missing-scope';
+  }
+  return 'error';
+}
+
+function responseArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ['items', 'data', 'results', 'all']) {
+    if (Array.isArray(record[key])) return record[key] as unknown[];
+  }
+  return [record];
+}
+
+function normalizeRecord(value: unknown): ToolRecord | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const id = [
+    record.id,
+    record.name,
+    record.agentKind,
+    record.externalId,
+    record.providerID,
+    record.providerId,
+  ].find((candidate) => typeof candidate === 'string' && candidate.trim());
+  return typeof id === 'string' ? { ...record, id } as ToolRecord : null;
+}
+
+function normalizedRecords(value: unknown): ToolRecord[] {
+  return responseArray(value).flatMap((entry) => {
+    const normalized = normalizeRecord(entry);
+    return normalized ? [normalized] : [];
+  });
+}
+
+export function normalizeToolScreenResponse(
+  tool: ToolScreenId,
+  value: unknown,
+): ToolRecord[] {
+  if (tool === 'report-card') {
+    const agents =
+      value &&
+      typeof value === 'object' &&
+      Array.isArray((value as { agents?: unknown }).agents)
+        ? (value as { agents: unknown[] }).agents
+        : value;
+    return normalizedRecords(agents);
+  }
+
+  if (tool === 'mcp' && value && typeof value === 'object' && !Array.isArray(value)) {
+    return Object.entries(value as Record<string, unknown>).flatMap(
+      ([name, entry]) => {
+        const normalized = normalizeRecord({
+          id: name,
+          name,
+          ...(entry && typeof entry === 'object'
+            ? entry as Record<string, unknown>
+            : { status: String(entry) }),
+        });
+        return normalized ? [normalized] : [];
+      },
+    );
+  }
+
+  if (tool === 'models') {
+    const compound =
+      value && typeof value === 'object'
+        ? value as {
+            providers?: unknown;
+            auth?: unknown;
+            config?: unknown;
+          }
+        : {};
+    const providerPayload = compound.providers;
+    const providerRecord =
+      providerPayload && typeof providerPayload === 'object'
+        ? providerPayload as Record<string, unknown>
+        : {};
+    const connected = new Set(
+      Array.isArray(providerRecord.connected)
+        ? providerRecord.connected.filter(
+            (entry): entry is string => typeof entry === 'string',
+          )
+        : [],
+    );
+    const config =
+      compound.config && typeof compound.config === 'object'
+        ? compound.config as Record<string, unknown>
+        : {};
+    const enabled = new Set(
+      Array.isArray(config.enabled_providers)
+        ? config.enabled_providers.filter(
+            (entry): entry is string => typeof entry === 'string',
+          )
+        : [],
+    );
+    const auth = redactProviderAuthMetadata(compound.auth);
+    return normalizedRecords(providerPayload).map((provider) => {
+      const providerId = String(
+        provider.id ?? provider.providerID ?? provider.providerId,
+      );
+      const providerAuth =
+        auth && typeof auth === 'object'
+          ? (auth as Record<string, unknown>)[providerId]
+          : undefined;
+      return {
+        ...provider,
+        id: providerId,
+        ...(providerAuth === undefined ? {} : { auth: providerAuth }),
+        configured: enabled.has(providerId) || connected.has(providerId),
+      };
+    });
+  }
+
+  return normalizedRecords(value);
+}
+
 export function sanitizeToolCache(
   kind: ToolCacheKind,
   value: unknown,
@@ -403,17 +616,46 @@ function queryPath(
 export class RhythmToolsService {
   private readonly cloud: ToolTransport;
   private readonly paired: ToolTransport;
+  private readonly projectId: string;
+  private readonly abortController = new AbortController();
 
-  constructor(options: { cloud: ToolTransport; paired: ToolTransport }) {
+  constructor(options: {
+    cloud: ToolTransport;
+    paired: ToolTransport;
+    projectId?: string | null;
+  }) {
     this.cloud = options.cloud;
     this.paired = options.paired;
+    this.projectId = options.projectId?.trim() ?? '';
+  }
+
+  forProject(projectId: string | null | undefined): RhythmToolsService {
+    return new RhythmToolsService({
+      cloud: this.cloud,
+      paired: this.paired,
+      projectId,
+    });
+  }
+
+  cancel(): void {
+    this.abortController.abort();
   }
 
   private pairedRequest<T>(
     path: string,
     init: ToolRequestInit = { method: 'GET' },
   ): Promise<T> {
-    return this.paired.request<T>(path, init);
+    if (!this.projectId) {
+      return Promise.reject(new MissingProjectScopeError());
+    }
+    return this.paired.request<T>(
+      path,
+      withProjectScope(
+        this.projectId,
+        init,
+        this.abortController.signal,
+      ),
+    );
   }
 
   private cloudRequest<T>(
@@ -421,6 +663,61 @@ export class RhythmToolsService {
     init: ToolRequestInit = { method: 'GET' },
   ): Promise<T> {
     return this.cloud.request<T>(path, init);
+  }
+
+  async loadScreen(tool: ToolScreenId): Promise<ToolRecord[]> {
+    let response: unknown;
+    switch (tool) {
+      case 'brain':
+        response = await this.listBrain();
+        break;
+      case 'research':
+        response = await this.listResearch();
+        break;
+      case 'schedules':
+        response = await this.listSchedules();
+        break;
+      case 'webhooks':
+        response = await this.listWebhooks();
+        break;
+      case 'profiles':
+        response = await this.listProfiles();
+        break;
+      case 'cookbook':
+        response = await this.listRecipes();
+        break;
+      case 'review':
+        response = await this.listProposals('pending');
+        break;
+      case 'report-card':
+        response = await this.getReportCard();
+        break;
+      case 'email':
+        response = await this.listEmailSignals();
+        break;
+      case 'gallery':
+        response = await this.listGalleryDesigns();
+        break;
+      case 'skills':
+        response = await this.listSkills();
+        break;
+      case 'playbooks':
+        response = await this.listPlaybooks();
+        break;
+      case 'mcp':
+        response = await this.listMcp();
+        break;
+      case 'models': {
+        const [providers, auth, config] = await Promise.all([
+          this.listProviders(),
+          this.listProviderAuth(),
+          this.getConfig(),
+        ]);
+        response = { providers, auth, config };
+        break;
+      }
+    }
+    return normalizeToolScreenResponse(tool, response);
   }
 
   listBrain(query?: string): Promise<BrainRecord[]> {

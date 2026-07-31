@@ -1,0 +1,72 @@
+{
+  "issue": 6,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-6-c1",
+      "text": "Thread the active project ID through the mobile Tools provider/client and send X-Rhythm-Project-ID on every scoped request by reusing the shared scoped-client seam used by chat.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c1: every paired Tools operation carries the active project header",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c2",
+      "text": "Inventory every Tools screen with its endpoint, response shape, ownership filter, and state handling in docs/ai.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c2: the Tools inventory covers every screen and required column",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c3",
+      "text": "Normalize response shapes in services/domain adapters, not in screens.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c3: the service adapter normalizes every Tools response shape",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c4",
+      "text": "Render distinct states for actual empty, missing scope, stale project, unauthorized pairing, version mismatch, and network failure; never render scope or auth failures as generic empty.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c4: state classification preserves every required failure mode",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c5",
+      "text": "Invalidate and cancel in-flight requests on project switch, guard stale async completions, and prevent cross-project cache bleed.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c5: project switches cancel old requests and isolate cache scope",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c6",
+      "text": "Fail closed when a paired Tools request has no active project.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c6: paired Tools requests fail closed without project scope",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c7",
+      "text": "Redact secrets from provider-auth metadata before it reaches Tools screen state or persistence.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c7: provider auth metadata is recursively redacted",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-6-c8",
+      "text": "Write but do not run an RHYTHM_LIVE_E2E=1 parity test comparing paired mobile-gateway responses with desktop-path data, and document its exact command.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/msp-006-project-scoped-tools.test.mjs",
+      "test_id": "issue-6-c8: live desktop parity coverage is env gated and documented",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
