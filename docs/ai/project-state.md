@@ -54,3 +54,19 @@ repairs, and MSP-001–006 mobile parity. Nothing merged; production untouched.
 Finish MSP-004 repair + #1266 CI; then human smokes; then MSP-007 parity
 gate with recorded evidence and the release/TestFlight handoff document
 (human executes any release).
+
+## Recent coding-agent runs
+
+### 2026-07-30 — issue #1279 mobile session claim fallback
+
+- Files modified: mobile ownership repository/security, #1279 contract + live
+  tests, acceptance contract, and run log.
+- Checks run: contract 6/6; related set 61 passed / 1 skipped; api_server
+  typecheck/build pass; fork build pass; isolated live gateway 1/1; #1175
+  corrective security 3/3 before and after.
+- Decisions made: reuse the existing `agent_sessions` lookup; keep the reader
+  method optional for injected test doubles; gate the fallback to sessions.
+- Deviations from spec: none.
+- Concerns: repo-wide issue checks retain a pre-existing unrelated
+  `apps/mcp_server` TypeScript-runner failure; see
+  `docs/ai/runs/2026-07-30-issue-1279-mobile-session-claim-gap.md`.

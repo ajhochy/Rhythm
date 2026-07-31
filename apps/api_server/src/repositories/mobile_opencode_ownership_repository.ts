@@ -17,6 +17,11 @@ export interface MobileOpenCodeOwnershipReader {
     ownerUserId: number,
     projectId: string,
   ): boolean;
+  isSessionOwnedByDesktopCatalog?(
+    sdkSessionId: string,
+    ownerUserId: number,
+    projectId: string,
+  ): boolean;
 }
 
 export interface MobileOpenCodeOwnershipStore
@@ -69,6 +74,25 @@ export class MobileOpenCodeOwnershipRepository
     initializeMobileOpenCodeOwnershipSchema(db);
   }
 
+  private desktopSessionOwner(
+    sdkSessionId: string,
+  ): {
+    owner_user_id: number | null;
+    project_id: string | null;
+  } | undefined {
+    return this.db
+      .prepare(
+        `SELECT owner_user_id, project_id
+           FROM agent_sessions
+          WHERE sdk_session_id = ?
+          LIMIT 1`,
+      )
+      .get(sdkSessionId) as {
+        owner_user_id: number | null;
+        project_id: string | null;
+      } | undefined;
+  }
+
   claimResource(
     kind: MobileOpenCodeResourceKind,
     resourceId: string,
@@ -85,17 +109,7 @@ export class MobileOpenCodeOwnershipRepository
       return false;
     }
     if (kind === 'session') {
-      const desktopOwner = this.db
-        .prepare(
-          `SELECT owner_user_id, project_id
-             FROM agent_sessions
-            WHERE sdk_session_id = ?
-            LIMIT 1`,
-        )
-        .get(resourceId) as {
-          owner_user_id: number | null;
-          project_id: string | null;
-        } | undefined;
+      const desktopOwner = this.desktopSessionOwner(resourceId);
       if (desktopOwner) {
         if (
           desktopOwner.owner_user_id !== ownerUserId ||
@@ -139,6 +153,24 @@ export class MobileOpenCodeOwnershipRepository
       )
       .get(kind, resourceId, ownerUserId, projectId);
     return owned !== undefined;
+  }
+
+  isSessionOwnedByDesktopCatalog(
+    sdkSessionId: string,
+    ownerUserId: number,
+    projectId: string,
+  ): boolean {
+    if (
+      !sdkSessionId ||
+      !Number.isSafeInteger(ownerUserId) ||
+      ownerUserId <= 0 ||
+      !projectId
+    ) {
+      return false;
+    }
+    const desktopOwner = this.desktopSessionOwner(sdkSessionId);
+    return desktopOwner?.owner_user_id === ownerUserId &&
+      desktopOwner.project_id === projectId;
   }
 
   isResourceExplicitlyOwnedBy(

@@ -215,14 +215,30 @@ function resourceOwnedByCaller(
   project: MobileProjectScope,
   owner: MobileOpenCodeOwnerScope,
 ): boolean {
-  return Boolean(resourceId) &&
-    Number.isSafeInteger(owner.ownerUserId) &&
-    owner.ownerUserId > 0 &&
+  if (
+    !resourceId ||
+    !Number.isSafeInteger(owner.ownerUserId) ||
+    owner.ownerUserId <= 0
+  ) {
+    return false;
+  }
+  if (
     owner.ownership.isResourceOwnedBy(
       kind,
-      resourceId!,
+      resourceId,
       owner.ownerUserId,
       project.id,
+    )
+  ) {
+    return true;
+  }
+  return kind === 'session' &&
+    Boolean(
+      owner.ownership.isSessionOwnedByDesktopCatalog?.(
+        resourceId,
+        owner.ownerUserId,
+        project.id,
+      ),
     );
 }
 
