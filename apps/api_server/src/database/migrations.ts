@@ -1351,6 +1351,7 @@ export function runMigrations(db: Database.Database): void {
       generated_by TEXT,
       generated_at TEXT,
       trust_tier TEXT NOT NULL DEFAULT 'unverified',
+      auto_injectable INTEGER NOT NULL DEFAULT 0,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1394,6 +1395,14 @@ export function runMigrations(db: Database.Database): void {
   if (!agentMemoryCols.includes('trust_tier')) {
     db.exec(
       `ALTER TABLE agent_memory ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'unverified'`,
+    );
+  }
+  if (!agentMemoryCols.includes('auto_injectable')) {
+    // Fail closed for existing derived rows. The next vault sync/rebuild
+    // applies explicit frontmatter/path classification; no legacy long-form
+    // document becomes injectable merely because it was already indexed.
+    db.exec(
+      `ALTER TABLE agent_memory ADD COLUMN auto_injectable INTEGER NOT NULL DEFAULT 0`,
     );
   }
   db.exec(`
@@ -2042,9 +2051,19 @@ export function runMigrations(db: Database.Database): void {
       session_id TEXT PRIMARY KEY,
       memory_ids_json TEXT NOT NULL DEFAULT '[]',
       note_paths_json TEXT NOT NULL DEFAULT '[]',
+      items_json TEXT NOT NULL DEFAULT '[]',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  const memoryProvenanceCols = (
+    db.pragma('table_info(agent_session_memory_provenance)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!memoryProvenanceCols.includes('items_json')) {
+    db.exec(
+      `ALTER TABLE agent_session_memory_provenance
+       ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
 
   // Dual Anthropic accounts (Task D) — per-session account routing + a
   // per-profile default. anthropic_account_id is the account a session's

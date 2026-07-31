@@ -105,7 +105,7 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
 
   it('enabled (default) → forwarded prompt CONTAINS the owner memory preface; original prompt preserved', async () => {
     const repo = new AgentMemoryRepository();
-    await repo.createAsync({ content: 'Alice prefers morning standups', ownerUserId: 1 });
+    await repo.createAsync({ content: 'Alice standups preference is morning', ownerUserId: 1 });
 
     const run = await freshRun();
     const result = await run({ prompt: PROMPT, ownerUserId: 1 });
@@ -113,37 +113,38 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     expect(result.status).toBe('done');
     expect(mockPrompt).toHaveBeenCalledOnce();
     const forwarded = mockPrompt.mock.calls[0][1] as string;
-    expect(forwarded).toContain('## Known context (facts & preferences)');
-    expect(forwarded).toContain('Alice prefers morning standups');
-    expect(forwarded).toContain(PROMPT);
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(forwarded).toBe(PROMPT);
+    expect(opts.system).toContain('## Known context (facts & preferences)');
+    expect(opts.system).toContain('Alice standups preference is morning');
   });
 
   // ── THE CRITICAL cross-user-leak test ──────────────────────────────────────
   it("owner B's memory is NOT injected into owner A's run", async () => {
     const repo = new AgentMemoryRepository();
-    await repo.createAsync({ content: 'Alice prefers morning standups', ownerUserId: 1 });
-    await repo.createAsync({ content: 'Bob prefers afternoon standups', ownerUserId: 2 });
+    await repo.createAsync({ content: 'Alice standups preference is morning', ownerUserId: 1 });
+    await repo.createAsync({ content: 'Bob standups preference is afternoon', ownerUserId: 2 });
 
     const run = await freshRun();
     await run({ prompt: PROMPT, ownerUserId: 1 });
 
-    const forwarded = mockPrompt.mock.calls[0][1] as string;
-    expect(forwarded).toContain('Alice prefers morning standups');
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(opts.system).toContain('Alice standups preference is morning');
     // Bob's fact must NEVER appear in Alice's run.
-    expect(forwarded).not.toContain('Bob prefers afternoon standups');
+    expect(opts.system).not.toContain('Bob standups preference is afternoon');
   });
 
   it('null owner → only instance-global memory injected, never a user-owned fact', async () => {
     const repo = new AgentMemoryRepository();
-    await repo.createAsync({ content: 'Global: standups are optional', ownerUserId: undefined });
+    await repo.createAsync({ content: 'Global standups preference is optional', ownerUserId: undefined });
     await repo.createAsync({ content: 'Alice private standup note', ownerUserId: 1 });
 
     const run = await freshRun();
     await run({ prompt: PROMPT }); // no ownerUserId → null
 
-    const forwarded = mockPrompt.mock.calls[0][1] as string;
-    expect(forwarded).toContain('Global: standups are optional');
-    expect(forwarded).not.toContain('Alice private standup note');
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(opts.system).toContain('Global standups preference is optional');
+    expect(opts.system).not.toContain('Alice private standup note');
   });
 
   it('disabled (AGENT_MEMORY_INJECTION_ENABLED="false") → forwarded prompt is unchanged', async () => {
@@ -175,7 +176,7 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     delete process.env.AGENT_SKILLS_ENABLED;
 
     const memRepo = new AgentMemoryRepository();
-    await memRepo.createAsync({ content: 'Alice prefers morning standups', ownerUserId: 1 });
+    await memRepo.createAsync({ content: 'Alice standups preference is morning', ownerUserId: 1 });
 
     const skillRepo = new AgentSkillsRepository();
     const skillInput: AgentSkillInput = {
@@ -192,10 +193,11 @@ describe('memory injection — AgentRunner injects owner-scoped memory preface',
     await run({ prompt: PROMPT, ownerUserId: 1 });
 
     const forwarded = mockPrompt.mock.calls[0][1] as string;
-    expect(forwarded).toContain('## Known context (facts & preferences)');
-    expect(forwarded).toContain('Alice prefers morning standups');
-    expect(forwarded).toContain('## Available skills (retrieved)');
-    expect(forwarded).toContain('Standup organizer');
-    expect(forwarded).toContain(PROMPT);
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(forwarded).toBe(PROMPT);
+    expect(opts.system).toContain('## Known context (facts & preferences)');
+    expect(opts.system).toContain('Alice standups preference is morning');
+    expect(opts.system).toContain('## Available skills (retrieved)');
+    expect(opts.system).toContain('Standup organizer');
   });
 });

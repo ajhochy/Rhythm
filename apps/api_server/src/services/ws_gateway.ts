@@ -369,6 +369,7 @@ export async function handleInputFrame(
   let sessionModelId: string | null = null;
   let sessionThinkingBudget: number | null = null;
   let sessionFastMode = false;
+  let sessionOwnerUserId: number | null = null;
   // #711: read permissionMode so it can be forwarded in the prompt opts.
   // The opencode server inspects this field in the body to bypass its
   // own per-tool permission gate — when 'bypassPermissions', it executes
@@ -387,6 +388,7 @@ export async function handleInputFrame(
       sessionModelId = session.modelId;
       sessionThinkingBudget = session.thinkingBudget ?? null;
       sessionFastMode = session.fastMode ?? false;
+      sessionOwnerUserId = session.ownerUserId ?? null;
       sessionPermissionMode = session.permissionMode ?? 'default';
     }
   } catch {
@@ -796,7 +798,7 @@ export async function handleInputFrame(
     //   wsOcAgent is null when the profile has no ocAgent; perTurnAgent is null when
     //   the Flutter client didn't send an explicit per-turn agent override.
     const effectiveAgent: string | null = perTurnAgent ?? wsOcAgent;
-    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || wsSystemPrompt !== null)
+    let sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || wsSystemPrompt !== null)
       ? {
           ...(effectiveThinkingBudget !== null
             ? { reasoningConfig: { type: 'enabled', budgetTokens: effectiveThinkingBudget } }
@@ -827,33 +829,20 @@ export async function handleInputFrame(
       parts?: Array<Record<string, unknown>>,
     ) => Promise<unknown>;
 
-    // P3-2: inject retrieved skills as a TRANSIENT preface. The WS prompt body
-    // has no system-prompt seam (sdkOpts only carries reasoning/fastMode/agent/
-    // permission fields), so the preface is prepended to the forwarded user
-    // text — both the `data` string and the leading text part (whichever the
-    // SDK uses). This is in-memory only for this turn: nothing is persisted to
-    // the session, profile systemPrompt, or any opencode .md. uses are bumped
-    // after a successful enqueue.
-    let forwardData = data;
-    let forwardParts = partsToForward;
+    // The fork SDK accepts a per-turn `system` field. Keep retrieved context in
+    // that hidden seam so message text/parts remain exactly user-authored
+    // across persistence, replay, transcript export, and rate-limit handoff.
+    const forwardData = data;
+    const forwardParts = partsToForward;
+    const transientSystemBlocks: string[] = [];
     let wsInjectedSkillIds: string[] = [];
     if (isSkillInjectionEnabled()) {
       try {
         // P1b: pass the profile's allowedSkillsJson so only permitted skills are injected.
         const preface = buildSkillsPreface(data, { allowedSkillsJson: wsAllowedSkillsJson });
         if (preface.text) {
-          forwardData = `${preface.text}\n\n${data}`;
+          transientSystemBlocks.push(preface.text);
           wsInjectedSkillIds = preface.skillIds;
-          if (partsToForward) {
-            // Prepend to the first text part so the parts payload (which the
-            // SDK prefers over `data` when present) also carries the preface.
-            const idx = partsToForward.findIndex(
-              (p) => p.type === 'text' && typeof p.text === 'string',
-            );
-            forwardParts = partsToForward.map((p, i) =>
-              i === idx ? { ...p, text: `${preface.text}\n\n${p.text as string}` } : p,
-            );
-          }
           console.log(
             `[ws_gateway] session ${id}: injected ${wsInjectedSkillIds.length} retrieved skill(s) into prompt preface`,
           );
@@ -864,37 +853,15 @@ export async function handleInputFrame(
       }
     }
 
-    // FOLLOW-UP (memory injection): prepend an OWNER-SCOPED, TRANSIENT
-    // "## Known context" block ALONGSIDE the skills preface (additive, not a
-    // replacement) — final forwarded text is:
-    //   <memory preface>\n\n<skills preface>\n\n<original user text>
-    // matching the AgentRunner composition order. Independently toggle-guarded.
-    //
-    // FAIL-SAFE OWNER RESOLUTION: the interactive `agent_sessions` row has NO
-    // owner/user column (sessions are not user-scoped on the local agent
-    // server), so the owning user CANNOT be determined here. Per the issue's
-    // fail-closed rule we pass ownerUserId=null → ONLY instance-global
-    // (null-owner) memory is retrieved; a user-owned fact can never leak into
-    // another user's interactive turn. As with skills, this is in-memory only:
-    // nothing is persisted to the session, profile systemPrompt, or any
-    // opencode .md.
+    // Automatic memory is owner-scoped from agent_sessions.owner_user_id.
+    // Unknown/null owners remain fail-closed for user-owned rows.
     if (isMemoryInjectionEnabled()) {
       try {
-        const memPreface = await buildMemoryPreface(data, null);
+        const memPreface = await buildMemoryPreface(data, sessionOwnerUserId);
         if (memPreface.text) {
-          forwardData = `${memPreface.text}\n\n${forwardData}`;
-          if (forwardParts) {
-            const idx = forwardParts.findIndex(
-              (p) => p.type === 'text' && typeof p.text === 'string',
-            );
-            forwardParts = forwardParts.map((p, i) =>
-              i === idx
-                ? { ...p, text: `${memPreface.text}\n\n${p.text as string}` }
-                : p,
-            );
-          }
+          transientSystemBlocks.push(memPreface.text);
           console.log(
-            `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=global)`,
+            `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} bounded memory excerpt(s) via hidden context (owner=${sessionOwnerUserId ?? 'unknown'})`,
           );
         }
         // #862 — record provenance for THIS turn (overwrites the session's
@@ -907,6 +874,7 @@ export async function handleInputFrame(
             id,
             memPreface.memoryIds,
             memPreface.notePaths,
+            memPreface.items,
           );
         } catch (err) {
           console.error(`[ws_gateway] memory provenance record failed (non-fatal):`, err);
@@ -917,10 +885,18 @@ export async function handleInputFrame(
       }
     }
 
-    // #930 — retain the fully-composed turn (incl. the transient skill/memory
-    // prefaces above) so a mid-run rate-limit exhaustion handoff can revert and
-    // re-dispatch it verbatim on the new provider. Cleared on normal turn
-    // completion (stream bridge session.idle → clearTurn).
+    if (transientSystemBlocks.length > 0) {
+      sdkOpts = {
+        ...(sdkOpts ?? {}),
+        system: [wsSystemPrompt, ...transientSystemBlocks]
+          .filter((block): block is string => typeof block === 'string' && block.length > 0)
+          .join('\n\n'),
+      };
+    }
+
+    // #930 — retain the original user message plus hidden per-turn system
+    // context. Handoff can replay the turn without ever recasting retrieved
+    // context as user-authored text.
     if (opencodeId) {
       retainTurn(id, {
         sdkSessionId: opencodeId,
