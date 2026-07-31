@@ -1,0 +1,57 @@
+{
+  "run_id": "2026-07-30-retro-mobile-fixes-rollup-pr-1284",
+  "issue": 1284,
+  "date": "2026-07-30",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "P4",
+      "description": "The existing issue-1172 lifecycle test assumed the new-chat sheet state would remain stable after title entry while profiles and preferences could still refresh. Under GitHub Actions load that refresh reinitialized the open sheet, so the submitted session used the default Untitled chat title.",
+      "detected_by": "Repeated Mobile CI failures and the uploaded lifecycle artifact showing Untitled chat instead of the controlled title."
+    },
+    {
+      "process_category": "isolated-worktree-dependencies",
+      "description": "The first aggregate PR-gate attempt in the rollup worktree lacked package-local dependency links for TypeScript, Vitest, and tsgo. The unchanged checks passed after the existing shared dependencies were linked into that isolated worktree.",
+      "detected_by": "The PR-gate command output reported missing package-local executables before any source assertion ran."
+    },
+    {
+      "process_category": "workflow-retrospective-script-path",
+      "description": "The workflow-retrospective skill instructed the target repo to run scripts/mine-patterns.py, but Rhythm does not contain that script. Pattern mining succeeded using the canonical agent-stack script with Rhythm passed as --repo-root.",
+      "detected_by": "Python reported that scripts/mine-patterns.py did not exist in the rollup worktree."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/components/chat/session-configuration-sheet.tsx",
+    "apps/mobile/tests/chat/session-configuration-sheet.test.tsx",
+    "apps/mobile/tests/e2e/issue-1172-deltas.spec.mjs",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-07-30-mobile-fixes-rollup.md"
+  ],
+  "failure_output": "Mobile CI repeatedly failed while waiting for the lifecycle proof; the snapshot showed Untitled chat. The initial aggregate PR-gate attempt also lacked package-local TypeScript, Vitest, and tsgo executables. Both repair loops restarted verification from the top, and the final push and pull-request checks passed.",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the rising-edge sheet-initialization regression test. Separately update the canonical workflow-retrospective skill to invoke agent-stack's miner path; that cross-repo workflow change is outside this application PR."
+}
