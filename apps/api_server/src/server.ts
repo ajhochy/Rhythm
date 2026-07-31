@@ -682,36 +682,36 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
+
+      // #856/#1278 — arm the auth.json watcher only after restoreAuth and the
+      // rest of boot-time credential reconciliation have finished. Those
+      // server-owned writes belong to this initialization pass and must not
+      // bounce the engine that was just spawned. Non-fatal: a watcher start
+      // failure leaves the engine with its current credentials until restart,
+      // matching the pre-#856 behavior.
+      try {
+        const { AuthCredentialWatcher } = await import(
+          './services/auth_credential_watcher'
+        );
+        const { homedir } = await import('os');
+        const { join } = await import('path');
+        authCredentialWatcher = new AuthCredentialWatcher({
+          path: join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
+          onReload: async () => {
+            await opencodeClient.reloadCredentials();
+          },
+        });
+        await authCredentialWatcher.start();
+        logger.info('[server] auth credential watcher started (#856)');
+      } catch (err) {
+        logger.warn(
+          `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
+        );
+      }
     })
     .catch((err) => {
       console.warn('[Opencode] SDK init failed (non-fatal):', err);
     });
-
-    // #856 — start watching auth.json for provider credential changes once
-    // the engine's initial spawn has been kicked off. Non-fatal: a watcher
-    // start failure (e.g. the auth.json directory doesn't exist yet on a
-    // fresh install) must never block server startup; the engine simply
-    // keeps whatever credentials it loaded at spawn time until the next
-    // restart, which matches today's pre-#856 behavior.
-    try {
-      const { AuthCredentialWatcher } = await import(
-        './services/auth_credential_watcher'
-      );
-      const { homedir } = await import('os');
-      const { join } = await import('path');
-      authCredentialWatcher = new AuthCredentialWatcher({
-        path: join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
-        onReload: async () => {
-          await opencodeClient.reloadCredentials();
-        },
-      });
-      await authCredentialWatcher.start();
-      logger.info('[server] auth credential watcher started (#856)');
-    } catch (err) {
-      logger.warn(
-        `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
-      );
-    }
 
   }
 

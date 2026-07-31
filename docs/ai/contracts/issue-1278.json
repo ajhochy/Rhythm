@@ -1,0 +1,16 @@
+{
+  "issue": 1278,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1278-c1",
+      "text": "Add/update a test confirming a boot-time write matching what restoreAuth itself just wrote does not trigger a bounce.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1278_boot_auth_write_live.test.ts",
+      "test_id": "issue-1278-c1: startup-owned auth reconciliation does not bounce the freshly initialized engine",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
