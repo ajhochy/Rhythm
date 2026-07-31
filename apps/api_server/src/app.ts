@@ -3,6 +3,7 @@ import express, { type Router } from 'express';
 
 import { env } from './config/env';
 import { errorHandler } from './middleware/error_handler';
+import { localAgentSurfaceGuard } from './middleware/local_agent_surface_guard';
 import { authRouter } from './routes/auth_routes';
 import { automationCatalogRouter } from './routes/automation_catalog_routes';
 import { automationRulesRouter } from './routes/automation_rules_routes';
@@ -70,11 +71,28 @@ import {
 export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
 
+  app.use(localAgentSurfaceGuard);
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin || env.corsAllowedOrigins.length === 0) {
+        if (!origin) {
           callback(null, true);
+          return;
+        }
+
+        if (
+          env.agentOriginGuardEnabled === false &&
+          env.corsAllowedOrigins.length === 0
+        ) {
+          callback(null, true);
+          return;
+        }
+
+        if (
+          env.agentOriginGuardEnabled !== false &&
+          (env.agentLocal || env.corsAllowedOrigins.length === 0)
+        ) {
+          callback(null, false);
           return;
         }
 

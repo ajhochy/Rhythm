@@ -12,6 +12,7 @@ import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import { isAllowedLocalAgentSurfaceRequest } from '../middleware/local_agent_surface_guard';
 import { resolveProfileScope } from './agent_profile_scope';
 import { retainTurn } from './turn_redispatch';
 
@@ -43,11 +44,13 @@ function rejectRemoteLegacyUpgrade(
   socket: import('node:stream').Duplex,
 ): void {
   if (socket.destroyed) return;
+  socket.on('error', () => {});
   socket.end(
     'HTTP/1.1 403 Forbidden\r\n' +
       'Connection: close\r\n' +
       'Content-Length: 0\r\n' +
       'Cache-Control: no-store\r\n\r\n',
+    () => socket.destroy(),
   );
 }
 
@@ -123,8 +126,16 @@ export function attachWsGateway(
     }
     const legacyAgentSocket = pathname === '/ws/agents';
     const legacyPtyMatch = pathname.match(/^\/ws\/pty\/([^/]+)$/);
+    const legacyAgentSurface = Boolean(legacyAgentSocket || legacyPtyMatch);
     if (
-      (legacyAgentSocket || legacyPtyMatch) &&
+      legacyAgentSurface &&
+      !isAllowedLocalAgentSurfaceRequest(req.headers)
+    ) {
+      rejectRemoteLegacyUpgrade(socket);
+      return;
+    }
+    if (
+      legacyAgentSurface &&
       !isLoopbackAddress(
         (socket as import('node:stream').Duplex & {
           remoteAddress?: string;
