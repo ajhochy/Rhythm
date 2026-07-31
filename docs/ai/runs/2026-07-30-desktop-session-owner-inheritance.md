@@ -76,6 +76,15 @@ index: "[[Rhythm]]"
   symbols, and one affected `Create → AppError` flow. This matches the intended
   session-create boundary.
 - `git diff --check` — passed.
+- Post-commit verification rerun at `5969a2469`:
+  - `ai-workflow checks --level issue` passed after rerunning outside the
+    filesystem sandbox so Flutter could update its SDK cache.
+  - The first `ai-workflow checks --level pr` rerun had one unrelated,
+    non-reproducible 404 in the built-in `.tif` case of
+    `agent_designs.test.ts`; all other gates passed.
+  - The exact serial API command then passed 441 files / 3,695 tests, and the
+    isolated agent-designs file passed 31/31. Follow-up:
+    [flaky-agent-designs-finished-artifact-404.md](../generated-issues/flaky-agent-designs-finished-artifact-404.md).
 
 ## Notes
 

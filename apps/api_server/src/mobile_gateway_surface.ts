@@ -8,6 +8,15 @@ function isPhoneGatewayRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/mobile-gateway/agent-activity') {
     return true;
   }
+  if (method === 'GET' && path === '/mobile-gateway/profile-catalog') {
+    return true;
+  }
+  if (
+    method === 'PATCH' &&
+    /^\/mobile-gateway\/sessions\/[^/]+\/state$/.test(path)
+  ) {
+    return true;
+  }
   if (method === 'GET' && path === '/mobile-gateway/events') return true;
   if (
     method === 'GET' &&

@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { ChatContent } from '@/components/chat/chat-content';
 import { ChatHeader } from '@/components/chat/chat-header';
+import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { styles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -21,7 +22,7 @@ import {
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
-import { selectModelPickerGroups } from '@/providers/opencode-provider-selectors';
+import type { ChatPreferences } from '@/providers/opencode-provider-types';
 
 export function ChatView() {
   const router = useRouter();
@@ -72,9 +73,8 @@ export function ChatView() {
     settings,
     sessionStatuses,
     sessions,
-    setAutoApprove,
     toggleConversationMode,
-    updateChatPreferences,
+    updateSessionPreferences,
     abortSession,
   } = useOpencode();
 
@@ -82,7 +82,7 @@ export function ChatView() {
   const [attachments, setAttachments] = useState<{ uri: string; mime?: string; filename?: string }[]>([]);
   const [activeTab, setActiveTab] = useState<'session' | 'changes'>('session');
   const [sessionMenuVisible, setSessionMenuVisible] = useState(false);
-  const [isUpdatingAutoApprove, setIsUpdatingAutoApprove] = useState(false);
+  const [newSessionSheetVisible, setNewSessionSheetVisible] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isStoppingSession, setIsStoppingSession] = useState(false);
   const [expandedDiffId, setExpandedDiffId] = useState<string | undefined>();
@@ -108,38 +108,11 @@ export function ChatView() {
   const conversationActive = conversation.active;
   const hasDraftInput = !!draft.trim() || attachments.length > 0;
   const showSendAction = !running || hasDraftInput;
-  const visibleModels = useMemo(() => {
-    const connectedProviderIds = new Set(configuredProviders
-      .filter((provider) => provider.connected)
-      .map((provider) => provider.id));
-    const enabledModelIds = new Set(chatPreferences.enabledModelIds);
-
-    return availableModels.filter((model) =>
-      connectedProviderIds.has(model.providerID)
-      && (enabledModelIds.size === 0 || enabledModelIds.has(model.id)));
-  }, [availableModels, chatPreferences.enabledModelIds, configuredProviders]);
-  const modelPickerGroups = useMemo(() => selectModelPickerGroups({
-    availableModels,
-    availableProviders: configuredProviders,
-    enabledModelIds: chatPreferences.enabledModelIds,
-    recentModelIds: Object.values(chatPreferences.providerModelSelections),
-    selectedModelId: chatPreferences.modelId,
-  }), [
-    availableModels,
-    chatPreferences.enabledModelIds,
-    chatPreferences.modelId,
-    chatPreferences.providerModelSelections,
-    configuredProviders,
-  ]);
   const diffDetails = useMemo(
     () => currentTranscript.flatMap((entry) => entry.details.filter((detail) => detail.kind === 'patch')),
     [currentTranscript],
   );
   const diffCount = currentDiffs.length || new Set(diffDetails.flatMap((detail) => detail.body.split('\n').filter(Boolean))).size;
-  const selectedAgentLabel = useMemo(
-    () => availableAgents.find((agent) => agent.id === chatPreferences.mode)?.label || chatPreferences.mode,
-    [availableAgents, chatPreferences.mode],
-  );
   const pendingInteractions = currentPendingPermissions.length + currentPendingQuestions.length;
   const awaitingUserInput = pendingInteractions > 0;
   const displayTranscript = useMemo(() => currentTranscript.filter(isTranscriptDisplayMessage), [currentTranscript]);
@@ -431,14 +404,18 @@ export function ChatView() {
     }
   }
 
-  async function handleNewSession() {
+  async function handleNewSession(
+    title: string | undefined,
+    preferences: ChatPreferences,
+  ) {
     setIsCreatingSession(true);
     try {
-      const session = await createSession();
+      const session = await createSession(title, { preferences });
       await openSession(session.id);
       setActiveTab('session');
     } catch (error) {
       setSendFeedback(error instanceof Error ? error.message : 'Could not create a session.');
+      throw error;
     } finally {
       setIsCreatingSession(false);
     }
@@ -505,6 +482,10 @@ export function ChatView() {
     <>
       <View style={[styles.screen, { backgroundColor: palette.background }]}>
         <ChatHeader
+          availableModels={availableModels}
+          availableProfiles={availableAgents}
+          availableProviders={configuredProviders}
+          chatPreferences={chatPreferences}
           connectionStatus={connection.status}
           conversation={conversation}
           contextLimit={contextModel?.contextLimit}
@@ -519,7 +500,7 @@ export function ChatView() {
           onBack={() => router.replace('/(tabs)/agents')}
           onCloseMenu={() => setSessionMenuVisible(false)}
           onConfirmStopConversation={handleConfirmStopConversation}
-          onCreateSession={() => void handleNewSession()}
+          onCreateSession={() => setNewSessionSheetVisible(true)}
           onOpenSession={(sessionId) => {
             setSessionMenuVisible(false);
             void openSession(sessionId);
@@ -529,6 +510,17 @@ export function ChatView() {
           onOpenSettings={() => router.push('/(tabs)/settings' as never)}
           onShowChanges={() => setActiveTab((tab) => tab === 'changes' ? 'session' : 'changes')}
           onToggleConversationMode={() => void toggleConversationMode()}
+          onUpdateSessionPreferences={(preferences) => {
+            if (!currentSessionId) {
+              return Promise.reject(
+                new Error('Open a chat before changing its configuration.'),
+              );
+            }
+            return updateSessionPreferences(
+              currentSessionId,
+              preferences,
+            );
+          }}
           palette={palette}
           selectedSession={selectedSession}
           sessionMenuVisible={sessionMenuVisible}
@@ -761,8 +753,6 @@ export function ChatView() {
 
         <ChatComposer
           attachments={attachments}
-          availableAgents={availableAgents}
-          chatPreferences={chatPreferences}
           connectionStatus={connection.status}
           conversation={conversation}
           currentSessionId={currentSessionId}
@@ -773,8 +763,6 @@ export function ChatView() {
           isSpeechInputAvailable={isSpeechInputAvailable}
           isSpeechInputListening={isSpeechInputListening}
           isStoppingSession={isStoppingSession}
-          isUpdatingAutoApprove={isUpdatingAutoApprove}
-          modelPickerGroups={modelPickerGroups}
           onAttach={() => void handleAttach()}
           onDraftChange={(value) => {
             setSendFeedback(undefined);
@@ -793,22 +781,24 @@ export function ChatView() {
 
             void handleSendPrompt();
           }}
-          onToggleAutoApprove={() => {
-            setIsUpdatingAutoApprove(true);
-            void setAutoApprove(!chatPreferences.autoApprove)
-              .catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not update auto-approve.'))
-              .finally(() => setIsUpdatingAutoApprove(false));
-          }}
           onToggleRecording={() => void handleToggleRecording()}
           palette={palette}
-          selectedAgentLabel={selectedAgentLabel}
           showSendAction={showSendAction}
-          updateChatPreferences={updateChatPreferences}
-          visibleModels={visibleModels}
         />
         </KeyboardAvoidingView>
       </View>
 
+      <SessionConfigurationSheet
+        availableModels={availableModels}
+        availableProfiles={availableAgents}
+        availableProviders={configuredProviders}
+        mode="create"
+        onCreate={handleNewSession}
+        onDismiss={() => setNewSessionSheetVisible(false)}
+        palette={palette}
+        preferences={chatPreferences}
+        visible={newSessionSheetVisible}
+      />
       <Snackbar visible={Boolean(copiedMessageId)} onDismiss={() => setCopiedMessageId(undefined)} duration={1800}>
         {copiedMessageId === '__send-error__' ? 'Error details copied' : 'Message copied to clipboard'}
       </Snackbar>

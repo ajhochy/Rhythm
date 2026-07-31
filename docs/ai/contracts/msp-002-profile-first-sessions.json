@@ -1,0 +1,71 @@
+{
+  "issue": 2,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-2-c1",
+      "text": "Every new-chat entry point routes through one profile-first creation flow whose Profile picker is preselected to Secretary before creation.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c1: every new-chat entry point uses the Secretary-first creation flow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c2",
+      "text": "Selecting a profile loads its configured model automatically while profile, model, reasoning, and approval policy remain editable per session.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c2: profile selection applies the profile model and execution defaults",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c3",
+      "text": "Session-specific profile, model, reasoning, and approval values persist through MSP-001's PATCH state path and hydrate from the session record on open.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c3: session edits use the authoritative PATCH and hydration seams",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c4",
+      "text": "The accessible three-dot sheet contains labeled Profile, Model, Reasoning, and Approval Policy controls plus a per-session scope explanation.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c4: three-dot configuration sheet labels all session-scoped controls",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c5",
+      "text": "Profile and Model pickers search human labels plus stable IDs and provider/account metadata.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c5: profile and model search cover labels IDs and metadata",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c6",
+      "text": "One session's overrides survive reopening and switching chats without bleeding into another session.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c6: updating one session cannot mutate another session's execution state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c7",
+      "text": "A control that appears session-scoped must never mutate global OpenCode auto-approval.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs",
+      "test_id": "issue-2-c7: session Approval Policy does not write global OpenCode config",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c8",
+      "text": "VoiceOver focus order, labels, search, and modal dismissal are verified on a signed native build.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a signed native mobile build and human VoiceOver interaction. The checklist is documented in docs/testing/msp-002-profile-first-sessions-smoke.md; this workstream is prohibited from starting servers or running the device environment."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-2-c8"]
+}

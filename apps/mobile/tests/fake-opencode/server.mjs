@@ -11,7 +11,9 @@ import {
   diagnosticsPayload,
   fileStatusesPayload,
   listProvidersPayload,
+  profileCatalogPayload,
   providerAuthPayload,
+  resolveMobileSessionExecutionState,
   vcsPayload,
 } from './fixtures.mjs';
 import { createSessionHelpers } from './session-helpers.mjs';
@@ -634,6 +636,8 @@ const server = http.createServer(async (req, res) => {
       const projectId = req.headers['x-rhythm-project-id'];
       const requiresProject =
         gatewayPath === '/mobile-gateway/events' ||
+        gatewayPath === '/mobile-gateway/profile-catalog' ||
+        /^\/mobile-gateway\/sessions\/[^/]+\/state$/.test(gatewayPath) ||
         gatewayPath.startsWith('/mobile-gateway/opencode/');
       if (requiresProject && projectId !== state.project.id) {
         sendJson(res, 403, {
@@ -663,6 +667,37 @@ const server = http.createServer(async (req, res) => {
         gatewayPath === '/mobile-gateway/events'
       ) {
         handleSse(req, res, state.project.id);
+        return;
+      }
+
+      if (
+        req.method === 'GET' &&
+        gatewayPath === '/mobile-gateway/profile-catalog'
+      ) {
+        sendJson(res, 200, profileCatalogPayload());
+        return;
+      }
+
+      const mobileSessionState = gatewayPath.match(
+        /^\/mobile-gateway\/sessions\/([^/]+)\/state$/,
+      );
+      if (req.method === 'PATCH' && mobileSessionState) {
+        const sessionId = decodeURIComponent(mobileSessionState[1]);
+        const session = state.sessions.find((entry) => entry.id === sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const body = await readJson(req);
+        const resolved = resolveMobileSessionExecutionState(body, sessionId);
+        if (!resolved.state) {
+          sendJson(res, resolved.statusCode, {
+            error: 'Invalid mobile session execution state',
+          });
+          return;
+        }
+        session.rhythm = resolved.state;
+        sendJson(res, 200, resolved.state);
         return;
       }
 
@@ -834,6 +869,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && pathname === '/agent') {
       sendJson(res, 200, [
+        { name: 'secretary', description: 'Default Secretary agent' },
         { name: 'build', description: 'Default build agent' },
         { name: 'general', description: 'General-purpose agent' },
       ]);

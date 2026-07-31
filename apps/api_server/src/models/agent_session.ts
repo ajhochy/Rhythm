@@ -1,4 +1,24 @@
 export type AgentKind = 'claude-code' | 'codex';
+declare const rhythmProfileIdBrand: unique symbol;
+declare const openCodeAgentIdBrand: unique symbol;
+
+/** Rhythm-owned agent_configs.id. Never use as an OpenCode `agent` value. */
+export type RhythmProfileId = string & {
+  readonly [rhythmProfileIdBrand]: 'RhythmProfileId';
+};
+
+/** OpenCode engine agent name. Never use as an agent_configs lookup key. */
+export type OpenCodeAgentId = string & {
+  readonly [openCodeAgentIdBrand]: 'OpenCodeAgentId';
+};
+
+export function asRhythmProfileId(value: string): RhythmProfileId {
+  return value as RhythmProfileId;
+}
+
+export function asOpenCodeAgentId(value: string): OpenCodeAgentId {
+  return value as OpenCodeAgentId;
+}
 export type AgentSessionStatus = 'starting' | 'working' | 'idle' | 'resumable' | 'closed' | 'error';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
@@ -27,6 +47,14 @@ export interface AgentSession {
   id: string;
   taskId: string | null;
   taskTitle: string | null;
+  /** Authoritative Rhythm agent_configs.id selected for this session. */
+  profileId: RhythmProfileId | null;
+  /** Authoritative OpenCode engine agent name selected for this session. */
+  opencodeAgentId: OpenCodeAgentId | null;
+  /**
+   * @deprecated Compatibility alias for opencodeAgentId. New clients must use
+   * profileId for Rhythm identity and opencodeAgentId for engine execution.
+   */
   agentKind: AgentKind;
   status: AgentSessionStatus;
   /** Human-readable error message when status='error'. Null otherwise. */
@@ -152,6 +180,11 @@ export interface StructuredAgentSessionMessage extends Omit<AgentSessionMessage,
 }
 
 export interface CreateAgentSessionDto {
+  /** Rhythm agent_configs.id. Null/undefined means explicitly unassigned. */
+  profileId?: RhythmProfileId | null;
+  /** OpenCode engine agent name. Defaults to the legacy agentKind input. */
+  opencodeAgentId?: OpenCodeAgentId | null;
+  /** @deprecated Use opencodeAgentId for new call sites. */
   agentKind: AgentKind;
   taskId: string | null;
   taskTitle?: string | null;

@@ -27,11 +27,12 @@ test('issue-1238-c1: composer is docked below the independently flexible transcr
 });
 
 test('issue-1238-c2: multiline input enables internal scrolling at its explicit cap', () => {
-  // Regression caught: draft height clamps while scrollEnabled stays false, hiding the caret.
-  assert.match(composerSource, /const maxInputHeight = \d+;/);
+  // Supplementary source guard only; MSP-005's RNTL test drives the rendered
+  // Paper/native input because this regex cannot prove UIKit caret behavior.
+  assert.match(composerSource, /const MAX_INPUT_HEIGHT = \d+;/);
   assert.match(composerSource, /multiline/);
-  assert.match(composerSource, /scrollEnabled=\{inputHeight >= maxInputHeight\}/);
-  assert.match(composerSource, /Math\.min\(maxInputHeight/);
+  assert.match(composerSource, /scrollEnabled=\{Platform\.OS === 'ios' \|\| inputHeight >= MAX_INPUT_HEIGHT\}/);
+  assert.match(composerSource, /Math\.min\(MAX_INPUT_HEIGHT/);
 });
 
 test('issue-1238-c4: transcript exposes interactive dismissal and composer exposes a labeled action', () => {

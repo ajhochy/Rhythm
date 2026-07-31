@@ -5,6 +5,17 @@ import { MobileGatewayController } from '../controllers/mobile_gateway_controlle
 import { AgentActivityController } from '../controllers/agent_activity_controller';
 import { AppError } from '../errors/app_error';
 import {
+  asOpenCodeAgentId,
+  asRhythmProfileId,
+  PERMISSION_MODES,
+  type PermissionMode,
+} from '../models/agent_session';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
   requireMobileDevice,
   requireMobileCloudUser,
   requireSessionOrMobileDevice,
@@ -24,7 +35,13 @@ import {
 } from '../services/mobile_project_scope';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
+import {
+  buildSafeMobileProfileCatalog,
+  safeMobileSessionProfileState,
+} from '../services/mobile_profile_catalog';
 import { createMobileToolsRouter } from './mobile_tools_routes';
+
+export { buildSafeMobileProfileCatalog };
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
@@ -146,6 +163,130 @@ export function createMobileGatewayRouter(): Router {
     '/agent-activity',
     requireMobileDevice(getPairingService),
     (req, res, next) => activityController.list(req, res, next),
+  );
+  router.get(
+    '/profile-catalog',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (_req, res, next) => {
+      try {
+        res.json(buildSafeMobileProfileCatalog(
+          new AgentConfigsRepository().list(),
+        ));
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+  router.patch(
+    '/sessions/:id/state',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      try {
+        const sessions = new AgentSessionsRepository();
+        const session = sessions.findBySdkSessionId(req.params.id);
+        if (
+          !session ||
+          session.ownerUserId !== req.mobileDevice!.userId ||
+          session.projectId !== req.mobileProject!.id
+        ) {
+          throw AppError.notFound('Mobile session');
+        }
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const profileId = body.profileId;
+        if (
+          profileId !== null &&
+          (typeof profileId !== 'string' || profileId.trim() === '')
+        ) {
+          throw AppError.badRequest(
+            'profileId must be a non-empty string or null',
+          );
+        }
+        if (
+          body.providerId !== null &&
+          typeof body.providerId !== 'string'
+        ) {
+          throw AppError.badRequest('providerId must be a string or null');
+        }
+        if (
+          body.modelId !== null &&
+          typeof body.modelId !== 'string'
+        ) {
+          throw AppError.badRequest('modelId must be a string or null');
+        }
+        if (
+          body.thinkingBudget !== null &&
+          (
+            typeof body.thinkingBudget !== 'number' ||
+            !Number.isInteger(body.thinkingBudget) ||
+            body.thinkingBudget < 0
+          )
+        ) {
+          throw AppError.badRequest(
+            'thinkingBudget must be a non-negative integer or null',
+          );
+        }
+        if (
+          typeof body.permissionMode !== 'string' ||
+          !PERMISSION_MODES.includes(body.permissionMode as PermissionMode)
+        ) {
+          throw AppError.badRequest(
+            `permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`,
+          );
+        }
+
+        let opencodeAgentId: string | null = null;
+        if (typeof profileId === 'string') {
+          const profile = new AgentConfigsRepository().getById(
+            profileId.trim(),
+          );
+          if (
+            !profile ||
+            !profile.sessionSelectable ||
+            agentConfigExecutionBlockReason(profile) !== null ||
+            !profile.ocAgent
+          ) {
+            throw AppError.notFound('Mobile profile');
+          }
+          opencodeAgentId = profile.ocAgent;
+          if (
+            typeof body.opencodeAgentId === 'string' &&
+            body.opencodeAgentId !== opencodeAgentId
+          ) {
+            throw AppError.badRequest(
+              'opencodeAgentId does not match the selected profile',
+            );
+          }
+        } else if (
+          body.opencodeAgentId !== null &&
+          body.opencodeAgentId !== undefined
+        ) {
+          throw AppError.badRequest(
+            'opencodeAgentId must be null when profileId is null',
+          );
+        }
+
+        sessions.updateFields(session.id, {
+          profileId: typeof profileId === 'string'
+            ? asRhythmProfileId(profileId.trim())
+            : null,
+          opencodeAgentId: opencodeAgentId
+            ? asOpenCodeAgentId(opencodeAgentId)
+            : null,
+          providerId: body.providerId as string | null,
+          modelId: body.modelId as string | null,
+          thinkingBudget: body.thinkingBudget as number | null,
+          permissionMode: body.permissionMode as PermissionMode,
+        });
+        res.json(safeMobileSessionProfileState(
+          sessions.findById(session.id)!,
+          new AgentConfigsRepository().list(),
+        ));
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
   );
   const streamEvents = (sessionId?: string) =>
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {

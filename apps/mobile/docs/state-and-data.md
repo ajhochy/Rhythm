@@ -185,6 +185,11 @@ Hydration rules:
 - a legacy plaintext settings password is removed from AsyncStorage only after its Keychain write succeeds
 - unavailable or locked Keychain access leaves connection persistence disabled for that launch, so it cannot replace a credential with an empty password
 - persisted chat preferences are merged over defaults and current provider state
+- profile, model, reasoning, and approval policy are authoritative on each
+  session record; opening or switching chats hydrates those four fields from
+  `MobileSession.rhythm`, never from the last global mobile selection
+- the persisted global preference object remains a fallback for non-execution
+  UI preferences such as speech, sound, and response presentation
 - active project path is restored if present
 - last-session map is restored if present
 - connection, chat preferences, active project, and last-session hydration fail independently so one unavailable store does not block the others

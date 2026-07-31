@@ -806,19 +806,15 @@ export function runMigrations(db: Database.Database): void {
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
 
-  // Agent Sessions (SQLite-only — intentionally local-device, no Postgres path)
+  // Agent Sessions
   //
-  // agent_kind TEXT — logical foreign key to agent_configs.id (not enforced at the SQLite level).
-  // Valid values are the id column of the agent_configs table (e.g. 'claude-code', 'codex',
-  // 'gemini-cli', 'opencode'). The migration block below normalises any historical variant
-  // spellings so that every row references a valid agent_configs.id after migrations run.
-  // Do NOT add a SQLite FOREIGN KEY constraint here — this repo does not enable FK enforcement
-  // globally, and doing so would cascade-affect unrelated tables.
+  // agent_kind is the legacy OpenCode engine agent column. profile_id below is
+  // the distinct nullable Rhythm agent_configs.id reference.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_sessions (
       id TEXT PRIMARY KEY,
       task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-      -- agent_kind references agent_configs.id (logical FK, not enforced at the DB level)
+      -- agent_kind stores the OpenCode engine agent name (legacy column name)
       agent_kind TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'starting',
       session_token TEXT,
@@ -855,6 +851,11 @@ export function runMigrations(db: Database.Database): void {
   const agentSessionCols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
   if (!agentSessionCols.includes('task_title')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN task_title TEXT`);
+  }
+  // MSP-001 — additive and nullable so unknown legacy engine-agent mappings
+  // remain Unassigned instead of being guessed or rewritten.
+  if (!agentSessionCols.includes('profile_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN profile_id TEXT`);
   }
 
   // Agent Configs — user-configurable list of CLI agents (issue #481 / #466)
