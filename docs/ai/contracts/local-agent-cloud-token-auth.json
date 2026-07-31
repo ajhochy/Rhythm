@@ -1,0 +1,96 @@
+{
+  "issue": "local-agent-cloud-token-auth",
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c1",
+      "text": "A cloud token that does not exist in local sessions is accepted and req.auth.user.id resolves to the correct local user by googleSub, with the local-session absence precondition asserted.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c1: accepts a Cloud-only bearer and writes the Google-subject-matched local owner",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c2",
+      "text": "At least twenty subsequent agent requests with the same valid bearer make exactly one Cloud /auth/me request within five minutes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c2: one positive Cloud verification covers at least twenty desktop fan-out requests",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c3",
+      "text": "Positive Cloud authentication cache entries expire after five minutes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c3: a positive cache entry expires after five minutes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c4",
+      "text": "The positive Cloud authentication cache is bounded and evicts its oldest entry when full.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c4: the positive cache evicts its oldest entry at its bound",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c5",
+      "text": "An invalid Cloud token returns 401 and negative authentication results are never cached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c5: invalid Cloud tokens fail 401 and are never cached",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c6",
+      "text": "An unreachable Cloud identity service propagates 503 AUTH_UNAVAILABLE, never 200, and the failure is not cached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c6: unreachable Cloud fails 503 AUTH_UNAVAILABLE and is never cached",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c7",
+      "text": "A token whose Cloud identity maps to a different local user cannot read the first user's agent session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c7: a different Cloud-mapped user cannot read the owner session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c8",
+      "text": "The Cloud base URL comes only from RHYTHM_CLOUD_API_URL, PROD_API_URL, or the shipped default and cannot be overridden by request input.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c8: Cloud verification URL comes from env, not request input",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c9",
+      "text": "Captured server log output contains neither the bearer token nor a distinctive substring from it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c9: authentication logs contain no bearer or distinctive token fragment",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c10",
+      "text": "The absent-Authorization AGENT_LOCAL bypass remains exactly as-is and does not invoke Cloud authentication.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_cloud_token_auth.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c10: absent Authorization keeps the existing AGENT_LOCAL bypass",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "local-agent-cloud-token-auth-c11",
+      "text": "An env-gated live test drives the Flutter desktop's list, create, detail, todo, memory-provenance, VCS, VCS status, and agents sequence through the real isolated API and engine.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/local_agent_cloud_token_auth_live_e2e.test.ts",
+      "test_id": "local-agent-cloud-token-auth-c11: Cloud-only bearer drives list, create, detail, todo, provenance, and VCS through the real API",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
