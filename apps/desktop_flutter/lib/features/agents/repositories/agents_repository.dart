@@ -31,6 +31,18 @@ class AgentsRepository {
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
       getSession(String id) => _dataSource.getSession(id);
 
+  Future<
+      ({
+        List<AgentSessionMessage> messages,
+        String? nextCursor,
+        bool hasMore,
+      })> fetchTranscriptPage(
+    String id, {
+    int limit = 50,
+    String? before,
+  }) =>
+      _dataSource.fetchTranscriptPage(id, limit: limit, before: before);
+
   Future<AgentSession> createSession({
     String? agentId, // #602: null → agent-less session
     String? taskId,

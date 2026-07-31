@@ -1,10 +1,15 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { dirname, join, sep } from 'path';
+import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
 import { env, resolveMemoryVaultPath } from '../config/env';
 import { resolveSmallModel } from './agent_model_resolver';
 import { UsersRepository } from '../repositories/users_repository';
+import {
+  canonicalManagedPluginIdentity,
+  type ManagedPluginPaths,
+  type RhythmManagedPluginName,
+} from './opencode_plugin_identity';
 
 /**
  * The SDK ships built-in loaders for `openrouter`, `openai`, `github-copilot`,
@@ -33,17 +38,23 @@ const OPENCODE_CONFIG_PATH = join(
   'opencode.json',
 );
 
+function resolveVendoredPluginPath(
+  name: RhythmManagedPluginName,
+): string | null {
+  const candidates = [
+    join(__dirname, '..', '..', 'opencode_plugins', name),
+    join(__dirname, '..', 'opencode_plugins', name),
+  ];
+  return candidates.find((path) => existsSync(path)) ?? null;
+}
+
 /**
  * Resolve the vendored anthropic plugin dir in both layouts:
  * dev (tsx runs from src/services) and packaged (dist/services, with
  * opencode_plugins copied as a sibling of dist by desktop_release.yml).
  */
 export function rhythmAnthropicPluginPath(): string | null {
-  const candidates = [
-    join(__dirname, '..', '..', 'opencode_plugins', 'rhythm-anthropic-accounts'),
-    join(__dirname, '..', 'opencode_plugins', 'rhythm-anthropic-accounts'),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  return resolveVendoredPluginPath('rhythm-anthropic-accounts');
 }
 
 /**
@@ -56,11 +67,7 @@ export function rhythmAnthropicPluginPath(): string | null {
  */
 export function rhythmTelemetryPluginPath(): string | null {
   if (process.env.RHYTHM_TOOL_TELEMETRY_DISABLED === '1') return null;
-  const candidates = [
-    join(__dirname, '..', '..', 'opencode_plugins', 'rhythm-telemetry'),
-    join(__dirname, '..', 'opencode_plugins', 'rhythm-telemetry'),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  return resolveVendoredPluginPath('rhythm-telemetry');
 }
 
 /**
@@ -69,11 +76,7 @@ export function rhythmTelemetryPluginPath(): string | null {
  * boundary, not optional instrumentation.
  */
 export function rhythmSessionContextPluginPath(): string | null {
-  const candidates = [
-    join(__dirname, '..', '..', 'opencode_plugins', 'rhythm-session-context'),
-    join(__dirname, '..', 'opencode_plugins', 'rhythm-session-context'),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? null;
+  return resolveVendoredPluginPath('rhythm-session-context');
 }
 
 /**
@@ -108,16 +111,27 @@ export function ensureRequiredPlugins(
   const pluginPath = rhythmAnthropicPluginPath();
   const telemetryPluginPath = rhythmTelemetryPluginPath();
   const sessionContextPluginPath = rhythmSessionContextPluginPath();
-  // #1069 — if telemetry was toggled off AFTER a prior run already wrote its
-  // path, drop the now-stale entry rather than leaving a disabled-but-still-
-  // loaded plugin behind. Any dir named `rhythm-telemetry` is treated as
-  // "ours" here (the plugin's own doc comment names this exact dir).
-  const isTelemetryEntry = (p: string) => p.includes(`${sep}rhythm-telemetry`) || p === 'rhythm-telemetry';
+  const managedPluginPaths: ManagedPluginPaths = {
+    'rhythm-anthropic-accounts': pluginPath,
+    // Keep the physical path available for identity even when telemetry is
+    // disabled and therefore omitted from the active registration list.
+    'rhythm-telemetry':
+      telemetryPluginPath ?? resolveVendoredPluginPath('rhythm-telemetry'),
+    'rhythm-session-context': sessionContextPluginPath,
+  };
+
+  // Replace every positively identified managed copy with the active paths
+  // from this checkout/package. Identity is checkout-independent, so stale
+  // worktree paths and realpath aliases cannot leave multiple plugin modules
+  // active. Unknown entries remain untouched.
+  const preservedUserEntries = existing.filter(
+    (entry) =>
+      !LEGACY_PLUGINS.includes(entry) &&
+      canonicalManagedPluginIdentity(entry, managedPluginPaths) === null,
+  );
   const merged = Array.from(
     new Set([
-      ...existing.filter(
-        (p) => !LEGACY_PLUGINS.includes(p) && (telemetryPluginPath !== null || !isTelemetryEntry(p)),
-      ),
+      ...preservedUserEntries,
       ...REQUIRED_PLUGINS,
       ...(pluginPath ? [pluginPath] : []),
       ...(telemetryPluginPath ? [telemetryPluginPath] : []),

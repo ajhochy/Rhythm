@@ -626,6 +626,32 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     });
   }
 
+  Future<void> _loadOlderTranscript(
+    AgentsController controller,
+    String sessionId,
+  ) async {
+    final position =
+        _scrollController.hasClients ? _scrollController.position : null;
+    final oldPixels = position?.pixels;
+    final oldMaxExtent = position?.maxScrollExtent;
+
+    await controller.loadOlderTranscript(sessionId);
+    if (!mounted || oldPixels == null || oldMaxExtent == null) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final newMaxExtent = _scrollController.position.maxScrollExtent;
+      final insertedExtent = newMaxExtent - oldMaxExtent;
+      final target = (oldPixels + insertedExtent)
+          .clamp(
+            _scrollController.position.minScrollExtent,
+            newMaxExtent,
+          )
+          .toDouble();
+      _scrollController.jumpTo(target);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
@@ -753,6 +779,8 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     // OPC-M3-2: track whether the session has an active revert so we can
     // dim messages after the revert point and show the restore banner.
     final isReverted = controller.sessionIsReverted(session.id);
+    final hasOlder = controller.hasOlderTranscript(session.id);
+    final loadingOlder = controller.olderTranscriptLoading(session.id);
 
     return MessageTimeTicker(
       child: Column(
@@ -763,9 +791,39 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-              itemCount: chatMessages.length,
+              itemCount: chatMessages.length + (hasOlder ? 1 : 0),
               itemBuilder: (context, index) {
-                final m = chatMessages[index];
+                if (hasOlder && index == 0) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: TextButton.icon(
+                        key: const Key('load-older-transcript-button'),
+                        onPressed: loadingOlder
+                            ? null
+                            : () => _loadOlderTranscript(
+                                  controller,
+                                  session.id,
+                                ),
+                        icon: loadingOlder
+                            ? const SizedBox.square(
+                                dimension: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.expand_less, size: 18),
+                        label: Text(
+                          loadingOlder
+                              ? 'Loading earlier messages…'
+                              : 'Load earlier messages',
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final messageIndex = hasOlder ? index - 1 : index;
+                final m = chatMessages[messageIndex];
                 final parts = controller.chatPartsFor(m.id);
                 // Collect full text for copy action.
                 final copyText = parts.map((p) => p.text).join('').trim();
@@ -3891,7 +3949,7 @@ class AgentSelectorPill extends StatelessWidget {
         : [
             for (final a in ctrl.availableAgentsFor(sid))
               _AgentPickerItem(
-                value: a.name,
+                value: a.executionAgentId,
                 label: a.name,
                 description: a.description,
               ),

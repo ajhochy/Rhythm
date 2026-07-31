@@ -22,7 +22,11 @@ function recordingTransport(origin) {
 test('issue-1173-c1: tool transports stay origin and credential isolated', async () => {
   const cloud = recordingTransport('cloud');
   const paired = recordingTransport('paired');
-  const service = new RhythmToolsService({ cloud, paired });
+  const service = new RhythmToolsService({
+    cloud,
+    paired,
+    projectId: 'project-test',
+  });
 
   await service.listEmailSignals();
   await service.listGalleryDesigns();

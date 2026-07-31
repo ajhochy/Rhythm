@@ -129,28 +129,31 @@ const defaultJudge: JudgeCall = async (existing, candidate) => {
     `CANDIDATE skill:\n${skillText(candidate)}\n\n` +
     'Verdict (better|equal|worse) + one-sentence reason:';
   _setRefineRunning(true, new Date().toISOString());
-  // USO B3 (#1030): route the judge through AgentRunner so it becomes an
-  // observable self_improvement session (recorded row + transcript) instead of
-  // a bare createSession/prompt pair. allowedMcpsJson '{}' → zero MCP tools
-  // (Gemini-safe), matching the old createSession that passed no tools. A failed
-  // run resolves status:'error' → '' → parseJudgeResponse's fail-closed 'equal'
-  // (same fail-path as the old "no judge session" / empty-parts branches).
-  // #1110: allowedSkillsJson '[]' denies all skills (no system-prompt skill
-  // listing); taskKind routes to the cheap tier instead of a hardcoded
-  // reliable-fallback model.
-  const { run } = await import('./agent_runner');
-  const res = await run({
-    prompt: `${system}\n\n${user}`,
-    sessionName: 'skill-refine-judge',
-    category: 'self_improvement',
-    taskKind: SELF_IMPROVEMENT_TASK_KIND,
-    mcpRole: 'skill-refine-judge',
-    allowedMcpsJson: '{}',
-    allowedSkillsJson: '[]',
-  });
-  _setRefineRunning(false);
-  const text = res.status === 'error' ? '' : res.result;
-  return parseJudgeResponse(text);
+  try {
+    // USO B3 (#1030): route the judge through AgentRunner so it becomes an
+    // observable self_improvement session (recorded row + transcript) instead of
+    // a bare createSession/prompt pair. allowedMcpsJson '{}' → zero MCP tools
+    // (Gemini-safe), matching the old createSession that passed no tools. A failed
+    // run resolves status:'error' → '' → parseJudgeResponse's fail-closed 'equal'
+    // (same fail-path as the old "no judge session" / empty-parts branches).
+    // #1110: allowedSkillsJson '[]' denies all skills (no system-prompt skill
+    // listing); taskKind routes to the cheap tier instead of a hardcoded
+    // reliable-fallback model.
+    const { run } = await import('./agent_runner');
+    const res = await run({
+      prompt: `${system}\n\n${user}`,
+      sessionName: 'skill-refine-judge',
+      category: 'self_improvement',
+      taskKind: SELF_IMPROVEMENT_TASK_KIND,
+      mcpRole: 'skill-refine-judge',
+      allowedMcpsJson: '{}',
+      allowedSkillsJson: '[]',
+    });
+    const text = res.status === 'error' ? '' : res.result;
+    return parseJudgeResponse(text);
+  } finally {
+    _setRefineRunning(false);
+  }
 };
 
 /**

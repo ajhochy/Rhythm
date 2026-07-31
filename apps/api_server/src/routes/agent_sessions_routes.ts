@@ -1,19 +1,42 @@
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import {
   authenticateIfPresent,
   requireAuth,
 } from '../middleware/auth_middleware';
 import { AgentSessionsController } from '../controllers/agent_sessions_controller';
+import { AppError } from '../errors/app_error';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { env } from '../config/env';
 import { appEvents } from '../utils/app_events';
 import type { AppEvent } from '../utils/app_events';
 
 const controller = new AgentSessionsController();
+const sessionsRepository = new AgentSessionsRepository();
 export const agentSessionsRouter = Router();
 
 agentSessionsRouter.use(
   env.agentLocal ? authenticateIfPresent : requireAuth,
 );
+
+function requireAgentSessionOwner(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+  id: string,
+): void {
+  const session = sessionsRepository.findById(id);
+  if (
+    req.auth &&
+    session?.ownerUserId != null &&
+    session.ownerUserId !== req.auth.user.id
+  ) {
+    next(AppError.notFound('AgentSession'));
+    return;
+  }
+  next();
+}
+
+agentSessionsRouter.param('id', requireAgentSessionOwner);
 
 /**
  * OPC-M4-4 — GET /agent-sessions/agents
@@ -24,6 +47,10 @@ agentSessionsRouter.use(
  * `/agent-sessions/agents` here rather than treating "agents" as a session id.
  */
 agentSessionsRouter.get('/agents', controller.listAgents.bind(controller));
+agentSessionsRouter.post(
+  '/agents/refresh',
+  controller.refreshAgents.bind(controller),
+);
 
 /**
  * #747 — GET /agent-sessions/background-status

@@ -126,20 +126,27 @@ async function seed(content: string): Promise<string> {
 }
 
 describe('semantic memory retrieval E2E (steps 1–3)', () => {
-  it('E2E-1: default mode reaches a real Engraph service and injects a zero-word-overlap memory', async () => {
+  it('E2E-1: default mode reaches a real Engraph service but zero-overlap semantic hits fail closed', async () => {
     const sourceId = await seed('Prefers ProPresenter lower-thirds during announcements');
     engraph = await startFakeEngraph(() => [sourceId]);
     process.env.ENGRAPH_MEMORY_URL = engraph.url;
 
     // No AGENT_MEMORY_RETRIEVAL_MODE set — hybrid must be the default.
     // The query shares no significant words with the stored fact, so FTS
-    // cannot find it; only the semantic lane can.
+    // cannot find it. P0: the semantic lane exposes no calibrated confidence
+    // (Engraph 1.7.2 returns only RRF rank) and the candidate has zero lexical
+    // overlap with the query, so automatic injection MUST fail closed — this
+    // exact shape (nearest-neighbor injection of an unrelated document) was
+    // the McDonald's-report production incident. The service is still
+    // consulted; the note stays reachable via explicit search.
     const preface = await buildMemoryPreface('what template do we use for sunday slides', null);
 
     expect(engraph.requests).toHaveLength(1);
     expect(engraph.requests[0]?.query).toContain('sunday slides');
-    expect(preface.text).toContain('ProPresenter lower-thirds');
-    expect(preface.notePaths).toContain(sourceId);
+    expect(preface.text).toBe('');
+    expect(preface.memoryIds).toEqual([]);
+    const explicit = await repo.searchAsync('propresenter', undefined, 10);
+    expect(explicit.some((row) => row.sourceId === sourceId)).toBe(true);
   });
 
   it('E2E-2: junk suppression keeps one-word coincidences out; pure FTS works with no Engraph at all', async () => {

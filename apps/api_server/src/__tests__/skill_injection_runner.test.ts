@@ -111,10 +111,10 @@ describe('P3-2 — AgentRunner injects the skills preface (env-toggled)', () => 
     expect(result.status).toBe('done');
     expect(mockPrompt).toHaveBeenCalledOnce();
     const forwarded = mockPrompt.mock.calls[0][1] as string;
-    expect(forwarded).toContain('## Available skills (retrieved)');
-    expect(forwarded).toContain('Weekly report builder');
-    // Original user prompt is still present (appended after the preface).
-    expect(forwarded).toContain(PROMPT);
+    const opts = mockPrompt.mock.calls[0][4] as { system?: string };
+    expect(forwarded).toBe(PROMPT);
+    expect(opts.system).toContain('## Available skills (retrieved)');
+    expect(opts.system).toContain('Weekly report builder');
   });
 
   it('disabled (AGENT_SKILLS_ENABLED="false") → forwarded prompt is unchanged; no uses bump', async () => {

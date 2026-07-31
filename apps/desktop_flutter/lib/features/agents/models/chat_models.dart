@@ -3,18 +3,38 @@ class AgentInfo {
   const AgentInfo({
     required this.name,
     required this.builtIn,
+    this.profileId,
+    this.opencodeAgentId,
+    this.defaults = const {},
+    this.display = const {},
+    this.profileAvailability = 'unassigned',
     this.description,
     this.mode,
   });
 
   final String name;
   final bool builtIn;
+  final String? profileId;
+  final String? opencodeAgentId;
+  final Map<String, dynamic> defaults;
+  final Map<String, dynamic> display;
+  final String profileAvailability;
   final String? description;
   final String? mode;
+
+  /// Engine identity submitted on a turn. Legacy full responses used [name]
+  /// for this value; picker DTO responses keep it explicitly separate.
+  String get executionAgentId => opencodeAgentId ?? name;
 
   factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
         name: (json['name'] as String?) ?? '',
         builtIn: (json['builtIn'] as bool?) ?? false,
+        profileId: json['profileId'] as String?,
+        opencodeAgentId: json['opencodeAgentId'] as String?,
+        defaults: (json['defaults'] as Map<String, dynamic>?) ?? const {},
+        display: (json['display'] as Map<String, dynamic>?) ?? const {},
+        profileAvailability:
+            (json['profileAvailability'] as String?) ?? 'unassigned',
         description: json['description'] as String?,
         mode: json['mode'] as String?,
       );
