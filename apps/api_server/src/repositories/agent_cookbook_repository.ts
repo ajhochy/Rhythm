@@ -110,7 +110,7 @@ export class AgentCookbookRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `SELECT * FROM agent_cookbook
-         WHERE id = $1 AND owner_user_id = $2`,
+         WHERE id = $1 AND (owner_user_id IS NULL OR owner_user_id = $2)`,
         [id, ownerUserId],
       );
       return result.rows[0] ? rowToModel(result.rows[0]) : null;
@@ -118,7 +118,7 @@ export class AgentCookbookRepository {
     const row = getDb()
       .prepare(
         `SELECT * FROM agent_cookbook
-         WHERE id = ? AND owner_user_id = ?`,
+         WHERE id = ? AND (owner_user_id IS NULL OR owner_user_id = ?)`,
       )
       .get(id, ownerUserId);
     return row ? rowToModel(row as Record<string, unknown>) : null;
@@ -141,7 +141,7 @@ export class AgentCookbookRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `SELECT * FROM agent_cookbook
-         WHERE owner_user_id = $1
+         WHERE (owner_user_id IS NULL OR owner_user_id = $1)
          ORDER BY created_at DESC`,
         [ownerUserId],
       );
@@ -150,7 +150,7 @@ export class AgentCookbookRepository {
     const rows = getDb()
       .prepare(
         `SELECT * FROM agent_cookbook
-         WHERE owner_user_id = ?
+         WHERE (owner_user_id IS NULL OR owner_user_id = ?)
          ORDER BY created_at DESC`,
       )
       .all(ownerUserId);
@@ -237,7 +237,7 @@ export class AgentCookbookRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `DELETE FROM agent_cookbook
-         WHERE id = $1 AND owner_user_id = $2`,
+         WHERE id = $1 AND (owner_user_id IS NULL OR owner_user_id = $2)`,
         [id, ownerUserId],
       );
       return (result.rowCount ?? 0) > 0;
@@ -245,7 +245,7 @@ export class AgentCookbookRepository {
     const result = getDb()
       .prepare(
         `DELETE FROM agent_cookbook
-         WHERE id = ? AND owner_user_id = ?`,
+         WHERE id = ? AND (owner_user_id IS NULL OR owner_user_id = ?)`,
       )
       .run(id, ownerUserId);
     return result.changes > 0;
