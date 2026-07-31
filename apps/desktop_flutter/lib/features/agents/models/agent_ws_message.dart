@@ -47,6 +47,8 @@ abstract class AgentWsMessage {
         return QuestionAskedMessage.fromJson(json);
       case 'question.resolved':
         return QuestionResolvedMessage.fromJson(json);
+      case 'interaction.updated':
+        return PendingInteractionUpdatedMessage.fromJson(json);
       case 'session.diff':
         return SessionDiffMessage.fromJson(json);
       case 'session.compacted':
@@ -77,10 +79,12 @@ class SessionsListMessage extends AgentWsMessage {
   const SessionsListMessage({
     required this.sessions,
     required this.resumable,
+    this.pendingInteractions = const [],
   });
 
   final List<AgentSession> sessions;
   final List<AgentSession> resumable;
+  final List<PendingInteractionSnapshot> pendingInteractions;
 
   factory SessionsListMessage.fromJson(Map<String, dynamic> json) {
     List<AgentSession> parseList(dynamic raw) {
@@ -94,6 +98,63 @@ class SessionsListMessage extends AgentWsMessage {
     return SessionsListMessage(
       sessions: parseList(json['sessions']),
       resumable: parseList(json['resumable']),
+      pendingInteractions:
+          (json['pendingInteractions'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, dynamic>>()
+              .map(PendingInteractionSnapshot.fromJson)
+              .toList(),
+    );
+  }
+}
+
+class PendingInteractionSnapshot {
+  const PendingInteractionSnapshot({
+    required this.id,
+    required this.kind,
+    required this.status,
+    required this.sessionId,
+    required this.sdkSessionId,
+    required this.callId,
+    required this.payload,
+    required this.resolution,
+    required this.error,
+  });
+
+  final String id;
+  final String kind;
+  final String status;
+  final String sessionId;
+  final String sdkSessionId;
+  final String? callId;
+  final Map<String, dynamic> payload;
+  final Map<String, dynamic>? resolution;
+  final Map<String, dynamic>? error;
+
+  factory PendingInteractionSnapshot.fromJson(Map<String, dynamic> json) {
+    return PendingInteractionSnapshot(
+      id: asString(json['id']) ?? '',
+      kind: asString(json['kind']) ?? '',
+      status: asString(json['status']) ?? 'pending',
+      sessionId: asString(json['sessionId']) ?? '',
+      sdkSessionId: asString(json['sdkSessionId']) ?? '',
+      callId: asString(json['callId']),
+      payload: (json['payload'] as Map<String, dynamic>?) ?? const {},
+      resolution: json['resolution'] as Map<String, dynamic>?,
+      error: json['error'] as Map<String, dynamic>?,
+    );
+  }
+}
+
+class PendingInteractionUpdatedMessage extends AgentWsMessage {
+  const PendingInteractionUpdatedMessage({required this.interaction});
+
+  final PendingInteractionSnapshot interaction;
+
+  factory PendingInteractionUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    return PendingInteractionUpdatedMessage(
+      interaction: PendingInteractionSnapshot.fromJson(
+        (json['interaction'] as Map<String, dynamic>?) ?? const {},
+      ),
     );
   }
 }
@@ -260,10 +321,7 @@ class WsErrorMessage extends AgentWsMessage {
 /// Opencode SDK `message.updated` event forwarded by the api_server bridge.
 /// `info` is the SDK Message object: { id, sessionID, role, time, cost, tokens, ... }.
 class MessageUpdatedMessage extends AgentWsMessage {
-  const MessageUpdatedMessage({
-    required this.sessionId,
-    required this.info,
-  });
+  const MessageUpdatedMessage({required this.sessionId, required this.info});
 
   final String sessionId;
   final Map<String, dynamic> info;
@@ -504,9 +562,7 @@ class SessionDiffMessage extends AgentWsMessage {
   final String id;
 
   factory SessionDiffMessage.fromJson(Map<String, dynamic> json) {
-    return SessionDiffMessage(
-      id: asString(json['id']) ?? '',
-    );
+    return SessionDiffMessage(id: asString(json['id']) ?? '');
   }
 }
 
@@ -523,9 +579,7 @@ class SessionCompactedMessage extends AgentWsMessage {
   final String id;
 
   factory SessionCompactedMessage.fromJson(Map<String, dynamic> json) {
-    return SessionCompactedMessage(
-      id: asString(json['id']) ?? '',
-    );
+    return SessionCompactedMessage(id: asString(json['id']) ?? '');
   }
 }
 

@@ -24,6 +24,8 @@ import {
 } from '../services/mobile_project_scope';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
+import { streamBridge } from '../services/opencode_stream_bridge';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { createMobileToolsRouter } from './mobile_tools_routes';
 
 export function createMobileGatewayRouter(): Router {
@@ -31,7 +33,92 @@ export function createMobileGatewayRouter(): Router {
   const cloudIdentity = new MobileCloudIdentityService();
   const requireCloudUser = requireMobileCloudUser(cloudIdentity);
   let controller: MobileGatewayController | null = null;
-  const opencodeProxy = new MobileOpenCodeProxy();
+  const agentSessions = new AgentSessionsRepository();
+  const opencodeProxy = new MobileOpenCodeProxy({
+    pendingInteractionResolver: async (input) => {
+      const supported = new Set([
+        'permission.reply',
+        'question.reply',
+        'question.reject',
+      ]);
+      if (!supported.has(input.operationId)) return null;
+
+      const match = input.path.match(
+        /^\/(permission|question)\/([^/]+)\/(reply|reject)$/,
+      );
+      if (!match) return null;
+      const [, kind, encodedId, endpointAction] = match;
+      const interactionId = decodeURIComponent(encodedId);
+
+      if (!streamBridge.getInteraction(interactionId)) {
+        if (kind === 'permission') {
+          await streamBridge.recoverPendingPermissions(input.project.root);
+        } else {
+          await streamBridge.recoverPendingQuestions(input.project.root);
+        }
+      }
+      const existing = streamBridge.getInteraction(interactionId);
+      if (!existing) return null;
+      const session = agentSessions.findById(existing.sessionId);
+      if (
+        !session ||
+        session.ownerUserId !== input.userId ||
+        session.projectId !== input.project.id
+      ) {
+        return null;
+      }
+
+      const body = (input.body ?? {}) as Record<string, unknown>;
+      const action =
+        kind === 'permission'
+          ? body.reply
+          : endpointAction === 'reject'
+            ? 'reject'
+            : 'reply';
+      if (
+        kind === 'permission' &&
+        action !== 'once' &&
+        action !== 'always' &&
+        action !== 'reject'
+      ) {
+        throw AppError.badRequest(
+          'permission reply must be once, always, or reject',
+        );
+      }
+      const answers = body.answers;
+      if (
+        kind === 'question' &&
+        action === 'reply' &&
+        (!Array.isArray(answers) ||
+          !answers.every(
+            (answer) =>
+              Array.isArray(answer) &&
+              answer.every((value) => typeof value === 'string'),
+          ))
+      ) {
+        throw AppError.badRequest('question answers must be a string[][]');
+      }
+
+      const interaction = await streamBridge.resolvePendingInteraction(
+        interactionId,
+        {
+          action: action as 'once' | 'always' | 'reject' | 'reply',
+          source: 'mobile',
+          ...(Array.isArray(answers)
+            ? { answers: answers as string[][] }
+            : {}),
+          ...(typeof body.message === 'string'
+            ? { message: body.message }
+            : {}),
+        },
+      );
+      return {
+        status: interaction.status === 'failed' ? 502 : 200,
+        contentType: 'application/json',
+        body: Buffer.from(JSON.stringify(interaction)),
+      };
+    },
+  });
   const activityController = new AgentActivityController();
   const sseProxy = new MobileSseProxy();
   const tailscaleServe = new TailscaleServeService();

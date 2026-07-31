@@ -55,6 +55,7 @@ class PendingPermission {
     required this.toolName,
     required this.args,
     required this.summary,
+    this.error,
   });
 
   final String sessionId;
@@ -62,6 +63,7 @@ class PendingPermission {
   final String toolName;
   final Map<String, dynamic> args;
   final String summary;
+  final String? error;
 }
 
 enum AgentsLoadStatus { idle, loading, error }
@@ -241,6 +243,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // `${sessionId}:${callId}`. Lets QuestionToolCard render options even if the
   // tool-part input lagged (fixes the stuck "Waiting for question…" card).
   final Map<String, List<dynamic>> _questionsByCallId = {};
+  final Map<String, String> _questionRequestIdByCallId = {};
+  final Map<String, String> _questionErrorsByCallId = {};
   // callIds whose question has been resolved (answered/dismissed), so the card
   // can stop offering an answer even when resolved by another client/agent.
   final Set<String> _resolvedQuestionCallIds = {};
@@ -2109,15 +2113,17 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Permission flow (#608)
   // --------------------------------------------------------------------------
 
-  /// Accept a pending permission — POST to the server and remove from local state.
+  /// Accept a pending permission. Local state clears only after the server has
+  /// acknowledged the authoritative engine reply.
   Future<void> acceptPermission(String sessionId, String permissionId) async {
-    _removePendingPermission(sessionId, permissionId);
-    notifyListeners();
     try {
       await _repository.respondPermission(sessionId, permissionId, 'accept');
+      _removePendingPermission(sessionId, permissionId);
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
+      rethrow;
     }
   }
 
@@ -2130,8 +2136,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String permissionId, {
     String? reason,
   }) async {
-    _removePendingPermission(sessionId, permissionId);
-    notifyListeners();
     try {
       await _repository.respondPermission(
         sessionId,
@@ -2139,9 +2143,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         'deny',
         message: reason,
       );
+      _removePendingPermission(sessionId, permissionId);
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
+      rethrow;
     }
   }
 
@@ -2152,13 +2159,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String sessionId,
     String permissionId,
   ) async {
-    _removePendingPermission(sessionId, permissionId);
-    notifyListeners();
     try {
       await _repository.respondPermission(sessionId, permissionId, 'always');
+      _removePendingPermission(sessionId, permissionId);
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
+      rethrow;
     }
   }
 
@@ -2179,6 +2187,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<dynamic>? questionsForCallId(String sessionId, String callId) =>
       _questionsByCallId['$sessionId:$callId'];
 
+  String? questionErrorForCallId(String sessionId, String callId) =>
+      _questionErrorsByCallId['$sessionId:$callId'];
+
   /// True once the question for [callId] has been answered or dismissed.
   bool isQuestionResolved(String sessionId, String callId) =>
       _resolvedQuestionCallIds.contains('$sessionId:$callId');
@@ -2191,28 +2202,38 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String callId,
     List<List<String>> answers,
   ) async {
-    _resolvedQuestionCallIds.add('$sessionId:$callId');
-    _questionsByCallId.remove('$sessionId:$callId');
-    notifyListeners();
+    final key = '$sessionId:$callId';
+    final requestId = _questionRequestIdByCallId[key] ?? callId;
     try {
-      await _repository.replyQuestion(sessionId, callId, answers);
+      await _repository.replyQuestion(sessionId, requestId, answers);
+      _resolvedQuestionCallIds.add(key);
+      _questionsByCallId.remove(key);
+      _questionRequestIdByCallId.remove(key);
+      _questionErrorsByCallId.remove(key);
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
+      rethrow;
     }
   }
 
   /// Dismiss a pending question without answering (the user declines). This
   /// also unblocks the agent so the session never hangs.
   Future<void> rejectQuestion(String sessionId, String callId) async {
-    _resolvedQuestionCallIds.add('$sessionId:$callId');
-    _questionsByCallId.remove('$sessionId:$callId');
-    notifyListeners();
+    final key = '$sessionId:$callId';
+    final requestId = _questionRequestIdByCallId[key] ?? callId;
     try {
-      await _repository.rejectQuestion(sessionId, callId);
+      await _repository.rejectQuestion(sessionId, requestId);
+      _resolvedQuestionCallIds.add(key);
+      _questionsByCallId.remove(key);
+      _questionRequestIdByCallId.remove(key);
+      _questionErrorsByCallId.remove(key);
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
+      rethrow;
     }
   }
 
@@ -2999,6 +3020,81 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // WebSocket message handler
   // --------------------------------------------------------------------------
 
+  void _applyPendingInteraction(PendingInteractionSnapshot interaction) {
+    if (interaction.id.isEmpty || interaction.sessionId.isEmpty) return;
+    if (interaction.status == 'resolved') {
+      if (interaction.kind == 'permission') {
+        _removePendingPermission(interaction.sessionId, interaction.id);
+        _withdrawAskNotification(
+          'perm:${interaction.sessionId}:${interaction.id}',
+        );
+      } else if (interaction.kind == 'question') {
+        final prefix = '${interaction.sessionId}:';
+        final matchingKeys = _questionRequestIdByCallId.entries
+            .where(
+              (entry) =>
+                  entry.key.startsWith(prefix) && entry.value == interaction.id,
+            )
+            .map((entry) => entry.key)
+            .toList();
+        final callId = interaction.callId;
+        if (callId != null && callId.isNotEmpty) {
+          matchingKeys.add('$prefix$callId');
+        }
+        for (final key in matchingKeys) {
+          _questionsByCallId.remove(key);
+          _questionRequestIdByCallId.remove(key);
+          _questionErrorsByCallId.remove(key);
+          _resolvedQuestionCallIds.add(key);
+        }
+        _withdrawAskNotification(
+          'q:${interaction.sessionId}:${interaction.id}',
+        );
+      }
+      return;
+    }
+
+    if (interaction.kind == 'permission') {
+      final list = _pendingPermissions.putIfAbsent(
+        interaction.sessionId,
+        () => [],
+      );
+      list.removeWhere((item) => item.permissionId == interaction.id);
+      final metadata =
+          interaction.payload['metadata'] as Map<String, dynamic>? ?? const {};
+      final permission = interaction.payload['permission']?.toString() ?? '';
+      list.add(
+        PendingPermission(
+          sessionId: interaction.sessionId,
+          permissionId: interaction.id,
+          toolName: permission,
+          args: metadata,
+          summary: permission,
+          error: interaction.error?['message']?.toString(),
+        ),
+      );
+    } else if (interaction.kind == 'question') {
+      final callId = interaction.callId;
+      final questions = interaction.payload['questions'];
+      if (callId != null && callId.isNotEmpty && questions is List) {
+        final key = '${interaction.sessionId}:$callId';
+        _questionsByCallId[key] = questions;
+        _questionRequestIdByCallId[key] = interaction.id;
+        final error = interaction.error?['message']?.toString();
+        if (error == null) {
+          _questionErrorsByCallId.remove(key);
+        } else {
+          _questionErrorsByCallId[key] = error;
+        }
+        _resolvedQuestionCallIds.remove(key);
+      }
+    }
+    final message = interaction.error?['message']?.toString();
+    if (interaction.status == 'failed' && message != null) {
+      _error = message;
+    }
+  }
+
   void _onWsMessage(AgentWsMessage msg) {
     if (msg is SessionsListMessage) {
       _sessions = msg.sessions
@@ -3013,6 +3109,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         if (s.status == AgentSessionStatus.starting) {
           sessionFirstSeenAt[s.id] ??= DateTime.now();
         }
+      }
+      _pendingPermissions.clear();
+      _questionsByCallId.clear();
+      _questionRequestIdByCallId.clear();
+      _questionErrorsByCallId.clear();
+      for (final interaction in msg.pendingInteractions) {
+        _applyPendingInteraction(interaction);
       }
     } else if (msg is SessionCreatedMessage) {
       // #1090 — the WS channel is shared across all scopes; only insert the
@@ -3202,8 +3305,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // Store the authoritative question payload so the card can render even if
       // the tool-part input streamed in slowly (or not at all).
       if (msg.callId.isNotEmpty) {
-        _questionsByCallId['${msg.sessionId}:${msg.callId}'] = msg.questions;
-        _resolvedQuestionCallIds.remove('${msg.sessionId}:${msg.callId}');
+        final key = '${msg.sessionId}:${msg.callId}';
+        _questionsByCallId[key] = msg.questions;
+        _questionRequestIdByCallId[key] = msg.requestId;
+        _questionErrorsByCallId.remove(key);
+        _resolvedQuestionCallIds.remove(key);
       }
       // #815: native notification when the user is not looking at this ask.
       _maybeNotifyAsk(
@@ -3219,12 +3325,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _questionsByCallId.removeWhere((key, _) {
         if (key.startsWith('${msg.sessionId}:')) {
           _resolvedQuestionCallIds.add(key);
+          _questionRequestIdByCallId.remove(key);
+          _questionErrorsByCallId.remove(key);
           return true;
         }
         return false;
       });
       // #815: withdraw the ask notification now that it is answered.
       _withdrawAskNotification('q:${msg.sessionId}:${msg.requestId}');
+    } else if (msg is PendingInteractionUpdatedMessage) {
+      _applyPendingInteraction(msg.interaction);
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(

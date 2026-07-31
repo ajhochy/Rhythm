@@ -1,0 +1,96 @@
+{
+  "issue": 3,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-3-c1",
+      "text": "Snapshot engine permissions/questions during bridge connect/reconnect (opencode_stream_bridge.ts) — the engine's /permission and /question surfaces are the authority.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c1: bridge connect snapshots both authoritative engine interaction surfaces",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c2",
+      "text": "Add an SDK-session→local-session repository fallback where the in-memory opencodeSessionMap misses (cold maps after restart).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c2: cold maps recover both interaction kinds through sdk_session_id",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c3",
+      "text": "Include pending interactions in desktop connect/attach snapshots (ws_gateway.ts attach path).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_ws_attach_snapshot.test.ts",
+      "test_id": "issue-3-c3: late desktop attach receives already-registered interactions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c4",
+      "text": "Normalize identity/state across both clients (one canonical pending-interaction shape with stable IDs).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c4: permission and question use the same canonical stable-ID schema",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c5",
+      "text": "Duplicate and reordered engine events do not duplicate or resurrect a terminal interaction.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c5: duplicate and reordered events preserve one terminal interaction",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c6",
+      "text": "Make resolutions idempotent/atomic under races (two clients answering simultaneously → exactly one engine reply; the loser gets the authoritative terminal state, not an error card).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c6: simultaneous clients share one engine reply and one terminal result",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c7",
+      "text": "Failed resolutions stay pending and expose a retryable error.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c7: failed engine resolution remains pending with retryable error",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c8",
+      "text": "Broadcast authoritative terminal state everywhere after server acknowledgement.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_shared_pending_interactions.test.ts",
+      "test_id": "issue-3-c8: successful resolution broadcasts the canonical terminal state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-3-c9",
+      "text": "Desktop permission cards clear ONLY after server acknowledgement; failed resolutions stay visible with retryable errors.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/msp_003_pending_interactions_test.dart",
+      "test_id": "issue-3-c9: permission card remains until acknowledgement and retries after failure",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-3-c10",
+      "text": "Desktop question cards clear ONLY after server acknowledgement; failed resolutions stay visible with retryable errors.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/msp_003_pending_interactions_test.dart",
+      "test_id": "issue-3-c10: question card remains until acknowledgement and retries after failure",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-3-c11",
+      "text": "Questions are answered via question.asked event + POST /question/{id}/reply (string[][]) — NOT session.input; permissions respond with the directory query parameter.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_003_live_e2e.test.ts",
+      "test_id": "issue-3-c11: real engine continuation resolves through dedicated interaction endpoints",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

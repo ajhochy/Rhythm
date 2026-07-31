@@ -23,6 +23,7 @@ class PermissionCard extends StatefulWidget {
     required this.title,
     this.toolName,
     this.description,
+    this.initialError,
     this.timeout = const Duration(seconds: 60),
   });
 
@@ -31,6 +32,7 @@ class PermissionCard extends StatefulWidget {
   final String title;
   final String? toolName;
   final String? description;
+  final String? initialError;
   final Duration timeout;
 
   @override
@@ -43,6 +45,7 @@ class _PermissionCardState extends State<PermissionCard> {
   late DateTime _deadline;
   Timer? _tick;
   bool _responded = false;
+  bool _submitting = false;
   bool _autoDenied = false;
   String? _error;
   Duration _remaining = Duration.zero;
@@ -55,16 +58,25 @@ class _PermissionCardState extends State<PermissionCard> {
     super.initState();
     _deadline = DateTime.now().add(widget.timeout);
     _remaining = widget.timeout;
+    _error = widget.initialError;
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final left = _deadline.difference(DateTime.now());
-      if (left.isNegative && !_responded) {
-        _autoDenied = true;
+      if (left.isNegative && !_responded && !_submitting) {
         _respond('deny', auto: true);
       } else {
         setState(() => _remaining = left);
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(PermissionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialError != oldWidget.initialError &&
+        widget.initialError != null) {
+      _error = widget.initialError;
+    }
   }
 
   @override
@@ -81,24 +93,34 @@ class _PermissionCardState extends State<PermissionCard> {
   /// Reveals the deny-reason field instead of denying immediately. The user
   /// can still submit with an empty reason (skippable).
   void _revealDenyReason() {
-    if (_responded) return;
+    if (_responded || _submitting) return;
     setState(() => _showDenyReason = true);
   }
 
-  Future<void> _respond(String decision,
-      {bool auto = false, String? reason}) async {
-    if (_responded) return;
-    _responded = true;
+  Future<void> _respond(
+    String decision, {
+    bool auto = false,
+    String? reason,
+  }) async {
+    if (_responded || _submitting) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
     _tick?.cancel();
     if (!mounted) return;
     final controller = context.read<AgentsController>();
     try {
       if (decision == 'accept') {
         await controller.acceptPermission(
-            widget.sessionId, widget.permissionId);
+          widget.sessionId,
+          widget.permissionId,
+        );
       } else if (decision == 'always') {
         await controller.alwaysAllowPermission(
-            widget.sessionId, widget.permissionId);
+          widget.sessionId,
+          widget.permissionId,
+        );
       } else {
         await controller.denyPermission(
           widget.sessionId,
@@ -109,13 +131,29 @@ class _PermissionCardState extends State<PermissionCard> {
         );
       }
       if (!mounted) return;
-      setState(() {});
+      setState(() {
+        _submitting = false;
+        _responded = true;
+        _autoDenied = auto;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
-        _responded = false;
+        _submitting = false;
         _autoDenied = false;
+        _modalShown = false;
+        _deadline = DateTime.now().add(widget.timeout);
+        _remaining = widget.timeout;
+      });
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        final left = _deadline.difference(DateTime.now());
+        if (left.isNegative && !_responded && !_submitting) {
+          _respond('deny', auto: true);
+        } else {
+          setState(() => _remaining = left);
+        }
       });
     }
   }
@@ -124,7 +162,7 @@ class _PermissionCardState extends State<PermissionCard> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     // Elevate to modal when destructive-modal toggle is on and tool is destructive.
-    if (_modalShown || _responded) return;
+    if (_modalShown || _responded || _submitting) return;
     final destructiveModal = context.watch<DestructiveModalService>();
     if (destructiveModal.enabled && _isDestructive) {
       _modalShown = true;
@@ -150,10 +188,7 @@ class _PermissionCardState extends State<PermissionCard> {
   @override
   Widget build(BuildContext context) {
     if (_autoDenied) {
-      return _Stub(
-        text: 'Denied (timeout)',
-        color: context.rhythm.textMuted,
-      );
+      return _Stub(text: 'Denied (timeout)', color: context.rhythm.textMuted);
     }
     if (_responded && _error == null) {
       return const SizedBox.shrink();
@@ -189,10 +224,7 @@ class _PermissionCardState extends State<PermissionCard> {
               ),
               Text(
                 '${_remaining.inSeconds}s',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.rhythm.textMuted,
-                ),
+                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
               ),
             ],
           ),
@@ -229,25 +261,39 @@ class _PermissionCardState extends State<PermissionCard> {
             children: [
               if (_showDenyReason)
                 FilledButton(
-                  onPressed: () =>
-                      _respond('deny', reason: _denyReasonController.text),
-                  child: const Text('Submit'),
+                  onPressed: _submitting
+                      ? null
+                      : () => _respond(
+                            'deny',
+                            reason: _denyReasonController.text,
+                          ),
+                  child: _submitting
+                      ? const SizedBox.square(
+                          dimension: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Submit'),
                 )
               else ...[
                 TextButton(
-                  onPressed: _revealDenyReason,
+                  onPressed: _submitting ? null : _revealDenyReason,
                   child: const Text('Deny'),
                 ),
                 const SizedBox(width: 6),
                 TextButton(
                   key: const Key('permission_always_allow'),
-                  onPressed: () => _respond('always'),
+                  onPressed: _submitting ? null : () => _respond('always'),
                   child: const Text('Always allow'),
                 ),
                 const SizedBox(width: 6),
                 FilledButton(
-                  onPressed: () => _respond('accept'),
-                  child: const Text('Accept'),
+                  onPressed: _submitting ? null : () => _respond('accept'),
+                  child: _submitting
+                      ? const SizedBox.square(
+                          dimension: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Accept'),
                 ),
               ],
             ],
