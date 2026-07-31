@@ -37,6 +37,7 @@ vi.mock('../services/agent_runner', () => ({
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     get isReady() { return true; },
+    listMcp: vi.fn().mockResolvedValue({}),
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-sess-1' }),
     promptAsync: vi.fn().mockResolvedValue(true),
     abortSession: vi.fn().mockResolvedValue(true),
@@ -236,7 +237,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     );
     expect(errorUpdate).toBeDefined();
     expect(errorUpdate?.[1]).toBe(runningUpdate?.[1]);
-    expect(errorUpdate?.[4]).toBe('provider request failed');
+    expect(errorUpdate?.[4]).toBe('[infra_config] provider request failed');
 
     envSpy.mockRestore();
   });

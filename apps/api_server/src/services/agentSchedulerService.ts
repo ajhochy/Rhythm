@@ -25,6 +25,10 @@ import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
 import { resolveProfileScope } from './agent_profile_scope';
 import { opencodeClient } from './opencode_engine';
+import {
+  classifyAgentRunFailure,
+  formatAgentRunFailure,
+} from './agent_run_failure_classification';
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
@@ -250,7 +254,7 @@ function _computeNextCron(expression: string, after: Date, tz: string): string |
   return null;
 }
 
-// ── Boot-time engine readiness wait (#1222 Problem 2) ──────────────────────
+// ── Scheduled engine readiness wait (#1222 / R3) ───────────────────────────
 //
 // server.ts kicks off `opencodeClient.initialize()` in a separate,
 // non-blocking `.then()` chain LATER in its startup sequence than
@@ -259,20 +263,53 @@ function _computeNextCron(expression: string, after: Date, tz: string): string |
 // client is still null — every such task used to hit `createSession`
 // instantly and permanently ("N schedules errored at the identical
 // timestamp"). Wait, bounded, ONLY for this one boot-time pass before
-// letting it fire — a genuinely broken engine still fails visibly (via
-// createSession's own accurate error, see opencode_client_service.ts) rather
-// than hanging forever. The regular 1-minute cron tick is untouched: by then
-// the engine has had ample time and this would be pure overhead.
+// letting it fire. R3 strengthens the signal: `isReady` only proves the client
+// process initialized, so every scheduled pass also requires a successful
+// engine round-trip before it can create session work.
 
 function _engineReadyBootWaitMs(): number {
   return Number(process.env.AGENT_SCHEDULER_BOOT_ENGINE_WAIT_MS ?? 90_000);
 }
 
-async function _waitForEngineReadyOnBoot(): Promise<void> {
-  const POLL_INTERVAL_MS = 500;
-  const deadline = Date.now() + _engineReadyBootWaitMs();
-  while (!opencodeClient.isReady && Date.now() < deadline) {
-    await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+async function _probeScheduledEngineReadiness(): Promise<boolean> {
+  if (!opencodeClient.isReady) return false;
+  try {
+    // listMcp is a cheap real SDK request. An empty map is healthy; a thrown
+    // transport/SDK error means the process is up but cannot yet accept work.
+    await opencodeClient.listMcp();
+    return true;
+  } catch (err) {
+    logger.warn(`[AgentScheduler] Engine readiness probe failed: ${String(err)}`);
+    return false;
+  }
+}
+
+export interface ScheduledEngineReadinessDeps {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  probe?: () => Promise<boolean>;
+}
+
+/** Bounded, clock-injectable wait used only for the startup catch-up pass. */
+export async function waitForScheduledEngineReady(
+  deps: ScheduledEngineReadinessDeps = {},
+): Promise<boolean> {
+  const timeoutMs = Math.max(0, deps.timeoutMs ?? _engineReadyBootWaitMs());
+  const pollIntervalMs = Math.max(1, deps.pollIntervalMs ?? 500);
+  const now = deps.now ?? Date.now;
+  const sleep =
+    deps.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const probe = deps.probe ?? _probeScheduledEngineReadiness;
+  const deadline = now() + timeoutMs;
+
+  while (true) {
+    if (await probe()) return true;
+    const remaining = deadline - now();
+    if (remaining <= 0) return false;
+    await sleep(Math.min(pollIntervalMs, remaining));
   }
 }
 
@@ -350,13 +387,47 @@ async function insertScheduledTrigger(task: {
 const repo = new AgentScheduledTasksRepository();
 const CAPACITY_RETRY_MS = 60_000; // scheduler ticks once per minute
 
-async function checkDueTasks(): Promise<void> {
+async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
   try {
     dueTasks = await repo.findDueAsync();
   } catch (err) {
     logger.error(`[AgentScheduler] findDueAsync error: ${String(err)}`);
     return;
+  }
+
+  if (env.agentLocal && dueTasks.length > 0) {
+    const engineReady =
+      knownEngineReady ?? (await _probeScheduledEngineReadiness());
+    if (!engineReady) {
+      const retryAt = new Date(Date.now() + CAPACITY_RETRY_MS).toISOString();
+      const deferredMessage = formatAgentRunFailure(
+        {
+          error: 'OpenCode engine is not ready to accept scheduled session work',
+          failureCategory: 'engine_not_ready',
+        },
+      );
+      for (const task of dueTasks) {
+        const deferredAt = new Date().toISOString();
+        try {
+          await repo.updateNextRunAsync(
+            task.id,
+            retryAt,
+            deferredAt,
+            'queued',
+            deferredMessage,
+          );
+          logger.warn(
+            `[AgentScheduler] Task "${task.name}" deferred: ${deferredMessage}. Retry: ${retryAt}`,
+          );
+        } catch (err) {
+          logger.warn(
+            `[AgentScheduler] Could not record engine-readiness deferral for "${task.name}": ${String(err)}`,
+          );
+        }
+      }
+      return;
+    }
   }
 
   for (const task of dueTasks) {
@@ -405,12 +476,24 @@ async function checkDueTasks(): Promise<void> {
           ownerUserId: task.createdByUserId ?? null,
         }).then(async (result) => {
           const capacityDeferred = result.errorCode === 'capacity';
+          const failure =
+            result.status === 'error'
+              ? classifyAgentRunFailure(result)
+              : null;
           const status = result.status === 'done'
             ? 'success'
             : capacityDeferred
               ? 'queued'
               : 'error';
-          const errMsg = result.error ?? undefined;
+          const errMsg =
+            failure
+              ? formatAgentRunFailure(
+                  {
+                    ...result,
+                    failureCategory: failure.category,
+                  },
+                )
+              : undefined;
           // Capacity is transient, not a failed task execution. Preserve the
           // global resource cap and retry on the next scheduler tick instead
           // of waiting for the task's next normal recurrence.
@@ -429,8 +512,16 @@ async function checkDueTasks(): Promise<void> {
           } else {
             logger.error(`[AgentScheduler] Task "${task.name}" failed: ${errMsg}`);
           }
-        }).catch((err) => {
-          logger.error(`[AgentScheduler] AgentRunner.run threw for task "${task.name}": ${String(err)}`);
+        }).catch(async (err) => {
+          const errMsg = formatAgentRunFailure({ error: err });
+          logger.error(`[AgentScheduler] AgentRunner.run threw for task "${task.name}": ${errMsg}`);
+          try {
+            await repo.updateNextRunAsync(task.id, nextRun, runStart, 'error', errMsg);
+          } catch (updateErr) {
+            logger.warn(
+              `[AgentScheduler] Could not record thrown run failure for "${task.name}": ${String(updateErr)}`,
+            );
+          }
         });
 
         logger.info(`[AgentScheduler] Task "${task.name}" dispatched to AgentRunner. Next run: ${nextRun ?? 'none'}`);
@@ -461,7 +552,7 @@ async function checkDueTasks(): Promise<void> {
         logger.info(`[AgentScheduler] Task "${task.name}" queued. Next run: ${nextRun ?? 'none'}`);
       }
     } catch (err) {
-      const errMsg = String(err);
+      const errMsg = formatAgentRunFailure({ error: err });
       logger.error(`[AgentScheduler] Failed to fire task "${task.name}" (${task.id}): ${errMsg}`);
       // Advance next_run by 5 minutes to prevent tight re-fire loop on error
       const backoffRun = new Date(Date.now() + 5 * 60 * 1000).toISOString();
@@ -517,7 +608,10 @@ export function startAgentSchedulerJob(): { stop: () => void } | null {
   // here means this IS the SQLite-backed owner — no redundant re-check.)
   try {
     const staleCount = new AgentSessionsRepository().resetStaleRunning(
-      'Server restarted — run interrupted',
+      formatAgentRunFailure({
+        error: 'Server restarted — run interrupted',
+        failureCategory: 'restart_interruption',
+      }),
     );
     if (staleCount > 0) {
       logger.info(`[AgentScheduler] Reset ${staleCount} stale running session(s) to error on boot`);
@@ -535,7 +629,9 @@ export function startAgentSchedulerJob(): { stop: () => void } | null {
   // engine, so it skips the wait entirely.
   void (async () => {
     if (env.agentLocal) {
-      await _waitForEngineReadyOnBoot();
+      const engineReady = await waitForScheduledEngineReady();
+      await checkDueTasks(engineReady);
+      return;
     }
     await checkDueTasks();
   })();
