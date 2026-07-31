@@ -1,0 +1,16 @@
+{
+  "issue": 1283,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1283-c1",
+      "text": "Add a contract test proving the fix (live-event delivery, not just read-path).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1283_mobile_desktop_live_stream.test.ts",
+      "test_id": "issue-1283-c1: an already-connected mobile stream receives a desktop-created session transcript event",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
