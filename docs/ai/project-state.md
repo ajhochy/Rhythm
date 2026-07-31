@@ -83,3 +83,17 @@ gate with recorded evidence and the release/TestFlight handoff document
 - Concerns: repo-wide issue checks retain a pre-existing unrelated
   `apps/mcp_server` TypeScript-runner failure; see
   `docs/ai/runs/2026-07-30-issue-1279-mobile-session-claim-gap.md`.
+
+### 2026-07-30 — issue #1280 physical-device composer height regression
+
+- Files modified: mobile composer, composer Jest coverage, #1280 native-boundary
+  contract, acceptance contract, and run log.
+- Checks run: red contract 0/2 then green 2/2; composer 4/4; full Jest 6/6;
+  typecheck, lint, 19-command static suite, and 1,634-module iOS export pass.
+- Decisions made: remove the fixed-height/event feedback loop and let the core
+  native multiline input measure intrinsically within 24–132pt bounds.
+- Deviations from spec: physical-device re-verification cannot be automated in
+  this environment and remains required.
+- Concerns: a human must repeat the signed physical-iPhone composer smoke
+  before #1280 can be called done; see
+  `docs/ai/runs/2026-07-30-issue-1280-composer-device-regression.md`.

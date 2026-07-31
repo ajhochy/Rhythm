@@ -1,6 +1,5 @@
-import { Keyboard, Platform, View } from 'react-native';
-import { Chip, IconButton, Surface, Text, TextInput } from 'react-native-paper';
-import { useEffect, useState } from 'react';
+import { Keyboard, TextInput, View } from 'react-native';
+import { Chip, IconButton, Surface, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
 import { styles } from '@/components/chat/chat-view-styles';
@@ -73,16 +72,6 @@ export function ChatComposer({
   const handleOuterActionPress = showOuterAction === 'attach' ? onAttach : onSend;
   const handleInnerActionPress = hasComposerContent ? onAttach : onToggleRecording;
 
-  const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
-
-  // Keep iOS UIScrollView caret tracking active before a paste crosses the cap;
-  // enabling scrolling only after the resize can leave the pasted caret hidden.
-  useEffect(() => {
-    if (draft.length === 0) {
-      setInputHeight(MIN_INPUT_HEIGHT);
-    }
-  }, [draft]);
-
   return (
     <Surface
       style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insetsBottom, 12) }]}
@@ -141,23 +130,23 @@ export function ChatComposer({
           <View style={styles.composerRow}>
             <TextInput
                testID="chat-prompt-input"
-               mode="flat"
-               dense
                value={draft}
                onChangeText={onDraftChange}
-               onContentSizeChange={({ nativeEvent }) => {
-                 const nextHeight = Math.min(MAX_INPUT_HEIGHT, Math.max(MIN_INPUT_HEIGHT, Math.ceil(nativeEvent.contentSize.height)));
-                 setInputHeight((current) => (current === nextHeight ? current : nextHeight));
-               }}
                editable={!isSpeechInputListening}
                multiline
-               scrollEnabled={Platform.OS === 'ios' || inputHeight >= MAX_INPUT_HEIGHT}
+               scrollEnabled
                placeholder="Ask anything..."
                placeholderTextColor={palette.muted}
-               style={[styles.input, { height: inputHeight, backgroundColor: 'transparent', color: palette.text }]}
-               contentStyle={styles.inputContentCompact}
-               underlineColor="transparent"
-               activeUnderlineColor="transparent"
+               style={[
+                 styles.input,
+                 styles.inputContentCompact,
+                 {
+                   backgroundColor: 'transparent',
+                   color: palette.text,
+                   minHeight: MIN_INPUT_HEIGHT,
+                   maxHeight: MAX_INPUT_HEIGHT,
+                 },
+               ]}
                textAlignVertical="top"
              />
 

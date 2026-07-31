@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
@@ -38,12 +38,12 @@ function ComposerHarness({ initialDraft = '' }: { initialDraft?: string }) {
   );
 }
 
-function inputHeight(input: ReturnType<typeof render>['getByTestId'] extends (
+function inputStyle(input: ReturnType<typeof render>['getByTestId'] extends (
   testId: string,
 ) => infer Result
   ? Result
   : never) {
-  return StyleSheet.flatten(input.props.style)?.height;
+  return StyleSheet.flatten(input.props.style);
 }
 
 describe('ChatComposer native multiline sizing', () => {
@@ -59,75 +59,59 @@ describe('ChatComposer native multiline sizing', () => {
     jest.useRealTimers();
   });
 
-  test('issue-5-c1: grows from 24 points using the native content size', () => {
-    // Regression caught: ignoring contentSize leaves every multiline draft at one line.
+  test('issue-5-c1: grows from 24 points through intrinsic native text layout', () => {
+    // Regression caught: a fixed height prevents Fabric from relaying the
+    // content-size event that the resize path is waiting for.
     const screen = render(<ComposerHarness />);
     const input = screen.getByTestId('chat-prompt-input');
 
-    expect(inputHeight(input)).toBe(MIN_INPUT_HEIGHT);
+    fireEvent.changeText(input, 'one\ntwo\nthree');
 
-    fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 65.2, width: 280 } },
-    });
-
-    expect(inputHeight(input)).toBe(66);
+    expect(inputStyle(input)?.height).toBeUndefined();
+    expect(inputStyle(input)?.minHeight).toBe(MIN_INPUT_HEIGHT);
   });
 
-  test('issue-5-c2: keeps native scrolling active and clamps growth at 132 points', () => {
+  test('issue-5-c2: keeps native scrolling active and caps intrinsic growth at 132 points', () => {
     // Regression caught: enabling iOS scrolling only after the cap hides the caret
     // when a paste reaches the cap before UIScrollView caret tracking is active.
     const screen = render(<ComposerHarness />);
     const input = screen.getByTestId('chat-prompt-input');
 
-    expect(Platform.OS).toBe('ios');
-    expect(input.props.scrollEnabled).toBe(true);
+    fireEvent.changeText(
+      input,
+      Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join('\n'),
+    );
 
-    fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 220, width: 280 } },
-    });
-
-    expect(inputHeight(input)).toBe(MAX_INPUT_HEIGHT);
+    expect(inputStyle(input)?.height).toBeUndefined();
+    expect(inputStyle(input)?.maxHeight).toBe(MAX_INPUT_HEIGHT);
     expect(input.props.scrollEnabled).toBe(true);
   });
 
-  test('issue-5-c4: shrinks after deletion and resets after the draft is cleared', () => {
-    // Regression caught: retaining a stale measured height leaves an empty composer tall.
+  test('issue-5-c4: deletion and clearing never leave a stale explicit height', () => {
+    // Regression caught: retaining a JS-measured height leaves a shortened or
+    // empty composer pinned to its previous size.
     const screen = render(<ComposerHarness initialDraft={'one\ntwo\nthree\nfour'} />);
     const input = screen.getByTestId('chat-prompt-input');
 
-    fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 88, width: 280 } },
-    });
-    expect(inputHeight(input)).toBe(88);
-
     fireEvent.changeText(input, 'one');
-    fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 22, width: 280 } },
-    });
-    expect(inputHeight(input)).toBe(MIN_INPUT_HEIGHT);
+    expect(inputStyle(input)?.height).toBeUndefined();
 
-    fireEvent(input, 'contentSizeChange', {
-      nativeEvent: { contentSize: { height: 88, width: 280 } },
-    });
     fireEvent.changeText(input, '');
-    expect(inputHeight(input)).toBe(MIN_INPUT_HEIGHT);
+    expect(inputStyle(input)?.height).toBeUndefined();
+    expect(inputStyle(input)?.minHeight).toBe(MIN_INPUT_HEIGHT);
   });
 
-  test('issue-5-c5: exercises growth, cap, and shrink through the Paper native event surface', () => {
-    // Regression caught: a source-only test can pass without the Paper wrapper
-    // forwarding native contentSize events into the rendered component.
+  test('issue-5-c5: the real native input remains intrinsically sized when content-size events arrive', () => {
+    // Regression caught: restoring the event-driven fixed height recreates the
+    // Fabric layout/event feedback deadlock on physical iOS hardware.
     const screen = render(<ComposerHarness initialDraft={'one\ntwo'} />);
     const input = screen.getByTestId('chat-prompt-input');
 
-    for (const [contentHeight, expectedHeight] of [
-      [44, 44],
-      [180, MAX_INPUT_HEIGHT],
-      [22, MIN_INPUT_HEIGHT],
-    ] as const) {
+    for (const contentHeight of [44, 180, 22]) {
       fireEvent(input, 'contentSizeChange', {
         nativeEvent: { contentSize: { height: contentHeight, width: 280 } },
       });
-      expect(inputHeight(input)).toBe(expectedHeight);
+      expect(inputStyle(input)?.height).toBeUndefined();
     }
   });
 });
