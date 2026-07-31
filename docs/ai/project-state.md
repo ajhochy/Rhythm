@@ -2,82 +2,89 @@
 
 ## Current focus
 
-2026-07-29: v0.18.53 published (run 30496034693) but is **dead on arrival** —
-AMFI SIGKILLs it at launch because the new `keychain-access-groups` restricted
-entitlement shipped without an embedded Developer ID provisioning profile.
-Repair in flight: embed the profile + `com.apple.application-identifier` at
-release signing, and add a launch smoke so a DOA app can never pass CI again.
+2026-07-30/31: live human smoke (desktop + physical iPhone) of the combined
+R1–R6/P0/MSP-001–007 runtime-and-mobile-parity effort, plus the T1
+mobile↔desktop data-parity gate. Smoke surfaced 8 real bugs through actual
+device use; 15 verified PRs merged to `main` overnight. Dev environment
+(desktop app + its local api_server) is currently down after a machine crash
+mid-session — Metro (mobile code server) survived.
 
-## Active branch / PR
+## Merged to main tonight
 
-- Branch: `fix/desktop-devid-provisioning-profile`, based on `main` at
-  `9ae77f5f8`.
-- Run record:
-  [runs/2026-07-29-devid-provisioning-profile.md](runs/2026-07-29-devid-provisioning-profile.md).
-- Prior repair (verifier + sed expansion) merged as PR
-  [#1250](https://github.com/ajhochy/Rhythm/pull/1250); flaky mobile nav
-  locator fix open as PR
-  [#1252](https://github.com/ajhochy/Rhythm/pull/1252).
+#1272 (cloud-bearer auth — the fix that unblocked all desktop smoke),
+#1254 (tokenless desktop session owner inheritance), #1255 (R2 idle-status
+fix), #1256 (R6 plugin/telemetry dedupe), #1257 (R4 progress-aware deadline),
+#1258 (R1 delegated-session isolation), #1260 (R3 scheduled-failure
+classification), #1261 (P0 memory-relevance gate), #1262 (MSP-006
+project-scoped Tools), #1263 (MSP-001 session/profile contract), #1264
+(MSP-004 atomic session opening), #1265 (MSP-003 shared pending
+permission/question state), #1267 (R5 agent-picker DTO + pagination), #1275
+(Phase 0 local-agent-surface hardening), #1276 (T1 parity gate +
+research-tab owner-visibility fix, issue #1274).
 
-## In progress
+## Left open on purpose
 
-- CI on the provisioning-profile branch, then merge and dispatch Desktop
-  Release v0.18.54 (v0.18.53 assets stay up but are unusable; do not reuse the
-  tag).
+- **#1259** (MSP-005 native composer) — CI green, but a live physical-iPhone
+  test found the box still doesn't grow (issue #1280). Do not merge on CI
+  alone; needs a real re-test after #1280 is fixed.
+- **#1266** (MSP-002 three-dot config) — red `foundation` CI check, not yet
+  diagnosed.
+- **#1268** — the combined R1–R6+P0 smoke-vehicle branch. Never a merge
+  target itself; the individual lane PRs above are what merged. Safe to
+  leave open or close.
 
-## Risks / known issues
+## Bugs found live tonight (all filed, prompts prepared per below)
 
-- v0.18.53 is published and DOA for anyone who downloads it; users should
-  stay on v0.18.52 until v0.18.54 ships.
-- `APPLE_PROVISIONING_PROFILE_BASE64` repo secret contains profile "Rhythm
-  Developer ID" (expires 2044) bound to the CI signing cert (expires
-  2027-02-01). Rotating the signing cert requires regenerating the profile.
-- Approvals: the server (deployed to production at `9ae77f5f8`) hard-requires
-  signed human decisions; no shipped client can sign until v0.18.54, so new
-  agent approvals are effectively frozen until it ships.
-- Production API deployed and healthy on `9ae77f5f8` (Synology un-pinned from
-  `sha-80d1552`; stray `AGENT_LOCAL=true` removed from `.env.production` —
-  it was forcing a loopback bind under new main and had been silently
-  bypassing JWT on hosted agent endpoints).
-- TestFlight upload is paused (production iOS 1.0.8 build 2 IPA from
-  `125df4747` verified locally, not uploaded).
-- Pre-existing `DB_CLIENT=postgres` + `RHYTHM_ROLE=all` stream-bridge
-  reconciliation error:
-  [postgres-all-role-stream-bridge-reconciliation.md](generated-issues/postgres-all-role-stream-bridge-reconciliation.md).
+- **#1274** — Research tab empty on mobile (owner exact-match). **Fixed**,
+  merged in #1276.
+- **#1277** — residual T1 parity drifts: webhook self-URL host mismatch, MCP
+  served from two different sources, provider/auth redaction pairing gap.
+  Prompt ready, not yet dispatched.
+- **#1278** — server's own boot sequence triggers a self-inflicted
+  credential-reload engine bounce, producing misleading ERROR-level log
+  noise. Cosmetic. Prompt ready, not dispatched.
+- **#1279** — mobile could only ever see phone-created chats; desktop
+  sessions were never claimed. **Root fix merged** (owner+project fallback
+  in `mobile_opencode_security.ts` / `mobile_opencode_ownership_repository.ts`,
+  verified against the #1175 two-account isolation test). **Follow-up gap
+  found and prompted, not yet built**: every real historical session, and
+  even brand-new sessions started from "All Sessions" today, have a NULL
+  `project_id` — confirmed live, not stale data. The merged fix's fallback
+  requires project match, so it doesn't help these. Decision recorded:
+  [decisions/2026-07-30-mobile-session-visibility-null-project-fallback.md](decisions/2026-07-30-mobile-session-visibility-null-project-fallback.md).
+- **#1280** — MSP-005 composer regression, confirmed on a real iPhone, not
+  caught by Jest. Prompt ready (combined with #1281), not dispatched.
+- **#1281** — Mobile Memories tool empty despite admin role and no
+  server-side error; root cause not yet confirmed. Prompt ready, not
+  dispatched.
+- **#1282** — mobile session creation bypasses skill/MCP scoping entirely
+  (10x token cost vs desktop for the same profile) — root cause confirmed
+  (`mobile_opencode_proxy.ts`'s `session.create` never calls
+  `OpencodeClientService.createSession`). Prompt ready, not dispatched.
+- **#1283** — desktop-started sessions don't stream live to mobile; manual
+  refresh works fine, so it's the push path, not visibility. Prompt ready,
+  not dispatched.
 
 ## Test status
 
-- Release regression (skill_schema_parity): red on unfixed scripts → 13/13
-  green with the profile/identifier/launch-smoke pins.
-- `bash -n` + `shellcheck` on both release scripts; `tsc --noEmit` clean.
-- Local dress rehearsal with the real CI cert: shipped v0.18.53 app +
-  embedded profile + application-identifier launches and runs; new verifier
-  passes it end-to-end (incl. launch smoke) and fails shipped v0.18.53 with
-  a precise message.
-- Also fixed a pre-existing pipefail/SIGPIPE race in
-  `require_codesign_detail` that could flake any release verify step.
+Every merged PR passed its own contract suite plus a live human smoke pass
+(desktop: 6/6, evidence in `.agent-stack/evidence/desktop-smoke-2026-07-30/`;
+mobile: 3 pass / 1 fail / 2 bugs found and one fixed live). The T1 parity
+gate sits at 11/14 feeds matching (`.agent-stack/evidence/t1-parity-gate/`).
+
+## Risks
+
+- Dev api_server + desktop app are down (crash). Relaunch with
+  `RHYTHM_OPENCODE_BIN_DIR` pointed at a built fork before resuming any
+  desktop-facing smoke — see
+  [runs/2026-07-30-live-smoke-and-merge-night.md](runs/2026-07-30-live-smoke-and-merge-night.md)
+  for the exact command.
+- #1266 and #1259 must not be merged on green CI alone; both have known,
+  live-confirmed gaps CI didn't catch.
 
 ## Next step
 
-Green CI on `fix/desktop-devid-provisioning-profile` → merge (user
-pre-authorized) → dispatch Desktop Release v0.18.54 from updated `main` →
-verify launch on a real Mac → then TestFlight and PR #1252 merge.
-
-## Recent coding-agent runs
-
-### 2026-07-30 — local-agent-cloud-token-auth
-
-- Files modified: `auth_middleware.ts` (Cloud bearer fallback + bounded
-  positive cache), `agent_sessions_routes.ts` (authenticated owner guard), new
-  contract/live tests, acceptance contract, and
-  [run log](runs/2026-07-30-local-agent-cloud-token-auth.md).
-- Checks run: contract RED 8 failed/2 passed → GREEN 10/10; `tsc --noEmit`
-  pass; 16 non-socket identity/auth/session regressions pass; `git diff
-  --check` pass.
-- Decisions made: reuse `MobileCloudIdentityService` unchanged; cache only
-  positive results under SHA-256 digests for five minutes with a 256-entry
-  oldest-eviction bound and in-flight request coalescing.
-- Deviations from spec: none; the live test was written and intentionally not
-  run as required.
-- Concerns: live c11 remains pending; older regression files that bind
-  `listen(0)` are environment-blocked by `EPERM`.
+Dispatch the five prepared Codex prompts (#1277, #1278, #1279 follow-up,
+#1280+#1281, #1282, #1283) — each is self-contained in the run log below.
+Once #1280 lands, redo the physical-iPhone composer walk before touching
+#1259. Diagnose #1266's red check before merging it.
