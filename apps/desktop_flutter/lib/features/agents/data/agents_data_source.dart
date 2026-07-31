@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -23,6 +24,24 @@ class _DsSentinel {
 
 // The sentinel value used at runtime (same object as _dssentinel since it's const).
 const Object _dssentinelValue = _dssentinel;
+
+/// Responses at or above this size are decoded away from the Flutter UI
+/// isolate. The recent-first transcript window keeps most responses below it;
+/// this remains a guard for tool-heavy messages and older full-detail servers.
+const int largeJsonDecodeThresholdBytes = 256 * 1024;
+
+Map<String, dynamic> _decodeJsonMap(String source) =>
+    jsonDecode(source) as Map<String, dynamic>;
+
+Map<String, dynamic> _decodeJsonMapBytes(List<int> bytes) =>
+    _decodeJsonMap(utf8.decode(bytes));
+
+Future<Map<String, dynamic>> _decodeResponseMap(http.Response response) {
+  if (response.bodyBytes.length >= largeJsonDecodeThresholdBytes) {
+    return compute(_decodeJsonMapBytes, response.bodyBytes);
+  }
+  return Future.value(_decodeJsonMap(response.body));
+}
 
 class AgentsDataSource {
   AgentsDataSource({http.Client? client})
@@ -162,11 +181,13 @@ class AgentsDataSource {
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
       getSession(String id) async {
     final response = await _client.get(
-      Uri.parse('$_baseUrl/agent-sessions/$id'),
+      Uri.parse('$_baseUrl/agent-sessions/$id').replace(
+        queryParameters: {'transcriptLimit': '50'},
+      ),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = await _decodeResponseMap(response);
     final session = AgentSession.fromJson(
       body['session'] as Map<String, dynamic>? ?? body,
     );
@@ -178,6 +199,45 @@ class AgentsDataSource {
             AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>))
         .toList();
     return (session: session, messages: msgs);
+  }
+
+  /// Fetch one older transcript page. [before] is the exclusive cursor from
+  /// the first row of the current window; rows are returned in display order.
+  Future<
+      ({
+        List<AgentSessionMessage> messages,
+        String? nextCursor,
+        bool hasMore,
+      })> fetchTranscriptPage(
+    String id, {
+    int limit = 50,
+    String? before,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$id/messages').replace(
+        queryParameters: {
+          'limit': '$limit',
+          if (before != null) 'before': before,
+        },
+      ),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final body = await _decodeResponseMap(response);
+    final rawMessages = body['messages'] as List<dynamic>? ?? const [];
+    final pageInfo =
+        body['pageInfo'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+    return (
+      messages: rawMessages
+          .map(
+            (item) => AgentSessionMessage.fromStructuredJson(
+              item as Map<String, dynamic>,
+            ),
+          )
+          .toList(),
+      nextCursor: pageInfo['nextCursor'] as String?,
+      hasMore: pageInfo['hasMore'] as bool? ?? false,
+    );
   }
 
   Future<AgentSession> createSession({
@@ -579,14 +639,17 @@ class AgentsDataSource {
   /// can safely ignore failures (agent selector gracefully degrades).
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async {
     final uri = Uri.parse('$_baseUrl/agent-sessions/agents').replace(
-      queryParameters: cwd != null ? {'cwd': cwd} : null,
+      queryParameters: {
+        if (cwd != null) 'cwd': cwd,
+        'view': 'picker',
+      },
     );
     final response = await _client.get(
       uri,
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = await _decodeResponseMap(response);
     final list = body['agents'] as List<dynamic>? ?? const [];
     return list
         .map((j) => AgentInfo.fromJson(j as Map<String, dynamic>))

@@ -515,6 +515,19 @@ class _ThrowingStubRepo implements AgentsRepository {
       inner.getMessages(id, limit: limit);
 
   @override
+  Future<
+      ({
+        List<AgentSessionMessage> messages,
+        String? nextCursor,
+        bool hasMore,
+      })> fetchTranscriptPage(
+    String id, {
+    int limit = 50,
+    String? before,
+  }) =>
+      inner.fetchTranscriptPage(id, limit: limit, before: before);
+
+  @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) =>
       inner.fetchSessionDiff(id);
 

@@ -14,6 +14,12 @@ interface AgentSessionMessageRow {
   cost: number | null;
 }
 
+export interface StructuredAgentSessionMessagePage {
+  messages: StructuredAgentSessionMessage[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 function rowToModel(row: AgentSessionMessageRow): AgentSessionMessage {
   return {
     id: row.id,
@@ -371,6 +377,46 @@ export class AgentSessionMessagesRepository {
       )
       .all(sessionId, limit) as AgentSessionMessageRow[];
     return rows.map(rowToStructured);
+  }
+
+  /**
+   * Return a stable backward-looking transcript window.
+   *
+   * Rows are selected newest-first by the monotonic local row id, then reversed
+   * before returning so clients can render each page in chronological order.
+   * [beforeId] is exclusive and points at the first row of the current window.
+   */
+  listBySessionStructuredPage(
+    sessionId: string,
+    limit = 50,
+    beforeId?: number,
+  ): StructuredAgentSessionMessagePage {
+    const queryLimit = limit + 1;
+    const rows = beforeId === undefined
+      ? getDb()
+          .prepare(
+            `SELECT * FROM agent_session_messages
+             WHERE session_id = ?
+             ORDER BY id DESC
+             LIMIT ?`,
+          )
+          .all(sessionId, queryLimit) as AgentSessionMessageRow[]
+      : getDb()
+          .prepare(
+            `SELECT * FROM agent_session_messages
+             WHERE session_id = ? AND id < ?
+             ORDER BY id DESC
+             LIMIT ?`,
+          )
+          .all(sessionId, beforeId, queryLimit) as AgentSessionMessageRow[];
+    const hasMore = rows.length > limit;
+    const pageRows = rows.slice(0, limit).reverse();
+    return {
+      messages: pageRows.map(rowToStructured),
+      nextCursor:
+        hasMore && pageRows.length > 0 ? String(pageRows[0].id) : null,
+      hasMore,
+    };
   }
 
   deleteBySession(sessionId: string): number {

@@ -47,6 +47,10 @@ agentSessionsRouter.param('id', requireAgentSessionOwner);
  * `/agent-sessions/agents` here rather than treating "agents" as a session id.
  */
 agentSessionsRouter.get('/agents', controller.listAgents.bind(controller));
+agentSessionsRouter.post(
+  '/agents/refresh',
+  controller.refreshAgents.bind(controller),
+);
 
 /**
  * #747 — GET /agent-sessions/background-status

@@ -311,6 +311,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Available agents fetched from GET /agent-sessions/agents, keyed by sessionId.
   // An absent entry means no fetch has occurred yet for that session.
   final Map<String, List<AgentInfo>> _availableAgentsBySession = {};
+  static const int _transcriptPageSize = 50;
+  final Map<String, String?> _olderTranscriptCursorBySession = {};
+  final Map<String, bool> _hasOlderTranscriptBySession = {};
+  final Set<String> _olderTranscriptLoading = {};
   // Currently selected agent name per session. Null = SDK default (build).
   // Persists for the app run (not persisted to the DB — see spec).
   final Map<String, String?> _selectedAgentBySession = {};
@@ -1367,6 +1371,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<AgentInfo> availableAgentsFor(String sessionId) =>
       List.unmodifiable(_availableAgentsBySession[sessionId] ?? const []);
 
+  bool hasOlderTranscript(String sessionId) =>
+      _hasOlderTranscriptBySession[sessionId] ?? false;
+
+  bool olderTranscriptLoading(String sessionId) =>
+      _olderTranscriptLoading.contains(sessionId);
+
   /// [AgentSession.agentId] values that mean "no distinguishing agent" rather
   /// than a real dispatched identity: `''` is the wire value for a genuinely
   /// agent-less instant-create session (see agent_sessions_controller.ts),
@@ -1482,6 +1492,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (!_disposed) notifyListeners();
     } catch (_) {
       // Non-fatal — keep stale (or empty) list; selector degrades gracefully.
+    }
+  }
+
+  /// Fetch and merge the next older transcript page for [sessionId].
+  ///
+  /// Existing REST and WebSocket rows remain authoritative by stable message
+  /// id. Rehydration de-duplicates them, then chronological sorting restores
+  /// display order after the older page is merged.
+  Future<void> loadOlderTranscript(String sessionId) async {
+    if (_olderTranscriptLoading.contains(sessionId) ||
+        !hasOlderTranscript(sessionId)) {
+      return;
+    }
+    _olderTranscriptLoading.add(sessionId);
+    notifyListeners();
+    try {
+      final page = await _repository.fetchTranscriptPage(
+        sessionId,
+        limit: _transcriptPageSize,
+        before: _olderTranscriptCursorBySession[sessionId],
+      );
+      if (_disposed) return;
+      _rehydrateChatMessages(sessionId, page.messages);
+      _olderTranscriptCursorBySession[sessionId] = page.nextCursor;
+      _hasOlderTranscriptBySession[sessionId] = page.hasMore;
+    } catch (_) {
+      // Non-fatal: keep the current window and leave the affordance available
+      // so the user can retry.
+    } finally {
+      _olderTranscriptLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -2784,6 +2825,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (_disposed || _selectedSessionId != id) return;
       _sessions = _upsertById(_sessions, result.session);
       _rehydrateChatMessages(id, result.messages);
+      if (!_olderTranscriptCursorBySession.containsKey(id)) {
+        _olderTranscriptCursorBySession[id] = result.messages.isEmpty
+            ? null
+            : result.messages.first.id.toString();
+        _hasOlderTranscriptBySession[id] =
+            result.messages.length >= _transcriptPageSize;
+      }
       notifyListeners();
       if (subscribe) {
         _repository.send({'type': 'session.subscribe', 'id': id});
@@ -2993,6 +3041,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     }
+    (_chatMessagesBySession[sessionId] ??= []).sort((left, right) {
+      final byTime = left.createdAt.compareTo(right.createdAt);
+      return byTime != 0 ? byTime : left.id.compareTo(right.id);
+    });
   }
 
   // --------------------------------------------------------------------------
