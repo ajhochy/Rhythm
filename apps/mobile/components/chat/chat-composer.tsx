@@ -104,8 +104,21 @@ export function ChatComposer({
           grow
           iconName="robot-outline"
           label={selectedAgentLabel}
-          onValueChange={(value) => updateChatPreferences({ mode: value })}
-          options={availableAgents.map((agent) => ({ value: agent.id, label: agent.label }))}
+          onValueChange={(value) => {
+            const profile = availableAgents.find(
+              (agent) => agent.opencodeAgentId === value,
+            );
+            if (profile) {
+              updateChatPreferences({
+                profileId: profile.profileId,
+                mode: profile.opencodeAgentId,
+              });
+            }
+          }}
+          options={availableAgents.map((agent) => ({
+            value: agent.opencodeAgentId,
+            label: agent.label,
+          }))}
           selectedValue={chatPreferences.mode}
           title="Choose assistant mode"
         />

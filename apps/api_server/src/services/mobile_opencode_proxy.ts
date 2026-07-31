@@ -6,7 +6,12 @@ import { AppError } from '../errors/app_error';
 import {
   type MobileOpenCodeOwnershipStore,
 } from '../repositories/mobile_opencode_ownership_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  asOpenCodeAgentId,
+  asRhythmProfileId,
+} from '../models/agent_session';
 import { logger } from '../utils/logger';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
@@ -24,6 +29,10 @@ import {
   shapeMobileOpenCodeTextResponse,
   type MobileOpenCodeJsonFetcher,
 } from './mobile_opencode_security';
+import {
+  resolveProfileIdForOpenCodeAgent,
+  safeMobileSessionProfileState,
+} from './mobile_profile_catalog';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -225,6 +234,12 @@ function reconcileCatalogSession(
   const time = recordField(value, 'time');
   const archived = recordField(time, 'archived');
   const updated = recordField(time, 'updated');
+  const model = recordField(value, 'model');
+  const opencodeAgentId = stringRecordField(value, 'agent');
+  const profileId = resolveProfileIdForOpenCodeAgent(
+    opencodeAgentId,
+    new AgentConfigsRepository().list(),
+  );
   const updatedAt =
     typeof updated === 'number' && Number.isFinite(updated)
       ? new Date(updated).toISOString()
@@ -242,6 +257,12 @@ function reconcileCatalogSession(
       name: stringRecordField(value, 'title', 'name') ?? 'Untitled chat',
       archivedAt,
       updatedAt,
+      profileId: profileId ? asRhythmProfileId(profileId) : null,
+      opencodeAgentId: opencodeAgentId
+        ? asOpenCodeAgentId(opencodeAgentId)
+        : null,
+      providerId: stringRecordField(model, 'providerID', 'providerId'),
+      modelId: stringRecordField(model, 'id', 'modelID', 'modelId'),
     });
   } catch (error) {
     if (failureMode === 'required') {
@@ -259,6 +280,58 @@ function reconcileCatalogSession(
       },
     );
   }
+}
+
+const SESSION_STATE_RESPONSE_OPERATIONS = new Set([
+  'experimental.session.list',
+  'session.children',
+  'session.create',
+  'session.list',
+  'session.update',
+]);
+
+function attachSafeSessionState(
+  operationId: string,
+  value: unknown,
+  input: MobileOpenCodeForwardInput,
+  ownership: MobileOpenCodeOwnershipStore,
+): unknown {
+  if (!SESSION_STATE_RESPONSE_OPERATIONS.has(operationId)) return value;
+
+  const attach = (candidate: unknown): unknown => {
+    const sdkSessionId = stringRecordField(candidate, 'id');
+    if (
+      !sdkSessionId ||
+      !candidate ||
+      typeof candidate !== 'object' ||
+      !ownership.isResourceExplicitlyOwnedBy?.(
+        'session',
+        sdkSessionId,
+        input.userId,
+        input.project.id,
+      )
+    ) {
+      return candidate;
+    }
+    const sessions = new AgentSessionsRepository();
+    const local = sessions.findBySdkSessionId(sdkSessionId);
+    if (
+      !local ||
+      local.ownerUserId !== input.userId ||
+      local.projectId !== input.project.id
+    ) {
+      return candidate;
+    }
+    return {
+      ...(candidate as Record<string, unknown>),
+      rhythm: safeMobileSessionProfileState(
+        local,
+        new AgentConfigsRepository().list(),
+      ),
+    };
+  };
+
+  return Array.isArray(value) ? value.map(attach) : attach(value);
 }
 
 function invalidPromptFileUrl(): AppError {
@@ -812,7 +885,14 @@ export class MobileOpenCodeProxy {
           input.path,
           owner,
         );
-        const safeBody = Buffer.from(JSON.stringify(safeValue));
+        const safeBody = Buffer.from(JSON.stringify(
+          attachSafeSessionState(
+            operation.operationId,
+            safeValue,
+            input,
+            ownership,
+          ),
+        ));
         if (safeBody.byteLength > this.responseBodyLimitBytes) {
           throw new AppError(
             502,

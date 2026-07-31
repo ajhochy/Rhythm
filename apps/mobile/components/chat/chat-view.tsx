@@ -137,7 +137,11 @@ export function ChatView() {
   );
   const diffCount = currentDiffs.length || new Set(diffDetails.flatMap((detail) => detail.body.split('\n').filter(Boolean))).size;
   const selectedAgentLabel = useMemo(
-    () => availableAgents.find((agent) => agent.id === chatPreferences.mode)?.label || chatPreferences.mode,
+    () =>
+      availableAgents.find(
+        (agent) => agent.opencodeAgentId === chatPreferences.mode,
+      )?.label ||
+      (chatPreferences.mode || 'Unassigned'),
     [availableAgents, chatPreferences.mode],
   );
   const pendingInteractions = currentPendingPermissions.length + currentPendingQuestions.length;
