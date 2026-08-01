@@ -45,6 +45,11 @@ import {
   type PendingQuestionRequest,
   type OpencodeConnectionSettings,
 } from '@/lib/opencode/client';
+import { buildGlobalEventStreamRequest } from '@/lib/opencode/client';
+import {
+  streamDirectGlobalEvents,
+  streamPairedGlobalEvents,
+} from '@/lib/opencode/global-event-stream';
 import {
   toTranscriptEntry,
   type SessionMessageRecord,
@@ -3110,9 +3115,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setEventStreamStatus(retryAttempt === 0 ? 'connecting' : 'error');
 
         try {
-          const eventClient = pairedHostClient ? client : catalogClient;
-          const subscription = await eventClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
-          setEventStreamStatus('connected');
+          // React Native's XHR-backed fetch cannot stream SSE (issue #1287):
+          // the generated SDK subscription hangs forever on device without
+          // erroring. Native platforms stream through expo/fetch instead;
+          // web keeps the SDK path, which streams correctly in browsers.
+          let envelopeStream: AsyncIterable<{ directory?: string; payload?: GlobalEvent['payload'] }>;
+          if (Platform.OS !== 'web') {
+            envelopeStream = (pairedHostClient
+              ? streamPairedGlobalEvents(pairedHostClient, activeProjectPath, abortController.signal)
+              : (() => {
+                  const request = buildGlobalEventStreamRequest(settings);
+                  return streamDirectGlobalEvents(request.url, request.headers, abortController.signal);
+                })()) as AsyncIterable<{ directory?: string; payload?: GlobalEvent['payload'] }>;
+          } else {
+            const eventClient = pairedHostClient ? client : catalogClient;
+            const subscription = await eventClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
+            envelopeStream = subscription.stream;
+          }
           await Promise.all([
             refreshSessions(true),
             refreshArchivedSessions(),
@@ -3120,14 +3139,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             refreshServerFeatures(),
             refreshCurrentSession(true),
           ]);
-          for await (const envelope of subscription.stream) {
+          for await (const envelope of envelopeStream) {
             if (!mounted || abortController.signal.aborted) {
               break;
             }
-            if (envelope?.directory === activeProjectPath) {
-              setEventStreamStatus('connected');
-              retryAttempt = 0;
-              reachabilityFailureReported = false;
+            // Any received envelope proves the stream is live. Only then is
+            // the 5s polling fallback allowed to stand down — a stream that
+            // opens but never delivers must not silence the safety net.
+            setEventStreamStatus('connected');
+            retryAttempt = 0;
+            reachabilityFailureReported = false;
+            if (envelope?.directory === activeProjectPath && envelope.payload) {
               if (rememberEvent(envelope.payload)) {
                 handleEvent(envelope.payload);
               }
@@ -3158,7 +3180,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, connection.status, pairedHostClient, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
+  }, [activeProjectPath, catalogClient, client, connection.status, pairedHostClient, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh, settings]);
 
   useEffect(
     () => () => {

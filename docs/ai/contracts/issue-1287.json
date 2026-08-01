@@ -1,0 +1,22 @@
+{
+  "issue": 1287,
+  "generated": "2026-08-01",
+  "criteria": [
+    {
+      "criterion_id": "issue-1287-c1",
+      "text": "The mobile client's SSE consumer streams on native platforms: gateway-shaped frames (including projectless desktop events whose directory is the pseudonymous project id) cross the client parse boundary, split chunks reassemble, non-streaming responses fail loudly instead of hanging.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/global-event-stream.test.ts",
+      "test_id": "readSseEnvelopes / streamDirectGlobalEvents",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1287-c2",
+      "text": "While a desktop-originated projectless chat is open on the physical iPhone, desktop user and assistant turns appear automatically without refresh, and mobile turns appear live on desktop.",
+      "mode": "manual-device",
+      "test_file": "docs/ai/runs/2026-08-01-issue-1287-native-sse-stream.md",
+      "test_id": "physical-device smoke with Metro boundary diagnostics",
+      "status": "pass"
+    }
+  ]
+}

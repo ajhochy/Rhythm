@@ -291,7 +291,9 @@ The app uses two update strategies in parallel:
 
 ### Primary Strategy: SSE Subscription
 
-When connected and a project is active, the provider opens `catalogClient.global.event()`. Global event envelopes are filtered by `directory === activeProjectPath` before their payload is handled. If the stream ends or fails, the provider reconnects indefinitely with exponential backoff from 1 second to 15 seconds.
+When connected and a project is active, the provider subscribes to the global event stream. On web this uses the generated SDK (`global.event()`). On native platforms the SDK path is unusable — React Native's XHR-backed `fetch` cannot stream an SSE body, so the subscription would hang forever without erroring — and the provider instead consumes `lib/opencode/global-event-stream.ts`, which streams over `expo/fetch` (paired-gateway `/mobile-gateway/events` or direct `/global/event`).
+
+Global event envelopes are filtered by `directory === activeProjectPath` before their payload is handled (the paired gateway pseudonymizes `directory` to the selected project ID). `eventStreamStatus` becomes `connected` only after an envelope is actually received — a stream that opens but never delivers must not silence the polling fallback. If the stream ends or fails, the provider reconnects indefinitely with exponential backoff from 1 second to 15 seconds.
 
 Recognized events update local state or schedule refreshes for:
 
