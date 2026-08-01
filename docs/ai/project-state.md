@@ -2,56 +2,54 @@
 
 ## Current focus
 
-2026-07-31: a third physical-iPhone Agents smoke reached and rendered a
-desktop/projectless transcript, then continually flashed between the transcript
-and `Opening chat`. Live desktop logs showed matching aborted upstream requests.
-The route lifecycle race is corrected and verified locally: a matching opener
-`ready` state is now authoritative while React finishes committing provider
-selection state. See
-[runs/2026-07-31-issue-1285-native-ready-loop.md](runs/2026-07-31-issue-1285-native-ready-loop.md).
+Issue #1285's projectless desktop-chat opener reached `ready` on a physical
+iPhone, then fell back to `Opening chat` because an older provider bootstrap
+restored a remembered project-scoped session. The corrective delta now keeps the
+explicit owner-opened session authoritative across scoped refreshes and rejects a
+stale bootstrap commit after another session becomes current.
 
 ## Active branch / PR
 
 - Branch: `codex/mobile-fixes-rollup`
 - Base: `origin/codex/fix-session-isolation-runtime-performance`
 - PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
-- Current pushed commit before this corrective delta: `6a8a2beb85c1578ee55a9a406f68dd200bcaf70e`.
+- Current pushed commit before this corrective delta: `bbff0c97061c0fb024878d9929bd7c87fcf79d72`.
 - Merge remains a manual human action after review and physical-device smoke.
 
 ## In progress
 
-- Commit and push the verified c14 lifecycle correction.
-- Reinstall the exact corrected commit on the connected iPhone without replacing
-  the already healthy exact-PR desktop/backend processes.
-- Re-smoke a desktop/projectless chat for stable transcript display and input.
+- Commit and push the c15 provider-selection correction.
+- Wait for GitHub Actions before the next device handoff.
+- Reload only `Rhythm Agents Dev`, then re-smoke the same desktop/projectless chat
+  for stable transcript display and message input.
 
 ## Risks / known issues
 
-- The c14 regression is deterministic and green, but the corrected native build
-  has not yet been driven on the physical iPhone.
-- GitNexus rates this corrective delta LOW: one changed runtime symbol and zero
-  affected execution flows. The branch remains a large intentional integration
-  stack, so comparisons to `main` are noisy and high-risk in aggregate.
+- The complete local PR matrix is nondeterministic in untouched suites: two runs
+  produced different API shared-state failures, and the second also hit one
+  OpenCode cancellation timeout. Each failed test passed alone.
+- GitNexus rates the c15 corrective delta LOW (5 tracked files, 16 indexed
+  symbols, zero affected processes). The full rollup comparison to `main` remains
+  CRITICAL because it intentionally contains the broader #1284 integration stack.
 - Issue #1280 still needs its physical-iPhone multiline composer smoke.
 - User-owned `.proof/` image modifications remain excluded from commits.
 
 ## Test status
 
-- New c14 native contract — RED first (two cancellations and one reopen), then
-  PASS (renderer cleanup only; zero reopen).
-- Atomic opener contract — PASS 12/12.
-- Mobile TypeScript typecheck — PASS.
-- `ai-workflow checks --level issue` — PASS.
-- `ai-workflow checks --level pr` — PASS across all 15 desktop, API, MCP,
-  OpenCode fork, and mobile stages.
-- GitNexus working change detection — LOW, 4 files / 1 indexed symbol / 0
-  affected processes.
-- Failed physical smoke recorded in
-  `.agent-stack/postmortems/2026-07-31-issue-1285-native-ready-loop.json`; existing
-  follow-up issue #1287 updated.
+- c15 contract: RED for each missing guard, then PASS.
+- Focused mobile Jest: PASS, 2 suites / 3 tests.
+- Mobile TypeScript typecheck: PASS.
+- Physical iPhone + real projectless desktop deep link: PASS for a 30-second
+  background-refresh observation after the fix; no remembered-session displacement.
+- `ai-workflow checks --level issue`: PASS.
+- `ai-workflow checks --level pr`: all Flutter, mobile, MCP, build, typecheck,
+  fake-server, and web-E2E stages pass; full gate remains red on unrelated flaky
+  API/engine tests. All three reported failures pass in isolation.
+- Live API, engine, capabilities, and mobile-gateway health probes: PASS.
+- GitNexus working change detection: LOW, zero affected processes.
 
 ## Next step
 
-Commit/push the lifecycle correction, reinstall the exact commit on the iPhone,
-then have the user verify the desktop transcript remains stable and accepts a
-new mobile message.
+Push the corrective commit, wait for GitHub Actions, reload only the Dev mobile
+bundle, and have the user verify that the same desktop chat remains open and can
+accept a new mobile message.

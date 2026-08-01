@@ -99,12 +99,15 @@ import {
   type ProjectSessionCatalog,
 } from '@/providers/open-project-session';
 import {
+  canCommitBootstrappedSession,
   getConfiguredProviders,
   getConversationStatusLabel,
   getCurrentPendingRequests,
   getSessionPreviewById,
   getTranscript,
   getTranscriptActivityLabelForEntries,
+  preserveReadySessionDuringRefresh,
+  reconcileSessionSelectionAfterRefresh,
 } from '@/providers/opencode-provider-selectors';
 import {
   CONVERSATION_FINAL_RESULT_SETTLE_MS,
@@ -637,7 +640,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         if (!isCurrentClient(client)) {
           return result.sessions;
         }
-        setSessions(result.sessions as MobileSession[]);
+        setSessions((current) =>
+          preserveReadySessionDuringRefresh({
+            activeProjectId: activeProjectPathRef.current,
+            currentSessionId: currentSessionIdRef.current,
+            currentSessions: current,
+            openState:
+              openProjectSessionControllerRef.current?.getState() ?? {
+                kind: 'idle',
+              },
+            refreshedSessions: result.sessions as MobileSession[],
+          }),
+        );
         setSessionStatuses(result.statuses);
         return result.sessions as MobileSession[];
       } finally {
@@ -1813,6 +1827,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ]);
         if (!isCurrentClient(client)) {
           return undefined;
+        }
+        if (
+          !canCommitBootstrappedSession({
+            activeBootstrapToken: bootstrapTokenRef.current,
+            bootstrapToken,
+            currentSessionId: currentSessionIdRef.current,
+          })
+        ) {
+          return currentSessionIdRef.current;
         }
         setCurrentSessionId(targetSession.id);
         if (activeProjectPath) {
@@ -3303,18 +3326,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const clearPromptError = useCallback(() => setPromptError(undefined), []);
 
   useEffect(() => {
-    if (!currentSessionId) {
-      return;
+    const nextSessionId = reconcileSessionSelectionAfterRefresh({
+      activeProjectId: activeProjectPath,
+      currentSessionId,
+      lastSessionByProject,
+      openState: openProjectSessionState,
+      sessions,
+    });
+    if (nextSessionId !== currentSessionId) {
+      setCurrentSessionId(nextSessionId);
     }
-
-    if (sessions.some((session) => session.id === currentSessionId)) {
-      return;
-    }
-
-    const rememberedSessionId = activeProjectPath ? lastSessionByProject[activeProjectPath] : undefined;
-    const fallbackSessionId = sessions.find((session) => session.id === rememberedSessionId)?.id || sessions[0]?.id;
-    setCurrentSessionId(fallbackSessionId);
-  }, [activeProjectPath, currentSessionId, lastSessionByProject, sessions]);
+  }, [
+    activeProjectPath,
+    currentSessionId,
+    lastSessionByProject,
+    openProjectSessionState,
+    sessions,
+  ]);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId),

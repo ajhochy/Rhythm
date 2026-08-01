@@ -595,3 +595,12 @@
 - **Root cause**: The route treated the normal React frame between opener readiness and provider-selection commit as a stale state, cancelled the successful transcript load, and reopened it indefinitely.
 - **Suggested fix**: Contract-test the ready/provider-commit interleaving and treat a matching ready opener as authoritative while the selected-session state catches up.
 - **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — stale active-session bootstrap displaces ready transcript
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract; C2 — wrong contract; process: P1
+- **Criteria affected**: issue-1285-c7, issue-1285-c10, issue-1285-c14, issue-1285-c15
+- **Root cause**: An active-session bootstrap that began before the explicit owner open completed later and blindly restored the remembered scoped session, while scoped refresh also omitted the projectless current session.
+- **Suggested fix**: Preserve the ready owner-opened session across scoped refresh and reject stale bootstrap selection commits when any explicit session became current during its await.
+- **Follow-up**: #1287

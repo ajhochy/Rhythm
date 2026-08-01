@@ -113,6 +113,14 @@
       "test_file": "apps/mobile/tests/chat/agent-chat-detail.test.tsx",
       "test_id": "issue-1285-c14: ready opener is not cancelled while provider selection commits",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c15",
+      "text": "After an exact-owner projectless chat reaches ready, a background scoped project session refresh or older in-flight active-session bootstrap must not evict it or restore a previously remembered project chat; the opened transcript remains current until explicit navigation.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/session-refresh-pinning.test.ts",
+      "test_id": "issue-1285-c15: scoped refresh cannot displace the ready owner-opened session",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

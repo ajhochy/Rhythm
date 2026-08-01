@@ -1,5 +1,6 @@
 import { getHistoryPreview, toTranscriptEntry, type SessionMessageRecord, type TranscriptEntry } from '@/lib/opencode/format';
 import { getTranscriptActivityLabel, isTranscriptDisplayMessage } from '@/lib/opencode/transcript';
+import type { OpenProjectSessionState } from '@/providers/open-project-session';
 import type { ModelOption } from '@/providers/opencode-provider-utils';
 import type { ConversationPhase, ProviderOption } from '@/providers/opencode-provider-types';
 
@@ -12,6 +13,96 @@ export function getCurrentPendingRequests<T>(
   const matches = candidateSessionIds.flatMap((sessionId) => pendingRequestsBySession[sessionId] || []);
 
   return matches;
+}
+
+export function canCommitBootstrappedSession({
+  activeBootstrapToken,
+  bootstrapToken,
+  currentSessionId,
+}: {
+  activeBootstrapToken?: object;
+  bootstrapToken: object;
+  currentSessionId?: string;
+}): boolean {
+  return (
+    activeBootstrapToken === bootstrapToken &&
+    currentSessionId === undefined
+  );
+}
+
+export function preserveReadySessionDuringRefresh<
+  TSession extends { id: string },
+>({
+  activeProjectId,
+  currentSessionId,
+  currentSessions,
+  openState,
+  refreshedSessions,
+}: {
+  activeProjectId?: string;
+  currentSessionId?: string;
+  currentSessions: TSession[];
+  openState: OpenProjectSessionState;
+  refreshedSessions: TSession[];
+}): TSession[] {
+  if (
+    openState.kind !== 'ready' ||
+    openState.projectId !== activeProjectId ||
+    openState.sessionId !== currentSessionId ||
+    refreshedSessions.some((session) => session.id === currentSessionId)
+  ) {
+    return refreshedSessions;
+  }
+
+  const ownerOpenedSession = currentSessions.find(
+    (session) => session.id === currentSessionId,
+  );
+  return ownerOpenedSession
+    ? [ownerOpenedSession, ...refreshedSessions]
+    : refreshedSessions;
+}
+
+export function reconcileSessionSelectionAfterRefresh<
+  TSession extends { id: string },
+>({
+  activeProjectId,
+  currentSessionId,
+  lastSessionByProject,
+  openState,
+  sessions,
+}: {
+  activeProjectId?: string;
+  currentSessionId?: string;
+  lastSessionByProject: Record<string, string>;
+  openState: OpenProjectSessionState;
+  sessions: TSession[];
+}): string | undefined {
+  if (!currentSessionId) return currentSessionId;
+
+  if (
+    (openState.kind === 'opening' || openState.kind === 'ready') &&
+    openState.projectId === activeProjectId
+  ) {
+    if (openState.kind === 'opening') return currentSessionId;
+    if (
+      openState.sessionId === currentSessionId ||
+      sessions.some((session) => session.id === openState.sessionId)
+    ) {
+      return openState.sessionId;
+    }
+  }
+
+  if (sessions.some((session) => session.id === currentSessionId)) {
+    return currentSessionId;
+  }
+
+  const rememberedSessionId = activeProjectId
+    ? lastSessionByProject[activeProjectId]
+    : undefined;
+  return (
+    sessions.find((session) => session.id === rememberedSessionId)?.id ??
+    sessions[0]?.id
+  );
 }
 
 export function getConfiguredProviders(availableProviders: ProviderOption[]) {
