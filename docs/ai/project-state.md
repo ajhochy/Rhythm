@@ -3,21 +3,21 @@
 ## Current focus
 
 Issue #1285 bidirectional synchronization for exact-owner projectless desktop
-chats. Mobile-originated turns already converge to desktop; the c21 correction
-allows matching desktop-originated engine events to refresh an open mobile chat.
+chats. Mobile-originated turns converge to desktop, but desktop-originated turns
+still require a mobile refresh after the c21 server-side correction.
 
 ## Active branch / PR
 
 - Branch: `codex/mobile-fixes-rollup`
 - Base: `origin/codex/fix-session-isolation-runtime-performance`
 - PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
-- Current pushed commit: `786c404d7337774c5aa2bbba451d5a9cfc29ebaf`; the c21 corrective delta is local pending commit/push.
+- Current pushed commit: `cdd0bb465` (`fix(mobile): stream projectless desktop updates`).
 - Merge remains a manual human action after review and physical-device smoke.
 
 ## In progress
 
-- Commit and push c21, then restart only the existing PR desktop app/API.
-- Re-smoke a desktop-authored message in the already-open projectless mobile chat and confirm it appears without manual refresh.
+- Diagnose the remaining device-only gap across gateway delivery, mobile EventSource receipt, session-ID matching, refresh scheduling, and React state commit.
+- Keep issue #1287 as the follow-up tracker; do not duplicate it.
 
 ## Risks / known issues
 
@@ -25,6 +25,7 @@ allows matching desktop-originated engine events to refresh an open mobile chat.
 - Branch-vs-`main` GitNexus scope is CRITICAL because this integration rollup already contains 1,206 files; the c21 unstaged delta itself is LOW risk (six files, two indexed symbols, no additional affected processes).
 - Push Mobile CI passed on commit `786c404d7`; the duplicate PR-triggered Mobile CI remains flaky across unrelated legacy Playwright cases.
 - User-owned `.proof/` image modifications remain excluded from commits.
+- The corrected server-side live test is insufficient: it proves the authenticated gateway emits a raw projectless engine event, but not that the physical mobile client consumes that event and commits refreshed transcript state.
 
 ## Test status
 
@@ -36,9 +37,11 @@ allows matching desktop-originated engine events to refresh an open mobile chat.
 - `ai-workflow checks --level issue`: PASS.
 - `ai-workflow checks --level pr`: PASS across Flutter, API, MCP, fork, mobile static/contracts/fake-server, and mobile web E2E.
 - Running desktop API `/health` and `/opencode/health`: HTTP 200 with `ok` / `ready`.
+- Physical-iPhone retry on commit `cdd0bb465`: FAIL; the exact PR desktop app and existing Metro client were running, but desktop-authored turns still did not update the open mobile transcript live.
 
 ## Next step
 
-Commit/push the c21 correction, restart the existing PR desktop app/API, reload the
-already-installed dev client through Metro, and repeat the physical-iPhone
-desktop-to-mobile live-update smoke without installing another app.
+Instrument a unique desktop turn end-to-end at the raw engine SSE, authenticated
+gateway SSE, mobile EventSource callback, session match, refresh invocation, and
+React transcript update. Reproduce on the existing physical-iPhone dev client
+before changing code, then add a client-inclusive regression test.

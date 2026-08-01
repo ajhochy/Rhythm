@@ -62,15 +62,15 @@ Device evidence is recorded without a UDID, pairing code, or device token.
 | Area | Required behavior | Result |
 | --- | --- | --- |
 | Mobile → desktop | A mobile-authored turn and its assistant response appear live in the originating projectless desktop chat | Success — confirmed on the physical iPhone and desktop client |
-| Desktop → mobile | A desktop-authored turn appears in the already-open mobile transcript without manual refresh | Fail — the device required a refresh; recorded as issue-1285-c21 / C1 |
-| Automated correction | The real engine emits the projectless event and the authenticated selected-project mobile SSE stream delivers the same marker while excluding another owner | Success — isolated API + fork live test passed 1/1 in 3.31 seconds |
+| Desktop → mobile | A desktop-authored turn appears in the already-open mobile transcript without manual refresh | Fail — the device still required a refresh after corrective commit `cdd0bb465`; recorded as issue-1285-c21 / C2 |
+| Automated correction | The real engine emits the projectless event and the authenticated selected-project mobile SSE stream delivers the same marker while excluding another owner | Success — isolated API + fork live test passed 1/1 in 3.31 seconds, but it does not exercise the mobile client consumption/state path |
 
-The device failure was caused by project-only SSE directory filtering. The
+Project-only SSE directory filtering was one confirmed discrepancy. The
 correction accepts an out-of-project event only when its session ID resolves to
 an exact-owner selected-project-or-projectless human chat and its canonical
-event directory equals the catalog session's stored working directory. A final
-physical-device retry remains after the existing desktop app/API is restarted
-on the corrective commit.
+event directory equals the catalog session's stored working directory. The
+physical-device retry still failed, so the remaining fault is downstream of or
+parallel to that server predicate and must be traced through the mobile client.
 
 Scope: issue #1174, complete mobile OpenCode 1.14.49 API parity.
 Date: 2026-07-25

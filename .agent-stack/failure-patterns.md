@@ -635,3 +635,12 @@
 - **Root cause**: The acceptance contract covered mobile-originated asynchronous response convergence but never required a currently open mobile transcript to react to desktop-originated engine events.
 - **Suggested fix**: Add a bidirectional live-update contract that drives a desktop-originated turn and asserts the open mobile transcript refreshes without user action.
 - **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — server stream correction still failed on device
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; process: P1
+- **Criteria affected**: issue-1285-c21
+- **Root cause**: The live contract proved the authenticated gateway emitted a projectless desktop event, but omitted the mobile EventSource, session matching, refresh scheduling, and React state-commit path; the physical client still required refresh on corrective commit `cdd0bb465`.
+- **Suggested fix**: Capture one unique event at every client-inclusive boundary and replace the server-only proxy assertion with a regression that proves an already-open mobile transcript updates.
+- **Follow-up**: #1287

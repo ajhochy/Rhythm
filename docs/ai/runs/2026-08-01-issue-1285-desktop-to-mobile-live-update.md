@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/mobile-fixes-rollup
 pr: 1284
 issues: [1285, 1287]
-status: verified
+status: failed-smoke
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -31,4 +31,6 @@ index: "[[Rhythm]]"
 
 ## Notes
 
-The physical-iPhone smoke failed because desktop-originated turns appeared only after manual mobile refresh. Triage found both the gateway security filter and client expected the selected project directory, while All Sessions events carried their projectless chat working directory. A first live correction still failed because macOS represented the same temp directory as `/var/folders/...` in SQLite and `/private/var/folders/...` in the engine event; the guard now uses the existing realpath-safe canonicalizer. The initial detached sandbox process was reaped by the host, so the unchanged live test was rerun with the documented foreground hold. Existing follow-up #1287 remains the tracker; no duplicate issue was opened.
+The physical-iPhone smoke failed because desktop-originated turns appeared only after manual mobile refresh. Triage found both the gateway security filter and client expected the selected project directory, while All Sessions events carried their projectless chat working directory. A first live correction still failed because macOS represented the same temp directory as `/var/folders/...` in SQLite and `/private/var/folders/...` in the engine event; the guard now uses the existing realpath-safe canonicalizer. The initial detached sandbox process was reaped by the host, so the unchanged live test was rerun with the documented foreground hold.
+
+The correction was committed as `cdd0bb465`, pushed to PR #1284, and launched from the exact worktree desktop artifact. The API and engine health probes returned HTTP 200, Metro remained attached to the already-installed iPhone client, and the manual retry still failed. Therefore the directory filter was a real discrepancy but not the complete product root cause. The next investigation must instrument the client-inclusive path from gateway frame receipt through session matching and React state commit. The current live contract only proves gateway delivery and is classified C2 after passing while the physical device failed. Existing follow-up #1287 remains the tracker; no duplicate issue was opened.
