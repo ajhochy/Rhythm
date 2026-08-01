@@ -644,3 +644,11 @@
 - **Root cause**: The live contract proved the authenticated gateway emitted a projectless desktop event, but omitted the mobile EventSource, session matching, refresh scheduling, and React state-commit path; the physical client still required refresh on corrective commit `cdd0bb465`.
 - **Suggested fix**: Capture one unique event at every client-inclusive boundary and replace the server-only proxy assertion with a regression that proves an already-open mobile transcript updates.
 - **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1287 — native SSE transport fixed; smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS, no divergence)
+- **Category**: none (closes the prior C2 on issue-1285-c21)
+- **Criteria affected**: issue-1287-c1, issue-1287-c2
+- **Root cause**: React Native's XHR-backed fetch cannot stream SSE, so zero engine events ever reached the mobile client; optimistic eventStreamStatus='connected' disabled the polling fallback. Fixed with an expo/fetch SSE consumer and data-driven connected status.
+- **Suggested fix**: realtime mobile contracts must include a device-runtime-inclusive assertion; server-only raw-fetch SSE tests are false proxies for RN fetch behavior.

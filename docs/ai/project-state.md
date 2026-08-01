@@ -20,8 +20,9 @@ fallback.
 
 ## In progress
 
-- Final device smoke on the cleaned (diagnostics-stripped) bundle, then
-  failure-postmortem and PR push/CI watch.
+- None — fix verified on cold-start device smoke (both directions live), CI
+  green on 623a59a05, postmortem recorded. Awaiting human review/merge of
+  PR #1284.
 
 ## Risks / known issues
 
@@ -45,5 +46,5 @@ fallback.
 
 ## Next step
 
-Confirm the final smoke on the clean bundle, run failure-postmortem, commit,
-push to PR #1284, and watch CI.
+Human review and manual merge of PR #1284. Residual defects (cold-start open
+timeout, catalog-path 502 mismatch) tracked on issue #1287.
