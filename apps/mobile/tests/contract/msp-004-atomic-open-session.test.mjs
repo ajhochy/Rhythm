@@ -475,3 +475,43 @@ test('issue-1285-c7: owner-discovered projectless chat opens with its transcript
     { id: `message-${projectless.id}` },
   ]);
 });
+
+test('issue-1285-c13: exact projectless lookup bypasses the scoped catalog', async () => {
+  // Regression caught: a projectless desktop chat waits for the selected
+  // project's complete session catalog before trying its exact owner lookup.
+  // The listSessions assertion fails if that slow path runs before direct open.
+  const calls = [];
+  const projectless = session(null, 'session-projectless-fast-path');
+  const harness = createHarness({
+    transport: {
+      async listSessions() {
+        calls.push('list');
+        throw new Error('scoped catalog must not block an exact projectless open');
+      },
+      async resolveSession(projectId, sessionId) {
+        calls.push('resolve');
+        assert.equal(projectId, 'project-a');
+        assert.equal(sessionId, projectless.id);
+        return projectless;
+      },
+      async loadSessionState(projectId, sessionId, targetSession) {
+        calls.push('load');
+        return {
+          messages: [{ id: `message-${sessionId}` }],
+          projectId,
+          session: targetSession,
+          sessionId,
+        };
+      },
+    },
+  });
+
+  const result = await harness.controller.openProjectSession(
+    'project-a',
+    projectless.id,
+  );
+
+  assert.equal(result.kind, 'ready');
+  assert.deepEqual(calls, ['resolve', 'load']);
+  assert.equal(harness.commits[0].session.projectId, null);
+});

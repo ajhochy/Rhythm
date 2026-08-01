@@ -577,3 +577,12 @@
 - **Root cause**: The prior contract proved transcript visibility but omitted owner-authorized interaction, cancellable opening, messages-first readiness, and progressive first-page catalog delivery.
 - **Suggested fix**: Require the mobile open journey to publish ten sessions first, expose Back while opening, become ready from messages alone, and permit exact-owner projectless prompting before physical smoke handoff.
 - **Follow-up**: #1287
+
+## 2026-07-31 — Issue 1285 — native retry still blocks open and reorders the newest chat
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract
+- **Criteria affected**: issue-1285-c7, issue-1285-c8, issue-1285-c10, issue-1285-c11
+- **Root cause**: The tests covered isolated progressive callbacks and a mocked messages-first opener, but did not prove deterministic row preservation under real concurrent hydration or a bounded real-gateway open on the physical device.
+- **Suggested fix**: Add adversarial interleaving coverage for catalog snapshots and drive the actual gateway open through a strict readiness deadline before reinstalling the phone build.
+- **Follow-up**: #1287

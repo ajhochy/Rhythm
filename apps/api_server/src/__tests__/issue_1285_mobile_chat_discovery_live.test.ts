@@ -164,6 +164,7 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
         projectId?: string | null;
         category?: 'chat' | 'scheduled' | 'self_improvement';
         isSystem?: boolean;
+        lastActivityAt?: string;
       } = {},
     ): void => {
       const localId = randomUUID();
@@ -172,8 +173,9 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       db.prepare(
         `INSERT INTO agent_sessions
            (id, agent_kind, status, cwd, name, project_id, owner_user_id,
-            category, is_system, sdk_session_id, created_at, updated_at)
-         VALUES (?, 'codex', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            category, is_system, sdk_session_id, created_at, updated_at,
+            last_activity_at)
+         VALUES (?, 'codex', 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         localId,
         options.projectId ? projectRoot : homeRoot,
@@ -185,6 +187,7 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
         sdkSessionId,
         now,
         now,
+        options.lastActivityAt ?? now,
       );
     };
 
@@ -226,8 +229,13 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
         homeRoot,
       );
 
-      insertCatalogSession(scopedHuman, ownerA.id, { projectId });
-      insertCatalogSession(unscopedHuman, ownerA.id);
+      insertCatalogSession(scopedHuman, ownerA.id, {
+        projectId,
+        lastActivityAt: '2026-07-31T20:00:00.000Z',
+      });
+      insertCatalogSession(unscopedHuman, ownerA.id, {
+        lastActivityAt: '2026-07-31T19:00:00.000Z',
+      });
       insertCatalogSession(otherOwnerHuman, ownerB.id);
       insertCatalogSession(scheduled, ownerA.id, {
         category: 'scheduled',
@@ -244,7 +252,7 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       ));
       expect(scopedIds).toEqual([scopedHuman]);
 
-      const unscopedResponse = await fetch(
+      const ownerCatalogResponse = await fetch(
         `${baseUrl}/mobile-gateway/opencode/experimental/session?limit=100`,
         {
           headers: gatewayHeaders(
@@ -254,19 +262,26 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
           ),
         },
       );
-      expect(unscopedResponse.status).toBe(200);
-      const unscoped = (await unscopedResponse.json()) as Array<{
+      expect(ownerCatalogResponse.status).toBe(200);
+      const ownerCatalog = (await ownerCatalogResponse.json()) as Array<{
         id: string;
-        projectId: null;
-        routingProjectId: string;
+        projectId: string | null;
+        routingProjectId?: string;
         directory?: string;
       }>;
-      expect(unscoped.map(({ id }) => id)).toEqual([unscopedHuman]);
-      expect(unscoped[0]).toMatchObject({
+      expect(ownerCatalog.map(({ id }) => id)).toEqual([
+        scopedHuman,
+        unscopedHuman,
+      ]);
+      expect(ownerCatalog[0]).toMatchObject({
+        projectId,
+      });
+      expect(ownerCatalog[0]).not.toHaveProperty('routingProjectId');
+      expect(ownerCatalog[1]).toMatchObject({
         projectId: null,
         routingProjectId: projectId,
       });
-      expect(unscoped[0]).not.toHaveProperty('directory');
+      expect(ownerCatalog.every((item) => !('directory' in item))).toBe(true);
 
       const unscopedLookup = await fetch(
         `${baseUrl}/mobile-gateway/opencode/experimental/session?limit=1&search=${encodeURIComponent(unscopedHuman)}`,

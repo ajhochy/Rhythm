@@ -856,11 +856,19 @@ export class MobileOpenCodeProxy {
         sessionId: query.get('search')?.trim() || undefined,
       });
       const safeBody = Buffer.from(JSON.stringify(
-        page.items.map((item) => ({
-          ...item,
-          projectId: null,
-          routingProjectId: input.project.id,
-        })),
+        page.items.map((item) => {
+          const projectId = typeof item.projectId === 'string' &&
+              item.projectId.trim().length > 0
+            ? item.projectId
+            : null;
+          return {
+            ...item,
+            projectId,
+            ...(projectId === null
+              ? { routingProjectId: input.project.id }
+              : {}),
+          };
+        }),
       ));
       if (safeBody.byteLength > this.responseBodyLimitBytes) {
         throw new AppError(

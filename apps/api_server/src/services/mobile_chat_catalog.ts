@@ -5,10 +5,11 @@ interface MobileChatCatalogRow {
   sdk_session_id: string;
   name: string;
   status: string;
+  project_id: string | null;
   parent_sdk_session_id: string | null;
   archived_at: string | null;
   created_at: string;
-  updated_at: string;
+  activity_at: string;
 }
 
 export interface MobileChatCatalogPage {
@@ -34,12 +35,21 @@ export async function listOwnerUnscopedMobileChats(input: {
     : 'session.archived_at IS NULL';
   const select = `
     SELECT session.sdk_session_id, session.name, session.status,
+           session.project_id,
            parent.sdk_session_id AS parent_sdk_session_id,
-           session.archived_at, session.created_at, session.updated_at
+           session.archived_at, session.created_at,
+           COALESCE(session.last_activity_at, session.updated_at, session.created_at) AS activity_at
       FROM agent_sessions session
       LEFT JOIN agent_sessions parent ON parent.id = session.parent_session_id
+      LEFT JOIN projects project_scope
+        ON project_scope.id = session.project_id
+       AND project_scope.archived_at IS NULL
      WHERE session.owner_user_id = %OWNER%
-       AND (session.project_id IS NULL OR TRIM(session.project_id) = '')
+       AND (
+         session.project_id IS NULL
+         OR TRIM(session.project_id) = ''
+         OR project_scope.id IS NOT NULL
+       )
        AND session.category = 'chat'
        AND session.is_system = 0
        AND session.scheduled_task_id IS NULL
@@ -88,12 +98,12 @@ export async function listOwnerUnscopedMobileChats(input: {
       : {}),
     time: {
       created: timestamp(row.created_at) ?? 0,
-      updated: timestamp(row.updated_at) ?? 0,
+      updated: timestamp(row.activity_at) ?? 0,
       ...(row.archived_at
         ? { archived: timestamp(row.archived_at) ?? 0 }
         : {}),
     },
-    projectId: null,
+    projectId: row.project_id?.trim() || null,
   }));
   return {
     items,

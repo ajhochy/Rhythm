@@ -1,0 +1,108 @@
+{
+  "run_id": "2026-07-31-issue-1285-native-retry",
+  "issue": 1285,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c1",
+      "text": "Move the Chats title actions, project selector, and lifecycle selector into the Agents top-right overflow menu; keep Search chats visible.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User report: three dot menu works."
+    },
+    {
+      "criterion_id": "issue-1285-c7",
+      "text": "An exact-owner projectless desktop human chat discovered in mobile Chats can be opened and its transcript can be read without treating it as missing from the selected project.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "User report: desktop session stuck opening chat; the desktop sessions do not open."
+    },
+    {
+      "criterion_id": "issue-1285-c8",
+      "text": "An exact-owner projectless desktop human chat is interactive from mobile, while retaining projectId null and using a separate registered-project routing context for gateway authorization.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The Read-only label is gone, but interaction is unreachable because the desktop session never completes opening."
+    },
+    {
+      "criterion_id": "issue-1285-c9",
+      "text": "The Opening chat screen always exposes Back to chats, which cancels the in-flight open and returns to Agents.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User report: there is a Back to chats button; it works, although returning is slow."
+    },
+    {
+      "criterion_id": "issue-1285-c10",
+      "text": "Opening a chat becomes ready after its bounded message page loads; diff, todos, permissions, and questions refresh afterward and cannot hold the opening screen hostage.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The physical-device desktop-session open remained indefinitely on Opening chat despite the passing messages-first contract."
+    },
+    {
+      "criterion_id": "issue-1285-c11",
+      "text": "Chats publishes the first 10 owner sessions immediately, then merges remaining owner pages and project batches progressively without keeping the initial list loader active.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The initial list loaded quickly, but the newest/top session was nondeterministic and sometimes appeared three to four seconds after older rows."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "project-state-updater",
+        "description": "The corrected build reached another native smoke before the project-state snapshot was updated with the pushed SHA, green CI reruns, and the new smoke status.",
+        "detected_by": "docs/ai/project-state.md still described push, CI, and the corrected native smoke as pending."
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "The handoff claimed projectless chats were interactively openable and progressive ordering was ready for smoke, but the physical device still blocked opening and published the newest row nondeterministically.",
+        "detected_by": "Physical-iPhone smoke against pushed commit 5662c5dc0c610ab0e8b454d040494badfddad400."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/mobile_chat_catalog.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/api_server/src/services/mobile_opencode_security.ts",
+    "apps/mobile/app/agents/chats/[sessionId].tsx",
+    "apps/mobile/components/chat/chat-list.tsx",
+    "apps/mobile/providers/agent-chat-provider.tsx",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/services/agent-chat-service.ts",
+    "apps/mobile/providers/services/session-service.ts"
+  ],
+  "failure_output": "Initial session list loaded quick. Desktop session stuck Opening chat. Back works but is slow. The newest session sometimes does not appear until three to four seconds after other rows. No Read-only label, but desktop sessions do not open.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Replace isolated callback and mocked-open assertions with a deterministic interleaving catalog contract and a real gateway open deadline that proves the newest row stays published and the device reaches an interactive transcript."
+}

@@ -8,7 +8,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c1: Agents overflow owns chat actions and selectors while Search chats stays visible",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c2",
@@ -16,7 +16,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c2: desktop human sessions compose into Chats without leaking scheduled or optimizer runs",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c3",
@@ -24,7 +24,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c3: Review Queue and Gallery load the authorized records visible on desktop",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c4",
@@ -32,7 +32,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c4: large tool catalogs expose search grouping and deterministic A-Z sorting",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c5",
@@ -40,7 +40,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c5: Providers & Models explains and limits the catalog to configured or available entries",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c6",
@@ -48,7 +48,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c6: native Agents and Tools paths cannot emit Fragment-prop or invalid-icon warnings",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c7",
@@ -56,7 +56,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-1285-c7: owner-discovered projectless chat opens with its transcript",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c8",
@@ -64,7 +64,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/session-discovery.test.ts",
       "test_id": "issue-1285-c8: projectless owner chats remain interactive with separate routing context",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c9",
@@ -72,7 +72,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/chat/agent-chat-detail.test.tsx",
       "test_id": "issue-1285-c9: opening chat exposes a working Back to chats action",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c10",
@@ -80,7 +80,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c10: initial open awaits messages only and defers supplemental state",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1285-c11",
@@ -88,7 +88,23 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/session-discovery.test.ts",
       "test_id": "issue-1285-c11: first ten chats publish before delayed catalog pages",
-      "status": "pending"
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c12",
+      "text": "The first Chats page is the globally newest 10 exact-owner human sessions across registered project-bound and projectless desktop chats, so a newer project chat is never delayed behind older projectless rows.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1285_mobile_chat_discovery.test.ts",
+      "test_id": "issue-1285-c12: first owner page is globally newest across registered and projectless chats",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c13",
+      "text": "Opening an exact-owner projectless desktop chat resolves that session before loading the selected project's full catalog, and a successful exact lookup proceeds directly to its bounded transcript page.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-1285-c13: exact projectless lookup bypasses the scoped catalog",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

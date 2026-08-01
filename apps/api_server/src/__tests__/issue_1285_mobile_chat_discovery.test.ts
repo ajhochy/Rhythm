@@ -98,7 +98,7 @@ describe('issue #1285 owner-scoped mobile chat discovery', () => {
     sessions.setSdkSessionId(local.id, sdkSessionId);
   };
 
-  it('returns only exact-owner unscoped human chats as read-only records', async () => {
+  it('returns exact-owner human chats without system activity leakage', async () => {
     catalogSession('ses-owner-a-human', ownerA);
     catalogSession('ses-owner-b-human', ownerB);
     catalogSession('ses-scheduled', ownerA, {
@@ -131,14 +131,79 @@ describe('issue #1285 owner-scoped mobile chat discovery', () => {
     const body = JSON.parse(Buffer.from(result.body).toString('utf8')) as
       Array<Record<string, unknown>>;
 
-    expect(body).toEqual([expect.objectContaining({
-      id: 'ses-owner-a-human',
-      projectId: null,
-      routingProjectId: project.id,
-    })]);
-    expect(body[0]).not.toHaveProperty('directory');
+    expect(body.map(({ id }) => id)).toEqual([
+      'ses-scoped',
+      'ses-owner-a-human',
+    ]);
+    expect(body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'ses-scoped',
+        projectId: project.id,
+      }),
+      expect.objectContaining({
+        id: 'ses-owner-a-human',
+        projectId: null,
+        routingProjectId: project.id,
+      }),
+    ]));
+    expect(body.every((item) => !('directory' in item))).toBe(true);
     expect(fetchFn).not.toHaveBeenCalled();
     expect(result.headers).toBeUndefined();
+  });
+
+  it('issue-1285-c12: first owner page is globally newest across registered and projectless chats', async () => {
+    catalogSession('ses-projectless-older', ownerA);
+    catalogSession('ses-project-newest', ownerA, { projectId: project.id });
+    catalogSession('ses-other-project', ownerA, { projectId: otherProjectId });
+    catalogSession('ses-other-owner', ownerB, { projectId: project.id });
+    db.prepare(
+      `UPDATE agent_sessions
+          SET last_activity_at = CASE sdk_session_id
+            WHEN 'ses-project-newest' THEN '2026-07-31T20:00:00.000Z'
+            WHEN 'ses-projectless-older' THEN '2026-07-31T19:00:00.000Z'
+            WHEN 'ses-other-project' THEN '2026-07-31T18:00:00.000Z'
+            ELSE last_activity_at
+          END`,
+    ).run();
+    const proxy = new MobileOpenCodeProxy({
+      baseUrl: 'http://opencode.test',
+      ownershipRepository: ownership,
+      fetchFn: async () => {
+        throw new Error('owner catalog must come from the authoritative database');
+      },
+    });
+
+    const result = await proxy.forward({
+      method: 'GET',
+      path: '/experimental/session',
+      query: new URLSearchParams({ limit: '2' }),
+      project,
+      userId: ownerA,
+      ownerUnscopedDiscovery: true,
+    });
+    const body = JSON.parse(Buffer.from(result.body).toString('utf8')) as
+      Array<{
+        id: string;
+        projectId: string | null;
+        routingProjectId?: string;
+        time: { updated: number };
+      }>;
+
+    expect(body.map(({ id }) => id)).toEqual([
+      'ses-project-newest',
+      'ses-projectless-older',
+    ]);
+    expect(body[0]).toMatchObject({
+      projectId: project.id,
+      time: { updated: Date.parse('2026-07-31T20:00:00.000Z') },
+    });
+    expect(body[0]).not.toHaveProperty('routingProjectId');
+    expect(body[1]).toMatchObject({
+      projectId: null,
+      routingProjectId: project.id,
+      time: { updated: Date.parse('2026-07-31T19:00:00.000Z') },
+    });
+    expect(result.headers).toEqual({ 'x-next-cursor': '2' });
   });
 
   it('opens an exact-owner projectless transcript using its catalog cwd', async () => {

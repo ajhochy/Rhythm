@@ -316,14 +316,25 @@ export function createOpenProjectSessionController<
           );
         }
 
-        const catalog = await transport.listSessions(projectId);
-        ensureCurrent();
-        let target = sessionsFromCatalog(catalog).find(
-          (session) => session.id === sessionId,
-        );
-        if (!target && transport.resolveSession) {
-          target = await transport.resolveSession(projectId, sessionId);
+        let target: TSession | undefined;
+        if (transport.resolveSession) {
+          try {
+            target = await transport.resolveSession(projectId, sessionId);
+          } catch {
+            // The exact owner lookup is an optimization. Preserve the scoped
+            // catalog path for older gateways and temporary lookup failures.
+          }
           ensureCurrent();
+        }
+        let catalog: ProjectSessionCatalog<TSession>;
+        if (target) {
+          catalog = [target];
+        } else {
+          catalog = await transport.listSessions(projectId);
+          ensureCurrent();
+          target = sessionsFromCatalog(catalog).find(
+            (session) => session.id === sessionId,
+          );
         }
         if (!target) {
           throw new OpenProjectSessionFailure(
