@@ -105,6 +105,14 @@
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-1285-c13: exact projectless lookup bypasses the scoped catalog",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c14",
+      "text": "Once the opener reaches ready for the requested chat, a transient render before provider selection state commits must not cancel or reopen it; the transcript remains stable without flashing back to Opening chat.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/chat/agent-chat-detail.test.tsx",
+      "test_id": "issue-1285-c14: ready opener is not cancelled while provider selection commits",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

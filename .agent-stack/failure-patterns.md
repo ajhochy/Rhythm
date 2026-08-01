@@ -586,3 +586,12 @@
 - **Root cause**: The tests covered isolated progressive callbacks and a mocked messages-first opener, but did not prove deterministic row preservation under real concurrent hydration or a bounded real-gateway open on the physical device.
 - **Suggested fix**: Add adversarial interleaving coverage for catalog snapshots and drive the actual gateway open through a strict readiness deadline before reinstalling the phone build.
 - **Follow-up**: #1287
+
+## 2026-07-31 — Issue 1285 — ready transcript loops back to Opening chat
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract; C2 — wrong contract
+- **Criteria affected**: issue-1285-c7, issue-1285-c10, issue-1285-c14
+- **Root cause**: The route treated the normal React frame between opener readiness and provider-selection commit as a stale state, cancelled the successful transcript load, and reopened it indefinitely.
+- **Suggested fix**: Contract-test the ready/provider-commit interleaving and treat a matching ready opener as authoritative while the selected-session state catches up.
+- **Follow-up**: #1287

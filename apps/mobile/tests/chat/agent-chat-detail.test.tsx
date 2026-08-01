@@ -6,6 +6,7 @@ import AgentChatDetailScreen from '@/app/agents/chats/[sessionId]';
 const mockReplace = jest.fn();
 const mockCancelOpenProjectSession = jest.fn();
 const mockOpenProjectSession = jest.fn();
+let mockOpencodeState: Record<string, unknown>;
 
 jest.mock('expo-router', () => ({
   Stack: { Screen: () => null },
@@ -17,20 +18,7 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@/components/chat/chat-view', () => ({ ChatView: () => null }));
 jest.mock('@/providers/opencode-provider', () => ({
-  useOpencode: () => ({
-    activeProjectPath: '/registered/project',
-    cancelOpenProjectSession: mockCancelOpenProjectSession,
-    connection: { status: 'connected' },
-    currentSessionId: undefined,
-    isHydrated: true,
-    openProjectSession: mockOpenProjectSession,
-    openProjectSessionState: {
-      kind: 'opening',
-      generation: 1,
-      projectId: '/registered/project',
-      sessionId: 'ses-projectless',
-    },
-  }),
+  useOpencode: () => mockOpencodeState,
 }));
 jest.mock('@/providers/paired-host-provider', () => ({
   usePairedHost: () => ({
@@ -41,6 +29,23 @@ jest.mock('@/providers/paired-host-provider', () => ({
 }));
 
 describe('AgentChatDetailScreen', () => {
+  beforeEach(() => {
+    mockOpencodeState = {
+      activeProjectPath: '/registered/project',
+      cancelOpenProjectSession: mockCancelOpenProjectSession,
+      connection: { status: 'connected' },
+      currentSessionId: undefined,
+      isHydrated: true,
+      openProjectSession: mockOpenProjectSession,
+      openProjectSessionState: {
+        kind: 'opening',
+        generation: 1,
+        projectId: '/registered/project',
+        sessionId: 'ses-projectless',
+      },
+    };
+  });
+
   afterEach(() => {
     cleanup();
     jest.clearAllMocks();
@@ -59,5 +64,32 @@ describe('AgentChatDetailScreen', () => {
 
     expect(mockCancelOpenProjectSession).toHaveBeenCalledTimes(1);
     expect(mockReplace).toHaveBeenCalledWith('/(tabs)/agents');
+  });
+
+  test('issue-1285-c14: ready opener is not cancelled while provider selection commits', () => {
+    // Regression caught on a physical iPhone: the controller publishes ready
+    // immediately after committing provider state. React can expose that ready
+    // state one render before currentSessionId, and reopening here produces an
+    // endless transcript/Opening chat flash with aborted upstream requests.
+    mockOpencodeState = {
+      ...mockOpencodeState,
+      openProjectSessionState: {
+        kind: 'ready',
+        generation: 1,
+        projectId: '/registered/project',
+        sessionId: 'ses-projectless',
+      },
+    };
+
+    render(
+      <PaperProvider>
+        <AgentChatDetailScreen />
+      </PaperProvider>,
+    );
+
+    // The native test renderer performs one effect cleanup cycle. The broken
+    // recovery branch adds a second cancellation and then reopens the chat.
+    expect(mockCancelOpenProjectSession).toHaveBeenCalledTimes(1);
+    expect(mockOpenProjectSession).not.toHaveBeenCalled();
   });
 });

@@ -74,16 +74,11 @@ export default function AgentChatDetailScreen() {
       if (TERMINAL_STATES.has(openState.kind as OpenProjectSessionTerminalKind)) {
         return;
       }
-      if (
-        openState.kind === 'ready' &&
-        activeProjectPath === targetProjectId &&
-        currentSessionId === targetSessionId
-      ) {
-        return;
-      }
-      if (openState.kind === 'ready') {
-        cancelOpenProjectSession();
-      }
+      // The controller publishes ready immediately after committing the
+      // provider selection. React can expose this state one render before
+      // activeProjectPath/currentSessionId catch up. Reopening in that frame
+      // cancels a successful transcript load and creates an endless loop.
+      if (openState.kind === 'ready') return;
     }
     void openProjectSession(targetProjectId, targetSessionId);
   }, [
