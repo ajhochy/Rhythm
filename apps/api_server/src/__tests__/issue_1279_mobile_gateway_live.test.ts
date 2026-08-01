@@ -44,6 +44,19 @@ async function gatewaySessions(
     .map(({ id }) => id);
 }
 
+async function waitFor<T>(
+  read: () => T | undefined,
+  timeoutMs = 90_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = read();
+    if (value !== undefined) return value;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for live behavior`);
+}
+
 describeLive('live E2E — issue #1279 desktop session claim fallback', () => {
   it('shows projectless desktop sessions only to their exact owner', async () => {
     const parsedApi = new URL(baseUrl);
@@ -249,6 +262,85 @@ describeLive('live E2E — issue #1279 desktop session claim fallback', () => {
       const ownerProjectQ = await gatewaySessions(userA, projectQId);
       expect(ownerProjectQ).not.toContain(scopedSdkSessionId);
       expect(ownerProjectQ).toContain(unscopedSdkSessionId);
+
+      const executionStateBody = JSON.stringify({
+        profileId: null,
+        opencodeAgentId: null,
+        providerId: null,
+        modelId: null,
+        thinkingBudget: null,
+        permissionMode: 'default',
+      });
+      const updateState = (
+        user: LiveUser,
+        projectId: string,
+        sdkSessionId: string,
+      ) => fetch(
+        `${baseUrl}/mobile-gateway/sessions/` +
+          `${encodeURIComponent(sdkSessionId)}/state`,
+        {
+          method: 'PATCH',
+          headers: {
+            ...gatewayHeaders(user.deviceToken!, projectId),
+            'Content-Type': 'application/json',
+          },
+          body: executionStateBody,
+        },
+      );
+      expect((await updateState(
+        userA,
+        projectPId,
+        unscopedSdkSessionId,
+      )).status).toBe(200);
+      expect((await updateState(
+        userA,
+        projectQId,
+        unscopedSdkSessionId,
+      )).status).toBe(200);
+      expect((await updateState(
+        userB,
+        projectPId,
+        unscopedSdkSessionId,
+      )).status).toBe(404);
+      expect((await updateState(
+        userA,
+        projectQId,
+        scopedSdkSessionId,
+      )).status).toBe(404);
+
+      const promptMarker = `issue-1279-mobile-sync-${runId}`;
+      const promptResponse = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/session/` +
+          `${encodeURIComponent(unscopedSdkSessionId)}/prompt_async`,
+        {
+          method: 'POST',
+          headers: {
+            ...gatewayHeaders(userA.deviceToken!, projectQId),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            parts: [{
+              type: 'text',
+              text: `Respond exactly "${promptMarker}" and nothing else.`,
+            }],
+          }),
+        },
+      );
+      expect(promptResponse.status).toBe(204);
+
+      const persistedMobileInput = await waitFor(() => db.prepare(
+        `SELECT role, raw_text
+           FROM agent_session_messages
+          WHERE session_id = ?
+            AND role = 'input'
+            AND raw_text LIKE ?
+          ORDER BY created_at DESC
+          LIMIT 1`,
+      ).get(localSessionIds[1], `%${promptMarker}%`) as
+        | { role: string; raw_text: string }
+        | undefined);
+      expect(persistedMobileInput.role).toBe('input');
+      expect(persistedMobileInput.raw_text).toContain(promptMarker);
       // Read visibility must not silently relax the explicit-claim predicate
       // used by catalog reconciliation.
       expect(claimCount(scopedSdkSessionId)).toBe(0);

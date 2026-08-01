@@ -520,6 +520,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     const proxy = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
       ownershipRepository: permissiveOwnershipRepository,
+      preparePromptStream: async () => undefined,
       fetchFn: async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(String(input));
         if (url.pathname === '/session' && init?.method === 'GET') {

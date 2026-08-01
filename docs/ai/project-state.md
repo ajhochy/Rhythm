@@ -2,54 +2,48 @@
 
 ## Current focus
 
-Issue #1285's projectless desktop-chat opener reached `ready` on a physical
-iPhone, then fell back to `Opening chat` because an older provider bootstrap
-restored a remembered project-scoped session. The corrective delta now keeps the
-explicit owner-opened session authoritative across scoped refreshes and rejects a
-stale bootstrap commit after another session becomes current.
+Issue #1285 mobile sends to exact-owner projectless desktop chats now avoid
+context compaction, hide existing internal compaction records, start the API
+event bridge before forwarding the prompt, and poll until the asynchronous
+assistant turn becomes visible on mobile.
 
 ## Active branch / PR
 
 - Branch: `codex/mobile-fixes-rollup`
 - Base: `origin/codex/fix-session-isolation-runtime-performance`
 - PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
-- Current pushed commit before this corrective delta: `bbff0c97061c0fb024878d9929bd7c87fcf79d72`.
+- Current pushed commit: `60b2a1a23a9cfa4560ee5a7d379b4e48c29e1510`; the c16-c20 corrective delta is local pending commit/push.
 - Merge remains a manual human action after review and physical-device smoke.
 
 ## In progress
 
-- Commit and push the c15 provider-selection correction.
-- Wait for GitHub Actions before the next device handoff.
-- Reload only `Rhythm Agents Dev`, then re-smoke the same desktop/projectless chat
-  for stable transcript display and message input.
+- Commit and push the c16-c20 corrective delta, then wait for GitHub Actions.
+- Launch the already-installed `Rhythm Agents Dev` bundle when the iPhone 13 mini becomes available to Xcode.
+- Re-smoke one unique mobile prompt in the same projectless desktop chat and confirm it appears on both clients with one assistant response and no compaction cards.
 
 ## Risks / known issues
 
-- The complete local PR matrix is nondeterministic in untouched suites: two runs
-  produced different API shared-state failures, and the second also hit one
-  OpenCode cancellation timeout. Each failed test passed alone.
-- GitNexus rates the c15 corrective delta LOW (5 tracked files, 16 indexed
-  symbols, zero affected processes). The full rollup comparison to `main` remains
-  CRITICAL because it intentionally contains the broader #1284 integration stack.
+- The iPhone 13 mini currently reports `unavailable` to `xcrun devicectl`; an iPad with the same device name is paired and available.
+- One unchanged OpenCode interruption test hit its 5-second timeout during an intermediate PR run, then passed alone in 1.3 seconds and passed in the final full PR matrix.
+- The isolated sandbox's copied default model configuration returned `Requested entity was not found`; the live regression therefore asserts the bridge-owned desktop transcript persistence boundary, while deterministic mobile tests assert delayed assistant refresh.
 - Issue #1280 still needs its physical-iPhone multiline composer smoke.
 - User-owned `.proof/` image modifications remain excluded from commits.
 
 ## Test status
 
-- c15 contract: RED for each missing guard, then PASS.
-- Focused mobile Jest: PASS, 2 suites / 3 tests.
-- Mobile TypeScript typecheck: PASS.
-- Physical iPhone + real projectless desktop deep link: PASS for a 30-second
-  background-refresh observation after the fix; no remembered-session displacement.
+- Contracts c16-c20: PASS.
+- Focused API proxy/state/stream tests: PASS, 3 files / 16 tests.
+- Focused mobile contract and Jest tests: PASS.
+- Mobile TypeScript and API production build: PASS.
+- Isolated live API + fork test: PASS, 1 file / 1 test; projectless owner prompt persisted into `agent_session_messages` through the mobile gateway.
+- Fresh fork standalone build and binary smoke: PASS.
 - `ai-workflow checks --level issue`: PASS.
-- `ai-workflow checks --level pr`: all Flutter, mobile, MCP, build, typecheck,
-  fake-server, and web-E2E stages pass; full gate remains red on unrelated flaky
-  API/engine tests. All three reported failures pass in isolation.
-- Live API, engine, capabilities, and mobile-gateway health probes: PASS.
-- GitNexus working change detection: LOW, zero affected processes.
+- Final `ai-workflow checks --level pr`: PASS, including Flutter tests, serial API suite/build, MCP, fork tests, mobile static/contracts/fake-server, and mobile web E2E.
+- Live desktop API and engine health on ports 4001/4096: PASS.
+- GitNexus unstaged change detection: MEDIUM, 10 indexed files, 14 symbols, 3 expected gateway execution flows.
 
 ## Next step
 
-Push the corrective commit, wait for GitHub Actions, reload only the Dev mobile
-bundle, and have the user verify that the same desktop chat remains open and can
-accept a new mobile message.
+Commit and push the verified delta, wait for CI, then reconnect/unlock the iPhone
+13 mini and run the cross-client projectless-send smoke without installing a
+second app.

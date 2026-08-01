@@ -91,6 +91,16 @@ export interface MobileOpenCodeProxyOptions {
   responseBodyLimitBytes?: number;
   timeoutMs?: number;
   ownershipRepository?: MobileOpenCodeOwnershipStore;
+  preparePromptStream?: (
+    input: MobilePromptStreamInput,
+  ) => Promise<void>;
+}
+
+export interface MobilePromptStreamInput {
+  directory: string;
+  projectId: string;
+  sdkSessionId: string;
+  userId: number;
 }
 
 export interface MobileOpenCodeForwardInput {
@@ -779,6 +789,9 @@ export class MobileOpenCodeProxy {
   private readonly timeoutMs: number;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipStore;
+  private readonly preparePromptStream: (
+    input: MobilePromptStreamInput,
+  ) => Promise<void>;
 
   constructor(options: MobileOpenCodeProxyOptions = {}) {
     this.baseUrl = (
@@ -793,6 +806,18 @@ export class MobileOpenCodeProxy {
       MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES;
     this.timeoutMs = options.timeoutMs ?? MOBILE_OPENCODE_TIMEOUT_MS;
     this.configuredOwnershipRepository = options.ownershipRepository;
+    this.preparePromptStream = options.preparePromptStream ??
+      (async ({ directory, sdkSessionId, userId }) => {
+        const localSession = new AgentSessionsRepository()
+          .findBySdkSessionId(sdkSessionId);
+        if (!localSession || localSession.ownerUserId !== userId) return;
+        const { streamBridge } = await import('./opencode_stream_bridge');
+        await streamBridge.streamSession(
+          localSession.id,
+          sdkSessionId,
+          directory,
+        );
+      });
   }
 
   async forward(
@@ -982,6 +1007,17 @@ export class MobileOpenCodeProxy {
           'REQUEST_TOO_LARGE',
           'OpenCode request exceeded the mobile gateway limit',
         );
+      }
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId
+      ) {
+        await this.preparePromptStream({
+          directory: requestProject.root,
+          projectId: input.project.id,
+          sdkSessionId: addressedSessionId,
+          userId: input.userId,
+        });
       }
       const response = await this.fetchFn(url, {
         method: operation.method,

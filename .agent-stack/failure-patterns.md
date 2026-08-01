@@ -604,3 +604,25 @@
 - **Root cause**: An active-session bootstrap that began before the explicit owner open completed later and blindly restored the remembered scoped session, while scoped refresh also omitted the projectless current session.
 - **Suggested fix**: Preserve the ready owner-opened session across scoped refresh and reject stale bootstrap selection commits when any explicit session became current during its await.
 - **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — device retry hit a stale desktop API route
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C5 — environment issue; process: runtime-revision-readiness
+- **Criteria affected**: issue-1285-c16
+- **Root cause**: The projectless state-update correction passed against fresh
+  source, but the desktop-launched API used plain `tsx` and had not restarted,
+  so the physical phone retried against the old project-required route.
+- **Suggested fix**: Gate every backend device retry on a desktop/API restart,
+  health checks, and a revision-specific behavioral probe against the launched
+  process—not only source-tree tests.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — engine response did not converge to desktop or mobile
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C1 — missing contract; process: P4 and runtime-lifecycle-readiness
+- **Criteria affected**: issue-1285-c17, issue-1285-c18, issue-1285-c19, issue-1285-c20
+- **Root cause**: Mobile used context compaction for title generation and rendered its internal records; the proxy sent before starting the API event bridge; and the client performed only an immediate refresh after asynchronous prompt acceptance.
+- **Suggested fix**: Assert one unique mobile turn across engine, API persistence, desktop rendering, and delayed mobile rendering after a fresh API restart.
+- **Follow-up**: #1287

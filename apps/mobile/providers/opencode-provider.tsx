@@ -213,6 +213,7 @@ import {
   getRecoveryDelayMs,
   getStableRecoveryEventId,
 } from '@/providers/services/agent-chat-service';
+import { pollForNewAssistantTurn } from '@/providers/services/post-prompt-refresh';
 
 export type {
   AgentOption,
@@ -1767,27 +1768,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]).catch(() => undefined);
   }, [authoritativePreferencesForSession, client, refreshMessages, refreshSessions]);
 
-  const summarizeSessionTitle = useCallback(
-    async (sessionId: string, knownSessions?: Session[]) => {
-      const existingSession = (knownSessions || sessions).find((session) => session.id === sessionId);
-      if (existingSession?.title?.trim()) {
-        return existingSession;
-      }
-
-      const preferences = authoritativePreferencesForSession(sessionId);
-      const selectedModel = getSelectedModelParts(preferences.modelId);
-      if (!selectedModel) {
-        return existingSession;
-      }
-
-      await client.session.summarize({ sessionID: sessionId, ...selectedModel });
-
-      const nextSessions = await fetchSessions(true);
-      return nextSessions.find((session) => session.id === sessionId);
-    },
-    [authoritativePreferencesForSession, client, fetchSessions, sessions],
-  );
-
   const ensureActiveSession = useCallback(async () => {
     if (connection.status !== 'connected' || !activeProjectPath) {
       return undefined;
@@ -2340,6 +2320,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setPromptError(undefined);
 
       const currentSession = sessions.find((session) => session.id === sessionId);
+      const baselineAssistantMessageIds = new Set(
+        (messagesBySession[sessionId] || [])
+          .filter((message) => message.info.role === 'assistant')
+          .map((message) => message.info.id),
+      );
       let promptAccepted = false;
 
       try {
@@ -2455,6 +2440,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           parts,
         });
         promptAccepted = true;
+        void pollForNewAssistantTurn({
+          baselineAssistantMessageIds,
+          isActive: () => isCurrentClient(client),
+          refreshMessages: () => refreshMessages(sessionId, true),
+        });
         promptSubmissionRef.current = { active: false, sessionId: undefined };
         if (!isCurrentClient(client)) {
           return true;
@@ -2462,21 +2452,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setTimeout(() => void refreshSessions(true).catch(() => undefined), 5000);
 
         setCurrentSessionId(sessionId);
-        const nextSessions = await fetchSessions(true);
+        await fetchSessions(true);
         await Promise.all([
           refreshMessages(sessionId, true),
           refreshSessionDiff(sessionId, true),
           refreshSessionTodos(sessionId),
         ]);
-
-        const refreshedSession = nextSessions.find((session) => session.id === sessionId);
-        if (!refreshedSession?.title?.trim()) {
-          try {
-            await summarizeSessionTitle(sessionId, nextSessions);
-          } catch {
-            // Leave the session untitled if summarization is unavailable.
-          }
-        }
         return true;
       } catch (error) {
         promptSubmissionRef.current = { active: false, sessionId: undefined };
@@ -2500,7 +2481,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setSendingState({ active: false, sessionId: undefined });
       }
     },
-    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, pairedHostClient, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, summarizeSessionTitle],
+    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, pairedHostClient, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions],
   );
 
   const abortSession = useCallback(

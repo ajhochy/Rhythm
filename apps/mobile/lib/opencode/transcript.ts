@@ -54,8 +54,16 @@ export function getTranscriptActivityLabel(entry: TranscriptEntry) {
 }
 
 export function isTranscriptDisplayMessage(entry: TranscriptEntry) {
+  if (entry.internal) {
+    return false;
+  }
+
   if (entry.role === 'user') {
-    return true;
+    return Boolean(
+      entry.text.trim() ||
+      entry.error ||
+      entry.details.some((detail) => detail.kind !== 'compaction'),
+    );
   }
 
   return Boolean(entry.text.trim() || entry.error);

@@ -9,6 +9,12 @@ import {
   filterAgentActivities,
 } from '../../providers/services/agent-category-service.ts';
 import {
+  toTranscriptEntry,
+} from '../../lib/opencode/format.ts';
+import {
+  isTranscriptDisplayMessage,
+} from '../../lib/opencode/transcript.ts';
+import {
   normalizeToolScreenResponse,
   RhythmToolsService,
   TOOL_SCREEN_MANIFEST,
@@ -117,6 +123,83 @@ test('issue-1285-c2: desktop human sessions compose into Chats without leaking s
       status: 'all',
     }).map(({ id }) => id),
     ['optimizer:ses-optimizer'],
+  );
+});
+
+test('issue-1285-c17: sending a prompt never invokes context compaction as title generation', () => {
+  // Regression caught: after a projectless session is absent from the scoped
+  // refresh result, sendPrompt mistakes it for untitled and calls the SDK
+  // summarize endpoint, which compacts the entire conversation.
+  assert.doesNotMatch(
+    providerSource,
+    /client\.session\.summarize\s*\(/,
+    'mobile must not use the context-compaction endpoint for title generation',
+  );
+});
+
+test('issue-1285-c18: internal compaction turns never render as chat bubbles', () => {
+  // Inputs preserve the exact engine records observed on the physical phone:
+  // a blank user compaction marker followed by an assistant summary turn.
+  const compactionRequest = toTranscriptEntry({
+    info: {
+      id: 'msg-compaction-request',
+      role: 'user',
+      time: { created: 1 },
+      summary: { diffs: [] },
+      agent: 'Theological-Researcher',
+      model: { providerID: 'openai', modelID: 'gpt-5.6-sol' },
+    },
+    parts: [{
+      id: 'part-compaction',
+      messageID: 'msg-compaction-request',
+      sessionID: 'ses-projectless',
+      type: 'compaction',
+      auto: false,
+    }],
+  });
+  const compactionSummary = toTranscriptEntry({
+    info: {
+      id: 'msg-compaction-summary',
+      role: 'assistant',
+      time: { created: 2, completed: 3 },
+      parentID: 'msg-compaction-request',
+      modelID: 'gpt-5.6-sol',
+      providerID: 'openai',
+      mode: 'compaction',
+      agent: 'compaction',
+      path: { cwd: '/Users/person', root: '/' },
+      summary: true,
+      cost: 0,
+      tokens: {
+        total: 3,
+        input: 2,
+        output: 1,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+      finish: 'stop',
+    },
+    parts: [{
+      id: 'part-summary',
+      messageID: 'msg-compaction-summary',
+      sessionID: 'ses-projectless',
+      type: 'text',
+      text: '## Goal\n- Internal context summary',
+    }],
+  });
+
+  assert.equal(isTranscriptDisplayMessage(compactionRequest), false);
+  assert.equal(isTranscriptDisplayMessage(compactionSummary), false);
+});
+
+test('issue-1285-c20: async mobile sends install a delayed response refresh fallback', () => {
+  // Regression caught: prompt_async returns before the assistant finishes;
+  // the immediate message fetch sees only the user turn, and a connected but
+  // filtered event stream disables safety polling forever.
+  assert.match(
+    providerSource,
+    /pollForNewAssistantTurn\s*\(/,
+    'sendPrompt must poll for the completed assistant turn after async acceptance',
   );
 });
 

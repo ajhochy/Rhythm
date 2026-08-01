@@ -1,0 +1,65 @@
+{
+  "run_id": "2026-08-01-issue-1285-projectless-send-state-404",
+  "issue": 1285,
+  "date": "2026-08-01",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c16",
+      "text": "Before sending from an exact-owner projectless desktop chat, mobile may persist its profile/model execution state through the selected routing project; owner identity remains exact and a different non-null project remains forbidden.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "The first physical send exposed the missing projectless state-update allowance. After the source correction and passing focused contract, the retry still returned 404 because the desktop-launched API used plain tsx and had not restarted to load the edited route."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "runtime-revision-readiness",
+      "description": "The manual retry was handed back while the desktop API process still held the pre-fix route implementation; source-tree checks did not prove the launched backend revision.",
+      "detected_by": "Physical iPhone repeated HTTP 404 at persist-session-state; process inspection showed PID 92226 was launched before the route edit and used plain tsx without watch mode; the same change passed against a freshly built isolated API."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "The route was described as hot-fixed and returned for device retry before proving that the physical phone's desktop-launched API had loaded the corrected source.",
+        "detected_by": "Transcript review plus API process start-time and command inspection."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/routes/mobile_gateway_routes.ts",
+    "apps/api_server/src/__tests__/issue_1285_projectless_session_state.test.ts",
+    "apps/api_server/src/__tests__/issue_1279_mobile_gateway_live.test.ts",
+    "docs/ai/contracts/issue-1285.json"
+  ],
+  "failure_output": "Physical iPhone: request failed 404. Metro trace: stage=persist-session-state, code=HTTP_404, status=404. The corrected isolated backend subsequently passed the projectless state-update live test.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Before every physical-device retry of a backend correction, restart the desktop-launched API and gate handoff on both health and a revision-specific behavioral probe."
+}

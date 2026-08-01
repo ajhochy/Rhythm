@@ -43,6 +43,20 @@ import { createMobileToolsRouter } from './mobile_tools_routes';
 
 export { buildSafeMobileProfileCatalog };
 
+export function canUpdateMobileSessionState(
+  session: {
+    ownerUserId: number | null;
+    projectId: string | null;
+  } | null | undefined,
+  ownerUserId: number,
+  projectId: string,
+): boolean {
+  if (!session || session.ownerUserId !== ownerUserId) return false;
+  return session.projectId === projectId ||
+    session.projectId === null ||
+    session.projectId.trim() === '';
+}
+
 export function createMobileGatewayRouter(): Router {
   const router = Router();
   const cloudIdentity = new MobileCloudIdentityService();
@@ -188,8 +202,11 @@ export function createMobileGatewayRouter(): Router {
         const session = sessions.findBySdkSessionId(req.params.id);
         if (
           !session ||
-          session.ownerUserId !== req.mobileDevice!.userId ||
-          session.projectId !== req.mobileProject!.id
+          !canUpdateMobileSessionState(
+            session,
+            req.mobileDevice!.userId,
+            req.mobileProject!.id,
+          )
         ) {
           throw AppError.notFound('Mobile session');
         }

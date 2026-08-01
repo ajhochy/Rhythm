@@ -121,6 +121,46 @@
       "test_file": "apps/mobile/tests/session-refresh-pinning.test.ts",
       "test_id": "issue-1285-c15: scoped refresh cannot displace the ready owner-opened session",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c16",
+      "text": "Before sending from an exact-owner projectless desktop chat, mobile may persist its profile/model execution state through the selected routing project; owner identity remains exact and a different non-null project remains forbidden.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1285_projectless_session_state.test.ts",
+      "test_id": "issue-1285-c16: exact owner can update projectless state before sending",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c17",
+      "text": "Sending from mobile must not invoke OpenCode context compaction as a fallback for session title generation, including when a projectless session is absent from the selected project's scoped refresh result.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c17: sending a prompt never invokes context compaction as title generation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c18",
+      "text": "Internal OpenCode compaction request and summary records must not render as blank user bubbles or assistant transcript responses in mobile chat.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c18: internal compaction turns never render as chat bubbles",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c19",
+      "text": "Before a mobile prompt is forwarded to OpenCode, the API must start and await the session's event bridge so the completed turn persists and broadcasts to the desktop client even after an API restart.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1285_mobile_prompt_stream.test.ts",
+      "test_id": "issue-1285-c19: mobile prompts start desktop event persistence",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c20",
+      "text": "After prompt_async accepts a mobile turn, mobile must refresh until the new assistant turn is observable so a connected-but-filtered event stream cannot leave the response invisible.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c20: async mobile sends install a delayed response refresh fallback",
+      "status": "pass"
     }
   ],
   "stack": "typescript",
