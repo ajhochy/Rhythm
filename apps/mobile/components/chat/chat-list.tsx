@@ -92,12 +92,17 @@ export function ChatList({ controller }: ChatListProps) {
       );
     });
   }, [projectsByPath, query, readModel]);
+  function routingProjectId(record: AgentChatRecord): string | undefined {
+    return record.projectId ?? record.routingProjectId ?? opencode.activeProjectPath;
+  }
+
   function openChat(record: AgentChatRecord) {
+    const projectId = routingProjectId(record);
     router.push({
       pathname: '/agents/chats/[sessionId]',
       params: {
         sessionId: record.id,
-        ...(record.projectId ? { projectId: record.projectId } : {}),
+        ...(projectId ? { projectId } : {}),
       },
     });
   }
@@ -125,10 +130,11 @@ export function ChatList({ controller }: ChatListProps) {
   async function submitDialog() {
     if (!dialog) return;
     const target = dialog.target;
-    if (!target?.projectId) return;
+    const projectId = target ? routingProjectId(target) : undefined;
+    if (!target || !projectId) return;
     await run(
       target.id,
-      () => chat.renameChat(target.projectId!, target.id, title),
+      () => chat.renameChat(projectId, target.id, title),
       'Chat renamed.',
     );
     setDialog(null);
@@ -136,7 +142,8 @@ export function ChatList({ controller }: ChatListProps) {
   }
 
   function confirmDelete(record: AgentChatRecord) {
-    if (!record.projectId) return;
+    const projectId = routingProjectId(record);
+    if (!projectId) return;
     Alert.alert(
       'Delete chat permanently?',
       `“${record.title}” and its transcript will be removed from the Mac. This cannot be undone.`,
@@ -148,7 +155,7 @@ export function ChatList({ controller }: ChatListProps) {
           onPress: () =>
             void run(
               record.id,
-              () => chat.deleteChat(record.projectId!, record.id),
+              () => chat.deleteChat(projectId, record.id),
               'Chat deleted.',
             ),
         },
@@ -199,11 +206,7 @@ export function ChatList({ controller }: ChatListProps) {
         }
         renderItem={({ item }) => (
           <Card
-            accessibilityLabel={
-              item.interaction === 'read-only'
-                ? `${item.title}, Desktop chat, Read-only`
-                : `${item.title}, ${item.status}`
-            }
+            accessibilityLabel={`${item.title}, ${item.status}`}
             accessibilityRole={
               'button'
             }
@@ -216,14 +219,12 @@ export function ChatList({ controller }: ChatListProps) {
             ]}>
             <Card.Title
               title={item.title}
-              subtitle={
-                item.interaction === 'read-only'
-                  ? 'Desktop chat · Read-only'
-                  : `${projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project'} · ${item.status}`
-              }
+              subtitle={item.projectId === null
+                ? `Desktop chat · ${item.status}`
+                : `${projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project'} · ${item.status}`}
               titleNumberOfLines={2}
               subtitleNumberOfLines={2}
-              right={item.interaction === 'read-only' ? undefined : () => (
+              right={() => (
                 <Menu
                   anchor={
                     <IconButton
@@ -256,11 +257,11 @@ export function ChatList({ controller }: ChatListProps) {
                     <Menu.Item
                       leadingIcon="restore"
                       onPress={() =>
-                        item.projectId
+                        routingProjectId(item)
                           ? void run(
                               item.id,
                               () =>
-                                chat.restoreChat(item.projectId!, item.id),
+                                chat.restoreChat(routingProjectId(item)!, item.id),
                               'Chat restored.',
                             )
                           : undefined}
@@ -270,11 +271,11 @@ export function ChatList({ controller }: ChatListProps) {
                     <Menu.Item
                       leadingIcon="archive-outline"
                       onPress={() =>
-                        item.projectId
+                        routingProjectId(item)
                           ? void run(
                               item.id,
                               () =>
-                                chat.archiveChat(item.projectId!, item.id),
+                                chat.archiveChat(routingProjectId(item)!, item.id),
                               'Chat archived.',
                             )
                           : undefined}
@@ -284,12 +285,12 @@ export function ChatList({ controller }: ChatListProps) {
                   <Menu.Item
                     leadingIcon="source-fork"
                     onPress={() =>
-                      item.projectId
+                      routingProjectId(item)
                         ? void run(
                             item.id,
                             async () => {
                               const forked = await chat.forkChat(
-                                item.projectId!,
+                                routingProjectId(item)!,
                                 item.id,
                               );
                               openChat(forked as unknown as AgentChatRecord);

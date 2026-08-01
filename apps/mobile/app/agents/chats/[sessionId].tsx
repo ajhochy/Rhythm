@@ -165,8 +165,17 @@ export default function AgentChatDetailScreen() {
               : pairedHostMessage
           }
           state="loading"
-          title="Opening chat"
-        />
+          title="Opening chat">
+          <Button
+            accessibilityLabel="Back to chats"
+            mode="outlined"
+            onPress={() => {
+              cancelOpenProjectSession();
+              router.replace('/(tabs)/agents');
+            }}>
+            Back to chats
+          </Button>
+        </ToolScreenState>
       </>
     );
   }

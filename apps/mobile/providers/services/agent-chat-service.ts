@@ -9,7 +9,7 @@ export interface AgentChatRecord {
   archivedAt: number | null;
   updatedAt: number;
   children: AgentChatRecord[];
-  interaction?: 'read-only';
+  routingProjectId?: string;
   [key: string]: unknown;
 }
 

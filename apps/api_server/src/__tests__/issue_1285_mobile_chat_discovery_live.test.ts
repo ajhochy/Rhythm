@@ -41,7 +41,7 @@ async function sessionIds(response: Response): Promise<string[]> {
 }
 
 describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
-  it('merges project chats with read-only HOME chats without activity leakage', async () => {
+  it('merges and interacts with exact-owner HOME chats without activity leakage', async () => {
     const parsedApi = new URL(baseUrl);
     const parsedEngine = new URL(engineUrl);
     if (
@@ -257,14 +257,14 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       expect(unscopedResponse.status).toBe(200);
       const unscoped = (await unscopedResponse.json()) as Array<{
         id: string;
-        projectId: string;
-        interaction: string;
+        projectId: null;
+        routingProjectId: string;
         directory?: string;
       }>;
       expect(unscoped.map(({ id }) => id)).toEqual([unscopedHuman]);
       expect(unscoped[0]).toMatchObject({
-        projectId,
-        interaction: 'read-only',
+        projectId: null,
+        routingProjectId: projectId,
       });
       expect(unscoped[0]).not.toHaveProperty('directory');
 
@@ -317,6 +317,42 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       );
       expect(unscopedTodos.status).toBe(200);
       expect(await unscopedTodos.json()).toEqual([]);
+
+      const promptMarker = `issue-1285-mobile-interaction-${runId}`;
+      const unscopedPrompt = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/prompt_async`,
+        {
+          method: 'POST',
+          headers: {
+            ...gatewayHeaders(ownerA.deviceToken!, projectId),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            noReply: true,
+            parts: [{ type: 'text', text: promptMarker }],
+          }),
+        },
+      );
+      expect([200, 204]).toContain(unscopedPrompt.status);
+      let transcriptAfterPrompt = '';
+      const promptDeadline = Date.now() + 10_000;
+      while (
+        Date.now() < promptDeadline &&
+        !transcriptAfterPrompt.includes(promptMarker)
+      ) {
+        const messagesAfterPrompt = await fetch(
+          `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/message?limit=20`,
+          { headers: gatewayHeaders(ownerA.deviceToken!, projectId) },
+        );
+        expect(messagesAfterPrompt.status).toBe(200);
+        transcriptAfterPrompt = JSON.stringify(
+          await messagesAfterPrompt.json(),
+        );
+        if (!transcriptAfterPrompt.includes(promptMarker)) {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+        }
+      }
+      expect(transcriptAfterPrompt).toContain(promptMarker);
 
       const crossOwnerRead = await fetch(
         `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/message`,

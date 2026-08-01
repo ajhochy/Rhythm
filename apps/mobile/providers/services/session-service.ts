@@ -64,8 +64,12 @@ export async function listArchivedSessions(client: OpencodeClient) {
 export type ProjectSessionCatalogEntry = Record<string, unknown> & {
   id: string;
   projectId: string | null;
+  routingProjectId?: string;
   status: string;
-  interaction?: 'read-only';
+};
+
+type SessionCatalogOptions = {
+  onProgress?: (sessions: ProjectSessionCatalogEntry[]) => void;
 };
 
 function statusLabel(status: unknown): string {
@@ -80,17 +84,33 @@ function statusLabel(status: unknown): string {
 export async function listSessionsAcrossProjects(
   buildScopedClient: (projectId: string) => OpencodeClient,
   projectPaths: string[],
+  options: SessionCatalogOptions = {},
 ): Promise<ProjectSessionCatalogEntry[]> {
   const uniquePaths = [...new Set(projectPaths.filter(Boolean))];
   const catalog: ProjectSessionCatalogEntry[] = [];
+  const publish = () => {
+    const deduped = new Map<string, ProjectSessionCatalogEntry>();
+    for (const session of catalog) {
+      const existing = deduped.get(session.id);
+      const existingIsRoutingOnly =
+        existing?.projectId === null && Boolean(existing.routingProjectId);
+      if (!existing || (existingIsRoutingOnly && session.projectId !== null)) {
+        deduped.set(session.id, session);
+      }
+    }
+    const snapshot = [...deduped.values()];
+    options.onProgress?.(snapshot);
+    return snapshot;
+  };
 
   if (uniquePaths.length > 0) {
     const discoveryClient = buildScopedClient(uniquePaths[0]);
     for (const archived of [false, true]) {
       let cursor: number | undefined;
+      let firstPage = true;
       do {
         const response = await discoveryClient.experimental.session.list(
-          { archived, cursor, limit: 100 },
+          { archived, cursor, limit: firstPage && !archived ? 10 : 100 },
           {
             headers: {
               'x-rhythm-session-discovery': 'owner-unscoped',
@@ -105,17 +125,19 @@ export async function listSessionsAcrossProjects(
               projectId:
                 typeof (session as unknown as Record<string, unknown>).projectId === 'string'
                   ? (session as unknown as { projectId: string }).projectId
-                  : uniquePaths[0],
+                  : null,
+              routingProjectId: uniquePaths[0],
               status: archived
                 ? 'archived'
                 : statusLabel(
                     (session as unknown as Record<string, unknown>).status,
                   ),
-              interaction: 'read-only' as const,
             })),
         );
+        publish();
         const next = response.response?.headers.get('x-next-cursor');
         cursor = next ? Number(next) : undefined;
+        firstPage = false;
       } while (cursor !== undefined);
     }
   }
@@ -147,19 +169,9 @@ export async function listSessionsAcrossProjects(
       }),
     );
     catalog.push(...results.flat());
+    publish();
   }
-
-  const deduped = new Map<string, ProjectSessionCatalogEntry>();
-  for (const session of catalog) {
-    const existing = deduped.get(session.id);
-    if (
-      !existing ||
-      (existing.interaction === 'read-only' && session.interaction !== 'read-only')
-    ) {
-      deduped.set(session.id, session);
-    }
-  }
-  return [...deduped.values()];
+  return publish();
 }
 
 export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;

@@ -81,13 +81,10 @@ function parseOfflineCache(raw: string | null): ProjectSessionCatalogEntry[] {
           item &&
           typeof item === 'object' &&
           typeof (item as Record<string, unknown>).id === 'string' &&
-          (
-            typeof (item as Record<string, unknown>).projectId === 'string' ||
-            (
-              (item as Record<string, unknown>).projectId === null &&
-              (item as Record<string, unknown>).interaction === 'read-only'
-            )
-          ),
+          (typeof (item as Record<string, unknown>).projectId === 'string' ||
+            ((item as Record<string, unknown>).projectId === null &&
+              typeof (item as Record<string, unknown>).routingProjectId ===
+                'string')),
         ),
     );
   } catch {
@@ -166,6 +163,20 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       const next = await listSessionsAcrossProjects(
         buildScopedClient,
         projectPaths,
+        {
+          onProgress(progress) {
+            if (
+              !mountedRef.current ||
+              generation !== refreshGenerationRef.current
+            ) {
+              return;
+            }
+            const safe = sanitizeOfflineChatCache(progress);
+            setSessions(safe);
+            setIsOfflineCache(false);
+            if (safe.length > 0) setIsLoading(false);
+          },
+        },
       );
       if (!mountedRef.current || generation !== refreshGenerationRef.current) {
         return;

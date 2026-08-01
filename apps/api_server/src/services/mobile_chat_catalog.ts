@@ -94,7 +94,6 @@ export async function listOwnerUnscopedMobileChats(input: {
         : {}),
     },
     projectId: null,
-    interaction: 'read-only',
   }));
   return {
     items,

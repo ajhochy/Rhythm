@@ -133,8 +133,8 @@ describe('issue #1285 owner-scoped mobile chat discovery', () => {
 
     expect(body).toEqual([expect.objectContaining({
       id: 'ses-owner-a-human',
-      projectId: project.id,
-      interaction: 'read-only',
+      projectId: null,
+      routingProjectId: project.id,
     })]);
     expect(body[0]).not.toHaveProperty('directory');
     expect(fetchFn).not.toHaveBeenCalled();

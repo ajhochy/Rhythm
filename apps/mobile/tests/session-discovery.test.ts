@@ -1,7 +1,7 @@
 import { listSessionsAcrossProjects } from '@/providers/services/session-service';
 
 describe('issue #1285 owner-scoped session discovery', () => {
-  it('requests every owner-unscoped page and keeps those chats read-only', async () => {
+  it('issue-1285-c8: projectless owner chats remain interactive with separate routing context', async () => {
     const discoveryCalls: {
       parameters: Record<string, unknown>;
       options: { headers?: Record<string, string> };
@@ -53,20 +53,20 @@ describe('issue #1285 owner-scoped session discovery', () => {
       ['/registered/project'],
     );
 
-    expect(sessions.map(({ id, projectId, interaction }) => ({
+    expect(sessions.map(({ id, projectId, routingProjectId }) => ({
       id,
       projectId,
-      interaction,
+      routingProjectId,
     }))).toEqual([
       {
         id: 'ses-home-1',
         projectId: '/registered/project',
-        interaction: undefined,
+        routingProjectId: undefined,
       },
       {
         id: 'ses-home-2',
-        projectId: '/registered/project',
-        interaction: 'read-only',
+        projectId: null,
+        routingProjectId: '/registered/project',
       },
     ]);
     expect(discoveryCalls).toHaveLength(3);
@@ -74,5 +74,67 @@ describe('issue #1285 owner-scoped session discovery', () => {
       options.headers?.['x-rhythm-session-discovery'] === 'owner-unscoped'))
       .toBe(true);
     expect(sessions.filter(({ id }) => id === 'ses-home-1')).toHaveLength(1);
+  });
+
+  it('issue-1285-c11: first ten chats publish before delayed catalog pages', async () => {
+    let releaseSecondPage!: () => void;
+    const secondPage = new Promise<void>((resolve) => {
+      releaseSecondPage = resolve;
+    });
+    const published: string[][] = [];
+    const discoveryCalls: Record<string, unknown>[] = [];
+    const client = {
+      session: {
+        async list() {
+          return { data: [] };
+        },
+        async status() {
+          return { data: {} };
+        },
+      },
+      experimental: {
+        session: {
+          async list(parameters: Record<string, unknown>) {
+            discoveryCalls.push(parameters);
+            if (parameters.archived === false && parameters.cursor === undefined) {
+              return {
+                data: Array.from({ length: 10 }, (_, index) => ({
+                  id: `ses-initial-${index}`,
+                  projectId: null,
+                })),
+                response: { headers: new Headers({ 'x-next-cursor': '10' }) },
+              };
+            }
+            if (parameters.archived === false && parameters.cursor === 10) {
+              await secondPage;
+              return { data: [{ id: 'ses-later', projectId: null }] };
+            }
+            return { data: [] };
+          },
+        },
+      },
+    };
+    const progressiveList = listSessionsAcrossProjects as unknown as (
+      buildClient: () => never,
+      projects: string[],
+      options: { onProgress(items: { id: string }[]): void },
+    ) => Promise<{ id: string }[]>;
+
+    const loading = progressiveList(
+      () => client as never,
+      ['/registered/project'],
+      { onProgress: (items) => published.push(items.map(({ id }) => id)) },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    try {
+      expect(discoveryCalls[0]).toMatchObject({ limit: 10 });
+      expect(published[0]).toHaveLength(10);
+      expect(published[0][0]).toBe('ses-initial-0');
+    } finally {
+      releaseSecondPage();
+      await loading;
+    }
+    expect(published.at(-1)).toContain('ses-later');
   });
 });

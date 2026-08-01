@@ -783,7 +783,6 @@ function safeUnscopedChatSessionView(
   return {
     ...safe,
     projectId: null,
-    interaction: 'read-only',
   };
 }
 

@@ -256,6 +256,12 @@ type OpenProjectSessionPayload = Record<string, unknown> & {
   sessionId: string;
   sessions: MobileSession[];
   statuses: Record<string, SessionStatus>;
+  supplemental: Promise<{
+    diffs: FileDiff[];
+    permissions: PendingPermissionRequest[];
+    questions: PendingQuestionRequest[];
+    todos: Todo[];
+  }>;
   todos: Todo[];
 };
 
@@ -764,30 +770,37 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       catalog,
     ) {
       const scopedClient = buildScopedClient(projectId);
-      const [messages, todos, pending] = await Promise.all([
-        svcGetSessionMessages(scopedClient, sessionId),
-        svcGetSessionTodos(scopedClient, sessionId),
-        listPendingInteractions(scopedClient),
-      ]);
-      const diffs = await svcGetSessionDiff(
-        scopedClient,
-        sessionId,
-        messages,
-      );
+      const messages = await svcGetSessionMessages(scopedClient, sessionId);
+      const supplemental = Promise.all([
+        svcGetSessionTodos(scopedClient, sessionId).catch(() => [] as Todo[]),
+        listPendingInteractions(scopedClient).catch(() => ({
+          permissions: [] as PendingPermissionRequest[],
+          questions: [] as PendingQuestionRequest[],
+        })),
+        svcGetSessionDiff(scopedClient, sessionId, messages).catch(
+          () => [] as FileDiff[],
+        ),
+      ]).then(([todos, pending, diffs]) => ({
+        diffs,
+        permissions: pending.permissions,
+        questions: pending.questions,
+        todos,
+      }));
       const loadedCatalog = Array.isArray(catalog)
         ? { sessions: catalog, statuses: {} }
         : (catalog as OpenProjectSessionCatalog);
       return {
-        diffs,
+        diffs: [],
         messages,
-        permissions: pending.permissions,
+        permissions: [],
         projectId,
-        questions: pending.questions,
+        questions: [],
         session,
         sessionId,
         sessions: loadedCatalog.sessions,
         statuses: loadedCatalog.statuses,
-        todos,
+        supplemental,
+        todos: [],
       };
     },
     commit(payload) {
@@ -828,7 +841,30 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ...current,
         [payload.projectId]: payload.sessionId,
       }));
+      currentSessionIdRef.current = payload.sessionId;
       setCurrentSessionId(payload.sessionId);
+      void payload.supplemental.then((next) => {
+        if (
+          activeProjectPathRef.current !== payload.projectId ||
+          currentSessionIdRef.current !== payload.sessionId
+        ) {
+          return;
+        }
+        setDiffsBySession((current) => ({
+          ...current,
+          [payload.sessionId]: next.diffs,
+        }));
+        setTodosBySession((current) => ({
+          ...current,
+          [payload.sessionId]: next.todos,
+        }));
+        setPendingPermissionsBySession(
+          groupPendingRequestsBySession(next.permissions),
+        );
+        setPendingQuestionsBySession(
+          groupPendingRequestsBySession(next.questions),
+        );
+      });
     },
   };
 

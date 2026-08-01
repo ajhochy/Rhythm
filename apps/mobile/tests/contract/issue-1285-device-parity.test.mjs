@@ -16,12 +16,13 @@ import {
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-const [agentsSource, chatListSource, toolScreenSource, sessionSheetSource] =
+const [agentsSource, chatListSource, toolScreenSource, sessionSheetSource, providerSource] =
   await Promise.all([
     read('../../app/(tabs)/agents.tsx'),
     read('../../components/chat/chat-list.tsx'),
     read('../../app/tools/[tool].tsx'),
     read('../../components/chat/session-configuration-sheet.tsx'),
+    read('../../providers/opencode-provider.tsx'),
   ]);
 
 test('issue-1285-c1: Agents overflow owns chat actions and selectors while Search chats stays visible', () => {
@@ -262,6 +263,22 @@ test('issue-1285-c6: native Agents and Tools paths cannot emit Fragment-prop or 
   for (const icon of staticIcons) {
     assert.ok(glyphs[icon], `invalid MaterialCommunityIcons name: ${icon}`);
   }
+});
+
+test('issue-1285-c10: initial open awaits messages only and defers supplemental state', () => {
+  // Regression caught: the Opening chat screen waits for diff calculation,
+  // todos, permissions, and questions even after the bounded transcript page
+  // is available. The messages-first assertion fails on that blocking path.
+  const loadStart = providerSource.indexOf('async loadSessionState(');
+  const loadEnd = providerSource.indexOf('\n    commit(payload)', loadStart);
+  assert.ok(loadStart >= 0 && loadEnd > loadStart);
+  const loadSource = providerSource.slice(loadStart, loadEnd);
+  assert.match(loadSource, /const messages = await svcGetSessionMessages/);
+  assert.doesNotMatch(
+    loadSource,
+    /await Promise\.all\(\[\s*svcGetSessionMessages[\s\S]*?svcGetSessionTodos[\s\S]*?listPendingInteractions/,
+  );
+  assert.match(loadSource, /supplemental|defer|background/i);
 });
 
 function activity(id, source, sessionId) {

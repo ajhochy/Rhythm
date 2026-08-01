@@ -858,7 +858,8 @@ export class MobileOpenCodeProxy {
       const safeBody = Buffer.from(JSON.stringify(
         page.items.map((item) => ({
           ...item,
-          projectId: input.project.id,
+          projectId: null,
+          routingProjectId: input.project.id,
         })),
       ));
       if (safeBody.byteLength > this.responseBodyLimitBytes) {

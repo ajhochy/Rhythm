@@ -568,3 +568,12 @@
 - **Criteria affected**: projectless desktop chat transcript opening
 - **Root cause**: The contract asserted Chats classification and direct gateway access, but never exercised the mobile card-to-provider open path that reconciles the session against the selected project's catalog.
 - **Suggested fix**: Add a regression that taps a projectless discovered row and asserts readable transcript content through the same provider path used on device.
+
+## 2026-07-31 — Issue 1285 — projectless chat interaction and loading remained unusable
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract
+- **Criteria affected**: issue-1285-c8, issue-1285-c9, issue-1285-c10, issue-1285-c11
+- **Root cause**: The prior contract proved transcript visibility but omitted owner-authorized interaction, cancellable opening, messages-first readiness, and progressive first-page catalog delivery.
+- **Suggested fix**: Require the mobile open journey to publish ten sessions first, expose Back while opening, become ready from messages alone, and permit exact-owner projectless prompting before physical smoke handoff.
+- **Follow-up**: #1287
