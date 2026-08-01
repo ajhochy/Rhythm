@@ -161,6 +161,14 @@
       "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
       "test_id": "issue-1285-c20: async mobile sends install a delayed response refresh fallback",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c21",
+      "text": "While a desktop-originated chat is open on mobile, new desktop user and assistant turns appear automatically without a manual refresh.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1283_mobile_desktop_live_stream.test.ts",
+      "test_id": "issue-1283-c1 / issue-1285-c21: an already-connected mobile stream receives a projectless desktop session transcript event",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

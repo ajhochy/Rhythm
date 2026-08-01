@@ -10,7 +10,6 @@ import {
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import type { MobileProjectScope } from './mobile_project_scope';
 import {
-  mobileSseEventBelongsToProject,
   mobileSseEventBelongsToOwner,
   mobileSessionBelongsToProject,
   shapeMobileSseEvent,
@@ -136,15 +135,6 @@ function collectSessionIds(
 function isCommonServerEvent(value: unknown): boolean {
   const type = streamEventType(value);
   return type === 'server.connected' || type === 'server.heartbeat';
-}
-
-function matchesProject(
-  value: unknown,
-  project: MobileProjectScope,
-): boolean {
-  if (isCommonServerEvent(value)) return true;
-  if (typeof value !== 'object' || value === null) return false;
-  return (value as Record<string, unknown>).directory === project.root;
 }
 
 function matchesSession(value: unknown, sessionId: string): boolean {
@@ -527,13 +517,7 @@ export class MobileSseProxy {
           } catch {
             continue;
           }
-          const matches =
-            mobileSseEventBelongsToProject(
-              parsed,
-              input.project,
-              input.sessionId,
-            ) &&
-            mobileSseEventBelongsToOwner(
+          const matches = mobileSseEventBelongsToOwner(
               parsed,
               input.project,
               owner,
@@ -542,7 +526,7 @@ export class MobileSseProxy {
             (
               input.sessionId
                 ? matchesSession(parsed, input.sessionId)
-                : matchesProject(parsed, input.project)
+                : true
             );
           if (!matches) continue;
 

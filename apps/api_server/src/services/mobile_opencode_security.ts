@@ -1159,21 +1159,73 @@ function collectOwnedSseIds(
   }
 }
 
+function mobileSseEventBelongsToOwnedSessionDirectory(
+  value: unknown,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+  sessionIds: Set<string>,
+): boolean {
+  if (!isRecord(value) || sessionIds.size === 0) return false;
+  const eventDirectory = value.directory;
+  if (
+    typeof eventDirectory !== 'string' ||
+    eventDirectory.includes('\0')
+  ) {
+    return false;
+  }
+  const resolveDirectory =
+    owner.ownership.resolveSessionDirectoryForOwner;
+  if (!resolveDirectory) return false;
+
+  const authorizedDirectories = [...sessionIds].map((sessionId) =>
+    resolveDirectory.call(
+      owner.ownership,
+      sessionId,
+      owner.ownerUserId,
+      project.id,
+    )
+  );
+  if (authorizedDirectories.some((directory) => !directory)) return false;
+  let normalizedEventDirectory: string;
+  try {
+    normalizedEventDirectory = canonicalize(eventDirectory);
+  } catch {
+    return false;
+  }
+  if (authorizedDirectories.some((directory) => {
+    try {
+      return canonicalize(directory!) !== normalizedEventDirectory;
+    } catch {
+      return true;
+    }
+  })) {
+    return false;
+  }
+
+  const paths: string[] = [];
+  const nestedSessionIds = new Set<string>();
+  const resourceIds = new Set<string>();
+  collectSseResourceEvidence(
+    value,
+    paths,
+    nestedSessionIds,
+    resourceIds,
+  );
+  const sessionScope = {
+    id: project.id,
+    root: normalizedEventDirectory,
+  };
+  return paths.every((path) =>
+    mobilePathBelongsToProject(path, sessionScope)
+  );
+}
+
 export function mobileSseEventBelongsToOwner(
   value: unknown,
   project: MobileProjectScope,
   owner: MobileOpenCodeOwnerScope,
   expectedSessionId?: string,
 ): boolean {
-  if (
-    !mobileSseEventBelongsToProject(
-      value,
-      project,
-      expectedSessionId,
-    )
-  ) {
-    return false;
-  }
   const type = mobileSseType(value);
   if (type === 'server.connected' || type === 'server.heartbeat') return true;
 
@@ -1192,6 +1244,21 @@ export function mobileSseEventBelongsToOwner(
   }
   if (type?.startsWith('pty.') && typeof info.id === 'string') {
     ptyIds.add(info.id);
+  }
+  if (
+    !mobileSseEventBelongsToProject(
+      value,
+      project,
+      expectedSessionId,
+    ) &&
+    !mobileSseEventBelongsToOwnedSessionDirectory(
+      value,
+      project,
+      owner,
+      sessionIds,
+    )
+  ) {
+    return false;
   }
   if (
     expectedSessionId &&

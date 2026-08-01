@@ -37,11 +37,12 @@ function waitForTranscriptEvent(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const observedFrames: string[] = [];
   return new Promise((resolveEvent, rejectEvent) => {
     const timer = setTimeout(() => {
       void reader.cancel();
       rejectEvent(new Error(
-        `Timed out waiting for live transcript marker ${marker}`,
+        `Timed out waiting for live transcript marker ${marker}; observed ${JSON.stringify(observedFrames.slice(-12))}`,
       ));
     }, timeoutMs);
     const pump = async (): Promise<void> => {
@@ -61,6 +62,7 @@ function waitForTranscriptEvent(
               .join('\n');
             if (!data) continue;
             const parsed = JSON.parse(data) as Record<string, unknown>;
+            observedFrames.push(JSON.stringify(parsed).slice(0, 800));
             const payload = (
               parsed.payload &&
               typeof parsed.payload === 'object'
@@ -88,9 +90,9 @@ function waitForTranscriptEvent(
   });
 }
 
-describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () => {
+describeLive('live E2E — desktop-to-mobile transcript stream', () => {
   it(
-    'issue-1283-c1: an already-connected mobile stream receives a desktop-created session transcript event',
+    'issue-1283-c1 / issue-1285-c21: an already-connected mobile stream receives a projectless desktop session transcript event',
     async () => {
       if (
         process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
@@ -116,8 +118,13 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
       const userToken = randomUUID();
       const projectId = randomUUID();
       const projectRoot = join(sandboxDir, `issue-1283-${runId}`);
+      const desktopAllSessionsRoot = join(
+        sandboxDir,
+        `issue-1283-all-sessions-${runId}`,
+      );
       const transcriptMarker = `issue-1283-live-${runId}`;
       mkdirSync(projectRoot, { recursive: true });
+      mkdirSync(desktopAllSessionsRoot, { recursive: true });
 
       let userId: number | null = null;
       let deviceId: string | null = null;
@@ -125,6 +132,7 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
       let desktopLocalId: string | null = null;
       let desktopSdkId: string | null = null;
       const sseAbort = new AbortController();
+      const rawSseAbort = new AbortController();
       try {
         userId = Number(db.prepare(
           `INSERT INTO users (name, email, google_sub)
@@ -210,6 +218,23 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
         void transcriptEvent.catch(() => undefined);
         await connected;
 
+        const rawSseResponse = await fetch(`${engineUrl}/global/event`, {
+          headers: { Accept: 'text/event-stream' },
+          signal: rawSseAbort.signal,
+        });
+        expect(rawSseResponse.status).toBe(200);
+        let markRawConnected!: () => void;
+        const rawConnected = new Promise<void>((resolveConnected) => {
+          markRawConnected = resolveConnected;
+        });
+        const rawTranscriptEvent = waitForTranscriptEvent(
+          rawSseResponse,
+          transcriptMarker,
+          markRawConnected,
+        );
+        void rawTranscriptEvent.catch(() => undefined);
+        await rawConnected;
+
         // Reproduce the shipping desktop create path only after the mobile
         // event stream is already consuming the engine's global stream.
         const desktopCreate = await fetch(`${baseUrl}/agent-sessions`, {
@@ -220,8 +245,8 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
           },
           body: JSON.stringify({
             agentId: null,
-            cwd: projectRoot,
-            projectId,
+            cwd: desktopAllSessionsRoot,
+            projectId: null,
             name: `Issue 1283 desktop ${runId}`,
           }),
         });
@@ -250,11 +275,17 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
           ).get(desktopSdkId),
         ).toBeUndefined();
 
-        // Pull-to-refresh must already see this session. The criterion below
-        // deliberately waits on the independently-open live event stream.
+        // Owner-unscoped discovery must already see this All Sessions chat.
+        // The criterion below deliberately waits on the independently-open
+        // selected-project live event stream.
         const listResponse = await fetch(
-          `${baseUrl}/mobile-gateway/opencode/session`,
-          { headers: gatewayHeaders(deviceToken, projectId) },
+          `${baseUrl}/mobile-gateway/opencode/experimental/session`,
+          {
+            headers: {
+              ...gatewayHeaders(deviceToken, projectId),
+              'X-Rhythm-Session-Discovery': 'owner-unscoped',
+            },
+          },
         );
         expect(listResponse.status).toBe(200);
         expect(
@@ -266,7 +297,7 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
           `/session/${encodeURIComponent(desktopSdkId)}/prompt_async`,
           engineUrl,
         );
-        promptUrl.searchParams.set('directory', projectRoot);
+        promptUrl.searchParams.set('directory', desktopAllSessionsRoot);
         const desktopPrompt = await fetch(promptUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -277,11 +308,21 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
         });
         expect(desktopPrompt.status).toBe(204);
 
-        const delivered = await transcriptEvent;
+        const rawDelivered = await rawTranscriptEvent;
+        expect(JSON.stringify(rawDelivered)).toContain(transcriptMarker);
+        let delivered: Record<string, unknown>;
+        try {
+          delivered = await transcriptEvent;
+        } catch (error) {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}; raw ${JSON.stringify(rawDelivered).slice(0, 1_500)}`,
+          );
+        }
         expect(JSON.stringify(delivered)).toContain(desktopSdkId);
         expect(JSON.stringify(delivered)).toContain(transcriptMarker);
       } finally {
         sseAbort.abort();
+        rawSseAbort.abort();
         if (desktopLocalId) {
           await fetch(
             `${baseUrl}/agent-sessions/${desktopLocalId}/hard`,
@@ -295,7 +336,7 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
             `/session/${encodeURIComponent(desktopSdkId)}`,
             engineUrl,
           );
-          cleanupUrl.searchParams.set('directory', projectRoot);
+          cleanupUrl.searchParams.set('directory', desktopAllSessionsRoot);
           await fetch(cleanupUrl, { method: 'DELETE' })
             .catch(() => undefined);
         }
@@ -313,6 +354,7 @@ describeLive('live E2E — issue #1283 desktop-to-mobile transcript stream', () 
         }
         db.close();
         rmSync(projectRoot, { recursive: true, force: true });
+        rmSync(desktopAllSessionsRoot, { recursive: true, force: true });
       }
     },
     30_000,

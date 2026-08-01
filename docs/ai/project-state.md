@@ -2,48 +2,43 @@
 
 ## Current focus
 
-Issue #1285 mobile sends to exact-owner projectless desktop chats now avoid
-context compaction, hide existing internal compaction records, start the API
-event bridge before forwarding the prompt, and poll until the asynchronous
-assistant turn becomes visible on mobile.
+Issue #1285 bidirectional synchronization for exact-owner projectless desktop
+chats. Mobile-originated turns already converge to desktop; the c21 correction
+allows matching desktop-originated engine events to refresh an open mobile chat.
 
 ## Active branch / PR
 
 - Branch: `codex/mobile-fixes-rollup`
 - Base: `origin/codex/fix-session-isolation-runtime-performance`
 - PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
-- Current pushed commit: `60b2a1a23a9cfa4560ee5a7d379b4e48c29e1510`; the c16-c20 corrective delta is local pending commit/push.
+- Current pushed commit: `786c404d7337774c5aa2bbba451d5a9cfc29ebaf`; the c21 corrective delta is local pending commit/push.
 - Merge remains a manual human action after review and physical-device smoke.
 
 ## In progress
 
-- Commit and push the c16-c20 corrective delta, then wait for GitHub Actions.
-- Launch the already-installed `Rhythm Agents Dev` bundle when the iPhone 13 mini becomes available to Xcode.
-- Re-smoke one unique mobile prompt in the same projectless desktop chat and confirm it appears on both clients with one assistant response and no compaction cards.
+- Commit and push c21, then restart only the existing PR desktop app/API.
+- Re-smoke a desktop-authored message in the already-open projectless mobile chat and confirm it appears without manual refresh.
 
 ## Risks / known issues
 
-- The iPhone 13 mini currently reports `unavailable` to `xcrun devicectl`; an iPad with the same device name is paired and available.
-- One unchanged OpenCode interruption test hit its 5-second timeout during an intermediate PR run, then passed alone in 1.3 seconds and passed in the final full PR matrix.
-- The isolated sandbox's copied default model configuration returned `Requested entity was not found`; the live regression therefore asserts the bridge-owned desktop transcript persistence boundary, while deterministic mobile tests assert delayed assistant refresh.
-- Issue #1280 still needs its physical-iPhone multiline composer smoke.
+- The exact-owner and selected-project-or-projectless checks remain strict; the SSE exception additionally requires the event directory to canonicalize to the catalog session's stored working directory.
+- Branch-vs-`main` GitNexus scope is CRITICAL because this integration rollup already contains 1,206 files; the c21 unstaged delta itself is LOW risk (six files, two indexed symbols, no additional affected processes).
+- Push Mobile CI passed on commit `786c404d7`; the duplicate PR-triggered Mobile CI remains flaky across unrelated legacy Playwright cases.
 - User-owned `.proof/` image modifications remain excluded from commits.
 
 ## Test status
 
-- Contracts c16-c20: PASS.
-- Focused API proxy/state/stream tests: PASS, 3 files / 16 tests.
-- Focused mobile contract and Jest tests: PASS.
-- Mobile TypeScript and API production build: PASS.
-- Isolated live API + fork test: PASS, 1 file / 1 test; projectless owner prompt persisted into `agent_session_messages` through the mobile gateway.
+- c21 deterministic SSE regression: PASS; projectless exact-owner event delivered, directory pseudonymized, other-owner event denied.
+- Focused realtime/security/API set: PASS, 3 files / 21 tests.
+- API build: PASS.
 - Fresh fork standalone build and binary smoke: PASS.
+- Isolated live API + fork c21 test: PASS, 1/1 in 3.31 seconds; raw engine and authenticated mobile gateway delivered the same projectless desktop transcript marker.
 - `ai-workflow checks --level issue`: PASS.
-- Final `ai-workflow checks --level pr`: PASS, including Flutter tests, serial API suite/build, MCP, fork tests, mobile static/contracts/fake-server, and mobile web E2E.
-- Live desktop API and engine health on ports 4001/4096: PASS.
-- GitNexus unstaged change detection: MEDIUM, 10 indexed files, 14 symbols, 3 expected gateway execution flows.
+- `ai-workflow checks --level pr`: PASS across Flutter, API, MCP, fork, mobile static/contracts/fake-server, and mobile web E2E.
+- Running desktop API `/health` and `/opencode/health`: HTTP 200 with `ok` / `ready`.
 
 ## Next step
 
-Commit and push the verified delta, wait for CI, then reconnect/unlock the iPhone
-13 mini and run the cross-client projectless-send smoke without installing a
-second app.
+Commit/push the c21 correction, restart the existing PR desktop app/API, reload the
+already-installed dev client through Metro, and repeat the physical-iPhone
+desktop-to-mobile live-update smoke without installing another app.

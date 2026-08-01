@@ -1,0 +1,53 @@
+{
+  "run_id": "2026-08-01-issue-1285-desktop-to-mobile-live-update",
+  "issue": 1285,
+  "date": "2026-08-01",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c21",
+      "text": "While a desktop-originated chat is open on mobile, new desktop user and assistant turns appear automatically without a manual refresh.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "The user confirmed mobile-originated turns and responses appeared live on desktop, but a message typed on desktop did not appear on mobile until the mobile transcript was manually refreshed."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/routes/mobile_gateway_routes.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/mobile/lib/opencode/format.ts",
+    "apps/mobile/lib/opencode/transcript.ts",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/services/post-prompt-refresh.ts"
+  ],
+  "failure_output": "User: mobile messages into desktop originated messages and responses show up live on desktop - but when I type a message on desktop, it does not stream live to mobile, i need to refresh to see it update.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Extend issue #1287 with a bidirectional live-update contract that drives a desktop-originated turn through the real engine event stream and asserts the already-open mobile transcript refreshes without user action."
+}

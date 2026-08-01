@@ -626,3 +626,12 @@
 - **Root cause**: Mobile used context compaction for title generation and rendered its internal records; the proxy sent before starting the API event bridge; and the client performed only an immediate refresh after asynchronous prompt acceptance.
 - **Suggested fix**: Assert one unique mobile turn across engine, API persistence, desktop rendering, and delayed mobile rendering after a fresh API restart.
 - **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — desktop turns require a mobile refresh
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C1 — missing contract
+- **Criteria affected**: issue-1285-c21
+- **Root cause**: The acceptance contract covered mobile-originated asynchronous response convergence but never required a currently open mobile transcript to react to desktop-originated engine events.
+- **Suggested fix**: Add a bidirectional live-update contract that drives a desktop-originated turn and asserts the open mobile transcript refreshes without user action.
+- **Follow-up**: #1287

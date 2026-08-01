@@ -57,6 +57,21 @@ Device evidence is recorded without a UDID, pairing code, or device token.
   the rebuilt isolated API/fork live test passes exact-owner lookup, messages,
   todos, and cross-owner exclusion.
 
+### Projectless bidirectional synchronization pass — 2026-08-01
+
+| Area | Required behavior | Result |
+| --- | --- | --- |
+| Mobile → desktop | A mobile-authored turn and its assistant response appear live in the originating projectless desktop chat | Success — confirmed on the physical iPhone and desktop client |
+| Desktop → mobile | A desktop-authored turn appears in the already-open mobile transcript without manual refresh | Fail — the device required a refresh; recorded as issue-1285-c21 / C1 |
+| Automated correction | The real engine emits the projectless event and the authenticated selected-project mobile SSE stream delivers the same marker while excluding another owner | Success — isolated API + fork live test passed 1/1 in 3.31 seconds |
+
+The device failure was caused by project-only SSE directory filtering. The
+correction accepts an out-of-project event only when its session ID resolves to
+an exact-owner selected-project-or-projectless human chat and its canonical
+event directory equals the catalog session's stored working directory. A final
+physical-device retry remains after the existing desktop app/API is restarted
+on the corrective commit.
+
 Scope: issue #1174, complete mobile OpenCode 1.14.49 API parity.
 Date: 2026-07-25
 

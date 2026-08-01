@@ -692,6 +692,76 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     expect(response.listenerCount('close')).toBe(0);
   });
 
+  it('issue-1285-c21: exact-owner projectless session events reach the selected mobile stream', async () => {
+    const sseModule = await loadSseModule();
+    expect(sseModule).not.toBeNull();
+    if (!sseModule) return;
+
+    const frames = [
+      'data: {"directory":"/Users/owner","payload":{"id":"evt-projectless","type":"message.part.updated","properties":{"sessionID":"ses-projectless","part":{"id":"part-projectless","sessionID":"ses-projectless","messageID":"msg-projectless","type":"text","text":"desktop-live-marker"}}}}',
+      '',
+      'data: {"directory":"/Users/other","payload":{"id":"evt-other-owner","type":"message.part.updated","properties":{"sessionID":"ses-other-owner","part":{"id":"part-other","sessionID":"ses-other-owner","messageID":"msg-other","type":"text","text":"must-not-leak"}}}}',
+      '',
+      '',
+    ].join('\n');
+    const request = new EventEmitter();
+    const proxy = new sseModule.MobileSseProxy({
+      ownershipRepository: {
+        isResourceOwnedBy: () => false,
+        isSessionOwnedByDesktopCatalog: (
+          sessionId: string,
+          ownerUserId: number,
+          projectId: string,
+        ) => sessionId === 'ses-projectless' &&
+          ownerUserId === 1 &&
+          projectId === 'project-contract',
+        resolveSessionDirectoryForOwner: (
+          sessionId: string,
+          ownerUserId: number,
+          projectId: string,
+        ) => sessionId === 'ses-projectless' &&
+            ownerUserId === 1 &&
+            projectId === 'project-contract'
+          ? '/Users/owner'
+          : null,
+      },
+      fetchFn: vi.fn(async () => new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(frames));
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        },
+      )),
+    });
+    const response = responseSink();
+    let output = '';
+    response.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    const streaming = proxy.stream({
+      request,
+      response,
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      userId: 1,
+      isDeviceActive: () => true,
+    });
+
+    await expect.poll(() => output, { timeout: 2_000 })
+      .toContain('desktop-live-marker');
+    request.emit('close');
+    await streaming;
+
+    expect(output).toContain('evt-projectless');
+    expect(output).toContain('"directory":"project-contract"');
+    expect(output).not.toContain('/Users/owner');
+    expect(output).not.toContain('evt-other-owner');
+    expect(output).not.toContain('must-not-leak');
+  });
+
   it('issue-1170-c4: session-scoped SSE accepts the real session.updated info.id shape', async () => {
     const sseModule = await loadSseModule();
     expect(sseModule).not.toBeNull();
