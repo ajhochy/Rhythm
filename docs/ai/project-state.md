@@ -20,9 +20,10 @@ fallback.
 
 ## In progress
 
-- None — fix verified on cold-start device smoke (both directions live), CI
-  green on 623a59a05, postmortem recorded. Awaiting human review/merge of
-  PR #1284.
+- Regression rollup for #1286/#1287 implemented and verified locally + live
+  sandbox; awaiting physical-device smoke (profile binding, instant chat
+  switching, transcript integrity, no Opening-chat flapping). See
+  docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md.
 
 ## Risks / known issues
 
@@ -46,5 +47,5 @@ fallback.
 
 ## Next step
 
-Human review and manual merge of PR #1284. Residual defects (cold-start open
-timeout, catalog-path 502 mismatch) tracked on issue #1287.
+Physical-device smoke of the regression rollup, then human review and manual
+merge of PR #1284. tests/fake-opencode changes need explicit human sign-off.

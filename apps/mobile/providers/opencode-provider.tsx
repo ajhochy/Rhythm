@@ -12,7 +12,6 @@ import type {
   Project,
   Pty,
   PtyShellsResponse,
-  Session,
   SessionStatus,
   Todo,
   VcsInfo,
@@ -46,6 +45,7 @@ import {
   type OpencodeConnectionSettings,
 } from '@/lib/opencode/client';
 import { buildGlobalEventStreamRequest } from '@/lib/opencode/client';
+import { createTrailingCoalescer } from '@/lib/coalesce';
 import {
   streamDirectGlobalEvents,
   streamPairedGlobalEvents,
@@ -54,6 +54,11 @@ import {
   toTranscriptEntry,
   type SessionMessageRecord,
 } from '@/lib/opencode/format';
+import {
+  createSessionFetchTracker,
+  mergeSessionMessages,
+  pruneSessionMessage,
+} from '@/lib/opencode/messages';
 import {
   findEditableUserTextPart,
   isTranscriptDisplayMessage,
@@ -74,7 +79,7 @@ import {
   unloadWorkingSoundAsync,
 } from '@/lib/voice/working-sound';
 import {
-  buildSystemPrompt,
+  buildPromptExecutionPlan,
   defaultChatPreferences,
   applyProfileDefaults,
   getConfiguredProviderIds,
@@ -93,6 +98,7 @@ import {
   mergePermissionConfig,
   permissionModeForAutoApprove,
   replaceSessionExecutionState,
+  sameGatewayProjectList,
   thinkingBudgetForReasoning,
 } from '@/providers/opencode-provider-utils';
 import {
@@ -258,6 +264,7 @@ type OpenProjectSessionCatalog = {
 type OpenProjectSessionPayload = Record<string, unknown> & {
   diffs: FileDiff[];
   messages: SessionMessageRecord[];
+  messageNextCursor?: string;
   permissions: PendingPermissionRequest[];
   projectId: string;
   questions: PendingQuestionRequest[];
@@ -288,6 +295,10 @@ type OpenProjectSessionRuntime = {
     session: MobileSession,
     catalog: ProjectSessionCatalog<MobileSession>,
   ): Promise<OpenProjectSessionPayload>;
+  openFromCache(
+    projectId: string,
+    sessionId: string,
+  ): OpenProjectSessionPayload | undefined;
 };
 
 export function OpencodeProvider({ children }: PropsWithChildren) {
@@ -309,6 +320,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, SessionStatus>>({});
   const [currentSessionId, setCurrentSessionId] = useState<string>();
   const [messagesBySession, setMessagesBySession] = useState<Record<string, SessionMessageRecord[]>>({});
+  const [hasOlderMessagesBySession, setHasOlderMessagesBySession] = useState<Record<string, boolean>>({});
   const [diffsBySession, setDiffsBySession] = useState<Record<string, FileDiff[]>>({});
   const [todosBySession, setTodosBySession] = useState<Record<string, Todo[]>>({});
   const [pendingPermissionsBySession, setPendingPermissionsBySession] = useState<Record<string, PendingPermissionRequest[]>>({});
@@ -387,6 +399,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const flushPendingConversationResultRef = useRef<() => void>(() => undefined);
   const sessionRefreshTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const sessionRefreshOptionsRef = useRef<Record<string, { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean }>>({});
+  const messageFetchTrackerRef = useRef(createSessionFetchTracker());
+  const olderMessageCursorBySessionRef = useRef(new Map<string, string | null>());
+  const sessionsFetchSequenceRef = useRef(0);
+  const archivedSessionsFetchSequenceRef = useRef(0);
   const terminalSocketRef = useRef<WebSocket | undefined>(undefined);
   const terminalCursorByIdRef = useRef<Record<string, string>>({});
   const terminalOpenGenerationRef = useRef(0);
@@ -524,6 +540,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     setCurrentSessionId(undefined);
     setSessions([]);
     setArchivedSessions([]);
+    setHasOlderMessagesBySession({});
+    olderMessageCursorBySessionRef.current.clear();
     setSessionStatuses({});
     setCommands([]);
     setCurrentConfig(undefined);
@@ -595,7 +613,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         if (!isCurrentCatalogClient(catalogClient)) {
           return result;
         }
-        setServerProjects(result.serverProjects as Project[]);
+        setServerProjects((current) =>
+          pairedHost.client && sameGatewayProjectList(
+            current,
+            result.serverProjects as Project[],
+          )
+            ? current
+            : result.serverProjects as Project[],
+        );
         setCurrentProjectPath(result.currentProjectPath);
         setServerRootPath(result.serverRootPath);
         const currentProject = activeProjectPathRef.current;
@@ -631,6 +656,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const fetchSessions = useCallback(
     async (silent = false) => {
+      const fetchSequence = ++sessionsFetchSequenceRef.current;
       if (!activeProjectPath) {
         setSessions([]);
         setSessionStatuses({});
@@ -643,7 +669,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
       try {
         const result = await svcListSessions(client);
-        if (!isCurrentClient(client)) {
+        if (
+          !isCurrentClient(client) ||
+          fetchSequence !== sessionsFetchSequenceRef.current
+        ) {
           return result.sessions;
         }
         setSessions((current) =>
@@ -678,21 +707,38 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const refreshMessages = useCallback(
     async (sessionId: string, silent = false) => {
+      const fetchToken = messageFetchTrackerRef.current.start(sessionId);
       if (!silent) {
         setIsRefreshingMessages(true);
       }
 
       try {
-        const data = await svcGetSessionMessages(client, sessionId);
-        if (!isCurrentClient(client)) {
-          return data;
+        const page = await svcGetSessionMessages(client, sessionId);
+        if (
+          !isCurrentClient(client) ||
+          !messageFetchTrackerRef.current.isLatest(sessionId, fetchToken)
+        ) {
+          return page.records;
         }
         setMessagesBySession((current) => ({
           ...current,
-          [sessionId]: data,
+          [sessionId]: mergeSessionMessages(
+            current[sessionId] || [],
+            page.records,
+          ),
         }));
+        if (!olderMessageCursorBySessionRef.current.has(sessionId)) {
+          olderMessageCursorBySessionRef.current.set(
+            sessionId,
+            page.nextCursor ?? null,
+          );
+          setHasOlderMessagesBySession((current) => ({
+            ...current,
+            [sessionId]: Boolean(page.nextCursor),
+          }));
+        }
 
-        return data;
+        return page.records;
       } finally {
         if (!silent) {
           setIsRefreshingMessages(false);
@@ -701,6 +747,71 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     },
     [client, isCurrentClient],
   );
+
+  const replaceSessionMessages = useCallback(
+    async (sessionId: string, silent = false) => {
+      const fetchToken = messageFetchTrackerRef.current.start(sessionId);
+      if (!silent) setIsRefreshingMessages(true);
+      try {
+        const page = await svcGetSessionMessages(client, sessionId);
+        if (
+          !isCurrentClient(client) ||
+          !messageFetchTrackerRef.current.isLatest(sessionId, fetchToken)
+        ) {
+          return page.records;
+        }
+        setMessagesBySession((current) => ({
+          ...current,
+          [sessionId]: page.records,
+        }));
+        olderMessageCursorBySessionRef.current.set(
+          sessionId,
+          page.nextCursor ?? null,
+        );
+        setHasOlderMessagesBySession((current) => ({
+          ...current,
+          [sessionId]: Boolean(page.nextCursor),
+        }));
+        return page.records;
+      } finally {
+        if (!silent) setIsRefreshingMessages(false);
+      }
+    },
+    [client, isCurrentClient],
+  );
+
+  const loadOlderMessages = useCallback(async (sessionId: string) => {
+    const cursor = olderMessageCursorBySessionRef.current.get(sessionId);
+    if (!cursor) return;
+    const fetchToken = messageFetchTrackerRef.current.start(sessionId);
+    setIsRefreshingMessages(true);
+    try {
+      const page = await svcGetSessionMessages(client, sessionId, { cursor });
+      if (
+        !isCurrentClient(client) ||
+        !messageFetchTrackerRef.current.isLatest(sessionId, fetchToken)
+      ) {
+        return;
+      }
+      setMessagesBySession((current) => ({
+        ...current,
+        [sessionId]: mergeSessionMessages(
+          current[sessionId] || [],
+          page.records,
+        ),
+      }));
+      olderMessageCursorBySessionRef.current.set(
+        sessionId,
+        page.nextCursor ?? null,
+      );
+      setHasOlderMessagesBySession((current) => ({
+        ...current,
+        [sessionId]: Boolean(page.nextCursor),
+      }));
+    } finally {
+      setIsRefreshingMessages(false);
+    }
+  }, [client, isCurrentClient]);
 
   const refreshSessionDiff = useCallback(
     async (sessionId: string, silent = false) => {
@@ -755,6 +866,51 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   }, [client, isCurrentClient]);
 
   openProjectSessionRuntimeRef.current = {
+    openFromCache(projectId, sessionId) {
+      // Cache-first switching: a chat whose transcript is already hydrated
+      // renders instantly from memory; a silent background revalidation and
+      // the live event stream supply any delta. Only valid while the target
+      // project is already the active scope — project switches must take the
+      // full pipeline so scope-sensitive state is rebuilt.
+      if (connection.status !== 'connected') return undefined;
+      if (pairedHostRecord && pairedHostState !== 'connected') {
+        return undefined;
+      }
+      if (projectId !== activeProjectPathRef.current) return undefined;
+      const session = sessions.find(
+        (candidate) => candidate.id === sessionId,
+      );
+      const messages = messagesBySession[sessionId];
+      if (!session || !messages || messages.length === 0) return undefined;
+      scheduleSessionRefresh(sessionId, {
+        sessions: true,
+        messages: true,
+        diff: true,
+        todos: true,
+      });
+      const cachedInteractions = {
+        permissions: Object.values(pendingPermissionsBySession).flat(),
+        questions: Object.values(pendingQuestionsBySession).flat(),
+      };
+      return {
+        diffs: diffsBySession[sessionId] ?? [],
+        messages,
+        permissions: cachedInteractions.permissions,
+        projectId,
+        questions: cachedInteractions.questions,
+        session,
+        sessionId,
+        sessions,
+        statuses: sessionStatuses,
+        supplemental: Promise.resolve({
+          diffs: diffsBySession[sessionId] ?? [],
+          permissions: cachedInteractions.permissions,
+          questions: cachedInteractions.questions,
+          todos: todosBySession[sessionId] ?? [],
+        }),
+        todos: todosBySession[sessionId] ?? [],
+      };
+    },
     async confirmProject(projectId) {
       if (
         connection.status !== 'connected' ||
@@ -790,7 +946,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       catalog,
     ) {
       const scopedClient = buildScopedClient(projectId);
-      const messages = await svcGetSessionMessages(scopedClient, sessionId);
+      const messagePage = await svcGetSessionMessages(scopedClient, sessionId);
+      const messages = messagePage.records;
       const supplemental = Promise.all([
         svcGetSessionTodos(scopedClient, sessionId).catch(() => [] as Todo[]),
         listPendingInteractions(scopedClient).catch(() => ({
@@ -812,6 +969,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       return {
         diffs: [],
         messages,
+        messageNextCursor: messagePage.nextCursor,
         permissions: [],
         projectId,
         questions: [],
@@ -836,8 +994,29 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setSessionStatuses(payload.statuses);
       setMessagesBySession((current) =>
         switchingProject
-          ? { [payload.sessionId]: payload.messages }
-          : { ...current, [payload.sessionId]: payload.messages });
+          ? {
+              [payload.sessionId]: mergeSessionMessages(
+                current[payload.sessionId] || [],
+                payload.messages,
+              ),
+            }
+          : {
+              ...current,
+              [payload.sessionId]: mergeSessionMessages(
+                current[payload.sessionId] || [],
+                payload.messages,
+              ),
+            });
+      if (!olderMessageCursorBySessionRef.current.has(payload.sessionId)) {
+        olderMessageCursorBySessionRef.current.set(
+          payload.sessionId,
+          payload.messageNextCursor ?? null,
+        );
+        setHasOlderMessagesBySession((current) => ({
+          ...(switchingProject ? {} : current),
+          [payload.sessionId]: Boolean(payload.messageNextCursor),
+        }));
+      }
       setDiffsBySession((current) =>
         switchingProject
           ? { [payload.sessionId]: payload.diffs }
@@ -921,6 +1100,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
               sessionId,
               session,
               catalog,
+            );
+          },
+          openFromCache(projectId, sessionId) {
+            return openProjectSessionRuntimeRef.current?.openFromCache(
+              projectId,
+              sessionId,
             );
           },
         },
@@ -1272,24 +1457,38 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const refreshArchivedSessions = useCallback(async () => {
+    const fetchSequence = ++archivedSessionsFetchSequenceRef.current;
     const next = await svcListArchivedSessions(client);
-    if (isCurrentClient(client)) {
+    if (
+      isCurrentClient(client) &&
+      fetchSequence === archivedSessionsFetchSequenceRef.current
+    ) {
       setArchivedSessions([...next].sort((left, right) => right.time.updated - left.time.updated));
     }
   }, [client, isCurrentClient]);
+
+  const coalescedRefreshArchivedSessions = useMemo(
+    () => createTrailingCoalescer(
+      750,
+      () => void refreshArchivedSessions().catch(() => undefined),
+    ),
+    [refreshArchivedSessions],
+  );
 
   const archiveSession = useCallback(async (sessionId: string) => {
     await svcArchiveSession(client, sessionId);
     if (!isCurrentClient(client)) return;
     if (currentSessionId === sessionId) setCurrentSessionId(undefined);
-    await Promise.all([refreshSessions(true), refreshArchivedSessions()]);
-  }, [client, currentSessionId, isCurrentClient, refreshArchivedSessions, refreshSessions]);
+    await refreshSessions(true);
+    coalescedRefreshArchivedSessions.trigger();
+  }, [client, coalescedRefreshArchivedSessions, currentSessionId, isCurrentClient, refreshSessions]);
 
   const restoreSession = useCallback(async (sessionId: string) => {
     await svcRestoreSession(client, sessionId);
     if (!isCurrentClient(client)) return;
-    await Promise.all([refreshSessions(true), refreshArchivedSessions()]);
-  }, [client, isCurrentClient, refreshArchivedSessions, refreshSessions]);
+    await refreshSessions(true);
+    coalescedRefreshArchivedSessions.trigger();
+  }, [client, coalescedRefreshArchivedSessions, isCurrentClient, refreshSessions]);
 
   const renameSession = useCallback(async (sessionId: string, title: string) => {
     const trimmed = title.trim();
@@ -1315,13 +1514,13 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const revertSession = useCallback(async (sessionId: string, messageId: string) => {
     await svcRevertSession(client, sessionId, messageId);
-    await Promise.all([refreshSessions(true), refreshMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
-  }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
+    await Promise.all([refreshSessions(true), replaceSessionMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
+  }, [client, refreshSessionDiff, refreshSessions, replaceSessionMessages]);
 
   const unrevertSession = useCallback(async (sessionId: string) => {
     await svcUnrevertSession(client, sessionId);
-    await Promise.all([refreshSessions(true), refreshMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
-  }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
+    await Promise.all([refreshSessions(true), replaceSessionMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
+  }, [client, refreshSessionDiff, refreshSessions, replaceSessionMessages]);
 
   const getSessionChildren = useCallback(
     async (sessionId: string) => svcGetSessionChildren(client, sessionId),
@@ -1335,6 +1534,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       throw new Error('Only your non-synthetic text messages can be deleted.');
     }
     await svcDeleteSessionMessage(client, sessionId, messageId);
+    setMessagesBySession((current) => ({
+      ...current,
+      [sessionId]: pruneSessionMessage(current[sessionId] || [], messageId),
+    }));
     await Promise.all([
       refreshMessages(sessionId, true),
       refreshSessionDiff(sessionId, true),
@@ -1973,6 +2176,36 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const ensureActiveSessionRef = useRef(ensureActiveSession);
   ensureActiveSessionRef.current = ensureActiveSession;
 
+  const coalescedRefreshSessions = useMemo(
+    () => createTrailingCoalescer(
+      750,
+      () => void refreshSessions(true).catch(() => undefined),
+    ),
+    [refreshSessions],
+  );
+  const coalescedIdleRefresh = useMemo(
+    () => createTrailingCoalescer(1000, () => {
+      void Promise.all([
+        refreshPendingInteractions(),
+        refreshServerFeatures(),
+      ]).catch(() => undefined);
+    }),
+    [refreshPendingInteractions, refreshServerFeatures],
+  );
+
+  useEffect(
+    () => () => {
+      coalescedRefreshArchivedSessions.cancel();
+      coalescedRefreshSessions.cancel();
+      coalescedIdleRefresh.cancel();
+    },
+    [
+      coalescedIdleRefresh,
+      coalescedRefreshArchivedSessions,
+      coalescedRefreshSessions,
+    ],
+  );
+
   useEffect(() => {
     if (!isHydrated) return;
     const target = pairedHostClient && pairedHostRecord
@@ -2333,22 +2566,28 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       let promptAccepted = false;
 
       try {
+        const sessionExecutionState = getSessionExecutionState(currentSession);
         const selectedPreferences =
           currentSessionId === sessionId
             ? chatPreferences
             : authoritativePreferencesForSession(sessionId);
-        const persistedState = await persistSessionPreferences(
-          sessionId,
+        const initialExecutionPlan = buildPromptExecutionPlan(
+          sessionExecutionState,
           selectedPreferences,
         );
+        const persistedState = initialExecutionPlan.persistAllowed
+          ? await persistSessionPreferences(sessionId, selectedPreferences)
+          : undefined;
         const executionPreferences = persistedState
           ? hydratePreferencesFromSession(
               persistedState,
               selectedPreferences,
             )
-          : pairedHostClient
-            ? authoritativePreferencesForSession(sessionId)
-            : selectedPreferences;
+          : selectedPreferences;
+        const executionPlan = buildPromptExecutionPlan(
+          persistedState ?? sessionExecutionState,
+          executionPreferences,
+        );
         busyNotificationSessionIdsRef.current.delete(sessionId);
         notificationRequestedAtRef.current.set(sessionId, Date.now());
         pendingNotificationSessionIdsRef.current.add(sessionId);
@@ -2375,13 +2614,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
 
         setSendingState({ active: true, sessionId });
-        const selectedModel = availableModels.find(
-          (model) => model.id === executionPreferences.modelId,
-        );
-        if (attachments?.length && !selectedModel) {
+        const selectedModel = executionPlan.persistAllowed
+          ? availableModels.find(
+              (model) => model.id === executionPreferences.modelId,
+            )
+          : undefined;
+        if (
+          attachments?.length &&
+          executionPlan.persistAllowed &&
+          !selectedModel
+        ) {
           throw new Error('Select a model that supports attachments first.');
         }
-        if (attachments?.length && !selectedModel?.supportsAttachments) {
+        if (
+          attachments?.length &&
+          selectedModel &&
+          !selectedModel.supportsAttachments
+        ) {
           throw new Error(`${selectedModel?.label || 'The selected model'} does not support file attachments.`);
         }
         if (attachments?.length && selectedModel?.inputModalities?.length) {
@@ -2439,9 +2688,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
         await client.session.promptAsync({
           sessionID: sessionId,
-          agent: executionPreferences.mode || undefined,
-          model: getSelectedModelParts(executionPreferences.modelId),
-          system: buildSystemPrompt(executionPreferences),
+          agent: executionPlan.agent,
+          model: executionPlan.model,
+          system: executionPlan.system,
           parts,
         });
         promptAccepted = true;
@@ -2486,7 +2735,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setSendingState({ active: false, sessionId: undefined });
       }
     },
-    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, pairedHostClient, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions],
+    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions],
   );
 
   const abortSession = useCallback(
@@ -2961,9 +3210,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       switch (event.type) {
         case 'session.created':
         case 'session.updated':
+          coalescedRefreshSessions.trigger();
+          return;
         case 'session.deleted':
-          void refreshSessions(true);
-          void refreshArchivedSessions();
+          coalescedRefreshSessions.trigger();
+          coalescedRefreshArchivedSessions.trigger();
           return;
         case 'session.status': {
           const sessionId = event.properties.sessionID;
@@ -2981,8 +3232,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             [sessionId]: { type: 'idle' },
           }));
           scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 50 });
-          void refreshPendingInteractions();
-          void refreshServerFeatures();
+          coalescedIdleRefresh.trigger();
           return;
         }
         case 'session.error': {
@@ -3008,13 +3258,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           return;
         }
         case 'message.removed':
+          setMessagesBySession((current) => ({
+            ...current,
+            [event.properties.sessionID]: pruneSessionMessage(
+              current[event.properties.sessionID] || [],
+              event.properties.messageID,
+            ),
+          }));
+          scheduleSessionRefresh(event.properties.sessionID, { messages: true });
+          return;
         case 'message.part.updated':
         case 'message.part.removed': {
           scheduleSessionRefresh(event.properties.sessionID, { messages: true });
           return;
         }
         case 'session.compacted': {
-          scheduleSessionRefresh(event.properties.sessionID, { sessions: true, messages: true, diff: true, todos: true });
+          scheduleSessionRefresh(event.properties.sessionID, { sessions: true, diff: true, todos: true });
+          void replaceSessionMessages(event.properties.sessionID, true);
           return;
         }
         case 'project.updated':
@@ -3180,7 +3440,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, connection.status, pairedHostClient, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh, settings]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings]);
 
   useEffect(
     () => () => {
@@ -3383,6 +3643,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     [currentMessages, usagePricingByModel],
   );
   const currentTranscript = useMemo(() => getTranscript(currentMessages), [currentMessages]);
+  const hasOlderMessages = Boolean(
+    currentSessionId && hasOlderMessagesBySession[currentSessionId],
+  );
   const conversationMessages = useMemo(
     () => (conversationSessionId ? messagesBySession[conversationSessionId] || [] : []),
     [conversationSessionId, messagesBySession],
@@ -3416,6 +3679,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentSessionId,
       activeSession,
       currentMessages,
+      hasOlderMessages,
       currentUsage,
       latestAssistantTurnUsage,
       currentDiffs,
@@ -3467,6 +3731,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       cancelOpenProjectSession,
       openSession,
       refreshCurrentSession,
+      loadOlderMessages,
       refreshCurrentTodos,
       ensureActiveSession,
       createSession,
@@ -3565,6 +3830,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       configureProvider,
       completeAutomaticProviderOAuth,
       currentMessages,
+      hasOlderMessages,
       currentUsage,
       latestAssistantTurnUsage,
       currentSessionId,
@@ -3601,6 +3867,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       currentProjectPath,
       projects,
       refreshCurrentSession,
+      loadOlderMessages,
       refreshCurrentTodos,
       refreshWorkspaceCatalog,
       refreshServerFeatures,

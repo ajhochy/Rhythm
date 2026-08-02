@@ -35,6 +35,7 @@ import {
 } from '../services/mobile_project_scope';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
+import { canUpdateMobileSessionState } from '../services/mobile_session_state_scope';
 import {
   buildSafeMobileProfileCatalog,
   safeMobileSessionProfileState,
@@ -42,20 +43,7 @@ import {
 import { createMobileToolsRouter } from './mobile_tools_routes';
 
 export { buildSafeMobileProfileCatalog };
-
-export function canUpdateMobileSessionState(
-  session: {
-    ownerUserId: number | null;
-    projectId: string | null;
-  } | null | undefined,
-  ownerUserId: number,
-  projectId: string,
-): boolean {
-  if (!session || session.ownerUserId !== ownerUserId) return false;
-  return session.projectId === projectId ||
-    session.projectId === null ||
-    session.projectId.trim() === '';
-}
+export { canUpdateMobileSessionState };
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();

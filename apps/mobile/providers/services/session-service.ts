@@ -192,20 +192,37 @@ export async function resolveOwnerDiscoveredSession(
     .find((session) => session.id === sessionId);
 }
 
-export async function getSessionMessages(client: OpencodeClient, sessionId: string) {
+export type SessionMessagePage = {
+  records: NonNullable<Awaited<ReturnType<OpencodeClient['session']['messages']>>['data']>;
+  nextCursor?: string;
+};
+
+export async function getSessionMessages(
+  client: OpencodeClient,
+  sessionId: string,
+  options: { cursor?: string } = {},
+): Promise<SessionMessagePage> {
   const response = await client.session.messages({
     sessionID: sessionId,
     limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+    ...(options.cursor ? { before: options.cursor } : {}),
   });
-  return requireData(response.data, 'session messages request');
+  const records = requireData(response.data, 'session messages request');
+  return {
+    records,
+    nextCursor:
+      records.length === MOBILE_SESSION_MESSAGE_PAGE_SIZE
+        ? records[0]?.info.id
+        : undefined,
+  };
 }
 
 export async function getSessionDiff(
   client: OpencodeClient,
   sessionId: string,
-  loadedMessages?: Awaited<ReturnType<typeof getSessionMessages>>,
+  loadedMessages?: SessionMessagePage['records'],
 ) {
-  const messages = loadedMessages ?? await getSessionMessages(client, sessionId);
+  const messages = loadedMessages ?? (await getSessionMessages(client, sessionId)).records;
   const latestUserMessage = messages.slice().reverse().find(({ info }) => info.role === 'user');
   if (!latestUserMessage) {
     return [];

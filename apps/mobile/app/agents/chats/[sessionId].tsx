@@ -1,5 +1,5 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { Button } from 'react-native-paper';
 
@@ -52,10 +52,18 @@ export default function AgentChatDetailScreen() {
     : params.projectId;
   const targetProjectId = projectId ?? activeProjectPath ?? '';
   const targetSessionId = sessionId ?? '';
+  const readyTargetRef = useRef({ key: '', observed: false });
+  const targetKey = `${targetProjectId}\u0000${targetSessionId}`;
+  if (readyTargetRef.current.key !== targetKey) {
+    readyTargetRef.current = { key: targetKey, observed: false };
+  }
   const stateMatchesTarget =
     'projectId' in openState &&
     openState.projectId === targetProjectId &&
     openState.sessionId === targetSessionId;
+  if (stateMatchesTarget && openState.kind === 'ready') {
+    readyTargetRef.current.observed = true;
+  }
 
   const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
 
@@ -145,10 +153,10 @@ export default function AgentChatDetailScreen() {
   }
 
   const isReady =
-    stateMatchesTarget &&
-    openState.kind === 'ready' &&
     activeProjectPath === targetProjectId &&
-    currentSessionId === targetSessionId;
+    currentSessionId === targetSessionId &&
+    (readyTargetRef.current.observed ||
+      (stateMatchesTarget && openState.kind === 'ready'));
   if (!isReady) {
     return (
       <>

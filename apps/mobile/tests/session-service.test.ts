@@ -29,13 +29,37 @@ describe('mobile session transcript loading', () => {
     const messages = jest.fn().mockResolvedValue({ data: [] });
     const client = { session: { messages } } as never;
 
-    await getSessionMessages(client, 'ses-large');
+    await expect(getSessionMessages(client, 'ses-large')).resolves.toEqual({
+      records: [],
+      nextCursor: undefined,
+    });
 
     expect(messages).toHaveBeenCalledWith({
       sessionID: 'ses-large',
       limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
     });
     expect(MOBILE_SESSION_MESSAGE_PAGE_SIZE).toBeLessThanOrEqual(20);
+  });
+
+  test('requests an older page before the supplied message cursor', async () => {
+    const records = Array.from(
+      { length: MOBILE_SESSION_MESSAGE_PAGE_SIZE },
+      (_, index) => ({ info: { id: `message-${index}` }, parts: [] }),
+    );
+    const messages = jest.fn().mockResolvedValue({ data: records });
+    const client = { session: { messages } } as never;
+
+    await expect(
+      getSessionMessages(client, 'ses-large', { cursor: 'message-20' }),
+    ).resolves.toMatchObject({
+      records,
+      nextCursor: 'message-0',
+    });
+    expect(messages).toHaveBeenCalledWith({
+      sessionID: 'ses-large',
+      limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+      before: 'message-20',
+    });
   });
 
   test('derives the diff anchor from already-loaded messages', async () => {

@@ -47,6 +47,7 @@ import {
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
 import { listOwnerUnscopedMobileChats } from './mobile_chat_catalog';
+import { canUpdateMobileSessionState } from './mobile_session_state_scope';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -321,7 +322,6 @@ function attachSafeSessionState(
   operationId: string,
   value: unknown,
   input: MobileOpenCodeForwardInput,
-  ownership: MobileOpenCodeOwnershipStore,
 ): unknown {
   if (!SESSION_STATE_RESPONSE_OPERATIONS.has(operationId)) return value;
 
@@ -330,13 +330,7 @@ function attachSafeSessionState(
     if (
       !sdkSessionId ||
       !candidate ||
-      typeof candidate !== 'object' ||
-      !ownership.isResourceExplicitlyOwnedBy?.(
-        'session',
-        sdkSessionId,
-        input.userId,
-        input.project.id,
-      )
+      typeof candidate !== 'object'
     ) {
       return candidate;
     }
@@ -344,8 +338,7 @@ function attachSafeSessionState(
     const local = sessions.findBySdkSessionId(sdkSessionId);
     if (
       !local ||
-      local.ownerUserId !== input.userId ||
-      local.projectId !== input.project.id
+      !canUpdateMobileSessionState(local, input.userId, input.project.id)
     ) {
       return candidate;
     }
@@ -878,6 +871,7 @@ export class MobileOpenCodeProxy {
         cursor,
         limit,
         ownerUserId: input.userId,
+        projectId: input.project.id,
         sessionId: query.get('search')?.trim() || undefined,
       });
       const safeBody = Buffer.from(JSON.stringify(
@@ -1187,7 +1181,6 @@ export class MobileOpenCodeProxy {
             operation.operationId,
             safeValue,
             input,
-            ownership,
           ),
         ));
         if (safeBody.byteLength > this.responseBodyLimitBytes) {

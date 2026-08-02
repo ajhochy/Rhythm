@@ -49,6 +49,30 @@
       "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
       "test_id": "issue-1286-c6: created session reports the selected profile and emits no scope fallback warning",
       "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c10",
+      "text": "Exact-owner projectless sessions carry authoritative rhythm profile state on every mobile-gateway read surface (owner-unscoped discovery, session.list, PATCH round trip); other owners and other non-null projects never receive it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_projectless_profile_state.test.ts",
+      "test_id": "issue-1286 projectless profile state (4 tests)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1286-c11",
+      "text": "When a session's execution state is unknown to the mobile client, sendPrompt neither persists fallback preferences nor overrides the engine session's agent/model/system; the engine's persisted profile wins.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/prompt-execution-plan.test.ts",
+      "test_id": "buildPromptExecutionPlan known vs unknown state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1286-c12",
+      "text": "Opening a session with a selected profile executes that profile on the first turn and shows it (not Unassigned) after reopen/refresh, verified on the physical device.",
+      "mode": "manual-device",
+      "test_file": "docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md",
+      "test_id": "physical-device smoke checklist",
+      "status": "pending"
     }
   ],
   "stack": "typescript",

@@ -92,4 +92,35 @@ describe('AgentChatDetailScreen', () => {
     expect(mockCancelOpenProjectSession).toHaveBeenCalledTimes(1);
     expect(mockOpenProjectSession).not.toHaveBeenCalled();
   });
+
+  test('keeps the rendered chat after readiness during transient controller churn', () => {
+    mockOpencodeState = {
+      ...mockOpencodeState,
+      currentSessionId: 'ses-projectless',
+      openProjectSessionState: {
+        kind: 'ready',
+        generation: 1,
+        projectId: '/registered/project',
+        sessionId: 'ses-projectless',
+      },
+    };
+    const screen = render(
+      <PaperProvider>
+        <AgentChatDetailScreen />
+      </PaperProvider>,
+    );
+    expect(screen.queryByText('Opening chat')).toBeNull();
+
+    mockOpencodeState = {
+      ...mockOpencodeState,
+      openProjectSessionState: { kind: 'idle' },
+    };
+    screen.rerender(
+      <PaperProvider>
+        <AgentChatDetailScreen />
+      </PaperProvider>,
+    );
+
+    expect(screen.queryByText('Opening chat')).toBeNull();
+  });
 });

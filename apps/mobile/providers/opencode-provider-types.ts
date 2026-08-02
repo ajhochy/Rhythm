@@ -140,6 +140,7 @@ export type OpencodeContextValue = {
   currentSessionId?: string;
   activeSession?: MobileSession;
   currentMessages: SessionMessageRecord[];
+  hasOlderMessages: boolean;
   currentTranscript: TranscriptEntry[];
   currentUsage: SessionUsage;
   latestAssistantTurnUsage?: SessionUsage;
@@ -191,6 +192,7 @@ export type OpencodeContextValue = {
   cancelOpenProjectSession: () => void;
   openSession: (sessionId: string) => Promise<void>;
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
+  loadOlderMessages: (sessionId: string) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
   ensureActiveSession: () => Promise<string | undefined>;
   createSession: (

@@ -1228,7 +1228,17 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && /^\/session\/[^/]+\/message$/.test(pathname)) {
       const sessionId = pathname.split('/')[2];
-      sendJson(res, 200, getMessages(sessionId));
+      const messages = getMessages(sessionId);
+      const before = requestUrl.searchParams.get('before');
+      const beforeIndex = before
+        ? messages.findIndex((message) => message.info.id === before)
+        : messages.length;
+      const eligible = messages.slice(0, beforeIndex < 0 ? messages.length : beforeIndex);
+      const requestedLimit = Number(requestUrl.searchParams.get('limit'));
+      const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? requestedLimit
+        : eligible.length;
+      sendJson(res, 200, eligible.slice(-limit));
       return;
     }
 

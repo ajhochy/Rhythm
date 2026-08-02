@@ -306,6 +306,18 @@ Recognized events update local state or schedule refreshes for:
 - todo updates
 - permission and question requests/replies
 
+Event-driven refreshes are coalesced, not per-event: session list refreshes
+share a trailing 750ms coalescer, the archived-session sweep runs only for
+delete/archive/restore (never on the hot path), and idle-completion ancillary
+refreshes share a 1s coalescer. List and transcript commits carry monotonic
+fetch tokens so an out-of-order (stale) response can never overwrite newer
+state. Transcripts merge by message id (`lib/opencode/messages.ts`) — a
+partial fetch can only add or update records, never shrink a hydrated
+transcript; explicit removal events and revert/compaction flows use dedicated
+prune/replace paths. Opening a chat whose transcript is already hydrated
+takes a synchronous cache-first path (`openFromCache`) that renders
+immediately and revalidates in the background.
+
 ### Safety Strategy: Polling Fallback
 
 The provider keeps a 5-second polling loop when any of the following is true:

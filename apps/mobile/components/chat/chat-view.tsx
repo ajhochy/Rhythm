@@ -43,6 +43,7 @@ export function ChatView() {
     clearPromptError,
     currentDiffs,
     currentMessages,
+    hasOlderMessages,
     currentPendingPermissions,
     currentPendingQuestions,
     currentTodos,
@@ -53,6 +54,7 @@ export function ChatView() {
     isRefreshingDiffs,
     isRefreshingMessages,
     openSession,
+    loadOlderMessages,
     refreshCurrentSession,
     replyToPermission,
     replyToQuestion,
@@ -700,9 +702,13 @@ export function ChatView() {
           expandedDiffId={expandedDiffId}
           isRefreshingDiffs={isRefreshingDiffs}
           isRefreshingMessages={isRefreshingMessages}
+          hasOlderMessages={hasOlderMessages}
           onCopyMessage={(entry) => void handleCopyMessage(entry)}
           onExpandDiff={setExpandedDiffId}
           onRefresh={() => void refreshCurrentSession()}
+          onLoadOlderMessages={() => currentSessionId
+            ? void loadOlderMessages(currentSessionId)
+            : undefined}
           onRejectQuestion={(requestId) => void rejectQuestion(requestId).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not reject the question.'))}
           onReplyToPermission={(requestId, reply) => void replyToPermission(requestId, reply).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not reply to the permission request.'))}
           onReplyToQuestion={(requestId, answers) => void replyToQuestion(requestId, answers).catch((error) => setSendFeedback(error instanceof Error ? error.message : 'Could not answer the question.'))}

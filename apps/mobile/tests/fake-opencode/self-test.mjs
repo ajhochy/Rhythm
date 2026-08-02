@@ -268,6 +268,10 @@ try {
   const messages = await request(`/session/${sessionId}/message`);
   const userMessage = messages.find((message) => message.info.role === 'user');
   assert(messages.length >= 2, 'Expected user and assistant messages');
+  const newestMessagePage = await request(`/session/${sessionId}/message?limit=1`);
+  assert(newestMessagePage.length === 1 && newestMessagePage[0].info.id === messages.at(-1).info.id, 'Message limit did not return the newest record');
+  const olderMessagePage = await request(`/session/${sessionId}/message?limit=1&before=${newestMessagePage[0].info.id}`);
+  assert(olderMessagePage.length === 1 && olderMessagePage[0].info.id === messages.at(-2).info.id, 'Message before cursor did not page backward');
   assert((await request(`/session/${sessionId}/diff`)).length === 0, 'Expected message-scoped diff contract');
   assert((await request(`/session/${sessionId}/diff?messageID=${userMessage.info.id}`)).length > 0, 'Expected user message diff payload');
   assert((await request('/file/status')).length === 2, 'Expected completed task file status');

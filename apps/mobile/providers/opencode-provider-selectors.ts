@@ -48,13 +48,14 @@ export function preserveReadySessionDuringRefresh<
   if (
     openState.kind !== 'ready' ||
     openState.projectId !== activeProjectId ||
-    openState.sessionId !== currentSessionId ||
-    refreshedSessions.some((session) => session.id === currentSessionId)
+    refreshedSessions.some((session) => session.id === openState.sessionId)
   ) {
     return refreshedSessions;
   }
 
   const ownerOpenedSession = currentSessions.find(
+    (session) => session.id === openState.sessionId,
+  ) ?? currentSessions.find(
     (session) => session.id === currentSessionId,
   );
   return ownerOpenedSession
@@ -77,19 +78,14 @@ export function reconcileSessionSelectionAfterRefresh<
   openState: OpenProjectSessionState;
   sessions: TSession[];
 }): string | undefined {
+  if (openState.kind === 'ready' && openState.projectId === activeProjectId) {
+    return openState.sessionId;
+  }
+
   if (!currentSessionId) return currentSessionId;
 
-  if (
-    (openState.kind === 'opening' || openState.kind === 'ready') &&
-    openState.projectId === activeProjectId
-  ) {
-    if (openState.kind === 'opening') return currentSessionId;
-    if (
-      openState.sessionId === currentSessionId ||
-      sessions.some((session) => session.id === openState.sessionId)
-    ) {
-      return openState.sessionId;
-    }
+  if (openState.kind === 'opening' && openState.projectId === activeProjectId) {
+    return currentSessionId;
   }
 
   if (sessions.some((session) => session.id === currentSessionId)) {

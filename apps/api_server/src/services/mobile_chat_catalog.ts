@@ -1,5 +1,9 @@
 import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { safeMobileSessionProfileState } from './mobile_profile_catalog';
+import { canUpdateMobileSessionState } from './mobile_session_state_scope';
 
 interface MobileChatCatalogRow {
   sdk_session_id: string;
@@ -25,6 +29,7 @@ function timestamp(value: string | null): number | undefined {
 
 export async function listOwnerUnscopedMobileChats(input: {
   ownerUserId: number;
+  projectId: string;
   archived: boolean;
   cursor: number;
   limit: number;
@@ -89,22 +94,34 @@ export async function listOwnerUnscopedMobileChats(input: {
           : [input.ownerUserId, pageSize, input.cursor]),
       ) as MobileChatCatalogRow[];
   const hasMore = rows.length > input.limit;
-  const items = rows.slice(0, input.limit).map((row) => ({
-    id: row.sdk_session_id,
-    title: row.name || 'Untitled chat',
-    status: row.status || 'idle',
-    ...(row.parent_sdk_session_id
-      ? { parentID: row.parent_sdk_session_id }
-      : {}),
-    time: {
-      created: timestamp(row.created_at) ?? 0,
-      updated: timestamp(row.activity_at) ?? 0,
-      ...(row.archived_at
-        ? { archived: timestamp(row.archived_at) ?? 0 }
+  const sessions = new AgentSessionsRepository();
+  const configs = new AgentConfigsRepository().list();
+  const items = rows.slice(0, input.limit).map((row) => {
+    const local = sessions.findBySdkSessionId(row.sdk_session_id);
+    return {
+      id: row.sdk_session_id,
+      title: row.name || 'Untitled chat',
+      status: row.status || 'idle',
+      ...(row.parent_sdk_session_id
+        ? { parentID: row.parent_sdk_session_id }
         : {}),
-    },
-    projectId: row.project_id?.trim() || null,
-  }));
+      time: {
+        created: timestamp(row.created_at) ?? 0,
+        updated: timestamp(row.activity_at) ?? 0,
+        ...(row.archived_at
+          ? { archived: timestamp(row.archived_at) ?? 0 }
+          : {}),
+      },
+      projectId: row.project_id?.trim() || null,
+      ...(local && canUpdateMobileSessionState(
+          local,
+          input.ownerUserId,
+          input.projectId,
+        )
+        ? { rhythm: safeMobileSessionProfileState(local, configs) }
+        : {}),
+    };
+  });
   return {
     items,
     nextCursor: hasMore ? input.cursor + input.limit : null,

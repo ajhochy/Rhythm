@@ -106,4 +106,36 @@ describe('mobile session refresh pinning', () => {
       }),
     ).toBe(rememberedProjectChat.id);
   });
+
+  test('pins the ready controller target while React currentSessionId still points elsewhere', () => {
+    const projectId = 'project-a';
+    const readySession = { id: 'ses-ready', title: 'Ready chat' };
+    const staleSession = { id: 'ses-stale', title: 'Previous chat' };
+    const openState = {
+      generation: 4,
+      kind: 'ready' as const,
+      projectId,
+      sessionId: readySession.id,
+    };
+
+    expect(
+      preserveReadySessionDuringRefresh({
+        activeProjectId: projectId,
+        currentSessionId: staleSession.id,
+        currentSessions: [staleSession, readySession],
+        openState,
+        refreshedSessions: [staleSession],
+      }),
+    ).toEqual([readySession, staleSession]);
+
+    expect(
+      reconcileSessionSelectionAfterRefresh({
+        activeProjectId: projectId,
+        currentSessionId: staleSession.id,
+        lastSessionByProject: { [projectId]: staleSession.id },
+        openState,
+        sessions: [staleSession],
+      }),
+    ).toBe(readySession.id);
+  });
 });

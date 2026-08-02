@@ -122,6 +122,14 @@ export interface OpenProjectSessionTransport<
     session: TSession,
     catalog: ProjectSessionCatalog<TSession>,
   ): Promise<TPayload>;
+  /**
+   * Synchronous cache-first fast path. When the target session's state is
+   * already hydrated (recently opened chat), return a payload built from the
+   * cache so the chat renders instantly; the transport is expected to
+   * schedule its own background revalidation. Return undefined to take the
+   * normal network path.
+   */
+  openFromCache?(projectId: string, sessionId: string): TPayload | undefined;
 }
 
 type OpenProjectSessionClock = {
@@ -267,6 +275,23 @@ export function createOpenProjectSessionController<
         state.sessionId === sessionId
       ) {
         return state;
+      }
+
+      if (projectId && sessionId) {
+        const cached = transport.openFromCache?.(projectId, sessionId);
+        if (cached) {
+          cancel(false);
+          const operationGeneration = generation;
+          commit(cached);
+          const ready: OpenProjectSessionState = {
+            kind: 'ready',
+            generation: operationGeneration,
+            projectId,
+            sessionId,
+          };
+          publish(ready);
+          return ready;
+        }
       }
 
       cancel(false);

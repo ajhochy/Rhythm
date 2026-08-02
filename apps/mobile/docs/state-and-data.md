@@ -70,6 +70,9 @@ Important behavior:
 
 - data is fetched lazily when a session is opened or refreshed
 - message/diff/todo caches are updated by explicit refreshes, SSE events, and polling fallback
+- message caches merge by message id with per-session monotonic fetch tokens; partial or stale responses cannot shrink a hydrated transcript, and only explicit removal/revert/compaction paths delete records
+- older messages page in via the engine's `limit`+`before` cursor (`loadOlderMessages`), merged without duplicates
+- reopening a session whose transcript is already cached commits synchronously from the cache and revalidates in the background
 - permission and question entries are updated by SSE events, replies, and server list refreshes
 - current-session selectors only read the active or relevant session from these maps
 

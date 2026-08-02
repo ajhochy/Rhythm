@@ -154,6 +154,48 @@ export const defaultChatPreferences: ChatPreferences = {
   includeNextActions: true,
 };
 
+export type PromptExecutionPlan = {
+  agent?: string;
+  model?: { providerID: string; modelID: string };
+  system?: string;
+  persistAllowed: boolean;
+};
+
+export function buildPromptExecutionPlan(
+  sessionExecutionState: SessionExecutionState | undefined,
+  preferences: ChatPreferences,
+): PromptExecutionPlan {
+  if (!sessionExecutionState) {
+    return { persistAllowed: false };
+  }
+
+  return {
+    agent: preferences.mode || undefined,
+    model: getSelectedModelParts(preferences.modelId),
+    system: buildSystemPrompt(preferences),
+    persistAllowed: true,
+  };
+}
+
+type GatewayProjectIdentity = {
+  id: string;
+  name?: unknown;
+  icon?: unknown;
+};
+
+export function sameGatewayProjectList(
+  current: GatewayProjectIdentity[],
+  next: GatewayProjectIdentity[],
+): boolean {
+  return current.length === next.length && current.every((project, index) => {
+    const candidate = next[index];
+    return candidate !== undefined &&
+      project.id === candidate.id &&
+      project.name === candidate.name &&
+      JSON.stringify(project.icon) === JSON.stringify(candidate.icon);
+  });
+}
+
 export function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
     return error.message;
