@@ -334,20 +334,27 @@ function attachSafeSessionState(
     ) {
       return candidate;
     }
-    const sessions = new AgentSessionsRepository();
-    const local = sessions.findBySdkSessionId(sdkSessionId);
-    if (
-      !local ||
-      !canUpdateMobileSessionState(local, input.userId, input.project.id)
-    ) {
+    // Fail closed when the local catalog cannot be consulted (e.g. proxy
+    // exercised without an initialized database): deliver the session
+    // untouched rather than failing the whole forward or attaching state we
+    // could not verify.
+    let local: ReturnType<AgentSessionsRepository['findBySdkSessionId']>;
+    let profiles: ReturnType<AgentConfigsRepository['list']>;
+    try {
+      local = new AgentSessionsRepository().findBySdkSessionId(sdkSessionId);
+      if (
+        !local ||
+        !canUpdateMobileSessionState(local, input.userId, input.project.id)
+      ) {
+        return candidate;
+      }
+      profiles = new AgentConfigsRepository().list();
+    } catch {
       return candidate;
     }
     return {
       ...(candidate as Record<string, unknown>),
-      rhythm: safeMobileSessionProfileState(
-        local,
-        new AgentConfigsRepository().list(),
-      ),
+      rhythm: safeMobileSessionProfileState(local, profiles),
     };
   };
 
