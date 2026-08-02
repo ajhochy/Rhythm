@@ -228,6 +228,45 @@ describe('issue #1286 projectless mobile profile state reads', () => {
     ]);
   });
 
+  it('issue-1286-c5: an unbound row attaches no rhythm so engine state is never masked', async () => {
+    const local = sessions.insert({
+      agentKind: 'codex',
+      profileId: null,
+      opencodeAgentId: null,
+      taskId: null,
+      cwd: '/sandbox/issue-1286/home',
+      name: 'ses-unbound',
+      projectId: null,
+      ownerUserId: ownerA,
+      category: 'chat',
+      isSystem: false,
+      scheduledTaskId: null,
+    });
+    sessions.setSdkSessionId(local.id, 'ses-unbound');
+    const proxy = new MobileOpenCodeProxy({
+      baseUrl: 'http://opencode.test',
+      ownershipRepository: ownership,
+      fetchFn: async () => json([{
+        id: 'ses-unbound',
+        directory: project.root,
+        agent: 'coding-workflow',
+      }]),
+    });
+
+    const response = await proxy.forward({
+      method: 'GET',
+      path: '/session',
+      query: new URLSearchParams(),
+      project,
+      userId: ownerA,
+    });
+    const body = JSON.parse(Buffer.from(response.body).toString('utf8')) as
+      Array<Record<string, unknown>>;
+
+    expect(body[0]).not.toHaveProperty('rhythm');
+    expect(body[0]).toMatchObject({ agent: 'coding-workflow' });
+  });
+
   it('issue-1286-c3: read surfaces reject other owners and different non-null projects', async () => {
     catalogSession('ses-other-owner-negative', ownerB, null);
     catalogSession('ses-other-project-negative', ownerA, otherProjectId);

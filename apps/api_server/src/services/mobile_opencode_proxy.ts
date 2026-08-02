@@ -47,7 +47,10 @@ import {
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
 import { listOwnerUnscopedMobileChats } from './mobile_chat_catalog';
-import { canUpdateMobileSessionState } from './mobile_session_state_scope';
+import {
+  canUpdateMobileSessionState,
+  hasMobileSessionExecutionBinding,
+} from './mobile_session_state_scope';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -344,7 +347,8 @@ function attachSafeSessionState(
       local = new AgentSessionsRepository().findBySdkSessionId(sdkSessionId);
       if (
         !local ||
-        !canUpdateMobileSessionState(local, input.userId, input.project.id)
+        !canUpdateMobileSessionState(local, input.userId, input.project.id) ||
+        !hasMobileSessionExecutionBinding(local)
       ) {
         return candidate;
       }

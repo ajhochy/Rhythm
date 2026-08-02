@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/mobile-fixes-rollup
 pr: 1284
 issues: [1286, 1287]
-status: awaiting-device-smoke
+status: device-smoke-pass
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -90,3 +90,40 @@ Mobile (Codex lane + orchestrator, apps/mobile):
 - `tests/fake-opencode/server.mjs` + `self-test.mjs` changed (adds the
   `limit`/`before` message paging the real engine already implements).
 - Physical-device smoke checklist in PR/summary; issue-1286-c12 pending.
+
+## Round 2 — live device iteration (2026-08-02, PASS)
+
+The first device pass failed for reasons the automated gates could not see;
+each was probed live on the phone, diagnosed, and fixed:
+
+1. Stale desktop server (process predated the fixes) — relaunched via
+   tools/dev/launch_desktop_current.sh; profile fix inert until then.
+2. Cross-project chat opens flipped the provider scope and destroyed all
+   cached transcripts → transcripts/diffs/todos now survive scope switches;
+   cross-scope cache-first via openedSessionRecordCacheRef.
+3. Chats-list churn ("no sessions yet" flashes, unprompted reloads): the
+   discovery sweep re-ran on every scope flip and SSE reconnect →
+   identity-stable refresh, stale-while-revalidate, never-shrink progress
+   commits, 15s sweep throttle (agent-chat-provider.tsx).
+4. Unhandled 404 overlays: scheduled per-session refresh timers fired after
+   scope switches → out-of-scope skip + catch in the executor.
+5. "Unassigned" despite a bound profile — three stacked causes: (a) rhythm
+   attach previously fabricated all-null states (now attach requires a real
+   binding; opencodeAgentId excluded — it is backfilled from agent_kind);
+   (b) cache-first hydrated from pre-fix record snapshots with no
+   re-hydration (record cache refreshes + rehydrate effect added);
+   (c) ROOT CAUSE of the final symptom: the profile catalog is cleared on
+   every scope switch and only the Chat-tab bootstrap refetched it — the
+   detail route left catalog=0 (probe evidence), so the sheet could not
+   label any profile. Capabilities now follow the active scope.
+
+Device probes captured the full evidence chain (open-from-cache HIT/miss
+reasons, sheet-open draftProfile/catalog counts). Final state user-confirmed:
+"success. it works now." — profile shows correctly, cached switches instant,
+no error overlays.
+
+Residual follow-ups (tracker #1287): desktop should persist its selected
+profile binding onto agent_sessions rows (mobile can only display what is
+stored); rows corrupted by the pre-fix PATCH still hold Theological-Researcher
+(user to reassign, or approve a one-time cleanup); cold-start first-open
+latency budget unchanged.

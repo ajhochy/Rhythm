@@ -112,6 +112,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   const mountedRef = useRef(true);
   const refreshGenerationRef = useRef(0);
   const previousStreamStatusRef = useRef(eventStreamStatus);
+  const lastSweepCompletedAtRef = useRef(0);
   const isOnline =
     connection.status === 'connected' &&
     (!pairedHost.host || pairedHost.state === 'connected');
@@ -129,6 +130,9 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     mountedRef.current = true;
     refreshGenerationRef.current += 1;
+    // Stale-while-revalidate: only an account/host identity change may drop
+    // the visible list. Connectivity flips and background sweeps must never
+    // flash the list back to "no sessions yet" (#1287 list churn).
     setSessions([]);
     setIsOfflineCache(false);
     setError(null);
@@ -137,9 +141,9 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       .then((raw) => {
         if (!mountedRef.current) return;
         const cached = parseOfflineCache(raw);
-        if (!isOnline) {
-          setIsOfflineCache(true);
-          if (cached.length > 0) setSessions(cached);
+        if (cached.length > 0) {
+          setSessions((current) => (current.length > 0 ? current : cached));
+          if (!isOnlineRef.current) setIsOfflineCache(true);
         }
       })
       .finally(() => {
@@ -149,20 +153,39 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       mountedRef.current = false;
       refreshGenerationRef.current += 1;
     };
-  }, [isOnline, storageKey]);
+  }, [storageKey]);
+
+  // Identity-stable refresh: the discovery sweep is expensive (owner-wide
+  // pagination plus per-project batches), so its identity must not churn when
+  // the active project scope flips during chat opens — that churn re-armed
+  // the effects below and re-ran the sweep on every navigation (#1287).
+  const isOnlineRef = useRef(isOnline);
+  isOnlineRef.current = isOnline;
+  const buildScopedClientRef = useRef(buildScopedClient);
+  buildScopedClientRef.current = buildScopedClient;
+  const projectPathsRef = useRef(projectPaths);
+  projectPathsRef.current = projectPaths;
+  const storageKeyRef = useRef(storageKey);
+  storageKeyRef.current = storageKey;
 
   const refresh = useCallback(async () => {
-    if (!isOnline) {
+    if (!isOnlineRef.current) {
       setIsOfflineCache(true);
       return;
     }
     const generation = ++refreshGenerationRef.current;
-    setIsLoading(true);
+    const commitKey = storageKeyRef.current;
+    // Keep showing the previous list while revalidating; only an empty list
+    // warrants a visible loading state.
+    setSessions((current) => {
+      if (current.length === 0) setIsLoading(true);
+      return current;
+    });
     setError(null);
     try {
       const next = await listSessionsAcrossProjects(
-        buildScopedClient,
-        projectPaths,
+        (projectId) => buildScopedClientRef.current(projectId),
+        projectPathsRef.current,
         {
           onProgress(progress) {
             if (
@@ -172,7 +195,10 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
               return;
             }
             const safe = sanitizeOfflineChatCache(progress);
-            setSessions(safe);
+            // Progressive results may momentarily contain fewer chats than
+            // the rendered list; never shrink mid-sweep.
+            setSessions((current) =>
+              safe.length >= current.length ? safe : current);
             setIsOfflineCache(false);
             if (safe.length > 0) setIsLoading(false);
           },
@@ -184,8 +210,9 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       const safe = sanitizeOfflineChatCache(next);
       setSessions(safe);
       setIsOfflineCache(false);
+      lastSweepCompletedAtRef.current = Date.now();
       await AsyncStorage.setItem(
-        storageKey,
+        commitKey,
         JSON.stringify(safe),
       );
     } catch (reason) {
@@ -194,10 +221,10 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       }
       setError(safeError(reason));
       const cached = parseOfflineCache(
-        await AsyncStorage.getItem(storageKey),
+        await AsyncStorage.getItem(commitKey),
       );
       if (cached.length > 0) {
-        setSessions(cached);
+        setSessions((current) => (current.length > 0 ? current : cached));
         setIsOfflineCache(true);
       }
     } finally {
@@ -205,15 +232,36 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
         setIsLoading(false);
       }
     }
-  }, [
-    buildScopedClient,
-    isOnline,
-    projectPaths,
-    storageKey,
-  ]);
+  }, []);
+
+  // Reachability transitions: losing the paired Mac must surface the offline
+  // banner immediately, and regaining it must revalidate without waiting out
+  // the sweep throttle.
+  const wasOnlineRef = useRef(isOnline);
+  useEffect(() => {
+    const wasOnline = wasOnlineRef.current;
+    wasOnlineRef.current = isOnline;
+    if (!isOnline) {
+      setIsOfflineCache(true);
+      return;
+    }
+    if (!wasOnline) {
+      lastSweepCompletedAtRef.current = 0;
+      void refresh();
+    }
+  }, [isOnline, refresh]);
 
   useEffect(() => {
-    if (isOnline && projectPaths.length > 0) void refresh();
+    if (!isOnline || projectPaths.length === 0) return;
+    // Scope flips during chat opens reorder projectPaths without changing
+    // membership; only a real membership change warrants a fresh sweep.
+    if (
+      lastSweepCompletedAtRef.current > 0 &&
+      Date.now() - lastSweepCompletedAtRef.current < 15_000
+    ) {
+      return;
+    }
+    void refresh();
   }, [isOnline, projectKey, projectPaths.length, refresh]);
 
   useEffect(() => {
@@ -223,6 +271,13 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       eventStreamStatus === 'connected' &&
       previous !== 'connected'
     ) {
+      // Stream restarts are routine during scope switches; a full discovery
+      // sweep per restart saturated the gateway. Sweep only when the last
+      // completed sweep is stale.
+      if (Date.now() - lastSweepCompletedAtRef.current < 15_000) {
+        void refreshCurrentSession(true).catch(() => undefined);
+        return;
+      }
       void Promise.all([
         refresh(),
         refreshCurrentSession(true),

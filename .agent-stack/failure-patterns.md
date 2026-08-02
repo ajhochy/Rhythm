@@ -652,3 +652,11 @@
 - **Criteria affected**: issue-1287-c1, issue-1287-c2
 - **Root cause**: React Native's XHR-backed fetch cannot stream SSE, so zero engine events ever reached the mobile client; optimistic eventStreamStatus='connected' disabled the polling fallback. Fixed with an expo/fetch SSE consumer and data-driven connected status.
 - **Suggested fix**: realtime mobile contracts must include a device-runtime-inclusive assertion; server-only raw-fetch SSE tests are false proxies for RN fetch behavior.
+
+## 2026-08-02 — Issues 1286/1287 — regression rollup; round-1 device smoke FAIL, round-2 PASS
+
+- **Result**: round-1 smoke FAIL (verification claimed PASS) → live iteration → round-2 smoke PASS
+- **Category**: C5 (stale desktop runtime) + C1 (device-only defect classes untested)
+- **Criteria affected**: issue-1286-c10/c11/c12, chat-switching latency/list stability
+- **Root cause**: server fixes handed to smoke against a pre-fix api_server process; four client defects (scope-flip cache destruction, discovery sweep re-runs, capability catalog cleared without refetch on the detail route, stale refresh timers) invisible to every web-tier gate.
+- **Suggested fix**: mandatory desktop relaunch step before device smoke when apps/api_server changed; add a scope-flip-simulating test tier; on-device probes (hit/miss reasons) as a standard smoke instrument.

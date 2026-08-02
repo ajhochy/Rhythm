@@ -375,6 +375,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const settingsRef = useRef(settings);
   const activeProjectPathRef = useRef(activeProjectPath);
+  // Session records for chats opened this launch, surviving project-scope
+  // switches (which clear `sessions`). Backs cross-project cache-first opens.
+  const openedSessionRecordCacheRef = useRef(
+    new Map<string, { projectId: string; session: MobileSession }>(),
+  );
   const openProjectSessionRuntimeRef =
     useRef<OpenProjectSessionRuntime | null>(null);
   const openProjectSessionControllerRef =
@@ -675,6 +680,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ) {
           return result.sessions;
         }
+        // Keep the cross-scope record cache fresh so cache-first opens never
+        // hydrate stale profile/model state (#1287).
+        if (activeProjectPathRef.current) {
+          for (const session of result.sessions as MobileSession[]) {
+            if (openedSessionRecordCacheRef.current.has(session.id)) {
+              openedSessionRecordCacheRef.current.set(session.id, {
+                projectId: activeProjectPathRef.current,
+                session,
+              });
+            }
+          }
+        }
         setSessions((current) =>
           preserveReadySessionDuringRefresh({
             activeProjectId: activeProjectPathRef.current,
@@ -876,12 +893,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       if (pairedHostRecord && pairedHostState !== 'connected') {
         return undefined;
       }
-      if (projectId !== activeProjectPathRef.current) return undefined;
-      const session = sessions.find(
-        (candidate) => candidate.id === sessionId,
-      );
       const messages = messagesBySession[sessionId];
-      if (!session || !messages || messages.length === 0) return undefined;
+      if (!messages || messages.length === 0) {
+        return undefined;
+      }
+      let session: MobileSession | undefined;
+      if (projectId === activeProjectPathRef.current) {
+        session = sessions.find((candidate) => candidate.id === sessionId);
+      } else {
+        // Cross-project reopen: the scope switch cleared `sessions`, but a
+        // chat opened this launch keeps its record cached. Committing through
+        // the normal switching path re-scopes the provider while the cached
+        // transcript renders immediately.
+        const record = openedSessionRecordCacheRef.current.get(sessionId);
+        session = record?.projectId === projectId ? record.session : undefined;
+      }
+      if (!session) return undefined;
       scheduleSessionRefresh(sessionId, {
         sessions: true,
         messages: true,
@@ -900,7 +927,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         questions: cachedInteractions.questions,
         session,
         sessionId,
-        sessions,
+        sessions: projectId === activeProjectPathRef.current
+          ? sessions
+          : [session],
         statuses: sessionStatuses,
         supplemental: Promise.resolve({
           diffs: diffsBySession[sessionId] ?? [],
@@ -992,21 +1021,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setActiveProjectPath(payload.projectId);
       setSessions(payload.sessions);
       setSessionStatuses(payload.statuses);
-      setMessagesBySession((current) =>
-        switchingProject
-          ? {
-              [payload.sessionId]: mergeSessionMessages(
-                current[payload.sessionId] || [],
-                payload.messages,
-              ),
-            }
-          : {
-              ...current,
-              [payload.sessionId]: mergeSessionMessages(
-                current[payload.sessionId] || [],
-                payload.messages,
-              ),
-            });
+      // Transcript caches are keyed by session id and hold scope-independent
+      // data — preserving them across project switches is what makes
+      // cross-project chat switching instant (issue #1287 cache-first).
+      setMessagesBySession((current) => ({
+        ...current,
+        [payload.sessionId]: mergeSessionMessages(
+          current[payload.sessionId] || [],
+          payload.messages,
+        ),
+      }));
       if (!olderMessageCursorBySessionRef.current.has(payload.sessionId)) {
         olderMessageCursorBySessionRef.current.set(
           payload.sessionId,
@@ -1017,20 +1041,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           [payload.sessionId]: Boolean(payload.messageNextCursor),
         }));
       }
-      setDiffsBySession((current) =>
-        switchingProject
-          ? { [payload.sessionId]: payload.diffs }
-          : { ...current, [payload.sessionId]: payload.diffs });
-      setTodosBySession((current) =>
-        switchingProject
-          ? { [payload.sessionId]: payload.todos }
-          : { ...current, [payload.sessionId]: payload.todos });
+      setDiffsBySession((current) => ({
+        ...current,
+        [payload.sessionId]: payload.diffs,
+      }));
+      setTodosBySession((current) => ({
+        ...current,
+        [payload.sessionId]: payload.todos,
+      }));
       setPendingPermissionsBySession(
         groupPendingRequestsBySession(payload.permissions),
       );
       setPendingQuestionsBySession(
         groupPendingRequestsBySession(payload.questions),
       );
+      openedSessionRecordCacheRef.current.set(payload.sessionId, {
+        projectId: payload.projectId,
+        session: payload.session,
+      });
       const authoritative = getSessionExecutionState(payload.session);
       if (authoritative) {
         setChatPreferences((current) =>
@@ -1125,6 +1153,26 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     openProjectSessionControllerRef.current?.cancelOpenProjectSession();
   }, []);
 
+  // Cache-first opens can hydrate from a record captured before the session's
+  // authoritative execution state was known. When a refreshed record for the
+  // open session carries a real binding, re-hydrate so Session Config shows
+  // the true profile instead of a stale/Unassigned snapshot (#1286).
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const state = getSessionExecutionState(
+      sessions.find((session) => session.id === currentSessionId),
+    );
+    if (!state || !(state.profileId || state.providerId || state.modelId)) {
+      return;
+    }
+    setChatPreferences((current) =>
+      (current.profileId ?? null) === (state.profileId ?? null) &&
+      (current.providerId ?? null) === (state.providerId ?? current.providerId ?? null) &&
+      (current.modelId ?? null) === (state.modelId ?? current.modelId ?? null)
+        ? current
+        : hydratePreferencesFromSession(state, current));
+  }, [currentSessionId, sessions]);
+
   const scheduleSessionRefresh = useCallback(
     (sessionId: string, options?: { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean; delayMs?: number }) => {
       if (!sessionId) {
@@ -1149,17 +1197,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         const mergedOptions = sessionRefreshOptionsRef.current[sessionId] || {};
         delete sessionRefreshOptionsRef.current[sessionId];
 
+        // A timer scheduled before a project switch fires under the new
+        // scope; the gateway correctly rejects the out-of-scope session with
+        // a 404, so skip it rather than surfacing unhandled rejections.
+        const sessionInScope =
+          currentSessionIdRef.current === sessionId ||
+          sessionsRef.current.some((session) => session.id === sessionId);
         if (mergedOptions.sessions) {
-          void refreshSessions(true);
+          void refreshSessions(true).catch(() => undefined);
         }
+        if (!sessionInScope) return;
         if (mergedOptions.messages) {
-          void refreshMessages(sessionId, true);
+          void refreshMessages(sessionId, true).catch(() => undefined);
         }
         if (mergedOptions.diff) {
-          void refreshSessionDiff(sessionId, true);
+          void refreshSessionDiff(sessionId, true).catch(() => undefined);
         }
         if (mergedOptions.todos) {
-          void refreshSessionTodos(sessionId);
+          void refreshSessionTodos(sessionId).catch(() => undefined);
         }
       }, options?.delayMs ?? 150);
     },
@@ -1271,6 +1326,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       refreshChatCapabilities,
     ],
   );
+
+  // The profile/model catalog is scope-sensitive and cleared by
+  // clearProjectState on every project switch, but only the Chat-tab
+  // bootstrap used to refetch it — chats opened through the detail route
+  // left the catalog empty and Session Config rendered "Unassigned" for a
+  // correctly bound profile (#1286). Capabilities must follow the scope.
+  useEffect(() => {
+    if (connection.status !== 'connected' || !activeProjectPath) return;
+    void refreshChatCapabilities().catch(() => undefined);
+  }, [activeProjectPath, connection.status, refreshChatCapabilities]);
 
   const openSession = useCallback(
     async (sessionId: string) => {

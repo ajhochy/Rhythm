@@ -3,7 +3,10 @@ import { getDb, getPostgresPool } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { safeMobileSessionProfileState } from './mobile_profile_catalog';
-import { canUpdateMobileSessionState } from './mobile_session_state_scope';
+import {
+  canUpdateMobileSessionState,
+  hasMobileSessionExecutionBinding,
+} from './mobile_session_state_scope';
 
 interface MobileChatCatalogRow {
   sdk_session_id: string;
@@ -113,11 +116,13 @@ export async function listOwnerUnscopedMobileChats(input: {
           : {}),
       },
       projectId: row.project_id?.trim() || null,
-      ...(local && canUpdateMobileSessionState(
-          local,
-          input.ownerUserId,
-          input.projectId,
-        )
+      ...(local &&
+          canUpdateMobileSessionState(
+            local,
+            input.ownerUserId,
+            input.projectId,
+          ) &&
+          hasMobileSessionExecutionBinding(local)
         ? { rhythm: safeMobileSessionProfileState(local, configs) }
         : {}),
     };

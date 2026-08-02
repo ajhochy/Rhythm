@@ -35,6 +35,21 @@ describe('prompt execution planning', () => {
     });
   });
 
+  test('an unbound all-null state is treated exactly like unknown state', () => {
+    const unbound: SessionExecutionState = {
+      profileId: null,
+      opencodeAgentId: null,
+      profileAvailability: 'unassigned',
+      providerId: null,
+      modelId: null,
+      thinkingBudget: null,
+      permissionMode: 'default',
+    };
+    expect(buildPromptExecutionPlan(unbound, preferences)).toEqual({
+      persistAllowed: false,
+    });
+  });
+
   test('known session state preserves the current preference-derived overrides', () => {
     const state: SessionExecutionState = {
       profileId: 'profile-secretary' as RhythmProfileId,

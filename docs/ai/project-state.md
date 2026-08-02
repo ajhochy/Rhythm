@@ -20,9 +20,8 @@ fallback.
 
 ## In progress
 
-- Regression rollup for #1286/#1287 implemented and verified locally + live
-  sandbox; awaiting physical-device smoke (profile binding, instant chat
-  switching, transcript integrity, no Opening-chat flapping). See
+- None — device smoke PASSED after live round-2 iteration (user: "success.
+  it works now"). Awaiting final CI + human review/merge of PR #1284. See
   docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md.
 
 ## Risks / known issues
@@ -47,5 +46,6 @@ fallback.
 
 ## Next step
 
-Physical-device smoke of the regression rollup, then human review and manual
-merge of PR #1284. tests/fake-opencode changes need explicit human sign-off.
+Human review and manual merge of PR #1284 (tests/fake-opencode changes need
+explicit sign-off). Follow-ups on #1287: desktop profile-binding persistence,
+corrupted-row cleanup decision, cold-start first-open latency.

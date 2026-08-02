@@ -165,7 +165,18 @@ export function buildPromptExecutionPlan(
   sessionExecutionState: SessionExecutionState | undefined,
   preferences: ChatPreferences,
 ): PromptExecutionPlan {
-  if (!sessionExecutionState) {
+  // A state without profile/provider/model means nothing was ever bound to
+  // the session — treat it exactly like unknown state: never persist
+  // fallback preferences onto it and never override the engine session's own
+  // configuration. (opencodeAgentId is excluded: the gateway backfills it
+  // from the NOT NULL agent_kind column on every row.)
+  const bound = Boolean(
+    sessionExecutionState &&
+    (sessionExecutionState.profileId ||
+      sessionExecutionState.providerId ||
+      sessionExecutionState.modelId),
+  );
+  if (!sessionExecutionState || !bound) {
     return { persistAllowed: false };
   }
 
