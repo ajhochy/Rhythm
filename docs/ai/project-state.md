@@ -11,7 +11,7 @@ fallback.
 ## Active branch / PR
 
 - Branch: `codex/mobile-fixes-rollup`
-- Base: `origin/codex/fix-session-isolation-runtime-performance`
+- Base: `main`
 - PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
 - Latest work: native SSE consumer over `expo/fetch`
   (`apps/mobile/lib/opencode/global-event-stream.ts`) + data-driven

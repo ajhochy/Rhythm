@@ -1,0 +1,160 @@
+{
+  "issue": 999999,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-999999-c1",
+      "text": "In hosted mode, an empty configured CORS allowlist withholds Access-Control-Allow-Origin from Origin-bearing requests while preserving the normal route response.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c1: an empty CORS allowlist withholds authorization from Origin-bearing requests",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c2",
+      "text": "Agent-local HTTP preserves the Flutter-style request path with an approved loopback Host and no Origin or Sec-Fetch-Site header.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c2: the Flutter-style HTTP path succeeds without browser provenance headers",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c3",
+      "text": "Agent-local HTTP returns a concise 403 response for every Origin-bearing request.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c3: agent-local HTTP rejects every Origin-bearing request",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c4",
+      "text": "Agent-local HTTP returns a concise 403 response when Sec-Fetch-Site is outside the allowed set.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c4: agent-local HTTP rejects disallowed Sec-Fetch-Site values",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c5",
+      "text": "Agent-local HTTP accepts the allowed Sec-Fetch-Site values none and same-origin.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c5: agent-local HTTP preserves the allowed Sec-Fetch-Site values",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c6",
+      "text": "Agent-local HTTP returns a concise 403 response when Host is outside the loopback allowlist.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c6: agent-local HTTP rejects a Host outside the loopback allowlist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c7",
+      "text": "Agent-local HTTP accepts 127.0.0.1 and localhost Host values with optional ports.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c7: agent-local HTTP accepts both approved loopback Host forms",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c8",
+      "text": "The agent WebSocket rejects an Origin-bearing upgrade before acceptance and emits no session snapshot.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c8: /ws/agents rejects an Origin before accepting or emitting a session snapshot",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c9",
+      "text": "The agent WebSocket accepts the Flutter-style headerless upgrade from an approved loopback Host.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c9: /ws/agents accepts the Flutter-style headerless upgrade",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c10",
+      "text": "The PTY WebSocket rejects an Origin-bearing upgrade before the PTY bridge is reached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c10: the PTY WebSocket rejects an Origin before bridging",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c11",
+      "text": "The PTY WebSocket accepts the Flutter-style headerless upgrade from an approved loopback Host.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c11: the PTY WebSocket accepts the Flutter-style headerless upgrade",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c12",
+      "text": "RHYTHM_AGENT_ORIGIN_GUARD=off restores prior HTTP status and Access-Control-Allow-Origin compatibility.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c12: the kill-switch restores prior HTTP compatibility",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c13",
+      "text": "RHYTHM_AGENT_ORIGIN_GUARD=off restores prior agent WebSocket compatibility.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c13: the kill-switch restores prior /ws/agents compatibility",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c14",
+      "text": "RHYTHM_AGENT_ORIGIN_GUARD=off restores prior PTY WebSocket compatibility.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c14: the kill-switch restores prior PTY WebSocket compatibility",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c15",
+      "text": "Hosted mode preserves access and CORS response headers for configured origins.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c15: hosted mode preserves configured CORS origins",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c16",
+      "text": "The agent WebSocket rejects a disallowed Sec-Fetch-Site value before acceptance and emits no session snapshot.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c16: /ws/agents rejects disallowed Sec-Fetch-Site before acceptance",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c17",
+      "text": "The agent WebSocket rejects a Host outside the loopback allowlist before acceptance and emits no session snapshot.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c17: /ws/agents rejects a Host outside the loopback allowlist before acceptance",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c18",
+      "text": "The PTY WebSocket rejects a disallowed Sec-Fetch-Site value before the PTY bridge is reached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c18: the PTY WebSocket rejects disallowed Sec-Fetch-Site before bridging",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-999999-c19",
+      "text": "The PTY WebSocket rejects a Host outside the loopback allowlist before the PTY bridge is reached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/local_agent_surface_hardening.test.ts",
+      "test_id": "issue-999999-c19: the PTY WebSocket rejects a Host outside the loopback allowlist before bridging",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

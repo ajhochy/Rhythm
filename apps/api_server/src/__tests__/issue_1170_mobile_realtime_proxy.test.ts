@@ -14,6 +14,7 @@ import {
 import { WebSocket } from 'ws';
 
 import { createApp } from '../app';
+import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { resetMobileGatewayRuntimeForTest } from '../services/mobile_gateway_runtime';
@@ -568,7 +569,8 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('issue-1170-c1: legacy WebSockets accept actual loopback sockets but reject remote sockets before routing', async () => {
+  it('issue-1170-c1: legacy WebSockets require a loopback Host and actual loopback socket before routing', async () => {
+    vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
     const server = createServer((_request, response) => response.end());
     const wss = attachWsGateway(server);
     await new Promise<void>((resolve) => {
@@ -586,7 +588,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
           `ws://127.0.0.1:${address.port}/ws/agents`,
           {
             headers: {
-              Host: 'malicious.example',
+              Host: `127.0.0.1:${address.port}`,
               'X-Forwarded-For': '203.0.113.10',
             },
           },
@@ -595,6 +597,11 @@ describe('issue #1170 mobile realtime proxy contract', () => {
         ws.once('error', reject);
       });
       expect(loopback.readyState).toBe(WebSocket.OPEN);
+
+      expect(await rejectedUpgradeStatus(
+        `ws://127.0.0.1:${address.port}/ws/agents`,
+        { Host: 'non-loopback.example' },
+      )).toBe(403);
 
       const remoteHost = nonLoopbackIpv4();
       const spoofedHeaders = {
