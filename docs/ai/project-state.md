@@ -2,89 +2,75 @@
 
 ## Current focus
 
-2026-07-30/31: live human smoke (desktop + physical iPhone) of the combined
-R1–R6/P0/MSP-001–007 runtime-and-mobile-parity effort, plus the T1
-mobile↔desktop data-parity gate. Smoke surfaced 8 real bugs through actual
-device use; 15 verified PRs merged to `main` overnight. Dev environment
-(desktop app + its local api_server) is currently down after a machine crash
-mid-session — Metro (mobile code server) survived.
+2026-08-03: Config Doctor remediation (PR #1303) — 4 of 5 tracks from the
+72h scheduled-task audit implemented and CI-green, awaiting a full Rhythm
+quit+reopen and live smoke (nothing in it is verified end-to-end yet).
+Also consolidated the open-PR backlog: the 2026-07-30/31 mobile smoke night
+left several stacked branches open whose commits had all already landed in
+`codex/mobile-fixes-rollup` (#1284); those are now closed.
 
-## Merged to main tonight
+## Open PRs
 
-#1272 (cloud-bearer auth — the fix that unblocked all desktop smoke),
-#1254 (tokenless desktop session owner inheritance), #1255 (R2 idle-status
-fix), #1256 (R6 plugin/telemetry dedupe), #1257 (R4 progress-aware deadline),
-#1258 (R1 delegated-session isolation), #1260 (R3 scheduled-failure
-classification), #1261 (P0 memory-relevance gate), #1262 (MSP-006
-project-scoped Tools), #1263 (MSP-001 session/profile contract), #1264
-(MSP-004 atomic session opening), #1265 (MSP-003 shared pending
-permission/question state), #1267 (R5 agent-picker DTO + pagination), #1275
-(Phase 0 local-agent-surface hardening), #1276 (T1 parity gate +
-research-tab owner-visibility fix, issue #1274).
+- **#1284** — `codex/mobile-fixes-rollup`, "Mobile Agents reliability,
+  parity, and profile scoping (#1277–#1286)". Superset rollup — verified via
+  `git merge-base --is-ancestor` to already contain every commit from
+  #1259/#1266/#1268 (all closed as redundant, 2026-08-03). CI green
+  (Server + Mobile CI). Its own PR body notes #1280 (composer growth
+  regression) stays open until a signed multiline-composer smoke passes —
+  that caveat now lives here, not on a separate PR. Not merged; awaiting
+  human review/smoke.
+- **#1303** — `workflow/run-2026-08-03-config-doctor`, Config Doctor
+  remediation. CI green (Server + Desktop). See
+  [decisions/2026-08-03-auto-approve-scoped-bypass.md](decisions/2026-08-03-auto-approve-scoped-bypass.md)
+  for the `librarian` auto-approve decision. Draft; not merged.
+  Still needed before merge: full Rhythm quit+reopen (opencode.json/profile
+  changes don't hot-reload), then confirm Memory Consolidation actually
+  captures > 0 and `GET /agent-schedules/:id/runs` returns real history.
 
-## Left open on purpose
+## Closed as redundant (2026-08-03)
 
-- **#1259** (MSP-005 native composer) — CI green, but a live physical-iPhone
-  test found the box still doesn't grow (issue #1280). Do not merge on CI
-  alone; needs a real re-test after #1280 is fixed.
-- **#1266** (MSP-002 three-dot config) — red `foundation` CI check, not yet
-  diagnosed.
-- **#1268** — the combined R1–R6+P0 smoke-vehicle branch. Never a merge
-  target itself; the individual lane PRs above are what merged. Safe to
-  leave open or close.
+#1259 (MSP-005 native composer), #1266 (MSP-002 three-dot config), #1268
+(R1–R6+P0 combined smoke-vehicle branch) — all fully contained in #1284,
+confirmed by commit ancestry, not just title inspection.
 
-## Bugs found live tonight (all filed, prompts prepared per below)
+## Config Doctor audit — Track A (done outside this repo, no PR)
 
-- **#1274** — Research tab empty on mobile (owner exact-match). **Fixed**,
-  merged in #1276.
-- **#1277** — residual T1 parity drifts: webhook self-URL host mismatch, MCP
-  served from two different sources, provider/auth redaction pairing gap.
-  Prompt ready, not yet dispatched.
-- **#1278** — server's own boot sequence triggers a self-inflicted
-  credential-reload engine bounce, producing misleading ERROR-level log
-  noise. Cosmetic. Prompt ready, not dispatched.
-- **#1279** — mobile could only ever see phone-created chats; desktop
-  sessions were never claimed. **Root fix merged** (owner+project fallback
-  in `mobile_opencode_security.ts` / `mobile_opencode_ownership_repository.ts`,
-  verified against the #1175 two-account isolation test). **Follow-up gap
-  found and prompted, not yet built**: every real historical session, and
-  even brand-new sessions started from "All Sessions" today, have a NULL
-  `project_id` — confirmed live, not stale data. The merged fix's fallback
-  requires project match, so it doesn't help these. Decision recorded:
-  [decisions/2026-07-30-mobile-session-visibility-null-project-fallback.md](decisions/2026-07-30-mobile-session-visibility-null-project-fallback.md).
-- **#1280** — MSP-005 composer regression, confirmed on a real iPhone, not
-  caught by Jest. Prompt ready (combined with #1281), not dispatched.
-- **#1281** — Mobile Memories tool empty despite admin role and no
-  server-side error; root cause not yet confirmed. Prompt ready, not
-  dispatched.
-- **#1282** — mobile session creation bypasses skill/MCP scoping entirely
-  (10x token cost vs desktop for the same profile) — root cause confirmed
-  (`mobile_opencode_proxy.ts`'s `session.create` never calls
-  `OpencodeClientService.createSession`). Prompt ready, not dispatched.
-- **#1283** — desktop-started sessions don't stream live to mobile; manual
-  refresh works fine, so it's the push path, not visibility. Prompt ready,
-  not dispatched.
+`~/.config/opencode/opencode.json`: removed dead `foo` entry; `scrapling`
+disabled after tracing 3 stacked upstream breaks (mcp 2.0 relocation →
+hardcoded Chrome 149 fingerprint gap in browserforge's dataset → missing
+camoufox binary) — `theological-research-daily` needs a different fetch
+backend if re-enabled. `Org External Discovery` schedule disabled via API —
+confirmed `mcp-registry` was never a real server (checked the official MCP
+registry, GitHub's client SDK, and two dead hobby packages; none fit).
+Both opencode.json edits need the pending full-app relaunch to take effect.
 
-## Test status
+## Config Doctor audit — Track E (done, no diff)
 
-Every merged PR passed its own contract suite plus a live human smoke pass
-(desktop: 6/6, evidence in `.agent-stack/evidence/desktop-smoke-2026-07-30/`;
-mobile: 3 pass / 1 fail / 2 bugs found and one fixed live). The T1 parity
-gate sits at 11/14 feeds matching (`.agent-stack/evidence/t1-parity-gate/`).
+`npm run doctor` was broken by `node_modules` drift in `apps/api_server`
+(not a missing dependency declaration) — fixed with a root `npm install`,
+zero manifest changes. Also surfaced a Python 3.9.6 (needs ≥3.10) gap not in
+the original audit.
 
 ## Risks
 
-- Dev api_server + desktop app are down (crash). Relaunch with
-  `RHYTHM_OPENCODE_BIN_DIR` pointed at a built fork before resuming any
-  desktop-facing smoke — see
-  [runs/2026-07-30-live-smoke-and-merge-night.md](runs/2026-07-30-live-smoke-and-merge-night.md)
-  for the exact command.
-- #1266 and #1259 must not be merged on green CI alone; both have known,
-  live-confirmed gaps CI didn't catch.
+- Nothing in PR #1303 is verified against the live app yet — nothing has
+  actually captured a memory, written a run-history row, or hit the
+  glob-watchdog/partial-result-recovery paths for real. CI green is not
+  behavioral proof (this is the exact lesson #1259/#1280 already taught this
+  repo: don't merge on CI alone when the fix depends on live agent runtime
+  behavior).
+- The running api_server on :4001 is on a different worktree/branch
+  (`codex/mobile-fixes-rollup`) than `workflow/run-2026-08-03-config-doctor`
+  — it will not reflect PR #1303's code until the app is rebuilt from that
+  branch (or merged) and relaunched.
 
 ## Next step
 
-Dispatch the five prepared Codex prompts (#1277, #1278, #1279 follow-up,
-#1280+#1281, #1282, #1283) — each is self-contained in the run log below.
-Once #1280 lands, redo the physical-iPhone composer walk before touching
-#1259. Diagnose #1266's red check before merging it.
+1. Full Rhythm quit + reopen.
+2. `curl -X PATCH http://localhost:4001/agent-configs/librarian -d '{"autoApproveActions": true}'`
+   (or confirm the PR's own migration/default already set it once merged).
+3. Trigger Memory Consolidation, confirm `Captured: N` with N > 0.
+4. Check `GET /agent-schedules/:id/runs` returns real history for a couple
+   of tasks.
+5. Human review/merge of #1284 and #1303 (both currently draft, neither
+   merged).
