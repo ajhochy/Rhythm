@@ -60,6 +60,14 @@ vi.mock('../repositories/agent_scheduled_tasks_repository', () => ({
   },
 }));
 
+// Config Doctor D1 — run-history writes go through this repository, not the
+// raw getDb().prepare(...).run(mockDbRun) path this file's assertions key on.
+vi.mock('../repositories/agent_scheduled_task_runs_repository', () => ({
+  AgentScheduledTaskRunsRepository: class {
+    create = vi.fn().mockResolvedValue(undefined);
+  },
+}));
+
 // #738-fix: mock AgentSessionsRepository so the stale-run reset on boot
 // does not touch mockDbRun, keeping the trigger-INSERT assertions clean.
 vi.mock('../repositories/agent_sessions_repository', () => ({

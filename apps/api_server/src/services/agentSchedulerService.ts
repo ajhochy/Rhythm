@@ -19,6 +19,7 @@ import cron from 'node-cron';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { AgentScheduledTaskRunsRepository } from '../repositories/agent_scheduled_task_runs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
@@ -385,7 +386,77 @@ async function insertScheduledTrigger(task: {
 // ── Scheduler loop ────────────────────────────────────────────────────────
 
 const repo = new AgentScheduledTasksRepository();
+const runsRepo = new AgentScheduledTaskRunsRepository();
 const CAPACITY_RETRY_MS = 60_000; // scheduler ticks once per minute
+
+// ── D2: honest terminal status for a "done" run ────────────────────────────
+//
+// A run that AgentRunner reports 'done' is not automatically a real success:
+// it may have finished with a human approval still pending (nothing actually
+// happened yet), or it may have completed cleanly but performed zero of its
+// intended data-mutating actions (a no-op that looks identical to success in
+// the transcript). Both signals only exist on the local/SQLite path (the
+// approval table and tool-call telemetry are local-only), which is also the
+// only path where this classification runs (env.agentLocal).
+
+const MUTATION_TOOL_PATTERN =
+  /^(remember_memory|create_|update_|delete_|remove_|write_|send_|schedule_|approve_|reject_|post_|patch_)/i;
+
+function _hasPendingApproval(sessionId: string | null): boolean {
+  if (!sessionId || env.dbClient === 'postgres') return false;
+  try {
+    const row = getDb()
+      .prepare(`SELECT 1 FROM agent_approvals WHERE session_id = ? AND status = 'pending' LIMIT 1`)
+      .get(sessionId);
+    return !!row;
+  } catch (err) {
+    logger.warn(`[AgentScheduler] pending-approval check failed (non-fatal): ${String(err)}`);
+    return false;
+  }
+}
+
+/** Coarse heuristic — any successful call to a tool matching the mutation naming pattern. */
+function _hasMutationToolCall(sessionId: string | null): boolean {
+  if (!sessionId || env.dbClient === 'postgres') return false;
+  try {
+    const rows = getDb()
+      .prepare(`SELECT tool FROM tool_events WHERE session_id = ? AND status = 'success'`)
+      .all(sessionId) as { tool: string }[];
+    return rows.some((r) => MUTATION_TOOL_PATTERN.test(r.tool));
+  } catch (err) {
+    logger.warn(`[AgentScheduler] mutation tool-call check failed (non-fatal): ${String(err)}`);
+    return false;
+  }
+}
+
+/** Classify a run AgentRunner reported as 'done'. See D2 note above. */
+export function classifyDoneRunStatus(sessionId: string | null): 'success' | 'blocked_on_approval' | 'completed_no_op' {
+  if (_hasPendingApproval(sessionId)) return 'blocked_on_approval';
+  if (!_hasMutationToolCall(sessionId)) return 'completed_no_op';
+  return 'success';
+}
+
+/** Best-effort run-history write; never throws (mirrors the updateNextRunAsync callers around it). */
+async function recordRunHistory(opts: {
+  taskId: string;
+  startedAt: string;
+  status: string;
+  error?: string;
+  rootSessionId?: string | null;
+}): Promise<void> {
+  try {
+    await runsRepo.create({
+      taskId: opts.taskId,
+      startedAt: opts.startedAt,
+      endedAt: new Date().toISOString(),
+      status: opts.status,
+      error: opts.error ?? null,
+      rootSessionId: opts.rootSessionId ?? null,
+    });
+  } catch (err) {
+    logger.warn(`[AgentScheduler] Could not record run history for task ${opts.taskId}: ${String(err)}`);
+  }
+}
 
 async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
@@ -480,8 +551,10 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
             result.status === 'error'
               ? classifyAgentRunFailure(result)
               : null;
+          // D2: a 'done' run is not automatically a real success — check for
+          // a still-pending approval or a run that mutated nothing.
           const status = result.status === 'done'
-            ? 'success'
+            ? classifyDoneRunStatus(result.sessionId || null)
             : capacityDeferred
               ? 'queued'
               : 'error';
@@ -505,8 +578,23 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
           } catch (updateErr) {
             logger.warn(`[AgentScheduler] Could not update last_run_status for "${task.name}": ${String(updateErr)}`);
           }
+          // D1: 'queued' (capacity deferral) is not a completed run — the task
+          // will fire again on the next tick, so it gets no history row here.
+          if (!capacityDeferred) {
+            await recordRunHistory({
+              taskId: task.id,
+              startedAt: runStart,
+              status,
+              error: errMsg,
+              rootSessionId: result.sessionId || null,
+            });
+          }
           if (status === 'success') {
             logger.info(`[AgentScheduler] Task "${task.name}" completed. Session: ${result.sessionId}`);
+          } else if (status === 'blocked_on_approval') {
+            logger.warn(`[AgentScheduler] Task "${task.name}" completed with a pending approval. Session: ${result.sessionId}`);
+          } else if (status === 'completed_no_op') {
+            logger.warn(`[AgentScheduler] Task "${task.name}" completed but performed no mutating actions. Session: ${result.sessionId}`);
           } else if (capacityDeferred) {
             logger.warn(`[AgentScheduler] Task "${task.name}" deferred for capacity. Retry: ${resultNextRun}`);
           } else {
@@ -522,6 +610,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
               `[AgentScheduler] Could not record thrown run failure for "${task.name}": ${String(updateErr)}`,
             );
           }
+          await recordRunHistory({ taskId: task.id, startedAt: runStart, status: 'error', error: errMsg });
         });
 
         logger.info(`[AgentScheduler] Task "${task.name}" dispatched to AgentRunner. Next run: ${nextRun ?? 'none'}`);
@@ -559,6 +648,7 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
       try {
         await repo.updateNextRunAsync(task.id, backoffRun, runStart, 'error', errMsg);
       } catch { /* ignore secondary error */ }
+      await recordRunHistory({ taskId: task.id, startedAt: runStart, status: 'error', error: errMsg });
     }
   }
 }

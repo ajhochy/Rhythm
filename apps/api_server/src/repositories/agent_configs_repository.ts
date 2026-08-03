@@ -98,6 +98,15 @@ export interface AgentConfig {
   disabledReason?: string | null;
   lockedAt?: string | null;
   lockedBy?: string | null;
+  /**
+   * Config Doctor Track B (interim unblock) — when true, approvals created
+   * for this profile's actions are auto-approved (status='approved',
+   * actor='auto-approved') instead of sitting pending for a human. See
+   * `isAutoApproveProfile()` / `AgentApprovalsRepository.create()`. Default
+   * false — this is a deliberate per-profile security-gate bypass, not a
+   * global default change.
+   */
+  autoApproveActions?: boolean;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -144,6 +153,8 @@ export interface AgentConfigInput {
   imageGenerationEnabled?: boolean;
   /** #1118 — per-profile reasoning-effort value. Null/omitted = provider default. */
   reasoningEffort?: string | null;
+  /** Config Doctor Track B — auto-approve this profile's protected actions. Default false. */
+  autoApproveActions?: boolean;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -187,6 +198,7 @@ interface AgentConfigRow {
   disabled_reason?: string | null;
   locked_at?: string | null;
   locked_by?: string | null;
+  auto_approve_actions?: number;
 }
 
 export type AgentConfigSecurityEventType = 'locked' | 'reviewed_reenabled';
@@ -293,6 +305,7 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     disabledReason: row.disabled_reason ?? null,
     lockedAt: row.locked_at ?? null,
     lockedBy: row.locked_by ?? null,
+    autoApproveActions: (row.auto_approve_actions ?? 0) !== 0,
   };
 }
 
@@ -356,8 +369,8 @@ export class AgentConfigsRepository {
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
            default_anthropic_account_id, schedulable, image_generation_enabled,
-           reasoning_effort, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reasoning_effort, auto_approve_actions, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -389,6 +402,7 @@ export class AgentConfigsRepository {
           : config.schedulable ? 1 : 0,
         config.imageGenerationEnabled ? 1 : 0,
         config.reasoningEffort ?? null,
+        config.autoApproveActions ? 1 : 0,
         now,
         now,
       );
@@ -481,6 +495,10 @@ export class AgentConfigsRepository {
     if (patch.reasoningEffort !== undefined) {
       fields.push('reasoning_effort = ?');
       values.push(patch.reasoningEffort ?? null);
+    }
+    if (patch.autoApproveActions !== undefined) {
+      fields.push('auto_approve_actions = ?');
+      values.push(patch.autoApproveActions ? 1 : 0);
     }
     // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
     // outputMarker) are silently ignored on update so stale clients can't

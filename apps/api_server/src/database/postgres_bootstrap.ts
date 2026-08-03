@@ -1300,4 +1300,23 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       [new Date().toISOString()],
     );
   }
+
+  // Config Doctor D1 — Postgres twin of the agent_scheduled_task_runs table
+  // in migrations.ts. Additive only; agent_scheduled_tasks already exists on
+  // both engines, so its run-history table follows the same dual-DB pattern
+  // rather than being SQLite-only.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_scheduled_task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
+      started_at TEXT NOT NULL,
+      ended_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error TEXT,
+      root_session_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
+      ON agent_scheduled_task_runs(task_id, started_at DESC);
+  `);
 }

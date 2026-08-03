@@ -3189,4 +3189,27 @@ If someone asks for creative work that needs a local capability:
         SELECT RAISE(ABORT, 'share audit history is append-only');
       END;
   `);
+
+  // Config Doctor D1 — agent_scheduled_tasks only ever keeps ONE overwritten
+  // last-run slot (last_run_at/last_run_status/last_error), so a task that
+  // fails intermittently (e.g. fails Mon+Tue, succeeds Wed) shows only the
+  // most recent outcome — every prior run is invisible. This table adds a
+  // durable per-run history row alongside the existing slot (which many
+  // other read paths still rely on, so it stays in sync rather than being
+  // removed). root_session_id is the local agent_sessions.id the run
+  // produced, when one exists (NULL for e.g. an engine-not-ready deferral).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_scheduled_task_runs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
+      started_at TEXT NOT NULL,
+      ended_at TEXT NOT NULL,
+      status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op'
+      error TEXT,
+      root_session_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
+      ON agent_scheduled_task_runs(task_id, started_at DESC);
+  `);
 }

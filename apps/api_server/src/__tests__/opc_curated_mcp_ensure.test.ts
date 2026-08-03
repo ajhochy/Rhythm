@@ -100,6 +100,32 @@ describe('ensureCuratedMcps diff logic', () => {
     expect(parsed.mcp.rhythm).toEqual(rhythmEntry);
   });
 
+  it('c6: user-supplied requiredEnv secret (e.g. STRIPE_SECRET_KEY) survives a re-ensure instead of being wiped', async () => {
+    // Scoped to the single `stripe` server (via opts.servers) rather than the
+    // full default catalog — keeps this test independent of any
+    // machine-local curated_mcp_servers.local.json sidecar (#881).
+    const stripe = CURATED_MCP_SERVERS.find((s) => s.id === 'stripe')!;
+
+    // First ensure writes the stripe entry with no environment (no bridged
+    // token, no requiredEnv source) — mirrors the real bug: requiredEnv keys
+    // are declared but never sourced by ensureCuratedMcps itself.
+    await svc.ensureCuratedMcps({ configPath, register: false, servers: [stripe] });
+
+    // User adds their API key via the UI (external edit to the file, same as
+    // the Settings flow does).
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    parsed.mcp['stripe'].environment = { STRIPE_SECRET_KEY: 'sk_live_user_key' };
+    writeFileSync(configPath, JSON.stringify(parsed), 'utf8');
+
+    // A second ensure (e.g. next app launch) must not wipe the user's key.
+    const result = await svc.ensureCuratedMcps({ configPath, register: false, servers: [stripe] });
+    expect(result.changed).toBe(false);
+    const after = JSON.parse(readFileSync(configPath, 'utf8'));
+    expect(after.mcp['stripe'].environment).toEqual({
+      STRIPE_SECRET_KEY: 'sk_live_user_key',
+    });
+  });
+
   it('c4: live-register throws (register:true, no client) → registered:false, no throw, file written', async () => {
     // register:true but the service has no SDK client → requireClient() throws
     // inside the best-effort block. Must NOT propagate; file must be written.

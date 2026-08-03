@@ -57,8 +57,10 @@ function makeStubServer(): {
 /** A fetch stub that records the URL it was called with and returns `body`. */
 function makeFetchSpy(body: unknown) {
   const calls: string[] = [];
+  const taintCalls: string[] = [];
   const fn = vi.fn((url: string) => {
     if (url.endsWith("/agent-approvals/external-content/taint")) {
+      taintCalls.push(url);
       return Promise.resolve({
         ok: true,
         status: 201,
@@ -68,7 +70,7 @@ function makeFetchSpy(body: unknown) {
     calls.push(url);
     return Promise.resolve({ ok: true, status: 200, json: async () => body });
   });
-  return { fn, calls };
+  return { fn, calls, taintCalls };
 }
 
 function parseFencedJson(text: string): unknown {
@@ -235,5 +237,43 @@ describe("issue-806: rhythm_list_sessions lists sessions from the local agent ba
     // index.ts wires registerAgentSessionTools(server, RHYTHM_AGENT_URL, ...),
     // and RHYTHM_AGENT_URL defaults to http://localhost:4001 — so production
     // wiring uses the local base.
+  });
+
+  // #1302 — rhythm_list_sessions reads Rhythm's own session transcripts
+  // (first-party data), not genuinely external content. It must still fence
+  // the result for the model (defense in depth), but must NOT arm the
+  // outbound-write approval gate the way gmail/web/PCO reads do — that gate
+  // being armed unconditionally is exactly what stalled Memory Consolidation
+  // every night with nobody awake to approve it.
+  it("#1302: fences the result but does not record an external-content taint", async () => {
+    const { fn, calls, taintCalls } = makeFetchSpy({
+      sessions: [
+        {
+          id: "ses-1",
+          name: "Refactor tasks",
+          agentKind: "claude-code",
+          lastActivityAt: "2026-06-28T10:00:00.000Z",
+        },
+      ],
+      resumable: [],
+    });
+    vi.stubGlobal("fetch", fn);
+
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentSessionTools(server as any, AGENT_URL, AGENT_TOKEN);
+
+    const res = await tools
+      .get("rhythm_list_sessions")!
+      .handler({}, SECURITY_EXTRA);
+    expect(res.isError).toBeUndefined();
+
+    // Still fenced for the model — defense in depth is unchanged.
+    expect(res.content[0].text).toContain(UNTRUSTED_FENCE_OPEN);
+    expect(res.content[0].text).toContain(UNTRUSTED_FENCE_CLOSE);
+
+    // But no approval-gate taint was recorded for this read.
+    expect(taintCalls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
   });
 });
