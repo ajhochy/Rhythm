@@ -1,0 +1,98 @@
+{
+  "run_id": "2026-08-02-issue-1286-1287-regression-rollup",
+  "issue": 1287,
+  "date": "2026-08-02",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1286-c10",
+      "text": "Exact-owner projectless sessions carry authoritative rhythm profile state on every mobile-gateway read surface; unbound rows attach nothing.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "5/5 server suite incl. unbound-row case; device-confirmed after desktop relaunch."
+    },
+    {
+      "criterion_id": "issue-1286-c11",
+      "text": "Unknown or unbound session state never persists fallback preferences or overrides the engine session configuration.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Unbound-state case added after live DB inspection showed agent_kind backfill pollutes opencodeAgentId; fresh corruption observed mid-smoke and closed."
+    },
+    {
+      "criterion_id": "issue-1286-c12",
+      "text": "Session opened with a selected profile shows and executes that profile on device.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Device probe chain: draftProfile=secretary catalog=0 (bug) -> capabilities-follow-scope fix -> catalog=22, user-confirmed success. Final root cause was the profile catalog being cleared on scope switches with only the Chat-tab bootstrap refetching it."
+    },
+    {
+      "criterion_id": "issue-1287-switching",
+      "text": "Recently opened chats switch instantly; list does not flash empty or reload unprompted; no error overlays.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Round 1 device pass FAILED (6s reopens, list churn, 404 overlays); round 2 fixed cross-scope cache destruction, discovery-sweep re-runs, and stale refresh timers. open-from-cache HIT probes confirmed instant serves."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "stale-runtime-artifact",
+      "description": "Server-side fixes were handed to device smoke while the desktop api_server process still ran pre-fix code (started hours earlier); the first retest verdict blamed the fixes. The desktop must be relaunched via tools/dev/launch_desktop_current.sh after ANY apps/api_server change before device validation.",
+      "detected_by": "ps lstart of the 4001 listener vs fix commit time."
+    },
+    {
+      "process_category": "device-only-behavior",
+      "description": "Four distinct client defects (scope-flip cache destruction, discovery sweep re-runs, capability catalog never refetched on the detail route, stale refresh timers) were invisible to jest, fake-server, Playwright web, and the live sandbox; only on-device probes with hit/miss reasons localized them.",
+      "detected_by": "Temporary [i1287] console probes over Metro during live user testing."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "orchestrator-diagnosis (six haiku research lanes via Workflow)",
+      "codex writers (server + mobile lanes)",
+      "orchestrator review + live device iteration",
+      "verification (typecheck/lint/jest/fake-server/e2e/live-sandbox/CI)",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": ["workflow-orchestrator", "acceptance-contract", "verification-gate"],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "coding-agent",
+        "description": "TodoWrite checklists not expanded; the user's handoff prompt and live iteration drove the sequence.",
+        "detected_by": "Transcript review."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/mobile_session_state_scope.ts",
+    "apps/api_server/src/services/mobile_chat_catalog.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/opencode-provider-utils.ts",
+    "apps/mobile/providers/opencode-provider-selectors.ts",
+    "apps/mobile/providers/open-project-session.ts",
+    "apps/mobile/providers/agent-chat-provider.tsx",
+    "apps/mobile/components/chat/session-configuration-sheet.tsx",
+    "apps/mobile/lib/opencode/messages.ts",
+    "apps/mobile/lib/coalesce.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Device-behavior classes (scope-driven cache lifecycles, catalog refetch coverage, timer scope-safety) need an on-device or scope-flip-simulating test tier; every web-tier gate passed while four device defects shipped. Also: relaunch the desktop stack as a mandatory step whenever apps/api_server changes precede device smoke."
+}

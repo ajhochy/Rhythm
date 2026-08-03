@@ -1,0 +1,33 @@
+{
+  "issue": 1280,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1280-c1",
+      "text": "The chat composer grows taller as the user types multi-line text.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1280-composer-device-regression.test.tsx",
+      "test_id": "issue-1280-c1: multiline typing delegates height growth to native layout without a synthetic content-size event",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1280-c2",
+      "text": "The chat composer grows up to a 132pt cap, then switches to internal scrolling.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1280-composer-device-regression.test.tsx",
+      "test_id": "issue-1280-c2: a long draft keeps the intrinsic 132pt cap and native scrolling without a synthetic content-size event",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1280-c3",
+      "text": "A human must confirm on a real iPhone before this is called done.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires typing and pasting multi-line drafts in a signed development build on physical iPhone hardware."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1280-c3"
+  ]
+}

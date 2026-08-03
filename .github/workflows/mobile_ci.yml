@@ -23,6 +23,14 @@ on:
       - 'tests/contract/issue-1175.mjs'
       - '.github/workflows/mobile_ci.yml'
 
+# The push and pull_request triggers both fire on PR branches, launching two
+# identical suites seconds apart on shared runners; the contention produced
+# rotating Playwright click-timeout flakes (#1287). Keying on the head SHA
+# collapses the pair to one run per commit.
+concurrency:
+  group: mobile-ci-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   foundation:
     runs-on: ubuntu-latest

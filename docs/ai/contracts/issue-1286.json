@@ -1,0 +1,80 @@
+{
+  "issue": 1286,
+  "generated": "2026-07-31",
+  "criteria": [
+    {
+      "criterion_id": "issue-1286-c1",
+      "text": "The exact mobile create request carries the selected Rhythm profile through the gateway and resolves its effective MCP, skill, and core-tool permissions before engine session creation.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1286_mobile_first_turn_scope.test.ts",
+      "test_id": "issue-1286-c1: the atomic mobile create resolves MCP skill and core-tool scope before engine creation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c2",
+      "text": "The first prompt on that real session uses only the profile-authorized MCP tools, skills, and core tools; no unrestricted schema is assembled first and cached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c2: the captured first model request contains only profile-authorized tools and skills",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c3",
+      "text": "Unknown or unauthorized profile identifiers fail closed before session creation or prompt dispatch.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1286_mobile_first_turn_scope.test.ts",
+      "test_id": "issue-1286-c3: unknown disabled or non-selectable profiles fail closed before create or prompt",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c4",
+      "text": "A real env-gated fork plus API behavioral test drives paired mobile create then first prompt and observes the effective first model-request schema, not only stored allowlist metadata.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c4: paired create then prompt reaches the capture provider through the real API and fork",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c5",
+      "text": "The test compares a restricted profile against an unrestricted control and asserts a materially smaller bounded first-turn tool/context payload without hard-coding private production token counts.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c5: restricted first-turn payload is materially smaller than the unrestricted control",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c6",
+      "text": "Physical-device Metro/API logs contain no scope fallback warning, and the UI truthfully shows the selected profile on the created chat.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c6: created session reports the selected profile and emits no scope fallback warning",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c10",
+      "text": "Exact-owner projectless sessions carry authoritative rhythm profile state on every mobile-gateway read surface (owner-unscoped discovery, session.list, PATCH round trip); other owners and other non-null projects never receive it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_projectless_profile_state.test.ts",
+      "test_id": "issue-1286 projectless profile state (4 tests)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1286-c11",
+      "text": "When a session's execution state is unknown to the mobile client, sendPrompt neither persists fallback preferences nor overrides the engine session's agent/model/system; the engine's persisted profile wins.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/prompt-execution-plan.test.ts",
+      "test_id": "buildPromptExecutionPlan known vs unknown state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1286-c12",
+      "text": "Opening a session with a selected profile executes that profile on the first turn and shows it (not Unassigned) after reopen/refresh, verified on the physical device.",
+      "mode": "manual-device",
+      "test_file": "docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md",
+      "test_id": "physical-device smoke checklist",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

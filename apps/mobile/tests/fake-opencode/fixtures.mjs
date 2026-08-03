@@ -60,6 +60,121 @@ export function providerAuthPayload() {
   };
 }
 
+export function profileCatalogPayload() {
+  return {
+    profiles: [
+      {
+        profileId: 'profile-secretary',
+        opencodeAgentId: 'secretary',
+        name: 'Secretary',
+        defaults: {
+          providerId: 'openai',
+          modelId: 'gpt-4.1-mini',
+          reasoningEffort: null,
+          approvalMode: 'default',
+        },
+        display: {
+          icon: 'mail',
+          color: null,
+        },
+      },
+      {
+        profileId: 'profile-build',
+        opencodeAgentId: 'build',
+        name: 'Build',
+        defaults: {
+          providerId: 'openai',
+          modelId: 'gpt-4.1-mini',
+          reasoningEffort: null,
+          approvalMode: 'default',
+        },
+        display: {
+          icon: 'terminal',
+          color: null,
+        },
+      },
+      {
+        profileId: 'profile-general',
+        opencodeAgentId: 'general',
+        name: 'General',
+        defaults: {
+          providerId: 'openai',
+          modelId: 'gpt-4.1-mini',
+          reasoningEffort: null,
+          approvalMode: 'default',
+        },
+        display: {
+          icon: 'sparkles',
+          color: null,
+        },
+      },
+    ],
+  };
+}
+
+export function resolveMobileSessionExecutionState(body, sessionId) {
+  if (!body || typeof body !== 'object') {
+    return { statusCode: 400 };
+  }
+  if (
+    body.profileId !== null &&
+    (typeof body.profileId !== 'string' || !body.profileId.trim())
+  ) {
+    return { statusCode: 400 };
+  }
+  const profile = profileCatalogPayload().profiles.find(
+    (entry) => entry.profileId === body.profileId,
+  );
+  if (typeof body.profileId === 'string' && !profile) {
+    return { statusCode: 404 };
+  }
+  const invalidAgent = profile
+    ? (
+        body.opencodeAgentId !== undefined &&
+        body.opencodeAgentId !== profile.opencodeAgentId
+      )
+    : body.opencodeAgentId !== null &&
+      body.opencodeAgentId !== undefined;
+  const invalidProvider =
+    body.providerId !== null && typeof body.providerId !== 'string';
+  const invalidModel =
+    body.modelId !== null && typeof body.modelId !== 'string';
+  const invalidThinking =
+    body.thinkingBudget !== null &&
+    (
+      !Number.isInteger(body.thinkingBudget) ||
+      body.thinkingBudget < 0
+    );
+  const permissionModes = new Set([
+    'default',
+    'acceptEdits',
+    'plan',
+    'bypassPermissions',
+  ]);
+  if (
+    invalidAgent ||
+    invalidProvider ||
+    invalidModel ||
+    invalidThinking ||
+    !permissionModes.has(body.permissionMode)
+  ) {
+    return { statusCode: 400 };
+  }
+  return {
+    statusCode: 200,
+    state: {
+      localSessionId: `local-${sessionId}`,
+      profileId: profile?.profileId ?? null,
+      opencodeAgentId: profile?.opencodeAgentId ?? null,
+      profileAvailability: profile ? 'available' : 'unassigned',
+      providerId: body.providerId,
+      modelId: body.modelId,
+      thinkingBudget: body.thinkingBudget,
+      permissionMode: body.permissionMode,
+    },
+  };
+}
+
 export function commandsPayload() {
   return [
     {

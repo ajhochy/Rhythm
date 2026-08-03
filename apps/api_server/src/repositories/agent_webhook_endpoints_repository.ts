@@ -109,7 +109,7 @@ export class AgentWebhookEndpointsRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `SELECT * FROM agent_webhook_endpoints
-         WHERE id = $1 AND created_by_user_id = $2`,
+         WHERE id = $1 AND (created_by_user_id IS NULL OR created_by_user_id = $2)`,
         [id, ownerUserId],
       );
       return result.rows[0] ? rowToModel(result.rows[0]) : null;
@@ -117,7 +117,7 @@ export class AgentWebhookEndpointsRepository {
     const row = getDb()
       .prepare(
         `SELECT * FROM agent_webhook_endpoints
-         WHERE id = ? AND created_by_user_id = ?`,
+         WHERE id = ? AND (created_by_user_id IS NULL OR created_by_user_id = ?)`,
       )
       .get(id, ownerUserId);
     return row ? rowToModel(row as Record<string, unknown>) : null;
@@ -138,7 +138,7 @@ export class AgentWebhookEndpointsRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `SELECT * FROM agent_webhook_endpoints
-         WHERE created_by_user_id = $1
+         WHERE (created_by_user_id IS NULL OR created_by_user_id = $1)
          ORDER BY created_at DESC`,
         [ownerUserId],
       );
@@ -147,7 +147,7 @@ export class AgentWebhookEndpointsRepository {
     const rows = getDb()
       .prepare(
         `SELECT * FROM agent_webhook_endpoints
-         WHERE created_by_user_id = ?
+         WHERE (created_by_user_id IS NULL OR created_by_user_id = ?)
          ORDER BY created_at DESC`,
       )
       .all(ownerUserId);
@@ -215,7 +215,7 @@ export class AgentWebhookEndpointsRepository {
       .prepare(
         `UPDATE agent_webhook_endpoints
          SET secret = ?, updated_at = ?
-         WHERE id = ? AND created_by_user_id = ?`,
+         WHERE id = ? AND (created_by_user_id IS NULL OR created_by_user_id = ?)`,
       )
       .run(secret, now, id, ownerUserId);
     return result.changes > 0
@@ -241,7 +241,7 @@ export class AgentWebhookEndpointsRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `DELETE FROM agent_webhook_endpoints
-         WHERE id = $1 AND created_by_user_id = $2`,
+         WHERE id = $1 AND (created_by_user_id IS NULL OR created_by_user_id = $2)`,
         [id, ownerUserId],
       );
       return (result.rowCount ?? 0) > 0;
@@ -249,7 +249,7 @@ export class AgentWebhookEndpointsRepository {
     const result = getDb()
       .prepare(
         `DELETE FROM agent_webhook_endpoints
-         WHERE id = ? AND created_by_user_id = ?`,
+         WHERE id = ? AND (created_by_user_id IS NULL OR created_by_user_id = ?)`,
       )
       .run(id, ownerUserId);
     return result.changes > 0;

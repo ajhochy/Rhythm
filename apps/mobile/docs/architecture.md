@@ -291,7 +291,9 @@ The app uses two update strategies in parallel:
 
 ### Primary Strategy: SSE Subscription
 
-When connected and a project is active, the provider opens `catalogClient.global.event()`. Global event envelopes are filtered by `directory === activeProjectPath` before their payload is handled. If the stream ends or fails, the provider reconnects indefinitely with exponential backoff from 1 second to 15 seconds.
+When connected and a project is active, the provider subscribes to the global event stream. On web this uses the generated SDK (`global.event()`). On native platforms the SDK path is unusable — React Native's XHR-backed `fetch` cannot stream an SSE body, so the subscription would hang forever without erroring — and the provider instead consumes `lib/opencode/global-event-stream.ts`, which streams over `expo/fetch` (paired-gateway `/mobile-gateway/events` or direct `/global/event`).
+
+Global event envelopes are filtered by `directory === activeProjectPath` before their payload is handled (the paired gateway pseudonymizes `directory` to the selected project ID). `eventStreamStatus` becomes `connected` only after an envelope is actually received — a stream that opens but never delivers must not silence the polling fallback. If the stream ends or fails, the provider reconnects indefinitely with exponential backoff from 1 second to 15 seconds.
 
 Recognized events update local state or schedule refreshes for:
 
@@ -303,6 +305,18 @@ Recognized events update local state or schedule refreshes for:
 - session diff updates
 - todo updates
 - permission and question requests/replies
+
+Event-driven refreshes are coalesced, not per-event: session list refreshes
+share a trailing 750ms coalescer, the archived-session sweep runs only for
+delete/archive/restore (never on the hot path), and idle-completion ancillary
+refreshes share a 1s coalescer. List and transcript commits carry monotonic
+fetch tokens so an out-of-order (stale) response can never overwrite newer
+state. Transcripts merge by message id (`lib/opencode/messages.ts`) — a
+partial fetch can only add or update records, never shrink a hydrated
+transcript; explicit removal events and revert/compaction flows use dedicated
+prune/replace paths. Opening a chat whose transcript is already hydrated
+takes a synchronous cache-first path (`openFromCache`) that renders
+immediately and revalidates in the background.
 
 ### Safety Strategy: Polling Fallback
 

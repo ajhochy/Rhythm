@@ -6,7 +6,7 @@ async function openTool(page, name) {
   await page.getByRole('button', { name: new RegExp(`^${name}\\.`) }).click();
 }
 
-test('issue-1173-c9: cloud tools survive paired host outage without sensitive caching', async ({ page }) => {
+test('issue-1173-c9: Email and paired Gallery render from their authoritative origins', async ({ page }) => {
   await openTool(page, 'Email');
   await expect(page.getByText('Volunteer reply')).toBeVisible();
   await page.getByRole('button', { name: 'Back to Tools' }).click();

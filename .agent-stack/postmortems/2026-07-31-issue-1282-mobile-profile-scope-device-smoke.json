@@ -1,0 +1,67 @@
+{
+  "run_id": "2026-07-31-issue-1282-mobile-profile-scope-device-smoke",
+  "issue": 1282,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1282-c1",
+      "text": "A mobile session created for a known profile sends the same mcpAllowlist and skillAllowlist to the OpenCode engine as the desktop create path for that profile, and profileId is not forwarded to the engine.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "AJ reported that a real physical-iPhone session created with a selected profile did not apply that profile's MCP/tool/skill scope. Its first turn consumed about 120k tokens, consistent with an unscoped tool/schema context rather than the restricted profile context proven by the synthetic live test."
+    },
+    {
+      "criterion_id": "issue-1282-device-tool-scope-c1",
+      "text": "A mobile-created profile session applies the selected profile's effective tool scope before its first prompt.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "The #1282 contract asserted MCP and skill allowlists at engine-session creation but did not assert the effective first-turn tool schema on the real physical mobile create-and-prompt path."
+    },
+    {
+      "criterion_id": "issue-1282-device-first-turn-budget-c1",
+      "text": "The first turn of a restricted mobile profile session does not receive the unrestricted provider/tool catalog context.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "The physical session reported about 120k tokens on its first turn. No acceptance criterion or behavioral assertion bounded the effective first-turn context or compared restricted versus unrestricted schema size."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/api_server/src/contract/issue_1282_mobile_session_scope_parity.test.ts",
+    "apps/api_server/src/__tests__/issue_1282_mobile_session_scope_live.test.ts"
+  ],
+  "failure_output": "AJ: agent sessions started from mobile app are not applying the profiles mcp/tool/skill scoping. 120k tokens on first turn.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Drive the exact physical-mobile create-then-first-prompt path against the real fork and assert the effective MCP, skill, and tool schemas are restricted before the first model request, including a bounded restricted-versus-unrestricted context comparison."
+}

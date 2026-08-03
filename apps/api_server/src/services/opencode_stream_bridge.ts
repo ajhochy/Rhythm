@@ -1569,7 +1569,7 @@ export class OpencodeStreamBridge {
               );
             } else {
               logger.info(
-                `[OpencodeStreamBridge] child session.created: parent SDK id ${createdParentId} not in local store — skipping upsert`,
+                `[OpencodeStreamBridge] child session.created: parent SDK id ${createdParentId} not mapped yet — queued for durable parent resolution`,
               );
             }
           } catch (err) {

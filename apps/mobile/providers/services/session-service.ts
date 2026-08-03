@@ -63,8 +63,13 @@ export async function listArchivedSessions(client: OpencodeClient) {
 
 export type ProjectSessionCatalogEntry = Record<string, unknown> & {
   id: string;
-  projectId: string;
+  projectId: string | null;
+  routingProjectId?: string;
   status: string;
+};
+
+type SessionCatalogOptions = {
+  onProgress?: (sessions: ProjectSessionCatalogEntry[]) => void;
 };
 
 function statusLabel(status: unknown): string {
@@ -79,9 +84,63 @@ function statusLabel(status: unknown): string {
 export async function listSessionsAcrossProjects(
   buildScopedClient: (projectId: string) => OpencodeClient,
   projectPaths: string[],
+  options: SessionCatalogOptions = {},
 ): Promise<ProjectSessionCatalogEntry[]> {
   const uniquePaths = [...new Set(projectPaths.filter(Boolean))];
   const catalog: ProjectSessionCatalogEntry[] = [];
+  const publish = () => {
+    const deduped = new Map<string, ProjectSessionCatalogEntry>();
+    for (const session of catalog) {
+      const existing = deduped.get(session.id);
+      const existingIsRoutingOnly =
+        existing?.projectId === null && Boolean(existing.routingProjectId);
+      if (!existing || (existingIsRoutingOnly && session.projectId !== null)) {
+        deduped.set(session.id, session);
+      }
+    }
+    const snapshot = [...deduped.values()];
+    options.onProgress?.(snapshot);
+    return snapshot;
+  };
+
+  if (uniquePaths.length > 0) {
+    const discoveryClient = buildScopedClient(uniquePaths[0]);
+    for (const archived of [false, true]) {
+      let cursor: number | undefined;
+      let firstPage = true;
+      do {
+        const response = await discoveryClient.experimental.session.list(
+          { archived, cursor, limit: firstPage && !archived ? 10 : 100 },
+          {
+            headers: {
+              'x-rhythm-session-discovery': 'owner-unscoped',
+            },
+          },
+        );
+        catalog.push(
+          ...requireData(response.data, 'owner session discovery request')
+            .map((session) => ({
+              ...(session as unknown as Record<string, unknown>),
+              id: session.id,
+              projectId:
+                typeof (session as unknown as Record<string, unknown>).projectId === 'string'
+                  ? (session as unknown as { projectId: string }).projectId
+                  : null,
+              routingProjectId: uniquePaths[0],
+              status: archived
+                ? 'archived'
+                : statusLabel(
+                    (session as unknown as Record<string, unknown>).status,
+                  ),
+            })),
+        );
+        publish();
+        const next = response.response?.headers.get('x-next-cursor');
+        cursor = next ? Number(next) : undefined;
+        firstPage = false;
+      } while (cursor !== undefined);
+    }
+  }
 
   // Keep the paired Mac responsive when an organization has many worktrees.
   for (let offset = 0; offset < uniquePaths.length; offset += 4) {
@@ -110,21 +169,60 @@ export async function listSessionsAcrossProjects(
       }),
     );
     catalog.push(...results.flat());
+    publish();
   }
-
-  return [...new Map(catalog.map((session) => [
-    `${session.projectId}:${session.id}`,
-    session,
-  ])).values()];
+  return publish();
 }
 
-export async function getSessionMessages(client: OpencodeClient, sessionId: string) {
-  const response = await client.session.messages({ sessionID: sessionId });
-  return requireData(response.data, 'session messages request');
+export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;
+
+export async function resolveOwnerDiscoveredSession(
+  client: OpencodeClient,
+  sessionId: string,
+) {
+  const response = await client.experimental.session.list(
+    { archived: false, search: sessionId, limit: 1 },
+    {
+      headers: {
+        'x-rhythm-session-discovery': 'owner-unscoped',
+      },
+    },
+  );
+  return requireData(response.data, 'owner session lookup request')
+    .find((session) => session.id === sessionId);
 }
 
-export async function getSessionDiff(client: OpencodeClient, sessionId: string) {
-  const messages = await getSessionMessages(client, sessionId);
+export type SessionMessagePage = {
+  records: NonNullable<Awaited<ReturnType<OpencodeClient['session']['messages']>>['data']>;
+  nextCursor?: string;
+};
+
+export async function getSessionMessages(
+  client: OpencodeClient,
+  sessionId: string,
+  options: { cursor?: string } = {},
+): Promise<SessionMessagePage> {
+  const response = await client.session.messages({
+    sessionID: sessionId,
+    limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+    ...(options.cursor ? { before: options.cursor } : {}),
+  });
+  const records = requireData(response.data, 'session messages request');
+  return {
+    records,
+    nextCursor:
+      records.length === MOBILE_SESSION_MESSAGE_PAGE_SIZE
+        ? records[0]?.info.id
+        : undefined,
+  };
+}
+
+export async function getSessionDiff(
+  client: OpencodeClient,
+  sessionId: string,
+  loadedMessages?: SessionMessagePage['records'],
+) {
+  const messages = loadedMessages ?? (await getSessionMessages(client, sessionId)).records;
   const latestUserMessage = messages.slice().reverse().find(({ info }) => info.role === 'user');
   if (!latestUserMessage) {
     return [];

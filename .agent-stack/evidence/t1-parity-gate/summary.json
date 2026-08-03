@@ -1,0 +1,8 @@
+{
+  "result": "FAIL",
+  "gitSha": "cc37ace57631ae655a2101154f4823287322b9ed",
+  "projectId": "cda82f39-bce3-4143-98b2-d7b1adbf6b1e",
+  "userEmail": "ajh@visaliacrc.com",
+  "gatewayPort": "4099",
+  "apiPort": "4098"
+}

@@ -489,3 +489,174 @@
   caller-controlled OAuth configuration.
 - See
   `.agent-stack/postmortems/2026-07-27-issue-1175-production-api-contract-device-smoke.json`.
+
+## 2026-07-31 — PR #1284 — desktop shell launched without its local agent server
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C5 — environment issue; process: isolated-worktree-dependencies
+- **Criteria affected**: pr-1284-desktop-launch-c1
+- **Root cause**: The Flutter shell first opened from an isolated worktree with
+  no API dependencies; after those were restored, a plain dev launch selected
+  the incompatible stock OpenCode binary instead of the PR fork.
+- **Suggested fix**: Preflight package-local API dependencies, launch with the
+  built PR fork through `RHYTHM_OPENCODE_BIN_DIR`, then require both `GET
+  /health` and `GET /opencode/health` before smoke handoff.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-desktop-agent-server-smoke.json`.
+
+## 2026-07-31 — PR #1284 — mobile chat smoke began before the relaunched gateway was reachable
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C5 — environment issue; process: desktop-gateway-launch-readiness
+- **Criteria affected**: issue-1279-c7
+- **Root cause**: The phone's saved tailnet endpoint returned HTTP 502 for
+  session, permission, and question requests after the desktop relaunch, so
+  the request never reached #1279's owner/project visibility policy.
+- **Suggested fix**: After every desktop relaunch, wait for port 4002 and
+  require a successful request through the configured tailnet serve route
+  before handing the paired phone back for session-visibility smoke.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-chat-gateway-smoke.json`.
+
+## 2026-07-31 — PR #1284 — physical iPhone exposed mobile Agents and Tools false-greens
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; C1 — missing contract
+- **Criteria affected**: issue-1235-c1, issue-1172-c2,
+  issue-1173-c8, issue-1173-c9, PR console cleanliness, and mobile catalog
+  organization
+- **Root cause**: Source-shape and fake-server tests passed while the physical
+  client still retained a second Agents control stack, misclassified real
+  desktop human sessions, returned empty real-data Review Queue/Gallery
+  surfaces, emitted repeated native console errors, and offered no findability
+  controls for large catalogs.
+- **Suggested fix**: Add physical-device or live-data contracts for the exact
+  user-visible paths and require a clean Metro console before a mobile smoke
+  can pass.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-tools-and-agents-device-smoke.json`.
+
+## 2026-07-31 — Issue #1282 — mobile profile scope passed creation checks but failed on the first real turn
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; C1 — missing contract
+- **Criteria affected**: issue-1282-c1, effective first-turn tool scope, and
+  restricted first-turn context size
+- **Root cause**: The synthetic contract observed stored MCP/skill allowlists
+  after mobile creation but did not prove that the physical create-then-prompt
+  path used them before assembling the first model request; the device exposed
+  an apparently unrestricted roughly 120k-token first turn.
+- **Suggested fix**: Add a real mobile create-then-first-prompt behavioral test
+  that inspects the effective MCP, skill, and tool schema and compares the
+  restricted context against an unrestricted control before declaring parity.
+- See
+  `.agent-stack/postmortems/2026-07-31-issue-1282-mobile-profile-scope-device-smoke.json`.
+
+## 2026-07-31 — PR #1284 corrective iPhone smoke exposed viewport and real-transcript gaps
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; C1 — missing contract
+- **Criteria affected**: issue-1285-c1/c2 and large-transcript chat open/recovery
+- **Root cause**: Tests proved menu actions and synthetic discovery data but did not exercise a physical-height menu, real desktop historical catalogs, or a transcript larger than the gateway's 8 MB response cap. The open path also fetched the same full transcript twice.
+- **Suggested fix**: Require native viewport scrolling, real-data desktop-chat composition, and bounded single-fetch transcript loading with recoverable error navigation in the acceptance contract.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-corrective-device-smoke.json`.
+## 2026-07-31 — Issue 1285 — projectless desktop chats list but cannot open
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract
+- **Criteria affected**: projectless desktop chat transcript opening
+- **Root cause**: The contract asserted Chats classification and direct gateway access, but never exercised the mobile card-to-provider open path that reconciles the session against the selected project's catalog.
+- **Suggested fix**: Add a regression that taps a projectless discovered row and asserts readable transcript content through the same provider path used on device.
+
+## 2026-07-31 — Issue 1285 — projectless chat interaction and loading remained unusable
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract
+- **Criteria affected**: issue-1285-c8, issue-1285-c9, issue-1285-c10, issue-1285-c11
+- **Root cause**: The prior contract proved transcript visibility but omitted owner-authorized interaction, cancellable opening, messages-first readiness, and progressive first-page catalog delivery.
+- **Suggested fix**: Require the mobile open journey to publish ten sessions first, expose Back while opening, become ready from messages alone, and permit exact-owner projectless prompting before physical smoke handoff.
+- **Follow-up**: #1287
+
+## 2026-07-31 — Issue 1285 — native retry still blocks open and reorders the newest chat
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract
+- **Criteria affected**: issue-1285-c7, issue-1285-c8, issue-1285-c10, issue-1285-c11
+- **Root cause**: The tests covered isolated progressive callbacks and a mocked messages-first opener, but did not prove deterministic row preservation under real concurrent hydration or a bounded real-gateway open on the physical device.
+- **Suggested fix**: Add adversarial interleaving coverage for catalog snapshots and drive the actual gateway open through a strict readiness deadline before reinstalling the phone build.
+- **Follow-up**: #1287
+
+## 2026-07-31 — Issue 1285 — ready transcript loops back to Opening chat
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract; C2 — wrong contract
+- **Criteria affected**: issue-1285-c7, issue-1285-c10, issue-1285-c14
+- **Root cause**: The route treated the normal React frame between opener readiness and provider-selection commit as a stale state, cancelled the successful transcript load, and reopened it indefinitely.
+- **Suggested fix**: Contract-test the ready/provider-commit interleaving and treat a matching ready opener as authoritative while the selected-session state catches up.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — stale active-session bootstrap displaces ready transcript
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract; C2 — wrong contract; process: P1
+- **Criteria affected**: issue-1285-c7, issue-1285-c10, issue-1285-c14, issue-1285-c15
+- **Root cause**: An active-session bootstrap that began before the explicit owner open completed later and blindly restored the remembered scoped session, while scoped refresh also omitted the projectless current session.
+- **Suggested fix**: Preserve the ready owner-opened session across scoped refresh and reject stale bootstrap selection commits when any explicit session became current during its await.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — device retry hit a stale desktop API route
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C5 — environment issue; process: runtime-revision-readiness
+- **Criteria affected**: issue-1285-c16
+- **Root cause**: The projectless state-update correction passed against fresh
+  source, but the desktop-launched API used plain `tsx` and had not restarted,
+  so the physical phone retried against the old project-required route.
+- **Suggested fix**: Gate every backend device retry on a desktop/API restart,
+  health checks, and a revision-specific behavioral probe against the launched
+  process—not only source-tree tests.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — engine response did not converge to desktop or mobile
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C1 — missing contract; process: P4 and runtime-lifecycle-readiness
+- **Criteria affected**: issue-1285-c17, issue-1285-c18, issue-1285-c19, issue-1285-c20
+- **Root cause**: Mobile used context compaction for title generation and rendered its internal records; the proxy sent before starting the API event bridge; and the client performed only an immediate refresh after asynchronous prompt acceptance.
+- **Suggested fix**: Assert one unique mobile turn across engine, API persistence, desktop rendering, and delayed mobile rendering after a fresh API restart.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — desktop turns require a mobile refresh
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C1 — missing contract
+- **Criteria affected**: issue-1285-c21
+- **Root cause**: The acceptance contract covered mobile-originated asynchronous response convergence but never required a currently open mobile transcript to react to desktop-originated engine events.
+- **Suggested fix**: Add a bidirectional live-update contract that drives a desktop-originated turn and asserts the open mobile transcript refreshes without user action.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1285 — server stream correction still failed on device
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; process: P1
+- **Criteria affected**: issue-1285-c21
+- **Root cause**: The live contract proved the authenticated gateway emitted a projectless desktop event, but omitted the mobile EventSource, session matching, refresh scheduling, and React state-commit path; the physical client still required refresh on corrective commit `cdd0bb465`.
+- **Suggested fix**: Capture one unique event at every client-inclusive boundary and replace the server-only proxy assertion with a regression that proves an already-open mobile transcript updates.
+- **Follow-up**: #1287
+
+## 2026-08-01 — Issue 1287 — native SSE transport fixed; smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS, no divergence)
+- **Category**: none (closes the prior C2 on issue-1285-c21)
+- **Criteria affected**: issue-1287-c1, issue-1287-c2
+- **Root cause**: React Native's XHR-backed fetch cannot stream SSE, so zero engine events ever reached the mobile client; optimistic eventStreamStatus='connected' disabled the polling fallback. Fixed with an expo/fetch SSE consumer and data-driven connected status.
+- **Suggested fix**: realtime mobile contracts must include a device-runtime-inclusive assertion; server-only raw-fetch SSE tests are false proxies for RN fetch behavior.
+
+## 2026-08-02 — Issues 1286/1287 — regression rollup; round-1 device smoke FAIL, round-2 PASS
+
+- **Result**: round-1 smoke FAIL (verification claimed PASS) → live iteration → round-2 smoke PASS
+- **Category**: C5 (stale desktop runtime) + C1 (device-only defect classes untested)
+- **Criteria affected**: issue-1286-c10/c11/c12, chat-switching latency/list stability
+- **Root cause**: server fixes handed to smoke against a pre-fix api_server process; four client defects (scope-flip cache destruction, discovery sweep re-runs, capability catalog cleared without refetch on the detail route, stale refresh timers) invisible to every web-tier gate.
+- **Suggested fix**: mandatory desktop relaunch step before device smoke when apps/api_server changed; add a scope-flip-simulating test tier; on-device probes (hit/miss reasons) as a standard smoke instrument.

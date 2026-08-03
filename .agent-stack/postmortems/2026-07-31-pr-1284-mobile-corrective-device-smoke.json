@@ -1,0 +1,89 @@
+{
+  "run_id": "2026-07-31-pr-1284-mobile-corrective-device-smoke",
+  "issue": 1285,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c1",
+      "text": "Agents controls are consolidated into a usable top-right overflow menu while search remains persistent.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Search and menu actions worked, but the physical iPhone clipped the bottom of the menu and offered no way to scroll to the hidden actions."
+    },
+    {
+      "criterion_id": "issue-1285-c2",
+      "text": "Owner-matched desktop human sessions appear in Chats while system work remains in Activity.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Mobile-originated sessions appeared in Chats, while desktop-originated human sessions remained in Activity. Scheduled tasks and background loops were classified correctly."
+    },
+    {
+      "criterion_id": "pr-1284-large-transcript-c1",
+      "text": "Opening a real existing chat remains responsive and recoverable when its transcript is large.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "A real transcript was 8.95 MB and exceeded the gateway's 8 MB response cap. Mobile requested the full transcript twice during open, received HTTP 502, then became black and unresponsive after the error was dismissed."
+    },
+    {
+      "criterion_id": "issue-1285-c3",
+      "text": "Review Queue and Gallery show paired-Mac data rather than false empty states.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": null,
+      "notes": "Gallery listed real items. Playback/rendering is a future enhancement and listing is accepted for this smoke."
+    },
+    {
+      "criterion_id": "issue-1285-c4-c5",
+      "text": "Mobile catalogs provide usable organization and truthful provider/model information.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": null,
+      "notes": "Skills and Providers & Models worked. Additional category organization for Skills and Agent Profiles remains a product follow-up, not a blocker for this corrective smoke."
+    },
+    {
+      "criterion_id": "issue-1282-c1",
+      "text": "Mobile-created sessions apply profile MCP, tool, and skill scope on the first turn.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": null,
+      "notes": "The physical-device retest indicated the selected profile scope now applies to mobile-originated chats."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/app/(tabs)/agents.tsx",
+    "apps/mobile/providers/services/session-service.ts",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts"
+  ],
+  "failure_output": "Physical iPhone: overflow actions clipped without scrolling; desktop human sessions stayed in Activity; opening a real 8.95 MB transcript returned HTTP 502 and dismissing the error led to a black frozen screen.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Keep issue #1285 as the owning follow-up. Add native-height menu coverage, a real historical-session discovery contract, and a large-transcript open/recovery contract that exercises the gateway response limit and prevents duplicate full-history fetches."
+}

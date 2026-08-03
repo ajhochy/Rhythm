@@ -1,109 +1,184 @@
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
+import { Button } from 'react-native-paper';
 
 import { ChatView } from '@/components/chat/chat-view';
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
+import {
+  getOpenProjectSessionPresentation,
+  type OpenProjectSessionTerminalKind,
+} from '@/providers/open-project-session';
 import { useOpencode } from '@/providers/opencode-provider';
 import { usePairedHost } from '@/providers/paired-host-provider';
+
+const TERMINAL_STATES = new Set<OpenProjectSessionTerminalKind>([
+  'missing-session',
+  'unauthorized-project',
+  'offline',
+  'timeout',
+  'transient-error',
+]);
 
 export default function AgentChatDetailScreen() {
   const params = useLocalSearchParams<{
     sessionId: string;
     projectId?: string;
   }>();
+  const router = useRouter();
   const opencode = useOpencode();
   const pairedHost = usePairedHost();
+  const {
+    host: pairedHostRecord,
+    message: pairedHostMessage,
+    state: pairedHostState,
+  } = pairedHost;
+  const {
+    activeProjectPath,
+    cancelOpenProjectSession,
+    connection,
+    currentSessionId,
+    isHydrated,
+    openProjectSession,
+    openProjectSessionState: openState,
+  } = opencode;
   const pairedHostAvailable =
-    !pairedHost.host || pairedHost.state === 'connected';
-  const sessionTransportAvailable =
-    pairedHostAvailable && opencode.connection.status === 'connected';
-  const [error, setError] = useState<string | null>(null);
-  const openingRef = useRef<string | null>(null);
+    !pairedHostRecord || pairedHostState === 'connected';
   const sessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
     : params.sessionId;
   const projectId = Array.isArray(params.projectId)
     ? params.projectId[0]
     : params.projectId;
+  const targetProjectId = projectId ?? activeProjectPath ?? '';
+  const targetSessionId = sessionId ?? '';
+  const readyTargetRef = useRef({ key: '', observed: false });
+  const targetKey = `${targetProjectId}\u0000${targetSessionId}`;
+  if (readyTargetRef.current.key !== targetKey) {
+    readyTargetRef.current = { key: targetKey, observed: false };
+  }
+  const stateMatchesTarget =
+    'projectId' in openState &&
+    openState.projectId === targetProjectId &&
+    openState.sessionId === targetSessionId;
+  if (stateMatchesTarget && openState.kind === 'ready') {
+    readyTargetRef.current.observed = true;
+  }
 
   const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
 
   useEffect(() => {
-    if (!sessionId || opencode.connection.status !== 'connected') return;
-    if (projectId && opencode.activeProjectPath !== projectId) {
-      opencode.selectProject(projectId);
-      return;
-    }
+    if (!isHydrated) return;
+    if (connection.status === 'connecting') return;
     if (
-      opencode.currentSessionId === sessionId ||
-      openingRef.current === sessionId
+      connection.status === 'idle' &&
+      (Platform.OS === 'web' ||
+        Boolean(pairedHostRecord && pairedHostAvailable))
     ) {
       return;
     }
-    openingRef.current = sessionId;
-    setError(null);
-    void opencode.openSession(sessionId)
-      .catch((reason) => {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : 'Could not open this chat.',
-        );
-      })
-      .finally(() => {
-        openingRef.current = null;
-      });
+    if (stateMatchesTarget) {
+      if (openState.kind === 'opening') return;
+      if (TERMINAL_STATES.has(openState.kind as OpenProjectSessionTerminalKind)) {
+        return;
+      }
+      // The controller publishes ready immediately after committing the
+      // provider selection. React can expose this state one render before
+      // activeProjectPath/currentSessionId catch up. Reopening in that frame
+      // cancels a successful transcript load and creates an endless loop.
+      if (openState.kind === 'ready') return;
+    }
+    void openProjectSession(targetProjectId, targetSessionId);
   }, [
-    opencode,
-    opencode.activeProjectPath,
-    opencode.connection.status,
-    opencode.currentSessionId,
-    projectId,
-    sessionId,
+    activeProjectPath,
+    cancelOpenProjectSession,
+    connection.status,
+    currentSessionId,
+    isHydrated,
+    openState.kind,
+    openProjectSession,
+    pairedHostAvailable,
+    pairedHostRecord,
+    stateMatchesTarget,
+    targetProjectId,
+    targetSessionId,
   ]);
 
-  if (!pairedHostAvailable) {
-    return (
-      <ToolScreenState
-        message={pairedHost.message}
-        state="offline-cache"
-        title="Opening chat"
-      />
-    );
-  }
+  useEffect(
+    () => () => {
+      cancelOpenProjectSession();
+    },
+    [cancelOpenProjectSession],
+  );
 
-  if (error) {
+  if (
+    stateMatchesTarget &&
+    TERMINAL_STATES.has(openState.kind as OpenProjectSessionTerminalKind)
+  ) {
+    const kind = openState.kind as OpenProjectSessionTerminalKind;
+    const presentation = getOpenProjectSessionPresentation(kind);
+    const message =
+      'message' in openState && openState.message
+        ? openState.message
+        : presentation.message;
     return (
       <>
         {routeHeader}
         <ToolScreenState
-          actionLabel="Try again"
-          message={error}
-          onAction={() => {
-            openingRef.current = null;
-            setError(null);
-            if (sessionId) void opencode.openSession(sessionId);
-          }}
-          state="error"
-          title="Could not open chat"
-        />
+          message={message}
+          state={presentation.screenState}
+          title={presentation.title}>
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={presentation.retryLabel}
+              mode="contained"
+              onPress={() => {
+                void openProjectSession(targetProjectId, targetSessionId);
+              }}>
+              {presentation.retryLabel}
+            </Button>
+            <Button
+              accessibilityLabel={presentation.backLabel}
+              mode="outlined"
+              onPress={() => {
+                cancelOpenProjectSession();
+                router.replace('/(tabs)/agents');
+              }}>
+              {presentation.backLabel}
+            </Button>
+          </View>
+        </ToolScreenState>
       </>
     );
   }
 
-  if (!sessionId || opencode.currentSessionId !== sessionId) {
+  const isReady =
+    activeProjectPath === targetProjectId &&
+    currentSessionId === targetSessionId &&
+    (readyTargetRef.current.observed ||
+      (stateMatchesTarget && openState.kind === 'ready'));
+  if (!isReady) {
     return (
       <>
         {routeHeader}
         <ToolScreenState
           message={
-            sessionTransportAvailable
+            pairedHostAvailable
               ? 'Loading the transcript and agent state.'
-              : opencode.connection.message
+              : pairedHostMessage
           }
-          state={sessionTransportAvailable ? 'loading' : 'offline-cache'}
-          title="Opening chat"
-        />
+          state="loading"
+          title="Opening chat">
+          <Button
+            accessibilityLabel="Back to chats"
+            mode="outlined"
+            onPress={() => {
+              cancelOpenProjectSession();
+              router.replace('/(tabs)/agents');
+            }}>
+            Back to chats
+          </Button>
+        </ToolScreenState>
       </>
     );
   }
@@ -115,3 +190,9 @@ export default function AgentChatDetailScreen() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  actions: {
+    gap: 8,
+  },
+});

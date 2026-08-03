@@ -8,7 +8,6 @@ import {
   View,
 } from 'react-native';
 import {
-  Appbar,
   Button,
   Card,
   Dialog,
@@ -17,12 +16,13 @@ import {
   Menu,
   Portal,
   Searchbar,
-  SegmentedButtons,
   Snackbar,
   Text,
   TextInput,
 } from 'react-native-paper';
 
+import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
+import type { ChatListController } from '@/components/chat/chat-list-controller';
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -31,7 +31,6 @@ import { useOpencode } from '@/providers/opencode-provider';
 import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   buildAgentChatReadModel,
-  type AgentChatLifecycle,
   type AgentChatRecord,
 } from '@/providers/services/agent-chat-service';
 
@@ -49,7 +48,11 @@ function flattenChats(
   ]);
 }
 
-export function ChatList() {
+type ChatListProps = {
+  controller: ChatListController;
+};
+
+export function ChatList({ controller }: ChatListProps) {
   const router = useRouter();
   const opencode = useOpencode();
   const pairedHost = usePairedHost();
@@ -57,18 +60,15 @@ export function ChatList() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [query, setQuery] = useState('');
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [lifecycle, setLifecycle] =
-    useState<AgentChatLifecycle | 'all'>('all');
-  const [projectMenuVisible, setProjectMenuVisible] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{
-    kind: 'create' | 'rename';
-    target?: AgentChatRecord;
+    kind: 'rename';
+    target: AgentChatRecord;
   } | null>(null);
   const [title, setTitle] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
   const projectsByPath = useMemo(
     () => new Map(opencode.projects.map((project) => [project.path, project])),
     [opencode.projects],
@@ -76,10 +76,10 @@ export function ChatList() {
   const readModel = useMemo(
     () =>
       buildAgentChatReadModel(chat.sessions, {
-        lifecycle,
-        projectId,
+        lifecycle: controller.lifecycle,
+        projectId: controller.projectId,
       }),
-    [chat.sessions, lifecycle, projectId],
+    [chat.sessions, controller.lifecycle, controller.projectId],
   );
   const rows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -92,15 +92,17 @@ export function ChatList() {
       );
     });
   }, [projectsByPath, query, readModel]);
-  const selectedProject =
-    (projectId ? projectsByPath.get(projectId) : null) ?? null;
+  function routingProjectId(record: AgentChatRecord): string | undefined {
+    return record.projectId ?? record.routingProjectId ?? opencode.activeProjectPath;
+  }
 
   function openChat(record: AgentChatRecord) {
+    const projectId = routingProjectId(record);
     router.push({
       pathname: '/agents/chats/[sessionId]',
       params: {
         sessionId: record.id,
-        ...(record.projectId ? { projectId: record.projectId } : {}),
+        ...(projectId ? { projectId } : {}),
       },
     });
   }
@@ -127,36 +129,12 @@ export function ChatList() {
 
   async function submitDialog() {
     if (!dialog) return;
-    const targetProject =
-      dialog.target?.projectId ??
-      projectId ??
-      opencode.activeProjectPath ??
-      opencode.projects[0]?.path;
-    if (!targetProject) {
-      setFeedback('Choose a project before creating a chat.');
-      return;
-    }
-    if (dialog.kind === 'create') {
-      setBusyId('create');
-      try {
-        const created = await chat.createChat(targetProject, title);
-        setDialog(null);
-        setTitle('');
-        openChat(created as unknown as AgentChatRecord);
-      } catch (reason) {
-        setFeedback(
-          reason instanceof Error ? reason.message : 'Could not create chat.',
-        );
-      } finally {
-        setBusyId(null);
-      }
-      return;
-    }
     const target = dialog.target;
-    if (!target?.projectId) return;
+    const projectId = target ? routingProjectId(target) : undefined;
+    if (!target || !projectId) return;
     await run(
       target.id,
-      () => chat.renameChat(target.projectId!, target.id, title),
+      () => chat.renameChat(projectId, target.id, title),
       'Chat renamed.',
     );
     setDialog(null);
@@ -164,7 +142,8 @@ export function ChatList() {
   }
 
   function confirmDelete(record: AgentChatRecord) {
-    if (!record.projectId) return;
+    const projectId = routingProjectId(record);
+    if (!projectId) return;
     Alert.alert(
       'Delete chat permanently?',
       `“${record.title}” and its transcript will be removed from the Mac. This cannot be undone.`,
@@ -176,7 +155,7 @@ export function ChatList() {
           onPress: () =>
             void run(
               record.id,
-              () => chat.deleteChat(record.projectId!, record.id),
+              () => chat.deleteChat(projectId, record.id),
               'Chat deleted.',
             ),
         },
@@ -186,103 +165,12 @@ export function ChatList() {
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
-      <Appbar.Header
-        elevated={false}
-        style={{ backgroundColor: palette.background }}>
-        <Appbar.Content
-          title="Chats"
-          titleStyle={{ color: palette.text }}
-        />
-        <Appbar.Action
-          accessibilityLabel="Open workspace"
-          icon="folder-outline"
-          onPress={() => router.push('/agents/workspace')}
-        />
-        <Appbar.Action
-          accessibilityLabel="Open terminal"
-          icon="console"
-          onPress={() => router.push('/agents/terminal')}
-        />
-        <Appbar.Action
-          accessibilityLabel="Create chat"
-          disabled={!chat.isOnline || busyId === 'create'}
-          icon="plus"
-          onPress={() => {
-            setTitle('');
-            setDialog({ kind: 'create' });
-          }}
-        />
-      </Appbar.Header>
-
       <View style={styles.filters}>
         <Searchbar
           accessibilityLabel="Search chats"
           onChangeText={setQuery}
           placeholder="Search chats"
           value={query}
-        />
-        <Menu
-          anchor={
-            <Button
-              accessibilityLabel="Filter chats by project"
-              icon="folder-multiple-outline"
-              mode="outlined"
-              onPress={() => setProjectMenuVisible(true)}>
-              {selectedProject?.label ?? 'All projects'}
-            </Button>
-          }
-          onDismiss={() => setProjectMenuVisible(false)}
-          visible={projectMenuVisible}>
-          <Menu.Item
-            leadingIcon={projectId === null ? 'check' : undefined}
-            onPress={() => {
-              setProjectId(null);
-              setProjectMenuVisible(false);
-            }}
-            title="All projects"
-          />
-          {opencode.projects.map((project) => (
-            <Menu.Item
-              key={project.path}
-              leadingIcon={projectId === project.path ? 'check' : undefined}
-              onPress={() => {
-                setProjectId(project.path);
-                setProjectMenuVisible(false);
-              }}
-              title={project.label}
-            />
-          ))}
-        </Menu>
-        <SegmentedButtons
-          buttons={[
-            {
-              value: 'all',
-              label: 'All',
-              accessibilityLabel: 'All chat states',
-              testID: 'chat-lifecycle-all',
-            },
-            {
-              value: 'active',
-              label: 'Active',
-              accessibilityLabel: 'Active chats',
-              testID: 'chat-lifecycle-active',
-            },
-            {
-              value: 'completed',
-              label: 'Completed',
-              accessibilityLabel: 'Completed chats',
-              testID: 'chat-lifecycle-completed',
-            },
-            {
-              value: 'archived',
-              label: 'Archived',
-              accessibilityLabel: 'Archived chats',
-              testID: 'chat-lifecycle-archived',
-            },
-          ]}
-          onValueChange={(value) =>
-            setLifecycle(value as AgentChatLifecycle | 'all')}
-          value={lifecycle}
         />
         {chat.isOfflineCache ? (
           <Card
@@ -319,6 +207,9 @@ export function ChatList() {
         renderItem={({ item }) => (
           <Card
             accessibilityLabel={`${item.title}, ${item.status}`}
+            accessibilityRole={
+              'button'
+            }
             mode="outlined"
             onPress={() => openChat(item)}
             style={[
@@ -328,7 +219,9 @@ export function ChatList() {
             ]}>
             <Card.Title
               title={item.title}
-              subtitle={`${projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project'} · ${item.status}`}
+              subtitle={item.projectId === null
+                ? `Desktop chat · ${item.status}`
+                : `${projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project'} · ${item.status}`}
               titleNumberOfLines={2}
               subtitleNumberOfLines={2}
               right={() => (
@@ -364,11 +257,11 @@ export function ChatList() {
                     <Menu.Item
                       leadingIcon="restore"
                       onPress={() =>
-                        item.projectId
+                        routingProjectId(item)
                           ? void run(
                               item.id,
                               () =>
-                                chat.restoreChat(item.projectId!, item.id),
+                                chat.restoreChat(routingProjectId(item)!, item.id),
                               'Chat restored.',
                             )
                           : undefined}
@@ -378,11 +271,11 @@ export function ChatList() {
                     <Menu.Item
                       leadingIcon="archive-outline"
                       onPress={() =>
-                        item.projectId
+                        routingProjectId(item)
                           ? void run(
                               item.id,
                               () =>
-                                chat.archiveChat(item.projectId!, item.id),
+                                chat.archiveChat(routingProjectId(item)!, item.id),
                               'Chat archived.',
                             )
                           : undefined}
@@ -392,12 +285,12 @@ export function ChatList() {
                   <Menu.Item
                     leadingIcon="source-fork"
                     onPress={() =>
-                      item.projectId
+                      routingProjectId(item)
                         ? void run(
                             item.id,
                             async () => {
                               const forked = await chat.forkChat(
-                                item.projectId!,
+                                routingProjectId(item)!,
                                 item.id,
                               );
                               openChat(forked as unknown as AgentChatRecord);
@@ -440,7 +333,7 @@ export function ChatList() {
                 accessibilityRole="header"
                 style={{ color: palette.text }}
                 variant="headlineSmall">
-                {query.trim() || projectId || lifecycle !== 'all'
+                {query.trim() || controller.projectId || controller.lifecycle !== 'all'
                   ? 'No matching chats'
                   : 'No chats yet'}
               </Text>
@@ -459,7 +352,7 @@ export function ChatList() {
           onDismiss={() => setDialog(null)}
           visible={dialog !== null}>
           <Dialog.Title>
-            {dialog?.kind === 'rename' ? 'Rename chat' : 'New chat'}
+            Rename chat
           </Dialog.Title>
           <Dialog.Content>
             <TextInput
@@ -475,18 +368,35 @@ export function ChatList() {
             <Button
               disabled={
                 busyId !== null ||
-                (dialog?.kind === 'rename' && !title.trim())
+                !title.trim()
               }
               onPress={() => void submitDialog()}>
-              {dialog?.kind === 'rename' ? 'Save' : 'Create'}
+              Save
             </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      <SessionConfigurationSheet
+        availableModels={opencode.availableModels}
+        availableProfiles={controller.creationProfiles}
+        availableProviders={opencode.configuredProviders}
+        mode="create"
+        onCreate={async (newTitle, preferences) => {
+          const created = await controller.createChat(newTitle, preferences);
+          openChat(created as unknown as AgentChatRecord);
+        }}
+        onDismiss={controller.closeCreateSheet}
+        palette={palette}
+        preferences={opencode.chatPreferences}
+        visible={controller.createSheetVisible && controller.isFocused}
+      />
       <Snackbar
-        onDismiss={() => setFeedback(null)}
-        visible={Boolean(feedback)}>
-        {feedback}
+        onDismiss={() => {
+          setFeedback(null);
+          controller.clearFeedback();
+        }}
+        visible={Boolean(feedback ?? controller.feedback)}>
+        {feedback ?? controller.feedback}
       </Snackbar>
     </View>
   );

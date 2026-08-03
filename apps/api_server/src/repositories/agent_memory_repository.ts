@@ -433,7 +433,14 @@ export class AgentMemoryRepository {
     if (env.dbClient === 'postgres') {
       const conditions: string[] = [];
       const params: unknown[] = [];
-      if (ownerUserId != null) { conditions.push(`owner_user_id = $${params.length + 1}`); params.push(ownerUserId); }
+      if (ownerUserId != null) {
+        params.push(ownerUserId);
+        // Vault-synced notes are instance-global (owner NULL). Authenticated
+        // readers must see those alongside their own private rows.
+        conditions.push(
+          `(owner_user_id = $${params.length} OR owner_user_id IS NULL)`,
+        );
+      }
       if (kind) { conditions.push(`kind = $${params.length + 1}`); params.push(kind); }
       params.push(limit);
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -450,7 +457,10 @@ export class AgentMemoryRepository {
 
     const conditions: string[] = [];
     const params: unknown[] = [];
-    if (ownerUserId != null) { conditions.push('owner_user_id = ?'); params.push(ownerUserId); }
+    if (ownerUserId != null) {
+      conditions.push('(owner_user_id = ? OR owner_user_id IS NULL)');
+      params.push(ownerUserId);
+    }
     if (kind) { conditions.push('kind = ?'); params.push(kind); }
     params.push(limit);
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

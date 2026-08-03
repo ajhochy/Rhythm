@@ -43,6 +43,14 @@ export default defineConfig({
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,
+  // Loaded CI runners intermittently stall app boot past a click deadline;
+  // the failing spec rotates run to run (#1287). Retries absorb the transient
+  // stall (and make trace-on-first-retry actually capture evidence) without
+  // masking deterministic failures.
+  retries: process.env.CI ? 2 : 0,
+  expect: {
+    timeout: 10_000,
+  },
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: webBaseUrl,

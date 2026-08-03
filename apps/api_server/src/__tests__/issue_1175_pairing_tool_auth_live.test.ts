@@ -228,6 +228,19 @@ describeLive('live E2E — issue #1175 pairing and mobile tool authorization', (
         },
       );
       expect(adminMemory.status).toBe(201);
+      const adminMemoryList = await fetch(
+        `${baseUrl}/mobile-gateway/tools/agent-memory`,
+        { headers: deviceHeaders(admin.deviceToken) },
+      );
+      expect(adminMemoryList.status).toBe(200);
+      expect(await adminMemoryList.json()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            content: 'Admin live global memory check',
+            ownerUserId: null,
+          }),
+        ]),
+      );
 
       proposalId = randomUUID();
       db.prepare(

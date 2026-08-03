@@ -9,12 +9,17 @@ export interface AgentChatRecord {
   archivedAt: number | null;
   updatedAt: number;
   children: AgentChatRecord[];
+  routingProjectId?: string;
   [key: string]: unknown;
 }
 
 export interface AgentChatFilter {
   projectId?: string | null;
   lifecycle?: AgentChatLifecycle | 'all';
+  activities?: Array<{
+    source: string;
+    sessionId: string | null;
+  }>;
 }
 
 const SECRET_KEY_PATTERN =
@@ -91,10 +96,19 @@ export function buildAgentChatReadModel(
   const normalized = sessions
     .map(normalizeSession)
     .filter((session): session is AgentChatRecord => Boolean(session));
-  const byId = new Map(normalized.map((session) => [session.id, session]));
+  const nonHumanActivitySessionIds = new Set(
+    (filter.activities ?? [])
+      .filter((activity) =>
+        activity.source !== 'human' && Boolean(activity.sessionId))
+      .map((activity) => activity.sessionId as string),
+  );
+  const visible = normalized.filter(
+    (session) => !nonHumanActivitySessionIds.has(session.id),
+  );
+  const byId = new Map(visible.map((session) => [session.id, session]));
   const roots: AgentChatRecord[] = [];
 
-  for (const session of normalized) {
+  for (const session of visible) {
     const parent = session.parentId ? byId.get(session.parentId) : undefined;
     if (parent) {
       parent.children.push(session);

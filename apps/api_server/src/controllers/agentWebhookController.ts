@@ -28,9 +28,15 @@ function endpointResponse(
   endpoint: Awaited<ReturnType<AgentWebhookEndpointsRepository['findByIdAsync']>> & {},
   includeSecret: boolean,
 ) {
+  const primaryApiOrigin = req.app.locals.primaryApiOrigin;
   const host = req.get('host');
-  const url = host
-    ? `${req.protocol}://${host}/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`
+  const origin = typeof primaryApiOrigin === 'string' && primaryApiOrigin
+    ? primaryApiOrigin
+    : host
+      ? `${req.protocol}://${host}`
+      : '';
+  const url = origin
+    ? `${origin}/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`
     : `/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`;
   return {
     ...endpoint,

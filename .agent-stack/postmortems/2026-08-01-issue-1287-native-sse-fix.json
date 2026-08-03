@@ -1,0 +1,87 @@
+{
+  "run_id": "2026-08-01-issue-1287-native-sse-fix",
+  "issue": 1287,
+  "date": "2026-08-01",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1287-c1",
+      "text": "The mobile client's SSE consumer streams on native platforms: gateway-shaped frames (including projectless desktop events whose directory is the pseudonymous project id) cross the client parse boundary, split chunks reassemble, non-streaming responses fail loudly instead of hanging.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Jest regression (5 tests) plus live Metro boundary diagnostics on the physical iPhone: message.updated / message.part.updated / deltas received with pseudonymized directory matching activeProjectPath, refresh scheduled, transcript committed."
+    },
+    {
+      "criterion_id": "issue-1287-c2",
+      "text": "While a desktop-originated projectless chat is open on the physical iPhone, desktop user and assistant turns appear automatically without refresh, and mobile turns appear live on desktop.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User confirmed both directions live without refresh, first on the instrumented bundle ('both worked!') and again on a cold start of the cleaned bundle ('messaging worked both ways'). Root cause of the prior C2 on issue-1285-c21: React Native's XHR-backed fetch cannot stream SSE, so zero envelopes (not even server.connected or heartbeats) ever reached the client loop, while the optimistic eventStreamStatus='connected' disabled the 5s polling fallback. The prior server-only live test passed because it exercised the gateway with a real streaming fetch, not the device runtime."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "device-hot-reload-churn",
+      "description": "Temporary diagnostics were added and removed via multi-step edits while the physical device was attached to Metro with Fast Refresh; intermediate states (missing import, then dangling diag() calls) hot-reloaded to the device, producing a red-box crash whose degraded state (lost paired scope, catalog-path 502 loop, one transcript-load failure) was briefly mistaken by the user for a significant regression.",
+      "detected_by": "Metro console: 'ReferenceError: Property diag doesn't exist' render error immediately after cleanup edits; 502 loop ceased after full reload; cold-start retest passed."
+    },
+    {
+      "process_category": "residual-product-defects",
+      "description": "Two pre-existing defects surfaced during smoke and were recorded on tracker #1287 instead of expanding scope: (1) cold-start first transcript open can exceed the 15s OPEN_PROJECT_SESSION_TIMEOUT_MS budget over Tailscale (retry loads); (2) catalog-scoped client calls hit bare gateway paths and 502 whenever paired scope is lost or polling runs degraded.",
+      "detected_by": "User report during final smoke plus Metro console; residuals commented on issue #1287."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "coding-agent (direct execution of the user's self-contained handoff prompt)",
+      "verification (mobile typecheck/lint/jest/fake-server/contract/e2e + GitNexus impact/detect_changes + CI watch)",
+      "project-state-updater (project-state.md + run log + contract issue-1287.json)",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "verification-gate"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "coding-agent",
+        "description": "TodoWrite checklist was not expanded at the start of the run; the user's handoff prompt supplied the step list and was followed directly.",
+        "detected_by": "Transcript tool-call review: no TodoWrite calls."
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "Orchestrator, acceptance-contract, and verification-gate skills were not formally invoked; the user's detailed handoff prompt embedded the dispatch, contract update, and verification requirements, and those requirements were executed inline (contract file updated, full check set run, CI watched before completion claim). Precedence given to the explicit user instructions per CLAUDE.md.",
+        "detected_by": "Transcript inspection: no Skill invocations for orchestrator/acceptance-contract/verification-gate; equivalent evidence captured inline."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/mobile/lib/opencode/global-event-stream.ts",
+    "apps/mobile/lib/opencode/client.ts",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/tests/global-event-stream.test.ts",
+    "apps/mobile/docs/architecture.md",
+    "docs/ai/contracts/issue-1287.json",
+    "docs/ai/runs/2026-08-01-issue-1287-native-sse-stream.md",
+    "docs/ai/project-state.md"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Acceptance contracts for mobile realtime behavior must include a device-runtime-inclusive assertion (or an explicit statement that the runtime transport differs from the test transport); a server-only raw-fetch SSE test structurally cannot catch React Native fetch's inability to stream, which is exactly how issue-1285-c21 passed while the device failed."
+}

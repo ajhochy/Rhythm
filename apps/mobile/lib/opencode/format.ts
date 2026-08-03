@@ -23,6 +23,7 @@ export type TranscriptEntry = {
   text: string;
   details: TranscriptDetail[];
   error?: string;
+  internal?: boolean;
 };
 
 function isCompletedToolPart(
@@ -300,5 +301,7 @@ export function toTranscriptEntry(record: SessionMessageRecord): TranscriptEntry
     text: textBlocks.join('\n\n').trim(),
     details,
     error: getMessageError(record),
+    internal:
+      record.info.role === 'assistant' && record.info.summary === true,
   };
 }

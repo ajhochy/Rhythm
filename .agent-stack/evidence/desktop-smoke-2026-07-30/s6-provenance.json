@@ -1,0 +1,27 @@
+{
+ "sessionId": "2ed02286-1870-438d-b2e4-a2722a34b223",
+ "provenance": {
+  "recorded": true,
+  "memoryIds": [],
+  "notePaths": [],
+  "items": []
+ },
+ "messages": [
+  {
+   "role": "input",
+   "strippedText": "reply \"ok\"\n"
+  },
+  {
+   "role": "output",
+   "strippedText": "ok"
+  },
+  {
+   "role": "input",
+   "strippedText": "what color should I paint a bird house\n"
+  },
+  {
+   "role": "output",
+   "strippedText": "Use a light, muted exterior paint: tan, light gray, or pale green. Avoid dark colors\u2014they can overheat the box. Paint only the outside, and leave the entrance and interior unpainted."
+  }
+ ]
+}

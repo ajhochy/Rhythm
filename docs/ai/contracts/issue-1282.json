@@ -1,0 +1,32 @@
+{
+  "issue": 1282,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1282-c1",
+      "text": "A mobile session created for a known profile sends the same mcpAllowlist and skillAllowlist to the OpenCode engine as the desktop create path for that profile, and profileId is not forwarded to the engine.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1282_mobile_session_scope_parity.test.ts",
+      "test_id": "issue-1282-c1: mobile and desktop send identical profile scope to the engine",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1282-c2",
+      "text": "The mobile client includes its selected Rhythm profile identifier in the same request that creates the engine session.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1282_mobile_session_scope_parity.test.ts",
+      "test_id": "issue-1282-c2: mobile sends the selected profile in the create request",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1282-c3",
+      "text": "A mobile caller cannot use an unknown profile identifier to fall through to an unrestricted engine session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1282_mobile_session_scope_parity.test.ts",
+      "test_id": "issue-1282-c3: an unknown mobile profile is rejected before engine create",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

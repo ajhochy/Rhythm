@@ -1,0 +1,81 @@
+{
+  "run_id": "2026-08-01-issue-1285-native-bootstrap-displacement",
+  "issue": 1285,
+  "date": "2026-08-01",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c7",
+      "text": "An exact-owner projectless desktop human chat discovered in mobile Chats can be opened and its transcript can be read without treating it as missing from the selected project.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The physical iPhone opened and rendered the desktop transcript, then returned to Opening chat."
+    },
+    {
+      "criterion_id": "issue-1285-c10",
+      "text": "Opening a chat becomes ready after its bounded message page loads; diff, todos, permissions, and questions refresh afterward and cannot hold the opening screen hostage.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The opener reached ready, but an older in-flight active-session bootstrap completed afterward and restored the remembered scoped project session."
+    },
+    {
+      "criterion_id": "issue-1285-c14",
+      "text": "Once the opener reaches ready for the requested chat, a transient render before provider selection state commits must not cancel or reopen it; the transcript remains stable without flashing back to Opening chat.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The c14 fix prevented the route's cancel/reopen race, but its component-level contract did not cover later provider selection displacement by background bootstrap."
+    },
+    {
+      "criterion_id": "issue-1285-c15",
+      "text": "After an exact-owner projectless chat reaches ready, a background scoped project session refresh or older in-flight active-session bootstrap must not evict it or restore a previously remembered project chat; the opened transcript remains current until explicit navigation.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Attached Metro tracing reproduced currentSessionId moving from the real owner-opened ses_045dc… to remembered scoped ses_045b… while openKind remained ready."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P1",
+      "description": "The prior corrective commit was pushed and handed to physical smoke without waiting for its GitHub Actions run to complete.",
+      "detected_by": "Transcript review shows git push followed directly by device relaunch; no gh run watch --exit-status occurred between them."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/opencode-provider-selectors.ts",
+    "apps/mobile/tests/session-refresh-pinning.test.ts",
+    "docs/ai/contracts/issue-1285.json"
+  ],
+  "failure_output": "fail. opening chat, chat showed, then went back to Opening chat. Live trace: ready/current ses_045dc… then ready/current ses_045b….",
+  "overall_category": "C1",
+  "suggested_follow_up": "Drive the real provider lifecycle through concurrent owner-open and active-session bootstrap completion, and assert there is no intermediate session-ID displacement before physical smoke."
+}

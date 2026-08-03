@@ -1,0 +1,51 @@
+{
+  "run_id": "2026-07-31-issue-1285-projectless-transcript-open",
+  "issue": 1285,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-projectless-transcript-open",
+      "text": "A projectless desktop human chat listed in mobile Chats can be opened and its active transcript can be read.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "User report: i can see the list of desktop chats, but cannot read them. when i click it it says this chat is no longr available in the selected project, it may have been archived or deleted. but the chat is active in desktop and im talking to it."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/repositories/mobile_opencode_ownership_repository.ts",
+    "apps/api_server/src/services/mobile_chat_catalog.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/mobile/components/chat/chat-list.tsx",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/services/session-service.ts"
+  ],
+  "failure_output": "this chat is no longr available in the selected project, it may have been archived or deleted.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Extend the #1285 contract through the real mobile open path so a listed projectless session must survive selected-project catalog reconciliation and return transcript content."
+}
