@@ -2,11 +2,9 @@
 
 ## Current focus
 
-Issue #1285/#1287 bidirectional live sync for exact-owner projectless desktop
-chats. Root cause found and fixed on-device: React Native's XHR-backed fetch
-cannot stream SSE, so no engine event ever reached the mobile client; the
-optimistic `eventStreamStatus = 'connected'` additionally disabled the polling
-fallback.
+Post-merge steady state: PR #1284 (mobile reliability/parity/profile rollup,
+#1277–#1287) and PR #1303 (Config Doctor remediation) are both MERGED to main
+(ba00cc27, bf235979) after user-confirmed physical-device smoke. Zero open PRs.
 
 ## Active branch / PR
 
@@ -20,9 +18,7 @@ fallback.
 
 ## In progress
 
-- None — device smoke PASSED after live round-2 iteration (user: "success.
-  it works now"). Awaiting final CI + human review/merge of PR #1284. See
-  docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md.
+- None.
 
 ## Risks / known issues
 
@@ -46,6 +42,7 @@ fallback.
 
 ## Next step
 
-Human review and manual merge of PR #1284 (tests/fake-opencode changes need
-explicit sign-off). Follow-ups on #1287: desktop profile-binding persistence,
-corrupted-row cleanup decision, cold-start first-open latency.
+Follow-ups tracked on issue #1287: desktop persisting profile bindings onto
+agent_sessions rows; decision on cleaning pre-fix corrupted profile rows;
+cold-start first-open latency budget; device-tier test gap for scope-flip
+cache lifecycles.
