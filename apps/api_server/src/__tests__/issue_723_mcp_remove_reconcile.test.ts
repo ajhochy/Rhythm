@@ -22,7 +22,21 @@
  *   cd apps/api_server && npx vitest run src/__tests__/issue_723_mcp_remove_reconcile.test.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
+// #config-doctor-bug2 — the fs mock below only intercepts the static `import
+// { ... } from 'fs'` graph. OpencodeClientService resolves its config paths
+// via `require('fs')` + `os.homedir()` called at runtime inside each method,
+// which is NOT routed through vi.mock('fs') here and escapes straight to the
+// real filesystem. That let this suite silently write a `foo` MCP entry into
+// the developer's real ~/.config/opencode/opencode.json and toggle their real
+// ~/.config/rhythm/mcp-deletions.json (verified live, 2026-08-03). Node's
+// os.homedir() reads $HOME on POSIX, so stubbing HOME to a scratch directory
+// sandboxes every homedir()-derived path regardless of the fs-mock gap.
+let sandboxHome: string;
 
 // Fake the fs boundary so removeMcp/addMcp never touch the real
 // ~/.config/opencode/opencode.json. We keep an in-memory "file" so addMcp's
@@ -92,6 +106,13 @@ function makeService(engineStatus: McpStatus): OpencodeClientService {
 
 describe('issue-723: MCP remove reconciles against stale engine status', () => {
   beforeEach(() => {
+    // Sandbox HOME so any homedir()-derived path this suite touches (via
+    // the service's runtime require('fs'), which the fs mock above does not
+    // catch) lands in a scratch directory, never the developer's real
+    // ~/.config/opencode/opencode.json or ~/.config/rhythm/mcp-deletions.json.
+    sandboxHome = mkdtempSync(join(tmpdir(), 'rhythm-issue723-home-'));
+    vi.stubEnv('HOME', sandboxHome);
+
     // Start each test with a persisted config that DOES contain `foo`, so
     // removeMcp performs a real (faked) config write removing it.
     fakeFsState.content = JSON.stringify({
@@ -101,6 +122,11 @@ describe('issue-723: MCP remove reconciles against stale engine status', () => {
       },
     });
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(sandboxHome, { recursive: true, force: true });
   });
 
   // c1 — after removeMcp('foo'), listMcp() must NOT include 'foo' even though

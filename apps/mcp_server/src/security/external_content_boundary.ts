@@ -93,6 +93,23 @@ interface BoundaryResult {
   refusalMessage?: string;
 }
 
+/**
+ * #1302 — sources that are first-party Rhythm-authored data (not content that
+ * arrived from outside the system) don't arm the outbound-write approval
+ * gate. They are still scanned and still fenced with the same "treat as
+ * data, not instructions" directive below — this only skips recording a new
+ * taint for THIS read. If the session is already tainted from a genuinely
+ * external read earlier in the same turn, that taint is untouched (we simply
+ * don't call recordExternalContentTaint here, we don't clear anything).
+ *
+ * Scope is deliberately narrow: only `agent-session.list` (Rhythm's own
+ * agent session transcripts). Do not add email/web/PCO/etc. sources here —
+ * those must keep arming the gate.
+ */
+const SOURCES_EXEMPT_FROM_APPROVAL_GATE = new Set<ExternalContentSource>([
+  "agent-session.list",
+]);
+
 function sanitizedDiagnostics(matches: InjectionMatch[]) {
   return matches.map(({ patternId, class: patternClass, description }) => ({
     patternId,
@@ -151,14 +168,16 @@ export async function scanContextContentAndRecordExternalContentTaint(args: {
     );
   }
   const scan = scanContextContent(args.rawContent, args.label);
-  await recordExternalContentTaint({
-    agentUrl: args.agentUrl,
-    context: args.context,
-    source: args.source,
-    rawContent: args.rawContent,
-    blocked: scan.blocked,
-    matches: scan.matches,
-  });
+  if (!SOURCES_EXEMPT_FROM_APPROVAL_GATE.has(args.source)) {
+    await recordExternalContentTaint({
+      agentUrl: args.agentUrl,
+      context: args.context,
+      source: args.source,
+      rawContent: args.rawContent,
+      blocked: scan.blocked,
+      matches: scan.matches,
+    });
+  }
   if (scan.blocked) {
     return { blocked: true, text: scan.warning as string };
   }
