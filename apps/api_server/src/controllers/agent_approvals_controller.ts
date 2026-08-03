@@ -15,6 +15,7 @@ import {
   isAutoApproveProfile,
   type AgentApprovalStatus,
 } from '../repositories/agent_approvals_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import {
   ExternalContentSecurityService,
   parseSecurityAction,
@@ -25,6 +26,7 @@ import { verifyHumanApprovalSignature } from '../security/human_approval_securit
 
 const repo = new AgentApprovalsRepository();
 const security = new ExternalContentSecurityService();
+const sessions = new AgentSessionsRepository();
 
 export class AgentApprovalsController {
   create(req: Request, res: Response, next: NextFunction): void {
@@ -64,9 +66,20 @@ export class AgentApprovalsController {
         return;
       }
 
-      const agentConfigId = typeof body.agentConfigId === 'string' ? body.agentConfigId : null;
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null;
+      // #895 follow-up (2026-08-03): a calling agent has no reliable way to
+      // know its own agent_configs.id, and a model self-reporting it would be
+      // a privilege-escalation risk anyway (it could claim a different,
+      // auto-approve profile). Resolve the profile server-side from the
+      // session's agent_kind — a logical FK to agent_configs.id — and only
+      // fall back to the model-supplied agentConfigId when no session is
+      // known (kept for callers with no session context yet).
+      const sessionRecord = sessionId ? sessions.findById(sessionId) : null;
+      const agentConfigId =
+        sessionRecord?.agentKind ??
+        (typeof body.agentConfigId === 'string' ? body.agentConfigId : null);
       const approval = repo.create({
-        sessionId: typeof body.sessionId === 'string' ? body.sessionId : null,
+        sessionId,
         agentConfigId,
         action,
         preview: typeof body.preview === 'string' ? body.preview : null,
