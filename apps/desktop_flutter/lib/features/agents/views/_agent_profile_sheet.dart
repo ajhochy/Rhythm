@@ -656,6 +656,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   // composer's agent picker.
   late bool _sessionSelectable;
 
+  // Config Doctor Track B — auto-approve this profile's protected actions
+  // (e.g. memory writes) instead of leaving them pending for a human.
+  late bool _autoApproveActions;
+
   // Model picker state — null means "no preference" (AgentRunner falls back
   // to most-recently-used or hardcoded default).
   List<CatalogModelEntry> _catalogModels = [];
@@ -716,6 +720,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         : null;
     _corePermissions = _parseCorePermissions(cfg?.corePermissionsJson);
     _sessionSelectable = cfg?.sessionSelectable ?? true;
+    _autoApproveActions = cfg?.autoApproveActions ?? false;
     _skillsDataSource = widget._skillsDataSource ?? OpencodeSkillsDataSource();
     _mcpDataSource = widget._mcpDataSource ?? OpencodeMcpDataSource();
     _selectedAnthropicAccountId = cfg?.defaultAnthropicAccountId;
@@ -919,6 +924,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'sessionSelectable': _sessionSelectable,
         'corePermissionsJson':
             _corePermissions.isEmpty ? null : jsonEncode(_corePermissions),
+        'autoApproveActions': _autoApproveActions,
       };
       final ok = await controller.update(widget.config!.id, patch);
       if (ok) {
@@ -948,6 +954,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'sessionSelectable': _sessionSelectable,
         'corePermissionsJson':
             _corePermissions.isEmpty ? null : jsonEncode(_corePermissions),
+        'autoApproveActions': _autoApproveActions,
       };
       result = await controller.create(input);
     }
@@ -1007,6 +1014,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                 ],
                 const SizedBox(height: 16),
                 _buildSessionSelectableToggle(),
+                const SizedBox(height: 16),
+                _buildAutoApproveToggle(),
                 const SizedBox(height: 24),
                 _buildCapabilitiesSection(),
                 const SizedBox(height: 24),
@@ -1221,6 +1230,43 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           ),
           subtitle: Text(
             'Runnable as a standalone chat from the session composer.',
+            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+          ),
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+      ),
+    );
+  }
+
+  /// Config Doctor Track B — deliberate per-profile bypass of the human
+  /// approval gate for this profile's protected actions (e.g. memory
+  /// writes). Off by default; the security gate itself is unchanged for
+  /// every other profile.
+  Widget _buildAutoApproveToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: CheckboxListTile(
+          key: const ValueKey('auto-approve-actions-toggle'),
+          value: _autoApproveActions,
+          onChanged: (v) => setState(() => _autoApproveActions = v ?? false),
+          activeColor: context.rhythm.accent,
+          title: Text(
+            'Auto-approve protected actions',
+            style: TextStyle(
+              color: context.rhythm.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            'Skips human approval for this profile\'s gated actions (e.g. '
+            'memory writes). Approvals still record actor "auto-approved" '
+            'in the audit trail. Use only for unattended/scheduled profiles.',
             style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
           ),
           controlAffinity: ListTileControlAffinity.leading,

@@ -324,6 +324,8 @@ export class AgentConfigsController {
           typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null,
         // #1118 — per-profile reasoning effort. Null = provider default.
         reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null,
+        // Config Doctor Track B — auto-approve this profile's protected actions. Default false.
+        autoApproveActions: Boolean(body.autoApproveActions),
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -402,6 +404,7 @@ export class AgentConfigsController {
       if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
       // #1118 — `reasoningEffort: null` explicitly clears back to provider default.
       if (body.reasoningEffort !== undefined) patch.reasoningEffort = typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null;
+      if (body.autoApproveActions !== undefined) patch.autoApproveActions = Boolean(body.autoApproveActions);
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 

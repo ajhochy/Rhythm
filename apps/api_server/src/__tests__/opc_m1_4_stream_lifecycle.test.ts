@@ -7,7 +7,9 @@
  *   c2 — stopStream does not affect a second live session
  *   c3 — error status persisted in DB; survives bridge restart + timer advance (no setTimeout)
  *   c4 — new prompt to errored session transitions status away from error
- *   c5 — source inspection: no setTimeout in bridge error path, no pty_runner import
+ *   c5 — source inspection: no setTimeout in bridge error path (only the C2
+ *        glob-watchdog setTimeout, unrelated to error handling), no
+ *        pty_runner import
  *   c6 — __pending__ never escapes the WS/REST boundary
  */
 
@@ -400,14 +402,18 @@ describe('issue-688-c5: source inspection — no setTimeout in bridge errored-se
     );
     const source = fs.readFileSync(bridgePath, 'utf-8');
 
-    // The entire file should have zero setTimeout calls.
-    // (The bridge may use setTimeout elsewhere only if clearly not in error path,
-    // but the issue requires removal of the erroredSessions sentinel timeout.)
+    // The #688 erroredSessions sentinel-timeout stays gone. Config-doctor C2
+    // (2026-08-03) later added ONE deliberate, unrelated setTimeout: a bounded
+    // per-call watchdog on `glob` (armGlobWatchdog), armed only after
+    // auto-accepting a glob permission and cleared by any subsequent event —
+    // nothing to do with the error path this test guards. Assert that
+    // specific, intentional call exists and nothing else crept in.
     const setTimeoutMatches = source.match(/setTimeout\s*\(/g) ?? [];
     expect(
       setTimeoutMatches,
-      'Expected zero setTimeout calls in opencode_stream_bridge.ts',
-    ).toHaveLength(0);
+      'Expected exactly the C2 glob-watchdog setTimeout in opencode_stream_bridge.ts',
+    ).toHaveLength(1);
+    expect(source).toContain('armGlobWatchdog');
   });
 
   it('no non-test file in src/ imports pty_runner', () => {

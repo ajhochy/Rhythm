@@ -191,4 +191,48 @@ describe('#895 — /agent-approvals', () => {
     expect(body.status).toBe('approved');
     expect(body.actor).toBe('auto-approved');
   });
+
+  // Config Doctor Track B — auto_approve_actions must be settable end-to-end
+  // through the REST API (no raw SQL), and must still record the
+  // 'auto-approved' actor for audit visibility once flipped this way.
+  it('exposes autoApproveActions on GET/PATCH /agent-configs and auto-approves once set', async () => {
+    getDb()
+      .prepare(
+        `INSERT INTO agent_configs (id, label, icon, command, is_agent, enabled) VALUES (?, ?, ?, ?, 1, 1)`,
+      )
+      .run('librarian-like', 'Librarian Like', 'terminal', '');
+
+    const getBefore = await fetch(`${baseUrl}/agent-configs/librarian-like`, {
+      headers: authHeader,
+    });
+    expect(getBefore.status).toBe(200);
+    expect(((await getBefore.json()) as Record<string, unknown>).autoApproveActions).toBe(false);
+
+    const patchRes = await fetch(`${baseUrl}/agent-configs/librarian-like`, {
+      method: 'PATCH',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoApproveActions: true }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = (await patchRes.json()) as Record<string, unknown>;
+    expect(patched.autoApproveActions).toBe(true);
+
+    const getAfter = await fetch(`${baseUrl}/agent-configs/librarian-like`, {
+      headers: authHeader,
+    });
+    expect(((await getAfter.json()) as Record<string, unknown>).autoApproveActions).toBe(true);
+
+    const approvalRes = await fetch(`${baseUrl}/agent-approvals`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'rhythm_remember_memory',
+        agentConfigId: 'librarian-like',
+      }),
+    });
+    expect(approvalRes.status).toBe(201);
+    const approvalBody = (await approvalRes.json()) as Record<string, unknown>;
+    expect(approvalBody.status).toBe('approved');
+    expect(approvalBody.actor).toBe('auto-approved');
+  });
 });

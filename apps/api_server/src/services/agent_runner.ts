@@ -232,6 +232,38 @@ function _titleFromPrompt(prompt: string): string | null {
     : `${normalized.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…`;
 }
 
+/** Extract concatenated assistant text from a message's parts. */
+function _extractText(parts: ReadonlyArray<{ type: string }> | undefined): string {
+  return (parts ?? [])
+    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n')
+    .trim();
+}
+
+/**
+ * C1 (2026-08-03 config-doctor track C, daily-dev-summary abort): a run that
+ * times out mid-retry must not erase a good result a sub-agent already
+ * produced earlier in the same session. Before falling back to a bare
+ * "timed out" preview, scan the session's messages for the last assistant
+ * text — that's the most recent real output the model produced, even if a
+ * subsequent tool call (e.g. a hung glob) is what actually blew the
+ * inactivity window. Returns '' if nothing usable was found (best-effort;
+ * never throws).
+ */
+async function _recoverPartialResultOnTimeout(
+  sessionId: string,
+  cwd: string | undefined,
+): Promise<string> {
+  try {
+    const msgs = await opencodeClient.listMessages(sessionId, cwd);
+    const lastAssistant = [...msgs].reverse().find((m) => m.info.role === 'assistant');
+    return _extractText(lastAssistant?.parts as ReadonlyArray<{ type: string }> | undefined);
+  } catch {
+    return '';
+  }
+}
+
 function _isSessionNamePlaceholder(name: string): boolean {
   const trimmed = name.trim();
   return (
@@ -1163,15 +1195,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       };
     }
 
-    // Extract assistant text from the returned parts.
-    const _extractText = (parts: ReadonlyArray<{ type: string }> | undefined) =>
-      (parts ?? [])
-        .filter(
-          (p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text',
-        )
-        .map((p) => p.text)
-        .join('\n')
-        .trim();
+    // Extract assistant text from the returned parts (module-level _extractText).
 
     let resultText = _extractText(response.parts);
 
@@ -1297,14 +1321,33 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     };
   } catch (err) {
     if (err instanceof AgentRunTimeoutError) {
+      // C1: recover any already-produced output BEFORE aborting the engine
+      // session — abortSession can drop/truncate in-flight state, so read
+      // first. A retry that hangs (e.g. on a stuck glob call) must not wipe
+      // out a good result the model already produced earlier in this run.
+      const partial = opencodeSessionId
+        ? await _recoverPartialResultOnTimeout(opencodeSessionId, effectiveCwd)
+        : '';
       if (opencodeSessionId) {
         await opencodeClient.abortSession(opencodeSessionId, effectiveCwd).catch(() => {});
       }
       logger.warn(`[AgentRunner] ${err.message}`);
-      _markSessionError(rhythmSessionId, err.message);
+      // Persist the recovered partial as the preview so an aborted retry
+      // still surfaces the real (if incomplete) output instead of just the
+      // generic timeout string. The returned `error` still carries the raw
+      // timeout message so callers can distinguish "done with a recovered
+      // partial" from a clean success.
+      _markSessionError(rhythmSessionId, partial || err.message);
+      if (rhythmSessionId && partial) {
+        try {
+          new AgentSessionMessagesRepository().append(rhythmSessionId, 'output', partial, partial);
+        } catch (persistErr) {
+          logger.warn(`[AgentRunner] persist recovered partial failed (non-fatal): ${String(persistErr)}`);
+        }
+      }
       return {
         sessionId: rhythmSessionId ?? opencodeSessionId ?? '',
-        result: '',
+        result: partial,
         status: 'error',
         error: `AgentRunner: ${err.message}`,
       };

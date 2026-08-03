@@ -39,6 +39,12 @@ const QUESTION_RECOVERY_POLL_MS = 1500;
  */
 const HEARTBEAT_WATCHDOG_MS = 30_000;
 
+/** Parse a positive-integer env override, falling back when absent/invalid. */
+function _positiveTimeoutMs(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /**
  * OCU-29 (#1070) — fallback flag. Default is the consolidated single
  * `/global/event` stream. Set RHYTHM_SSE_GLOBAL=0 (or 'false') to revert to the
@@ -235,6 +241,19 @@ export class OpencodeStreamBridge {
   // resets on a timer.
   private stoppedSessions = new Set<string>();
 
+  // C2 (2026-08-03 config-doctor track C, daily-dev-summary abort): `glob`
+  // has no timeout of its own in the engine, so a hung call (pathological
+  // search root, symlink loop, network volume) silently consumes the ENTIRE
+  // 600s run inactivity window before the run gets aborted — the postmortem
+  // symptom looks like a generic stall with no clue it was glob. Track one
+  // pending watchdog per local session; armed when we auto-accept a `glob`
+  // permission, cleared by ANY subsequent event for that session (any event
+  // is observable progress — the tool finished or a new one started). If
+  // nothing happens before the bound fires, force-abort just that session
+  // with a diagnostic naming the tool, instead of waiting out the full
+  // inactivity window.
+  private globWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+
   // In-memory accumulator for message.part.delta events, keyed by
   // `${sdkMessageId}:${partId}`. Deltas are written-through to the DB via
   // applyPartDelta immediately (so a bridge restart loses at most in-flight
@@ -286,6 +305,60 @@ export class OpencodeStreamBridge {
       summary: entry.summary,
     });
     return true;
+  }
+
+  /** Per-call `glob` timeout (ms). Deliberately much shorter than the 600s
+   * default inactivity window — this exists specifically to fail fast on a
+   * single hung tool call, not to replace the run-level deadline. Read per
+   * call (not baked in at module load) so tests can override via env. */
+  private globToolTimeoutMs(): number {
+    return _positiveTimeoutMs(process.env.AGENT_GLOB_TOOL_TIMEOUT_MS, 20_000);
+  }
+
+  /** Any event for this session is progress — cancel a pending glob watchdog. */
+  private clearGlobWatchdog(localSessionId: string): void {
+    const timer = this.globWatchdogs.get(localSessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.globWatchdogs.delete(localSessionId);
+    }
+  }
+
+  /**
+   * Arm a bounded watchdog right after auto-accepting a `glob` permission.
+   * If no further event for this session arrives before the timeout, force
+   * an abort of just this session with a diagnostic naming `glob` — instead
+   * of the caller silently burning the full run inactivity window.
+   */
+  private armGlobWatchdog(
+    localSessionId: string,
+    sdkSessionId: string,
+    directory: string | undefined,
+  ): void {
+    this.clearGlobWatchdog(localSessionId);
+    const timeoutMs = this.globToolTimeoutMs();
+    const timer = setTimeout(() => {
+      this.globWatchdogs.delete(localSessionId);
+      const message = `glob call exceeded ${timeoutMs}ms with no observed progress — aborted to avoid consuming the full run inactivity window`;
+      logger.warn(`[OpencodeStreamBridge] ${message} (session=${localSessionId})`);
+      void opencodeClient.abortSession(sdkSessionId, directory).catch((err) => {
+        logger.warn(`[OpencodeStreamBridge] glob watchdog abortSession failed (non-fatal): ${String(err)}`);
+      });
+      try {
+        this.sessionsRepo.updateStatus(localSessionId, 'error');
+        this.sessionsRepo.updatePreview(localSessionId, message.slice(0, 500), new Date().toISOString());
+      } catch (err) {
+        logger.warn(`[OpencodeStreamBridge] glob watchdog status update failed (non-fatal): ${String(err)}`);
+      }
+      broadcast({
+        v: 1,
+        type: 'error',
+        id: localSessionId,
+        sessionId: localSessionId,
+        message,
+      });
+    }, timeoutMs);
+    this.globWatchdogs.set(localSessionId, timer);
   }
 
   /**
@@ -888,6 +961,12 @@ export class OpencodeStreamBridge {
           );
         }
       }
+    }
+
+    // C2: any event for this session is observable progress — cancel a
+    // pending glob watchdog (see armGlobWatchdog) before it can fire.
+    if (localSessionId) {
+      this.clearGlobWatchdog(localSessionId);
     }
 
     // OPC-M1-4: If the local session has been explicitly stopped (via
@@ -1825,6 +1904,13 @@ export class OpencodeStreamBridge {
             permissionId,
             decision,
           });
+          // C2: glob has no timeout of its own — arm a short watchdog now
+          // that the tool is about to actually run, so a hang fails fast
+          // (see armGlobWatchdog) instead of riding out the full run
+          // inactivity window.
+          if (shouldAutoAccept && toolName.toLowerCase() === 'glob') {
+            this.armGlobWatchdog(localSessionId, sdkSessionId, dir);
+          }
           break;
         }
 
