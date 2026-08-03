@@ -2,89 +2,50 @@
 
 ## Current focus
 
-2026-07-30/31: live human smoke (desktop + physical iPhone) of the combined
-R1–R6/P0/MSP-001–007 runtime-and-mobile-parity effort, plus the T1
-mobile↔desktop data-parity gate. Smoke surfaced 8 real bugs through actual
-device use; 15 verified PRs merged to `main` overnight. Dev environment
-(desktop app + its local api_server) is currently down after a machine crash
-mid-session — Metro (mobile code server) survived.
+Issue #1285/#1287 bidirectional live sync for exact-owner projectless desktop
+chats. Root cause found and fixed on-device: React Native's XHR-backed fetch
+cannot stream SSE, so no engine event ever reached the mobile client; the
+optimistic `eventStreamStatus = 'connected'` additionally disabled the polling
+fallback.
 
-## Merged to main tonight
+## Active branch / PR
 
-#1272 (cloud-bearer auth — the fix that unblocked all desktop smoke),
-#1254 (tokenless desktop session owner inheritance), #1255 (R2 idle-status
-fix), #1256 (R6 plugin/telemetry dedupe), #1257 (R4 progress-aware deadline),
-#1258 (R1 delegated-session isolation), #1260 (R3 scheduled-failure
-classification), #1261 (P0 memory-relevance gate), #1262 (MSP-006
-project-scoped Tools), #1263 (MSP-001 session/profile contract), #1264
-(MSP-004 atomic session opening), #1265 (MSP-003 shared pending
-permission/question state), #1267 (R5 agent-picker DTO + pagination), #1275
-(Phase 0 local-agent-surface hardening), #1276 (T1 parity gate +
-research-tab owner-visibility fix, issue #1274).
+- Branch: `codex/mobile-fixes-rollup`
+- Base: `main`
+- PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
+- Latest work: native SSE consumer over `expo/fetch`
+  (`apps/mobile/lib/opencode/global-event-stream.ts`) + data-driven
+  connected-status in `opencode-provider.tsx`.
+- Merge remains a manual human action after review.
 
-## Left open on purpose
+## In progress
 
-- **#1259** (MSP-005 native composer) — CI green, but a live physical-iPhone
-  test found the box still doesn't grow (issue #1280). Do not merge on CI
-  alone; needs a real re-test after #1280 is fixed.
-- **#1266** (MSP-002 three-dot config) — red `foundation` CI check, not yet
-  diagnosed.
-- **#1268** — the combined R1–R6+P0 smoke-vehicle branch. Never a merge
-  target itself; the individual lane PRs above are what merged. Safe to
-  leave open or close.
+- None — device smoke PASSED after live round-2 iteration (user: "success.
+  it works now"). Awaiting final CI + human review/merge of PR #1284. See
+  docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md.
 
-## Bugs found live tonight (all filed, prompts prepared per below)
+## Risks / known issues
 
-- **#1274** — Research tab empty on mobile (owner exact-match). **Fixed**,
-  merged in #1276.
-- **#1277** — residual T1 parity drifts: webhook self-URL host mismatch, MCP
-  served from two different sources, provider/auth redaction pairing gap.
-  Prompt ready, not yet dispatched.
-- **#1278** — server's own boot sequence triggers a self-inflicted
-  credential-reload engine bounce, producing misleading ERROR-level log
-  noise. Cosmetic. Prompt ready, not dispatched.
-- **#1279** — mobile could only ever see phone-created chats; desktop
-  sessions were never claimed. **Root fix merged** (owner+project fallback
-  in `mobile_opencode_security.ts` / `mobile_opencode_ownership_repository.ts`,
-  verified against the #1175 two-account isolation test). **Follow-up gap
-  found and prompted, not yet built**: every real historical session, and
-  even brand-new sessions started from "All Sessions" today, have a NULL
-  `project_id` — confirmed live, not stale data. The merged fix's fallback
-  requires project match, so it doesn't help these. Decision recorded:
-  [decisions/2026-07-30-mobile-session-visibility-null-project-fallback.md](decisions/2026-07-30-mobile-session-visibility-null-project-fallback.md).
-- **#1280** — MSP-005 composer regression, confirmed on a real iPhone, not
-  caught by Jest. Prompt ready (combined with #1281), not dispatched.
-- **#1281** — Mobile Memories tool empty despite admin role and no
-  server-side error; root cause not yet confirmed. Prompt ready, not
-  dispatched.
-- **#1282** — mobile session creation bypasses skill/MCP scoping entirely
-  (10x token cost vs desktop for the same profile) — root cause confirmed
-  (`mobile_opencode_proxy.ts`'s `session.create` never calls
-  `OpencodeClientService.createSession`). Prompt ready, not dispatched.
-- **#1283** — desktop-started sessions don't stream live to mobile; manual
-  refresh works fine, so it's the push path, not visibility. Prompt ready,
-  not dispatched.
+- Catalog-scoped client calls (`/session`, `/permission`, `/question` without
+  the gateway prefix) 502 against the paired gateway origin whenever polling
+  runs in a degraded state — pre-existing path mismatch newly visible now that
+  polling correctly runs while the stream is unproven. Note on #1287.
+- Exact-owner projectless server-side filter from `cdd0bb465` remains in place
+  and required; unchanged by this fix.
+- User-owned `.proof/` image modifications remain excluded from commits.
 
 ## Test status
 
-Every merged PR passed its own contract suite plus a live human smoke pass
-(desktop: 6/6, evidence in `.agent-stack/evidence/desktop-smoke-2026-07-30/`;
-mobile: 3 pass / 1 fail / 2 bugs found and one fixed live). The T1 parity
-gate sits at 11/14 feeds matching (`.agent-stack/evidence/t1-parity-gate/`).
-
-## Risks
-
-- Dev api_server + desktop app are down (crash). Relaunch with
-  `RHYTHM_OPENCODE_BIN_DIR` pointed at a built fork before resuming any
-  desktop-facing smoke — see
-  [runs/2026-07-30-live-smoke-and-merge-night.md](runs/2026-07-30-live-smoke-and-merge-night.md)
-  for the exact command.
-- #1266 and #1259 must not be merged on green CI alone; both have known,
-  live-confirmed gaps CI didn't catch.
+- Mobile: typecheck PASS, lint 0 errors, jest 24/24 PASS (incl. new
+  `global-event-stream` regression), fake-server self-test PASS, contract
+  PASS, Playwright web E2E 71/71 PASS.
+- GitNexus unstaged detect_changes: LOW (3 files / 7 symbols / 0 processes).
+- Physical iPhone: desktop→mobile and mobile→desktop both live without
+  refresh, full boundary diagnostics captured (see run log
+  2026-08-01-issue-1287-native-sse-stream.md).
 
 ## Next step
 
-Dispatch the five prepared Codex prompts (#1277, #1278, #1279 follow-up,
-#1280+#1281, #1282, #1283) — each is self-contained in the run log below.
-Once #1280 lands, redo the physical-iPhone composer walk before touching
-#1259. Diagnose #1266's red check before merging it.
+Human review and manual merge of PR #1284 (tests/fake-opencode changes need
+explicit sign-off). Follow-ups on #1287: desktop profile-binding persistence,
+corrupted-row cleanup decision, cold-start first-open latency.

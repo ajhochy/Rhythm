@@ -1,0 +1,66 @@
+{
+  "run_id": "2026-07-31-issue-1285-native-ready-loop",
+  "issue": 1285,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c7",
+      "text": "An exact-owner projectless desktop human chat discovered in mobile Chats can be opened and its transcript can be read without treating it as missing from the selected project.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The physical iPhone briefly rendered the desktop transcript but continually flashed back to Opening chat, so it was not stably readable."
+    },
+    {
+      "criterion_id": "issue-1285-c10",
+      "text": "Opening a chat becomes ready after its bounded message page loads; diff, todos, permissions, and questions refresh afterward and cannot hold the opening screen hostage.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The bounded transcript completed, but the route effect cancelled the ready opener during the transient React commit frame and restarted it."
+    },
+    {
+      "criterion_id": "issue-1285-c14",
+      "text": "Once the opener reaches ready for the requested chat, a transient render before provider selection state commits must not cancel or reopen it; the transcript remains stable without flashing back to Opening chat.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "User report: desktop chat shows the transcript but goes back and forth between Opening chat and showing chat, constantly flashing between. Live desktop logs simultaneously showed repeated aborted upstream fetches."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/app/agents/chats/[sessionId].tsx",
+    "apps/mobile/tests/chat/agent-chat-detail.test.tsx",
+    "docs/ai/contracts/issue-1285.json"
+  ],
+  "failure_output": "desktop chat shows the transcript but goes back and forth between Opening chat and showing chat. constantly flashing between. Desktop runtime: repeated [MobileOpenCodeProxy] upstream fetch failed (AbortError/UNKNOWN).",
+  "overall_category": "C1",
+  "suggested_follow_up": "Exercise the route against the controller-ready/provider-commit interleaving and prohibit cancellation or reopen when the ready state already matches the requested chat."
+}

@@ -37,11 +37,16 @@ import type { OpenCodeInspection } from '@/providers/services/opencode-inspectio
 import type { ProjectMetadataUpdate } from '@/providers/services/project-service';
 import type { WorkspaceTextMatch } from '@/providers/services/workspace-service';
 import type {
+  OpenProjectSessionResult,
+  OpenProjectSessionState,
+} from '@/providers/open-project-session';
+import type {
   AgentOption as ProviderAgentOption,
   ChatPreferences as ProviderChatPreferences,
   ModelOption as ProviderModelOption,
   ReasoningLevel as ProviderReasoningLevel,
   ResponseScope as ProviderResponseScope,
+  SessionExecutionState,
 } from '@/providers/opencode-provider-utils';
 
 export type AgentOption = ProviderAgentOption;
@@ -49,7 +54,21 @@ export type ChatPreferences = ProviderChatPreferences;
 export type ModelOption = ProviderModelOption;
 export type ReasoningLevel = ProviderReasoningLevel;
 export type ResponseScope = ProviderResponseScope;
+export type {
+  OpenCodeAgentId,
+  RhythmProfileId,
+  SessionExecutionState,
+} from '@/providers/opencode-provider-utils';
 export type { ProviderAuthMethod } from '@/lib/opencode/types';
+
+export type MobileSession = Session & {
+  rhythm?: SessionExecutionState;
+};
+
+export type CreateSessionOptions = {
+  projectId?: string;
+  preferences?: ChatPreferences;
+};
 
 export type ProviderOption = {
   id: string;
@@ -115,12 +134,13 @@ export type OpencodeContextValue = {
   isRefreshingWorkspaceCatalog: boolean;
   refreshWorkspaceCatalog: (silent?: boolean) => Promise<void>;
   refreshWorkspaceStatus: () => Promise<void>;
-  sessions: Session[];
+  sessions: MobileSession[];
   archivedSessions: GlobalSession[];
   sessionStatuses: Record<string, SessionStatus>;
   currentSessionId?: string;
-  activeSession?: Session;
+  activeSession?: MobileSession;
   currentMessages: SessionMessageRecord[];
+  hasOlderMessages: boolean;
   currentTranscript: TranscriptEntry[];
   currentUsage: SessionUsage;
   latestAssistantTurnUsage?: SessionUsage;
@@ -139,8 +159,13 @@ export type OpencodeContextValue = {
   configuredProviders: ProviderOption[];
   availableModels: ModelOption[];
   availableAgents: AgentOption[];
+  loadSessionProfiles: (projectId: string) => Promise<AgentOption[]>;
   chatPreferences: ChatPreferences;
   updateChatPreferences: (patch: Partial<ChatPreferences>) => void;
+  updateSessionPreferences: (
+    sessionId: string,
+    patch: Partial<ChatPreferences>,
+  ) => Promise<ChatPreferences>;
   conversation: ConversationState;
   clearConversationFeedback: () => void;
   toggleConversationMode: () => Promise<void>;
@@ -159,20 +184,30 @@ export type OpencodeContextValue = {
   clearPromptError: () => void;
   connect: () => Promise<void>;
   refreshSessions: (silent?: boolean) => Promise<void>;
+  openProjectSessionState: OpenProjectSessionState;
+  openProjectSession: (
+    projectId: string,
+    sessionId: string,
+  ) => Promise<OpenProjectSessionResult>;
+  cancelOpenProjectSession: () => void;
   openSession: (sessionId: string) => Promise<void>;
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
+  loadOlderMessages: (sessionId: string) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
   ensureActiveSession: () => Promise<string | undefined>;
-  createSession: (title?: string) => Promise<Session>;
+  createSession: (
+    title?: string,
+    options?: CreateSessionOptions,
+  ) => Promise<MobileSession>;
   deleteSession: (sessionId: string) => Promise<void>;
   archiveSession: (sessionId: string) => Promise<void>;
   restoreSession: (sessionId: string) => Promise<void>;
   refreshArchivedSessions: () => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
-  forkSession: (sessionId: string, messageId?: string) => Promise<Session>;
+  forkSession: (sessionId: string, messageId?: string) => Promise<MobileSession>;
   revertSession: (sessionId: string, messageId: string) => Promise<void>;
   unrevertSession: (sessionId: string) => Promise<void>;
-  getSessionChildren: (sessionId: string) => Promise<Session[]>;
+  getSessionChildren: (sessionId: string) => Promise<MobileSession[]>;
   deleteSessionMessage: (sessionId: string, messageId: string) => Promise<void>;
   updateSessionTextPart: (sessionId: string, messageId: string, partId: string, text: string) => Promise<void>;
   deleteSessionPart: (sessionId: string, messageId: string, partId: string) => Promise<void>;

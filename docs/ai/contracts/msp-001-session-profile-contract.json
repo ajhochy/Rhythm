@@ -1,0 +1,89 @@
+{
+  "issue": 1,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1-c1",
+      "text": "Keep Rhythm profile ID and OpenCode agent ID as DISTINCT typed fields end to end (API models, DTOs, mobile provider types).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/msp_001_session_profile_contract.test.ts",
+      "test_id": "issue-1-c1: profile and OpenCode agent identifiers remain distinct",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c2",
+      "text": "Make session profile/model/reasoning/approval state authoritative PER SESSION.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_001_session_profile_contract.test.ts",
+      "test_id": "issue-1-c2: repository persists and hydrates authoritative session execution state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c3",
+      "text": "Reconcile engine session.agent/session.model with the API record; populate profile/agent/provider/model when reconciling mobile-created sessions.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_001_session_profile_contract.test.ts",
+      "test_id": "issue-1-c3: mobile-created session reconciliation persists engine and Rhythm identities",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c4",
+      "text": "Never silently apply the last global mobile selection to an existing session — hydration comes from the session record.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/msp-001-session-profile-contract.test.mjs",
+      "test_id": "issue-1-c4: existing session hydration overrides global chat preferences",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c5",
+      "text": "Add a paired, owner/project-scoped SAFE PROFILE CATALOG endpoint: only enabled, unlocked, session-selectable records; safe display/default fields only.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_001_profile_catalog_contract.test.ts",
+      "test_id": "issue-1-c5: paired profile catalog is owner/project scoped and picker safe",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c6",
+      "text": "NEVER expose prompts, skill contents, environment values, or credentials — add a security test asserting the response shape excludes those keys.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_001_profile_catalog_contract.test.ts",
+      "test_id": "issue-1-c6: profile catalog response excludes secret and executable configuration fields",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c7",
+      "text": "Unknown legacy mappings display as Unassigned/Unavailable — never falsely Secretary.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/msp-001-session-profile-contract.test.mjs",
+      "test_id": "issue-1-c7: unknown legacy profile mapping is unavailable rather than Secretary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c8",
+      "text": "Migration coverage proves the profile reference is additive, nullable, idempotent, and present in the Postgres bootstrap path.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_001_session_profile_contract.test.ts",
+      "test_id": "issue-1-c8: additive nullable profile migration is idempotent with Postgres parity",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1-c9",
+      "text": "Add an env-gated live sandbox test (RHYTHM_LIVE_E2E=1) — WRITE it + document the command, do NOT run it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/msp_001_session_profile_live.test.ts",
+      "test_id": "issue-1-c9: live paired gateway preserves per-session profile state",
+      "status": "pending",
+      "reason": "Written as required but intentionally not executed in this workstream; the action-safety contract forbids starting or using the sandbox."
+    },
+    {
+      "criterion_id": "issue-1-c10",
+      "text": "Gateway catalog access fails closed when device authentication or project authorization is missing.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/msp_001_profile_catalog_contract.test.ts",
+      "test_id": "issue-1-c10: profile catalog fails closed before returning data",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

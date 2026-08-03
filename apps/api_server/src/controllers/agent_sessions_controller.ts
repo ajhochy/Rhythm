@@ -17,7 +17,12 @@ import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode, SessionScope } from '../models/agent_session';
-import { PERMISSION_MODES, SESSION_SCOPES } from '../models/agent_session';
+import {
+  asOpenCodeAgentId,
+  asRhythmProfileId,
+  PERMISSION_MODES,
+  SESSION_SCOPES,
+} from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { isReservedAgentConfigId } from '../services/opencode_agent_writer';
@@ -593,10 +598,20 @@ export class AgentSessionsController {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
 
-      // Accept agentId (preferred) with agentKind as a deprecated fallback.
-      let agentId = body.agentId;
+      // profileId is the Rhythm profile key. agentId/agentKind remain
+      // compatibility aliases for older desktop clients.
+      if (
+        body.profileId !== undefined &&
+        body.agentId !== undefined &&
+        body.profileId !== body.agentId
+      ) {
+        throw AppError.badRequest(
+          'profileId and legacy agentId must match when both are provided',
+        );
+      }
+      let agentId = body.profileId ?? body.agentId;
       if (!agentId && body.agentKind) {
-        console.warn('[deprecated] agentKind is deprecated in POST /agent-sessions — use agentId instead');
+        console.warn('[deprecated] agentKind is deprecated in POST /agent-sessions — use profileId instead');
         agentId = body.agentKind;
       }
 
@@ -850,6 +865,12 @@ export class AgentSessionsController {
         // #858: this is the ENGINE-resolvable name (agentConfig.ocAgent, falling
         // back to the config id) — never the raw agent_configs UUID.
         agentKind: resolvedEngineAgentKind as AgentKind,
+        profileId: normalizedAgentId
+          ? asRhythmProfileId(normalizedAgentId)
+          : null,
+        opencodeAgentId: resolvedEngineAgentKind
+          ? asOpenCodeAgentId(resolvedEngineAgentKind)
+          : null,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         // OCU-17 (#1058) — when isolating, cwd is the worktree dir so agent
@@ -996,6 +1017,8 @@ export class AgentSessionsController {
 
       const fields: {
         name?: string;
+        profileId?: ReturnType<typeof asRhythmProfileId> | null;
+        opencodeAgentId?: ReturnType<typeof asOpenCodeAgentId> | null;
         providerId?: string | null;
         modelId?: string | null;
         agentMode?: string | null;
@@ -1057,6 +1080,33 @@ export class AgentSessionsController {
         fields.fastMode = body.fastMode;
       }
 
+      // The authoritative profile selector is the Rhythm profile id. Resolve
+      // the corresponding OpenCode agent name server-side so the two identity
+      // domains can never be accidentally interchanged by a client.
+      if (body.profileId !== undefined) {
+        if (body.profileId !== null && typeof body.profileId !== 'string') {
+          throw AppError.badRequest('profileId must be a string or null');
+        }
+        if (body.profileId === null || body.profileId.trim() === '') {
+          fields.profileId = null;
+          fields.opencodeAgentId = null;
+        } else {
+          const profileId = normalizeAgentId(body.profileId);
+          const agentConfig = new AgentConfigsRepository().getById(profileId);
+          if (!agentConfig) {
+            throw AppError.badRequest(`agent not configured: '${profileId}'`);
+          }
+          const blockReason = agentConfigExecutionBlockReason(agentConfig);
+          if (blockReason) throw AppError.badRequest(blockReason);
+          const opencodeAgentId =
+            agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
+              ? agentConfig.ocAgent
+              : profileId;
+          fields.profileId = asRhythmProfileId(profileId);
+          fields.opencodeAgentId = asOpenCodeAgentId(opencodeAgentId);
+        }
+      }
+
       // #1119 — persist an explicit mid-session profile switch so it survives
       // an app restart. Previously the Flutter agent-selector pill only sent
       // the choice per-turn on the WS `session.input` frame (ws_gateway.ts,
@@ -1067,7 +1117,7 @@ export class AgentSessionsController {
       // from create/resume) — written as-is via the existing updateAgentKind
       // helper, same as the resume path (~line 1253). Empty/omitted is a
       // no-op so callers that don't touch the profile are unaffected.
-      if (body.agentId !== undefined) {
+      if (body.profileId === undefined && body.agentId !== undefined) {
         if (body.agentId !== null && typeof body.agentId !== 'string') {
           throw AppError.badRequest('agentId must be a string or null');
         }
@@ -1486,9 +1536,14 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
-      // agentId may be provided in the body; fall back to the session's stored agentKind
+      // profileId is the authoritative Rhythm identity. agentId/agentKind are
+      // retained as compatibility aliases for older desktop clients.
       const body = req.body as Record<string, unknown> | undefined ?? {};
-      const requestedAgentId = (body.agentId ?? body.agentKind) as string | undefined;
+      const requestedAgentId = (
+        body.profileId ??
+        body.agentId ??
+        body.agentKind
+      ) as string | undefined;
       if (requestedAgentId && typeof requestedAgentId === 'string') {
         if (body.agentKind && !body.agentId) {
           console.warn('[deprecated] agentKind is deprecated in resume body — use agentId instead');
@@ -1511,17 +1566,22 @@ export class AgentSessionsController {
           agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
             ? agentConfig.ocAgent
             : requestedAgentId;
-        if (resolvedEngineAgentKind !== session.agentKind) {
-          repo.updateAgentKind(session.id, resolvedEngineAgentKind);
-        }
-      } else if (session.agentKind) {
+        repo.updateFields(session.id, {
+          profileId: asRhythmProfileId(agentConfig.id),
+          opencodeAgentId: asOpenCodeAgentId(resolvedEngineAgentKind),
+        });
+      } else if (session.profileId || session.opencodeAgentId) {
         // A previously-created resumable session must not bypass a lock that
         // landed after it was created. agent_kind may hold either the profile
         // id or its resolved oc_agent name, so cover both representations.
         const configsRepo = new AgentConfigsRepository();
         const storedConfig =
-          configsRepo.getById(session.agentKind) ??
-          configsRepo.list().find((config) => config.ocAgent === session.agentKind);
+          (session.profileId
+            ? configsRepo.getById(session.profileId)
+            : null) ??
+          configsRepo.list().find(
+            (config) => config.ocAgent === session.opencodeAgentId,
+          );
         if (storedConfig) {
           const blockReason = agentConfigExecutionBlockReason(storedConfig);
           if (blockReason) throw AppError.badRequest(blockReason);

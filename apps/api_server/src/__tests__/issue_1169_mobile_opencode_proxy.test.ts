@@ -404,6 +404,42 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     });
   });
 
+  it('bounds transcript pages before forwarding to protect the response budget', async () => {
+    const proxyModule = await loadProxyModule();
+    expect(proxyModule).not.toBeNull();
+    if (!proxyModule) return;
+
+    const requests: string[] = [];
+    const proxy = new proxyModule.MobileOpenCodeProxy({
+      baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async (input: string | URL | Request) => {
+        requests.push(String(input));
+        const url = new URL(String(input));
+        return new Response(JSON.stringify(
+          url.pathname === '/session'
+            ? [{ id: 'ses-large', directory: '/sandbox/project' }]
+            : [],
+        ), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    });
+
+    await proxy.forward({
+      method: 'GET',
+      path: '/session/ses-large/message',
+      query: new URLSearchParams({ limit: '1000' }),
+      project: { id: 'project-1169', root: '/sandbox/project' },
+      userId: 1,
+    });
+
+    expect(requests).toHaveLength(2);
+    const forwarded = new URL(requests[1]);
+    expect(forwarded.searchParams.get('limit')).toBe('20');
+    expect(forwarded.searchParams.get('directory')).toBe('/sandbox/project');
+  });
+
   it('issue-1169-c5: every forbidden API family is explicitly classified as denied', async () => {
     const proxy = await loadProxyModule();
     expect(proxy, 'mobile_opencode_proxy.ts must exist').not.toBeNull();
@@ -484,6 +520,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     const proxy = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
       ownershipRepository: permissiveOwnershipRepository,
+      preparePromptStream: async () => undefined,
       fetchFn: async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(String(input));
         if (url.pathname === '/session' && init?.method === 'GET') {

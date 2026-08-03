@@ -4,8 +4,14 @@ import type {
   AgentSession,
   AgentSessionStatus,
   CreateAgentSessionDto,
+  OpenCodeAgentId,
   PermissionMode,
+  RhythmProfileId,
   SessionScope,
+} from '../models/agent_session';
+import {
+  asOpenCodeAgentId,
+  asRhythmProfileId,
 } from '../models/agent_session';
 
 interface AgentSessionRow {
@@ -13,6 +19,7 @@ interface AgentSessionRow {
   task_id: string | null;
   task_title: string | null;
   agent_kind: string;
+  profile_id: string | null;
   status: string;
   status_message: string | null;
   session_token: string | null;
@@ -54,11 +61,40 @@ interface AgentSessionRow {
   worktree_branch: string | null;
 }
 
+interface ParentSessionScopeRow {
+  id: string;
+  task_id: string | null;
+  task_title: string | null;
+  agent_kind: string;
+  project_id: string | null;
+  scheduled_task_id: string | null;
+  is_system: number;
+  anthropic_account_id: string | null;
+  owner_user_id: number | null;
+  delegation_depth: number | null;
+  category: string;
+  worktree_name: string | null;
+  worktree_path: string | null;
+  worktree_branch: string | null;
+}
+
+interface PendingChildSessionRow {
+  child_sdk_session_id: string;
+  parent_sdk_session_id: string;
+  title: string;
+  cwd: string;
+  mcp_allowed_tools_json: string | null;
+}
+
 function rowToModel(row: AgentSessionRow): AgentSession {
   return {
     id: row.id,
     taskId: row.task_id,
     taskTitle: row.task_title ?? null,
+    profileId: row.profile_id ? asRhythmProfileId(row.profile_id) : null,
+    opencodeAgentId: row.agent_kind
+      ? asOpenCodeAgentId(row.agent_kind)
+      : null,
     agentKind: row.agent_kind as AgentSession['agentKind'],
     status: row.status as AgentSessionStatus,
     statusMessage: row.status_message ?? null,
@@ -138,6 +174,137 @@ export class AgentSessionsRepository {
     }
   }
 
+  private findParentScopeBySdkSessionId(
+    db: ReturnType<typeof getDb>,
+    parentSdkSessionId: string,
+  ): ParentSessionScopeRow | undefined {
+    return db
+      .prepare(
+        `SELECT id, task_id, task_title, agent_kind, project_id,
+                scheduled_task_id, is_system, anthropic_account_id,
+                owner_user_id, delegation_depth, category,
+                worktree_name, worktree_path, worktree_branch
+           FROM agent_sessions
+          WHERE sdk_session_id = ?
+          LIMIT 1`,
+      )
+      .get(parentSdkSessionId) as ParentSessionScopeRow | undefined;
+  }
+
+  private upsertResolvedChildSession(
+    db: ReturnType<typeof getDb>,
+    parentRow: ParentSessionScopeRow,
+    childSdkSessionId: string,
+    title: string,
+    cwd: string,
+    mcpAllowedToolsJson: string | null,
+    now: string,
+  ): AgentSession {
+    // #867: the engine's task title is the only carrier of a native task
+    // child's specialist identity. Scope comes from the parent, identity does
+    // not, so keep the parsed specialist agent kind child-owned.
+    const specialistMatch = /\(@([^)\s]+) subagent\)\s*$/.exec(title ?? '');
+    const inheritedAgentKind =
+      specialistMatch?.[1] ?? parentRow.agent_kind ?? 'claude-code';
+    const childDelegationDepth = (parentRow.delegation_depth ?? 0) + 1;
+    const existingRow = db
+      .prepare(
+        `SELECT id FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`,
+      )
+      .get(childSdkSessionId) as { id: string } | undefined;
+
+    if (existingRow) {
+      // A repeated stream event is also a repair opportunity. Parent scope is
+      // authoritative, while an already-persisted child MCP allowlist wins
+      // over a missing/replayed event payload.
+      db.prepare(
+        `UPDATE agent_sessions
+            SET task_id = ?,
+                task_title = ?,
+                project_id = ?,
+                scheduled_task_id = ?,
+                parent_session_id = ?,
+                is_system = ?,
+                anthropic_account_id = ?,
+                owner_user_id = ?,
+                delegation_depth = ?,
+                category = ?,
+                worktree_name = ?,
+                worktree_path = ?,
+                worktree_branch = ?,
+                mcp_allowed_tools_json =
+                  COALESCE(mcp_allowed_tools_json, ?),
+                updated_at = ?
+          WHERE id = ?`,
+      ).run(
+        parentRow.task_id,
+        parentRow.task_title,
+        parentRow.project_id,
+        parentRow.scheduled_task_id,
+        parentRow.id,
+        parentRow.is_system,
+        parentRow.anthropic_account_id,
+        parentRow.owner_user_id,
+        childDelegationDepth,
+        parentRow.category,
+        parentRow.worktree_name,
+        parentRow.worktree_path,
+        parentRow.worktree_branch,
+        mcpAllowedToolsJson,
+        now,
+        existingRow.id,
+      );
+      this.upsertMobileOwnershipForPersistedSession(
+        db,
+        existingRow.id,
+        childSdkSessionId,
+        now,
+      );
+      return this.findById(existingRow.id)!;
+    }
+
+    const childLocalId = crypto.randomUUID();
+    db.prepare(
+      `INSERT INTO agent_sessions
+         (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+          sdk_session_id, parent_session_id, mcp_allowed_tools_json,
+          scheduled_task_id, is_system, anthropic_account_id, owner_user_id,
+          delegation_depth, category, worktree_name, worktree_path,
+          worktree_branch, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+               ?, ?, ?, ?, ?)`,
+    ).run(
+      childLocalId,
+      parentRow.task_id,
+      parentRow.task_title,
+      inheritedAgentKind,
+      cwd,
+      title || 'Subagent task',
+      parentRow.project_id,
+      childSdkSessionId,
+      parentRow.id,
+      mcpAllowedToolsJson,
+      parentRow.scheduled_task_id,
+      parentRow.is_system,
+      parentRow.anthropic_account_id,
+      parentRow.owner_user_id,
+      childDelegationDepth,
+      parentRow.category,
+      parentRow.worktree_name,
+      parentRow.worktree_path,
+      parentRow.worktree_branch,
+      now,
+      now,
+    );
+    this.upsertMobileOwnershipForPersistedSession(
+      db,
+      childLocalId,
+      childSdkSessionId,
+      now,
+    );
+    return this.findById(childLocalId)!;
+  }
+
   insert(dto: CreateAgentSessionDto): AgentSession {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -148,16 +315,17 @@ export class AgentSessionsRepository {
     getDb()
       .prepare(
         `INSERT INTO agent_sessions
-           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+           (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         dto.taskId ?? null,
         dto.taskTitle ?? null,
-        dto.agentKind,
+        dto.opencodeAgentId ?? dto.agentKind,
+        dto.profileId ?? null,
         dto.cwd,
         dto.name,
         dto.projectId ?? null,
@@ -329,6 +497,32 @@ export class AgentSessionsRepository {
         sdkSessionId,
         now,
       );
+      const parentRow = this.findParentScopeBySdkSessionId(db, sdkSessionId);
+      if (!parentRow) return;
+      const pendingChildren = db
+        .prepare(
+          `SELECT child_sdk_session_id, parent_sdk_session_id, title, cwd,
+                  mcp_allowed_tools_json
+             FROM agent_pending_child_sessions
+            WHERE parent_sdk_session_id = ?
+            ORDER BY created_at, child_sdk_session_id`,
+        )
+        .all(sdkSessionId) as PendingChildSessionRow[];
+      for (const pending of pendingChildren) {
+        this.upsertResolvedChildSession(
+          db,
+          parentRow,
+          pending.child_sdk_session_id,
+          pending.title,
+          pending.cwd,
+          pending.mcp_allowed_tools_json,
+          now,
+        );
+        db.prepare(
+          `DELETE FROM agent_pending_child_sessions
+            WHERE child_sdk_session_id = ?`,
+        ).run(pending.child_sdk_session_id);
+      }
     })();
   }
 
@@ -345,6 +539,10 @@ export class AgentSessionsRepository {
     cwd: string;
     name: string;
     archivedAt: string | null;
+    profileId?: RhythmProfileId | null;
+    opencodeAgentId?: OpenCodeAgentId | null;
+    providerId?: string | null;
+    modelId?: string | null;
     updatedAt?: string;
   }): AgentSession | null {
     if (
@@ -383,12 +581,20 @@ export class AgentSessionsRepository {
               SET name = ?,
                   cwd = ?,
                   archived_at = ?,
+                  profile_id = COALESCE(?, profile_id),
+                  agent_kind = COALESCE(NULLIF(?, ''), agent_kind),
+                  provider_id = COALESCE(?, provider_id),
+                  model_id = COALESCE(?, model_id),
                   updated_at = ?
             WHERE id = ?`,
         ).run(
           input.name || 'Untitled chat',
           input.cwd,
           input.archivedAt,
+          input.profileId ?? null,
+          input.opencodeAgentId ?? null,
+          input.providerId ?? null,
+          input.modelId ?? null,
           now,
           existing.id,
         );
@@ -398,17 +604,21 @@ export class AgentSessionsRepository {
       const id = crypto.randomUUID();
       db.prepare(
         `INSERT INTO agent_sessions
-           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            sdk_session_id, owner_user_id, category, archived_at, created_at,
+           (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
+            sdk_session_id, owner_user_id, provider_id, model_id, category, archived_at, created_at,
             updated_at)
-         VALUES (?, NULL, NULL, '', 'idle', ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
+         VALUES (?, NULL, NULL, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
       ).run(
         id,
+        input.opencodeAgentId ?? '',
+        input.profileId ?? null,
         input.cwd,
         input.name || 'Untitled chat',
         input.projectId,
         input.sdkSessionId,
         input.ownerUserId,
+        input.providerId ?? null,
+        input.modelId ?? null,
         input.archivedAt,
         now,
         now,
@@ -603,6 +813,8 @@ export class AgentSessionsRepository {
     id: string,
     fields: {
       name?: string;
+      profileId?: RhythmProfileId | null;
+      opencodeAgentId?: OpenCodeAgentId | null;
       providerId?: string | null;
       modelId?: string | null;
       agentMode?: string | null;
@@ -616,6 +828,14 @@ export class AgentSessionsRepository {
     if (fields.name !== undefined) {
       sets.push('name = ?');
       values.push(fields.name);
+    }
+    if (fields.profileId !== undefined) {
+      sets.push('profile_id = ?');
+      values.push(fields.profileId);
+    }
+    if (fields.opencodeAgentId !== undefined) {
+      sets.push('agent_kind = ?');
+      values.push(fields.opencodeAgentId ?? '');
     }
     if (fields.providerId !== undefined) {
       sets.push('provider_id = ?');
@@ -670,9 +890,11 @@ export class AgentSessionsRepository {
    * SDK session id; we look up the local parent row and store its local id as
    * `parent_session_id` on the child row.
    *
-   * The upsert key is the child's SDK session id (`sdk_session_id`). If a row
-   * already exists for that SDK id, it is a no-op (idempotent). Returns the
-   * (possibly existing) local row, or null when the parent cannot be resolved.
+   * The upsert key is the child's SDK session id (`sdk_session_id`). Repeated
+   * events repair the parent's authoritative scope without duplicating the
+   * row. When the parent SDK id is not mapped yet, the unresolved edge is
+   * stored durably and this call returns null; setSdkSessionId drains it when
+   * the parent identity arrives.
    */
   upsertChildSession(
     childSdkSessionId: string,
@@ -686,93 +908,55 @@ export class AgentSessionsRepository {
     return db.transaction(() => {
       // Look up the local parent row by its SDK session id. Stream-created
       // children are part of the same user/project catalog as their parent.
-      const parentRow = db
-        .prepare(
-          `SELECT id, agent_kind, owner_user_id, project_id
-             FROM agent_sessions
-            WHERE sdk_session_id = ?
-            LIMIT 1`,
-        )
-        .get(parentSdkSessionId) as {
-          id: string;
-          agent_kind: string;
-          owner_user_id: number | null;
-          project_id: string | null;
-        } | undefined;
-      if (!parentRow) return null;
-      const parentLocalId = parentRow.id;
-
-      // #867 smoke fix: the engine's task tool composes the child title as
-      // "<description> (@<agentName> subagent)" (fork tool/task.ts) and there
-      // is no dedicated agent field on Session.Info — the title is the only
-      // carrier of the child's REAL specialist identity. Parse it out;
-      // otherwise every delegated child was persisted under the parent's
-      // (usually 'claude-code') kind, so the UI showed the wrong agent and a
-      // reply was sent under the default binding.
-      const specialistMatch = /\(@([^)\s]+) subagent\)\s*$/.exec(title ?? '');
-      const inheritedAgentKind =
-        specialistMatch?.[1] ?? parentRow.agent_kind ?? 'claude-code';
       const now = new Date().toISOString();
-
-      // Check whether the child row already exists (idempotent). A repeated
-      // stream event also repairs scope missing on rows created before #1231,
-      // without replacing any scope already persisted on the child.
-      const existingRow = db
-        .prepare(
-          `SELECT id FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`,
-        )
-        .get(childSdkSessionId) as { id: string } | undefined;
-      if (existingRow) {
+      const parentRow = this.findParentScopeBySdkSessionId(
+        db,
+        parentSdkSessionId,
+      );
+      if (!parentRow) {
+        // session.created can beat the caller's setSdkSessionId. Persist the
+        // unresolved edge instead of relying on a process-local retry; the
+        // parent-arrival path above drains it transactionally.
         db.prepare(
-          `UPDATE agent_sessions
-              SET owner_user_id = COALESCE(owner_user_id, ?),
-                  project_id = COALESCE(project_id, ?),
-                  updated_at = ?
-            WHERE id = ?`,
+          `INSERT INTO agent_pending_child_sessions
+             (child_sdk_session_id, parent_sdk_session_id, title, cwd,
+              mcp_allowed_tools_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(child_sdk_session_id) DO UPDATE SET
+             parent_sdk_session_id = excluded.parent_sdk_session_id,
+             title = excluded.title,
+             cwd = excluded.cwd,
+             mcp_allowed_tools_json = COALESCE(
+               excluded.mcp_allowed_tools_json,
+               agent_pending_child_sessions.mcp_allowed_tools_json
+             ),
+             updated_at = excluded.updated_at`,
         ).run(
-          parentRow.owner_user_id,
-          parentRow.project_id,
-          now,
-          existingRow.id,
-        );
-        this.upsertMobileOwnershipForPersistedSession(
-          db,
-          existingRow.id,
           childSdkSessionId,
+          parentSdkSessionId,
+          title,
+          cwd,
+          mcpAllowedToolsJson ?? null,
+          now,
           now,
         );
-        return this.findById(existingRow.id);
+        return null;
       }
 
-      // Insert a new row for the child session and claim its engine identity in
-      // the same transaction. This is the async stream-bridge SDK-id path.
-      const childLocalId = crypto.randomUUID();
-      db.prepare(
-        `INSERT INTO agent_sessions
-           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            sdk_session_id, parent_session_id, mcp_allowed_tools_json,
-            owner_user_id, created_at, updated_at)
-         VALUES (?, NULL, NULL, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        childLocalId,
-        inheritedAgentKind,
-        cwd,
-        title || 'Subagent task',
-        parentRow.project_id,
-        childSdkSessionId,
-        parentLocalId,
-        mcpAllowedToolsJson ?? null,
-        parentRow.owner_user_id,
-        now,
-        now,
-      );
-      this.upsertMobileOwnershipForPersistedSession(
+      const child = this.upsertResolvedChildSession(
         db,
-        childLocalId,
+        parentRow,
         childSdkSessionId,
+        title,
+        cwd,
+        mcpAllowedToolsJson ?? null,
         now,
       );
-      return this.findById(childLocalId);
+      db.prepare(
+        `DELETE FROM agent_pending_child_sessions
+          WHERE child_sdk_session_id = ?`,
+      ).run(childSdkSessionId);
+      return child;
     })();
   }
 

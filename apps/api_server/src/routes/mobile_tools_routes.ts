@@ -4,7 +4,9 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { UsersRepository } from '../repositories/users_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
+import { requireMobileProjectScope } from '../services/mobile_project_scope';
 import agentCookbookRouter from './agentCookbookRoutes';
+import agentDesignsRouter from './agentDesignsRoutes';
 import { agentConfigsRouter } from './agent_configs_routes';
 import agentMemoryRouter from './agentMemoryRoutes';
 import agentResearchRouter from './agentResearchRoutes';
@@ -22,6 +24,7 @@ type MobileToolMount =
   | 'agent-webhooks'
   | 'agent-configs'
   | 'agent-cookbook'
+  | 'agent-designs'
   | 'agent-org-proposals'
   | 'agents/run-quality'
   | 'opencode/skills'
@@ -94,6 +97,10 @@ const MOBILE_TOOL_OPERATIONS: Record<
     { method: 'DELETE', path: ID },
     { method: 'POST', path: ID_ACTION('run') },
   ],
+  'agent-designs': [
+    { method: 'GET', path: ROOT },
+    { method: 'GET', path: ID },
+  ],
   'agent-org-proposals': [
     { method: 'GET', path: ROOT },
     { method: 'POST', path: ID_ACTION('approve') },
@@ -131,6 +138,7 @@ const MOBILE_TOOL_POLICIES: Record<MobileToolMount, MobileToolPolicy> = {
   'agent-webhooks': 'owner-scoped',
   'agent-configs': 'mac-global-admin',
   'agent-cookbook': 'owner-scoped',
+  'agent-designs': 'mac-global-admin',
   'agent-org-proposals': 'mac-global-admin',
   'agents/run-quality': 'owner-scoped',
   'opencode/skills': 'mac-global-admin',
@@ -268,6 +276,13 @@ export function createMobileToolsRouter(): Router {
     requireAllowedOperation('agent-cookbook'),
     requireToolPolicy('agent-cookbook'),
     agentCookbookRouter,
+  );
+  router.use(
+    '/agent-designs',
+    requireAllowedOperation('agent-designs'),
+    requireMobileProjectScope(),
+    requireToolPolicy('agent-designs'),
+    agentDesignsRouter,
   );
   router.use(
     '/agent-org-proposals',

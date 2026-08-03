@@ -11,12 +11,31 @@ async function reset(page, request) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
 }
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 async function openReadyChat(page, request) {
   await reset(page, request);
-  await expect(page.getByRole('button', { name: 'Create chat' })).toBeEnabled({
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled({
     timeout: 30_000,
   });
-  await page.getByRole('button', { name: 'Create chat' }).click();
+  await activateMenuItem(createChat);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
 }
@@ -28,7 +47,7 @@ async function backToAgents(page) {
 
 async function openWorkspace(page) {
   await backToAgents(page);
-  await page.getByRole('button', { name: 'Open workspace' }).click();
+  await activateMenuItem(await openAgentsAction(page, 'Open workspace'));
   await expect(page.getByRole('button', { name: 'Back to Agents' })).toBeVisible();
 }
 
@@ -130,7 +149,7 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
 test('issue-1174: terminal detail and resize use the PTY adapter surface', async ({ page, request }, testInfo) => {
   await openReadyChat(page, request);
   await backToAgents(page);
-  await page.getByRole('button', { name: 'Open terminal' }).click();
+  await activateMenuItem(await openAgentsAction(page, 'Open terminal'));
   await page.getByTestId('terminal-create-button').click();
   await expect(page.getByTestId('terminal-detail-panel')).toContainText('/workspace/demo-project');
   await page.getByTestId('terminal-rows-input').fill('32');

@@ -65,13 +65,15 @@ const activities = [
   },
 ];
 
-test('issue-1232-c1: Agents uses Chats, Scheduled Tasks, and Background Loops as its primary categories', () => {
-  // Regression caught: the top-level Agents switch returns to Chats/Activity
-  // or lifecycle buttons become the primary organization again.
-  assert.match(agentsSource, /label:\s*`Chats/);
-  assert.match(agentsSource, /label:\s*`Scheduled Tasks/);
-  assert.match(agentsSource, /label:\s*`Background Loops/);
-  assert.doesNotMatch(agentsSource, /label:\s*['"]Activity['"]/);
+test('issue-1232-c1: Agents keeps its primary categories in the compact overflow menu', () => {
+  // Regression caught: category navigation returns to a permanent segmented
+  // row that consumes scarce transcript/list height on mobile.
+  assert.match(agentsSource, /accessibilityLabel="Agents menu"/);
+  assert.match(agentsSource, /title=\{`Chats/);
+  assert.match(agentsSource, /title=\{`Scheduled Tasks/);
+  assert.match(agentsSource, /title=\{`Background Loops/);
+  assert.match(agentsSource, /title="Activity"/);
+  assert.doesNotMatch(agentsSource, /<SegmentedButtons/);
   assert.doesNotMatch(chatListSource, /Show active chats|Show completed chats|Show archived chats/);
 });
 

@@ -4,10 +4,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_DIR="$ROOT/apps/api_server"
-ENGINE_DIR="$ROOT/apps/opencode_fork/packages/opencode"
+# Overridable so harnesses can reuse an already-built fork binary from a
+# sibling worktree with an identical fork tree instead of rebuilding (~10 min).
+ENGINE_DIR="${RHYTHM_SANDBOX_ENGINE_DIR:-$ROOT/apps/opencode_fork/packages/opencode}"
 SB="${RHYTHM_SANDBOX_DIR:-${TMPDIR:-/tmp}/rhythm-dev-sandbox}"
 API_PORT="${RHYTHM_SANDBOX_API_PORT:-4098}"
 ENGINE_PORT="${RHYTHM_SANDBOX_ENGINE_PORT:-4097}"
+GATEWAY_PORT="${RHYTHM_SANDBOX_GATEWAY_PORT:-4099}"
 PID_FILE="$SB/api_server.pid"
 ENGINE_PID_FILE="$SB/opencode_engine.pid"
 LOG_FILE="$SB/api_server.log"
@@ -35,7 +38,10 @@ safe_sandbox_path() {
   [[ "$SB" = /* && "$SB" != / && "$SB" != "$HOME" ]] || fail "RHYTHM_SANDBOX_DIR must be an absolute non-home path"
   validate_port RHYTHM_SANDBOX_API_PORT "$API_PORT"
   validate_port RHYTHM_SANDBOX_ENGINE_PORT "$ENGINE_PORT"
+  validate_port RHYTHM_SANDBOX_GATEWAY_PORT "$GATEWAY_PORT"
   [[ "$API_PORT" != "$ENGINE_PORT" ]] || fail "sandbox API and engine ports must be different"
+  [[ "$GATEWAY_PORT" != "$API_PORT" && "$GATEWAY_PORT" != "$ENGINE_PORT" ]] ||
+    fail "sandbox gateway port must differ from the API and engine ports"
 }
 
 copy_runtime_files() {
@@ -79,7 +85,18 @@ wait_for_ready() {
     fi
     sleep 1
   done
-  fail "sandbox did not become healthy; see $LOG_FILE"
+  # `down` deletes $SB, so a copy that outlives teardown is the only way the
+  # cause survives. Surface the tail inline too: the common failure is a port
+  # bind (EADDRINUSE) that is otherwise invisible.
+  local rescued="${TMPDIR:-/tmp}/rhythm-sandbox-failure-$(date +%Y%m%dT%H%M%S).log"
+  if [[ -f "$LOG_FILE" ]]; then
+    cp "$LOG_FILE" "$rescued" 2>/dev/null || true
+    printf 'sandbox: last 20 log lines ------------------------------------\n' >&2
+    tail -n 20 "$LOG_FILE" >&2 || true
+    printf 'sandbox: ---------------------------------------------------------\n' >&2
+    fail "sandbox did not become healthy; log copied to $rescued"
+  fi
+  fail "sandbox did not become healthy; no log at $LOG_FILE"
 }
 
 wait_in_foreground() {
@@ -120,6 +137,10 @@ up() {
     "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    # The gateway port is a THIRD listener and was previously unset, so the
+    # sandbox bound the default 4002 — the port `tailscale serve` publishes to
+    # the tailnet, while serving a fully-credentialed copy of the real DB.
+    "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
   )
   local api_pid
 
@@ -127,6 +148,7 @@ up() {
   [[ ! -e "$PID_FILE" ]] || fail "sandbox already has $PID_FILE; run '$0 status' or '$0 down'"
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
+  require_free_port "$GATEWAY_PORT"
   command -v sqlite3 >/dev/null || fail 'sqlite3 is required'
   [[ -f "$LIVE_DB" ]] || fail "live SQLite DB not found: $LIVE_DB"
 

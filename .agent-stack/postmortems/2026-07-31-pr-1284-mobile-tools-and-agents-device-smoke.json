@@ -1,0 +1,88 @@
+{
+  "run_id": "2026-07-31-pr-1284-mobile-tools-and-agents-device-smoke",
+  "issue": 1284,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1235-c1",
+      "text": "Each Tool and Chat screen has one compact title/navigation header rather than stacked large-title/breadcrumb headers.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The physical iPhone still showed a large Chats row with project, terminal, and add buttons plus separate project and lifecycle filter rows. AJ asked for every control except search to move into the top-right overflow menu."
+    },
+    {
+      "criterion_id": "issue-1172-c2",
+      "text": "Agents supports all/project-filtered active, completed, and archived chats with create, open, rename, archive, restore, fork, and confirmed delete actions plus nested child sessions.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Only sessions created from mobile appeared as Chats. Existing desktop-created human sessions appeared in Activity instead, while scheduled-task and background-loop sessions were visible in their dedicated categories."
+    },
+    {
+      "criterion_id": "issue-1173-c8",
+      "text": "Review Queue exposes proposal details and approve/reject actions with high-risk approval confirmation, while Report Card renders run-quality summaries.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The physical iPhone Review Queue showed the empty-state text 'Nothing here yet' despite desktop data being expected."
+    },
+    {
+      "criterion_id": "issue-1173-c9",
+      "text": "Email and Gallery remain usable through production Rhythm Cloud while the paired Mac is offline, use least-privilege summaries, and never cache full email bodies or OAuth data.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Gallery showed 'Nothing here yet' on the physical iPhone even though content was visible on desktop."
+    },
+    {
+      "criterion_id": "pr-1284-mobile-console-c1",
+      "text": "The Agents and Tools surfaces run on a physical iPhone without React rendering errors or invalid icon warnings.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Metro repeatedly reported that Dialog.Actions passed compact to React.Fragment in session-configuration-sheet.tsx, plus invalid MaterialCommunityIcons names for settings-suggest, a stethoscope emoji, and assets/agents/opencode.png."
+    },
+    {
+      "criterion_id": "pr-1284-mobile-catalog-organization-c1",
+      "text": "Large Skills, MCP Servers, Agent Profiles, and Providers & Models catalogs provide usable search, organization, and sorting controls.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "AJ reported that the long catalog screens lack organization, search, and sorting and that Providers & Models lists unfamiliar entries without explaining what the surface represents."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/app/(tabs)/agents.tsx",
+    "apps/mobile/components/chat/chat-list.tsx",
+    "apps/mobile/components/chat/session-configuration-sheet.tsx",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/services/rhythm-tools-service.ts"
+  ],
+  "failure_output": "AJ: only sessions I create in mobile show up as chats, and the rest show up in activity; Review Queue and Gallery show 'Nothing here yet'. Metro: Invalid prop compact supplied to React.Fragment; invalid MaterialCommunityIcons names settings-suggest, stethoscope emoji, and assets/agents/opencode.png.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Add physical-device/live-data contracts for Agents header density, desktop-human session classification, Review Queue/Gallery parity, console cleanliness, and catalog findability instead of relying on source-shape and fake-server checks."
+}

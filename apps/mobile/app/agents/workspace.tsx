@@ -18,11 +18,13 @@ import {
   TextInput,
 } from 'react-native-paper';
 
+import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { Colors, Fonts } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatRelativeTime, getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
 import { useOpencode } from '@/providers/opencode-provider';
+import type { ChatPreferences } from '@/providers/opencode-provider-types';
 
 export default function AgentWorkspaceScreen() {
   const router = useRouter();
@@ -33,6 +35,10 @@ export default function AgentWorkspaceScreen() {
   const palette = Colors[colorScheme];
   const {
     activeProject,
+    availableAgents,
+    availableModels,
+    chatPreferences,
+    configuredProviders,
     connection,
     createSession,
     deleteSession,
@@ -77,6 +83,7 @@ export default function AgentWorkspaceScreen() {
     removeWorktree,
   } = useOpencode();
   const [isCreating, setIsCreating] = useState(false);
+  const [newChatSheetVisible, setNewChatSheetVisible] = useState(false);
   const [activePanel, setActivePanel] = useState<'chats' | 'files' | 'tools'>('chats');
   const [showArchived, setShowArchived] = useState(false);
   const [sessionActionId, setSessionActionId] = useState<string>();
@@ -123,10 +130,16 @@ export default function AgentWorkspaceScreen() {
       .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not refresh the workspace.'));
   }
 
-  async function handleNewChat() {
+  async function handleNewChat(
+    title: string | undefined,
+    preferences: ChatPreferences,
+  ) {
     setIsCreating(true);
     try {
-      const session = await createSession();
+      const session = await createSession(title, {
+        projectId: activeProject?.path,
+        preferences,
+      });
       await openSession(session.id);
       router.push({
         pathname: '/agents/chats/[sessionId]',
@@ -137,6 +150,7 @@ export default function AgentWorkspaceScreen() {
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not create a session.');
+      throw reason;
     } finally {
       setIsCreating(false);
     }
@@ -351,7 +365,7 @@ export default function AgentWorkspaceScreen() {
         <View style={styles.headerActions}>
           <Appbar.Action testID="workspace-sync-button" icon="sync" accessibilityLabel="Sync projects" onPress={() => void refreshWorkspaceCatalog()} />
           <Appbar.Action testID="workspace-refresh-button" icon="refresh" accessibilityLabel="Refresh workspace" onPress={() => void handleRefresh()} />
-          <Appbar.Action testID="workspace-new-chat-button" icon="plus" accessibilityLabel="New chat" disabled={!activeProject || isCreating} onPress={() => void handleNewChat()} />
+          <Appbar.Action testID="workspace-new-chat-button" icon="plus" accessibilityLabel="New chat" disabled={!activeProject || isCreating} onPress={() => setNewChatSheetVisible(true)} />
         </View>
       </Appbar.Header>
       <ScrollView
@@ -612,6 +626,17 @@ export default function AgentWorkspaceScreen() {
         </Card.Content>
       </Card> : null}
       </ScrollView>
+      <SessionConfigurationSheet
+        availableModels={availableModels}
+        availableProfiles={availableAgents}
+        availableProviders={configuredProviders}
+        mode="create"
+        onCreate={handleNewChat}
+        onDismiss={() => setNewChatSheetVisible(false)}
+        palette={palette}
+        preferences={chatPreferences}
+        visible={newChatSheetVisible}
+      />
       <Snackbar visible={Boolean(error)} onDismiss={() => setError(undefined)}>{error}</Snackbar>
     </>
   );

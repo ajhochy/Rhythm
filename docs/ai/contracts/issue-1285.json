@@ -1,0 +1,176 @@
+{
+  "issue": 1285,
+  "generated": "2026-07-31",
+  "criteria": [
+    {
+      "criterion_id": "issue-1285-c1",
+      "text": "Move the Chats title actions, project selector, and lifecycle selector into the Agents top-right overflow menu; keep Search chats visible.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c1: Agents overflow owns chat actions and selectors while Search chats stays visible",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c2",
+      "text": "Desktop-created human sessions appear in Chats, while scheduled/background/system executions remain in their intended Activity/categories.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c2: desktop human sessions compose into Chats without leaking scheduled or optimizer runs",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c3",
+      "text": "Review Queue and Gallery render the same authorized real data available on desktop instead of a false empty state.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c3: Review Queue and Gallery load the authorized records visible on desktop",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c4",
+      "text": "Skills, MCP Servers, Agent Profiles, and Providers & Models provide search, organization/grouping, and deterministic sorting.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c4: large tool catalogs expose search grouping and deterministic A-Z sorting",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c5",
+      "text": "Providers & Models clearly explains and limits its catalog to the providers/models actually configured or available in Rhythm.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c5: Providers & Models explains and limits the catalog to configured or available entries",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c6",
+      "text": "Physical-device Metro console has no React Fragment prop errors or invalid icon-name warnings on these paths.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c6: native Agents and Tools paths cannot emit Fragment-prop or invalid-icon warnings",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c7",
+      "text": "An exact-owner projectless desktop human chat discovered in mobile Chats can be opened and its transcript can be read without treating it as missing from the selected project.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-1285-c7: owner-discovered projectless chat opens with its transcript",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c8",
+      "text": "An exact-owner projectless desktop human chat is interactive from mobile, while retaining projectId null and using a separate registered-project routing context for gateway authorization.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/session-discovery.test.ts",
+      "test_id": "issue-1285-c8: projectless owner chats remain interactive with separate routing context",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c9",
+      "text": "The Opening chat screen always exposes Back to chats, which cancels the in-flight open and returns to Agents.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/chat/agent-chat-detail.test.tsx",
+      "test_id": "issue-1285-c9: opening chat exposes a working Back to chats action",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c10",
+      "text": "Opening a chat becomes ready after its bounded message page loads; diff, todos, permissions, and questions refresh afterward and cannot hold the opening screen hostage.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c10: initial open awaits messages only and defers supplemental state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c11",
+      "text": "Chats publishes the first 10 owner sessions immediately, then merges remaining owner pages and project batches progressively without keeping the initial list loader active.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/session-discovery.test.ts",
+      "test_id": "issue-1285-c11: first ten chats publish before delayed catalog pages",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c12",
+      "text": "The first Chats page is the globally newest 10 exact-owner human sessions across registered project-bound and projectless desktop chats, so a newer project chat is never delayed behind older projectless rows.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1285_mobile_chat_discovery.test.ts",
+      "test_id": "issue-1285-c12: first owner page is globally newest across registered and projectless chats",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c13",
+      "text": "Opening an exact-owner projectless desktop chat resolves that session before loading the selected project's full catalog, and a successful exact lookup proceeds directly to its bounded transcript page.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-1285-c13: exact projectless lookup bypasses the scoped catalog",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c14",
+      "text": "Once the opener reaches ready for the requested chat, a transient render before provider selection state commits must not cancel or reopen it; the transcript remains stable without flashing back to Opening chat.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/chat/agent-chat-detail.test.tsx",
+      "test_id": "issue-1285-c14: ready opener is not cancelled while provider selection commits",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c15",
+      "text": "After an exact-owner projectless chat reaches ready, a background scoped project session refresh or older in-flight active-session bootstrap must not evict it or restore a previously remembered project chat; the opened transcript remains current until explicit navigation.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/session-refresh-pinning.test.ts",
+      "test_id": "issue-1285-c15: scoped refresh cannot displace the ready owner-opened session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c16",
+      "text": "Before sending from an exact-owner projectless desktop chat, mobile may persist its profile/model execution state through the selected routing project; owner identity remains exact and a different non-null project remains forbidden.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1285_projectless_session_state.test.ts",
+      "test_id": "issue-1285-c16: exact owner can update projectless state before sending",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c17",
+      "text": "Sending from mobile must not invoke OpenCode context compaction as a fallback for session title generation, including when a projectless session is absent from the selected project's scoped refresh result.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c17: sending a prompt never invokes context compaction as title generation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c18",
+      "text": "Internal OpenCode compaction request and summary records must not render as blank user bubbles or assistant transcript responses in mobile chat.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c18: internal compaction turns never render as chat bubbles",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c19",
+      "text": "Before a mobile prompt is forwarded to OpenCode, the API must start and await the session's event bridge so the completed turn persists and broadcasts to the desktop client even after an API restart.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1285_mobile_prompt_stream.test.ts",
+      "test_id": "issue-1285-c19: mobile prompts start desktop event persistence",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c20",
+      "text": "After prompt_async accepts a mobile turn, mobile must refresh until the new assistant turn is observable so a connected-but-filtered event stream cannot leave the response invisible.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1285-device-parity.test.mjs",
+      "test_id": "issue-1285-c20: async mobile sends install a delayed response refresh fallback",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1285-c21",
+      "text": "While a desktop-originated chat is open on mobile, new desktop user and assistant turns appear automatically without a manual refresh.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1283_mobile_desktop_live_stream.test.ts",
+      "test_id": "issue-1283-c1 / issue-1285-c21: an already-connected mobile stream receives a projectless desktop session transcript event",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

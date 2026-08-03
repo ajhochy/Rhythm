@@ -13,19 +13,40 @@ test.beforeEach(async ({ request }) => {
   expect(response.ok()).toBeTruthy();
 });
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page
+    .getByRole('button', { name: 'Agents menu', exact: true })
+    .locator('visible=true')
+    .click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 test('issue-1172-delta-c1/c2: lifecycle views, all projects, and fork are usable from Chats', async ({
   page,
 }) => {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  const create = page
-    .getByRole('button', { name: 'Create chat', exact: true })
-    .locator('visible=true');
+  const create = await openAgentsAction(page, 'Create chat');
   await expect(create).toBeEnabled({ timeout: 30_000 });
-  await create.click();
-  await page
+  await activateMenuItem(create);
+  const titleInput = page
     .getByLabel('Chat title', { exact: true })
-    .locator('visible=true')
-    .fill('Lifecycle proof');
+    .locator('visible=true');
+  await titleInput.fill('Lifecycle proof');
+  await expect(titleInput).toHaveValue('Lifecycle proof');
+  await titleInput.press('Tab');
   await page
     .getByRole('button', { name: 'Create', exact: true })
     .locator('visible=true')
@@ -38,15 +59,15 @@ test('issue-1172-delta-c1/c2: lifecycle views, all projects, and fork are usable
     .locator('visible=true')
     .click();
 
-  await expect(
-    page
-      .getByRole('button', { name: 'Filter chats by project', exact: true })
-      .locator('visible=true'),
-  ).toContainText('All projects');
-  await page
-    .getByTestId('chat-lifecycle-completed')
-    .locator('visible=true')
-    .click();
+  const allProjects = await openAgentsAction(
+    page,
+    'Filter chats by project',
+  );
+  await expect(allProjects).toContainText('All projects');
+  const completedChats = page
+    .getByRole('menuitem', { name: 'Completed chats', exact: true })
+    .locator('visible=true');
+  await activateMenuItem(completedChats);
   await expect(
     page.getByText('Lifecycle proof', { exact: true }).locator('visible=true'),
   ).toBeVisible();
@@ -66,10 +87,7 @@ test('issue-1172-delta-c1/c2: lifecycle views, all projects, and fork are usable
     .getByRole('button', { name: 'Back to Agents', exact: true })
     .locator('visible=true')
     .click();
-  await page
-    .getByTestId('chat-lifecycle-all')
-    .locator('visible=true')
-    .click();
+  await activateMenuItem(await openAgentsAction(page, 'All chat states'));
   await expect(
     page
       .getByText('Lifecycle proof (fork)', { exact: true })
@@ -88,7 +106,11 @@ test('issue-1172-delta-c6: unified Activity renders all six source kinds', async
   expect(activitySources.ok()).toBeTruthy();
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page
-    .getByRole('button', { name: 'Show activity', exact: true })
+    .getByRole('button', { name: 'Agents menu', exact: true })
+    .locator('visible=true')
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Activity', exact: true })
     .locator('visible=true')
     .click();
   for (const [title, source] of [

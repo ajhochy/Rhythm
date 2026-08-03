@@ -70,6 +70,9 @@ Important behavior:
 
 - data is fetched lazily when a session is opened or refreshed
 - message/diff/todo caches are updated by explicit refreshes, SSE events, and polling fallback
+- message caches merge by message id with per-session monotonic fetch tokens; partial or stale responses cannot shrink a hydrated transcript, and only explicit removal/revert/compaction paths delete records
+- older messages page in via the engine's `limit`+`before` cursor (`loadOlderMessages`), merged without duplicates
+- reopening a session whose transcript is already cached commits synchronously from the cache and revalidates in the background
 - permission and question entries are updated by SSE events, replies, and server list refreshes
 - current-session selectors only read the active or relevant session from these maps
 
@@ -185,6 +188,11 @@ Hydration rules:
 - a legacy plaintext settings password is removed from AsyncStorage only after its Keychain write succeeds
 - unavailable or locked Keychain access leaves connection persistence disabled for that launch, so it cannot replace a credential with an empty password
 - persisted chat preferences are merged over defaults and current provider state
+- profile, model, reasoning, and approval policy are authoritative on each
+  session record; opening or switching chats hydrates those four fields from
+  `MobileSession.rhythm`, never from the last global mobile selection
+- the persisted global preference object remains a fallback for non-execution
+  UI preferences such as speech, sound, and response presentation
 - active project path is restored if present
 - last-session map is restored if present
 - connection, chat preferences, active project, and last-session hydration fail independently so one unavailable store does not block the others

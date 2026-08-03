@@ -918,7 +918,16 @@ export class PairedHostStore {
       );
       throw new PairedHostError('request', message);
     }
-    if (operation !== this.operation) return this.snapshot();
+    if (operation !== this.operation) {
+      const current = this.snapshot();
+      if (
+        current.state === 'revoked' &&
+        current.host?.deviceId === host.deviceId
+      ) {
+        return this.forget();
+      }
+      return current;
+    }
     return this.forget();
   }
 

@@ -13,12 +13,31 @@ async function resetScenario(request) {
   expect(response.ok()).toBeTruthy();
 }
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 async function openReadyChat(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('button', { name: 'Create chat' })).toBeEnabled({
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled({
     timeout: 30_000,
   });
-  await page.getByRole('button', { name: 'Create chat' }).click();
+  await activateMenuItem(createChat);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByPlaceholder('Ask anything...')).toBeVisible({
     timeout: 30_000,
@@ -62,7 +81,10 @@ test('issue-1238-c2/c3: long multiline draft reaches its cap and scrolls interna
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
   expect(['auto', 'scroll']).toContain(metrics.overflowY);
   await expect(page.getByTestId('chat-primary-button')).toBeVisible();
-  await expect(page.getByRole('button', { name: /GPT-4\.1 mini/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Chat menu' }).click();
+  await expect(page.getByRole('heading', { name: 'Session configuration' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model, GPT-4\.1 mini/ })).toBeVisible();
+  await expect(input).toHaveValue(draft);
   await page.screenshot({ path: path.join(proofDir, 'multiline-grown.png'), fullPage: true });
 });
 

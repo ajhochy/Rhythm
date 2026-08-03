@@ -80,9 +80,19 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
       {
         id: 'proposal-high-risk',
         title: 'High-risk model change',
-        status: 'pending',
+        status: 'proposed',
         risk: 'high',
         rationale: 'Move the executive agent to a frontier model.',
+      },
+    ],
+    designs: [
+      {
+        id: 'design-sunday',
+        title: 'Sunday service graphic',
+        provider: 'built-in',
+        artifactType: 'png',
+        status: 'ready',
+        createdAt: now(),
       },
     ],
     skills: [
@@ -151,8 +161,7 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
       req.method === 'GET' &&
       (pathname.startsWith('/mobile-gateway/tools/') ||
         pathname.startsWith('/mobile-gateway/opencode/') ||
-        pathname === '/integrations/gmail-signals' ||
-        pathname === '/agent-designs');
+        pathname === '/integrations/gmail-signals');
     if (isToolRead && responseState !== 'data') {
       const statusByState = {
         offline: 503,
@@ -191,28 +200,23 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
       ]);
       return true;
     }
-    if (req.method === 'GET' && pathname === '/agent-designs') {
-      sendJson(res, 200, [
-        {
-          id: 'design-sunday',
-          title: 'Sunday service graphic',
-          status: 'ready',
-          thumbnailUrl: 'https://example.test/sunday.png',
-          createdAt: now(),
-        },
-      ]);
-      return true;
-    }
     if (req.method === 'GET' && pathname === '/mobile-gateway/opencode/provider') {
-      sendJson(res, 200, [
-        {
-          id: 'openai',
-          name: 'OpenAI',
-          providerID: 'openai',
-          configured: true,
-          enabled: true,
-        },
-      ]);
+      sendJson(res, 200, {
+        all: [
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            providerID: 'openai',
+            models: {
+              'gpt-4.1-mini': {
+                id: 'gpt-4.1-mini',
+                name: 'GPT-4.1 mini',
+              },
+            },
+          },
+        ],
+        connected: ['openai'],
+      });
       return true;
     }
     if (req.method === 'GET' && pathname === '/mobile-gateway/opencode/provider/auth') {
@@ -503,6 +507,17 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
         const item = find(state.proposals, id);
         if (item) item.status = action === 'approve' ? 'approved' : 'rejected';
         sendJson(res, 200, clone(item));
+        return true;
+      }
+    }
+
+    if (resource === 'agent-designs') {
+      if (req.method === 'GET' && parts.length === 1) {
+        sendJson(res, 200, clone(state.designs));
+        return true;
+      }
+      if (req.method === 'GET' && id && parts.length === 2) {
+        sendJson(res, 200, clone(find(state.designs, id)));
         return true;
       }
     }

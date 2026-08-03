@@ -314,6 +314,25 @@ export function buildClient(
   ) as ScopedOpencodeClient;
 }
 
+/**
+ * URL and auth headers for streaming `/global/event` from a directly
+ * connected OpenCode server outside the generated SDK (native SSE path).
+ */
+export function buildGlobalEventStreamRequest(
+  settings: OpencodeConnectionSettings,
+): { url: string; headers: Record<string, string> } {
+  const server = normalizeServerUrl(settings.serverUrl);
+  if (!server.valid) {
+    throw new Error('Cannot stream OpenCode events from an invalid server URL.');
+  }
+  const url = new URL(server.origin);
+  url.pathname = joinUrlPath(server.pathPrefix, '/global/event');
+  return {
+    url: url.toString(),
+    headers: { ...getRequestHeaders(settings) },
+  };
+}
+
 export async function requestOpenCodeRoute<T>(
   settings: OpencodeConnectionSettings,
   path: string,

@@ -178,6 +178,86 @@ try {
   const session = await request('/session', json('POST', { title: 'Smoke session' }));
   const sessionId = session.id;
   assert(sessionId, 'Session creation failed');
+  const gatewayHost = 'rhythm-mac.tail1234.ts.net';
+  const gatewayPrefix = `/__mobile/${gatewayHost}/mobile-gateway`;
+  const pairing = await request(`${gatewayPrefix}/pair`, json('POST', {
+    hostId: 'host-1',
+    deviceName: 'Fake server self-test',
+    pairingCode: 'a'.repeat(43),
+  }));
+  const gatewayHeaders = {
+    'Content-Type': 'application/json',
+    Authorization: `Device ${pairing.deviceToken}`,
+    'X-Rhythm-Project-ID': 'project-demo',
+  };
+  await assertStatus(
+    `${gatewayPrefix}/profile-catalog`,
+    403,
+    { headers: { Authorization: `Device ${pairing.deviceToken}` } },
+  );
+  const profileCatalog = await request(
+    `${gatewayPrefix}/profile-catalog`,
+    { headers: gatewayHeaders },
+  );
+  // Order-independent: MSP-002 puts Secretary first (the creation default), so
+  // assert membership rather than position, and check the safe-field allowlist
+  // on EVERY profile instead of only the first one.
+  for (const expectedProfileId of ['profile-secretary', 'profile-build']) {
+    assert(
+      profileCatalog.profiles.some(
+        (profile) => profile.profileId === expectedProfileId,
+      ),
+      `Expected safe mobile profile catalog to include ${expectedProfileId}`,
+    );
+  }
+  for (const profile of profileCatalog.profiles) {
+    assert(
+      Object.keys(profile).sort().join(',') ===
+        'defaults,display,name,opencodeAgentId,profileId',
+      'Mobile profile catalog exposed fields outside the safe allowlist',
+    );
+  }
+  const executionState = await request(
+    `${gatewayPrefix}/sessions/${sessionId}/state`,
+    {
+      method: 'PATCH',
+      headers: gatewayHeaders,
+      body: JSON.stringify({
+        profileId: 'profile-build',
+        opencodeAgentId: 'build',
+        providerId: 'openai',
+        modelId: 'gpt-4.1-mini',
+        thinkingBudget: null,
+        permissionMode: 'default',
+      }),
+    },
+  );
+  assert(
+    executionState.profileId === 'profile-build' &&
+      executionState.opencodeAgentId === 'build' &&
+      executionState.profileAvailability === 'available',
+    'Mobile session execution state was not persisted',
+  );
+  assert(
+    (await request(`/session/${sessionId}`)).rhythm.profileId === 'profile-build',
+    'Persisted mobile session execution state was not authoritative',
+  );
+  await assertStatus(
+    `${gatewayPrefix}/sessions/${sessionId}/state`,
+    400,
+    {
+      method: 'PATCH',
+      headers: gatewayHeaders,
+      body: JSON.stringify({
+        profileId: 'profile-build',
+        opencodeAgentId: 'secretary',
+        providerId: 'openai',
+        modelId: 'gpt-4.1-mini',
+        thinkingBudget: null,
+        permissionMode: 'default',
+      }),
+    },
+  );
   const renamed = await request(`/session/${sessionId}`, json('PATCH', { title: 'Renamed smoke session' }));
   assert(renamed.title === 'Renamed smoke session', 'Session rename failed');
 
@@ -188,6 +268,10 @@ try {
   const messages = await request(`/session/${sessionId}/message`);
   const userMessage = messages.find((message) => message.info.role === 'user');
   assert(messages.length >= 2, 'Expected user and assistant messages');
+  const newestMessagePage = await request(`/session/${sessionId}/message?limit=1`);
+  assert(newestMessagePage.length === 1 && newestMessagePage[0].info.id === messages.at(-1).info.id, 'Message limit did not return the newest record');
+  const olderMessagePage = await request(`/session/${sessionId}/message?limit=1&before=${newestMessagePage[0].info.id}`);
+  assert(olderMessagePage.length === 1 && olderMessagePage[0].info.id === messages.at(-2).info.id, 'Message before cursor did not page backward');
   assert((await request(`/session/${sessionId}/diff`)).length === 0, 'Expected message-scoped diff contract');
   assert((await request(`/session/${sessionId}/diff?messageID=${userMessage.info.id}`)).length > 0, 'Expected user message diff payload');
   assert((await request('/file/status')).length === 2, 'Expected completed task file status');

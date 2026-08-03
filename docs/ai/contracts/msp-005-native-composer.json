@@ -1,0 +1,65 @@
+{
+  "issue": 5,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-5-c1",
+      "text": "Grow smoothly from minimum height to a documented cap.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/chat/chat-composer.test.tsx",
+      "test_id": "issue-5-c1: grows from 24 points using the native content size",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-5-c2",
+      "text": "Beyond the cap scroll internally keeping the newest line/caret visible.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/chat/chat-composer.test.tsx",
+      "test_id": "issue-5-c2: keeps native scrolling active and clamps growth at 132 points",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-5-c3",
+      "text": "Send/attachment controls stay reachable above the keyboard.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a signed native iOS build with the software keyboard visible; web layout is not equivalent."
+    },
+    {
+      "criterion_id": "issue-5-c4",
+      "text": "Shrink after deletion.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/chat/chat-composer.test.tsx",
+      "test_id": "issue-5-c4: shrinks after deletion and resets after the draft is cleared",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-5-c5",
+      "text": "Component-level tests for height growth/cap/shrink logic (jest/react-native-testing-library, in apps/mobile/tests).",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/chat/chat-composer.test.tsx",
+      "test_id": "issue-5-c5: exercises growth, cap, and shrink through the Paper native event surface",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-5-c6",
+      "text": "Document the manual native matrix that remains (paste, rotation, keyboard transitions, Dynamic Type, VoiceOver, attachments, compact widths) as a checklist file under docs/testing/ for the orchestrator's native smoke.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Checklist existence is reviewable in source; executing the matrix requires the orchestrator's signed native build."
+    },
+    {
+      "criterion_id": "issue-5-c7",
+      "text": "Signed physical-iPhone evidence is REQUIRED before this workstream is done, and you cannot produce it.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "This run is prohibited from launching simulators, installing apps, or producing signed physical-device evidence."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-5-c3",
+    "issue-5-c6",
+    "issue-5-c7"
+  ]
+}

@@ -6,8 +6,22 @@ import { AppError } from '../errors/app_error';
 import {
   type MobileOpenCodeOwnershipStore,
 } from '../repositories/mobile_opencode_ownership_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  asOpenCodeAgentId,
+  asRhythmProfileId,
+} from '../models/agent_session';
 import { logger } from '../utils/logger';
+import {
+  expandProfileSkillAllowlist,
+  resolveProfileScope,
+} from './agent_profile_scope';
+import { capMcpAllowlistForProvider } from './gemini_tool_cap';
+import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   getMobileOpenCodeOwnershipRepository,
@@ -24,6 +38,19 @@ import {
   shapeMobileOpenCodeTextResponse,
   type MobileOpenCodeJsonFetcher,
 } from './mobile_opencode_security';
+import {
+  resolveProfileIdForOpenCodeAgent,
+  safeMobileSessionProfileState,
+} from './mobile_profile_catalog';
+import {
+  applySelectiveDeferral,
+  toolCountsForRoleConfig,
+} from './tool_surface_estimator';
+import { listOwnerUnscopedMobileChats } from './mobile_chat_catalog';
+import {
+  canUpdateMobileSessionState,
+  hasMobileSessionExecutionBinding,
+} from './mobile_session_state_scope';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -53,6 +80,7 @@ const PROMPT_FILE_PART_OPERATIONS = new Set([
 
 export const MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES = 512 * 1024;
 export const MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;
 const MOBILE_OPENCODE_TIMEOUT_MS = 30_000;
 
 type FetchFn = (
@@ -67,6 +95,16 @@ export interface MobileOpenCodeProxyOptions {
   responseBodyLimitBytes?: number;
   timeoutMs?: number;
   ownershipRepository?: MobileOpenCodeOwnershipStore;
+  preparePromptStream?: (
+    input: MobilePromptStreamInput,
+  ) => Promise<void>;
+}
+
+export interface MobilePromptStreamInput {
+  directory: string;
+  projectId: string;
+  sdkSessionId: string;
+  userId: number;
 }
 
 export interface MobileOpenCodeForwardInput {
@@ -77,11 +115,13 @@ export interface MobileOpenCodeForwardInput {
   project: MobileProjectScope;
   userId: number;
   accept?: string;
+  ownerUnscopedDiscovery?: boolean;
 }
 
 export interface MobileOpenCodeProxyResponse {
   status: number;
   contentType?: string;
+  headers?: Record<string, string>;
   body: Uint8Array;
 }
 
@@ -225,6 +265,12 @@ function reconcileCatalogSession(
   const time = recordField(value, 'time');
   const archived = recordField(time, 'archived');
   const updated = recordField(time, 'updated');
+  const model = recordField(value, 'model');
+  const opencodeAgentId = stringRecordField(value, 'agent');
+  const profileId = resolveProfileIdForOpenCodeAgent(
+    opencodeAgentId,
+    new AgentConfigsRepository().list(),
+  );
   const updatedAt =
     typeof updated === 'number' && Number.isFinite(updated)
       ? new Date(updated).toISOString()
@@ -242,6 +288,12 @@ function reconcileCatalogSession(
       name: stringRecordField(value, 'title', 'name') ?? 'Untitled chat',
       archivedAt,
       updatedAt,
+      profileId: profileId ? asRhythmProfileId(profileId) : null,
+      opencodeAgentId: opencodeAgentId
+        ? asOpenCodeAgentId(opencodeAgentId)
+        : null,
+      providerId: stringRecordField(model, 'providerID', 'providerId'),
+      modelId: stringRecordField(model, 'id', 'modelID', 'modelId'),
     });
   } catch (error) {
     if (failureMode === 'required') {
@@ -259,6 +311,58 @@ function reconcileCatalogSession(
       },
     );
   }
+}
+
+const SESSION_STATE_RESPONSE_OPERATIONS = new Set([
+  'experimental.session.list',
+  'session.children',
+  'session.create',
+  'session.list',
+  'session.update',
+]);
+
+function attachSafeSessionState(
+  operationId: string,
+  value: unknown,
+  input: MobileOpenCodeForwardInput,
+): unknown {
+  if (!SESSION_STATE_RESPONSE_OPERATIONS.has(operationId)) return value;
+
+  const attach = (candidate: unknown): unknown => {
+    const sdkSessionId = stringRecordField(candidate, 'id');
+    if (
+      !sdkSessionId ||
+      !candidate ||
+      typeof candidate !== 'object'
+    ) {
+      return candidate;
+    }
+    // Fail closed when the local catalog cannot be consulted (e.g. proxy
+    // exercised without an initialized database): deliver the session
+    // untouched rather than failing the whole forward or attaching state we
+    // could not verify.
+    let local: ReturnType<AgentSessionsRepository['findBySdkSessionId']>;
+    let profiles: ReturnType<AgentConfigsRepository['list']>;
+    try {
+      local = new AgentSessionsRepository().findBySdkSessionId(sdkSessionId);
+      if (
+        !local ||
+        !canUpdateMobileSessionState(local, input.userId, input.project.id) ||
+        !hasMobileSessionExecutionBinding(local)
+      ) {
+        return candidate;
+      }
+      profiles = new AgentConfigsRepository().list();
+    } catch {
+      return candidate;
+    }
+    return {
+      ...(candidate as Record<string, unknown>),
+      rhythm: safeMobileSessionProfileState(local, profiles),
+    };
+  };
+
+  return Array.isArray(value) ? value.map(attach) : attach(value);
 }
 
 function invalidPromptFileUrl(): AppError {
@@ -399,15 +503,174 @@ async function sanitizeRequestBody(
   return sanitizeRequestBodyBeforeScope(value, operationId, project);
 }
 
+const MOBILE_CORE_PERMISSION_ACTIONS = new Set([
+  'allow',
+  'ask',
+  'deny',
+] as const);
+
+type MobileCorePermissionRule = {
+  permission: string;
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+};
+
+function expandMobileCorePermissions(
+  corePermissionsJson: string | null,
+): MobileCorePermissionRule[] | undefined {
+  if (corePermissionsJson === null) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(corePermissionsJson);
+  } catch {
+    throw AppError.internal('Mobile profile permissions are invalid');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw AppError.internal('Mobile profile permissions are invalid');
+  }
+
+  const rules: MobileCorePermissionRule[] = [];
+  for (const [permission, value] of Object.entries(parsed)) {
+    if (!permission.trim()) {
+      throw AppError.internal('Mobile profile permissions are invalid');
+    }
+    if (typeof value === 'string') {
+      if (!MOBILE_CORE_PERMISSION_ACTIONS.has(
+        value as MobileCorePermissionRule['action'],
+      )) {
+        throw AppError.internal('Mobile profile permissions are invalid');
+      }
+      rules.push({
+        permission,
+        pattern: '*',
+        action: value as MobileCorePermissionRule['action'],
+      });
+      continue;
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw AppError.internal('Mobile profile permissions are invalid');
+    }
+    for (const [pattern, action] of Object.entries(value)) {
+      if (
+        !pattern.trim() ||
+        typeof action !== 'string' ||
+        !MOBILE_CORE_PERMISSION_ACTIONS.has(
+          action as MobileCorePermissionRule['action'],
+        )
+      ) {
+        throw AppError.internal('Mobile profile permissions are invalid');
+      }
+      rules.push({
+        permission,
+        pattern,
+        action: action as MobileCorePermissionRule['action'],
+      });
+    }
+  }
+  return rules;
+}
+
+async function applyMobileSessionCreateScope(
+  value: unknown,
+  operationId: string,
+): Promise<unknown> {
+  if (
+    operationId !== 'session.create' ||
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return value;
+  }
+
+  const body = value as Record<string, unknown>;
+  const rawProfileId = body.profileId;
+  // Older mobile clients did not send the selected profile until a follow-up
+  // state PATCH. Preserve their create behavior while current clients move the
+  // profile identity into this atomic request.
+  if (rawProfileId === undefined) return body;
+  if (typeof rawProfileId !== 'string' || rawProfileId.trim() === '') {
+    throw AppError.badRequest('profileId must be a non-empty string');
+  }
+
+  const profileId = rawProfileId.trim();
+  const profile = new AgentConfigsRepository().getById(profileId);
+  if (
+    !profile ||
+    !profile.sessionSelectable ||
+    agentConfigExecutionBlockReason(profile) !== null ||
+    !profile.ocAgent
+  ) {
+    throw AppError.notFound('Mobile profile');
+  }
+
+  // Resolve the exact same profile tuple used by desktop/WS creation. The
+  // custom profileId is gateway metadata only and must never reach OpenCode.
+  const scope = await resolveProfileScope(profileId);
+  const scopedBody = Object.fromEntries(
+    Object.entries(body).filter(([field]) =>
+      field !== 'profileId' &&
+      field !== 'agent' &&
+      field !== 'model' &&
+      field !== 'permission' &&
+      field !== 'mcpAllowlist' &&
+      field !== 'skillAllowlist'),
+  );
+
+  scopedBody.agent = profile.ocAgent;
+  scopedBody.model = {
+    providerID: scope.model.providerID,
+    id: scope.model.modelID,
+  };
+
+  const permission = expandMobileCorePermissions(
+    profile.corePermissionsJson,
+  );
+  if (permission !== undefined) scopedBody.permission = permission;
+
+  if (scope.mcpRoleConfig) {
+    const expanded = applySelectiveDeferral(
+      expandMcpAllowlist(scope.mcpRoleConfig),
+      toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers),
+      scope.model.providerID,
+    );
+    const capped = capMcpAllowlistForProvider(
+      expanded,
+      scope.model.providerID,
+    );
+    if (capped.trimmed) {
+      logger.warn(capped.warning ?? '[GeminiToolCap] allowlist trimmed');
+    }
+    scopedBody.mcpAllowlist = capped.allowlist;
+  }
+
+  const skillAllowlist = expandProfileSkillAllowlist(
+    scope.allowedSkillsJson,
+  );
+  if (skillAllowlist !== undefined) {
+    scopedBody.skillAllowlist = skillAllowlist;
+  }
+
+  return scopedBody;
+}
+
 function scopedQuery(
   callerQuery: URLSearchParams,
   project: MobileProjectScope,
   operationId: string,
+  ownerUnscopedDiscovery = false,
 ): URLSearchParams {
   const scoped = new URLSearchParams();
   for (const [field, value] of callerQuery.entries()) {
     const normalizedField = field.toLowerCase();
     if (ROOT_FIELDS.has(normalizedField)) continue;
+    if (
+      operationId === 'session.messages' &&
+      normalizedField === 'limit'
+    ) {
+      continue;
+    }
     if (
       normalizedField === 'path' &&
       SCOPED_PATH_QUERY_OPERATIONS.has(operationId)
@@ -422,7 +685,10 @@ function scopedQuery(
     }
     scoped.append(field, value);
   }
-  scoped.set('directory', project.root);
+  if (operationId === 'session.messages') {
+    scoped.set('limit', String(MOBILE_SESSION_MESSAGE_PAGE_SIZE));
+  }
+  if (!ownerUnscopedDiscovery) scoped.set('directory', project.root);
   return scoped;
 }
 
@@ -527,6 +793,9 @@ export class MobileOpenCodeProxy {
   private readonly timeoutMs: number;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipStore;
+  private readonly preparePromptStream: (
+    input: MobilePromptStreamInput,
+  ) => Promise<void>;
 
   constructor(options: MobileOpenCodeProxyOptions = {}) {
     this.baseUrl = (
@@ -541,6 +810,18 @@ export class MobileOpenCodeProxy {
       MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES;
     this.timeoutMs = options.timeoutMs ?? MOBILE_OPENCODE_TIMEOUT_MS;
     this.configuredOwnershipRepository = options.ownershipRepository;
+    this.preparePromptStream = options.preparePromptStream ??
+      (async ({ directory, sdkSessionId, userId }) => {
+        const localSession = new AgentSessionsRepository()
+          .findBySdkSessionId(sdkSessionId);
+        if (!localSession || localSession.ownerUserId !== userId) return;
+        const { streamBridge } = await import('./opencode_stream_bridge');
+        await streamBridge.streamSession(
+          localSession.id,
+          sdkSessionId,
+          directory,
+        );
+      });
   }
 
   async forward(
@@ -557,8 +838,84 @@ export class MobileOpenCodeProxy {
       ownerUserId: input.userId,
       ownership,
     };
+    const addressedSessionId = operationPathParameter(
+      operation.path,
+      input.path,
+      'sessionID',
+    );
+    const authoritativeSessionDirectory = addressedSessionId
+      ? ownership.resolveSessionDirectoryForOwner?.(
+          addressedSessionId,
+          input.userId,
+          input.project.id,
+        )
+      : null;
+    const requestProject = authoritativeSessionDirectory
+      ? { ...input.project, root: authoritativeSessionDirectory }
+      : input.project;
 
-    const query = scopedQuery(input.query, input.project, operation.operationId);
+    const ownerUnscopedDiscovery = input.ownerUnscopedDiscovery === true;
+    if (
+      ownerUnscopedDiscovery &&
+      operation.operationId !== 'experimental.session.list'
+    ) {
+      throw operationNotAllowed();
+    }
+
+    const query = scopedQuery(
+      input.query,
+      requestProject,
+      operation.operationId,
+      ownerUnscopedDiscovery,
+    );
+    if (ownerUnscopedDiscovery) {
+      const requestedLimit = Number(query.get('limit'));
+      const requestedCursor = Number(query.get('cursor'));
+      const limit = Number.isSafeInteger(requestedLimit)
+        ? Math.max(1, Math.min(100, requestedLimit))
+        : 100;
+      const cursor = Number.isSafeInteger(requestedCursor) && requestedCursor >= 0
+        ? requestedCursor
+        : 0;
+      const page = await listOwnerUnscopedMobileChats({
+        archived: query.get('archived') === 'true',
+        cursor,
+        limit,
+        ownerUserId: input.userId,
+        projectId: input.project.id,
+        sessionId: query.get('search')?.trim() || undefined,
+      });
+      const safeBody = Buffer.from(JSON.stringify(
+        page.items.map((item) => {
+          const projectId = typeof item.projectId === 'string' &&
+              item.projectId.trim().length > 0
+            ? item.projectId
+            : null;
+          return {
+            ...item,
+            projectId,
+            ...(projectId === null
+              ? { routingProjectId: input.project.id }
+              : {}),
+          };
+        }),
+      ));
+      if (safeBody.byteLength > this.responseBodyLimitBytes) {
+        throw new AppError(
+          502,
+          'UPSTREAM_RESPONSE_TOO_LARGE',
+          'OpenCode response exceeded the mobile gateway limit',
+        );
+      }
+      return {
+        status: 200,
+        contentType: 'application/json',
+        ...(page.nextCursor === null
+          ? {}
+          : { headers: { 'x-next-cursor': String(page.nextCursor) } }),
+        body: safeBody,
+      };
+    }
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
     const acceptsBody = operation.method !== 'GET';
     const callerBody = !acceptsBody || input.body === undefined
@@ -581,14 +938,14 @@ export class MobileOpenCodeProxy {
       sanitizeRequestBodyBeforeScope(
         input.body,
         operation.operationId,
-        input.project,
+        requestProject,
       );
     }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const fetchJson: MobileOpenCodeJsonFetcher = async (path) => {
-        const scoped = new URLSearchParams({ directory: input.project.root });
+        const scoped = new URLSearchParams({ directory: requestProject.root });
         const response = await this.fetchFn(
           `${this.baseUrl}${path}?${scoped.toString()}`,
           {
@@ -623,7 +980,7 @@ export class MobileOpenCodeProxy {
       await authorizeMobileOpenCodeOperation(
         operation,
         input.path,
-        input.project,
+        requestProject,
         fetchJson,
         input.query,
         input.body,
@@ -634,12 +991,18 @@ export class MobileOpenCodeProxy {
         : await sanitizeRequestBody(
           input.body,
           operation.operationId,
-          input.project,
+          requestProject,
           fetchJson,
         );
-      const encodedBody = sanitizedBody === undefined
+      const scopedBody = sanitizedBody === undefined
         ? undefined
-        : JSON.stringify(sanitizedBody);
+        : await applyMobileSessionCreateScope(
+          sanitizedBody,
+          operation.operationId,
+        );
+      const encodedBody = scopedBody === undefined
+        ? undefined
+        : JSON.stringify(scopedBody);
       if (
         encodedBody !== undefined &&
         Buffer.byteLength(encodedBody, 'utf8') > this.requestBodyLimitBytes
@@ -649,6 +1012,17 @@ export class MobileOpenCodeProxy {
           'REQUEST_TOO_LARGE',
           'OpenCode request exceeded the mobile gateway limit',
         );
+      }
+      if (
+        operation.operationId === 'session.prompt_async' &&
+        addressedSessionId
+      ) {
+        await this.preparePromptStream({
+          directory: requestProject.root,
+          projectId: input.project.id,
+          sdkSessionId: addressedSessionId,
+          userId: input.userId,
+        });
       }
       const response = await this.fetchFn(url, {
         method: operation.method,
@@ -807,12 +1181,19 @@ export class MobileOpenCodeProxy {
         const safeValue = await shapeMobileOpenCodeResponse(
           operation,
           value,
-          input.project,
+          requestProject,
           fetchJson,
           input.path,
           owner,
+          ownerUnscopedDiscovery,
         );
-        const safeBody = Buffer.from(JSON.stringify(safeValue));
+        const safeBody = Buffer.from(JSON.stringify(
+          attachSafeSessionState(
+            operation.operationId,
+            safeValue,
+            input,
+          ),
+        ));
         if (safeBody.byteLength > this.responseBodyLimitBytes) {
           throw new AppError(
             502,
@@ -823,6 +1204,14 @@ export class MobileOpenCodeProxy {
         return {
           status: response.status,
           contentType,
+          ...(operation.operationId === 'experimental.session.list' &&
+              /^\d+$/.test(response.headers.get('x-next-cursor') ?? '')
+            ? {
+                headers: {
+                  'x-next-cursor': response.headers.get('x-next-cursor')!,
+                },
+              }
+            : {}),
           body: safeBody,
         };
       }

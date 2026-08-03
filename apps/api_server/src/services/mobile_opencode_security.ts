@@ -215,15 +215,68 @@ function resourceOwnedByCaller(
   project: MobileProjectScope,
   owner: MobileOpenCodeOwnerScope,
 ): boolean {
-  return Boolean(resourceId) &&
-    Number.isSafeInteger(owner.ownerUserId) &&
-    owner.ownerUserId > 0 &&
+  if (
+    !resourceId ||
+    !Number.isSafeInteger(owner.ownerUserId) ||
+    owner.ownerUserId <= 0
+  ) {
+    return false;
+  }
+  if (
     owner.ownership.isResourceOwnedBy(
       kind,
-      resourceId!,
+      resourceId,
       owner.ownerUserId,
       project.id,
+    )
+  ) {
+    return true;
+  }
+  return kind === 'session' &&
+    Boolean(
+      owner.ownership.isSessionOwnedByDesktopCatalog?.(
+        resourceId,
+        owner.ownerUserId,
+        project.id,
+      ),
     );
+}
+
+function sessionVisibleInChatCatalog(
+  resourceId: string | undefined,
+  projectId: string | null,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+): boolean {
+  if (!resourceId) return false;
+  if (
+    projectId !== null &&
+    owner.ownership.isResourceExplicitlyOwnedBy?.(
+      'session',
+      resourceId,
+      owner.ownerUserId,
+      project.id,
+    )
+  ) {
+    return true;
+  }
+  const catalogPredicate = owner.ownership.isSessionVisibleInChatCatalog;
+  if (catalogPredicate) {
+    return catalogPredicate.call(
+      owner.ownership,
+      resourceId,
+      owner.ownerUserId,
+      projectId,
+    );
+  }
+  // Older injected test repositories predate the catalog predicate. Preserve
+  // their project-scoped behavior, but fail closed for unscoped discovery.
+  return projectId !== null && resourceOwnedByCaller(
+    'session',
+    resourceId,
+    project,
+    owner,
+  );
 }
 
 async function projectSessions(
@@ -714,6 +767,25 @@ function safeWorktreeValue(
   };
 }
 
+function safeUnscopedChatSessionView(
+  value: unknown,
+  project: MobileProjectScope,
+): unknown {
+  const scrubbed = scrubMobileValue(value, project);
+  if (!isRecord(scrubbed)) return null;
+  const {
+    directory: _directory,
+    project: _project,
+    projectID: _projectID,
+    projectId: _projectId,
+    ...safe
+  } = scrubbed;
+  return {
+    ...safe,
+    projectId: null,
+  };
+}
+
 function messageBelongsToSession(value: unknown, sessionId: string): boolean {
   if (!isRecord(value)) return false;
   const info = isRecord(value.info) ? value.info : {};
@@ -734,6 +806,7 @@ export async function shapeMobileOpenCodeResponse(
   fetchJson: MobileOpenCodeJsonFetcher,
   requestPath?: string,
   owner?: MobileOpenCodeOwnerScope,
+  ownerUnscopedDiscovery = false,
 ): Promise<unknown> {
   if (!owner) throw resourceNotFound();
   const scope: ResourceScope = {};
@@ -757,7 +830,38 @@ export async function shapeMobileOpenCodeResponse(
         .map((candidate) => safeProjectView(candidate, project));
       break;
     case 'session.list':
+      scopedValue = asArray(value)
+        .filter((session) =>
+          sessionBelongsToProject(session, project) &&
+          sessionVisibleInChatCatalog(
+            stringField(session, 'id'),
+            project.id,
+            project,
+            owner,
+          ));
+      break;
     case 'experimental.session.list':
+      scopedValue = ownerUnscopedDiscovery
+        ? asArray(value)
+          .filter((session) =>
+            sessionVisibleInChatCatalog(
+              stringField(session, 'id'),
+              null,
+              project,
+              owner,
+            ))
+          .map((session) => safeUnscopedChatSessionView(session, project))
+          .filter((session) => session !== null)
+        : asArray(value)
+          .filter((session) =>
+            sessionBelongsToProject(session, project) &&
+            sessionVisibleInChatCatalog(
+              stringField(session, 'id'),
+              project.id,
+              project,
+              owner,
+            ));
+      break;
     case 'session.children':
       scopedValue = asArray(value)
         .filter((session) =>
@@ -1055,21 +1159,73 @@ function collectOwnedSseIds(
   }
 }
 
+function mobileSseEventBelongsToOwnedSessionDirectory(
+  value: unknown,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+  sessionIds: Set<string>,
+): boolean {
+  if (!isRecord(value) || sessionIds.size === 0) return false;
+  const eventDirectory = value.directory;
+  if (
+    typeof eventDirectory !== 'string' ||
+    eventDirectory.includes('\0')
+  ) {
+    return false;
+  }
+  const resolveDirectory =
+    owner.ownership.resolveSessionDirectoryForOwner;
+  if (!resolveDirectory) return false;
+
+  const authorizedDirectories = [...sessionIds].map((sessionId) =>
+    resolveDirectory.call(
+      owner.ownership,
+      sessionId,
+      owner.ownerUserId,
+      project.id,
+    )
+  );
+  if (authorizedDirectories.some((directory) => !directory)) return false;
+  let normalizedEventDirectory: string;
+  try {
+    normalizedEventDirectory = canonicalize(eventDirectory);
+  } catch {
+    return false;
+  }
+  if (authorizedDirectories.some((directory) => {
+    try {
+      return canonicalize(directory!) !== normalizedEventDirectory;
+    } catch {
+      return true;
+    }
+  })) {
+    return false;
+  }
+
+  const paths: string[] = [];
+  const nestedSessionIds = new Set<string>();
+  const resourceIds = new Set<string>();
+  collectSseResourceEvidence(
+    value,
+    paths,
+    nestedSessionIds,
+    resourceIds,
+  );
+  const sessionScope = {
+    id: project.id,
+    root: normalizedEventDirectory,
+  };
+  return paths.every((path) =>
+    mobilePathBelongsToProject(path, sessionScope)
+  );
+}
+
 export function mobileSseEventBelongsToOwner(
   value: unknown,
   project: MobileProjectScope,
   owner: MobileOpenCodeOwnerScope,
   expectedSessionId?: string,
 ): boolean {
-  if (
-    !mobileSseEventBelongsToProject(
-      value,
-      project,
-      expectedSessionId,
-    )
-  ) {
-    return false;
-  }
   const type = mobileSseType(value);
   if (type === 'server.connected' || type === 'server.heartbeat') return true;
 
@@ -1088,6 +1244,21 @@ export function mobileSseEventBelongsToOwner(
   }
   if (type?.startsWith('pty.') && typeof info.id === 'string') {
     ptyIds.add(info.id);
+  }
+  if (
+    !mobileSseEventBelongsToProject(
+      value,
+      project,
+      expectedSessionId,
+    ) &&
+    !mobileSseEventBelongsToOwnedSessionDirectory(
+      value,
+      project,
+      owner,
+      sessionIds,
+    )
+  ) {
+    return false;
   }
   if (
     expectedSessionId &&

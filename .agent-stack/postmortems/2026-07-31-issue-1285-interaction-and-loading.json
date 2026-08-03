@@ -1,0 +1,84 @@
+{
+  "run_id": "2026-07-31-issue-1285-interaction-and-loading",
+  "issue": 1285,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1285-c8",
+      "text": "An exact-owner projectless desktop human chat is interactive from mobile, while retaining projectId null and using a separate registered-project routing context for gateway authorization.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "User report: why is it still saying read only? i want to be able to interact with it."
+    },
+    {
+      "criterion_id": "issue-1285-c9",
+      "text": "The Opening chat screen always exposes Back to chats, which cancels the in-flight open and returns to Agents.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "User report: there is no way to back out of the opening chat loading screen."
+    },
+    {
+      "criterion_id": "issue-1285-c10",
+      "text": "Opening a chat becomes ready after its bounded message page loads; diff, todos, permissions, and questions refresh afterward and cannot hold the opening screen hostage.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "User report: it is loading, for a long time. does not feel like its going to connect."
+    },
+    {
+      "criterion_id": "issue-1285-c11",
+      "text": "Chats publishes the first 10 owner sessions immediately, then merges remaining owner pages and project batches progressively without keeping the initial list loader active.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "User report: it takes a while to load initial sessions list too; maybe it only needs to load 10 at a time, the first ten quick, but then the rest on delay."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "The prior handoff described projectless chats as openable and bounded after automated verification, but the physical-device journey still exposed read-only state, blocking supplemental loads, and no cancellation path.",
+        "detected_by": "Physical-iPhone user smoke after the passing CI and live backend checks."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/mobile_chat_catalog.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/api_server/src/services/mobile_opencode_security.ts",
+    "apps/mobile/app/agents/chats/[sessionId].tsx",
+    "apps/mobile/components/chat/chat-list.tsx",
+    "apps/mobile/providers/agent-chat-provider.tsx",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/services/session-service.ts"
+  ],
+  "failure_output": "Projectless chats were labeled read-only; opening waited indefinitely without Back; the initial session catalog remained behind one eager full-load spinner.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Gate mobile chat delivery on an automated progressive-discovery and full interactive open journey that proves first-page latency, cancellation, messages-first readiness, and owner-authorized prompting."
+}

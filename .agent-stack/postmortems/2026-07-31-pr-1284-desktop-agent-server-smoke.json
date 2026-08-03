@@ -1,0 +1,54 @@
+{
+  "run_id": "2026-07-31-pr-1284-desktop-agent-server-smoke",
+  "issue": 1284,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "pr-1284-desktop-launch-c1",
+      "text": "The desktop app launched from the pull-request worktree starts its local agent server and makes it reachable on port 4001.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "AJ reported that the launched desktop app had no agent-server connection; direct health probes to 127.0.0.1:4001 were refused. The Flutter desktop binary was running, but the isolated worktree had no apps/api_server/node_modules and no PR-worktree API process started."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "isolated-worktree-dependencies",
+      "description": "The launch preflight installed Flutter and mobile dependencies but did not verify package-local api_server dependencies before flutter run. The desktop shell built and opened while its npx tsx child could not start from the dependency-empty PR worktree.",
+      "detected_by": "User-visible disconnected state, connection-refused health probes, process inspection, and the missing apps/api_server/node_modules directory."
+    },
+    {
+      "process_category": "dev-engine-selection",
+      "description": "After API dependencies were restored, a plain Flutter relaunch selected the stock PATH OpenCode binary. That binary rejected the current managed config key 'reference', so the API was healthy but agent sessions remained unavailable until RHYTHM_OPENCODE_BIN_DIR selected the PR worktree fork.",
+      "detected_by": "Flutter/api_server logs showed 'engine: opencode resolved from PATH', 'Unrecognized key: reference', and ECONNREFUSED on port 4096; the corrected relaunch logged the PR fork path and 'SDK initialized'."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/server.ts",
+    "apps/mobile/app/(tabs)/agents.tsx",
+    "apps/mobile/components/chat/chat-composer.tsx",
+    "apps/mobile/components/chat/session-configuration-sheet.tsx"
+  ],
+  "failure_output": "AJ: problem w/ desktop - no agent server connecting. curl: (7) Failed to connect to 127.0.0.1 port 4001. Flutter stderr: Error: Cannot find module 'dotenv'; require stack: apps/api_server/src/server.ts. ApiServerService: Server exited with code 1; Server did not become ready in time.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Before a worktree-local Flutter smoke, require apps/api_server/node_modules/.bin/tsx, launch with the built PR fork through RHYTHM_OPENCODE_BIN_DIR, and assert both /health and /opencode/health before handoff."
+}

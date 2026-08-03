@@ -1,0 +1,96 @@
+{
+  "issue": 1279,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1279-c1",
+      "text": "a session created directly in agent_sessions with owner_user_id=A, project_id=P, no claim-table row → IS visible to caller A in project P via the mobile gateway's session-list shaping path",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c1: a desktop-owned session without a claim is visible to its owner in its project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c2",
+      "text": "that same session is NOT visible to caller B (different owner_user_id) even in the same project",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c2: desktop ownership fallback rejects another user in the same project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c3",
+      "text": "a session with owner_user_id=A but project_id=Q (different project) is NOT visible to caller A scoped to project P",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c3: desktop ownership fallback rejects the owner in another project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c4",
+      "text": "In resourceOwnedByCaller, treat a resource as owned if EITHER the explicit claim table says so (current behavior, keep it) OR the new desktop-ownership fallback says so.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c4: explicit session claims remain visible",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c5",
+      "text": "Do NOT relax isResourceExplicitlyOwnedBy — reconcileCatalogSession's use of it should still mean \"has an explicit claim,\" since it's writing back metadata, not just reading visibility.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c5: desktop catalog ownership does not become an explicit claim",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c6",
+      "text": "This only applies to kind === 'session' — ptys have no desktop-side ownership record to fall back to, leave pty ownership exactly as-is.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c6: desktop session ownership never grants PTY visibility",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c7",
+      "text": "same owner + NULL project is allowed",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c7: same owner can see a desktop session with no project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c8",
+      "text": "same owner + empty project is allowed if representation permits",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c8: same owner can see a desktop session with an empty project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c9",
+      "text": "different owner is denied even with NULL project",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c9: a different owner cannot see a desktop session with no project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c10",
+      "text": "non-null mismatched project remains denied",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c10: a non-empty mismatched project remains denied",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c11",
+      "text": "matched project remains allowed",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c11: a non-empty matched project remains visible",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

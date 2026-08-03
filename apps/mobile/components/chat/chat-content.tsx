@@ -32,10 +32,12 @@ type ChatContentProps = {
   diffDetails: DiffDetail[];
   displayTranscript: TranscriptEntry[];
   expandedDiffId?: string;
+  hasOlderMessages: boolean;
   isRefreshingDiffs: boolean;
   isRefreshingMessages: boolean;
   onCopyMessage: (entry: TranscriptEntry) => void;
   onForkMessage: (messageId: string) => void;
+  onLoadOlderMessages: () => void;
   onRevertMessage: (messageId: string) => void;
   onUnrevert: () => void;
   onExpandDiff: (id?: string) => void;
@@ -68,10 +70,12 @@ export function ChatContent({
   diffDetails,
   displayTranscript,
   expandedDiffId,
+  hasOlderMessages,
   isRefreshingDiffs,
   isRefreshingMessages,
   onCopyMessage,
   onForkMessage,
+  onLoadOlderMessages,
   onRevertMessage,
   onUnrevert,
   onExpandDiff,
@@ -145,13 +149,27 @@ export function ChatContent({
               />
             </View>
           )}
-          ListHeaderComponent={connection.status === 'error' ? (
-            <Card mode="contained" style={[styles.noticeCard, styles.transcriptItem, { backgroundColor: palette.surface }]}>
-              <Card.Content>
-                <Text variant="titleMedium" style={{ color: palette.text }}>Connection issue</Text>
-                <Text variant="bodyMedium" style={{ color: palette.muted }}>{connection.message}</Text>
-              </Card.Content>
-            </Card>
+          ListHeaderComponent={hasOlderMessages || connection.status === 'error' ? (
+            <View style={styles.transcriptItem}>
+              {hasOlderMessages ? (
+                <Button
+                  compact
+                  disabled={isRefreshingMessages}
+                  loading={isRefreshingMessages}
+                  mode="text"
+                  onPress={onLoadOlderMessages}>
+                  Load earlier messages
+                </Button>
+              ) : null}
+              {connection.status === 'error' ? (
+                <Card mode="contained" style={[styles.noticeCard, { backgroundColor: palette.surface }]}>
+                  <Card.Content>
+                    <Text variant="titleMedium" style={{ color: palette.text }}>Connection issue</Text>
+                    <Text variant="bodyMedium" style={{ color: palette.muted }}>{connection.message}</Text>
+                  </Card.Content>
+                </Card>
+              ) : null}
+            </View>
           ) : null}
           ListEmptyComponent={(
             <Card mode="contained" style={[styles.emptyCard, { backgroundColor: palette.surface }]}>

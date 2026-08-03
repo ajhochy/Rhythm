@@ -1,24 +1,20 @@
-import { Keyboard, View } from 'react-native';
-import { Chip, IconButton, Surface, Text, TextInput } from 'react-native-paper';
-import { useState } from 'react';
+import { Keyboard, TextInput, View } from 'react-native';
+import { Chip, IconButton, Surface, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
-import { ControlButton, SelectControl } from '@/components/chat/chat-controls';
 import { styles } from '@/components/chat/chat-view-styles';
-import { getAutoApproveIcon, getModelLabel, REASONING_OPTIONS } from '@/components/chat/chat-view-utils';
-import { renderProviderIcon } from '@/components/ui/provider-icon';
-import type { AgentOption, ChatPreferences, ModelOption } from '@/providers/opencode-provider';
-import type { ModelPickerGroup } from '@/providers/opencode-provider-selectors';
 import type { Command } from '@/lib/opencode/types';
 
 type Palette = typeof Colors.light;
 
 type Attachment = { uri: string; mime?: string; filename?: string };
 
+const MIN_INPUT_HEIGHT = 24;
+// Six 22-point lines; taller drafts scroll inside the native text view.
+const MAX_INPUT_HEIGHT = 132;
+
 type ChatComposerProps = {
   attachments: Attachment[];
-  availableAgents: AgentOption[];
-  chatPreferences: ChatPreferences;
   connectionStatus: 'idle' | 'connecting' | 'connected' | 'error';
   conversation: { active: boolean; isListening: boolean; phase: string; statusLabel?: string };
   draft: string;
@@ -27,28 +23,20 @@ type ChatComposerProps = {
   isSpeechInputAvailable: boolean;
   isSpeechInputListening: boolean;
   isStoppingSession: boolean;
-  isUpdatingAutoApprove: boolean;
   onAttach: () => void;
   onDraftChange: (value: string) => void;
   onRemoveAttachment: (index: number) => void;
   onSend: () => void;
-  onToggleAutoApprove: () => void;
   onToggleRecording: () => void;
   palette: Palette;
-  selectedAgentLabel: string;
   showSendAction: boolean;
   currentSessionId?: string;
-  modelPickerGroups: ModelPickerGroup[];
-  visibleModels: ModelOption[];
-  updateChatPreferences: (patch: Partial<ChatPreferences>) => void;
   commands: Command[];
   onCommandSelect: (command: string) => void;
 };
 
 export function ChatComposer({
   attachments,
-  availableAgents,
-  chatPreferences,
   connectionStatus,
   conversation,
   currentSessionId,
@@ -59,23 +47,15 @@ export function ChatComposer({
   isSpeechInputAvailable,
   isSpeechInputListening,
   isStoppingSession,
-  isUpdatingAutoApprove,
-  modelPickerGroups,
   onAttach,
   onCommandSelect,
   onDraftChange,
   onRemoveAttachment,
   onSend,
-  onToggleAutoApprove,
   onToggleRecording,
   palette,
-  selectedAgentLabel,
   showSendAction,
-  updateChatPreferences,
-  visibleModels,
 }: ChatComposerProps) {
-  const minInputHeight = 24;
-  const maxInputHeight = 132;
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const showOuterAction = showSendAction ? (hasComposerContent ? 'send' : 'attach') : 'stop';
   const outerActionIcon = showOuterAction === 'attach' ? 'plus' : showOuterAction;
@@ -92,66 +72,10 @@ export function ChatComposer({
   const handleOuterActionPress = showOuterAction === 'attach' ? onAttach : onSend;
   const handleInnerActionPress = hasComposerContent ? onAttach : onToggleRecording;
 
-  const [inputHeight, setInputHeight] = useState(minInputHeight);
-
   return (
     <Surface
       style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insetsBottom, 12) }]}
       elevation={4}>
-      <View style={styles.controlsRow}>
-        <SelectControl
-          disabled={availableAgents.length === 0}
-          grow
-          iconName="robot-outline"
-          label={selectedAgentLabel}
-          onValueChange={(value) => updateChatPreferences({ mode: value })}
-          options={availableAgents.map((agent) => ({ value: agent.id, label: agent.label }))}
-          selectedValue={chatPreferences.mode}
-          title="Choose assistant mode"
-        />
-        <SelectControl
-          disabled={visibleModels.length === 0}
-          grow
-          icon={(props) => renderProviderIcon(visibleModels.find((model) => model.id === chatPreferences.modelId)?.providerID, props.size, props.color)}
-          label={getModelLabel(visibleModels, chatPreferences.modelId)}
-          onValueChange={(value) => {
-            const model = visibleModels.find((item) => item.id === value);
-            if (!model) {
-              return;
-            }
-            updateChatPreferences({ providerId: model.providerID, modelId: model.id });
-          }}
-          options={modelPickerGroups.flatMap((group) => group.models.map((model) => ({
-            description: [
-              group.accountLabel,
-              model.rankLabel,
-              model.supportsReasoning ? 'Reasoning' : undefined,
-            ].filter(Boolean).join(' · '),
-            label: model.label,
-            leadingIcon: (props: { size: number; color: string }) =>
-              renderProviderIcon(model.providerID, props.size, props.color),
-            sectionLabel: group.accountLabel === group.providerLabel
-              ? group.providerLabel
-              : `${group.providerLabel} — ${group.accountLabel}`,
-            value: model.id,
-          })))}
-          selectedValue={chatPreferences.modelId}
-          title="Choose model"
-        />
-        <SelectControl
-          grow
-          iconName="brain"
-          label={chatPreferences.reasoning}
-          onValueChange={(value) => updateChatPreferences({ reasoning: value })}
-          options={REASONING_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
-          selectedValue={chatPreferences.reasoning}
-          title="Choose reasoning level"
-        />
-        <ControlButton active={chatPreferences.autoApprove} iconName={getAutoApproveIcon(chatPreferences.autoApprove)} iconOnly loading={isUpdatingAutoApprove} onPress={onToggleAutoApprove}>
-          {chatPreferences.autoApprove ? 'Auto approve enabled' : 'Ask permission'}
-        </ControlButton>
-      </View>
-
       {conversation.active ? (
         <View style={[styles.conversationBanner, { backgroundColor: `${palette.tint}10`, borderColor: `${palette.tint}28` }]}>
           <View style={styles.conversationBannerHeader}>
@@ -206,23 +130,23 @@ export function ChatComposer({
           <View style={styles.composerRow}>
             <TextInput
                testID="chat-prompt-input"
-               mode="flat"
-               dense
                value={draft}
                onChangeText={onDraftChange}
-               onContentSizeChange={({ nativeEvent }) => {
-                 const nextHeight = Math.min(maxInputHeight, Math.max(minInputHeight, Math.ceil(nativeEvent.contentSize.height)));
-                 setInputHeight((current) => (current === nextHeight ? current : nextHeight));
-               }}
                editable={!isSpeechInputListening}
                multiline
-               scrollEnabled={inputHeight >= maxInputHeight}
+               scrollEnabled
                placeholder="Ask anything..."
                placeholderTextColor={palette.muted}
-               style={[styles.input, { height: inputHeight, backgroundColor: 'transparent', color: palette.text }]}
-               contentStyle={styles.inputContentCompact}
-               underlineColor="transparent"
-               activeUnderlineColor="transparent"
+               style={[
+                 styles.input,
+                 styles.inputContentCompact,
+                 {
+                   backgroundColor: 'transparent',
+                   color: palette.text,
+                   minHeight: MIN_INPUT_HEIGHT,
+                   maxHeight: MAX_INPUT_HEIGHT,
+                 },
+               ]}
                textAlignVertical="top"
              />
 

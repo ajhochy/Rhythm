@@ -969,4 +969,35 @@ async function secureWriteReplacement({
   assert.equal(__macRequests()[0].token, TOKEN);
 }
 
-console.log('Paired-host security and state-machine tests passed (22 scenarios)');
+// MSP-001 regression: a health refresh can observe the server-side revocation
+// before the DELETE response reaches the caller. The successful explicit
+// revoke must still converge to unpaired instead of preserving revoked state.
+{
+  __reset();
+  const store = await pairedStore();
+  let releaseDelete;
+  let markDeleteStarted;
+  const deleteStarted = new Promise((resolve) => {
+    markDeleteStarted = resolve;
+  });
+  const deleteBlocked = new Promise((resolve) => {
+    releaseDelete = resolve;
+  });
+  __setMacHandler(async (path) => {
+    if (path === '/mobile-gateway/devices/device-1') {
+      markDeleteStarted();
+      await deleteBlocked;
+      return undefined;
+    }
+    throw new ApiError({ status: 401, code: 'UNAUTHORIZED' });
+  });
+  const revoking = store.revoke();
+  await deleteStarted;
+  assert.equal((await store.refresh()).state, 'revoked');
+  releaseDelete();
+  assert.equal((await revoking).state, 'unpaired');
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(__async().has(PAIRED_HOST_META_KEY), false);
+}
+
+console.log('Paired-host security and state-machine tests passed (23 scenarios)');

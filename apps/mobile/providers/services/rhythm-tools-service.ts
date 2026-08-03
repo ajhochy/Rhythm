@@ -2,6 +2,10 @@ import {
   MissingProjectScopeError,
   withProjectScope,
 } from '../../lib/transport/project-scoped-request.ts';
+import {
+  isOrganizedToolCatalog,
+  sortToolCatalogRecords,
+} from './tool-catalog-organizer.ts';
 
 export type ToolRequestInit = Omit<RequestInit, 'headers'> & {
   headers?: Record<string, string>;
@@ -92,7 +96,7 @@ const TOOL_SCREEN_DEFINITIONS = [
   { id: 'review', title: 'Review Queue', route: '/tools/review', origin: 'paired' },
   { id: 'report-card', title: 'Report Card', route: '/tools/report-card', origin: 'paired' },
   { id: 'email', title: 'Email', route: '/tools/email', origin: 'cloud' },
-  { id: 'gallery', title: 'Gallery', route: '/tools/gallery', origin: 'cloud' },
+  { id: 'gallery', title: 'Gallery', route: '/tools/gallery', origin: 'paired' },
   { id: 'skills', title: 'Skills', route: '/tools/skills', origin: 'paired' },
   { id: 'playbooks', title: 'Playbooks', route: '/tools/playbooks', origin: 'paired' },
   { id: 'mcp', title: 'MCP', route: '/tools/mcp', origin: 'paired' },
@@ -328,6 +332,12 @@ const CACHE_FIELDS: Record<ToolCacheKind, ReadonlySet<string>> = {
     'title',
     'name',
     'status',
+    'provider',
+    'artifactType',
+    'artifactUrl',
+    'projectUrl',
+    'canvaUrl',
+    'sessionId',
     'thumbnailUrl',
     'previewUrl',
     'createdAt',
@@ -362,6 +372,9 @@ const CACHE_FIELDS: Record<ToolCacheKind, ReadonlySet<string>> = {
     'limit',
     'configured',
     'enabled',
+    'connected',
+    'authMethodCount',
+    'models',
   ]),
 };
 
@@ -477,6 +490,11 @@ export function normalizeToolScreenResponse(
   tool: ToolScreenId,
   value: unknown,
 ): ToolRecord[] {
+  const finish = (records: ToolRecord[]): ToolRecord[] =>
+    isOrganizedToolCatalog(tool)
+      ? sortToolCatalogRecords(tool, records)
+      : records;
+
   if (tool === 'report-card') {
     const agents =
       value &&
@@ -484,11 +502,11 @@ export function normalizeToolScreenResponse(
       Array.isArray((value as { agents?: unknown }).agents)
         ? (value as { agents: unknown[] }).agents
         : value;
-    return normalizedRecords(agents);
+    return finish(normalizedRecords(agents));
   }
 
   if (tool === 'mcp' && value && typeof value === 'object' && !Array.isArray(value)) {
-    return Object.entries(value as Record<string, unknown>).flatMap(
+    return finish(Object.entries(value as Record<string, unknown>).flatMap(
       ([name, entry]) => {
         const normalized = normalizeRecord({
           id: name,
@@ -499,7 +517,7 @@ export function normalizeToolScreenResponse(
         });
         return normalized ? [normalized] : [];
       },
-    );
+    ));
   }
 
   if (tool === 'models') {
@@ -534,25 +552,80 @@ export function normalizeToolScreenResponse(
           )
         : [],
     );
+    const explicitlyConfigured = new Set(
+      config.provider && typeof config.provider === 'object'
+        ? Object.keys(config.provider as Record<string, unknown>)
+        : [],
+    );
+    const configuredModel =
+      typeof config.model === 'string' ? config.model.split('/')[0] : '';
+    if (configuredModel) explicitlyConfigured.add(configuredModel);
+    const disabled = new Set(
+      Array.isArray(config.disabled_providers)
+        ? config.disabled_providers.filter(
+            (entry): entry is string => typeof entry === 'string',
+          )
+        : [],
+    );
+    const visibleProviderIds = new Set([
+      ...connected,
+      ...enabled,
+      ...explicitlyConfigured,
+    ]);
+    for (const providerId of disabled) visibleProviderIds.delete(providerId);
     const auth = redactProviderAuthMetadata(compound.auth);
-    return normalizedRecords(providerPayload).map((provider) => {
-      const providerId = String(
-        provider.id ?? provider.providerID ?? provider.providerId,
-      );
-      const providerAuth =
-        auth && typeof auth === 'object'
-          ? (auth as Record<string, unknown>)[providerId]
-          : undefined;
-      return {
-        ...provider,
-        id: providerId,
-        ...(providerAuth === undefined ? {} : { auth: providerAuth }),
-        configured: enabled.has(providerId) || connected.has(providerId),
-      };
-    });
+    return finish(
+      normalizedRecords(providerPayload)
+        .filter((provider) => {
+          const providerId = String(
+            provider.id ?? provider.providerID ?? provider.providerId,
+          );
+          return visibleProviderIds.has(providerId);
+        })
+        .map((provider) => {
+          const providerId = String(
+            provider.id ?? provider.providerID ?? provider.providerId,
+          );
+          const providerAuth =
+            auth && typeof auth === 'object'
+              ? (auth as Record<string, unknown>)[providerId]
+              : undefined;
+          const providerModels =
+            provider.models && typeof provider.models === 'object'
+              ? Object.entries(provider.models as Record<string, unknown>)
+                  .map(([modelId, model]) => ({
+                    id: modelId,
+                    name:
+                      model && typeof model === 'object' &&
+                      typeof (model as { name?: unknown }).name === 'string'
+                        ? (model as { name: string }).name
+                        : modelId,
+                  }))
+                  .sort((left, right) =>
+                    left.name.localeCompare(right.name, 'en', {
+                      numeric: true,
+                      sensitivity: 'base',
+                    }) || left.id.localeCompare(right.id, 'en'),
+                  )
+              : [];
+          return {
+            ...provider,
+            id: providerId,
+            providerID: providerId,
+            models: providerModels,
+            authMethodCount: Array.isArray(providerAuth)
+              ? providerAuth.length
+              : 0,
+            configured: true,
+            connected: connected.has(providerId),
+            enabled:
+              enabled.has(providerId) || explicitlyConfigured.has(providerId),
+          };
+        }),
+    );
   }
 
-  return normalizedRecords(value);
+  return finish(normalizedRecords(value));
 }
 
 export function sanitizeToolCache(
@@ -687,7 +760,7 @@ export class RhythmToolsService {
         response = await this.listRecipes();
         break;
       case 'review':
-        response = await this.listProposals('pending');
+        response = await this.listProposals('proposed');
         break;
       case 'report-card':
         response = await this.getReportCard();
@@ -946,7 +1019,13 @@ export class RhythmToolsService {
   }
 
   listGalleryDesigns(): Promise<unknown> {
-    return this.cloudRequest('/agent-designs');
+    return this.pairedRequest('/mobile-gateway/tools/agent-designs');
+  }
+
+  getGalleryDesign(id: string): Promise<unknown> {
+    return this.pairedRequest(
+      `/mobile-gateway/tools/agent-designs/${encodeURIComponent(id)}`,
+    );
   }
 
   listSkills(): Promise<unknown> {

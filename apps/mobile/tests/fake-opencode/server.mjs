@@ -11,7 +11,9 @@ import {
   diagnosticsPayload,
   fileStatusesPayload,
   listProvidersPayload,
+  profileCatalogPayload,
   providerAuthPayload,
+  resolveMobileSessionExecutionState,
   vcsPayload,
 } from './fixtures.mjs';
 import { createSessionHelpers } from './session-helpers.mjs';
@@ -55,7 +57,7 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, x-opencode-directory, x-opencode-ticket',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, X-Rhythm-Session-Discovery, x-opencode-directory, x-opencode-ticket',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   });
   res.end(JSON.stringify(payload));
@@ -267,7 +269,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, x-opencode-directory, x-opencode-ticket',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, X-Rhythm-Session-Discovery, x-opencode-directory, x-opencode-ticket',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       });
       res.end();
@@ -634,6 +636,8 @@ const server = http.createServer(async (req, res) => {
       const projectId = req.headers['x-rhythm-project-id'];
       const requiresProject =
         gatewayPath === '/mobile-gateway/events' ||
+        gatewayPath === '/mobile-gateway/profile-catalog' ||
+        /^\/mobile-gateway\/sessions\/[^/]+\/state$/.test(gatewayPath) ||
         gatewayPath.startsWith('/mobile-gateway/opencode/');
       if (requiresProject && projectId !== state.project.id) {
         sendJson(res, 403, {
@@ -663,6 +667,37 @@ const server = http.createServer(async (req, res) => {
         gatewayPath === '/mobile-gateway/events'
       ) {
         handleSse(req, res, state.project.id);
+        return;
+      }
+
+      if (
+        req.method === 'GET' &&
+        gatewayPath === '/mobile-gateway/profile-catalog'
+      ) {
+        sendJson(res, 200, profileCatalogPayload());
+        return;
+      }
+
+      const mobileSessionState = gatewayPath.match(
+        /^\/mobile-gateway\/sessions\/([^/]+)\/state$/,
+      );
+      if (req.method === 'PATCH' && mobileSessionState) {
+        const sessionId = decodeURIComponent(mobileSessionState[1]);
+        const session = state.sessions.find((entry) => entry.id === sessionId);
+        if (!session) {
+          notFound(res);
+          return;
+        }
+        const body = await readJson(req);
+        const resolved = resolveMobileSessionExecutionState(body, sessionId);
+        if (!resolved.state) {
+          sendJson(res, resolved.statusCode, {
+            error: 'Invalid mobile session execution state',
+          });
+          return;
+        }
+        session.rhythm = resolved.state;
+        sendJson(res, 200, resolved.state);
         return;
       }
 
@@ -834,6 +869,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && pathname === '/agent') {
       sendJson(res, 200, [
+        { name: 'secretary', description: 'Default Secretary agent' },
         { name: 'build', description: 'Default build agent' },
         { name: 'general', description: 'General-purpose agent' },
       ]);
@@ -1132,6 +1168,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/experimental/session') {
+      if (
+        req.headers['x-rhythm-session-discovery'] === 'owner-unscoped'
+      ) {
+        // The production gateway returns only exact-owner catalog rows whose
+        // project is NULL/empty. Fake project sessions are all registered, so
+        // none belong in this read-only discovery lane.
+        sendJson(res, 200, []);
+        return;
+      }
       const archived = requestUrl.searchParams.get('archived') === 'true';
       sendJson(res, 200, state.sessions
         .filter((session) => archived ? Boolean(session.time.archived) : !session.time.archived)
@@ -1183,7 +1228,17 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && /^\/session\/[^/]+\/message$/.test(pathname)) {
       const sessionId = pathname.split('/')[2];
-      sendJson(res, 200, getMessages(sessionId));
+      const messages = getMessages(sessionId);
+      const before = requestUrl.searchParams.get('before');
+      const beforeIndex = before
+        ? messages.findIndex((message) => message.info.id === before)
+        : messages.length;
+      const eligible = messages.slice(0, beforeIndex < 0 ? messages.length : beforeIndex);
+      const requestedLimit = Number(requestUrl.searchParams.get('limit'));
+      const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? requestedLimit
+        : eligible.length;
+      sendJson(res, 200, eligible.slice(-limit));
       return;
     }
 

@@ -13,14 +13,33 @@ async function resetScenario(request, scenario) {
   expect(response.ok()).toBeTruthy();
 }
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 async function openReadyChat(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create chat' })).toBeEnabled({
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled({
     timeout: 30_000,
   });
-  await page.getByRole('button', { name: 'Create chat' }).click();
-  await expect(page.getByLabel('Chat title')).toBeVisible();
+  await activateMenuItem(createChat);
+  await expect(page.getByLabel('Chat title')).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText('Start a new task')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
@@ -29,18 +48,18 @@ async function openReadyChat(page) {
 async function backToAgents(page) {
   await page.getByRole('button', { name: 'Back to Agents' }).click();
   await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open workspace' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agents menu' })).toBeVisible();
 }
 
 async function openWorkspace(page) {
   await backToAgents(page);
-  await page.getByRole('button', { name: 'Open workspace' }).click();
+  await activateMenuItem(await openAgentsAction(page, 'Open workspace'));
   await expect(page.getByRole('button', { name: 'Back to Agents' })).toBeVisible();
 }
 
 async function openTerminal(page) {
   await backToAgents(page);
-  await page.getByRole('button', { name: 'Open terminal' }).click();
+  await activateMenuItem(await openAgentsAction(page, 'Open terminal'));
   await expect(page.getByRole('button', { name: 'Back to Agents' })).toBeVisible();
 }
 
@@ -97,8 +116,10 @@ test('issue-1233 model picker groups connected provider accounts and hides disco
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
 
-  await page.getByRole('button', { name: /GPT-4\.1 mini/ }).click();
-  await expect(page.getByRole('heading', { name: 'OpenAI' })).toBeVisible();
+  await page.getByRole('button', { name: 'Chat menu' }).click();
+  await page.getByRole('button', { name: /Model, GPT-4\.1 mini/ }).click();
+  await expect(page.getByRole('heading', { name: 'Choose Model' })).toBeVisible();
+  await expect(page.getByText('OpenAI', { exact: true })).toBeVisible();
   // Selected/recent outranks recommended, so the just-clicked model reads Recent.
   await expect(page.getByText('OpenAI · Recent · Reasoning', { exact: true })).toBeVisible();
   await expect(page.getByText('OpenRouter', { exact: true })).not.toBeVisible();
