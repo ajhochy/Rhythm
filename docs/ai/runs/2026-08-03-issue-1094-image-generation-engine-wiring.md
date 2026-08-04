@@ -103,6 +103,42 @@ boot, `/config/reload` will not pick this up. The installed app runs
 binary must be replaced or nothing takes effect. Then ask `creative-media` for
 an image.
 
+## The second gate — Rhythm's role filter also blocked the tool
+
+Wiring the opencode permission was necessary but **not sufficient**. In the app,
+every call still failed with `Tool "image_generation" is not permitted for this
+agent's role and was blocked`.
+
+`isToolAllowedForSession` (`opencode_stream_bridge.ts:802`) bypasses the MCP
+dispatch guard only for names in `OPENCODE_NATIVE_TOOLS`. `image_generation` was
+absent, because it is also absent from the tool registry — a provider tool has no
+local `execute`, so it is injected in `session/prompt.ts` instead. On any
+role-scoped session it therefore fell through to the MCP allowlist and was
+denied. Fixed by adding it to that set (commit `896ba90a`).
+
+Two lessons worth carrying:
+
+1. **A new engine-native tool needs registering in two places**, not one: the
+   opencode permission/registry side *and* `OPENCODE_NATIVE_TOOLS` in the bridge.
+   The set's doc comment says "keep aligned with tool/registry.ts", which is
+   necessary-but-incomplete guidance for provider tools that never appear in the
+   registry at all.
+2. **CLI `--attach` runs do not exercise the role gate.** Every earlier live
+   verification passed while the app path was fully blocked, because a CLI
+   session is not role-scoped (`session.mcpRole == null` → pass-through). Any
+   future tool-exposure verification must run through a role-scoped session, or
+   assert on the guard directly.
+
+The same omission also explains why generated images never appeared in the chat:
+the guard's part path neither forwards nor persists a denied tool part, so the
+image never reached the client or the transcript. A residual rendering gap
+remains even with the part forwarded — `persist()` returns a path with no file
+attachment — tracked in #1306.
+
+Regression test: `image_generation` added to the native-tool pass-through
+`it.each` in `opencode_stream_bridge.test.ts`, verified to FAIL with the fix
+reverted and pass with it. Bridge suite 31/31.
+
 ## Dev-app launch findings (2026-08-03, post-merge with main @ dd60008c)
 
 Merged `main` into this branch locally for combined live testing (one conflict,

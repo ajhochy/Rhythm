@@ -22,9 +22,13 @@ provider tool and verified generating images live.
 
 ## In progress
 
-- PR #1304 awaiting manual smoke in the desktop dev app on the combined
-  branch. See
+- PR #1304 awaiting human review/merge. Native image generation is verified
+  working end to end in the running dev app (0 role denials, image persisted,
+  path in the transcript). All CI green on 896ba90a. See
   docs/ai/runs/2026-08-03-issue-1094-image-generation-engine-wiring.md.
+- The worship-opener video rebuild was NOT completed: the driving run generated
+  29 images but was still iterating on posters when the engine was restarted to
+  deploy the role-gate fix. Needs re-driving on the fixed build.
 
 ## Risks / known issues
 
@@ -62,6 +66,15 @@ provider tool and verified generating images live.
 - CI on #1304: OpenCode Fork, Server, and Mobile all green.
 - Mobile (merged #1284): typecheck PASS, lint 0 errors, jest 24/24, Playwright
   web E2E 71/71 PASS.
+
+## Follow-ups filed
+
+#1305 launcher stages engine to a shadowed path · #1306 generated images do not
+render in chat (path, no attachment) · #1307 dev app can launch against the wrong
+engine and wrong session store · #1308 mobile attachments fail (10 MB client vs
+1 MB server cap) · #1309 artifact hosting for mobile (supersedes the local-only
+gallery decision) · #1310 flaky shell-cancel tests failing Fork CI · #1311
+proxies collapse upstream 4xx into 502.
 
 ## Next step
 
