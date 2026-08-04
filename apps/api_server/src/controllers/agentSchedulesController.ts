@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { AgentScheduledTaskRunsRepository } from '../repositories/agent_scheduled_task_runs_repository';
 import {
   AgentConfigsRepository,
   agentConfigExecutionBlockReason,
@@ -8,6 +9,7 @@ import {
 import { computeNextRun } from '../services/agentSchedulerService';
 
 const repo = new AgentScheduledTasksRepository();
+const runsRepo = new AgentScheduledTaskRunsRepository();
 const configsRepo = new AgentConfigsRepository();
 
 /**
@@ -217,6 +219,22 @@ export class AgentSchedulesController {
         : await repo.deleteAsync(req.params.id);
       if (!deleted) throw AppError.notFound('AgentScheduledTask');
       res.status(204).end();
+    } catch (err) { next(err); }
+  }
+
+  /** Config Doctor D1 — run history for a task, newest first. */
+  async listRuns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const task = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(id, req.mobileDevice.userId)
+        : await repo.findByIdAsync(id);
+      if (!task) throw AppError.notFound('AgentScheduledTask');
+
+      const limitParam = Number(req.query.limit);
+      const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : undefined;
+      const runs = await runsRepo.listForTask(id, limit);
+      res.json(runs);
     } catch (err) { next(err); }
   }
 

@@ -191,4 +191,82 @@ describe('#895 — /agent-approvals', () => {
     expect(body.status).toBe('approved');
     expect(body.actor).toBe('auto-approved');
   });
+
+  // Config Doctor Track B — auto_approve_actions must be settable end-to-end
+  // through the REST API (no raw SQL), and must still record the
+  // 'auto-approved' actor for audit visibility once flipped this way.
+  it('exposes autoApproveActions on GET/PATCH /agent-configs and auto-approves once set', async () => {
+    getDb()
+      .prepare(
+        `INSERT INTO agent_configs (id, label, icon, command, is_agent, enabled) VALUES (?, ?, ?, ?, 1, 1)`,
+      )
+      .run('librarian-like', 'Librarian Like', 'terminal', '');
+
+    const getBefore = await fetch(`${baseUrl}/agent-configs/librarian-like`, {
+      headers: authHeader,
+    });
+    expect(getBefore.status).toBe(200);
+    expect(((await getBefore.json()) as Record<string, unknown>).autoApproveActions).toBe(false);
+
+    const patchRes = await fetch(`${baseUrl}/agent-configs/librarian-like`, {
+      method: 'PATCH',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ autoApproveActions: true }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = (await patchRes.json()) as Record<string, unknown>;
+    expect(patched.autoApproveActions).toBe(true);
+
+    const getAfter = await fetch(`${baseUrl}/agent-configs/librarian-like`, {
+      headers: authHeader,
+    });
+    expect(((await getAfter.json()) as Record<string, unknown>).autoApproveActions).toBe(true);
+
+    const approvalRes = await fetch(`${baseUrl}/agent-approvals`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'rhythm_remember_memory',
+        agentConfigId: 'librarian-like',
+      }),
+    });
+    expect(approvalRes.status).toBe(201);
+    const approvalBody = (await approvalRes.json()) as Record<string, unknown>;
+    expect(approvalBody.status).toBe('approved');
+    expect(approvalBody.actor).toBe('auto-approved');
+  });
+
+  // Config Doctor Track B follow-up (2026-08-03 live run) — a calling agent
+  // has no reliable way to know its own agent_configs.id, and the scheduled
+  // Memory Consolidation prompt never told the model to pass one. Auto-
+  // approve must still fire when only sessionId is given, by resolving the
+  // profile server-side from agent_sessions.agent_kind — never by trusting a
+  // model-supplied agentConfigId, which would also be a privilege-escalation
+  // risk.
+  it('auto-approves from sessionId alone when agentConfigId is not supplied', async () => {
+    getDb()
+      .prepare(
+        `INSERT INTO agent_configs (id, label, icon, command, is_agent, enabled, auto_approve_actions) VALUES (?, ?, ?, ?, 1, 1, 1)`,
+      )
+      .run('librarian', 'Librarian', 'terminal', '');
+
+    getDb()
+      .prepare(
+        `INSERT INTO agent_sessions (id, agent_kind, status, cwd, name) VALUES (?, ?, 'idle', ?, ?)`,
+      )
+      .run('sess-librarian-1', 'librarian', '/tmp', 'Memory Consolidation');
+
+    const approvalRes = await fetch(`${baseUrl}/agent-approvals`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'rhythm_remember_memory',
+        sessionId: 'sess-librarian-1',
+      }),
+    });
+    expect(approvalRes.status).toBe(201);
+    const approvalBody = (await approvalRes.json()) as Record<string, unknown>;
+    expect(approvalBody.status).toBe('approved');
+    expect(approvalBody.actor).toBe('auto-approved');
+  });
 });

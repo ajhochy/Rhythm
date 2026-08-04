@@ -3132,12 +3132,21 @@ export class OpencodeClientService {
     const toEntry = (
       s: CuratedMcpServer,
       environment?: Record<string, string>,
+      existingEnvironment?: Record<string, string>,
     ): Record<string, unknown> => {
       const entry: Record<string, unknown> =
         s.type === 'remote'
           ? { type: 'remote', url: s.url }
           : { type: 'local', command: s.command };
-      const env = { ...(s.environment ?? {}), ...(environment ?? {}) };
+      // #config-doctor-bug1 — preserve any user-supplied env (e.g. requiredEnv
+      // secrets like OBSIDIAN_API_KEY entered via the UI) that the static
+      // template doesn't know about. Template keys still win on conflict so a
+      // command/host/port change in curated_mcp_servers.ts still lands.
+      const env = {
+        ...(existingEnvironment ?? {}),
+        ...(s.environment ?? {}),
+        ...(environment ?? {}),
+      };
       if (Object.keys(env).length > 0) {
         entry.environment = env;
       }
@@ -3185,8 +3194,11 @@ export class OpencodeClientService {
       const bridgedEnv = await resolveBridgedEnv(server);
       // null → token-bridged server with no connected account: skip entirely.
       if (bridgedEnv === null) continue;
-      const desired = toEntry(server, bridgedEnv);
       const existing = mcpSection[server.id];
+      const existingEnv =
+        (existing as { environment?: Record<string, string> } | undefined)
+          ?.environment ?? {};
+      const desired = toEntry(server, bridgedEnv, existingEnv);
       if (JSON.stringify(existing) === JSON.stringify(desired)) {
         continue;
       }

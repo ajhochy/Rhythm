@@ -30,6 +30,7 @@ class AgentConfig {
     this.sessionSelectable = true,
     this.defaultAnthropicAccountId,
     this.corePermissionsJson,
+    this.autoApproveActions = false,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -61,6 +62,7 @@ class AgentConfig {
       sessionSelectable: asBool(json['sessionSelectable']) ?? true,
       defaultAnthropicAccountId: asString(json['defaultAnthropicAccountId']),
       corePermissionsJson: asString(json['corePermissionsJson']),
+      autoApproveActions: asBool(json['autoApproveActions']) ?? false,
     );
   }
 
@@ -124,6 +126,12 @@ class AgentConfig {
   /// means no overrides (engine defaults apply to every key). Kept opaque
   /// here; the profile sheet parses/builds this map (#1073/#1074).
   final String? corePermissionsJson;
+
+  /// Config Doctor Track B — when true, this profile's protected actions
+  /// (e.g. memory writes) are auto-approved instead of waiting on a human.
+  /// Default false: a deliberate per-profile security-gate bypass, not a
+  /// global default.
+  final bool autoApproveActions;
 
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
@@ -220,6 +228,7 @@ class AgentConfig {
         'sessionSelectable': sessionSelectable,
         'defaultAnthropicAccountId': defaultAnthropicAccountId,
         'corePermissionsJson': corePermissionsJson,
+        'autoApproveActions': autoApproveActions,
       };
 
   AgentConfig copyWith({
@@ -241,6 +250,7 @@ class AgentConfig {
     bool? sessionSelectable,
     Object? defaultAnthropicAccountId = _sentinel,
     Object? corePermissionsJson = _sentinel,
+    bool? autoApproveActions,
   }) {
     return AgentConfig(
       id: id,
@@ -281,6 +291,7 @@ class AgentConfig {
       corePermissionsJson: identical(corePermissionsJson, _sentinel)
           ? this.corePermissionsJson
           : corePermissionsJson as String?,
+      autoApproveActions: autoApproveActions ?? this.autoApproveActions,
     );
   }
 }
