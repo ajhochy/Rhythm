@@ -2,50 +2,60 @@
 
 ## Current focus
 
-Issue #1285/#1287 bidirectional live sync for exact-owner projectless desktop
-chats. Root cause found and fixed on-device: React Native's XHR-backed fetch
-cannot stream SSE, so no engine event ever reached the mobile client; the
-optimistic `eventStreamStatus = 'connected'` additionally disabled the polling
-fallback.
+#1094 native OpenAI image generation — the engine half. The per-profile toggle
+projected `permission.image_generation: allow` into agent frontmatter, but
+opencode gates tools by name and no such tool was ever registered, so the
+permission was silently inert for every profile. Now registered as an AI-SDK
+provider tool and verified generating images live.
 
 ## Active branch / PR
 
-- Branch: `codex/mobile-fixes-rollup`
+- Branch: `workflow/run-2026-08-03-image-generation`
 - Base: `main`
-- PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
-- Latest work: native SSE consumer over `expo/fetch`
-  (`apps/mobile/lib/opencode/global-event-stream.ts`) + data-driven
-  connected-status in `opencode-provider.tsx`.
+- PR: [#1304](https://github.com/ajhochy/Rhythm/pull/1304) (draft)
+- Also open: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft,
+  mobile SSE rollup) — device smoke PASSED, awaiting human review/merge.
 - Merge remains a manual human action after review.
 
 ## In progress
 
-- None — device smoke PASSED after live round-2 iteration (user: "success.
-  it works now"). Awaiting final CI + human review/merge of PR #1284. See
-  docs/ai/runs/2026-08-02-issue-1286-1287-regression-rollup.md.
+- None. PR #1304 awaiting CI + manual smoke in the desktop app. See
+  docs/ai/runs/2026-08-03-issue-1094-image-generation-engine-wiring.md.
 
 ## Risks / known issues
 
+- **Manual smoke needs the bundled binary replaced.** The installed app runs
+  `/Applications/Rhythm.app/Contents/Resources/opencode_bin/opencode`. A source
+  change has no effect until that binary is rebuilt/replaced, and the engine
+  only reads agent files on a fresh boot — `/config/reload` will not pick up
+  agent-file changes.
+- **The fork's `node_modules` drifts incomplete.** Missing `tailwindcss`,
+  `zod`, and `@opentui/*` broke `bun run build` in the embedded web-UI step and
+  produced 3 test failures + 26 tsc errors. `bun install` in
+  `apps/opencode_fork` fixes it with no lockfile change. Re-check this before
+  concluding the fork build is broken.
+- Pre-existing, unrelated to current work: `ModelsDev … disk empty and fetch
+  disabled` (fork) and the curated-MCP + agent-approvals failures (api_server)
+  fail identically on an unmodified tree.
 - Catalog-scoped client calls (`/session`, `/permission`, `/question` without
-  the gateway prefix) 502 against the paired gateway origin whenever polling
-  runs in a degraded state — pre-existing path mismatch newly visible now that
-  polling correctly runs while the stream is unproven. Note on #1287.
-- Exact-owner projectless server-side filter from `cdd0bb465` remains in place
-  and required; unchanged by this fix.
+  the gateway prefix) 502 against the paired gateway origin when polling runs
+  degraded — pre-existing path mismatch, noted on #1287.
 - User-owned `.proof/` image modifications remain excluded from commits.
 
 ## Test status
 
-- Mobile: typecheck PASS, lint 0 errors, jest 24/24 PASS (incl. new
-  `global-event-stream` regression), fake-server self-test PASS, contract
-  PASS, Playwright web E2E 71/71 PASS.
-- GitNexus unstaged detect_changes: LOW (3 files / 7 symbols / 0 processes).
-- Physical iPhone: desktop→mobile and mobile→desktop both live without
-  refresh, full boundary diagnostics captured (see run log
-  2026-08-01-issue-1287-native-sse-stream.md).
+- Fork: typecheck 0 errors; `bun test` 2712 pass / 1 pre-existing fail; build
+  exit 0.
+- api_server: typecheck 0 errors; `vitest run` 3821 pass / 5 pre-existing fail;
+  build exit 0.
+- `classify.cjs`: `FATAL=0 SKIPPED=0 WARN=0 OK=33`.
+- Live on `openai/gpt-5.6-sol`: granted profile produces a 1254×1254 PNG with
+  its path in the transcript; ungranted profile reports no tool; Anthropic
+  profile unaffected.
+- Mobile (PR #1284): typecheck PASS, lint 0, jest 24/24, Playwright 71/71.
 
 ## Next step
 
-Human review and manual merge of PR #1284 (tests/fake-opencode changes need
-explicit sign-off). Follow-ups on #1287: desktop profile-binding persistence,
-corrupted-row cleanup decision, cold-start first-open latency.
+Manual smoke of #1304 in the desktop app: replace the bundled engine binary,
+fully quit and relaunch Rhythm, then ask `creative-media` for an image. Then
+human review and manual merge of #1304 and #1284.
