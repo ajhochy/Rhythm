@@ -767,6 +767,30 @@ export function startAgentSchedulerJob(): { stop: () => void } | null {
     logger.warn(`[AgentScheduler] Could not reset stale running sessions: ${String(err)}`);
   }
 
+  // The task-row half of the same recovery. The session reaper above only
+  // touches `agent_sessions`; a task whose run died mid-flight kept
+  // `last_run_status = 'running'` in its single overwritten status slot forever,
+  // so the dashboard asserted an in-progress run indefinitely.
+  void repo
+    .resetStaleRunningAsync(
+      formatAgentRunFailure({
+        error: 'Server restarted — run interrupted',
+        failureCategory: 'restart_interruption',
+      }),
+    )
+    .then((staleTasks) => {
+      if (staleTasks > 0) {
+        logger.info(
+          `[AgentScheduler] Reset ${staleTasks} stale running/queued scheduled task(s) to error on boot`,
+        );
+      }
+    })
+    .catch((err: unknown) => {
+      logger.warn(
+        `[AgentScheduler] Could not reset stale running scheduled tasks: ${String(err)}`,
+      );
+    });
+
   // Run once immediately on startup to catch any tasks that fired while the
   // server was down (Odysseus does the same with the "pushed next_run forward"
   // pattern on startup — here we simply let them fire immediately).

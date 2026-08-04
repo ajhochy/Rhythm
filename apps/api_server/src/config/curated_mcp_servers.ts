@@ -219,7 +219,7 @@ export function loadLocalCuratedMcpServers(
   }
 }
 
-export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
+const BUILT_IN_CURATED_MCP_SERVERS: CuratedMcpServer[] = [
   {
     id: "pdf-tools",
     name: "PDF Tools",
@@ -387,5 +387,46 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     command: ["npx", "-y", "@agentx-ai/mailchimp-mcp-server"],
     requiredEnv: ["MAILCHIMP_API_KEY"],
   },
-  ...loadLocalCuratedMcpServers(),
 ];
+
+/**
+ * Merge the machine-local sidecar over the built-ins, keyed by `id`.
+ *
+ * The sidecar was previously spread in with a bare `...`, which APPENDED rather
+ * than overrode. Once a built-in was later added for an id a sidecar already
+ * defined, the list carried the same id twice, and:
+ *
+ *   • `ensureCuratedMcps` persisted that id twice on every run, so `changed`
+ *     was ALWAYS true and `opencode.json` was rewritten on every single boot
+ *     even when nothing had changed (visible in its own log line as
+ *     "persisted … obsidian, notion, stripe, mailchimp, obsidian"), and
+ *   • the "no duplicate ids" / "second run is a byte-identical no-op" contracts
+ *     failed on any machine holding such a sidecar.
+ *
+ * Observed 2026-08-04 on a sidecar dated Jun 29 declaring `obsidian`, five
+ * weeks before the built-in `obsidian` entry existed.
+ *
+ * Override, not merge-by-field: a sidecar entry REPLACES the built-in outright.
+ * The two can legitimately describe different implementations of the same
+ * service (a homebrew Node binary vs a Rhythm-managed venv Python one) with
+ * different commands, env and requiredEnv, so field-level merging would
+ * synthesize an entry matching neither. The built-in's POSITION is kept so
+ * ordering — and therefore byte-identical output across runs — stays stable.
+ */
+function mergeLocalOverBuiltIns(
+  builtIns: CuratedMcpServer[],
+  local: CuratedMcpServer[],
+): CuratedMcpServer[] {
+  const merged = [...builtIns];
+  for (const entry of local) {
+    const at = merged.findIndex((s) => s.id === entry.id);
+    if (at === -1) merged.push(entry);
+    else merged[at] = entry;
+  }
+  return merged;
+}
+
+export const CURATED_MCP_SERVERS: CuratedMcpServer[] = mergeLocalOverBuiltIns(
+  BUILT_IN_CURATED_MCP_SERVERS,
+  loadLocalCuratedMcpServers(),
+);
