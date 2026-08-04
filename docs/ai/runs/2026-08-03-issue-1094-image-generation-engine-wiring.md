@@ -102,3 +102,33 @@ boot, `/config/reload` will not pick this up. The installed app runs
 `/Applications/Rhythm.app/Contents/Resources/opencode_bin/opencode`, so that
 binary must be replaced or nothing takes effect. Then ask `creative-media` for
 an image.
+
+## Dev-app launch findings (2026-08-03, post-merge with main @ dd60008c)
+
+Merged `main` into this branch locally for combined live testing (one conflict,
+`docs/ai/project-state.md`, resolved). Two environment traps surfaced while
+launching the dev app, both of which silently produce misleading results:
+
+1. **The dev launcher stages the engine to a shadowed path.** The app resolves
+   its engine from `apps/opencode_bin/` (three levels up from
+   `dist/services`), but `tools/dev/launch_desktop_current.sh` stages to
+   `apps/api_server/opencode_bin/`. A gitignored July 9 binary
+   (`0.0.0-main-202607092109`) at the winning path had been serving every dev
+   session. That is why a `creative-media` chat reported "GPT Image generation
+   is not available in this session" at 18:49 — a month-old engine, not a
+   broken feature. Staging to `apps/opencode_bin/` (with an ad-hoc
+   `codesign --force --sign -` after `cp`, or AMFI SIGKILLs it) fixed it.
+   Filed as issue #1305. Always compare the running engine's `--version`
+   against the freshly built one before trusting a dev smoke.
+2. **Engine DBs are per-branch**, named `opencode-<sanitized-branch>.db` under
+   `~/.local/share/opencode/` (`storage/db.ts:26-38`). Switching branches
+   points the app at a different session store, so existing chats vanish from
+   the UI. `OPENCODE_DB=<filename>` overrides it; launching the app binary
+   directly (not via `open`) propagates the env to the engine child.
+
+Live confirmation in the running dev app, real `creative-media` profile on
+`openai/gpt-5.6-sol-pro`: `⚙ image_generation Generated image`, and a
+transcript check showed **1 distinct call id → 1 PNG**, confirming the
+duplicate-write guard holds end to end. (An earlier run produced two images of
+different dimensions and checksums — that was the model making two genuine
+calls, not a duplicate write.)
