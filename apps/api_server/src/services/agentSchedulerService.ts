@@ -416,6 +416,16 @@ const CAPACITY_RETRY_MS = 60_000; // scheduler ticks once per minute
 // `rhythm_rhythm_preview_automation` is not a `view`. `request_approval` is
 // deliberately NOT a mutation — asking for approval is the signal for
 // `blocked_on_approval`, not for work performed.
+//
+// KNOWN LIMITATION — a task that mutates ONLY through `bash` still reports
+// `completed_no_op`. `tool_events` records the tool NAME, not the command, and
+// `bash` is opaque: it is `ls` as often as it is `git commit`. Counting it as a
+// mutation would mark every read-only run a success, which is the exact
+// false-positive this classifier exists to prevent, so the false NEGATIVE is
+// the deliberate trade. Observed 2026-08-04: `ai-trend-research-daily` wrote 9
+// findings, a dashboard and 6 archived sources entirely via `bash` and was
+// classified `completed_no_op`. Fixing this properly needs the command (or an
+// explicit write-count) in telemetry, not a cleverer regex.
 const MUTATION_TOOL_PATTERN =
   /(?:^|[_.\-])(remember_memory|create|update|delete|remove|write|edit|send|schedule|approve|reject|post|patch|put|append|complete|forget|assign|resync)(?:$|[_.\-])/i;
 

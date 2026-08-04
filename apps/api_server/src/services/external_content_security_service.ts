@@ -269,6 +269,32 @@ export function securityPayloadDigest(action: SecurityAction, payload: unknown):
     .digest('hex');
 }
 
+/**
+ * The single definition of "no human can answer for this session, and its
+ * profile has opted into acting anyway".
+ *
+ * Shared deliberately by BOTH approval paths — `consumeApproval` (enforcement,
+ * when a mutation arrives with no token) and `POST /agent-approvals` with a
+ * security binding (the request side, when an agent proactively asks first).
+ * They were inconsistent at first: only enforcement honored the profile flag, so
+ * an agent whose prompt told it to ask BEFORE acting still got a `pending` row
+ * and stopped, on a profile explicitly configured to run unattended. Observed
+ * live 2026-08-04 — Org External Discovery, twice, with the flag set.
+ *
+ * All three conditions are required. Interactive sessions can satisfy neither
+ * `isSystem` nor `scheduledTaskId`, so a human at the keyboard keeps the full
+ * #1134 gate.
+ */
+export function isUnattendedAutoApproveSession(session: {
+  agentKind: string;
+  isSystem?: boolean;
+  scheduledTaskId?: string | null;
+}): boolean {
+  if (!session.isSystem) return false;
+  if (!session.scheduledTaskId) return false;
+  return isAutoApproveProfile(session.agentKind);
+}
+
 function requireKnownSession(context: TrustedSecurityContext) {
   const session = sessions.findBySdkSessionId(context.sdkSessionId);
   if (!session) throw AppError.forbidden('trusted SDK session is unknown');
@@ -531,9 +557,7 @@ export class ExternalContentSecurityService {
     payload: unknown;
   }): { allowed: true; consumed: boolean } | null {
     const { session, taint } = input;
-    if (!session.isSystem) return null;
-    if (!session.scheduledTaskId) return null;
-    if (!isAutoApproveProfile(session.agentKind)) return null;
+    if (!isUnattendedAutoApproveSession(session)) return null;
 
     const now = new Date().toISOString();
     getDb()
