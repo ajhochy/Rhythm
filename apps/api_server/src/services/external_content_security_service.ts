@@ -362,17 +362,34 @@ export class ExternalContentSecurityService {
     return { taintId, eventId, sessionId: session.id };
   }
 
+  /**
+   * Build the security binding for a protected outbound action.
+   *
+   * Returns `null` when the session carries NO taint — i.e. approval is not
+   * required at all, because `consumeApproval` will allow the action outright.
+   *
+   * This used to throw `409 conflict`, which became a dead end once first-party
+   * reads stopped arming the gate: an agent whose prompt tells it to request
+   * approval before mutating would call this on a now-clean session, get a hard
+   * 409, and abandon the work. Observed live 2026-08-04 — Memory Consolidation
+   * took 8 consecutive 409s and reported "Captured: 0 … approval requests were
+   * rejected by the server", which is the same zero-work outcome as the original
+   * deadlock, just reached by a different route.
+   *
+   * "You do not need approval" is not an error condition. The caller turns this
+   * null into an explicit instruction to proceed.
+   */
   createApprovalBinding(
     context: TrustedSecurityContext,
     action: SecurityAction,
     payload: unknown,
-  ): SecurityApprovalBinding {
+  ): SecurityApprovalBinding | null {
     const session = requireKnownSession(context);
     const taint = getDb()
       .prepare('SELECT * FROM agent_external_taint_state WHERE session_id = ?')
       .get(session.id) as TaintStateRow | undefined;
     if (!taint) {
-      throw AppError.conflict('session has no external-content taint to approve');
+      return null;
     }
 
     const canonicalPayload = canonicalJson(payload);

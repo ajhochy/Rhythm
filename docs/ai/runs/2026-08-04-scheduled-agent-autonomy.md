@@ -81,6 +81,78 @@ confirmed by stashing my changes and re-running on clean `main`:
 suite` (`eslint: command not found`), `mobile web e2e` (`unknown command 'test'`).
 None are mine and none are in scope here.
 
+## Checks
+
+| Check | Result |
+|---|---|
+| flutter analyze / dart format / flutter test | pass |
+| api_server tsc / lint / build | pass |
+| api_server vitest (serial) | **467 files pass, 2 fail, 85 skipped** |
+| mcp_server tsc / vitest / build | pass (153/153) |
+| opencode fork typecheck | pass |
+| opencode fork session tests | pass on re-run (383/0) — flaked once inside the suite |
+| mobile static suite / web e2e | fail — pre-existing env |
+
+The 2 api_server failures are `opc_curated_mcp_ensure.test.ts` and
+`curated_mcp_no_display.test.ts`, both from one cause: the gitignored
+machine-local sidecar `apps/api_server/src/config/curated_mcp_servers.local.json`
+(dated Jun 29) declares an `obsidian` entry that duplicates the built-in added
+later, and the tests assert no duplicate ids. Confirmed pre-existing by stashing
+all my changes and re-running on clean `main`.
+
+**Side effect worth acting on:** that duplicate also makes `ensureCuratedMcps`
+permanently non-idempotent — it logs `persisted … obsidian, notion, stripe,
+mailchimp, obsidian` and rewrites `~/.config/opencode/opencode.json` on every
+run. Given that the Aug 2–3 `required_mcp_unavailable: obsidian` failures (5
+tasks) clustered around app restarts, constant rewriting of the MCP config is a
+plausible contributor. Removing the redundant sidecar entry likely fixes both.
+Not done here — the file is machine-local and outside this change's scope.
+
+No test file outside those 2 fails, so the change set introduces no regressions
+across 467 passing files.
+
+## Live smoke — what it caught
+
+Relaunched at 10:53 (deliberately NOT via `tools/dev/launch_desktop_current.sh`,
+which rebuilds the opencode fork from source and on this branch would have wiped
+the unmerged image_generation engine; verified afterwards that :4096 still runs
+the unchanged Aug 3 build from `apps/opencode_bin/opencode`).
+
+**Reaper confirmed live.** `ffb-podcast-vibes` went `running` → `error` with
+`[restart_interruption] Server restarted — run interrupted`, `next_run_at`
+preserved at 18:30 so it still fires normally. 0 orphans remained.
+
+**Exemption + salvage confirmed live.** Memory Consolidation's
+`rhythm_list_sessions` and `rhythm_list_memories`, both previously
+`[BLOCKED: … Content not loaded.]`, now complete, and the salvage note appeared
+for real on live data:
+
+```
+[NOTE: 5 of 54 user-authored agent sessions and messages item(s) were withheld
+by the prompt-injection scanner and are not shown. The 49 shown above are
+complete and unmodified.]
+```
+
+**A sixth defect that only the live run could reveal.** With the taint gone, the
+session was clean — but Memory Consolidation's prompt still tells it to request
+approval before mutating, so it called `rhythm_request_approval` with a
+`security_action`. `createApprovalBinding` threw `409 conflict — session has no
+external-content taint to approve`. The agent took **8 consecutive 409s** and
+reported:
+
+> Captured: 0 … approval requests were rejected by the server.
+
+Same zero-work outcome as the original deadlock, reached by a different route.
+Unit tests could not have caught this: every layer was individually correct, and
+the failure only exists in the interaction between a clean session and an agent
+prompt that assumes it needs approval.
+
+Fixed by making "you do not need approval" a success rather than an error —
+`createApprovalBinding` returns null, the controller answers
+`{status:'not_required'}`, and the MCP tool turns that into an explicit
+"proceed now, do NOT pass an approval_id". Covered by
+`approval_not_required_on_clean_session.test.ts`.
+
 ## Blocked
 
 Two pieces of the goal could not be completed — the permission classifier denied

@@ -45,6 +45,17 @@ export class AgentApprovalsController {
           parseSecurityAction(securityInput.action),
           parseSecurityPayload(securityInput.payload),
         );
+        if (!binding) {
+          // The session carries no taint, so consumeApproval will allow the
+          // action outright. Say so explicitly instead of failing: this used to
+          // be a 409, and an agent following "request approval before mutating"
+          // treated it as a hard stop and abandoned the write.
+          res.status(200).json({
+            status: 'not_required',
+            reason: 'no_external_content_taint',
+          });
+          return;
+        }
         const approval = repo.create({
           sessionId: binding.sessionId,
           agentConfigId: binding.agentConfigId,
