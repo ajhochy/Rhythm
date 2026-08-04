@@ -27,6 +27,40 @@
 const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 
 /**
+ * Normalize ONE per-server allowlist value into its explicit tool grants.
+ *
+ * This is the single interpretation of "what does the value next to a server
+ * name mean", shared by this guard and `agent_profile_scope.resolveProfileMcpScope`
+ * so the enforcement layer and every reader agree:
+ *
+ *   - `["a","b"]`              → explicit per-tool grant list.
+ *   - `{allowedTools:["a"]}`   → same, in the expanded form `_buildMcpRoleConfig` emits.
+ *   - `[]` / `{}` / `null`     → NO per-tool narrowing → inherit EVERY tool of
+ *                                that server (an EMPTY result means inherit-all,
+ *                                never "no tools").
+ *
+ * `null` is deliberately inherit-all, not deny: `agent_profile_scope`'s contract
+ * ("Pass null explicitly to force no scoping (unrestricted)"),
+ * `mcp_allowlist_expander.expandMcpAllowlist` (which pushes such a server into
+ * `servers[]`, i.e. inherit-all) and the agent-file projection all read it that
+ * way, so a stored `{"gitnexus":null}` grants all of gitnexus. This guard used to
+ * `continue` past any non-array value and deny the whole server — the only layer
+ * in the stack that disagreed.
+ */
+export function perServerToolGrants(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((t): t is string => typeof t === 'string');
+  }
+  if (value && typeof value === 'object') {
+    const allowedTools = (value as { allowedTools?: unknown }).allowedTools;
+    if (Array.isArray(allowedTools)) {
+      return allowedTools.filter((t): t is string => typeof t === 'string');
+    }
+  }
+  return [];
+}
+
+/**
  * Does `toolName` belong to `serverName`? Shared by both allowlist shapes — the
  * array-of-server-names inherit-all path (#812) and the object-map inherit-all
  * path (#736) — so server-membership is decided in exactly one place.
@@ -65,8 +99,9 @@ const toolBelongsToServer = (
  *         each named server is granted inherit-all (every tool of that server
  *         is allowed; a tool of an unlisted server is denied). Non-string
  *         members are ignored.
- *      2. OBJECT map `Record<serverName, string[]>` (#736) →
- *         - `tools` empty `[]`  → inherit-all for that server.
+ *      2. OBJECT map `Record<serverName, string[] | null | {allowedTools}>` (#736) →
+ *         see {@link perServerToolGrants} for the per-value rule:
+ *         - `tools` empty `[]`, `null`, or `{}` → inherit-all for that server.
  *         - `tools` non-empty   → only the listed tools (matched bare, composed,
  *           or mcp__-prefixed) are allowed.
  *  - An empty array `[]` or empty object `{}` grants no servers → deny all.
@@ -125,8 +160,7 @@ export function isToolAllowed(
   if (serverNames.length === 0) return false;
 
   for (const serverName of serverNames) {
-    const tools = parsed[serverName];
-    if (!Array.isArray(tools)) continue;
+    const tools = perServerToolGrants(parsed[serverName]);
     const sanitizedServer = sanitize(serverName);
 
     if (tools.length === 0) {

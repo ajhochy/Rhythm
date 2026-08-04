@@ -184,6 +184,8 @@ describe('issue-822-c4: a live, matched, exercised MCP name (no tighten-scope ga
           isManager: false,
           enabled: true,
           allowedMcps: ['gmail-work', 'rhythm'],
+          mcpScopeShape: 'servers',
+          allowedMcpTools: { 'gmail-work': [], rhythm: [] },
           allowedSkills: [],
           allowedDelegates: [],
         },

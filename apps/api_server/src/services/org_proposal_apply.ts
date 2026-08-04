@@ -203,6 +203,22 @@ export function computeScopeList(
   priorJson: string | null,
   patch: { add?: string[]; remove?: string[] },
 ): string {
+  // A profile may store `allowed_mcps_json` as a TOOLS-MAP
+  // ({"gitnexus":null,"rhythm":["rhythm_ping",...]}) instead of a server-name
+  // array. `safeParseStringArray` yields [] for that shape, so the array path
+  // below would REPLACE the whole map with `["<added name>"]` — silently
+  // destroying every other server grant and all per-tool narrowing on the
+  // profile. Set arithmetic on the map's own keys keeps the shape (and the
+  // sibling grants) intact; an added server gets [] = all its tools, the same
+  // meaning the array shape carries.
+  const priorMap = parseScopeMap(priorJson);
+  if (priorMap) {
+    const next: Record<string, unknown> = { ...priorMap };
+    for (const name of patch.remove ?? []) delete next[name];
+    for (const name of patch.add ?? []) if (!(name in next)) next[name] = [];
+    return JSON.stringify(next);
+  }
+
   const current = priorJson ? safeParseStringArray(priorJson) : [];
   const removeSet = new Set(patch.remove ?? []);
   const next = current.filter((name) => !removeSet.has(name));
@@ -477,6 +493,22 @@ function isExternalAdoptionRevertSnapshot(v: unknown): v is ExternalAdoptionReve
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
   return c.externalAdoption === true && typeof c.adoptedSkillName === 'string';
+}
+
+/**
+ * The tools-map form of a scope column ({"server":[...]|null}), or null when the
+ * value is absent, an array, or unparseable (the array path handles those).
+ */
+function parseScopeMap(json: string | null): Record<string, unknown> | null {
+  if (!json) return null;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function safeParseStringArray(json: string): string[] {

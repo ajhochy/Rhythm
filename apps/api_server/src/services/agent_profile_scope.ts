@@ -23,6 +23,7 @@ import { logger } from '../utils/logger';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { resolveRunModel } from './agent_runner';
 import { expandMcpAllowlist, type McpAllowlist } from './mcp_allowlist_expander';
+import { perServerToolGrants } from './mcp_dispatch_guard';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -211,6 +212,68 @@ export function expandProfileMcpAllowlist(
     logger.warn(`[expandProfileMcpAllowlist] ${roleLabel}: expansion failed (non-fatal): ${String(err)}`);
     return null;
   }
+}
+
+/** Which stored shape a profile's `allowed_mcps_json` used. */
+export type ProfileMcpScopeShape = 'unrestricted' | 'servers' | 'tools-map' | 'invalid';
+
+export interface ResolvedProfileMcpScope {
+  /**
+   * 'unrestricted' — `allowed_mcps_json` is NULL: no MCP restriction at all.
+   * 'servers'      — server-name array `["rhythm"]` (inherit-all per server).
+   * 'tools-map'    — object map `{"rhythm":["rhythm_ping"],"gitnexus":null}`.
+   * 'invalid'      — present but unparseable/neither shape → deny-all.
+   */
+  shape: ProfileMcpScopeShape;
+  /** MCP SERVER names the profile grants. Empty for 'unrestricted' (everything) and 'invalid' (nothing). */
+  servers: string[];
+  /**
+   * server → its explicit per-tool grants. An EMPTY array means "every tool of
+   * that server" (the `null` / `[]` / server-name-array grant), NEVER "no tools".
+   */
+  toolsByServer: Record<string, string[]>;
+}
+
+/**
+ * Resolve a profile's `allowed_mcps_json` into the server names (and per-server
+ * tool grants) it actually grants — the read-side companion to
+ * {@link resolveProfileScope}, for callers that need to ANSWER "what is in this
+ * profile's scope?" rather than build a session config.
+ *
+ * Interpretation is delegated to {@link _buildMcpRoleConfig} and
+ * {@link perServerToolGrants}, the same code the enforcing paths use, so a
+ * reader can never disagree with the runtime about what a stored value means.
+ * The org optimizer's audit used to parse this column with its own
+ * `JSON.parse + Array.isArray` helper, which returned `[]` for BOTH the
+ * tools-map shape and NULL — reporting live, fully-scoped profiles as having no
+ * MCP access at all and grounding false "missing scope" proposals on it.
+ */
+export function resolveProfileMcpScope(
+  allowedMcpsJson: string | null,
+  roleLabel = 'profile',
+  profileName: string | null = null,
+): ResolvedProfileMcpScope {
+  if (allowedMcpsJson === null) {
+    return { shape: 'unrestricted', servers: [], toolsByServer: {} };
+  }
+
+  // Shape classification only — the VALUE interpretation below is
+  // _buildMcpRoleConfig's, never re-derived here.
+  let shape: ProfileMcpScopeShape = 'invalid';
+  try {
+    const parsed: unknown = JSON.parse(allowedMcpsJson);
+    if (Array.isArray(parsed)) shape = 'servers';
+    else if (parsed !== null && typeof parsed === 'object') shape = 'tools-map';
+  } catch {
+    shape = 'invalid';
+  }
+
+  const roleConfig = _buildMcpRoleConfig(allowedMcpsJson, roleLabel, profileName);
+  const toolsByServer: Record<string, string[]> = {};
+  for (const [server, value] of Object.entries(roleConfig?.mcpServers ?? {})) {
+    toolsByServer[server] = perServerToolGrants(value);
+  }
+  return { shape, servers: Object.keys(toolsByServer), toolsByServer };
 }
 
 /**
