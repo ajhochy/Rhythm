@@ -63,7 +63,14 @@ function useGlobalStream(): boolean {
  * tools, otherwise a role scoped to (for example) `rhythm` falsely rejects
  * native calls such as `skill` and `read`.
  *
- * Keep this list aligned with apps/opencode_fork/.../tool/registry.ts.
+ * Keep this list aligned with apps/opencode_fork/.../tool/registry.ts — plus
+ * `image_generation` (#1094), which is engine-native but NOT in the registry:
+ * it is a provider-executed tool injected in session/prompt.ts (the registry
+ * only holds tools with a local `execute`). It is still governed by OpenCode's
+ * agent permission policy — the per-profile `permission.image_generation`
+ * grant — so this guard must not gate it. Omitting it made a role-scoped
+ * session reject every call with "not permitted for this agent's role", which
+ * is indistinguishable from the profile lacking the grant.
  */
 const OPENCODE_NATIVE_TOOLS = new Set([
   'invalid',
@@ -84,6 +91,7 @@ const OPENCODE_NATIVE_TOOLS = new Set([
   'question',
   'lsp',
   'plan_exit',
+  'image_generation',
 ]);
 
 /**
