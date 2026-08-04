@@ -192,10 +192,24 @@ export interface SkillPurpose {
 }
 
 export interface ScoreResult {
-  /** Integer 0–100. */
+  /** Integer 0–100. Meaningless when {@link ScoreResult.unknown} is set. */
   score: number;
   /** Judge's one-sentence rationale (or the failure reason). */
   reason: string;
+  /**
+   * UNKNOWN ≠ ZERO (2026-07-11 incident). Set when the score could NOT be read at all: an
+   * empty/errored judge run, a response with no parseable integer, a non-finite
+   * integer, or a thrown scorer. `score` then carries 0 ONLY as a placeholder so
+   * this stays a non-breaking addition — it is NOT a judgement about the body.
+   *
+   * Callers that act destructively on a low score (disable / empty / rewrite /
+   * revert a skill) MUST branch on this FIRST and leave the skill exactly as it
+   * is, letting a later pass retry. Coercing unknown to 0 is what emptied four
+   * of the user's hand-written skills on 2026-07-11 (see the incident table in
+   * this fix's PR body) — the recorded reason was literally
+   * `harvest-eval: disabled (score=0 < 40); unparseable score — treated as 0`.
+   */
+  unknown?: true;
 }
 
 /**
@@ -240,11 +254,13 @@ function buildScoreSystemPrompt(): string {
  * fallback provider (#930/#997 chain) — up to N run() calls (each a full
  * self_improvement session) per single score. That fan-out is the "Scorer
  * fan-out bounded" acceptance criterion's target: this now makes exactly ONE
- * run() call at the cheap tier (taskKind) and fails closed (score 0) on an
- * unparseable/error result, rather than retrying the next provider. A single
- * cheap-tier judge is an acceptable trade for the cost win — the caller
- * (harvested_skill_evaluator.ts) already treats a 0 score as "not good enough
- * yet", never as a crash.
+ * run() call at the cheap tier (taskKind), rather than retrying the next
+ * provider.
+ *
+ * 2026-07-11 incident: an unparseable/errored result now returns `unknown: true` instead of a
+ * bare score of 0. It used to be described as "fails closed (score 0)", but 0 is
+ * the BOTTOM of the rubric — the caller could not tell "the body is garbage"
+ * from "I never got an answer", and acted destructively on both.
  */
 const defaultScorer: ScoreCall = async (purpose, body) => {
   const system = buildScoreSystemPrompt();
@@ -268,24 +284,28 @@ const defaultScorer: ScoreCall = async (purpose, body) => {
   });
   const text = res.status === 'error' ? '' : res.result;
   if (!/^\s*-?\d+\b/.test(text)) {
-    return { score: 0, reason: `unparseable scorer response: ${text || 'empty scorer response'}` };
+    return {
+      score: 0,
+      reason: `unparseable scorer response: ${text || 'empty scorer response'}`,
+      unknown: true,
+    };
   }
   return parseScoreResponse(text);
 };
 
 /**
- * Parse a free-text score response into a {@link ScoreResult}. FAIL-CLOSED: a
- * response with no parseable leading integer in [0,100] yields score 0 (so the
- * measure step treats it as no improvement → revert). Exported for tests.
+ * Parse a free-text score response into a {@link ScoreResult}. A response with
+ * no parseable integer is UNKNOWN, not zero (2026-07-11 incident) — see
+ * {@link ScoreResult.unknown}. Exported for tests.
  */
 export function parseScoreResponse(raw: string): ScoreResult {
   const text = (raw ?? '').trim();
   const m = text.match(/-?\d+/);
   if (!m) {
-    return { score: 0, reason: text || 'unparseable score — treated as 0' };
+    return { score: 0, reason: text || 'unparseable score — score UNKNOWN', unknown: true };
   }
   let n = parseInt(m[0], 10);
-  if (!Number.isFinite(n)) return { score: 0, reason: 'non-finite score — treated as 0' };
+  if (!Number.isFinite(n)) return { score: 0, reason: 'non-finite score — score UNKNOWN', unknown: true };
   if (n < 0) n = 0;
   if (n > 100) n = 100;
   const reason = text.slice(text.indexOf(m[0]) + m[0].length).trim() || text;
@@ -294,8 +314,8 @@ export function parseScoreResponse(raw: string): ScoreResult {
 
 /**
  * Score a body against a stated purpose using the (injectable) scorer. NEVER
- * throws — a thrown scorer is mapped to a fail-closed score of 0. Used by the
- * #795 measurement step for both baseline and post bodies.
+ * throws — a thrown scorer yields an UNKNOWN score (2026-07-11 incident), never a real 0.
+ * Used by the #795 measurement step for both baseline and post bodies.
  */
 export async function scoreSkillBody(
   purpose: SkillPurpose,
@@ -305,8 +325,8 @@ export async function scoreSkillBody(
   try {
     return await scorer(purpose, body ?? '');
   } catch (err) {
-    logger.warn(`[skill-measure] scorer threw (fail-closed → 0): ${String(err)}`);
-    return { score: 0, reason: `scorer error: ${String(err)}` };
+    logger.warn(`[skill-measure] scorer threw — score UNKNOWN (not 0): ${String(err)}`);
+    return { score: 0, reason: `scorer error: ${String(err)}`, unknown: true };
   }
 }
 
