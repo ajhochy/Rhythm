@@ -1,5 +1,5 @@
-import { describe, expect } from "bun:test"
-import { Effect } from "effect"
+import { afterEach, describe, expect, test } from "bun:test"
+import { Cause, Effect, Exit } from "effect"
 import * as Stream from "effect/Stream"
 import fs from "fs/promises"
 import os from "os"
@@ -215,6 +215,113 @@ describe("file.ripgrep", () => {
         Ripgrep.Service.use((rg) => rg.search({ cwd: dir, pattern: "needle" })),
       )
       expect(result.items).toHaveLength(1)
+    }),
+  )
+})
+
+// The walk budget lives here so `files`, `search`, `tree` and any future caller are bounded in
+// one place. Squeezing it to 1ms is the deterministic stand-in for the real trigger — a walk
+// rooted at a tree big enough to outlive the budget on its own would need a $HOME-sized fixture.
+describe("file.ripgrep timeout", () => {
+  const keys = ["RHYTHM_RIPGREP_TIMEOUT_MS", "RHYTHM_GLOB_TIMEOUT_MS"] as const
+  const original = keys.map((key) => [key, process.env[key]] as const)
+  afterEach(() => {
+    for (const [key, value] of original) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+
+  test("reads the budget from the environment at call time", () => {
+    for (const key of keys) delete process.env[key]
+    expect(Ripgrep.ripgrepTimeoutMs()).toBe(Ripgrep.RIPGREP_TIMEOUT_DEFAULT_MS)
+    process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "1234"
+    expect(Ripgrep.ripgrepTimeoutMs()).toBe(1234)
+    process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "nope"
+    expect(Ripgrep.ripgrepTimeoutMs()).toBe(Ripgrep.RIPGREP_TIMEOUT_DEFAULT_MS)
+    process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "0"
+    expect(Ripgrep.ripgrepTimeoutMs()).toBe(Ripgrep.RIPGREP_TIMEOUT_DEFAULT_MS)
+  })
+
+  test("still honors the pre-centralization RHYTHM_GLOB_TIMEOUT_MS", () => {
+    for (const key of keys) delete process.env[key]
+    process.env.RHYTHM_GLOB_TIMEOUT_MS = "4321"
+    expect(Ripgrep.ripgrepTimeoutMs()).toBe(4321)
+    // the current name wins when both are set
+    process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "1111"
+    expect(Ripgrep.ripgrepTimeoutMs()).toBe(1111)
+  })
+
+  it.live("tree fails with an actionable error when the walk outlives the budget", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdir((dir) =>
+        Effect.gen(function* () {
+          yield* mkdir(path.join(dir, "deep", "nested"))
+          yield* write(path.join(dir, "deep", "nested", "a.ts"), "export const a = 1\n")
+        }),
+      )
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "1"
+      const started = Date.now()
+      const exit = yield* Ripgrep.Service.use((rg) => rg.tree({ cwd: dir })).pipe(Effect.exit)
+      const elapsed = Date.now() - started
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const err = Cause.squash(exit.cause)
+        const message = err instanceof Error ? err.message : String(err)
+        expect(message).toContain("repo tree timed out after 1ms")
+        expect(message).toContain(dir)
+        expect(message).toContain("RHYTHM_RIPGREP_TIMEOUT_MS")
+      }
+      expect(elapsed).toBeLessThan(10_000)
+    }),
+  )
+
+  it.live("tree is unaffected when the budget is generous", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdir((dir) =>
+        Effect.gen(function* () {
+          yield* mkdir(path.join(dir, "deep", "nested"))
+          yield* write(path.join(dir, "deep", "nested", "a.ts"), "export const a = 1\n")
+        }),
+      )
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "60000"
+      const tree = yield* Ripgrep.Service.use((rg) => rg.tree({ cwd: dir }))
+      expect(tree).toContain("deep")
+      expect(tree).toContain(path.join("deep", "nested").replace(path.sep, "/"))
+    }),
+  )
+
+  it.live("search fails with an actionable error when the walk outlives the budget", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdir((dir) => write(path.join(dir, "match.ts"), "const needle = 1\n"))
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "1"
+      const exit = yield* Ripgrep.Service.use((rg) => rg.search({ cwd: dir, pattern: "needle" })).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const err = Cause.squash(exit.cause)
+        const message = err instanceof Error ? err.message : String(err)
+        expect(message).toContain("ripgrep search timed out after 1ms")
+        expect(message).toContain(dir)
+        expect(message).toContain("RHYTHM_RIPGREP_TIMEOUT_MS")
+      }
+    }),
+  )
+
+  it.live("search is unaffected when the budget is generous", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdir((dir) => write(path.join(dir, "match.ts"), "const needle = 1\n"))
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "60000"
+      const result = yield* Ripgrep.Service.use((rg) => rg.search({ cwd: dir, pattern: "needle" }))
+      expect(result.items).toHaveLength(1)
+    }),
+  )
+
+  it.live("files is unaffected when the budget is generous", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdir((dir) => write(path.join(dir, "a.txt"), "hello"))
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "60000"
+      const files = yield* collectFiles({ cwd: dir })
+      expect(files).toEqual(["a.txt"])
     }),
   )
 })

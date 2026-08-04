@@ -75,6 +75,9 @@ export const GrepTool = Tool.define(
             glob: params.include ? [params.include] : undefined,
             file,
             signal: ctx.abort,
+            // The search budget lives in Ripgrep (see ripgrepTimeoutMs); `label` is what the
+            // model sees if it expires.
+            label: "grep",
           })
           if (result.items.length === 0) return empty
 

@@ -108,6 +108,24 @@ export interface SearchResult {
   partial: boolean
 }
 
+export const RIPGREP_TIMEOUT_DEFAULT_MS = 15_000
+
+/**
+ * Per-call wall-clock budget for a ripgrep walk. Without it an unbounded traversal rooted at
+ * a huge tree (e.g. `**` at $HOME) never returns and silently burns the whole run-level
+ * inactivity window. It lives here rather than in a tool so `files`, `search`, `tree` and
+ * anything added later are bounded without each caller remembering to opt in.
+ *
+ * Read fresh from the environment so it can be tuned without a rebuild, following
+ * `providerStreamInactivityMs()` in session/llm.ts. `RHYTHM_GLOB_TIMEOUT_MS` is the
+ * pre-centralization name and is still honored.
+ */
+export function ripgrepTimeoutMs() {
+  const raw = process.env.RHYTHM_RIPGREP_TIMEOUT_MS ?? process.env.RHYTHM_GLOB_TIMEOUT_MS ?? ""
+  const configured = Number.parseInt(raw, 10)
+  return Number.isFinite(configured) && configured > 0 ? configured : RIPGREP_TIMEOUT_DEFAULT_MS
+}
+
 export interface FilesInput {
   cwd: string
   glob?: string[]
@@ -115,6 +133,8 @@ export interface FilesInput {
   follow?: boolean
   maxDepth?: number
   signal?: AbortSignal
+  /** How the caller names itself in a timeout error, so the model reads "glob timed out", not "ripgrep timed out". */
+  label?: string
 }
 
 export interface SearchInput {
@@ -125,6 +145,8 @@ export interface SearchInput {
   follow?: boolean
   file?: string[]
   signal?: AbortSignal
+  /** How the caller names itself in a timeout error, so the model reads "grep timed out", not "ripgrep timed out". */
+  label?: string
 }
 
 export interface TreeInput {
@@ -169,6 +191,31 @@ function error(stderr: string, code: number) {
   const err = new Error(stderr.trim() || `ripgrep failed with code ${code}`)
   err.name = "RipgrepError"
   return err
+}
+
+/**
+ * The model can act on an error; it cannot act on a hang. Every timeout message has to name
+ * the path that was too big, the budget that expired, and the knob that raises it.
+ */
+function timeout(detail: string, advice: string) {
+  const err = new Error(`${detail} ${advice} Set RHYTHM_RIPGREP_TIMEOUT_MS to raise the budget.`)
+  err.name = "RipgrepTimeoutError"
+  return err
+}
+
+function filesTimeout(input: FilesInput, ms: number) {
+  const globs = input.glob?.length ? ` for ${input.glob.join(", ")}` : ""
+  return timeout(
+    `${input.label ?? "ripgrep file listing"} timed out after ${ms}ms while traversing ${input.cwd}${globs}.`,
+    `Narrow the pattern or the path (a leading "**" rooted at a large directory has to walk the whole tree), then retry.`,
+  )
+}
+
+function searchTimeout(input: SearchInput, ms: number) {
+  return timeout(
+    `${input.label ?? "ripgrep search"} timed out after ${ms}ms while searching ${input.cwd} for ${input.pattern}.`,
+    `Narrow the path, or restrict the files searched with an include pattern, then retry.`,
+  )
 }
 
 function clean(file: string) {
@@ -346,6 +393,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
       const files: Interface["files"] = (input) =>
         Stream.callback<string, PlatformError | Error>((queue) =>
           Effect.gen(function* () {
+            const budget = ripgrepTimeoutMs()
             yield* Effect.forkScoped(
               Effect.gen(function* () {
                 yield* check(input.cwd)
@@ -365,6 +413,15 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
                 }
                 fail(queue, error(yield* Fiber.join(stderr), code))
               }).pipe(
+                // Failing the queue terminates the stream, which closes the scope the child
+                // process was spawned in — that is what actually kills the `rg` process.
+                Effect.timeoutOrElse({
+                  duration: budget,
+                  orElse: () =>
+                    Effect.sync(() => {
+                      fail(queue, filesTimeout(input, budget))
+                    }),
+                }),
                 Effect.catch((err) =>
                   Effect.sync(() => {
                     fail(queue, err)
@@ -410,12 +467,23 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
           }),
         )
 
-        return yield* raceAbort(program, input.signal)
+        const budget = ripgrepTimeoutMs()
+        // `program` is `Effect.scoped`, so interrupting it closes its scope and kills `rg`.
+        return yield* raceAbort(program, input.signal).pipe(
+          Effect.timeoutOrElse({
+            duration: budget,
+            orElse: () => Effect.fail(searchTimeout(input, budget)),
+          }),
+        )
       })
 
       const tree: Interface["tree"] = Effect.fn("Ripgrep.tree")(function* (input: TreeInput) {
         log.info("tree", input)
-        const list = Array.from(yield* files({ cwd: input.cwd, signal: input.signal }).pipe(Stream.runCollect))
+        // No glob at all — this collects every path under cwd, so it inherits the same walk
+        // budget as `files` (see RIPGREP_TIMEOUT_DEFAULT_MS for why it is not a larger one).
+        const list = Array.from(
+          yield* files({ cwd: input.cwd, signal: input.signal, label: "repo tree" }).pipe(Stream.runCollect),
+        )
 
         interface Node {
           name: string
