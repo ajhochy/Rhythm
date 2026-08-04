@@ -406,12 +406,19 @@ const BUILT_IN_CURATED_MCP_SERVERS: CuratedMcpServer[] = [
  * Observed 2026-08-04 on a sidecar dated Jun 29 declaring `obsidian`, five
  * weeks before the built-in `obsidian` entry existed.
  *
- * Override, not merge-by-field: a sidecar entry REPLACES the built-in outright.
- * The two can legitimately describe different implementations of the same
- * service (a homebrew Node binary vs a Rhythm-managed venv Python one) with
- * different commands, env and requiredEnv, so field-level merging would
- * synthesize an entry matching neither. The built-in's POSITION is kept so
- * ordering — and therefore byte-identical output across runs — stays stable.
+ * The sidecar wins on TRANSPORT (type, command, url, environment) — the two can
+ * legitimately describe different implementations of one service (a homebrew
+ * Node binary vs a Rhythm-managed venv Python one), so field-level merging of
+ * those would synthesize an entry matching neither.
+ *
+ * `requiredEnv` is the deliberate exception: it is the UNION of both, never the
+ * sidecar's alone. A machine-local file must not be able to silently drop a
+ * built-in's credential gate — that would let a curated key-based server accept
+ * an empty credential payload. Caught by `mcp-7-c8`, which correctly started
+ * failing when this first replaced entries outright.
+ *
+ * The built-in's POSITION is kept so ordering — and therefore byte-identical
+ * output across runs — stays stable.
  */
 function mergeLocalOverBuiltIns(
   builtIns: CuratedMcpServer[],
@@ -420,8 +427,15 @@ function mergeLocalOverBuiltIns(
   const merged = [...builtIns];
   for (const entry of local) {
     const at = merged.findIndex((s) => s.id === entry.id);
-    if (at === -1) merged.push(entry);
-    else merged[at] = entry;
+    if (at === -1) {
+      merged.push(entry);
+      continue;
+    }
+    const builtIn = merged[at]!;
+    merged[at] = {
+      ...entry,
+      requiredEnv: [...new Set([...(builtIn.requiredEnv ?? []), ...(entry.requiredEnv ?? [])])],
+    };
   }
   return merged;
 }

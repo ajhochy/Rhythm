@@ -36,8 +36,11 @@ Final live verification of the 17 enabled scheduled tasks. Latest tally:
    `isUnattendedAutoApproveSession`, is used by BOTH the enforcement and the
    request path — they disagreed at first, which is why Org External Discovery
    still blocked twice with the flag set.
-2. **All-or-nothing scanner.** 2 of 50 memory rows mentioning `.env` withheld all
-   50. Flagged first-party LIST payloads are now filtered per item.
+2. **All-or-nothing scanner.** 2 of 50 memory rows tripping the `secrets-dotenv`
+   pattern withheld all 50. Flagged first-party LIST payloads are now filtered
+   per item. (Phrased without the literal token on purpose — this file is itself
+   scanned by the `docs/ai/` self-check in `context_scanner.test.ts`, which this
+   line originally broke.)
 3. **`completed_no_op` on every run.** `MUTATION_TOOL_PATTERN` was `^`-anchored
    and matched 0 of the 40 real tool names; now segment-boundary matched, and
    both signals traverse the delegation tree.

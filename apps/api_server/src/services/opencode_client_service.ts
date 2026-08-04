@@ -796,6 +796,39 @@ export class OpencodeClientService {
         );
       }
 
+      // #1094 follow-up — raise the engine's provider-stream inactivity
+      // watchdog so a provider-EXECUTED tool cannot be killed mid-flight.
+      //
+      // `image_generation` runs server-side inside OpenAI's Responses call with
+      // partial images deliberately disabled (they would emit one tool-result
+      // per frame for the same call id). The engine's watchdog re-arms only when
+      // a stream part arrives, so the whole render is complete stream silence.
+      // At the 180s default (PROVIDER_STREAM_INACTIVITY_DEFAULT_MS in
+      // session/llm.ts) any gpt-image-1 render slower than 3 minutes aborts with
+      // "Provider stream inactive for 180000ms" — reproduced repeatedly on
+      // 12-panel contact sheets, which then fail identically on resume because
+      // the model re-plans the same expensive image.
+      //
+      // A raise, never a lower: an operator-supplied value always wins, and the
+      // engine's own default still applies if this is somehow unset. The cost is
+      // that a genuinely hung stream now takes this long to detect instead of
+      // 3 minutes; that is the deliberate trade for not killing legitimate
+      // long-running provider work. The real fix is a watchdog that pauses while
+      // a provider-executed tool call is outstanding — that needs a fork change.
+      const IMAGE_SAFE_INACTIVITY_MS = 600_000;
+      const configuredInactivity = Number.parseInt(
+        process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS ?? '',
+        10,
+      );
+      if (!Number.isFinite(configuredInactivity) || configuredInactivity < IMAGE_SAFE_INACTIVITY_MS) {
+        process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = String(IMAGE_SAFE_INACTIVITY_MS);
+        logger.info(
+          `[OpencodeClientService] provider-stream inactivity watchdog set to ` +
+            `${IMAGE_SAFE_INACTIVITY_MS}ms for the engine child (provider-executed ` +
+            `image_generation streams silently while rendering)`,
+        );
+      }
+
       const t5 = Date.now();
       clearTrustedMcpVerifier();
       const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });

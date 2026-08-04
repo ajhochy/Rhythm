@@ -781,25 +781,37 @@ export function startAgentSchedulerJob(): { stop: () => void } | null {
   // touches `agent_sessions`; a task whose run died mid-flight kept
   // `last_run_status = 'running'` in its single overwritten status slot forever,
   // so the dashboard asserted an in-progress run indefinitely.
-  void repo
-    .resetStaleRunningAsync(
-      formatAgentRunFailure({
-        error: 'Server restarted — run interrupted',
-        failureCategory: 'restart_interruption',
-      }),
+  // try/catch, not just .catch() — invoking a missing method throws
+  // SYNCHRONOUSLY, which a promise handler cannot intercept. Boot must survive
+  // an unavailable recovery step: losing stale-task cleanup is a cosmetic
+  // regression, whereas throwing here takes the whole scheduler down and no
+  // task ever ticks again. (The session reaper above is wrapped for the same
+  // reason.) CI caught this — the scheduler tests stub the repository with only
+  // the two methods they exercise.
+  try {
+    void Promise.resolve(
+      repo.resetStaleRunningAsync(
+        formatAgentRunFailure({
+          error: 'Server restarted — run interrupted',
+          failureCategory: 'restart_interruption',
+        }),
+      ),
     )
-    .then((staleTasks) => {
-      if (staleTasks > 0) {
-        logger.info(
-          `[AgentScheduler] Reset ${staleTasks} stale running/queued scheduled task(s) to error on boot`,
+      .then((staleTasks) => {
+        if (staleTasks > 0) {
+          logger.info(
+            `[AgentScheduler] Reset ${staleTasks} stale running/queued scheduled task(s) to error on boot`,
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        logger.warn(
+          `[AgentScheduler] Could not reset stale running scheduled tasks: ${String(err)}`,
         );
-      }
-    })
-    .catch((err: unknown) => {
-      logger.warn(
-        `[AgentScheduler] Could not reset stale running scheduled tasks: ${String(err)}`,
-      );
-    });
+      });
+  } catch (err) {
+    logger.warn(`[AgentScheduler] Could not reset stale running scheduled tasks: ${String(err)}`);
+  }
 
   // Run once immediately on startup to catch any tasks that fired while the
   // server was down (Odysseus does the same with the "pushed next_run forward"
