@@ -24,8 +24,20 @@ tags: [run, Rhythm]
 ## Checks
 
 - `npx --no-install tsc --noEmit` → clean.
-- `npm test --silent -- --fileParallelism=false` → see PR body for exact numbers.
+- `npm test --silent -- --fileParallelism=false` → 467 files pass / 0 fail / 85 skipped;
+  3849 tests pass (exit 0). Same command on `main` in this worktree: 467 / 0 / 85 and
+  3835 tests — delta is exactly the +14 tests added here.
 - 5 deliberate mutations, each killed by the new tests (see PR body).
+
+## Flake
+
+Two intermediate full-suite runs each failed 2 files, on **disjoint** pairs
+(`agent_sessions` + `opc_m4_3_mcp_routes`, then `issue_1060_file_find_proxy` +
+`notifications`). All four pass in isolation, all four use `startTestServer`, whose
+docstring already documents this load/timing-dependent class. One surfaced as an
+`HTTPParserError` carrying `{"type":"Tier1","version":"1.0"}` — a handshake from a
+machine-local daemon, a string absent from `apps/api_server`. Environmental; this dev box
+currently has many live ephemeral-range listeners (`engraph`, the running app, etc.).
 
 ## Notes
 
