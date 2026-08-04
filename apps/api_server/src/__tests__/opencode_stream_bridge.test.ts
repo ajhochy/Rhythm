@@ -657,7 +657,12 @@ describe('OpencodeStreamBridge — #812 role-scoped dispatch guard (array allowl
     expect(types).not.toContain('tool.denied');
   });
 
-  it.each(['skill', 'task', 'read', 'bash'])(
+  // `image_generation` (#1094) is engine-native but absent from the tool
+  // registry — it is a provider-executed tool injected in session/prompt.ts.
+  // It must pass this guard like any other native tool; when it did not, every
+  // call on a role-scoped session came back "not permitted for this agent's
+  // role", which looks identical to the profile lacking the grant.
+  it.each(['skill', 'task', 'read', 'bash', 'image_generation'])(
     'forwards the native %s tool for the same scoped session',
     (toolName) => {
       relayToolPart(toolName);
