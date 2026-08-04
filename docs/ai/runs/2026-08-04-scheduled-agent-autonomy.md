@@ -2,13 +2,13 @@
 date: 2026-08-04
 repo: Rhythm
 branch: workflow/run-2026-08-04-agent-autonomy
-pr: (not yet opened)
+pr: https://github.com/ajhochy/Rhythm/pull/1312
 issues: (none pre-existing — searched approval/taint/autonomous/scheduled, completed_no_op, auto_approve, bash allowlist; all empty)
-status: code complete and verified; live application and 17-task smoke BLOCKED on tool permissions
+status: 16 of 17 tasks verified with a clean unattended run; pco-song-usage-sync outstanding (unbounded glob, non-permissions)
 tags: [run, Rhythm, agents, scheduler, security]
 ---
 
-# Scheduled-agent autonomy: five defects fixed
+# Scheduled-agent autonomy: eight defects fixed
 
 Goal: every one of the 17 enabled scheduled tasks completes a manually-triggered
 run with no human interaction.
@@ -152,6 +152,35 @@ Fixed by making "you do not need approval" a success rather than an error —
 `{status:'not_required'}`, and the MCP tool turns that into an explicit
 "proceed now, do NOT pass an approval_id". Covered by
 `approval_not_required_on_clean_session.test.ts`.
+
+## Final live tally — 16 of 17
+
+Every enabled task was manually triggered via `POST /agent-schedules/:id/trigger-now`
+and its run tree inspected for denied tools and pending approvals.
+
+**Real work performed, verified (8 reporting `success`):** FFB Brief and
+Dashboard · theological-research-daily · dev-dashboard-refresh · daily-dev-summary
+· ffb-daily-dashboard-update · worship-volunteer-care (7 PCO tasks created) ·
+monday-worship-planning · Memory Consolidation (`Captured: 2, Deprecated: 3,
+pending 0`).
+
+Plus **ffb-podcast-vibes**, which passed at 18:05 with 23 player assessments
+written — it had been pinned at `running` for 20+ hours.
+
+**Unobstructed, nothing to do or masked by the classifier (7 `completed_no_op`):**
+FFB Data Refresh · Obsidian Vault Maintenance (0 fixes needed) ·
+Org External Discovery (clean completion, evidence cited, no pending approval) ·
+ai-trend-research-daily (9 findings + dashboard + 6 archives, all via `bash`) ·
+Org Self-Optimizer (2 proposals written, 2 queued for review, 5 deduped) ·
+daily-email-triage · daily-morning-briefing.
+
+Three of those seven did substantial real work that the classifier could not see
+— `bash`-only writes, and `rhythm_run_org_optimizer` having no mutation verb in
+its name. So `completed_no_op` is materially better than before (8 tasks can now
+report `success`, where **none** could) but still under-reports.
+
+**Still failing (1):** `pco-song-usage-sync` — the unbounded `glob` over `$HOME`.
+Not a permissions problem; see Blocked below.
 
 ## Blocked
 
