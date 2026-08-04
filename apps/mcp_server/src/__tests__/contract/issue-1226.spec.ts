@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerTaskTools } from '../../tools/tasks.js';
+import { registerGoogleTools } from '../../tools/google.js';
 import {
   currentTrustedSecurityCall,
   RHYTHM_SECURITY_CONTEXT_META_KEY,
@@ -71,6 +72,12 @@ describe('issue #1226 MCP trusted-call forwarding', () => {
       'fetch',
       vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = String(input);
+        if (url.includes('/integrations/google/gmail/search')) {
+          return new Response(
+            JSON.stringify([{ id: 'm1', subject: 'safe subject' }]),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
         if (url.includes('/tasks')) {
           return new Response(JSON.stringify([{ id: 1, title: 'safe task' }]), {
             status: 200,
@@ -105,9 +112,22 @@ describe('issue #1226 MCP trusted-call forwarding', () => {
       'token',
       'http://agent',
     );
-    await tools.get('rhythm_list_tasks')!(
-      { status: 'all', overdue: true },
-      extra('rhythm_list_tasks', 'nonce-list-tasks'),
+    registerGoogleTools(
+      server as never,
+      'http://cloud',
+      'token',
+      'http://agent',
+    );
+
+    // The taint half must be driven by a source that still ARMS the gate.
+    // `rhythm_list_tasks` used to serve this role, but `task.list` is
+    // first-party and is now exempt from taint recording (see
+    // SOURCES_EXEMPT_FROM_APPROVAL_GATE) — using it here would assert on a
+    // taint that is correctly no longer recorded, turning this contract green
+    // for the wrong reason. Gmail is genuine third-party ingress.
+    await tools.get('rhythm_search_gmail')!(
+      { query: 'is:unread' },
+      extra('rhythm_search_gmail', 'nonce-search-gmail'),
     );
 
     await tools.get('rhythm_create_task')!(
@@ -118,16 +138,16 @@ describe('issue #1226 MCP trusted-call forwarding', () => {
     expect(forwardedTaint).toHaveLength(1);
     expect(forwardedTaint[0].trustedCall).toEqual({
       context: {
-        sdkSessionId: 'sdk-nonce-list-tasks',
-        turnId: 'turn-nonce-list-tasks',
+        sdkSessionId: 'sdk-nonce-search-gmail',
+        turnId: 'turn-nonce-search-gmail',
         agentName: 'manager',
-        toolCallId: 'call-nonce-list-tasks',
+        toolCallId: 'call-nonce-search-gmail',
       },
       proof: expect.objectContaining({
-        toolName: 'rhythm_list_tasks',
-        nonce: 'nonce-list-tasks',
+        toolName: 'rhythm_search_gmail',
+        nonce: 'nonce-search-gmail',
       }),
-      arguments: { status: 'all', overdue: true },
+      arguments: { query: 'is:unread' },
     });
     expect(forwardedConsume).toHaveLength(1);
     expect(forwardedConsume[0].trustedCall).toEqual({

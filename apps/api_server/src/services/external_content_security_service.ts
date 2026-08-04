@@ -11,7 +11,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../errors/app_error';
 import { getDb } from '../database/db';
+import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { isAutoApproveProfile } from '../repositories/agent_approvals_repository';
 
 export const SECURITY_ACTIONS = [
   'email.send',
@@ -407,6 +409,18 @@ export class ExternalContentSecurityService {
       return { allowed: true, consumed: false };
     }
     if (!input.approvalId) {
+      // An unattended scheduled run has no human to produce an approval token.
+      // If the bound profile is explicitly marked auto-approve, authorize here
+      // and leave a full audit row behind. Returns null for every other shape,
+      // which falls through to the original refusal.
+      const auto = this.autoApproveUnattendedScheduledRun({
+        session,
+        taint,
+        context: input.context,
+        action: input.action,
+        payload: input.payload,
+      });
+      if (auto) return auto;
       throw AppError.forbidden('human approval is required after external content was consumed');
     }
 
@@ -456,5 +470,89 @@ export class ExternalContentSecurityService {
       }
       return { allowed: true as const, consumed: true };
     })();
+  }
+
+  /**
+   * Authorize a protected mutation for an UNATTENDED SCHEDULED run whose bound
+   * profile is explicitly marked `auto_approve_actions`.
+   *
+   * This is a deliberate, user-authorized narrowing of the #1134 rule that
+   * security-bound approvals always require a human (decision 2026-08-04 —
+   * see docs/ai/decisions/). The rule it relaxes had made autonomy structurally
+   * impossible: a scheduled job reads data, that read arms the taint gate, and
+   * the write that follows then demands a human who is by definition not there.
+   * Memory Consolidation ran at 02:30 and reported success having captured 0.
+   *
+   * THREE conditions must ALL hold; any one missing returns null and the caller
+   * refuses exactly as before:
+   *
+   *   1. `auto_approve_actions = 1` on the bound profile — opt-in, default 0,
+   *      set per profile by the user.
+   *   2. `is_system = 1` — a Rhythm-originated run, never an interactive one.
+   *   3. `scheduled_task_id IS NOT NULL` — it came from the scheduler.
+   *
+   * Interactive sessions can satisfy none of 2 or 3, so a human at the keyboard
+   * still gets the full gate. Delegated children inherit `is_system` and
+   * `scheduled_task_id` from their parent (upsertResolvedChildSession), so a
+   * subagent of a scheduled run is covered — which is required, since the
+   * blocked writes were frequently in children.
+   *
+   * KNOWN AND ACCEPTED CONSEQUENCE: the taint may have come from genuinely
+   * external content (an email body, a web page, PCO data). This therefore
+   * allows attacker-influenced text to reach a protected mutation with no human
+   * in the loop, for auto-approve profiles on scheduled runs only. That
+   * trade-off was made explicitly to get unattended runs working. The audit row
+   * written below is what keeps it reviewable: it records the exact action,
+   * canonical payload digest, the taint id AND the taint source, so an
+   * after-the-fact review can see which reads influenced which writes.
+   */
+  private autoApproveUnattendedScheduledRun(input: {
+    session: { id: string; agentKind: string; isSystem?: boolean; scheduledTaskId?: string | null };
+    taint: TaintStateRow;
+    context: TrustedSecurityContext;
+    action: SecurityAction;
+    payload: unknown;
+  }): { allowed: true; consumed: boolean } | null {
+    const { session, taint } = input;
+    if (!session.isSystem) return null;
+    if (!session.scheduledTaskId) return null;
+    if (!isAutoApproveProfile(session.agentKind)) return null;
+
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO agent_approvals
+           (id, session_id, agent_config_id, action, preview, consequence, status,
+            actor, decided_at, security_action, payload_digest, taint_id,
+            tainted_turn_id, bound_agent, expires_at, consumed_at, decision_nonce)
+         VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      )
+      .run(
+        randomUUID(),
+        session.id,
+        session.agentKind,
+        `Auto-approved ${input.action} (unattended scheduled run)`,
+        `${input.action}: ${canonicalJson(input.payload)}`,
+        `Profile "${session.agentKind}" has auto_approve_actions enabled and this run ` +
+          `originated from scheduled task ${session.scheduledTaskId}. Session taint ` +
+          `source at time of write: ${taint.source}.`,
+        `auto-approved:scheduled-task:${session.scheduledTaskId}`,
+        now,
+        input.action,
+        securityPayloadDigest(input.action, input.payload),
+        taint.taint_id,
+        taint.tainted_turn_id,
+        input.context.agentName,
+        now, // already-consumed: expires_at is in the past by construction
+        now,
+      );
+
+    logger.warn(
+      `[ExternalContentSecurity] auto-approved ${input.action} for unattended ` +
+        `scheduled run (profile=${session.agentKind}, task=${session.scheduledTaskId}, ` +
+        `taintSource=${taint.source}) — #1134 human gate bypassed by profile opt-in`,
+    );
+
+    return { allowed: true, consumed: true };
   }
 }

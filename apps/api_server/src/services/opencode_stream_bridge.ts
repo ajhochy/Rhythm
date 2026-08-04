@@ -1779,6 +1779,66 @@ export class OpencodeStreamBridge {
           break;
         }
 
+        // Consult the session's permission_mode to decide whether to
+        // auto-respond or forward to the user.
+        //
+        // Resolved HERE, above the #878 bash gate, because #878's `ask` branch
+        // needs to know whether anyone is actually listening. See the
+        // `isUnattended` note in that branch.
+        let permissionMode: PermissionMode = 'default';
+        let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
+        try {
+          dbSession = this.sessionsRepo.findById(localSessionId);
+          permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
+        } catch (err) {
+          logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
+        }
+
+        // #1156 — Delegated subagent/child sessions (spawned via the engine's
+        // `task` tool) get a local row via upsertChildSession with
+        // permission_mode left NULL (-> 'default'), and there is no Flutter UI
+        // watching a headless child to answer a forwarded permission.asked —
+        // the write hung indefinitely. A row is "headless" when it has a
+        // non-null parentSessionId (delegated child — the sole writer of that
+        // column is upsertChildSession) or when no row resolves at all (the
+        // create-vs-permission race: the child row hasn't been upserted yet).
+        // An interactive/UI session ALWAYS resolves to a row with
+        // parentSessionId===NULL (POST /agent-sessions never sets it), so this
+        // never widens auto-accept for a real interactive prompt (c5 guard).
+        // ponytail: heuristic keyed on parent-id-presence, not a full
+        // isHeadless field — cheapest signal that already distinguishes every
+        // known case; revisit if a headless session type ever gets a null
+        // parent id.
+        // plan-mode auto-deny must stay authoritative over the new headless
+        // auto-accept — a child explicitly placed in plan mode must not run.
+        // Computed first so `isHeadless` below can defer to it.
+        const shouldAutoDeny = permissionMode === 'plan';
+        const isDelegatedChild = !dbSession || dbSession.parentSessionId != null;
+        const isHeadless = !shouldAutoDeny && isDelegatedChild;
+
+        // True when NOTHING is watching this session for an approval answer.
+        //
+        // NOT the same thing as `bypassPermissions`. An interactive session the
+        // user has put in bypass mode still has a human at the keyboard, and
+        // #878 deliberately forces a dangerous-but-not-hardline command
+        // (`git push --force`) to surface a card even there — see
+        // opencode_stream_bridge.test.ts "manual mode (default) surfaces an
+        // approval ask ... even under bypassPermissions". Treating bypass mode
+        // as unattended would silently delete that prompt.
+        //
+        // The two shapes where no human can possibly answer:
+        //   • a delegated child (#1156 — no UI watches a subagent)
+        //   • a scheduler-originated system run (`is_system` + a scheduled task
+        //     id; the same discriminator the unattended auto-approve path uses)
+        //
+        // Deliberately NOT guarded on `shouldAutoDeny`: a plan-mode unattended
+        // session must also skip registering a card (nobody would answer it),
+        // and instead fall through to the auto-DENY below, where plan mode
+        // stays authoritative. Gating this on !shouldAutoDeny would re-create
+        // the hang for exactly that combination.
+        const isScheduledRun = Boolean(dbSession?.isSystem && dbSession?.scheduledTaskId);
+        const isUnattended = isDelegatedChild || isScheduledRun;
+
         // #878 — command-approval classification for the bash tool. This runs
         // BEFORE the permissionMode auto-accept check below so a hardline-
         // blocked or high-risk command is never let through by
@@ -1825,10 +1885,10 @@ export class OpencodeStreamBridge {
               );
               break;
             }
-            if (classification.decision === 'ask') {
+            if (classification.decision === 'ask' && !isUnattended) {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
-              // surface an approval ask even under bypassPermissions/acceptEdits.
+              // surface an approval ask even under acceptEdits.
               this.registerPermission(localSessionId, {
                 permissionId,
                 toolName,
@@ -1838,47 +1898,45 @@ export class OpencodeStreamBridge {
               });
               break;
             }
+            if (classification.decision === 'ask') {
+              // UNATTENDED: registering a permission card here is a guaranteed
+              // hang, not a safety measure. `resolveApprovalsMode()` defaults to
+              // 'manual' (APPROVALS_MODE is unset and nothing in the app sets
+              // it), and in manual mode EVERY command the engine escalates
+              // classifies 'ask' — so this branch used to `break` past the
+              // #1156 headless auto-accept below and leave a scheduled run
+              // waiting on a human who was never going to arrive, until the
+              // 600s inactivity abort killed the whole run.
+              //
+              // Falling through is safe because it does NOT weaken the parts of
+              // #878 that actually protect anything: the hardline blocklist and
+              // 'deny' classification are handled above and still break out
+              // unconditionally. Only the "uncertain, ask a human" case is
+              // downgraded to allow, and only where there is provably no human.
+              logger.warn(
+                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in an ` +
+                  `unattended session (reason=${classification.reason}, ` +
+                  `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
+                  `${classification.detail}`,
+              );
+              // fall through to the auto-accept path below
+            }
             // classification.decision === 'allow' — fall through unchanged.
           }
         }
-
-        // Consult the session's permission_mode to decide whether to
-        // auto-respond or forward to the user.
-        let permissionMode: PermissionMode = 'default';
-        let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
-        try {
-          dbSession = this.sessionsRepo.findById(localSessionId);
-          permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
-        } catch (err) {
-          logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
-        }
-
-        // #1156 — Delegated subagent/child sessions (spawned via the engine's
-        // `task` tool) get a local row via upsertChildSession with
-        // permission_mode left NULL (-> 'default'), and there is no Flutter UI
-        // watching a headless child to answer a forwarded permission.asked —
-        // the write hung indefinitely. A row is "headless" when it has a
-        // non-null parentSessionId (delegated child — the sole writer of that
-        // column is upsertChildSession) or when no row resolves at all (the
-        // create-vs-permission race: the child row hasn't been upserted yet).
-        // An interactive/UI session ALWAYS resolves to a row with
-        // parentSessionId===NULL (POST /agent-sessions never sets it), so this
-        // never widens auto-accept for a real interactive prompt (c5 guard).
-        // ponytail: heuristic keyed on parent-id-presence, not a full
-        // isHeadless field — cheapest signal that already distinguishes every
-        // known case; revisit if a headless session type ever gets a null
-        // parent id.
-        // plan-mode auto-deny must stay authoritative over the new headless
-        // auto-accept — a child explicitly placed in plan mode must not run.
-        // Computed first so `isHeadless` below can defer to it.
-        const shouldAutoDeny = permissionMode === 'plan';
-        const isHeadless = !shouldAutoDeny && (!dbSession || dbSession.parentSessionId != null);
 
         const editTools = new Set(['write', 'edit', 'patch']);
         const shouldAutoAccept =
           permissionMode === 'bypassPermissions' ||
           (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase())) ||
-          isHeadless;
+          isHeadless ||
+          // A scheduler-originated ROOT run has no parent, so `isHeadless` does
+          // not cover it. In practice agent_runner sets its permission mode to
+          // `bypassPermissions`, but depending on that left the whole
+          // no-human-is-watching class one missed assignment away from hanging
+          // again — children were found sitting at 'default' for exactly that
+          // reason. Plan-guarded so an explicit plan-mode run still auto-denies.
+          (!shouldAutoDeny && isScheduledRun);
 
         if (shouldAutoAccept || shouldAutoDeny) {
           const decision = shouldAutoAccept ? 'accept' : 'deny';

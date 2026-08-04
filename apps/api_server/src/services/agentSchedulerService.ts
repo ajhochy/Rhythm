@@ -399,15 +399,66 @@ const CAPACITY_RETRY_MS = 60_000; // scheduler ticks once per minute
 // approval table and tool-call telemetry are local-only), which is also the
 // only path where this classification runs (env.agentLocal).
 
+// Mutation verbs matched at a NAME-SEGMENT boundary (start of string, or after
+// `_` / `.` / `-`).
+//
+// This pattern was originally anchored with a bare `^`, which made it match
+// NOTHING a real run emits: engine tool names are namespaced by server
+// (`obsidian_obsidian_put_file`, `rhythm_rhythm_create_task`) and builtins are
+// bare (`write`, `edit`, `apply_patch`). Measured against the 40 distinct tool
+// names of one day's scheduled runs (2026-08-04), the `^`-anchored form matched
+// zero — so `_hasMutationToolCall` was always false and every genuinely
+// successful run was stamped `completed_no_op`. The D2 fix for false-success
+// had inverted into universal false-no-op.
+//
+// Segment-boundary (rather than plain substring) matching is what keeps this
+// honest in the other direction: `todowrite` is not a `write`, and
+// `rhythm_rhythm_preview_automation` is not a `view`. `request_approval` is
+// deliberately NOT a mutation — asking for approval is the signal for
+// `blocked_on_approval`, not for work performed.
 const MUTATION_TOOL_PATTERN =
-  /^(remember_memory|create_|update_|delete_|remove_|write_|send_|schedule_|approve_|reject_|post_|patch_)/i;
+  /(?:^|[_.\-])(remember_memory|create|update|delete|remove|write|edit|send|schedule|approve|reject|post|patch|put|append|complete|forget|assign|resync)(?:$|[_.\-])/i;
+
+/**
+ * Every session in a run tree: the root plus all delegated descendants.
+ *
+ * Both signals below have to span the tree. `upsertResolvedChildSession` sets
+ * `parent_session_id` to the parent's LOCAL row id (not its SDK id), so a
+ * recursive walk on `id = parent_session_id` is well-founded. Without this a
+ * root that delegates all its real work — the normal shape for a manager
+ * profile — looks like it did nothing: the theological-research run wrote 23
+ * vault files through its `librarian` child and still classified as a no-op.
+ *
+ * `LIMIT` guards against a cycle if `parent_session_id` is ever corrupted;
+ * SQLite would otherwise loop forever inside the scheduler tick.
+ */
+function _runTreeSessionIds(rootSessionId: string): string[] {
+  const rows = getDb()
+    .prepare(
+      `WITH RECURSIVE tree(id) AS (
+         SELECT id FROM agent_sessions WHERE id = ?
+         UNION
+         SELECT s.id FROM agent_sessions s JOIN tree t ON s.parent_session_id = t.id
+       )
+       SELECT id FROM tree LIMIT 500`,
+    )
+    .all(rootSessionId) as { id: string }[];
+  return rows.map((r) => r.id);
+}
 
 function _hasPendingApproval(sessionId: string | null): boolean {
   if (!sessionId || env.dbClient === 'postgres') return false;
   try {
+    const ids = _runTreeSessionIds(sessionId);
+    if (ids.length === 0) return false;
     const row = getDb()
-      .prepare(`SELECT 1 FROM agent_approvals WHERE session_id = ? AND status = 'pending' LIMIT 1`)
-      .get(sessionId);
+      .prepare(
+        `SELECT 1 FROM agent_approvals
+          WHERE status = 'pending'
+            AND session_id IN (${ids.map(() => '?').join(',')})
+          LIMIT 1`,
+      )
+      .get(...ids);
     return !!row;
   } catch (err) {
     logger.warn(`[AgentScheduler] pending-approval check failed (non-fatal): ${String(err)}`);
@@ -419,9 +470,15 @@ function _hasPendingApproval(sessionId: string | null): boolean {
 function _hasMutationToolCall(sessionId: string | null): boolean {
   if (!sessionId || env.dbClient === 'postgres') return false;
   try {
+    const ids = _runTreeSessionIds(sessionId);
+    if (ids.length === 0) return false;
     const rows = getDb()
-      .prepare(`SELECT tool FROM tool_events WHERE session_id = ? AND status = 'success'`)
-      .all(sessionId) as { tool: string }[];
+      .prepare(
+        `SELECT tool FROM tool_events
+          WHERE status = 'success'
+            AND session_id IN (${ids.map(() => '?').join(',')})`,
+      )
+      .all(...ids) as { tool: string }[];
     return rows.some((r) => MUTATION_TOOL_PATTERN.test(r.tool));
   } catch (err) {
     logger.warn(`[AgentScheduler] mutation tool-call check failed (non-fatal): ${String(err)}`);

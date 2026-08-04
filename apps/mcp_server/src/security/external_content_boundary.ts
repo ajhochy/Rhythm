@@ -102,12 +102,46 @@ interface BoundaryResult {
  * external read earlier in the same turn, that taint is untouched (we simply
  * don't call recordExternalContentTaint here, we don't clear anything).
  *
- * Scope is deliberately narrow: only `agent-session.list` (Rhythm's own
- * agent session transcripts). Do not add email/web/PCO/etc. sources here —
- * those must keep arming the gate.
+ * Membership test is "did this content arrive from outside Rhythm?", NOT "is
+ * this content sensitive?". Everything below is authored inside Rhythm by the
+ * user or by Rhythm's own agents, so reading it is not an ingress of foreign
+ * instructions and must not arm the outbound-write gate.
+ *
+ * #1302 originally admitted only `agent-session.list`, which left the gate
+ * armed by Rhythm reading its own database. The practical effect (measured
+ * 2026-08-04) was that autonomy was impossible for any job whose input is
+ * first-party data: Memory Consolidation reads `memory.list` to do its work,
+ * that read armed the gate, and the `memory.remember` that follows then
+ * required a human at 02:30. It reported success having captured 0 for days.
+ *
+ * DO NOT add these — they are genuine ingress points for third-party text and
+ * must keep arming the gate: gmail.search, gmail.message, calendar.events,
+ * message-thread.list, message-thread.task, dashboard.message-preview,
+ * trigger.list, pco.*, feedback.*.
  */
 const SOURCES_EXEMPT_FROM_APPROVAL_GATE = new Set<ExternalContentSource>([
+  // Rhythm's own agent session transcripts (#1302).
   "agent-session.list",
+  // The user's own memory store.
+  "memory.list",
+  "memory.search",
+  // The user's own task / rhythm / project / facility records.
+  "task.list",
+  "scheduled-task.list",
+  "rhythm.list",
+  "project-template.list",
+  "project-instance.list",
+  "facility.list",
+  // Rhythm-authored automation config and its static catalog.
+  "automation.list",
+  "automation.get",
+  "automation.preview",
+  "automation-catalog.triggers",
+  "automation-catalog.actions",
+  "automation-catalog.providers",
+  // Rhythm's own agent-profile permission records.
+  "agent-profile.permissions.list",
+  "agent-profile.permissions.get",
 ]);
 
 function sanitizedDiagnostics(matches: InjectionMatch[]) {
@@ -151,6 +185,74 @@ export async function recordExternalContentTaint(args: {
 }
 
 /**
+ * Salvage the clean items out of a flagged LIST-shaped first-party payload.
+ *
+ * The scanner is all-or-nothing by design: one match withholds the entire
+ * payload. For a batch read of the user's own records that is a wildly
+ * disproportionate outcome — measured 2026-08-04, exactly 2 of 50 rows in
+ * `rhythm_list_memories` mentioned `.env` (pattern `secrets-dotenv`), and all
+ * 50 were withheld, so the Memory Consolidation agent could not read the store
+ * it exists to consolidate.
+ *
+ * Dropping the flagged rows and returning the other 48 preserves the safety
+ * property that matters — flagged bytes never reach the model — while removing
+ * the collateral. It also removes a denial-of-service edge: a single poisoned
+ * row can no longer make a whole first-party collection permanently unreadable.
+ *
+ * Returns null when the payload is not list-shaped or nothing can be salvaged;
+ * the caller then keeps the original all-or-nothing behavior.
+ *
+ * ponytail: handles the two shapes Rhythm's list endpoints actually return —
+ * a bare array, or an object with exactly one array-valued key
+ * (`{"memories":[...]}`). Anything else falls back rather than guessing.
+ */
+function salvageCleanListItems(
+  rawContent: string,
+  label: string,
+): { text: string; withheld: number; kept: number } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return null;
+  }
+
+  let items: unknown[];
+  let rebuild: (kept: unknown[]) => unknown;
+
+  if (Array.isArray(parsed)) {
+    items = parsed;
+    rebuild = (kept) => kept;
+  } else if (parsed && typeof parsed === 'object') {
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    const arrayEntries = entries.filter(([, v]) => Array.isArray(v));
+    if (arrayEntries.length !== 1) return null;
+    const [key, value] = arrayEntries[0]!;
+    items = value as unknown[];
+    rebuild = (kept) => ({
+      ...(parsed as Record<string, unknown>),
+      [key]: kept,
+    });
+  } else {
+    return null;
+  }
+
+  if (items.length < 2) return null;
+
+  const kept = items.filter(
+    (item) => !scanContextContent(JSON.stringify(item, null, 2), label).blocked,
+  );
+  const withheld = items.length - kept.length;
+  if (withheld === 0 || kept.length === 0) return null;
+
+  return {
+    text: JSON.stringify(rebuild(kept), null, 2),
+    withheld,
+    kept: kept.length,
+  };
+}
+
+/**
  * Single fail-closed ingress for bytes authored outside the current agent
  * turn. The raw value is scanned, its digest/provenance is durably recorded,
  * and only then may scanner-clean content cross an explicit untrusted fence.
@@ -168,7 +270,8 @@ export async function scanContextContentAndRecordExternalContentTaint(args: {
     );
   }
   const scan = scanContextContent(args.rawContent, args.label);
-  if (!SOURCES_EXEMPT_FROM_APPROVAL_GATE.has(args.source)) {
+  const isFirstParty = SOURCES_EXEMPT_FROM_APPROVAL_GATE.has(args.source);
+  if (!isFirstParty) {
     await recordExternalContentTaint({
       agentUrl: args.agentUrl,
       context: args.context,
@@ -179,7 +282,27 @@ export async function scanContextContentAndRecordExternalContentTaint(args: {
     });
   }
   if (scan.blocked) {
-    return { blocked: true, text: scan.warning as string };
+    // Per-item salvage is deliberately limited to first-party collections.
+    // For genuine third-party ingress the batch stays all-or-nothing: a
+    // multi-item payload from outside can carry an attack split across rows,
+    // and the taint record above already asserted `blocked` for the whole
+    // payload. Widening this to external sources is a separate decision.
+    const salvaged = isFirstParty
+      ? salvageCleanListItems(args.rawContent, args.label)
+      : null;
+    if (!salvaged) {
+      return { blocked: true, text: scan.warning as string };
+    }
+    // The note is server-authored, so it goes OUTSIDE the untrusted fence.
+    return {
+      blocked: false,
+      text:
+        `${untrustedContext(salvaged.text, args.label)}\n\n` +
+        `[NOTE: ${salvaged.withheld} of ${salvaged.withheld + salvaged.kept} ` +
+        `${args.label} item(s) were withheld by the prompt-injection scanner ` +
+        `and are not shown. The ${salvaged.kept} shown above are complete and ` +
+        `unmodified. Treat this as a partial view of the collection.]`,
+    };
   }
   return {
     blocked: false,
