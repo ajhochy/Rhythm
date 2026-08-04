@@ -21,6 +21,7 @@ import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import * as Log from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
+import * as ImageGeneration from "@/tool/image-generation"
 import { SyncEvent } from "@/sync"
 import { SessionEvent } from "@/v2/session-event"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -352,6 +353,31 @@ export const layer: Layer.Layer<
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
+            // Rhythm carried patch (#1094): a provider-executed tool runs on the
+            // provider's side, so its call arrives here with no preceding
+            // tool-input-start — the event that normally registers the part.
+            // Without a registered part every later update for this call id,
+            // including the result, silently no-ops and the whole tool call
+            // vanishes from the transcript. Register it the same way
+            // tool-input-start would.
+            if (!ctx.toolcalls[value.toolCallId] && value.providerExecuted) {
+              const created = yield* session.updatePart({
+                id: PartID.ascending(),
+                messageID: ctx.assistantMessage.id,
+                sessionID: ctx.assistantMessage.sessionID,
+                type: "tool",
+                tool: value.toolName,
+                callID: value.toolCallId,
+                state: { status: "pending", input: {}, raw: "" },
+                metadata: { providerExecuted: true },
+              } satisfies MessageV2.ToolPart)
+              ctx.toolcalls[value.toolCallId] = {
+                done: yield* Deferred.make<void>(),
+                partID: created.id,
+                messageID: created.messageID,
+                sessionID: created.sessionID,
+              }
+            }
             const toolCall = yield* readToolCall(value.toolCallId)
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
@@ -411,8 +437,28 @@ export const layer: Layer.Layer<
 
           case "tool-result": {
             const toolCall = yield* readToolCall(value.toolCallId)
+            // Rhythm carried patch (#1094): a provider-executed image_generation
+            // call returns `{ result: <base64> }`, not opencode's
+            // `{ output, attachments }` shape — `output` would land as undefined
+            // in a field typed as a string. Normalize it to the standard shape
+            // here so the rest of this case (and the v2 event dual-write below)
+            // stays on one path.
+            // The SDK delivers a provider-executed result twice for the same
+            // call id. completeToolCall below already ignores the second, but
+            // the image is written before that check — without this guard every
+            // generated image lands on disk twice, and the copy nothing points
+            // at is never cleaned up until the 7-day sweep.
+            const isDuplicateProviderResult =
+              value.toolName === ImageGeneration.ID &&
+              ImageGeneration.isProviderResult(value.output) &&
+              toolCall?.part.state.status !== "running"
+            if (isDuplicateProviderResult) return
+            const result =
+              value.toolName === ImageGeneration.ID && ImageGeneration.isProviderResult(value.output)
+                ? yield* Effect.promise(() => ImageGeneration.persist(value.output.result))
+                : value.output
             const toolAttachments: MessageV2.FilePart[] = (
-              Array.isArray(value.output.attachments) ? value.output.attachments : []
+              Array.isArray(result.attachments) ? result.attachments : []
             ).filter(
               (attachment: unknown): attachment is MessageV2.FilePart =>
                 isRecord(attachment) &&
@@ -432,11 +478,11 @@ export const layer: Layer.Layer<
             const omitted = normalized.filter(Exit.isFailure).length
             const attachments = normalized.filter(Exit.isSuccess).map((item) => item.value)
             const output = {
-              ...value.output,
+              ...result,
               output:
                 omitted === 0
-                  ? value.output.output
-                  : `${value.output.output}\n\n[${omitted} image${omitted === 1 ? "" : "s"} omitted: could not be resized below the image size limit.]`,
+                  ? result.output
+                  : `${result.output}\n\n[${omitted} image${omitted === 1 ? "" : "s"} omitted: could not be resized below the image size limit.]`,
               attachments: attachments?.length ? attachments : undefined,
             }
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
