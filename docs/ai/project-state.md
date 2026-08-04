@@ -53,6 +53,36 @@ Final live verification of the 17 enabled scheduled tasks. Latest tally:
 8. **A clean session got 409 on `request_approval`** — found only by live smoke;
    turned a deadlock into a different dead end.
 
+## `Provider stream inactive for 180000ms` — diagnosed 2026-08-04
+
+Reported whenever GPT used `image_generation` on a slow render. Same failure
+shape as the glob hang: a long-running operation with no intermediate output
+tripping an inactivity timer.
+
+1. `apps/opencode_fork/.../src/session/llm.ts` sets
+   `PROVIDER_STREAM_INACTIVITY_DEFAULT_MS = 180_000`, and its `armTimer` re-arms
+   **only** when a stream part arrives (per `reader.read()` in `wrapStream`).
+2. `image_generation` is a PROVIDER tool — OpenAI executes it server-side inside
+   the Responses call, so nothing streams while it renders.
+3. It is created as `openai.tools.imageGeneration()` with partial images
+   deliberately disabled; the source comment says partial images "would emit an
+   extra tool-result per frame for the same call id".
+4. Result: the whole render is total stream silence, and any render slower than
+   3 minutes is aborted. 12-panel contact sheets fail reliably, then fail again
+   on resume because the model re-plans the same expensive image.
+5. `RHYTHM_PROVIDER_STREAM_INACTIVITY_MS` existed as an override but Rhythm
+   never set it — only tests did.
+
+**Mitigation shipped:** `opencode_client_service.ts` raises the value to 600000
+for the engine child, in the same pre-spawn block that already exports the
+websearch vars. Raise-only; an operator value wins. Verified live — the engine
+child's environment now carries `RHYTHM_PROVIDER_STREAM_INACTIVITY_MS=600000`.
+
+**Not a cure.** It is a blunt global raise: a genuinely hung stream now takes 10
+minutes to detect instead of 3, and a render slower than 10 minutes still dies.
+The real fix is a watchdog that pauses while a provider-executed tool call is
+outstanding — a fork change, so it is gated on #1304 merging.
+
 ## Risks / known issues
 
 - **`pco-song-usage-sync` fails for a NON-permissions reason.** The agent runs
