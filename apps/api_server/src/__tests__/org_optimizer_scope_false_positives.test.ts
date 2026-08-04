@@ -414,6 +414,13 @@ describe('the corrected read does not widen the AUTO-APPLYING tighten lane', () 
     expect(
       detectTightenGaps([{ ...base, mcpScopeShape: 'servers' }], live, new Set(), sessions, days),
     ).toHaveLength(1);
+    // A caller that predates `mcpScopeShape` (tools/release/org_optimizer_guard_check.ts
+    // builds these literals outside this package's tsc scope) must keep the
+    // behavior it had. Suppressing the feature for an absent field is the exact
+    // regression that guard fails on — it caught it once already.
+    expect(
+      detectTightenGaps([base as never], live, new Set(), sessions, days),
+    ).toHaveLength(1);
   });
 });
 

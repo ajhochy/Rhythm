@@ -356,6 +356,13 @@ export function detectTightenGaps(
   const gaps: OrgAuditGap[] = [];
   for (const profile of profiles) {
     // Usage-judgement lane, deliberately NOT widened by the scope-shape fix.
+    //
+    // Stated as "skip tools-map", NOT "keep only 'servers'": a caller that
+    // builds a ProfileScopeSnapshot without `mcpScopeShape` (e.g.
+    // tools/release/org_optimizer_guard_check.ts, which is outside this
+    // package's tsc scope) must keep the behavior it had, never lose the
+    // feature silently. That guard exists precisely to catch a suppression
+    // like that, and it caught this one.
     // `allowedMcps` now also resolves the tools-map shape, which makes 18 more
     // live profiles visible here for the first time. This lane's only "was it
     // used" evidence is denied-tool telemetry (a denial counts as an
@@ -367,7 +374,7 @@ export function detectTightenGaps(
     // grants needs real exercised-tool evidence
     // (org_exercised_tools_resolver.resolveExercisedTools), which is a separate
     // change; until then this lane keeps exactly the reach it already had.
-    if (profile.mcpScopeShape !== 'servers') continue;
+    if (profile.mcpScopeShape === 'tools-map') continue;
     const sessionCount = sessionCountByProfile.get(profile.id) ?? 0;
     const observationDays = observationDaysByProfile.get(profile.id) ?? 0;
     if (sessionCount < MIN_TIGHTEN_ACTIVITY_COUNT) continue;
