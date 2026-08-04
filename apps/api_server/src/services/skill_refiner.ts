@@ -205,6 +205,17 @@ export interface ScoreResult {
  */
 export type ScoreCall = (purpose: SkillPurpose, body: string) => Promise<ScoreResult>;
 
+/**
+ * The absolute quality bar a body must clear to be treated as good enough to
+ * KEEP / ADOPT. Reuses {@link buildScoreSystemPrompt}'s OWN rubric band
+ * boundary verbatim ("61-80: accurate, reasonably complete, and actionable") —
+ * no separately-invented bar. Single source of truth for every caller that
+ * needs an absolute (rather than relative) threshold:
+ * harvested_skill_evaluator's keep/rewrite decision and
+ * external_discovery_search's third-party adoption floor.
+ */
+export const KEEP_SCORE_BAR = 61;
+
 function purposeText(p: SkillPurpose): string {
   return [
     `name: ${p.name}`,

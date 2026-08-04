@@ -106,6 +106,7 @@ import {
   scoreSkillBody,
   rewriteSkillBody,
   isSkillRefinementEnabled,
+  KEEP_SCORE_BAR,
   type ScoreCall,
   type RewriteCall,
   type SkillPurpose,
@@ -233,8 +234,9 @@ async function withHarvestJudgeTimeout<T>(
 }
 
 /** Reuses skill_refiner.ts's OWN rubric bands (buildScoreSystemPrompt) verbatim
- *  as the keep/disable tier boundaries — no separately-invented bar. */
-const KEEP_SCORE_BAR = 61;
+ *  as the keep/disable tier boundaries — no separately-invented bar.
+ *  KEEP_SCORE_BAR now lives in skill_refiner.ts (the rubric's owner) so the
+ *  external-adoption floor shares the exact same number. */
 const DISABLE_SCORE_BAR = 20;
 
 /** Issue's own worked example, implemented literally. */
