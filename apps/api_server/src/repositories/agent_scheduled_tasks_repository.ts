@@ -251,6 +251,47 @@ export class AgentScheduledTasksRepository {
     ).run(nextRunAt, lastRunAt, lastRunStatus, lastError ?? null, now, id);
   }
 
+  /**
+   * Boot-time recovery for tasks orphaned mid-flight by a crash or relaunch.
+   *
+   * `agent_scheduled_tasks` keeps only a single overwritten status slot, set to
+   * `'running'` before the async run starts. If the process dies before the run
+   * reports back, that slot stays `'running'` forever and the dashboard asserts
+   * a run is in progress indefinitely — observed 2026-08-04 with
+   * `ffb-podcast-vibes` pinned at `running` since 2026-08-03T18:30, its `bash`
+   * tool part still `running` 20+ hours later.
+   *
+   * `AgentSessionsRepository.resetStaleRunning` already did this for
+   * `agent_sessions`, so the session was correctly recovered to `error` on the
+   * next boot while the TASK row was left stale. This closes that half.
+   *
+   * Boot-only, mirroring the session reaper: nothing is genuinely in flight at
+   * that point, so both `running` and the pre-run `queued` state are safe to
+   * recover. `next_run_at` is deliberately untouched — the schedule is still
+   * valid and the task should fire normally at its next slot.
+   */
+  async resetStaleRunningAsync(
+    message = 'Server restarted — run interrupted',
+  ): Promise<number> {
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_scheduled_tasks
+         SET last_run_status = 'error', last_error = $1, updated_at = $2
+         WHERE last_run_status IN ('running', 'queued')`,
+        [message, now],
+      );
+      return result.rowCount ?? 0;
+    }
+    return getDb()
+      .prepare(
+        `UPDATE agent_scheduled_tasks
+         SET last_run_status = 'error', last_error = ?, updated_at = ?
+         WHERE last_run_status IN ('running', 'queued')`,
+      )
+      .run(message, now).changes;
+  }
+
   async queueNowAsync(id: string): Promise<AgentScheduledTask | null> {
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {

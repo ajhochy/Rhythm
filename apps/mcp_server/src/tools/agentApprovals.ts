@@ -122,6 +122,17 @@ export function registerAgentApprovalTools(
           );
         }
         const data = (await res.json()) as { id: string; status: string };
+        if (data.status === "not_required") {
+          // The session has consumed no external content, so the outbound gate
+          // will allow this action without a token. Be unambiguous that the
+          // agent should carry on — the previous behavior here was a 409 that
+          // read as a refusal and caused agents to abandon the work entirely.
+          return toolResult(
+            "No approval is required for this action — this session has not " +
+              "consumed external content. Proceed with the action now, and do " +
+              "NOT pass an approval_id.",
+          );
+        }
         if (data.status === "approved") {
           return toolResult(
             `Approved automatically (id=${data.id}) — this profile is configured to auto-approve. You may proceed with the action.`,

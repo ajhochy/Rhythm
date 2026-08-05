@@ -18,6 +18,7 @@ import {
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import {
   ExternalContentSecurityService,
+  isUnattendedAutoApproveSession,
   parseSecurityAction,
   parseSecurityPayload,
   parseTrustedSecurityContext,
@@ -45,6 +46,17 @@ export class AgentApprovalsController {
           parseSecurityAction(securityInput.action),
           parseSecurityPayload(securityInput.payload),
         );
+        if (!binding) {
+          // The session carries no taint, so consumeApproval will allow the
+          // action outright. Say so explicitly instead of failing: this used to
+          // be a 409, and an agent following "request approval before mutating"
+          // treated it as a hard stop and abandoned the write.
+          res.status(200).json({
+            status: 'not_required',
+            reason: 'no_external_content_taint',
+          });
+          return;
+        }
         const approval = repo.create({
           sessionId: binding.sessionId,
           agentConfigId: binding.agentConfigId,
@@ -54,7 +66,17 @@ export class AgentApprovalsController {
           action: `Authorize ${binding.securityAction}`,
           preview: binding.preview,
           consequence: typeof body.consequence === 'string' ? body.consequence : null,
-          autoApprove: false,
+          // #1134 keeps security-bound approvals human-only — EXCEPT for an
+          // unattended scheduled run on a profile that has explicitly opted in
+          // (decision 2026-08-04). Without this the two approval paths
+          // disagreed: enforcement honored the flag, but an agent that asked
+          // FIRST (which its prompt tells it to do) got a pending row and
+          // stopped anyway. Same predicate as consumeApproval, so there is one
+          // definition of "unattended" rather than two that can drift.
+          autoApprove: (() => {
+            const s = binding.sessionId ? sessions.findById(binding.sessionId) : null;
+            return s ? isUnattendedAutoApproveSession(s) : false;
+          })(),
           securityAction: binding.securityAction,
           payloadDigest: binding.payloadDigest,
           taintId: binding.taintId,

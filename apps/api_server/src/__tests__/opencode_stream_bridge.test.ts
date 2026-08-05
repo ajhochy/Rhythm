@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { setDb, getDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 const respondPermissionSpy = vi.fn().mockResolvedValue(true);
@@ -565,6 +565,82 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     expect(bridge.getPendingPermission(localId, 'perm-ask-1')).toBeDefined();
   });
 
+  // ── unattended runs must not hang on an 'ask' (2026-08-04) ────────────────
+  //
+  // In manual mode (the default — APPROVALS_MODE is unset and nothing in the
+  // app sets it) every command the engine escalates classifies 'ask'. The 'ask'
+  // branch used to registerPermission() and break past the #1156 headless
+  // auto-accept, so a scheduled run waited on a human who never arrived until
+  // the 600s inactivity abort killed it. Which commands the engine escalates is
+  // per-profile (the `permission.bash` map in the agent's .md), so this bites
+  // exactly the profiles with an `ask` entry — e.g. worship-planning and
+  // fantasy-gm both mark `git push*` / `rm -rf*` / `sudo *` as ask.
+
+  /** Mark the session as a scheduler-originated system run. */
+  function makeScheduledRun(): void {
+    getDb()
+      .prepare(`INSERT INTO agent_scheduled_tasks (id, name, prompt) VALUES (?, ?, ?)`)
+      .run('sched-1', 'nightly', 'do the thing');
+    getDb()
+      .prepare(`UPDATE agent_sessions SET is_system = 1, scheduled_task_id = 'sched-1' WHERE id = ?`)
+      .run(localId);
+  }
+
+  it('unattended scheduled run: an ask-classified command auto-accepts instead of hanging', async () => {
+    process.env.APPROVALS_MODE = 'manual';
+    makeScheduledRun();
+
+    relay(makeBashPermEvent('perm-sched-1', 'defuddle parse https://example.com --md'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith('perm-sched-1', 'once', undefined, '/tmp', SDK_ID);
+    expect(bridge.getPendingPermission(localId, 'perm-sched-1')).toBeUndefined();
+  });
+
+  it('unattended scheduled run: a HARDLINE command is still denied, never auto-accepted', async () => {
+    process.env.APPROVALS_MODE = 'manual';
+    makeScheduledRun();
+
+    relay(makeBashPermEvent('perm-sched-hardline', 'rm -rf /'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-sched-hardline',
+      'reject',
+      expect.stringContaining('hardline-blocklist'),
+      '/tmp',
+      SDK_ID,
+    );
+  });
+
+  it('unattended scheduled run in PLAN mode is still auto-denied, not auto-accepted', async () => {
+    process.env.APPROVALS_MODE = 'manual';
+    makeScheduledRun();
+    new AgentSessionsRepository().updatePermissionMode(localId, 'plan');
+
+    relay(makeBashPermEvent('perm-sched-plan', 'echo hi'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-sched-plan',
+      'reject',
+      expect.stringContaining('plan mode'),
+      '/tmp',
+      SDK_ID,
+    );
+  });
+
+  it('an INTERACTIVE session is unaffected — still surfaces the ask (regression guard)', async () => {
+    // No is_system / scheduled_task_id → a human is presumed present.
+    process.env.APPROVALS_MODE = 'manual';
+
+    relay(makeBashPermEvent('perm-interactive-1', 'defuddle parse https://example.com --md'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
+    expect(bridge.getPendingPermission(localId, 'perm-interactive-1')).toBeDefined();
+  });
+
   it('mode=off allows a non-blocklisted command under default permission mode without asking', async () => {
     process.env.APPROVALS_MODE = 'off';
 
@@ -657,7 +733,12 @@ describe('OpencodeStreamBridge — #812 role-scoped dispatch guard (array allowl
     expect(types).not.toContain('tool.denied');
   });
 
-  it.each(['skill', 'task', 'read', 'bash'])(
+  // `image_generation` (#1094) is engine-native but absent from the tool
+  // registry — it is a provider-executed tool injected in session/prompt.ts.
+  // It must pass this guard like any other native tool; when it did not, every
+  // call on a role-scoped session came back "not permitted for this agent's
+  // role", which looks identical to the profile lacking the grant.
+  it.each(['skill', 'task', 'read', 'bash', 'image_generation'])(
     'forwards the native %s tool for the same scoped session',
     (toolName) => {
       relayToolPart(toolName);
