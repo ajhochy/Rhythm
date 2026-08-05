@@ -50,6 +50,40 @@ describe('PlanningCenterService.listPlans', () => {
     );
     expect(String(fetchMock.mock.calls[0][0])).toContain('per_page=100');
   });
+
+  /**
+   * The filter used to be hard-coded to `future`, so pco-song-usage-sync — a
+   * job whose entire input is which songs were played on PAST service dates —
+   * had no reachable data through Rhythm and reported "could not complete" on
+   * every run.
+   */
+  it('GETs past plans newest-first when asked for them', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ data: [{ id: 'p9', attributes: { title: 'Last Sunday', dates: 'Aug 2' } }] }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new PlanningCenterService();
+    const result = await svc.listPlans(acct(), 'st1', 'past');
+    expect(result).toEqual([{ id: 'p9', title: 'Last Sunday', dates: 'Aug 2' }]);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain('filter=past');
+    expect(url).not.toContain('filter=future');
+    // Without this, PCO's default ascending sort_date returns the OLDEST plans
+    // in the service type's history instead of the recent ones.
+    expect(url).toContain('order=-sort_date');
+  });
+
+  it('leaves future listings unordered so existing callers are unchanged', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await new PlanningCenterService().listPlans(acct(), 'st1', 'future');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('order=');
+  });
 });
 
 describe('PlanningCenterService.updatePlanItem', () => {
