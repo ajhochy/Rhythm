@@ -7,6 +7,7 @@ import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { startTestServer } from './helpers/real_server';
 import { opencodeClient } from '../services/opencode_engine';
+import * as writer from '../services/opencode_agent_writer';
 
 const { broadcastAgentConfigsChangedSpy } = vi.hoisted(() => ({
   broadcastAgentConfigsChangedSpy: vi.fn(),
@@ -713,5 +714,41 @@ describe('POST /agent-configs/:id/resync-agent-file', () => {
       headers: authHeaders,
     });
     expect(res.status).toBe(404);
+  });
+
+  // A blocked or failed write leaves the agent file stale on disk. Before this,
+  // the endpoint answered 200 either way, so "resynced" and "silently did
+  // nothing" were indistinguishable to the caller.
+  it('400s when the content scanner blocks the write', async () => {
+    const spy = vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('blocked');
+    try {
+      const res = await fetch(`${baseUrl}/agent-configs/config-doctor/resync-agent-file`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: { message?: string } };
+      const message = JSON.stringify(body);
+      expect(message).toContain('content scanner');
+      // The rejected prompt must never be echoed back to the caller.
+      expect(message).not.toContain('system_prompt');
+      expect(broadcastAgentConfigsChangedSpy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('500s when the write itself fails', async () => {
+    const spy = vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('failed');
+    try {
+      const res = await fetch(`${baseUrl}/agent-configs/config-doctor/resync-agent-file`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(500);
+      expect(broadcastAgentConfigsChangedSpy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

@@ -455,6 +455,13 @@ function pruneStalePermissionKeys(fm: string, keep: Set<string>): string {
 }
 
 /**
+ * Outcome of a profile write. `blocked` and `failed` both mean the file on
+ * disk is now stale; callers that can report to a user should say so rather
+ * than treat the call as a success.
+ */
+export type AgentProfileWriteResult = 'written' | 'skipped' | 'blocked' | 'failed';
+
+/**
  * Write (or merge-update) the opencode agent file for a profile. Never throws —
  * failures degrade to a logged warning. No-op when the profile is out of scope.
  *
@@ -465,14 +472,19 @@ function pruneStalePermissionKeys(fm: string, keep: Set<string>): string {
  * (degrading to the same logged-warning outcome as any other write failure,
  * per this function's existing never-throws contract) rather than silently
  * projecting a hijacked prompt into a file the engine will load.
+ *
+ * The returned status exists because that log line was the *only* signal: a
+ * blocked write left the file stale while the HTTP caller still saw 200. The
+ * status never carries the scanned content — only the fact that it was
+ * rejected.
  */
-export function writeAgentProfileFile(config: AgentConfig): void {
-  if (!shouldWriteAgentFile(config)) return;
+export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteResult {
+  if (!shouldWriteAgentFile(config)) return 'skipped';
   if (config.systemPrompt && config.systemPrompt.trim() !== '') {
     const scan = scanContextContent(config.systemPrompt, `agent profile "${config.id}"`);
     if (scan.blocked) {
       logger.warn(`[OpencodeAgentWriter] ${scan.warning}`);
-      return;
+      return 'blocked';
     }
   }
   try {
@@ -623,8 +635,10 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     writeFileSync(path, out.endsWith('\n') ? out : `${out}\n`, 'utf8');
     logger.info(`[OpencodeAgentWriter] wrote agent file for profile "${config.id}"`);
     reloadEngineConfigAfterWrite();
+    return 'written';
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] write failed for "${config.id}": ${String(err)}`);
+    return 'failed';
   }
 }
 
