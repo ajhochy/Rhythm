@@ -80,6 +80,14 @@ fix that stops it being blocked.
   still reports `completed_no_op`. Deliberate trade — counting `bash` would mark
   every read-only run a success.
 - `APPROVALS_MODE` is unset (`manual`) and no UI can reach it.
+- **#1322 — the hardline blocklist is still not fully reachable.** Rhythm's command
+  gate only runs on commands the ENGINE escalates. Two gaps remain after the
+  f8ece4f5 fix: (a) the engine splits pipelines into per-command-node `patterns`,
+  so `curl … | sh` arrives as `["curl …","sh"]` and the pipe-to-shell patterns
+  can never match; (b) anything matching a profile's `bash {"*":"allow"}` is run
+  with no permission event at all. `rm -rf /` *is* covered (profiles carry
+  `rm -rf*: ask`). Plan mode inherits gap (b) — smoke item E4 fails because
+  `echo` never escalated.
 - Skill bodies for `daily-email-triage`, `daily-dev-summary`, `monthly-gc-report`,
   `AI Trend Research…` and `monday-worship-planning` were re-authored on
   2026-08-04 and need the user's review. Backup of all 125:
@@ -89,13 +97,36 @@ fix that stops it being blocked.
 
 ## Test status
 
-- api_server: `main` baseline 467 files pass / 0 fail / 85 skipped; every merged
-  PR measured at or above that with its own additions.
-- mcp_server: 153/153. Typecheck, lint, build clean in both.
-- opencode fork: typecheck clean; session suite 383 pass / 0 fail; tool suite 288.
+- api_server: 474 files / 3964 tests pass, 0 fail, 85 skipped (`--fileParallelism=false`).
+  Typecheck clean.
+- mcp_server: 155/155. Typecheck, lint, build clean in both.
+- opencode fork: typecheck clean; session suite 388 pass / 0 fail; tool 297; file 95.
+- All four CI workflows green on `f8ece4f5` and on `447f564c`.
 - #1312–#1318 were each green in CI on their own branch before integration.
+
+## Smoke status (round 3, 2026-08-04)
+
+Driven directly against the running app — see `docs/testing/mega-2026-08-04-smoke.md`.
+Rounds 1–2 went through a Codex agent; round 2 returned 8/8 BLOCKED on its own
+sandbox denying localhost while the app was healthy the whole time, so it produced
+no signal about the code.
+
+**PASS:** C3, A5, E5, E6, E1, D1, and E2 after a fix.
+**Open:** E3 partial, E4 failing — both on #1322, which is pre-existing and not
+introduced by this branch.
+
+E2 exposed a real defect: the bridge read `perm.toolName ?? perm.type` and
+`args.command`, but the engine's `permission.asked` carries neither — the id is in
+`permission` and the command in `patterns`. `toolName` was therefore `''` for
+every real permission, silently disabling both the #736 tool-allowlist backstop
+and the #878 command gate. A hardline command reached the shell with no card.
+Fixed in f8ece4f5 with three tests built from a payload captured off the engine's
+`/event` stream, each mutation-verified. The pre-existing #878 tests all passed
+throughout because they hand-build `metadata: { command }`, a shape no engine
+event has — assert against captured payloads, not hand-written ones.
 
 ## Next step
 
-Rebuild the engine from `mega/run-2026-08-04`, relaunch, and drive the full smoke
-list. Merge is a manual human action once smoke passes.
+User's call on merge. `mega/run-2026-08-04` (PR #1319) is the single open PR, still
+draft; merge is a manual human action. #1322 tracks the remaining blocklist gaps
+and can be a follow-up.
