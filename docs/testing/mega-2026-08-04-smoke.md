@@ -1,5 +1,45 @@
 # Smoke checklist — `mega/run-2026-08-04` (PR #1319)
 
+## Results — round 3 (2026-08-04, driven directly against the running app)
+
+Rounds 1–2 were driven by a Codex agent. Round 2 returned 8/8 BLOCKED claiming
+the app was unreachable; the app was healthy throughout (one PID set, alive
+across the whole window), and the `curl: (7) … after 0 ms` refusals were Codex's
+own sandbox denying localhost. Round 3 drove the app directly instead.
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| C3 Org External Discovery | PASS | `completed_no_op`; 12/12 tool calls completed, zero denials, zero approvals. Includes `rhythm_get_dashboard`, the tool that threw the round-1 taint 403. |
+| A5 `pco-song-usage-sync` | PASS | `success`; 25/25 tools completed, no `$HOME` glob, no inactivity abort. 17 plans / 78 song occurrences / 58 notes touched. |
+| E5 secretary auto-approve | PASS | `GET /agent-configs` → `secretary.autoApproveActions = false`. |
+| E6 curated-MCP credential gate | PASS | empty `{}` → 400 `MISSING_CREDENTIALS`; whitespace-only key → 400; unknown server → 404 `NOT_CURATED` (discriminating control). This is the item that returned 200 in round 1. |
+| E2 `git push --force` card | PASS *after a fix* | Initially executed with an auto-`accept`. Root-caused to two payload mismatches (see below), fixed in f8ece4f5. Now broadcasts `permission.asked` — "approvals.mode=manual — awaiting user approval" — leaves bash at `running`, executes nothing. |
+| D1 skill data loss | PASS | `monday-worship-planning/SKILL.md` = `328575ea…` before and after a full 474-file suite run. |
+| E1 interactive taint gate | PASS | Armed with `rhythm_list_message_threads` (`message-thread.list` is deliberately NOT in `SOURCES_EXEMPT_FROM_APPROVAL_GATE`), then asked for `rhythm_create_task`. The agent called `rhythm_request_approval` instead — `rhythm_create_task` was never invoked — and stopped: "Approval is required before creating the task." Round 1's attempt used first-party-exempt `task.list`, which never arms the gate. |
+| E3 hardline denial | PARTIAL | `rm -rf /` **does** escalate (profiles carry `rm -rf*: ask`) and is denied — proven by unit test against the captured payload. But the pipe-to-shell class never reaches the gate at all. See #1322. Not fired live: firing `rm -rf /` to test a deny path risks the disk if the deny path is broken. |
+| E4 plan mode auto-deny | FAIL | `echo` matched the profile's `bash {"*":"allow"}`, so the engine never asked and plan-mode auto-deny never ran — the command executed. Same structural cause as E3. Tracked in #1322. |
+
+### The E2 root cause (f8ece4f5)
+
+Captured off the engine's own `:4096/event` stream:
+
+```json
+{"permission":"bash","patterns":["git push --force no-such-remote-xyz HEAD"],
+ "metadata":{},"always":["git push *"],"tool":{…}}
+```
+
+The bridge read `perm.toolName ?? perm.type` (neither field exists — the id is in
+`permission`) and took the command from `args.command`/`metadata.command`
+(`metadata` is `{}`; the text is in `patterns`). So `toolName` was `''` for every
+real engine permission, silently disabling **both** the #736 tool-allowlist
+backstop and the #878 command gate. Every pre-existing #878 test passed anyway,
+because they hand-build `metadata: { command }` — a shape no engine event has.
+
+**Testing note:** assert against a payload captured from the running engine, not
+a hand-written one. Two security layers were dead for as long as the tests
+described a payload the engine never sends.
+
+
 Every item is **verifiable from the running app** via `http://localhost:4001` or the
 Obsidian vault. No item requires guessing.
 
