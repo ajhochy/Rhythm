@@ -319,3 +319,76 @@ its own work.
   calls. Phase 0 exists solely to de-risk this before anything depends on it.
 - **Behavior change on restart.** Projection changes take effect when the app
   restarts, so they land as a batch, not incrementally.
+
+---
+
+## Verification (2026-08-05, all live against the running app)
+
+| phase | evidence |
+|---|---|
+| 0 — async round-trip works | first successful `rhythm_delegate_async` ever recorded; `agent_async_delegations` went 0 rows → completed round-trip |
+| 1 — orchestrator eligible | fresh chat dispatched to `planning-agent`, `status: dispatched` |
+| 2 — agents pick the right tool | fresh interactive chat, **no tool named** in the prompt → chose `rhythm_delegate_async` unprompted. The identical request produced `task` before the change. |
+| 3 — delegate-id validation | unresolvable ids now warn |
+| 4 — `task` restricted | agents with no `task` block: **24 of 34 → 0**; natives-only 29; roster 5 |
+| 5 — tail | 11 profiles cut, all confirmed non-managers |
+| loop fix | parent reports once and goes idle (3 outputs) instead of 56 |
+
+Also verified: the child nests under the parent in the sidebar (parent-linked), and
+scheduled orchestrator runs still use `task`, which is correct.
+
+### Not enforced, only nudged
+
+`task` remains permitted for managers by design — headless needs it, and sync
+`rhythm_delegate` orphans sessions (#891). So a manager *can* still choose `task`
+in an interactive chat; the preamble only steers it. Enforcing "async when
+interactive, `task` only when headless" needs a **per-session** permission
+override, the same missing mechanism that blocks plan-mode read-only bash. Tracked
+in #1322.
+
+### Pre-existing sessions keep the old behavior
+
+Sessions created before the re-projection keep the system prompt they started
+with. Two long-running orchestrator chats (`d11fa5dc`, `16404f7e`, created
+08:11–08:13 PDT) continued using `task` correctly — they predate the change by
+~5 hours. Only new sessions pick up new routing.
+
+### Projection is triggered by profile SAVE, not by sync-opencode
+
+`syncOpencodeAgentProfiles()` is driven by the ENGINE's agent registry, so it does
+not re-project every profile file. After changing the writer, every profile needs
+a save to be re-projected; a no-op PATCH per profile is enough. Preset configs
+(`claude-code`, `codex`, `gemini-cli`, `opencode`) reject a label PATCH and are
+skipped — 44 of 48 re-project.
+
+## Skill originals recovered (2026-08-05)
+
+AJ was right that the five destroyed skills were not Rhythm-only. Four had real
+originals on disk at `~/Documents/Claude/Scheduled/<slug>/SKILL.md` (also mirrored
+in a 2026-06-18 backup and under `~/.hermes/profiles/*/skills/*/`), and the
+originals are RICHER than the reconstructions:
+
+| skill | reconstruction | restored original |
+|---|---|---|
+| `monday-worship-planning` | 185 lines | **263** (23.8 KB body) |
+| `daily-dev-summary` | 64 | 80 |
+| `monthly-gc-report` | 63 | 72 |
+| `daily-email-triage` | 66 | 59 |
+| `AI Trend Research…` | 57 | **no original found anywhere** |
+
+`monday-worship-planning` had lost real operational knowledge that paraphrase
+could never recover: a ~40-line schema block documenting the **Obsidian Bases**
+architecture (`_Song Library.base`, `_Liturgy Library.base`, `Service
+Builder.base`) that supersedes `ableset copy.json`; `liturgical_movement` as an
+8-slot controlled vocabulary described as "the primary slot-matching field"; the
+warning that `themes` is often empty so `liturgical_movement` +
+`scripture_references` are the dependable matchers; the `obsidian_search_dataview`
+TABLE-only limitation; `STEP 0` (launch Obsidian via osascript when the REST API
+is down); and `STEP 3a`, a previous-Sunday sync-lag safeguard marked MANDATORY.
+
+Reconstructions preserved at `~/.config/opencode/skills-reconstructions-2026-08-05-1350/`.
+
+**Rhythm's skill version history is empty.** `/agent-skills/:id/versions` returns
+0 versions for every one of these, despite a `rollback` endpoint existing. Had it
+recorded anything, none of this recovery would have been needed. Worth its own
+issue.
