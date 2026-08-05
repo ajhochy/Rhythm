@@ -157,7 +157,20 @@ Fixed in f8ece4f5 with three tests built from a payload captured off the engine'
 throughout because they hand-build `metadata: { command }`, a shape no engine
 event has — assert against captured payloads, not hand-written ones.
 
-## Next step
+## Next step (updated 2026-08-05)
+
+Relaunched and live-verified: message timestamps are zoned, transcript order matches
+DB truth, and AJ confirmed the chat pane renders correctly. Remaining before merge is
+AJ's own pass over sections G–M of `docs/testing/mega-2026-08-04-smoke.md` — none of
+that has been exercised through the UI. Then `gh pr ready 1319` and merge; `main` has
+no branch protection, so the draft flag is the only technical blocker (the red check
+is a cancelled duplicate Mobile CI run).
+
+Outstanding code, both follow-up-able: taint propagation to the parent on an async
+wake, and `rhythm_delegation_transcript`. Open issues from this work: #1322 (plan-mode
+read-only bash), #1323, #1324, #1325, #1326.
+
+## Previous next step
 
 User's call on merge. `mega/run-2026-08-04` (PR #1319) is the single open PR, still
 draft; merge is a manual human action. #1322 tracks the remaining blocklist gaps
