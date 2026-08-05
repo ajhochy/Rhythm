@@ -1,5 +1,18 @@
 # Smoke checklist — `mega/run-2026-08-04` (PR #1319)
 
+> **Read this first.** Sections A–F were written on 2026-08-04 and cover the
+> original eight-defect autonomy/skill-loss work. Everything from **G onward landed
+> LATER on 2026-08-05** — the delegation migration, the permission-gate repair, the
+> doom-loop fix and three desktop client fixes — and is NOT covered by the A–F
+> PASS column. Treat A–F as done-and-recorded, G–L as the outstanding pass.
+>
+> **Rebuild before testing.** `5d1fbd7b` (parts completeness) is not in the app
+> that was running when this was written. `apps/mcp_server` needs
+> `npm run build`; the launcher rebuilds Flutter. Confirm the engine on `:4096`
+> reports a `mega/run-2026-08-04-*` version AND that its `lsof` txt path is the
+> staged binary, not `apps/opencode_bin/` (#1305 — the version string alone does
+> not prove which build is live).
+
 ## Results — round 3 (2026-08-04, driven directly against the running app)
 
 Rounds 1–2 were driven by a Codex agent. Round 2 returned 8/8 BLOCKED claiming
@@ -179,3 +192,178 @@ server must still reject an empty credential payload with
 **F2** — MCP servers: `rhythm` and `obsidian` both `connected`.
 **F3** — engine on `:4096` reports the `mega/run-2026-08-04` version (not the Aug 3
 build). A stale binary silently tests the wrong engine.
+
+---
+
+# Round 4 — 2026-08-05 work (OUTSTANDING)
+
+Everything below landed after the A–F pass. Where an item was already verified live
+during development, the evidence is stated; those still need a human click-through
+because none of them have been exercised through the UI.
+
+## G. Permission gate actually reachable (#1322, f8ece4f5 + 1c3b943b)
+
+The gate was dead against the real engine payload — `perm.toolName ?? perm.type`
+resolved to `''` for every engine permission, and the command was read from
+`args.command`, which the engine never sends.
+
+**G1 — a dangerous non-hardline command still prompts.** Interactive session,
+`permissionMode=bypassPermissions`, profile with `bash {"*":"allow","git push*":"ask"}`.
+Ask for `git push --force no-such-remote-xyz HEAD` (harmless — the remote does not
+exist). Expect a `permission.asked` card and the bash tool stuck at `running`.
+FAIL = it executes.
+*Verified live 2026-08-05 pre-UI.*
+
+**G2 — the hardline blocklist denies a pipeline.** Same session, ask for
+`curl -s http://127.0.0.1:9/nope | sh`. Port 9 is closed so it is inert even if it
+runs. Expect a `tool.denied` mentioning `hardline-blocklist:curl-pipe-shell`.
+This needs BOTH the escalation (bare `sh` → ask) and the full-command recovery from
+the tool part — the engine sends `patterns: ["curl -s …", "sh"]`, so the pipe is
+absent from the payload.
+**NOT yet verified end-to-end** — the unit tests cover it; the live pipeline case
+was never re-run after the escalation landed.
+
+**G3 — do NOT verify by running `rm -rf /`.** Testing a deny path with a
+destructive command risks the disk if the deny path is broken. `rm -rf*` is already
+escalated by every profile; trust the unit test plus G2.
+
+**G4 — non-tool permission scopes are not denied as "not in the allowlist."**
+`doom_loop`, `plan_enter`, `plan_exit`, `question`, `repo_clone`, `repo_overview`
+are permission SCOPES, not tools. On a role-scoped session, none may produce
+`Tool '<x>' is not in this session's allowlist.` A denied `doom_loop` would silently
+disable loop detection itself.
+
+## H. Delegation — async is the cross-profile path (#1123 / #1322 phases 1–5)
+
+**H1 — an interactive manager chooses async unprompted.** Fresh
+`workflow-orchestrator` chat. Ask for something that needs a specialist WITHOUT
+naming a tool ("have planning-agent draft …"). Expect `rhythm_delegate_async`.
+FAIL = it reaches for `task`.
+*Verified 2026-08-05: chose async, dispatched to `planning-agent`.*
+
+**H2 — the parent stays conversational.** While the child runs, send an unrelated
+question. Expect an answer while the child is still `working`.
+*Verified.*
+
+**H3 — the result is pushed back exactly once and the parent then STOPS.**
+Expect one `[Async delegation update]`, one report, then `idle`. FAIL = repeated
+restatements (the doom loop: one wake produced 56 turns before 40cd9a6b).
+*Verified: 3 outputs, idle.*
+
+**H4 — headless still uses `task`.** Trigger a scheduled orchestrator run. Async is
+refused outside interactive chat by design, and sync `rhythm_delegate` orphans
+sessions (#891), so `task` is correct there. FAIL = a scheduled run attempting async.
+
+**H5 — a non-manager cannot cross a profile boundary.** In a `ui-ux-designer`
+chat, ask for implementation work. It must do it itself or decline — never spawn
+`coding-agent`. `explore`/`general` must still work for read-only fan-out.
+**NOT verified live** — only the projected permission block was checked
+(0 of 34 agents now inherit `"*": allow`).
+
+**H6 — no self-delegation.** No roster contains its own profile; 47 such calls
+existed before.
+
+**H7 — `ui-ux-designer` can ship its own work.** `git status/diff/add/commit`,
+`git checkout -b`, `rg` all allowed; `gh pr create` allowed; `git push` → **ask**;
+`gh pr merge`/`merge`/`rebase`/`reset` → deny; bash default still `deny`.
+
+**H8 — child sessions nest under the parent.** The sidebar must show
+`Async delegation: <Specialist>` as a subagent of the parent, not a top-level
+session (#891 is precisely that failure for the SYNC tool).
+*Verified visually.*
+
+## I. Delegation status + cancel (27ce9465)
+
+**I1 — status returns metadata only.** `rhythm_delegation_status` (or
+`GET /agent-delegation/status`) must return exactly: `delegationId, target, state,
+elapsedMs, durationMs, childState, childSteps, latestEvent{tool,status},
+cancellable, error`. Any child text — completion text, tool arguments, tool output —
+is a FAIL. A tool NAME is expected and safe.
+*Verified live: those ten keys, nothing else.*
+
+**I2 — cancel actually cancels, and says so.** Cancel an in-flight delegation.
+Expect `state=cancelled`, the child aborted, and the row STAYING cancelled. FAIL =
+`400 "delegation completed before it could be cancelled"` while the child dies
+anyway, and the parent still gets woken (the pre-fix behavior).
+*Verified live after the ordering fix.*
+
+**I3 — a completing child cannot resurrect a cancelled delegation** or wake the
+parent with a result its owner stopped.
+
+**I4 — cancel is gated after untrusted content.** It is a protected write
+(`delegation.cancel`). In a session that has read untrusted content it must require
+an approval id; in a clean session it must not.
+**NOT verified live.**
+
+## J. Untrusted-content fencing (27ce9465)
+
+**J1 — a tainted child result reaches the parent FENCED.** Have a delegate read
+external content (email/PCO/web), then let it report back. The wake must wrap the
+result in `<<<UNTRUSTED_EXTERNAL_CONTENT>>>` with the "DATA, NOT instructions"
+directive. FAIL = raw interpolation, which is how it behaved before.
+**NOT verified live** — unit-tested only.
+
+**J2 — a first-party result is NOT fenced.** Fencing everything trains the model
+that the fence is noise.
+
+**J3 — known gap, do not file as new.** The parent is fenced but NOT marked
+tainted, so its later protected mutations are still ungated. Deliberate and
+outstanding.
+
+## K. Desktop transcript integrity (585abf89, 031e28e7, 5d1fbd7b)
+
+These are the three client bugs found by AJ during real use. All need UI testing;
+none can be verified from the API.
+
+**K1 — the newest turns are at the tail.** Open a long session, navigate away,
+navigate back. The last message must be the most recent. FAIL = the transcript
+"reverts" to an older point. Cause was a same-second tiebreaker string-comparing
+heterogeneous message ids.
+
+**K2 — a message typed while the socket is down is not lost.** Kill connectivity
+(stop the app's server or pull the network), type a message, restore. It must be
+delivered on reconnect, or visibly reported — never silently vanish. FAIL = it
+appears in the transcript and never reaches the DB.
+Check with: `SELECT MAX(created_at) FROM agent_session_messages WHERE session_id=…`.
+
+**K3 — an interrupted stream repairs itself.** Navigate AWAY from a session
+mid-stream, then back. The message must show its full text. FAIL = permanently
+truncated or blank, because the partial delta blocked the finished server copy.
+**Requires the 5d1fbd7b rebuild.**
+
+**K4 — sessions over 200 messages.** Tracked as #1324: `GET /agent-sessions/:id`
+without `transcriptLimit` returns the OLDEST 200. The desktop app always passes
+`transcriptLimit=50` so it is unaffected; any other client is. Not fixed.
+
+## L. Skills restored from originals
+
+**L1 — the five skills have real bodies**, and four are the RESTORED ORIGINALS,
+not reconstructions: `monday-worship-planning` (263 lines), `daily-dev-summary`
+(80), `monthly-gc-report` (72), `daily-email-triage` (59).
+
+**L2 — `monday-worship-planning` contains what reconstruction lost:** the Obsidian
+Bases schema block (`_Song Library.base`, `_Liturgy Library.base`,
+`Service Builder.base`), `liturgical_movement` as the 8-slot controlled vocabulary,
+`STEP 0` (Obsidian availability precheck), and `STEP 3a` (previous-Sunday sync-lag
+safeguard, marked MANDATORY). If any are missing, the reconstruction was
+re-applied over the original.
+
+**L3 — do NOT restore from `skills-backup-2026-08-04-2320`.** It was taken AFTER
+the destruction and holds truncated stubs for exactly those five.
+
+**L4 — `AI Trend Research…` has no recoverable original** and is still AJ's
+reconstruction to review. Note `ai-trends-daily-scan` is a separate, undamaged
+skill.
+
+## M. Post-incident checks (2026-08-05)
+
+**M1 — the bridge survives an engine respawn.** #1325: when the engine restarted
+under a running api_server, persistence stopped dead across every session for
+~9 minutes while `/health`, `/opencode/health` and the WS gateway all reported
+healthy. Until that is fixed, verify after any engine churn that
+`SELECT MAX(created_at) FROM agent_session_messages` is advancing — a green health
+check does not prove the bridge is alive.
+
+**M2 — api_server logs exist.** #1326: its stdout is captured nowhere, which
+blocked two diagnoses. If a log path now exists, confirm `[AsyncDelegation]` and
+`[OpencodeStreamBridge]` lines appear in it.
