@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import { Cause, Effect, Exit, Layer } from "effect"
-import { GLOB_TIMEOUT_DEFAULT_MS, GlobTool, globTimeoutMs } from "../../src/tool/glob"
+import { GlobTool } from "../../src/tool/glob"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Ripgrep } from "../../src/file/ripgrep"
@@ -80,22 +80,15 @@ describe("tool.glob", () => {
   )
 })
 
+// The budget itself now lives in Ripgrep (test/file/ripgrep.test.ts covers parsing, `search`
+// and `tree`). These two prove the glob tool is still bounded end to end, that the error still
+// reads as a glob error, and — because they set the pre-centralization variable — that
+// RHYTHM_GLOB_TIMEOUT_MS is still honored.
 describe("tool.glob timeout", () => {
   const original = process.env.RHYTHM_GLOB_TIMEOUT_MS
   afterEach(() => {
     if (original === undefined) delete process.env.RHYTHM_GLOB_TIMEOUT_MS
     else process.env.RHYTHM_GLOB_TIMEOUT_MS = original
-  })
-
-  test("reads the budget from the environment at call time", () => {
-    delete process.env.RHYTHM_GLOB_TIMEOUT_MS
-    expect(globTimeoutMs()).toBe(GLOB_TIMEOUT_DEFAULT_MS)
-    process.env.RHYTHM_GLOB_TIMEOUT_MS = "1234"
-    expect(globTimeoutMs()).toBe(1234)
-    process.env.RHYTHM_GLOB_TIMEOUT_MS = "nope"
-    expect(globTimeoutMs()).toBe(GLOB_TIMEOUT_DEFAULT_MS)
-    process.env.RHYTHM_GLOB_TIMEOUT_MS = "0"
-    expect(globTimeoutMs()).toBe(GLOB_TIMEOUT_DEFAULT_MS)
   })
 
   // A traversal that outlives the budget errors instead of hanging. Squeezing the budget to 1ms
@@ -117,7 +110,8 @@ describe("tool.glob timeout", () => {
         const message = err instanceof Error ? err.message : String(err)
         expect(message).toContain("glob timed out after 1ms")
         expect(message).toContain(test.directory)
-        expect(message).toContain("RHYTHM_GLOB_TIMEOUT_MS")
+        expect(message).toContain("**/*.py")
+        expect(message).toContain("RHYTHM_RIPGREP_TIMEOUT_MS")
       }
       // it returns, rather than sitting on the run-level inactivity window
       expect(elapsed).toBeLessThan(10_000)

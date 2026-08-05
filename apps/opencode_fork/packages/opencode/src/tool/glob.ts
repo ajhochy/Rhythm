@@ -9,19 +9,6 @@ import DESCRIPTION from "./glob.txt"
 import * as Tool from "./tool"
 import { Reference } from "@/reference/reference"
 
-export const GLOB_TIMEOUT_DEFAULT_MS = 15_000
-
-/**
- * Per-call wall-clock budget for the ripgrep traversal behind a glob. Without it an
- * unbounded pattern rooted at a huge tree (e.g. `**\/x.py` at $HOME) never returns and
- * silently burns the whole run-level inactivity window.
- * Read fresh from the environment so it can be tuned without a rebuild.
- */
-export function globTimeoutMs() {
-  const configured = Number.parseInt(process.env.RHYTHM_GLOB_TIMEOUT_MS ?? "", 10)
-  return Number.isFinite(configured) && configured > 0 ? configured : GLOB_TIMEOUT_DEFAULT_MS
-}
-
 export const Parameters = Schema.Struct({
   pattern: Schema.String.annotate({ description: "The glob pattern to match files against" }),
   path: Schema.optional(Schema.String).annotate({
@@ -65,9 +52,10 @@ export const GlobTool = Tool.define(
           })
 
           const limit = 100
-          const timeoutMs = globTimeoutMs()
           let truncated = false
-          const files = yield* rg.files({ cwd: search, glob: [params.pattern], signal: ctx.abort }).pipe(
+          // The traversal budget lives in Ripgrep (see ripgrepTimeoutMs); `label` is what the
+          // model sees if it expires.
+          const files = yield* rg.files({ cwd: search, glob: [params.pattern], signal: ctx.abort, label: "glob" }).pipe(
             Stream.mapEffect((file) =>
               Effect.gen(function* () {
                 const full = path.resolve(search, file)
@@ -83,17 +71,6 @@ export const GlobTool = Tool.define(
             Stream.take(limit + 1),
             Stream.runCollect,
             Effect.map((chunk) => [...chunk]),
-            Effect.timeoutOrElse({
-              duration: timeoutMs,
-              orElse: () =>
-                Effect.die(
-                  new Error(
-                    `glob timed out after ${timeoutMs}ms while traversing ${search}. ` +
-                      `Narrow the pattern or the path (a leading "**" rooted at a large directory has to walk the whole tree), ` +
-                      `then retry. Set RHYTHM_GLOB_TIMEOUT_MS to raise the budget.`,
-                  ),
-                ),
-            }),
           )
 
           if (files.length > limit) {
