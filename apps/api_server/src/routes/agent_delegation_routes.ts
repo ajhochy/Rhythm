@@ -28,3 +28,8 @@ agentDelegationRouter.use(env.agentLocal ? authenticateIfPresent : requireAuth);
 
 agentDelegationRouter.post('/delegate', controller.delegate.bind(controller));
 agentDelegationRouter.post('/delegate-async', controller.delegateAsync.bind(controller));
+// #1123 follow-up — pollable status + cancel, so a manager can trust an in-flight
+// delegation without waiting for the wake. METADATA ONLY: see
+// async_delegation_status_service.ts for why no child text is ever returned.
+agentDelegationRouter.get('/status', controller.status.bind(controller));
+agentDelegationRouter.post('/:id/cancel', controller.cancel.bind(controller));

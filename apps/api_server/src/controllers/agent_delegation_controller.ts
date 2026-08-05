@@ -5,6 +5,10 @@ import {
   delegateToAgentAsync,
 } from '../services/agent_delegation_service';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  cancelDelegation,
+  getDelegationStatus,
+} from '../services/async_delegation_status_service';
 import { env } from '../config/env';
 
 /**
@@ -89,6 +93,48 @@ export class AgentDelegationController {
         context: typeof body.context === 'string' ? body.context : null,
       });
       res.status(202).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /agent-delegation/status — state, elapsed time and the latest progress
+   * event for every delegation this caller dispatched. No child transcript.
+   */
+  async status(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const callerSessionId = resolveCallerSessionId(
+        req.query as Record<string, unknown>,
+      );
+      if (!callerSessionId) {
+        throw AppError.badRequest('caller session could not be resolved');
+      }
+      const authenticatedUserId =
+        req.auth?.user.id ?? ownerOfSessionUnderAgentLocal(callerSessionId);
+      if (!authenticatedUserId) {
+        throw AppError.unauthorized('Authenticated user is required');
+      }
+      res.json({ delegations: getDelegationStatus(callerSessionId) });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /** POST /agent-delegation/:id/cancel — abort the child and mark it cancelled. */
+  async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const callerSessionId = resolveCallerSessionId(body);
+      if (!callerSessionId) {
+        throw AppError.badRequest('caller session could not be resolved');
+      }
+      const authenticatedUserId =
+        req.auth?.user.id ?? ownerOfSessionUnderAgentLocal(callerSessionId);
+      if (!authenticatedUserId) {
+        throw AppError.unauthorized('Authenticated user is required');
+      }
+      res.json(await cancelDelegation(callerSessionId, req.params.id));
     } catch (err) {
       next(err);
     }

@@ -12,6 +12,8 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import type { AgentSession } from '../models/agent_session';
 import { logger } from '../utils/logger';
+import { untrustedContext } from '../security/untrusted_fence';
+import { getDb } from '../database/db';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
 
@@ -379,9 +381,21 @@ export class AsyncDelegationCompletionService {
     messageID = this.deliveryMessageId(delegations),
   ): string {
     const blocks = delegations.map((delegation) => {
+      // A child's output is only first-party if the CHILD never consumed external
+      // content. When it did, that text is attacker-influenced and must be fenced
+      // before it enters the parent's prompt — the rule in
+      // docs/ai/decisions/2026-06-27-fence-untrusted-external-content.md.
+      // This path previously interpolated it raw, which was the one place in the
+      // system that injected possibly-tainted text into a prompt unfenced.
+      const tainted = childConsumedExternalContent(delegation.childSessionId);
+      const body = delegation.completionText ?? '(no text result)';
       const outcome = delegation.errorText
         ? `failed: ${delegation.errorText}`
-        : `finished:\n${delegation.completionText ?? '(no text result)'}`;
+        : `finished:\n${
+            tainted
+              ? untrustedContext(body, `delegated result from @${delegation.targetAgentConfigId}`)
+              : body
+          }`;
       return (
         `- @${delegation.targetAgentConfigId} ` +
         `(delegated child session ${delegation.childSessionId}) ${outcome}`
@@ -393,6 +407,28 @@ export class AsyncDelegationCompletionService {
       'Incorporate these results into the conversation. Respect any newer user direction already in the session.\n' +
       this.deliveryMarker(messageID)
     );
+  }
+}
+
+/**
+ * Did this child session read external content?
+ *
+ * Keyed off `agent_external_taint_state`, the same store the approval gate uses.
+ * A child that only touched first-party data yields a result that needs no fence
+ * and must not taint its parent — fencing everything would train the model to
+ * ignore the fence, and tainting everything would put an approval gate in front
+ * of every delegated result.
+ */
+function childConsumedExternalContent(childSessionId: string): boolean {
+  if (!childSessionId) return false;
+  try {
+    const row = getDb()
+      .prepare(`SELECT 1 FROM agent_external_taint_state WHERE session_id = ?`)
+      .get(childSessionId);
+    return Boolean(row);
+  } catch {
+    // Unknown taint status must fail SAFE: assume tainted and fence it.
+    return true;
   }
 }
 

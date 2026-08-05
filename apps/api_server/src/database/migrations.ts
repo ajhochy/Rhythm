@@ -3124,6 +3124,44 @@ If someone asks for creative work that needs a local capability:
       ON agent_async_delegations(parent_session_id, status, created_at);
   `);
 
+  // Widen the status CHECK to admit 'cancelled' (#1123 follow-up: a parent can now
+  // cancel an in-flight delegation). SQLite cannot ALTER a CHECK constraint, so a
+  // pre-existing table has to be rebuilt. Detected from the constraint text rather
+  // than a version counter so it is idempotent and safe to re-run.
+  const asyncDelegationsSql = (
+    db
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_async_delegations'`,
+      )
+      .get() as { sql?: string } | undefined
+  )?.sql;
+  if (asyncDelegationsSql && !asyncDelegationsSql.includes("'cancelled'")) {
+    db.exec(`
+      CREATE TABLE agent_async_delegations_new (
+        id TEXT PRIMARY KEY,
+        parent_session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+        child_session_id TEXT NOT NULL UNIQUE REFERENCES agent_sessions(id) ON DELETE CASCADE,
+        target_agent_config_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'dispatched'
+          CHECK (status IN ('dispatched', 'completed', 'waking', 'notified', 'failed', 'cancelled')),
+        completion_text TEXT,
+        error_text TEXT,
+        completed_at TEXT,
+        notified_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO agent_async_delegations_new
+        SELECT id, parent_session_id, child_session_id, target_agent_config_id, status,
+               completion_text, error_text, completed_at, notified_at, created_at, updated_at
+          FROM agent_async_delegations;
+      DROP TABLE agent_async_delegations;
+      ALTER TABLE agent_async_delegations_new RENAME TO agent_async_delegations;
+      CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
+        ON agent_async_delegations(parent_session_id, status, created_at);
+    `);
+  }
+
   // #1178 — immutable, privacy-reviewed transcript snapshots shared only with
   // named Rhythm users. source_session_id is intentionally not an FK: deleting
   // the source makes reads fail closed while preserving provenance/audit rows.

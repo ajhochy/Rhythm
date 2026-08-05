@@ -104,6 +104,7 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['org-optimizer.run', 'rhythm_run_org_optimizer'],
   ['delegation.start', 'rhythm_delegate'],
   ['delegation.start-async', 'rhythm_delegate_async'],
+  ['delegation.cancel', 'rhythm_delegation_cancel'],
   ['notification.send', 'rhythm_notify'],
   ['scheduled-task.create', 'rhythm_create_scheduled_task'],
   ['scheduled-task.cancel', 'rhythm_cancel_scheduled_task'],

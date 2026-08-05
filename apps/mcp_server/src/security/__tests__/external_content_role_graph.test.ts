@@ -67,6 +67,9 @@ const externalReads = new Map<string, string>([
 
 const trustedNonUserReads = new Set([
   "rhythm_ping",
+  // Rhythm's own delegation metadata. Returns NO child content by construction
+  // (see async_delegation_status_service.ts) so it cannot carry external taint.
+  "rhythm_delegation_status",
   "rhythm_list_creative_capabilities",
   "rhythm_creative_capability_status",
   "rhythm_verify_creative_capability",
@@ -82,6 +85,12 @@ const unavailableLegacyTools = new Set([
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
   [
     ["rhythm_send_email", { action: "email.send", sourceFile: "google.ts" }],
+    // Stopping work in flight is consequential: an injection could cancel
+    // legitimate delegations (denial of service), so it is gated like any write.
+    [
+      "rhythm_delegation_cancel",
+      { action: "delegation.cancel", sourceFile: "agentDelegation.ts" },
+    ],
     [
       "rhythm_send_message",
       { action: "message.send", sourceFile: "messages.ts" },

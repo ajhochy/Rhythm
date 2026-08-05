@@ -29,6 +29,8 @@ export const SECURITY_ACTIONS = [
   "org-optimizer.run",
   "delegation.start",
   "delegation.start-async",
+  // Stopping delegated work in flight — consequential, so gated like a write.
+  "delegation.cancel",
   "notification.send",
   "scheduled-task.create",
   "scheduled-task.cancel",

@@ -40,6 +40,7 @@ export const SECURITY_ACTIONS = [
   'org-optimizer.run',
   'delegation.start',
   'delegation.start-async',
+  'delegation.cancel',
   'notification.send',
   'scheduled-task.create',
   'scheduled-task.cancel',
