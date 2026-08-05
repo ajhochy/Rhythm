@@ -234,15 +234,81 @@ Tail impact accounting (99 calls):
 Any of the 13 can be promoted later on demand; promotion is now a known 2-field
 change (`allowedMcpsJson` + `allowedDelegatesJson`) on an existing manager.
 
+### 4. Tail revisions (AJ, second pass)
+
+**`config-doctor` — PROMOTE.** AJ uses it to find new skills and explore, so it
+should dispatch. It is already `git push`/`gh pr create` capable and selectable;
+needs `isManager: true` + delegate tools + roster.
+Roster (from observed targets, minus self): `AI-Trend-Researcher`, `librarian`,
+`research`, `issue-writer`. `research` resolves to the real profile `research`
+(label "Researcher", `sessionSelectable: false`) — a subagent-only profile, which
+makes it a correct delegation target rather than a stray name.
+Dropped from its observed set: `secretary` and `workflow-orchestrator` (escalation
+up — see decision 2) and `coding-agent` (implementation is the orchestrator's job).
+
+**`Org External Discovery` — PROMOTE, sync path only.** Today it is 100%
+self-delegation (13/13), which decision 1 removes entirely. AJ's suggestion to have
+it dispatch research is the right shape: roster `AI-Trend-Researcher`, plus
+`research`.
+Important: it runs as a **scheduled** task (`schedulable: true`, and its runs carry
+`is_system=1`), so it must use the SYNCHRONOUS `rhythm_delegate`.
+`rhythm_delegate_async` is hard-blocked for system/scheduled callers, so wiring it to
+async would fail at runtime.
+
+**`ui-ux-designer` — cut delegation, grant self-sufficiency.** AJ: it should be able
+to search the codebase and push its own UI/UX work to GitHub rather than hand off.
+
+Measured first, and it reframes the request: **`coding-agent` is the only profile
+explicitly denied PR creation** (`gh pr create*: deny`, `git push*: deny`), while
+~34 profiles resolve `gh pr create` to `allow` and six (`AI-Trend-Researcher`,
+`Theological-Researcher`, `config-doctor`, `librarian`, `secretary`,
+`verification-gate`) can `git push` outright. So the code-writing agent is the one
+blocked from opening PRs, while researchers and worship-planning profiles can push.
+That is the same inversion class as the delegation bug. Granting `ui-ux-designer`
+these rights **restores parity** rather than creating a privilege.
+
+Note its `read`/`glob`/`grep` are already `allow`, so codebase *search* works today
+via the engine tools; what is missing is bash. Keep `*: deny` as the default so this
+does not become a general shell:
+
+| pattern | action | why |
+|---|---|---|
+| `git status*`, `git diff*`, `git log*`, `git add*`, `git commit*`, `git checkout -b*`, `git branch*` | allow | author its own branch + commits |
+| `rg *` | allow | codebase search from the shell |
+| `gh pr create*` | allow | parity with ~34 other profiles |
+| `git push*` | **ask** | house pattern; and post-#1322 this gate actually fires |
+| `gh pr merge*`, `git merge*`, `git rebase*`, `git reset*` | **deny** | CLAUDE.md: never merge |
+
+**Everything else: apply the recommendation as written** — promote `theologian`, cut
+`coding-agent`, `Theological-Researcher`, `fantasy-gm`, `creative-media`,
+`rhythm-setup`, `Rhythm Setup Agent v2` (disabled), `librarian`,
+`AI-Trend-Researcher`, `local`, `worship-planning`.
+
+### Naming collision to resolve in Phase 4
+
+`explore` and `research` exist BOTH as engine-native subagent names
+(`BUILTIN_OPENCODE_AGENT_IDS` includes `explore`) and as Rhythm profiles
+(`explore`, `research`, both `sessionSelectable: false`). So
+`task: { explore: allow }` is ambiguous about which one it authorizes. Resolve
+explicitly before Phase 4 ships, or the "natives only" restriction silently also
+grants a Rhythm profile.
+
 ## Final eligible-manager set after migration
 
-| profile | interactive path | headless path | roster source |
+| profile | interactive | headless | roster |
 |---|---|---|---|
-| `workflow-orchestrator` | `rhythm_delegate_async` | `rhythm_delegate` | observed graph, minus self |
-| `secretary` | `rhythm_delegate_async` | `rhythm_delegate` | observed graph, minus self |
-| `theologian` | `rhythm_delegate_async` | `rhythm_delegate` | `Theological-Researcher`, `librarian`, `research` |
+| `workflow-orchestrator` | async | sync | `coding-agent`, `verification-gate`, `planning-agent`, `failure-triage`, `project-state-updater`, `issue-writer`, `smoke-test-writer`, `workflow-retrospective` |
+| `secretary` | async | sync | `workflow-orchestrator`, `config-doctor`, `AI-Trend-Researcher`, `librarian`, `theologian`, `worship-planning`, `Theological-Researcher` |
+| `theologian` | async | sync | `Theological-Researcher`, `librarian`, `research` |
+| `config-doctor` | async | sync | `AI-Trend-Researcher`, `librarian`, `research`, `issue-writer` |
+| `Org External Discovery` | — (scheduled) | **sync only** | `AI-Trend-Researcher`, `research` |
 
-Everything else: `task` limited to `explore` / `general`, no cross-profile delegation.
+5 managers, up from 3 eligible-on-paper and 1 actually working. No roster contains
+its own profile.
+
+Everything else: `task` limited to native subagents, no cross-profile delegation.
+`ui-ux-designer` additionally gains branch/commit/push-ask/PR-create so it can ship
+its own work.
 
 ## Risks
 
