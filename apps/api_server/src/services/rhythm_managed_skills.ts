@@ -39,6 +39,24 @@ import { scanContextContent } from '../security/context_scanner';
 import { parseSkillFrontmatter, stripFrontmatterBlock, type SkillFrontmatter } from './skill_frontmatter';
 
 /**
+ * The REAL user-owned skill library: `~/.config/opencode/skills`. Pure — no
+ * override, no guard — so the default-resolution contract can be asserted
+ * without tripping {@link managedSkillsRoot}'s test-isolation guard.
+ */
+export function defaultManagedSkillsRoot(): string {
+  return join(homedir(), '.config', 'opencode', 'skills');
+}
+
+/**
+ * True during a vitest run. Mirrors `isTestEnv()` in opencode_agent_writer.ts,
+ * which fail-closes writes to the sibling `~/.config/opencode/agents` dir the
+ * same way.
+ */
+function isTestRun(): boolean {
+  return process.env.VITEST !== undefined || process.env.NODE_ENV === 'test';
+}
+
+/**
  * The canonical Rhythm-managed skills dir — `~/.config/opencode/skills`, the
  * engine's auto-scanned config skills dir and Rhythm's SOLE managed source
  * (#947). No longer a distinct sibling: `sync-globals` stopped writing here, so
@@ -46,12 +64,36 @@ import { parseSkillFrontmatter, stripFrontmatterBlock, type SkillFrontmatter } f
  *
  * Resolved lazily (not a captured constant) so tests can redirect it via
  * `RHYTHM_MANAGED_SKILLS_DIR` without manipulating the home directory.
+ *
+ * ── TEST-ISOLATION GUARD ────────────────────────────────────────────────────
+ * Under vitest this THROWS rather than resolving to the real
+ * `~/.config/opencode/skills`. The DB is isolated per test (`setDb(makeDb())`
+ * on `:memory:`) but the FILESYSTEM was not: appliers reaching
+ * `writeManagedSkill()` overwrote real, user-authored SKILL.md files — using
+ * real skill names, because the fixtures were copied from live evidence. That
+ * is silent data loss, and it recurred because nothing failed when it happened.
+ *
+ * Every sibling path (`draftsRoot`, `disabledRoot`, the rollback-snapshot root,
+ * `managedSkillDir`) funnels through here, so the guard covers reads, writes
+ * and deletes alike — one chokepoint, no leaks.
+ *
+ * Hitting this? Call `useTempManagedSkillsRoot()` from
+ * `src/__tests__/_managed_skills_temp_root.ts` at the top of your test file.
+ * Do NOT delete the guard, and do NOT set RHYTHM_MANAGED_SKILLS_DIR to the real
+ * path to silence it.
  */
 export function managedSkillsRoot(): string {
-  return (
-    process.env.RHYTHM_MANAGED_SKILLS_DIR ??
-    join(homedir(), '.config', 'opencode', 'skills')
-  );
+  const root = process.env.RHYTHM_MANAGED_SKILLS_DIR ?? defaultManagedSkillsRoot();
+  if (isTestRun() && resolve(root) === resolve(defaultManagedSkillsRoot())) {
+    throw new Error(
+      '[managed-skills] TEST ISOLATION VIOLATION: a test resolved the managed-skills root to ' +
+        `the REAL user skill library (${defaultManagedSkillsRoot()}). Writes there destroy ` +
+        'the user\'s authored skills. Redirect it to a temp dir by adding ' +
+        "`useTempManagedSkillsRoot();` (from src/__tests__/_managed_skills_temp_root.ts) " +
+        'at the top of your test file. Do not point RHYTHM_MANAGED_SKILLS_DIR at the real path.',
+    );
+  }
+  return root;
 }
 
 /**

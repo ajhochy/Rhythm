@@ -15,6 +15,11 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { startTestServer } from './helpers/real_server';
+import { useTempManagedSkillsRoot } from './_managed_skills_temp_root';
+
+// GET /opencode/skills resolves the managed-skills root to flag `managed`
+// skills, so this file must not read the user's real library.
+useTempManagedSkillsRoot('skills-env-metadata');
 
 // The route now reads each skill's frontmatter straight off disk via its
 // `location` (see opencode_skills_routes.ts — the fork's listSkillsWithContent
