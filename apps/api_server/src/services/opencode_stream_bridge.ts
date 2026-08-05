@@ -12,6 +12,26 @@ import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
 import { classifyCommands, extractBashCommands } from '../security/command_approval';
+
+/**
+ * Engine permission ids that are permission SCOPES rather than tool names.
+ *
+ * `permission.asked` carries its id in `permission`, and the bridge derives
+ * `toolName` from it (see the permission.asked handler). These seven are not tools,
+ * so they must never be matched against a session's tool allowlist — doing so
+ * denies doom-loop detection, plan enter/exit and question prompts on every
+ * role-scoped session. Mirrors the defaults in
+ * apps/opencode_fork/packages/opencode/src/agent/agent.ts.
+ */
+const NON_TOOL_PERMISSION_SCOPES = new Set([
+  'doom_loop',
+  'external_directory',
+  'plan_enter',
+  'plan_exit',
+  'question',
+  'repo_clone',
+  'repo_overview',
+]);
 import { resolveApprovalsMode } from '../config/env';
 import {
   advanceFallbackCascade,
@@ -1778,11 +1798,12 @@ export class OpencodeStreamBridge {
         // auto-DENY it (reject) and surface a denied result instead of forwarding
         // the permission card or auto-accepting. Non-role sessions pass through.
         //
-        // `external_directory` is a permission SCOPE, not a tool — now that
-        // toolName resolves from `perm.permission` it can hold that value, and
-        // matching it against a tool allowlist would deny it for every
-        // role-scoped session.
-        const isToolScopedPermission = toolName !== 'external_directory';
+        // Several engine permission ids are SCOPES, not tools. Now that toolName
+        // resolves from `perm.permission`, any of them can land here, and matching
+        // one against a tool allowlist would deny it for every role-scoped session
+        // — silently breaking doom-loop detection, plan transitions and questions.
+        // Enumerated from the engine's own defaults in agent/agent.ts.
+        const isToolScopedPermission = !NON_TOOL_PERMISSION_SCOPES.has(toolName);
         if (toolName && isToolScopedPermission && !this.isToolAllowedForSession(localSessionId, toolName)) {
           const dir = (() => {
             try {

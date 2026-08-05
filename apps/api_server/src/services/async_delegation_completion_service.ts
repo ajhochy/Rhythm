@@ -180,9 +180,25 @@ export class AsyncDelegationCompletionService {
     const runningAsOwnAgent =
       profileScope.ocAgent !== null && profileScope.ocAgent === parentAgentConfigId;
     const messageID = this.deliveryMessageId(claimed);
+    // `messageID` is deliberately NOT forwarded to the engine.
+    //
+    // Engine message ids are `msg_` + 12 HEX characters encoding a timestamp +
+    // random base62 (Identifier.create in the fork's id/id.ts), and the engine
+    // orders a session's messages by that decoded timestamp. Our deterministic id
+    // is `msg_rhythm_async_<sha256>`, whose characters 4..16 are `rhythm_async` —
+    // not hex — so `Identifier.timestamp()` cannot decode it and the wake message
+    // has no position in time. The engine therefore never saw the wake as the
+    // latest, answered message: every reply the parent produced got a correctly
+    // ordered id that sorted BEFORE the unplaceable wake, so it re-invoked the
+    // model forever. Observed 2026-08-05 — a single wake produced 56 assistant
+    // turns ("OK", "OK", "OK"…) until the session was cancelled.
+    //
+    // Idempotency does not need it: `wasWakeDelivered` matches on the delivery
+    // MARKER embedded in the wake text, and the id branch there is only a
+    // redundant fast path (kept for wakes delivered before this fix). Letting the
+    // engine assign the id restores correct ordering and ends the turn normally.
     const promptOpts: Record<string, unknown> = {
       permissionMode: parent.permissionMode,
-      messageID,
       ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
       ...(profileScope.systemPrompt && !runningAsOwnAgent
         ? { system: profileScope.systemPrompt }
