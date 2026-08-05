@@ -20,6 +20,36 @@ export interface StructuredAgentSessionMessagePage {
   hasMore: boolean;
 }
 
+/**
+ * Normalise a stored timestamp to an unambiguous UTC ISO-8601 instant.
+ *
+ * `agent_session_messages.created_at` is filled by the column's SQLite DEFAULT
+ * `datetime('now')`, which yields `2026-08-05 22:23:01` — UTC, but with NO zone
+ * designator. `agent_sessions.created_at` is written from JS and already carries
+ * one (`2026-08-05T22:18:21.279Z`), so the API was handing clients two different
+ * formats from the same feature.
+ *
+ * A designator-less string is LOCAL time to most parsers (Dart, `new Date()` in
+ * some engines), so every message came out shifted by the reader's UTC offset —
+ * seven hours on PDT. That put every REST-loaded message after every live-streamed
+ * one and scrambled transcript order. Reported live 2026-08-05.
+ *
+ * Normalising on READ rather than changing the column fixes existing rows and
+ * every consumer at once (desktop chat, session history, messages, mobile) with no
+ * migration. Values that already state a zone are returned untouched.
+ */
+export function toUtcIsoInstant(value: string): string {
+  if (!value) return value;
+  // Already zoned: trailing Z, or an offset in the TIME portion (never the date's
+  // own hyphens).
+  if (/[zZ]$/.test(value)) return value;
+  const timeIndex = value.search(/[T ]/);
+  if (timeIndex >= 0 && /[+-]/.test(value.slice(timeIndex))) return value;
+  const isoish = value.includes('T') ? value : value.replace(' ', 'T');
+  const parsed = new Date(`${isoish}Z`);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
 function rowToModel(row: AgentSessionMessageRow): AgentSessionMessage {
   return {
     id: row.id,
@@ -27,7 +57,7 @@ function rowToModel(row: AgentSessionMessageRow): AgentSessionMessage {
     role: row.role as AgentSessionMessage['role'],
     rawText: row.raw_text,
     strippedText: row.stripped_text,
-    createdAt: row.created_at,
+    createdAt: toUtcIsoInstant(row.created_at),
     sdkMessageId: row.sdk_message_id ?? null,
     partsJson: row.parts_json ?? null,
     tokensJson: row.tokens_json ?? null,
