@@ -58,6 +58,92 @@ export function isProjectablePermissionValue(value: unknown): value is string | 
  * rather than projected as raw garbage that can break the whole file's YAML.
  * (Malformed JSON, or a non-object top level, still yields {} as before.)
  */
+/**
+ * Bash command shapes that MUST reach Rhythm's command-approval gate.
+ *
+ * #1322: Rhythm's hardline blocklist only ever sees commands the ENGINE decides
+ * to ask about. Nearly every profile carries `bash: {"*": "allow", …}`, so
+ * anything matching only `*` was executed with no permission event at all and
+ * the blocklist — documented as non-overridable — never ran. `rm -rf*` and
+ * `sudo *` were already escalated by hand; these were not.
+ *
+ * A bare `sh` / `bash` / `zsh` is the pipe-to-shell signature: the engine splits
+ * `curl URL | sh` into command nodes and evaluates each, so the bare interpreter
+ * IS the segment to catch. Engine patterns are fully anchored (`^…$` in
+ * util/wildcard.ts), so `sh` matches only a bare `sh` and never `sh deploy.sh`.
+ *
+ * Escalating to `ask` is not the same as denying: Rhythm still decides, and an
+ * unattended run auto-allows a non-hardline `ask` rather than hanging. The only
+ * behavior change for a safe command is that Rhythm gets to look at it.
+ */
+export const HARDLINE_ESCALATION_BASH_RULES: ReadonlyArray<{
+  pattern: string;
+  /** A command that pattern is meant to catch, used to read the current action. */
+  probe: string;
+}> = Object.freeze([
+  { pattern: 'sh', probe: 'sh' },
+  { pattern: 'bash', probe: 'bash' },
+  { pattern: 'zsh', probe: 'zsh' },
+  { pattern: 'mkfs*', probe: 'mkfs.ext4 /dev/disk2' },
+  { pattern: 'dd *', probe: 'dd if=/dev/zero of=/dev/disk0' },
+]);
+
+/**
+ * The engine's pattern matcher, mirrored from
+ * apps/opencode_fork/packages/opencode/src/util/wildcard.ts so this module can
+ * ask "what would the engine already do with this command?" without guessing.
+ * Fully anchored, `*` → `.*`, and a trailing " *" made optional.
+ */
+function engineMatch(command: string, pattern: string): boolean {
+  let escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  if (escaped.endsWith(' .*')) escaped = escaped.slice(0, -3) + '( .*)?';
+  return new RegExp('^' + escaped + '$', 's').test(command);
+}
+
+/** The action the engine would pick for `command` — last matching rule wins. */
+function effectiveAction(command: string, rules: Record<string, string>): string | undefined {
+  return Object.entries(rules)
+    .filter(([pattern]) => engineMatch(command, pattern))
+    .pop()?.[1];
+}
+
+/**
+ * Force the hardline-blocklist command shapes to escalate, but ONLY where the
+ * profile would otherwise let them run.
+ *
+ * Appended LAST on purpose: the engine resolves a command with `findLast` over
+ * the flattened ruleset (permission/evaluate.ts), so later entries win. That is
+ * the same mechanism that already lets `git push*: ask` beat `*: allow`.
+ *
+ * **Never downgrades.** An entry is added only when the current effective action
+ * for that shape is `allow`; a profile that already says `deny` or `ask` is left
+ * exactly as authored. Rewriting `bash: "deny"` into
+ * `{'*': 'deny', sh: 'ask', …}` would turn a total denial into a prompt — the
+ * opposite of the point — and would also break #1162's "a scalar replaces the
+ * whole subtree" contract. A profile with no `bash` key is likewise untouched:
+ * `evaluate` already defaults an unmatched command to `ask`.
+ */
+export function withHardlineBashEscalation(
+  permissions: Record<string, string | Record<string, string>>,
+): Record<string, string | Record<string, string>> {
+  const bash = permissions.bash;
+  if (bash === undefined) return permissions;
+  const current: Record<string, string> = typeof bash === 'string' ? { '*': bash } : bash;
+
+  const additions: Record<string, string> = {};
+  for (const { pattern, probe } of HARDLINE_ESCALATION_BASH_RULES) {
+    if (effectiveAction(probe, current) === 'allow') additions[pattern] = 'ask';
+  }
+  // Nothing runs today that shouldn't — leave the profile byte-identical so a
+  // scalar stays a scalar.
+  if (Object.keys(additions).length === 0) return permissions;
+
+  return { ...permissions, bash: { ...current, ...additions } };
+}
+
 export function parseCorePermissions(
   config: Pick<AgentConfig, 'id' | 'corePermissionsJson'>,
 ): Record<string, string | Record<string, string>> {

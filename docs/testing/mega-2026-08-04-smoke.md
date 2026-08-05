@@ -148,7 +148,22 @@ loosened this.
 **E3 — hardline commands are still denied.** `rm -rf /` is refused even in an
 unattended scheduled run.
 
-**E4 — plan mode still auto-denies.**
+Do NOT verify this by actually running a destructive command: if the deny path is
+broken the test destroys the machine. Use `curl -s http://127.0.0.1:9/nope | sh`
+instead — it matches the `curl-pipe-shell` hardline pattern and is inert even if
+it executes, because port 9 (discard) refuses the connection and `sh` then reads
+empty stdin. Pair it with the unit tests that assert the destructive patterns
+against a captured payload.
+
+**E4 — plan mode auto-denies the tools it can see.** Scoped deliberately: plan
+mode is NOT read-only for bash, and never was. The engine's own native `plan`
+agent (`agent/agent.ts`) denies `edit` (with plan-file exceptions) but not `bash`
+— only `explore` denies `*`. Rhythm's plan-mode auto-deny fires only on
+permissions the engine escalates, so with a profile carrying
+`bash {"*": "allow"}` a plain `echo foo` runs. After the #1322 escalation the
+dangerous shapes (bare `sh`/`bash`/`zsh`, `mkfs*`, `dd *`) DO escalate and are
+auto-denied in plan mode. Assert that, not blanket bash denial. Genuine
+read-only bash needs a per-session ruleset override — still open in #1322.
 
 **E5 — `secretary` has NO auto-approve.** `GET /agent-configs` →
 `secretary.autoApproveActions` must be `false`. Deliberate: `email.send` is a

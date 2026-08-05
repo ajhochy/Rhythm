@@ -357,6 +357,46 @@ export class AgentSessionMessagesRepository {
     ).run(JSON.stringify(filtered), sessionId, sdkMessageId);
   }
 
+  /**
+   * The `state.input` of one persisted tool part, located by the
+   * `{messageID, callID}` pair an engine `permission.asked` carries in its
+   * `tool` field.
+   *
+   * #1322: the permission payload itself does NOT contain the tool's arguments,
+   * and for the shell tool its `patterns` hold each parsed command NODE, not the
+   * command line — so `curl URL | sh` arrives as `["curl URL", "sh"]` and the
+   * pipe is lost. The full text lives on the tool part, which this reaches.
+   *
+   * Returns null when the part has not been persisted yet (the permission can
+   * arrive before `message.part.updated`), so callers must keep their
+   * `patterns`-based path as a fallback rather than treat null as "safe".
+   */
+  findToolPartInput(
+    sessionId: string,
+    sdkMessageId: string,
+    callId: string,
+  ): Record<string, unknown> | null {
+    const row = getDb()
+      .prepare(
+        `SELECT parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`,
+      )
+      .get(sessionId, sdkMessageId) as { parts_json: string | null } | undefined;
+    if (!row?.parts_json) return null;
+    let parts: Array<Record<string, unknown>>;
+    try {
+      parts = JSON.parse(row.parts_json) as Array<Record<string, unknown>>;
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(parts)) return null;
+    for (const part of parts) {
+      if (part?.type !== 'tool' || part.callID !== callId) continue;
+      const input = (part.state as Record<string, unknown> | undefined)?.input;
+      if (input && typeof input === 'object') return input as Record<string, unknown>;
+    }
+    return null;
+  }
+
   listBySession(sessionId: string, limit = 200): AgentSessionMessage[] {
     const rows = getDb()
       .prepare(

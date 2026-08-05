@@ -37,7 +37,10 @@ import {
 import { expandProfileMcpAllowlist, expandProfileSkillAllowlist } from './agent_profile_scope';
 // #1138 parse + projectable-value rules live in profile_capability_surface.ts so
 // the readers of this surface (org optimizer) share ONE parse with this writer.
-import { parseCorePermissions } from './profile_capability_surface';
+import {
+  parseCorePermissions,
+  withHardlineBashEscalation,
+} from './profile_capability_surface';
 import { opencodeClient } from './opencode_engine';
 
 /**
@@ -520,7 +523,12 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
     let fm: string;
     let body: string;
 
-    const corePermissions = parseCorePermissions(config);
+    // #1322 — force the hardline-blocklist command shapes to escalate, so
+    // Rhythm's gate actually sees them instead of the engine running them under
+    // a profile's `bash {"*": "allow"}`. Applied here, before the projection
+    // loop, so it flows through the prune/keep bookkeeping unchanged (`bash`
+    // stays a single top-level permission key).
+    const corePermissions = withHardlineBashEscalation(parseCorePermissions(config));
 
     if (existsSync(path)) {
       // Merge: preserve unmanaged frontmatter + keep body when no new prompt.

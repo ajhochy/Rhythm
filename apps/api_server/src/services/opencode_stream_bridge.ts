@@ -1752,6 +1752,8 @@ export class OpencodeStreamBridge {
           patterns?: unknown[];
           /** Permission id ('bash' | 'edit' | 'webfetch' | 'external_directory'). */
           permission?: string;
+          /** Points at the tool part carrying the real, unsplit arguments. */
+          tool?: { messageID?: string; callID?: string };
         };
         const permissionId = perm.permissionID ?? perm.id;
         if (!permissionId || !localSessionId) break;
@@ -1888,10 +1890,22 @@ export class OpencodeStreamBridge {
         // Low-risk / explicitly-allowed commands fall through unchanged to the
         // existing permissionMode logic (no behavior change for safe commands).
         if (toolName.toLowerCase() === 'bash') {
-          // `args` is empty for engine-issued shell permissions — the command
-          // text arrives in `perm.patterns`. Classify EVERY command the event
-          // carries and act on the most restrictive verdict.
-          const commands = extractBashCommands(args, perm.patterns);
+          // `args` is empty for engine-issued shell permissions, and `patterns`
+          // holds each parsed command NODE rather than the command line — so a
+          // pipeline reaches us pre-split and `curl URL | sh` loses its pipe.
+          // The full line is on the tool part the permission points at, so pull
+          // that too and classify every candidate (#1322). A missing part (the
+          // permission can beat message.part.updated) just falls back to
+          // patterns, exactly as before.
+          const toolInput =
+            perm.tool?.messageID && perm.tool?.callID
+              ? this.messagesRepo.findToolPartInput(
+                  localSessionId,
+                  perm.tool.messageID,
+                  perm.tool.callID,
+                )
+              : null;
+          const commands = extractBashCommands(args, perm.patterns, toolInput);
           const classification = commands.length
             ? classifyCommands(commands, resolveApprovalsMode())
             : null;

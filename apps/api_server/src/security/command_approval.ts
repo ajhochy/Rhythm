@@ -56,15 +56,35 @@ export function extractBashCommand(args: Record<string, unknown> | undefined | n
  * One event can carry several commands (`a && b`, pipelines, redirections), so
  * this returns all of them and the caller must classify every one — see
  * {@link classifyCommands}.
+ *
+ * `patterns` alone is NOT sufficient: the engine populates it with each parsed
+ * command NODE, so `curl URL | sh` arrives as `["curl URL", "sh"]` and the pipe
+ * — the whole signature of the `curl-pipe-shell` hardline pattern — is gone.
+ * `toolInput` is the tool part's own `state.input`, which holds the full command
+ * line; pass it when the permission's `tool.{messageID, callID}` resolves to a
+ * persisted part (#1322).
+ *
+ * Every source is UNIONED rather than preferred in order. Classifying the full
+ * line and its segments both is strictly safer: the union can only ever produce
+ * a more restrictive verdict, never a laxer one.
  */
 export function extractBashCommands(
   args: Record<string, unknown> | undefined | null,
   patterns?: readonly unknown[] | null,
+  toolInput?: Record<string, unknown> | undefined | null,
 ): string[] {
-  const fromArgs = extractBashCommand(args);
-  if (fromArgs) return [fromArgs];
-  if (!Array.isArray(patterns)) return [];
-  return patterns.filter((p): p is string => typeof p === 'string' && p.trim() !== '');
+  const out: string[] = [];
+  const push = (value: string | null): void => {
+    if (value && !out.includes(value)) out.push(value);
+  };
+  push(extractBashCommand(args));
+  push(extractBashCommand(toolInput));
+  if (Array.isArray(patterns)) {
+    for (const p of patterns) {
+      if (typeof p === 'string' && p.trim() !== '') push(p);
+    }
+  }
+  return out;
 }
 
 export interface ClassifyResult {

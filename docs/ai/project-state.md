@@ -80,18 +80,50 @@ fix that stops it being blocked.
   still reports `completed_no_op`. Deliberate trade — counting `bash` would mark
   every read-only run a success.
 - `APPROVALS_MODE` is unset (`manual`) and no UI can reach it.
-- **#1322 — the hardline blocklist is still not fully reachable.** Rhythm's command
-  gate only runs on commands the ENGINE escalates. Two gaps remain after the
-  f8ece4f5 fix: (a) the engine splits pipelines into per-command-node `patterns`,
-  so `curl … | sh` arrives as `["curl …","sh"]` and the pipe-to-shell patterns
-  can never match; (b) anything matching a profile's `bash {"*":"allow"}` is run
-  with no permission event at all. `rm -rf /` *is* covered (profiles carry
-  `rm -rf*: ask`). Plan mode inherits gap (b) — smoke item E4 fails because
-  `echo` never escalated.
+- **#1322 — both blocklist-reachability gaps are now fixed; plan mode is not.**
+  Gap (a), pipelines: the engine splits `curl … | sh` into per-command-node
+  `patterns`, losing the pipe. Fixed by resolving the permission's
+  `tool.{messageID, callID}` to the tool part's `state.input` (which holds the
+  full line) via `findToolPartInput`, and unioning that with `patterns` —
+  a missing part falls back to `patterns` rather than failing open.
+  Gap (b), `bash {"*":"allow"}`: fixed as a projection invariant
+  (`withHardlineBashEscalation`) rather than a DB migration, so profiles cannot
+  drift and new ones inherit it. Escalates bare `sh`/`bash`/`zsh`, `mkfs*`,
+  `dd *`. Relies on `permission/evaluate.ts` using `findLast` — pinned by test.
+- **Plan mode is NOT read-only for bash, and never was — still open in #1322.**
+  The engine's own native `plan` agent denies `edit`, not `bash` (only `explore`
+  denies `*`), so Rhythm's plan-mode auto-deny only ever fired on tools the
+  engine escalated. The #1322 escalation gives it partial teeth (bare `sh`,
+  `mkfs*`, `dd *` are now auto-denied in plan mode) but `echo foo` still runs.
+  Genuine read-only bash needs a per-session ruleset override — a design change,
+  deliberately not half-built. Smoke item E4 was reworded to match reality.
+- **#1305 is a live verification trap, reproduced 2026-08-05.** Two engine
+  binaries coexist: `:4096` is served by `apps/opencode_bin/opencode`
+  (`…202608050020`) while the launcher stages and verifies
+  `apps/api_server/opencode_bin/opencode` (`…202608050151`). Same byte size,
+  different sha1. They differ only by build timestamp, so "engine reports
+  `0.0.0-mega/run-2026-08-04-*`" proves the right BRANCH, never the freshly
+  staged build. Check the `txt` path from `lsof`, not the version string.
 - Skill bodies for `daily-email-triage`, `daily-dev-summary`, `monthly-gc-report`,
   `AI Trend Research…` and `monday-worship-planning` were re-authored on
-  2026-08-04 and need the user's review. Backup of all 125:
-  `~/.config/opencode/skills-backup-2026-08-04-2320`.
+  2026-08-04 and still need the user's review.
+- **`~/.config/opencode/skills-backup-2026-08-04-2320` is POISONED for those five
+  — do NOT restore from it.** It was taken at 23:20, i.e. AFTER the destruction,
+  so it holds the truncated stubs, not good content. Measured 2026-08-05: of 238
+  skills in that backup, exactly those five are stubs
+  (`monday-worship-planning` 7 lines vs 185 live; `daily-email-triage` 6 vs 66;
+  `daily-dev-summary` 4 vs 64; `monthly-gc-report` 6 vs 63;
+  `AI Trend Research…` 6 vs 56). The LIVE files are the good restored versions.
+  Restoring that backup would reinstate the damage.
+- **D1 is a differential, not a constant.** "The hash equals 328575ea…" is the
+  wrong assertion — skills are living files the app and agents legitimately edit
+  (`monday-worship-planning` changed at 08:26 on 2026-08-05 during normal session
+  activity, body fully intact at 185 lines). D1's real contract is "unchanged
+  ACROSS a suite run". Verify it by hashing before and after, or by checking that
+  no `SKILL.md` mtime falls inside the run window. Confirmed 2026-08-05: zero
+  skills modified during two full suite runs. Note that BSD `find -newermt`
+  silently accepts and ignores a relative time like `"-3 hours"` — use an
+  absolute timestamp and always run a control that should match.
 - Pre-existing, out of scope: `apps/mobile` checks fail locally on a missing
   `eslint` and a wrong npm script; they pass in CI.
 
