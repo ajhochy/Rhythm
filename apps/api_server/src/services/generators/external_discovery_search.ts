@@ -26,7 +26,7 @@ import type {
   ExternalCandidate,
   ExternalCandidateProvenance,
 } from './external_discovery_generator';
-import { scoreSkillBody, type SkillPurpose } from '../skill_refiner';
+import { scoreSkillBody, KEEP_SCORE_BAR, type SkillPurpose } from '../skill_refiner';
 import { scanContextContent } from '../../security/context_scanner';
 
 const SKILLS_SH_SEARCH = 'https://skills.sh/api/search';
@@ -148,8 +148,16 @@ async function buildSkillProvenance(hit: SkillsShHit): Promise<ExternalCandidate
   };
 }
 
-/** Search skills.sh for one gap; map hits to skill candidates with provenance + downloadUrl. */
-async function searchSkillCandidates(gap: OrgAuditGap): Promise<ExternalCandidate[]> {
+/**
+ * Search skills.sh for one gap; map hits to skill candidates with provenance +
+ * downloadUrl. Exported so the regression suite can drive the whole skills lane
+ * (search -> provenance -> body download -> pre-vet -> relevance floor -> judge)
+ * against a mocked fetch, instead of only unit-testing the judge in isolation.
+ */
+export async function searchSkillCandidates(
+  gap: OrgAuditGap,
+  scorer?: typeof scoreSkillBody,
+): Promise<ExternalCandidate[]> {
   const query = buildQuery(gap);
   if (!query) return [];
   const res = await fetchJson<{ skills?: SkillsShHit[] }>(
@@ -188,15 +196,31 @@ async function searchSkillCandidates(gap: OrgAuditGap): Promise<ExternalCandidat
       continue;
     }
 
-    // Judge: only a candidate STRICTLY better than the would-be draft is shortlisted.
-    if (!(await candidateBeatsDraft(gap, body))) continue;
+    // RELEVANCE FLOOR (stack half) — a candidate anchored to an ecosystem this
+    // repo does not use cannot be relevant to the gap, however well it scores
+    // against a harvested intent that may itself be off-stack.
+    const foreign = foreignStackToken(`${hit.name} ${hit.id} ${hit.source}`, body);
+    if (foreign) {
+      logger.info(
+        `[external-discovery-search] dropped candidate "${hit.name}" for gap ${gap.gapId} — off-stack: anchored to "${foreign}", which this repo does not use`,
+      );
+      continue;
+    }
+
+    // Judge: the candidate must clear the absolute adoption floor AND beat the
+    // would-be draft. A scorer outage drops the candidate (fail-closed).
+    if (!(await candidateBeatsDraft(gap, body, scorer ?? scoreSkillBody))) continue;
 
     out.push({
       kind: 'skill',
       name: hit.name,
       gapId: gap.gapId,
       provenance,
-      rationale: `skills.sh match judged better than the bespoke draft for "${gap.intentTitle ?? gap.gapId}" (${hit.installs} installs)`,
+      // The rationale states the basis the decision ACTUALLY used. It used to
+      // cite "(N installs)", which implied a popularity justification that no
+      // gate ever applied — install count is data for the human reviewer
+      // (carried in provenance.downloads), not a reason this was shortlisted.
+      rationale: `skills.sh match for "${gap.intentTitle ?? gap.gapId}": on-stack, cleared the adoption score floor (>=${KEEP_SCORE_BAR}/100) and scored above the bespoke draft`,
       downloadUrl,
       agentConfigId: gap.agentConfigId,
       sampleSessionId: gap.sampleSessionId,
@@ -212,11 +236,87 @@ function buildQuery(gap: OrgAuditGap): string {
   return parts.join(' ').slice(0, 120);
 }
 
+// ── Relevance floor — the stack half ────────────────────────────────────────
+//
+// buildQuery sends a harvested intent's free text to `skills.sh?limit=10` and
+// the judge then scores each hit AGAINST THAT SAME INTENT. When the intent is
+// itself off-stack, that loop has no way to notice: `angular-testing` was
+// shortlisted for the intent "Update Angular tests after SDK method migration"
+// in a repo with no @angular dependency anywhere, and NVIDIA's
+// `nemo-rl-session-memory` (reinforcement-learning session memory) for
+// "Consolidate Session Memories" — a pure phrase collision. Both score fine
+// against their intent; both are irrelevant to Rhythm.
+//
+// Rhythm is TypeScript/Node (api_server), React/Expo (mobile), Flutter/Dart
+// (desktop), SQLite/Postgres, Obsidian. A third-party skill anchored to a
+// framework, runtime or research domain the repo does not contain cannot be
+// relevant to a Rhythm gap however well it scores, so it is dropped here.
+//
+// ponytail: a hand-written denylist of foreign ecosystems, NOT a relevance
+// model. It is deliberately the complement of "must overlap the repo's own
+// dependencies" — an allowlist would also reject every stack-NEUTRAL skill
+// (conventional-commits, changelog writing, code review), which is most of the
+// lane's legitimate reach. Ceiling: a foreign ecosystem not listed here still
+// has to clear the absolute score floor below, and nothing else. Upgrade path:
+// when a false proposal names a new ecosystem, add its token — the drop log
+// line names the token that fired, so the list is grep-able from run logs.
+const FOREIGN_STACK_TOKENS = new Set([
+  // front-end frameworks Rhythm does not use (it is React/Expo + Flutter)
+  'angular', 'angularjs', 'vue', 'vuejs', 'nuxt', 'svelte', 'sveltekit', 'ember', 'jquery', 'backbone',
+  // other server stacks / languages
+  'django', 'flask', 'fastapi', 'laravel', 'symfony', 'dotnet', 'aspnet', 'blazor', 'csharp',
+  'golang', 'clojure', 'haskell', 'elixir', 'scala', 'perl', 'cobol', 'fortran', 'matlab', 'rust',
+  // infrastructure Rhythm does not run
+  'kubernetes', 'k8s', 'terraform', 'ansible', 'openshift', 'hadoop', 'kafka', 'rabbitmq',
+  'elasticsearch', 'jenkins',
+  // ML / research domains
+  'pytorch', 'tensorflow', 'keras', 'huggingface', 'cuda', 'nvidia', 'nemo', 'kubeflow',
+  'sagemaker', 'mlflow', 'reinforcement',
+  // CMS / enterprise platforms
+  'wordpress', 'drupal', 'magento', 'shopify', 'salesforce', 'sharepoint',
+  // databases Rhythm does not use
+  'mongodb', 'cassandra', 'dynamodb', 'mysql',
+  // other mobile toolchains
+  'ionic', 'cordova', 'xamarin',
+]);
+
+/**
+ * How much of a candidate body is treated as its self-description for the
+ * stack check. A skill states what it is for in its frontmatter/opening lines;
+ * scanning the WHOLE body would drop candidates over an incidental prose
+ * mention ("unlike Django, ...").
+ */
+const STACK_CHECK_BODY_CHARS = 400;
+
+/**
+ * The foreign-ecosystem token a candidate is anchored to, or null when it is
+ * on-stack / stack-neutral. Scans the candidate's IDENTITY (name, id, source
+ * slug) plus the opening of its body. Exported for the regression suite.
+ */
+export function foreignStackToken(identity: string, body?: string | null): string | null {
+  const haystack = `${identity} ${(body ?? '').slice(0, STACK_CHECK_BODY_CHARS)}`.toLowerCase();
+  for (const word of haystack.split(/[^a-z0-9]+/)) {
+    if (FOREIGN_STACK_TOKENS.has(word)) return word;
+  }
+  return null;
+}
+
 /**
  * Render the "would-be bespoke draft" body the harvester WOULD have produced
  * for this intent, so the judge scores the real candidate against the concrete
  * alternative (not an abstraction). Mirrors skill_refiner.renderCandidateBody's
  * shape (title + purpose + problem) so both bodies are scored on equal footing.
+ *
+ * HONEST LIMITATION: this is a ~5-line placeholder, not a representative draft.
+ * It is a title, the intent's problem statement, and a tag list — it contains
+ * no procedure, so almost any real third-party skill outscores it. "Beats the
+ * draft" therefore means "beats a stub", NOT "fits this repo", and that is why
+ * weak candidates used to win. Making it representative would mean actually
+ * running the harvester's generative path per candidate (an LLM call per hit,
+ * on a lane that already makes one judge call per hit) — deliberately not done.
+ * The real quality guard is the ABSOLUTE floor in candidateBeatsDraft
+ * (KEEP_SCORE_BAR); this relative comparison is kept only as a cheap
+ * "is adopting even better than writing our own?" tiebreak on top of it.
  */
 function renderWouldBeDraft(gap: OrgAuditGap): string {
   const parts: string[] = [`# ${gap.intentTitle ?? gap.gapId}`, ''];
@@ -232,9 +332,31 @@ function renderWouldBeDraft(gap: OrgAuditGap): string {
 /**
  * Judge a downloaded candidate body against the would-be bespoke draft, both
  * scored against the intent via the SAME purpose-anchored scorer the measure
- * step uses (scoreSkillBody). Returns true iff the candidate is STRICTLY better
- * than the draft — only winners are shortlisted. Never throws (scoreSkillBody
- * fail-closes a throwing scorer to 0, so a scorer failure ties/loses → dropped).
+ * step uses (scoreSkillBody). Returns true iff the candidate BOTH clears the
+ * absolute adoption floor AND is strictly better than the draft — only winners
+ * are shortlisted. Never throws (scoreSkillBody fail-closes a throwing scorer
+ * to 0, so a scorer failure loses → dropped).
+ *
+ * FAIL-CLOSED (was fail-open). The previous shape was:
+ *
+ *     const wins = unavailable || candScore.score > draftScore.score;
+ *
+ * where `unavailable` was a 0/0 scorer result. A scorer outage therefore
+ * shortlisted EVERY candidate unjudged — a service failure became blanket
+ * approval, on the one lane that runs `npx skills add <arbitrary-github-repo>`
+ * and downloads raw third-party prompt content. Since scheduler-originated runs
+ * are now UNATTENDED (docs/ai/decisions/2026-08-04-unattended-scheduled-run-
+ * autonomy.md, PR #1312) there is no human between that shortlist and the
+ * queue, so "cannot judge" must mean "do not adopt". A dropped candidate is
+ * re-discoverable on the next pass at zero cost; an unjudged one is not
+ * un-adoptable.
+ *
+ * The ABSOLUTE floor is the second half. The comparison bar is a ~5-line
+ * placeholder (renderWouldBeDraft), so "beats the draft" only ever meant
+ * "beats a stub" — a weak candidate cleared it easily. Requiring
+ * KEEP_SCORE_BAR (skill_refiner's own rubric band: "61-80: accurate,
+ * reasonably complete, and actionable") means the candidate must be good in
+ * its own right, not merely better than a placeholder.
  */
 export async function candidateBeatsDraft(
   gap: OrgAuditGap,
@@ -249,13 +371,19 @@ export async function candidateBeatsDraft(
   const draftBody = renderWouldBeDraft(gap);
   const candScore = await scorer(purpose, candidateBody);
   const draftScore = await scorer(purpose, draftBody);
-  // A 0/0 result means the judge could not distinguish even a provenance-clean
-  // full candidate from the skeletal draft. Preserve the high-risk human gate
-  // instead of silently making ecosystem discovery inert.
-  const unavailable = candScore.score === 0 && draftScore.score === 0;
-  const wins = unavailable || candScore.score > draftScore.score;
+  // A 0/0 result means the judge scored nothing — it could not distinguish a
+  // provenance-clean full candidate from the skeletal draft. That is a scorer
+  // outage, not a verdict, so nothing is shortlisted off it.
+  if (candScore.score === 0 && draftScore.score === 0) {
+    logger.warn(
+      `[external-discovery-search] judge gap=${gap.gapId}: SCORER UNAVAILABLE (candidate=0 would-be-draft=0, reason="${candScore.reason}") -> drop-unjudged (fail-closed). No external-adoption proposal is filed for this candidate; it is re-discovered on the next pass.`,
+    );
+    return false;
+  }
+  const clearsFloor = candScore.score >= KEEP_SCORE_BAR;
+  const wins = clearsFloor && candScore.score > draftScore.score;
   logger.info(
-    `[external-discovery-search] judge gap=${gap.gapId}: candidate=${candScore.score} vs would-be-draft=${draftScore.score} -> ${unavailable ? 'shortlist-unscored-for-human-review' : wins ? 'shortlist' : 'drop'}`,
+    `[external-discovery-search] judge gap=${gap.gapId}: candidate=${candScore.score} vs would-be-draft=${draftScore.score} (floor=${KEEP_SCORE_BAR}) -> ${wins ? 'shortlist' : clearsFloor ? 'drop-not-better-than-draft' : 'drop-below-adoption-floor'}`,
   );
   return wins;
 }
@@ -325,8 +453,12 @@ function renderMcpCandidateSummary(hit: McpRegistryHit): string {
  *      nothing further for MCP today (there is no downloadable body to
  *      re-scan at install time, unlike a skill's SKILL.md), so this pre-vet
  *      is the only gate — drop on any high-confidence match.
- *   2. candidateBeatsDraft judge — only a candidate STRICTLY better than the
- *      would-be bespoke draft is shortlisted, exactly like skills.sh hits.
+ *   2. Relevance floor — a candidate anchored to an ecosystem this repo does
+ *      not use is dropped ({@link foreignStackToken}), exactly like skills.sh
+ *      hits.
+ *   3. candidateBeatsDraft judge — the candidate must clear the absolute
+ *      adoption floor AND beat the would-be bespoke draft, exactly like
+ *      skills.sh hits. A scorer outage drops it (fail-closed).
  *
  * `scorer` is an injectable pass-through to candidateBeatsDraft (defaults to
  * the real opencode-backed judge) — exported and parameterized for the same
@@ -359,6 +491,15 @@ export async function searchMcpCandidates(
       continue;
     }
 
+    // Same relevance floor the skills lane applies — neither kind is a softer target.
+    const foreign = foreignStackToken(s.name, summary);
+    if (foreign) {
+      logger.info(
+        `[external-discovery-search] dropped MCP candidate "${s.name}" for gap ${gap.gapId} — off-stack: anchored to "${foreign}", which this repo does not use`,
+      );
+      continue;
+    }
+
     const wins = scorer ? await candidateBeatsDraft(gap, summary, scorer) : await candidateBeatsDraft(gap, summary);
     if (!wins) continue;
 
@@ -375,7 +516,7 @@ export async function searchMcpCandidates(
         license: s.license,
         installCommand: s.installCommand,
       },
-      rationale: `mcp-registry match judged better than the bespoke draft for "${gap.intentTitle ?? gap.gapId}"`,
+      rationale: `mcp-registry match for "${gap.intentTitle ?? gap.gapId}": on-stack, cleared the adoption score floor (>=${KEEP_SCORE_BAR}/100) and scored above the bespoke draft`,
       agentConfigId: gap.agentConfigId,
       sampleSessionId: gap.sampleSessionId,
       categories: gap.intentTags,
