@@ -306,3 +306,21 @@ int compareChatMessages(ChatMessage left, ChatMessage right) {
   }
   return leftSeq == null ? 1 : -1;
 }
+
+/// How much content a set of parts carries: part count plus total text length.
+///
+/// Used to decide whether the REST copy of a message or the locally-streamed copy
+/// is more complete, so a rehydrate adopts the better one instead of blindly
+/// preferring either. Counting BOTH matters — a stream interrupted part-way can
+/// leave the right NUMBER of parts with truncated text inside them, so comparing
+/// only `length` would keep the fragment.
+int partsWeight(List<ChatPart>? parts) {
+  if (parts == null || parts.isEmpty) {
+    return 0;
+  }
+  var weight = parts.length;
+  for (final part in parts) {
+    weight += part.text.length;
+  }
+  return weight;
+}

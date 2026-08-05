@@ -86,4 +86,59 @@ void main() {
       expect(list.map((m) => m.seq), [10, 194]);
     });
   });
+
+  partsWeightTests();
+}
+
+// ---------------------------------------------------------------------------
+// Parts completeness (separate defect from ordering).
+//
+// Reported live 2026-08-05, AFTER the ordering fix shipped: transcripts still
+// missing content when navigating back to an ACTIVE session. Different cause —
+// content, not order. Rehydrate used to skip the REST parts whenever ANY local
+// part existed ("avoid overwriting live streaming state"), which protected
+// in-flight streams and permanently stranded interrupted ones identically: a
+// partial delta left behind by navigating away mid-stream blocked the finished
+// REST text forever.
+// ---------------------------------------------------------------------------
+
+ChatPart part(String id, String text) =>
+    ChatPart(id: id, messageId: 'm1', type: 'text', text: text);
+
+void partsWeightTests() {
+  group('partsWeight / completeness', () {
+    test('an empty or null set weighs nothing', () {
+      expect(partsWeight(null), 0);
+      expect(partsWeight(<ChatPart>[]), 0);
+    });
+
+    test('REST beats a truncated local fragment', () {
+      final localFragment = [part('p1', 'Verification pas')];
+      final restFinished = [
+        part('p1', 'Verification passed at 439cc06 and the branch was pushed.'),
+      ];
+      expect(
+          partsWeight(restFinished), greaterThan(partsWeight(localFragment)));
+    });
+
+    test('a live stream ahead of the DB is NOT clobbered', () {
+      // Same part count, but local has more text than the DB has persisted.
+      final liveAhead = [part('p1', 'a much longer in-flight streamed body')];
+      final restBehind = [part('p1', 'a much long')];
+      expect(partsWeight(restBehind), lessThan(partsWeight(liveAhead)));
+    });
+
+    test('counts part COUNT too, so equal text but more parts wins', () {
+      final one = [part('p1', 'abc')];
+      final two = [part('p1', 'ab'), part('p2', 'c')];
+      expect(partsWeight(two), greaterThan(partsWeight(one)));
+    });
+
+    test('ties adopt REST, so a finished message converges on the server copy',
+        () {
+      final a = [part('p1', 'same')];
+      final b = [part('p1', 'same')];
+      expect(partsWeight(a) >= partsWeight(b), isTrue);
+    });
+  });
 }
