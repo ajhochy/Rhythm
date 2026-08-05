@@ -41,6 +41,32 @@ export function extractBashCommand(args: Record<string, unknown> | undefined | n
   return typeof candidate === 'string' && candidate.trim() !== '' ? candidate : null;
 }
 
+/**
+ * Every shell command carried by a `bash` permission event.
+ *
+ * The engine's `permission.asked` payload (`Permission.Request` in
+ * apps/opencode_fork/packages/opencode/src/permission/index.ts) has NO `args`
+ * and NO `command` field: for the shell tool it passes `metadata: {}` and puts
+ * the raw text of each parsed command node in `patterns` (`source(node)` in
+ * .../tool/shell.ts). Reading only `args.command` therefore matched nothing for
+ * every real engine permission, which silently disabled this entire gate —
+ * hardline blocklist included — in the running app, while unit tests that
+ * hand-build `args: { command }` stayed green.
+ *
+ * One event can carry several commands (`a && b`, pipelines, redirections), so
+ * this returns all of them and the caller must classify every one — see
+ * {@link classifyCommands}.
+ */
+export function extractBashCommands(
+  args: Record<string, unknown> | undefined | null,
+  patterns?: readonly unknown[] | null,
+): string[] {
+  const fromArgs = extractBashCommand(args);
+  if (fromArgs) return [fromArgs];
+  if (!Array.isArray(patterns)) return [];
+  return patterns.filter((p): p is string => typeof p === 'string' && p.trim() !== '');
+}
+
 export interface ClassifyResult {
   decision: ApprovalDecision;
   /** Machine-readable reason code, always present so a UI/log can explain the outcome. */
@@ -102,6 +128,27 @@ export function classifyCommand(
 
   // mode === 'manual' (default): always ask.
   return { decision: 'ask', reason: 'manual-mode', detail: 'approvals.mode=manual — awaiting user approval.' };
+}
+
+/**
+ * Classify every command and return the most restrictive result
+ * (`deny` > `ask` > `allow`), or null when there is nothing to classify. A
+ * compound command must not become auto-approvable just because one of its
+ * segments is harmless.
+ */
+export function classifyCommands(
+  commands: readonly string[],
+  mode: ApprovalsMode,
+  approvalStore: ApprovalStore = new ApprovalStore(),
+): ClassifyResult | null {
+  const rank: Record<ApprovalDecision, number> = { allow: 0, ask: 1, deny: 2 };
+  let strongest: ClassifyResult | null = null;
+  for (const command of commands) {
+    const result = classifyCommand(command, mode, approvalStore);
+    if (!strongest || rank[result.decision] > rank[strongest.decision]) strongest = result;
+    if (strongest.decision === 'deny') break;
+  }
+  return strongest;
 }
 
 export type ApprovalResponse = 'once' | 'session' | 'always' | 'deny';

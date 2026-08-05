@@ -11,7 +11,7 @@ import { queueSkillExtraction } from './skill_extractor';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
-import { classifyCommand, extractBashCommand } from '../security/command_approval';
+import { classifyCommands, extractBashCommands } from '../security/command_approval';
 import { resolveApprovalsMode } from '../config/env';
 import {
   advanceFallbackCascade,
@@ -1746,12 +1746,26 @@ export class OpencodeStreamBridge {
           summary?: string;
           metadata?: Record<string, unknown>;
           args?: Record<string, unknown>;
+          // The engine's real payload for a shell permission. It sends NO
+          // `args`/`command` — the command text lives here, one entry per
+          // parsed command node. See extractBashCommands.
+          patterns?: unknown[];
+          /** Permission id ('bash' | 'edit' | 'webfetch' | 'external_directory'). */
+          permission?: string;
         };
         const permissionId = perm.permissionID ?? perm.id;
         if (!permissionId || !localSessionId) break;
 
         const sdkSessionId = opencodeSessionId ?? '';
-        const toolName = perm.toolName ?? perm.type ?? '';
+        // The engine's Permission.Request carries the permission id in
+        // `permission` — NOT `toolName` and NOT `type` (neither field exists on
+        // it; `type` here only ever matched the outer envelope in tests). A real
+        // ask looks like:
+        //   {"permission":"bash","patterns":["git push --force …"],"metadata":{}}
+        // so this resolved to '' for every engine permission, which silently
+        // disabled BOTH the #736 allowlist backstop below and the #878 command
+        // gate — a hardline `curl … | sh` reached the shell with no card.
+        const toolName = perm.toolName ?? perm.type ?? perm.permission ?? '';
         const args = perm.args ?? perm.metadata ?? {};
         const summary = perm.summary ?? perm.title ?? toolName;
 
@@ -1761,7 +1775,13 @@ export class OpencodeStreamBridge {
         // analog. If the tool is outside a role-scoped session's allowlist,
         // auto-DENY it (reject) and surface a denied result instead of forwarding
         // the permission card or auto-accepting. Non-role sessions pass through.
-        if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
+        //
+        // `external_directory` is a permission SCOPE, not a tool — now that
+        // toolName resolves from `perm.permission` it can hold that value, and
+        // matching it against a tool allowlist would deny it for every
+        // role-scoped session.
+        const isToolScopedPermission = toolName !== 'external_directory';
+        if (toolName && isToolScopedPermission && !this.isToolAllowedForSession(localSessionId, toolName)) {
           const dir = (() => {
             try {
               return this.sessionsRepo.findById(localSessionId)?.cwd;
@@ -1868,9 +1888,14 @@ export class OpencodeStreamBridge {
         // Low-risk / explicitly-allowed commands fall through unchanged to the
         // existing permissionMode logic (no behavior change for safe commands).
         if (toolName.toLowerCase() === 'bash') {
-          const command = extractBashCommand(args);
-          if (command) {
-            const classification = classifyCommand(command, resolveApprovalsMode());
+          // `args` is empty for engine-issued shell permissions — the command
+          // text arrives in `perm.patterns`. Classify EVERY command the event
+          // carries and act on the most restrictive verdict.
+          const commands = extractBashCommands(args, perm.patterns);
+          const classification = commands.length
+            ? classifyCommands(commands, resolveApprovalsMode())
+            : null;
+          if (classification) {
             if (classification.decision === 'deny') {
               const dir = (() => {
                 try {

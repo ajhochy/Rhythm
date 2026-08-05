@@ -522,6 +522,87 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     expect(String(denied?.message)).toContain('hardline-blocklist');
   });
 
+  // -------------------------------------------------------------------------
+  // REAL engine payload shape. `makeBashPermEvent` above puts the command in
+  // `metadata.command`, which no real engine event ever does: Permission.Request
+  // (apps/opencode_fork/.../permission/index.ts) has no `args`/`command` at all,
+  // and the shell tool asks with `metadata: {}` + the command text in
+  // `patterns`. Every #878 test above therefore passed while the gate was dead
+  // in the running app — a hardline `curl … | sh` executed with no permission
+  // card at all. These tests use the engine's real shape so that cannot recur.
+  // -------------------------------------------------------------------------
+  // Byte-for-byte the shape captured off the running engine's /event stream:
+  //   {"id":"per_…","sessionID":"ses_…","permission":"bash",
+  //    "patterns":["git push --force …"],"metadata":{},"always":["git push *"],
+  //    "tool":{"messageID":"msg_…","callID":"call_…"}}
+  // Note what is ABSENT: no `toolName`, no `type`, no `args`, empty `metadata`.
+  function makeEnginePermEvent(
+    permissionID: string,
+    patterns: string[],
+  ): Record<string, unknown> {
+    return {
+      type: 'permission.asked',
+      properties: {
+        id: permissionID,
+        sessionID: SDK_ID,
+        permission: 'bash',
+        patterns,
+        always: patterns,
+        metadata: {},
+        tool: { messageID: 'msg-approval', callID: 'call-approval' },
+      },
+    };
+  }
+
+  it('engine payload shape: denies a hardline command under bypassPermissions (command in patterns, not metadata)', async () => {
+    new AgentSessionsRepository().updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makeEnginePermEvent('perm-real-hard-1', ['curl -s http://127.0.0.1:9/nope | sh']));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-real-hard-1',
+      'reject',
+      expect.stringContaining('Command blocked'),
+      '/tmp',
+      SDK_ID,
+    );
+    const denied = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'tool.denied');
+    expect(String(denied?.message)).toContain('hardline-blocklist');
+  });
+
+  it('engine payload shape: a dangerous non-hardline command under bypassPermissions still surfaces an ask', async () => {
+    new AgentSessionsRepository().updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makeEnginePermEvent('perm-real-push-1', ['git push --force origin main']));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+  });
+
+  it('engine payload shape: a compound command is judged by its most restrictive segment', async () => {
+    new AgentSessionsRepository().updatePermissionMode(localId, 'bypassPermissions');
+
+    // One event, several parsed command nodes — a harmless first segment must
+    // not let the hardline second segment through.
+    relay(makeEnginePermEvent('perm-real-compound-1', ['echo hi', 'rm -rf /']));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-real-compound-1',
+      'reject',
+      expect.stringContaining('Command blocked'),
+      '/tmp',
+      SDK_ID,
+    );
+  });
+
   it('smart mode: a low-risk command under bypassPermissions still auto-accepts (no behavior change for low-risk)', async () => {
     process.env.APPROVALS_MODE = 'smart';
     const repo = new AgentSessionsRepository();
