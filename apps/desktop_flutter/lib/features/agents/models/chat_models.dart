@@ -54,12 +54,30 @@ class ChatMessage {
     this.cost,
     this.tokens,
     this.isReverted = false,
+    this.seq,
   });
 
   final String id;
   final String sessionId;
   final String role; // 'user' | 'assistant' | 'system'
   final DateTime createdAt;
+
+  /// Monotonic ordering key: the api_server row's autoincrement id.
+  ///
+  /// `createdAt` alone cannot order a transcript — it has one-second granularity
+  /// and an input/output pair routinely shares the exact same second (observed
+  /// live: three consecutive exchanges each stamped identically). The old
+  /// tiebreaker string-compared `id`, which is a HETEROGENEOUS mix of engine ids
+  /// (`msg_fd38…`, whose embedded timestamp is DESCENDING, so lexical order runs
+  /// backwards), async-wake ids (`msg_rhythm_async_…`) and numeric db-id
+  /// fallbacks. Same-second pairs therefore inverted and the newest turns could
+  /// sort away from the tail, which read as "the transcript reverted and my latest
+  /// messages are gone".
+  ///
+  /// Null for a message that only exists live (optimistic send, or WS-streamed
+  /// before its REST row is known) — those are by definition the newest, so they
+  /// sort last. It is filled in from the REST row on rehydrate.
+  int? seq;
 
   /// OPC-M2-4: message cost in USD (null for user / legacy rows).
   double? cost;
@@ -256,4 +274,35 @@ class ChatPart {
       if (n != null) agentName = n;
     }
   }
+}
+
+/// Transcript ordering.
+///
+/// `createdAt` alone is not sufficient: it has one-second granularity and an
+/// input/output pair routinely shares the same second (observed live — three
+/// consecutive exchanges each stamped identically). The tiebreaker used to
+/// string-compare [ChatMessage.id], a heterogeneous mix of engine ids
+/// (`msg_fd38…`, whose embedded timestamp is DESCENDING so lexical order runs
+/// backwards), async-wake ids and numeric db-id fallbacks. Same-second pairs
+/// inverted, the newest turns sorted away from the tail, and the transcript read
+/// as though it had reverted and lost the latest messages.
+///
+/// Ordering is therefore: time, then [ChatMessage.seq] — the api_server row's
+/// autoincrement id, a true insertion sequence. A null `seq` means the message
+/// exists only live (optimistic send, or mid-stream before its REST row is
+/// known); those are by definition the newest, so they sort last.
+int compareChatMessages(ChatMessage left, ChatMessage right) {
+  final byTime = left.createdAt.compareTo(right.createdAt);
+  if (byTime != 0) {
+    return byTime;
+  }
+  final leftSeq = left.seq;
+  final rightSeq = right.seq;
+  if (leftSeq != null && rightSeq != null) {
+    return leftSeq.compareTo(rightSeq);
+  }
+  if (leftSeq == null && rightSeq == null) {
+    return 0;
+  }
+  return leftSeq == null ? 1 : -1;
 }

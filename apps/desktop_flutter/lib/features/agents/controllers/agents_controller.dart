@@ -2998,6 +2998,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           sessionId: sessionId,
           role: row.role,
           createdAt: row.createdAt,
+          seq: row.id,
           // OPC-M2-4: propagate cost/tokens from REST rows.
           cost: row.cost,
           tokens: row.tokens,
@@ -3011,6 +3012,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
             .indexWhere((m) => m.id == msgId);
         if (existingIdx >= 0) {
           final existing = _chatMessagesBySession[sessionId]![existingIdx];
+          // Backfill the ordering key for a message first seen over WS. Without
+          // this it keeps seq == null forever and always sorts to the tail, which
+          // scrambles the transcript as soon as an older page is loaded.
+          existing.seq ??= row.id;
           if (existing.cost == null && row.cost != null) {
             existing.cost = row.cost;
           }
@@ -3041,10 +3046,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     }
-    (_chatMessagesBySession[sessionId] ??= []).sort((left, right) {
-      final byTime = left.createdAt.compareTo(right.createdAt);
-      return byTime != 0 ? byTime : left.id.compareTo(right.id);
-    });
+    (_chatMessagesBySession[sessionId] ??= []).sort(compareChatMessages);
   }
 
   // --------------------------------------------------------------------------
