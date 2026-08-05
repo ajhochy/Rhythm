@@ -2,131 +2,100 @@
 
 ## Current focus
 
-Scheduled-agent autonomy. On 2026-08-04 all 8 of that day's scheduled runs ended
-`completed_no_op` or `blocked_on_approval` — none did its job unattended. Eight
-defects were diagnosed live against the running agent server on `:4001` and
-fixed; the fixes are verified by re-running every enabled task through
-`POST /agent-schedules/:id/trigger-now`.
+**Mega integration `mega/run-2026-08-04`** — one branch consolidating eight PRs so
+there is a single merge to `main` after smoke testing. Two themes:
+
+1. **Scheduled-agent autonomy.** On 2026-08-04 all 8 of that day's scheduled runs
+   ended `completed_no_op` or `blocked_on_approval` — none did its job unattended.
+   Eight defects were diagnosed live against the running agent server on `:4001`
+   and fixed; 16 of 17 enabled tasks then completed unattended, the 17th after a
+   skill repair.
+2. **Skill data loss.** Two independent mechanisms were destroying hand-written
+   skills. Both addressed here.
 
 ## Active branch / PR
 
-- Branch: `workflow/run-2026-08-04-agent-autonomy` (off `main`)
-- PR: not yet opened
-- Commits: `0158c878`, `a9140958`, `8181049f`, `0d640b15`
-- Deliberately NOT stacked on `workflow/run-2026-08-03-image-generation`
-  (draft PR #1304) — unrelated concern. The engine binary is gitignored, so the
-  unmerged image_generation build survived every relaunch; verified `:4096` still
-  runs the Aug 3 build from `apps/opencode_bin/opencode`.
-- Merge remains a manual human action.
+- Branch: `mega/run-2026-08-04` (off `main`)
+- Consolidates **#1312, #1313, #1314, #1315, #1316, #1317, #1318, #1304** — those
+  are superseded and closed in favour of one merge.
+- Merge remains a manual human action after smoke testing.
 
-## In progress
+## What is in the mega branch
 
-Final live verification of the 17 enabled scheduled tasks. Latest tally:
-**8 success · 6 legitimate no-op · 3 outstanding** (see Risks).
+**Scheduled-agent autonomy (#1312)**
+- Taint → approval deadlock: `auto_approve_actions` was structurally unreachable,
+  because any taint forced a security-bound approval and those hard-coded
+  `autoApprove:false` (#1134). Fixed by widening
+  `SOURCES_EXEMPT_FROM_APPROVAL_GATE` from 1 → 17 genuinely first-party sources,
+  plus scheduler-originated auto-approve gated on `auto_approve_actions` AND
+  `is_system` AND `scheduled_task_id`. One shared predicate,
+  `isUnattendedAutoApproveSession`, serves both the enforcement and request paths.
+- All-or-nothing injection scanner: 2 of 50 memory rows withheld all 50. Flagged
+  first-party LIST payloads are now filtered per item.
+- `MUTATION_TOOL_PATTERN` was `^`-anchored and matched 0 of the 40 real tool
+  names, so no run could ever report `success`. Now segment-boundary matched, and
+  both run signals traverse the delegation tree.
+- Headless `ask` hang: permission-mode resolution hoisted above the #878 bash
+  gate. Bare `bypassPermissions` is deliberately NOT treated as unattended.
+- A clean session got 409 on `request_approval` — found only by live smoke; it had
+  turned the deadlock into a different dead end.
+- Curated-MCP sidecar dedupe (`requiredEnv` is UNIONED, never weakened) and a boot
+  reaper for orphaned `agent_scheduled_tasks` rows.
+- `api_client` rendered every structured API error as `[object Object]`.
 
-## What changed
+**Engine timeouts (#1313 → #1315, #1314)**
+- `glob` gained its own timeout; the guard then moved into the `Ripgrep` service so
+  all six callers (`files`/`search`/`tree`) are bounded, not just `glob`.
+- The provider-stream inactivity watchdog now waits out provider-executed tools,
+  which is what killed `image_generation` on any render slower than 180s. The
+  interim 600s global raise in `opencode_client_service.ts` was **removed** — the
+  engine fix is better on both axes.
 
-1. **Taint → approval deadlock.** `auto_approve_actions` was structurally
-   unreachable: any taint forced a security-bound approval, and those hard-coded
-   `autoApprove:false` (#1134). Fixed by (a) widening
-   `SOURCES_EXEMPT_FROM_APPROVAL_GATE` from 1 → 17 genuinely first-party sources,
-   and (b) letting an opted-in profile satisfy the gate on an unattended
-   scheduled run (`auto_approve_actions` AND `is_system` AND
-   `scheduled_task_id`). One shared predicate,
-   `isUnattendedAutoApproveSession`, is used by BOTH the enforcement and the
-   request path — they disagreed at first, which is why Org External Discovery
-   still blocked twice with the flag set.
-2. **All-or-nothing scanner.** 2 of 50 memory rows tripping the `secrets-dotenv`
-   pattern withheld all 50. Flagged first-party LIST payloads are now filtered
-   per item. (Phrased without the literal token on purpose — this file is itself
-   scanned by the `docs/ai/` self-check in `context_scanner.test.ts`, which this
-   line originally broke.)
-3. **`completed_no_op` on every run.** `MUTATION_TOOL_PATTERN` was `^`-anchored
-   and matched 0 of the 40 real tool names; now segment-boundary matched, and
-   both signals traverse the delegation tree.
-4. **Headless `ask` hang.** Resolution hoisted above the #878 bash gate.
-5. **Bash allowlists** contradicting skill allowlists on 7 profiles (librarian
-   allowed the `defuddle` skill, denied the binary).
-6. **Curated-MCP sidecar duplication** made `ensureCuratedMcps` non-idempotent,
-   rewriting `opencode.json` on every boot.
-7. **No stale-`running` reaper** for `agent_scheduled_tasks`.
-8. **A clean session got 409 on `request_approval`** — found only by live smoke;
-   turned a deadlock into a different dead end.
+**Org optimizer (#1316, #1317)**
+- Scope was parsed with an array-only helper, so 16 of 47 profiles using the
+  tools-map shape read as having no tools — the source of two false high-risk
+  proposals, one of which would have wiped nine tool grants if approved. Also
+  fixed a dispatch-guard misread that denied granted tools at runtime.
+- External adoption now fails **closed** when the judge is unavailable (it
+  previously shortlisted every candidate unjudged) and has a relevance floor.
 
-## `Provider stream inactive for 180000ms` — diagnosed 2026-08-04
+**Skill data loss (#1318, plus a follow-up in flight)**
+- The test suite isolated the database but not the filesystem, so runs overwrote
+  real `SKILL.md` files. `managedSkillsRoot()` now THROWS under vitest if it
+  resolves to the real `~/.config/opencode/skills`.
+- Separately, the harvest evaluator treated an unparseable score as 0 and disabled
+  four skills in eight minutes on 2026-07-11. Fix in flight on
+  `fix/harvest-eval-unknown-score-not-zero` — NOT in this branch yet.
 
-Reported whenever GPT used `image_generation` on a slow render. Same failure
-shape as the glob hang: a long-running operation with no intermediate output
-tripping an inactivity timer.
-
-1. `apps/opencode_fork/.../src/session/llm.ts` sets
-   `PROVIDER_STREAM_INACTIVITY_DEFAULT_MS = 180_000`, and its `armTimer` re-arms
-   **only** when a stream part arrives (per `reader.read()` in `wrapStream`).
-2. `image_generation` is a PROVIDER tool — OpenAI executes it server-side inside
-   the Responses call, so nothing streams while it renders.
-3. It is created as `openai.tools.imageGeneration()` with partial images
-   deliberately disabled; the source comment says partial images "would emit an
-   extra tool-result per frame for the same call id".
-4. Result: the whole render is total stream silence, and any render slower than
-   3 minutes is aborted. 12-panel contact sheets fail reliably, then fail again
-   on resume because the model re-plans the same expensive image.
-5. `RHYTHM_PROVIDER_STREAM_INACTIVITY_MS` existed as an override but Rhythm
-   never set it — only tests did.
-
-**Mitigation shipped:** `opencode_client_service.ts` raises the value to 600000
-for the engine child, in the same pre-spawn block that already exports the
-websearch vars. Raise-only; an operator value wins. Verified live — the engine
-child's environment now carries `RHYTHM_PROVIDER_STREAM_INACTIVITY_MS=600000`.
-
-**Not a cure.** It is a blunt global raise: a genuinely hung stream now takes 10
-minutes to detect instead of 3, and a render slower than 10 minutes still dies.
-The real fix is a watchdog that pauses while a provider-executed tool call is
-outstanding — a fork change, so it is gated on #1304 merging.
+**image_generation (#1304)** — the native OpenAI provider tool, plus the role-gate
+fix that stops it being blocked.
 
 ## Risks / known issues
 
-- **`pco-song-usage-sync` fails for a NON-permissions reason.** The agent runs
-  `glob {pattern:"**/_pco_sync.py", path:"/Users/ajhochhalter"}` — an unbounded
-  glob over the whole home directory. It never returns, consumes the entire 600s
-  inactivity window and kills the run. This is the long-standing "glob never
-  returns" mystery, now explained. The script is at `Obsidian Vault/Resources/
-  worship/Reference/Song Library/_pco_sync.py`; the skill names it only in its
-  description, so the agent has to hunt for it. Two fixes, neither taken yet:
-  give the skill the absolute path (needs a write to the shared org-skills
-  source — a content change, so it needs a human decision), or give `glob` its
-  own timeout in the fork (correct structural fix, but needs a fork rebuild that
-  would clobber the unmerged image_generation engine — do it after #1304 lands).
-- **`Org Self-Optimizer` skips inside a 90s engine cold-start window.** Not a
-  defect; just needs >90s between relaunch and trigger.
-- **Classifier cannot see through `bash`.** A task mutating only via `bash`
-  still reports `completed_no_op` (`ai-trend-research-daily` wrote 9 findings, a
-  dashboard and 6 archives that way). Deliberate trade — counting `bash` as a
-  mutation would mark every read-only run a success. Real fix needs the command
-  or a write-count in telemetry.
-- **`auto_approve_actions` is now on for `librarian`, Org Optimizer and Org
-  External Discovery.** For those profiles, on scheduled runs only,
-  externally-influenced text can reach a protected mutation with no human. Every
-  bypass writes an audit row with the taint source. NOT enabled for `secretary`
-  (email) — that needs an explicit human decision because `email.send` is a
-  protected action.
-- Some `rhythm_remember_memory` writes return 400 from the production API; the
-  reason was previously hidden by `[object Object]` error rendering (now fixed),
-  so the next run should surface it.
-- Pre-existing and out of scope: `apps/mobile` checks fail on a missing `eslint`
-  and a wrong npm script.
+- **The engine binary MUST be rebuilt from this branch before smoke testing.** It
+  carries fork changes (`glob`, `ripgrep`, the `llm` watchdog, `image_generation`).
+- `secretary` deliberately has NO `auto_approve_actions`: `email.send` is a
+  protected action and unattended sending needs an explicit human decision.
+- The classifier cannot see through `bash`, so a task mutating only via `bash`
+  still reports `completed_no_op`. Deliberate trade — counting `bash` would mark
+  every read-only run a success.
+- `APPROVALS_MODE` is unset (`manual`) and no UI can reach it.
+- Skill bodies for `daily-email-triage`, `daily-dev-summary`, `monthly-gc-report`,
+  `AI Trend Research…` and `monday-worship-planning` were re-authored on
+  2026-08-04 and need the user's review. Backup of all 125:
+  `~/.config/opencode/skills-backup-2026-08-04-2320`.
+- Pre-existing, out of scope: `apps/mobile` checks fail locally on a missing
+  `eslint` and a wrong npm script; they pass in CI.
 
 ## Test status
 
-- api_server: 467 files pass / 2 fail before the sidecar fix; both failures were
-  that sidecar duplication and now pass (26/26 curated-MCP tests).
+- api_server: `main` baseline 467 files pass / 0 fail / 85 skipped; every merged
+  PR measured at or above that with its own additions.
 - mcp_server: 153/153. Typecheck, lint, build clean in both.
-- opencode fork: typecheck clean; session suite 383 pass / 0 fail.
-- New coverage: classifier (31), unattended auto-approve (10), first-party
-  exemption (34), per-item salvage (9), stale-running reaper (11),
-  approval-not-required (4), plus 4 added bridge cases.
+- opencode fork: typecheck clean; session suite 383 pass / 0 fail; tool suite 288.
+- #1312–#1318 were each green in CI on their own branch before integration.
 
 ## Next step
 
-Finish verifying the last outstanding tasks, then decide the
-`pco-song-usage-sync` fix (skill path vs. fork glob timeout) and whether
-`secretary` gets `auto_approve_actions`. Then open the PR.
+Rebuild the engine from `mega/run-2026-08-04`, relaunch, and drive the full smoke
+list. Merge is a manual human action once smoke passes.
