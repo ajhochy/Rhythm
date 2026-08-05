@@ -579,6 +579,20 @@ describe("#1175 external-content role graph", () => {
         block,
         `${tool} must report its declared provenance source`,
       ).toMatch(new RegExp(`["']${externalReads.get(tool)}["']`));
+      // #1094: registerTool() is what runs the handler inside
+      // runWithTrustedSecurityCall, which is what puts the engine's signed
+      // proof in async-local scope. A tool registered with the raw
+      // `server.tool()` still passes the identity shape check — so it looks
+      // wired — but its taint POST goes out with `trustedCall: null` and the
+      // agent server refuses it 403. `rhythm_get_dashboard` was registered
+      // that way, and this assertion is what would have caught it. It applies
+      // to every declared external read, not just the one that got exercised.
+      expect(
+        block,
+        `${tool} must register via registerTool(): the raw server.tool() path ` +
+          `leaves the engine proof out of async-local scope, so its taint POST ` +
+          `is unsigned and the agent server refuses it 403`,
+      ).toMatch(/^registerTool\(/);
     }
 
     const boundary = readFileSync(

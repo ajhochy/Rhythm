@@ -144,6 +144,30 @@ const SOURCES_EXEMPT_FROM_APPROVAL_GATE = new Set<ExternalContentSource>([
   "agent-profile.permissions.get",
 ]);
 
+/**
+ * The agent server answers failures with `{ error: { code, message } }`. Both
+ * halves of this boundary used to drop that message on the floor — the taint
+ * half never read the body at all, and the consume half tested
+ * `typeof body.error === 'string'`, which is never true for an object, so it
+ * always fell through to the bare status code. The result was the #1094
+ * transcript line "agent server refused external-content taint (403)": a
+ * status with no cause, from a server that had already computed the cause.
+ *
+ * Reasons from that endpoint are fixed, content-free sentences — never
+ * external content, arguments, or key material — so they are safe to surface.
+ */
+function refusalDetail(body: unknown): string {
+  if (!body || typeof body !== "object") return "";
+  const error = (body as { error?: unknown }).error;
+  const message =
+    typeof error === "string"
+      ? error
+      : error && typeof error === "object"
+        ? (error as { message?: unknown }).message
+        : undefined;
+  return typeof message === "string" && message !== "" ? message : "";
+}
+
 function sanitizedDiagnostics(matches: InjectionMatch[]) {
   return matches.map(({ patternId, class: patternClass, description }) => ({
     patternId,
@@ -178,8 +202,10 @@ export async function recordExternalContentTaint(args: {
     },
   );
   if (!res.ok) {
+    const detail = refusalDetail(await res.json().catch(() => null));
     throw new Error(
-      `agent server refused external-content taint (${res.status})`,
+      `agent server refused external-content taint for ${args.source} ` +
+        `(${res.status})${detail ? `: ${detail}` : ""}`,
     );
   }
 }
@@ -342,12 +368,12 @@ export async function authorizeOutboundAction(args: {
       unknown
     >;
     if (res.ok && body.allowed === true) return { allowed: true };
+    const detail = refusalDetail(body);
     return {
       allowed: false,
-      refusalMessage:
-        typeof body.error === "string"
-          ? `Blocked: ${body.error}`
-          : `Blocked: outbound approval authorization failed (${res.status}).`,
+      refusalMessage: detail
+        ? `Blocked: ${detail}`
+        : `Blocked: outbound approval authorization failed (${res.status}).`,
     };
   } catch (err) {
     return {

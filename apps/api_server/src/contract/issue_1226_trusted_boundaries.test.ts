@@ -335,4 +335,59 @@ describe('issue #1226 signed taint and consume boundaries', () => {
     ).toBe(403);
     expect(counts()).toEqual(afterValid);
   });
+
+  /**
+   * #1094. Failing closed is correct; failing closed *silently* is not. The
+   * refusal used to be the fixed string 'trusted Rhythm MCP caller is
+   * required', so an operator staring at a scheduled run that died on a 403
+   * could not tell a missing envelope from a replayed nonce, a stale proof, or
+   * a tool-name mismatch — and those have four different fixes. Each reason is
+   * a fixed, content-free sentence, so naming it leaks nothing.
+   */
+  it('names the reason a trusted call was refused instead of returning a bare 403', async () => {
+    const reasonFor = async (trustedCall: unknown): Promise<string> => {
+      const res = await post(
+        '/agent-approvals/external-content/taint',
+        taintBody(trustedCall),
+      );
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error?: { message?: string } };
+      return body.error?.message ?? '';
+    };
+
+    // This is the exact shape rhythm_get_dashboard was sending: the MCP tool
+    // bypassed registerTool(), so no engine proof was in scope.
+    expect(await reasonFor(null)).toContain('trusted MCP call is missing');
+
+    expect(
+      await reasonFor(
+        signer.signCall(readContext, 'rhythm_get_dashboard', { status: 'all' }),
+      ),
+    ).toContain('payload mismatch');
+
+    expect(
+      await reasonFor(
+        signer.signCall(
+          readContext,
+          'rhythm_list_tasks',
+          { status: 'all' },
+          Date.now() - 61_000,
+        ),
+      ),
+    ).toContain('expired');
+
+    const replayed = signer.signCall(readContext, 'rhythm_list_tasks', {
+      status: 'all',
+    });
+    expect(
+      (
+        await post('/agent-approvals/external-content/taint', taintBody(replayed))
+      ).status,
+    ).toBe(201);
+    expect(await reasonFor(replayed)).toContain('already consumed');
+
+    // The expected tool name is named too, so the operator can see which
+    // binding the server was checking against.
+    expect(await reasonFor(null)).toContain('rhythm_list_tasks');
+  });
 });
