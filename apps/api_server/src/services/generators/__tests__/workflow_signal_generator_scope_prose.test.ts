@@ -21,7 +21,17 @@ function snapshot(agentConfigId: string): OrgAuditSnapshot {
 
 async function patchFromProse(concreteFix: string) {
   const configs = new AgentConfigsRepository();
-  const config = configs.insert({ id: 'scope-prose-agent', label: 'Scope prose agent', icon: 'verified' });
+  // Scoped on purpose: for an UNRESTRICTED profile (allowedMcpsJson=null) an
+  // "add <server>" patch is not a gap — the profile already reaches every server,
+  // and applying it would narrow it to that one server. The generator now drops
+  // such a patch, so a fixture asserting MCP-vs-core-permission ROUTING has to
+  // start from a profile that genuinely lacks the server.
+  const config = configs.insert({
+    id: 'scope-prose-agent',
+    label: 'Scope prose agent',
+    icon: 'verified',
+    allowedMcpsJson: JSON.stringify(['rhythm']),
+  });
   const { generateDiagnosisProposals } = await import('../workflow_signal_generator');
   const result = await generateDiagnosisProposals(snapshot(config.id), {
     configsRepo: configs,

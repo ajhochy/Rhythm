@@ -35,6 +35,9 @@ import {
   type AgentConfig,
 } from '../repositories/agent_configs_repository';
 import { expandProfileMcpAllowlist, expandProfileSkillAllowlist } from './agent_profile_scope';
+// #1138 parse + projectable-value rules live in profile_capability_surface.ts so
+// the readers of this surface (org optimizer) share ONE parse with this writer.
+import { parseCorePermissions } from './profile_capability_surface';
 import { opencodeClient } from './opencode_engine';
 
 /**
@@ -449,61 +452,6 @@ function pruneStalePermissionKeys(fm: string, keep: Set<string>): string {
   const replacement = hasRealEntry ? ['permission:', ...kept] : [];
   lines.splice(permissionIndex, blockEnd - permissionIndex, ...replacement);
   return lines.join('\n');
-}
-
-/** The three actions opencode's permission schema accepts (permission.ts). */
-const VALID_PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny']);
-
-/**
- * A corePermissions ENTRY value is projectable iff it is either a plain action
- * string ('allow'|'ask'|'deny') or a flat {pattern: action} map whose every
- * value is such an action. This is the exact shape the engine's `permission:`
- * frontmatter block expects (and the same contract the REST validator in
- * agent_configs_controller.ts enforces on write). #1138: the old Tool
- * Permissions panel could persist an INDEXED-LIST shape
- * ({"0":{permission,pattern,action},...}) whose values are objects of
- * NON-action values; projecting those verbatim produced numbered garbage
- * frontmatter keys and a bare `"permission": *` line that is invalid YAML.
- */
-function isProjectablePermissionValue(value: unknown): value is string | Record<string, string> {
-  if (typeof value === 'string') return VALID_PERMISSION_ACTIONS.has(value);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  return Object.entries(value as Record<string, unknown>).every(
-    ([pattern, action]) =>
-      pattern.trim().length > 0 && typeof action === 'string' && VALID_PERMISSION_ACTIONS.has(action),
-  );
-}
-
-/**
- * Parse a profile's corePermissionsJson into the flat map the projector loops
- * over. #1138: fail-SOFT per entry — an entry whose value doesn't match the
- * {permissionName: action | {pattern: action}} shape is logged and SKIPPED
- * rather than projected as raw garbage that can break the whole file's YAML.
- * (Malformed JSON, or a non-object top level, still yields {} as before.)
- */
-function parseCorePermissions(config: AgentConfig): Record<string, string | Record<string, string>> {
-  if (!config.corePermissionsJson) return {};
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(config.corePermissionsJson);
-  } catch (err) {
-    logger.warn(`[OpencodeAgentWriter] invalid corePermissionsJson for "${config.id}": ${String(err)}`);
-    return {};
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-
-  const clean: Record<string, string | Record<string, string>> = {};
-  for (const [permission, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (permission.trim() && isProjectablePermissionValue(value)) {
-      clean[permission] = value;
-    } else {
-      logger.warn(
-        `[OpencodeAgentWriter] skipping malformed corePermissions entry "${permission}" for "${config.id}" ` +
-          `(not an action string or {pattern: action} map)`,
-      );
-    }
-  }
-  return clean;
 }
 
 /**
