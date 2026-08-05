@@ -332,8 +332,17 @@ async function measureBodyRefinement(
   const baseline = await scoreFn(purpose, change.priorBody ?? '');
   const post = await scoreFn(purpose, change.revisedBody ?? '');
 
-  const improved = post.score > baseline.score; // STRICTLY greater
-  const reason = `baseline=${baseline.score} (${baseline.reason}); post=${post.score} (${post.reason}); decision=${improved ? 'keep' : 'revert'}`;
+  // 2026-07-11 incident — UNKNOWN IS NOT ZERO. Same hole skill_measurement.ts had: an
+  // unknown BASELINE coerced to 0 made any post score look like an improvement
+  // and KEPT an unmeasured change. Either score unknown → revert, which puts
+  // the prior body back (the non-destructive direction here).
+  const scoreUnavailable = baseline.unknown === true || post.unknown === true;
+  const improved = !scoreUnavailable && post.score > baseline.score; // STRICTLY greater
+  const reason = scoreUnavailable
+    ? `baseline=${baseline.unknown ? 'unknown' : baseline.score} (${baseline.reason}); ` +
+      `post=${post.unknown ? 'unknown' : post.score} (${post.reason}); ` +
+      `decision=revert (score UNKNOWN — not a judgement about the change)`
+    : `baseline=${baseline.score} (${baseline.reason}); post=${post.score} (${post.reason}); decision=${improved ? 'keep' : 'revert'}`;
 
   if (improved) {
     await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
