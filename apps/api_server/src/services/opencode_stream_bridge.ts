@@ -1845,7 +1845,20 @@ export class OpencodeStreamBridge {
         // stays authoritative. Gating this on !shouldAutoDeny would re-create
         // the hang for exactly that combination.
         const isScheduledRun = Boolean(dbSession?.isSystem && dbSession?.scheduledTaskId);
-        const isUnattended = isDelegatedChild || isScheduledRun;
+
+        // POSITIVE EVIDENCE ONLY. `isDelegatedChild` above is true when NO row
+        // resolves at all (`!dbSession`) — deliberate for #1156's auto-accept,
+        // which covers the transient create-vs-permission race. It must NOT
+        // qualify a session as unattended for the #878 branch below: an unknown
+        // session is exactly the case where we CANNOT prove no human is
+        // watching, and a session created directly against the engine has no
+        // Rhythm row at all. Requiring a real parent id (or a scheduler run)
+        // means only provable unattendedness skips the approval card.
+        //
+        // Found by smoke test 2026-08-04 (E2): a session created straight on
+        // the engine under bypassPermissions ran `git push --force` with no card,
+        // because `!dbSession` had made it "unattended".
+        const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
 
         // #878 — command-approval classification for the bash tool. This runs
         // BEFORE the permissionMode auto-accept check below so a hardline-

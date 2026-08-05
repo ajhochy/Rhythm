@@ -641,6 +641,58 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     expect(bridge.getPendingPermission(localId, 'perm-interactive-1')).toBeDefined();
   });
 
+  it('E2: a session UNKNOWN to Rhythm still surfaces the ask — absence of a row is not proof of absence of a human', async () => {
+    // Found by smoke test 2026-08-04. `isDelegatedChild` is true when no row
+    // resolves (`!dbSession`) — correct for #1156's auto-accept race, but it had
+    // also been treated as "unattended" here, so a session created directly
+    // against the engine (no Rhythm row at all) ran `git push --force` with no
+    // approval card. Unattendedness now requires POSITIVE evidence: a real
+    // parent id, or a scheduler-originated run.
+    process.env.APPROVALS_MODE = 'manual';
+    // Point the map at an sdk id with no corresponding agent_sessions row.
+    sessionMap.clear();
+    sessionMap.set('ghost-local-id', SDK_ID);
+
+    relay(makeBashPermEvent('perm-ghost-1', 'git push --force origin main'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+  });
+
+  it('a delegated child (real parent id) still auto-accepts an ask', async () => {
+    // The positive-evidence path must keep working, or the E2 fix would simply
+    // have disabled the unattended behavior the scheduler depends on.
+    process.env.APPROVALS_MODE = 'manual';
+    getDb()
+      .prepare(
+        `INSERT INTO agent_sessions (id, name, agent_kind, status, cwd, sdk_session_id, parent_session_id)
+         VALUES ('child-of-local', 'child', 'librarian', 'idle', '/tmp', 'sdk-child-1', ?)`,
+      )
+      .run(localId);
+    sessionMap.clear();
+    sessionMap.set('child-of-local', 'sdk-child-1');
+
+    relay({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-child-1',
+        sessionID: 'sdk-child-1',
+        toolName: 'bash',
+        type: 'bash',
+        metadata: { command: 'defuddle parse https://example.com --md' },
+        title: 'Allow bash?',
+        time: { created: 0 },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy).toHaveBeenCalledWith('perm-child-1', 'once', undefined, '/tmp', 'sdk-child-1');
+  });
+
   it('mode=off allows a non-blocklisted command under default permission mode without asking', async () => {
     process.env.APPROVALS_MODE = 'off';
 
