@@ -63,13 +63,36 @@ class AgentsDataSource {
       StreamController.broadcast();
   final StreamController<bool> _connectivityController =
       StreamController<bool>.broadcast();
+  final StreamController<String> _sendFailureController =
+      StreamController<String>.broadcast();
 
   Timer? _reconnectTimer;
   Timer? _disconnectFailTimer;
   Duration _backoff = const Duration(milliseconds: 250);
 
+  /// Outbound frames that could not be delivered yet, flushed on (re)connect.
+  ///
+  /// `send` used to be `if (ch == null) return;` — a silent discard. Combined with
+  /// the optimistic UI render, a message typed while the socket was down appeared
+  /// in the transcript and went nowhere: it was never persisted and the agent never
+  /// ran, with no error shown. Reported live 2026-08-05 (two messages lost from
+  /// "Encompass Session 2"; neither existed in the api_server DB).
+  ///
+  /// Bounded so a long outage cannot grow this without limit; the oldest frames
+  /// are dropped first and reported, because a stale queued prompt is worse than
+  /// an honest failure.
+  static const int _maxQueuedSends = 50;
+  final List<Map<String, dynamic>> _pendingSends = [];
+
   Stream<AgentWsMessage> get messages => _msgController.stream;
   Stream<bool> get connectivityStream => _connectivityController.stream;
+
+  /// Emits when an outbound frame could not be delivered and was dropped, so the
+  /// UI can tell the user instead of leaving a phantom message in the transcript.
+  Stream<String> get sendFailures => _sendFailureController.stream;
+
+  /// How many frames are waiting for the socket to come back.
+  int get pendingSendCount => _pendingSends.length;
   bool get isConnected => _channel != null;
 
   // --------------------------------------------------------------------------
@@ -92,6 +115,8 @@ class AgentsDataSource {
       _disconnectFailTimer?.cancel();
       _disconnectFailTimer = null;
       _connectivityController.add(true);
+      // Deliver anything typed while the socket was down.
+      _flushPendingSends();
     } catch (_) {
       _scheduleReconnect();
     }
@@ -129,10 +154,56 @@ class AgentsDataSource {
         : doubled;
   }
 
-  void send(Map<String, dynamic> msg) {
+  /// Send a frame, or queue it if the socket is down.
+  ///
+  /// Returns true when the frame reached the socket, false when it was queued for
+  /// a later flush. It NEVER discards silently — a dropped `session.input` is a
+  /// lost user message.
+  bool send(Map<String, dynamic> msg) {
+    final ch = _channel;
+    if (ch == null) {
+      _queueSend(msg);
+      return false;
+    }
+    try {
+      ch.sink.add(jsonEncode({'v': 1, ...msg}));
+      return true;
+    } catch (_) {
+      // The socket looked open but was closing. Queue and let reconnect flush it.
+      _queueSend(msg);
+      _handleDisconnect();
+      return false;
+    }
+  }
+
+  void _queueSend(Map<String, dynamic> msg) {
+    if (_pendingSends.length >= _maxQueuedSends) {
+      _pendingSends.removeAt(0);
+      _sendFailureController.add(
+        'Dropped the oldest queued message — more than $_maxQueuedSends are '
+        'waiting for the agent server to come back.',
+      );
+    }
+    _pendingSends.add(msg);
+  }
+
+  /// Flush anything queued during an outage. Frames that fail again are re-queued
+  /// in order, so a partial flush cannot reorder or lose them.
+  void _flushPendingSends() {
+    if (_pendingSends.isEmpty) return;
     final ch = _channel;
     if (ch == null) return;
-    ch.sink.add(jsonEncode({'v': 1, ...msg}));
+    final queued = List<Map<String, dynamic>>.from(_pendingSends);
+    _pendingSends.clear();
+    for (var i = 0; i < queued.length; i++) {
+      try {
+        ch.sink.add(jsonEncode({'v': 1, ...queued[i]}));
+      } catch (_) {
+        _pendingSends.addAll(queued.sublist(i));
+        _handleDisconnect();
+        return;
+      }
+    }
   }
 
   Future<void> dispose() async {
@@ -142,6 +213,7 @@ class AgentsDataSource {
     await _channel?.sink.close();
     await _msgController.close();
     await _connectivityController.close();
+    await _sendFailureController.close();
   }
 
   // --------------------------------------------------------------------------
