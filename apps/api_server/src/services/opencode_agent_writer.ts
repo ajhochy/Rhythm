@@ -31,6 +31,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import {
+  AgentConfigsRepository,
   agentConfigExecutionBlockReason,
   type AgentConfig,
 } from '../repositories/agent_configs_repository';
@@ -133,11 +134,19 @@ export function buildHubRoutingPreamble(roster: string[], profileId?: string): s
     'explicitly requests delegation; or an independently owned parallel slice justifies ' +
     'delegation. Never delegate merely because an allowed specialist exists or shares ' +
     'the request topic.\n\n' +
-    '**Exceptional delegation:** when one of those conditions applies, call the `task` ' +
-    'tool with `subagent_type` set to one of your approved specialists ' +
-    `(${rosterList}) and the focused task as the prompt. Name the specialist ` +
-    'explicitly; never use `"general"` as a fallback and never omit `subagent_type`. ' +
-    'Summarize the delegated result for the user.\n\n' +
+    '**Exceptional delegation:** when one of those conditions applies, delegate to one ' +
+    `of your approved specialists (${rosterList}) with the focused task as the ` +
+    'prompt. Name the specialist explicitly; never use `"general"` as a fallback.\n\n' +
+    '  - **In an interactive chat with AJ, use `rhythm_delegate_async`.** It returns ' +
+    'immediately and pushes the specialist\'s result back into this session when it ' +
+    'finishes, so you stay available for questions and new direction while the work ' +
+    'runs. Do not sit and wait; acknowledge the dispatch and carry on. When the result ' +
+    'arrives, report it once and stop — do not restate it.\n' +
+    '  - **In a scheduled, headless, or system run, use the `task` tool** with ' +
+    '`subagent_type` set to the specialist. `rhythm_delegate_async` is refused outside ' +
+    'interactive chat by design, and blocking is fine there because nobody is waiting.\n' +
+    '  - Use `task` with `explore` or `general` only for read-only fan-out inside your ' +
+    'own scope — never to reach another profile.\n\n' +
     `**Coding / development work:** ${codingHandoff}\n\n` +
     'Direct work includes trivial admin, quick summaries, reading back information, and ' +
     'simple lookups, but is not limited to those tasks.'
@@ -181,6 +190,36 @@ export function injectManagerPreamble(
  * callers always get a plain array to branch on (empty roster → the existing
  * dev-manager preamble; non-empty → the combined hub preamble).
  */
+/**
+ * #1322 Phase 3 — warn on a delegate id that resolves to no profile.
+ *
+ * `task` tolerated free-text agent names, so rosters accumulated non-canonical
+ * entries: measured 2026-08-05, live history contained `Config Doctor` /
+ * `Config-Doctor` alongside `config-doctor`, `AI Trend Researcher` vs
+ * `AI-Trend-Researcher`, and raw UUIDs. Those silently authorize nothing —
+ * `evaluate` simply never matches them — so a manager appears to have a delegate
+ * it can never reach. Log it rather than fail the whole projection, which would
+ * take an agent file down over one bad roster entry.
+ */
+function warnUnresolvableDelegates(config: AgentConfig, roster: string[]): void {
+  if (roster.length === 0) return;
+  let known: Set<string>;
+  try {
+    known = new Set(
+      new AgentConfigsRepository().list().map((profile) => profile.id),
+    );
+  } catch {
+    return; // never let a bookkeeping read break projection
+  }
+  const unresolvable = roster.filter((delegate) => !known.has(delegate));
+  if (unresolvable.length > 0) {
+    logger.warn(
+      `[OpencodeAgentWriter] profile "${config.id}" lists delegate id(s) that match no ` +
+        `agent profile and therefore authorize nothing: ${unresolvable.join(', ')}`,
+    );
+  }
+}
+
 function parseDelegateRoster(config: AgentConfig): string[] {
   if (!config.allowedDelegatesJson) return [];
   try {
@@ -204,12 +243,44 @@ function parseDelegateRoster(config: AgentConfig): string[] {
  * map. The explicit catch-all denial is required so task authorization remains
  * fail-closed while each current delegate is allowed by its agent id.
  */
+/**
+ * Engine-native subagents that `task` is FOR: read-only fan-out inside one
+ * profile. Distinct from crossing a profile boundary, which belongs to
+ * rhythm_delegate / rhythm_delegate_async (#1322).
+ *
+ * Only these two are safe to name here. The other BUILTIN ids are primary or
+ * internal agents (`build`, `plan`, `compaction`, `summary`, `title`), not
+ * subagents. Neither `explore` nor `general` is ever projected as a Rhythm agent
+ * file — BUILTIN_OPENCODE_AGENT_IDS excludes them from the writer — so these
+ * names can only resolve to the engine's own agents, with no shadowing.
+ */
+export const TASK_NATIVE_SUBAGENTS = ['explore', 'general'] as const;
+
+/**
+ * `task` permissions for a profile: the native subagents always, plus an explicit
+ * cross-profile roster for managers.
+ *
+ * Before #1322 this was only written for managers, so every NON-manager got no
+ * `task` key at all and fell through to the engine's default `"*": "allow"` —
+ * unrestricted delegation to any profile, the exact inverse of the intent. That is
+ * how a UI/UX request reached the coding agent. Non-managers now get the natives
+ * and nothing else.
+ *
+ * `selfId` is excluded even when a roster names it: self-delegation was 47 calls
+ * (7.2%) of all cross-profile `task` traffic and is pure token burn, so a stale
+ * roster entry must not reintroduce it.
+ */
 export function buildTaskDelegatePermissions(
   delegateRoster: string[],
+  selfId?: string | null,
 ): Record<string, 'allow' | 'deny'> {
+  const roster = delegateRoster.filter(
+    (delegate) => delegate.trim() !== '' && delegate !== selfId,
+  );
   return {
     '*': 'deny',
-    ...Object.fromEntries(delegateRoster.map((delegate) => [delegate, 'allow' as const])),
+    ...Object.fromEntries(TASK_NATIVE_SUBAGENTS.map((n) => [n, 'allow' as const])),
+    ...Object.fromEntries(roster.map((delegate) => [delegate, 'allow' as const])),
   };
 }
 
@@ -554,7 +625,7 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
       // being a manager (task) or loses image_generation also sheds them.
       const keep = new Set<string>(Object.keys(corePermissions));
       if (config.imageGenerationEnabled === true) keep.add('image_generation');
-      if (config.isManager === true) keep.add('task');
+      keep.add('task'); // #1322 — projected for every profile now
       keep.add('rhythm_delegate_async');
       if (config.id === 'workflow-orchestrator') keep.add('write');
       fm = pruneStalePermissionKeys(fm, keep);
@@ -581,9 +652,14 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
       fm = setPermissionKey(fm, 'image_generation', 'allow');
     }
     const delegateRoster = parseDelegateRoster(config);
-    if (config.isManager === true) {
-      fm = setPermissionValue(fm, 'task', buildTaskDelegatePermissions(delegateRoster));
-    }
+    warnUnresolvableDelegates(config, delegateRoster);
+    // #1322 — ALWAYS written. A non-manager previously got no `task` key and
+    // inherited the engine default `"*": "allow"`.
+    fm = setPermissionValue(
+      fm,
+      'task',
+      buildTaskDelegatePermissions(config.isManager === true ? delegateRoster : [], config.id),
+    );
     // #1123 — expose the additive async delegate tool only to manager profiles
     // that can own an interactive chat. Runtime API validation repeats the
     // interactive/session gate so a profile that is also schedulable cannot use
