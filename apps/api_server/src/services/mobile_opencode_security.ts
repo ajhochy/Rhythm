@@ -28,14 +28,18 @@ export interface MobileOpenCodeOwnerScope {
   ownership: MobileOpenCodeOwnershipReader;
 }
 
-type ResourceScope = {
+export type MobileOpenCodeResourceScope = {
+  engineSessions?: unknown[];
   sessions?: unknown[];
   sessionIds?: Set<string>;
+  authorizedSessions?: Map<string, boolean>;
   permissions?: unknown[];
   questions?: unknown[];
   ptys?: unknown[];
   worktrees?: string[];
 };
+
+type ResourceScope = MobileOpenCodeResourceScope;
 
 const OMIT = Symbol('omit-mobile-field');
 const REDACTED_SECRET = '[redacted]';
@@ -279,6 +283,57 @@ function sessionVisibleInChatCatalog(
   );
 }
 
+/** Bound the parent walk so malformed or cyclic ancestry cannot spin. */
+const MAX_SESSION_ANCESTRY_DEPTH = 32;
+
+async function engineSessions(
+  fetchJson: MobileOpenCodeJsonFetcher,
+  scope: ResourceScope,
+): Promise<unknown[]> {
+  if (!scope.engineSessions) {
+    scope.engineSessions = asArray(await fetchJson('/session'));
+  }
+  return scope.engineSessions;
+}
+
+/**
+ * A subagent runs in a child session the caller never created, so no ownership
+ * row is ever written for it — children spawned inside the engine do not travel
+ * through this proxy. Treating that as "not yours" silently dropped every
+ * subagent approval out of the mobile permission list and turned replying to
+ * one into a 404.
+ *
+ * Walk `parentID` instead: a session is addressable when it, or an ancestor,
+ * carries a claim for this caller. The walk reads only the session collection
+ * already fetched for this project, so no additional id is addressed upstream
+ * and the #1175 no-oracle contract is untouched.
+ */
+function ancestryAuthorizesSession(
+  session: unknown,
+  sessionsById: Map<string, unknown>,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+): boolean {
+  let current: unknown = session;
+  for (
+    let depth = 0;
+    current !== undefined && depth < MAX_SESSION_ANCESTRY_DEPTH;
+    depth += 1
+  ) {
+    const currentId = stringField(current, 'id');
+    if (
+      currentId &&
+      resourceOwnedByCaller('session', currentId, project, owner)
+    ) {
+      return true;
+    }
+    const parentId = stringField(current, 'parentID');
+    if (!parentId) return false;
+    current = sessionsById.get(parentId);
+  }
+  return false;
+}
+
 async function projectSessions(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
@@ -286,15 +341,15 @@ async function projectSessions(
   owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.sessions) {
-    scope.sessions = asArray(await fetchJson('/session'))
-      .filter((session) =>
-        sessionBelongsToProject(session, project) &&
-        resourceOwnedByCaller(
-          'session',
-          stringField(session, 'id'),
-          project,
-          owner,
-        ));
+    const all = await engineSessions(fetchJson, scope);
+    const sessionsById = new Map<string, unknown>();
+    for (const session of all) {
+      const id = stringField(session, 'id');
+      if (id) sessionsById.set(id, session);
+    }
+    scope.sessions = all.filter((session) =>
+      sessionBelongsToProject(session, project) &&
+      ancestryAuthorizesSession(session, sessionsById, project, owner));
   }
   return scope.sessions;
 }
@@ -315,6 +370,96 @@ async function projectSessionIds(
   return scope.sessionIds;
 }
 
+/**
+ * Answer "is this one session addressable by this caller" without enumerating
+ * the project's sessions when a durable ownership row already settles it.
+ *
+ * An explicit `mobile_opencode_resource_owners` row is keyed on
+ * (kind, id, owner, project), so a hit proves both dimensions the list-based
+ * filter checks — this gateway itself claimed that session for this user in
+ * this project. That is one indexed local read and no upstream traffic.
+ *
+ * Everything else falls through to the unchanged `/session` path: desktop
+ * catalog sessions, the NULL-project fallback, and any id with no ownership
+ * row. Crucially the fallback still decides membership by inspecting the
+ * project's own session list, never by addressing the requested id upstream,
+ * so the #1175 contract that a global OpenCode id cannot act as an oracle
+ * holds for every id this fast path does not already own.
+ *
+ * Tradeoff: the fast path trusts the ownership row instead of re-reading the
+ * engine's `directory` for that session. The row is written by this gateway
+ * when it claims the resource, so the two only diverge if a session's
+ * directory changes after the claim.
+ */
+async function sessionAuthorizedForCaller(
+  sessionId: string,
+  project: MobileProjectScope,
+  fetchJson: MobileOpenCodeJsonFetcher,
+  scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
+): Promise<boolean> {
+  // A resolved list already carries the answer for every id.
+  if (scope.sessionIds) return scope.sessionIds.has(sessionId);
+
+  const memo = scope.authorizedSessions ??= new Map<string, boolean>();
+  const cached = memo.get(sessionId);
+  if (cached !== undefined) return cached;
+
+  const explicitlyOwned = owner.ownership.isResourceExplicitlyOwnedBy?.(
+    'session',
+    sessionId,
+    owner.ownerUserId,
+    project.id,
+  );
+  if (explicitlyOwned === true) {
+    memo.set(sessionId, true);
+    return true;
+  }
+
+  const authorized = (await projectSessionIds(
+    fetchJson,
+    project,
+    scope,
+    owner,
+  )).has(sessionId);
+  memo.set(sessionId, authorized);
+  return authorized;
+}
+
+/**
+ * Filter a small engine-side list down to rows whose session the caller may
+ * address. Distinct sessions across pending permissions/questions are few, and
+ * `sessionAuthorizedForCaller` memoizes per id, so this stays bounded by the
+ * list rather than by session history.
+ */
+async function filterBySessionAuthorization(
+  rows: unknown[],
+  project: MobileProjectScope,
+  fetchJson: MobileOpenCodeJsonFetcher,
+  scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
+): Promise<unknown[]> {
+  const kept: unknown[] = [];
+  for (const row of rows) {
+    const sessionId =
+      stringField(row, 'sessionID') ??
+      stringField(row, 'sessionId');
+    if (sessionId === undefined) continue;
+    if (
+      await sessionAuthorizedForCaller(
+        sessionId,
+        project,
+        fetchJson,
+        scope,
+        owner,
+      )
+    ) {
+      kept.push(row);
+    }
+  }
+  return kept;
+}
+
 async function projectPermissions(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
@@ -322,19 +467,13 @@ async function projectPermissions(
   owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.permissions) {
-    const sessionIds = await projectSessionIds(
-      fetchJson,
+    scope.permissions = await filterBySessionAuthorization(
+      asArray(await fetchJson('/permission')),
       project,
+      fetchJson,
       scope,
       owner,
     );
-    scope.permissions = asArray(await fetchJson('/permission'))
-      .filter((permission) => {
-        const sessionId =
-          stringField(permission, 'sessionID') ??
-          stringField(permission, 'sessionId');
-        return sessionId !== undefined && sessionIds.has(sessionId);
-      });
   }
   return scope.permissions;
 }
@@ -346,19 +485,13 @@ async function projectQuestions(
   owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.questions) {
-    const sessionIds = await projectSessionIds(
-      fetchJson,
+    scope.questions = await filterBySessionAuthorization(
+      asArray(await fetchJson('/question')),
       project,
+      fetchJson,
       scope,
       owner,
     );
-    scope.questions = asArray(await fetchJson('/question'))
-      .filter((question) => {
-        const sessionId =
-          stringField(question, 'sessionID') ??
-          stringField(question, 'sessionId');
-        return sessionId !== undefined && sessionIds.has(sessionId);
-      });
   }
   return scope.questions;
 }
@@ -489,22 +622,24 @@ export async function authorizeMobileOpenCodeOperation(
   query?: URLSearchParams,
   body?: unknown,
   owner?: MobileOpenCodeOwnerScope,
+  sharedScope?: ResourceScope,
 ): Promise<void> {
   if (!owner) throw resourceNotFound();
   const parameters = templateParameters(operation, path);
-  const scope: ResourceScope = {};
+  const scope: ResourceScope = sharedScope ?? {};
   const bodyRecord = isRecord(body) ? body : {};
   const sessionId =
     parameters.sessionID ??
     (typeof bodyRecord.parentID === 'string' ? bodyRecord.parentID : undefined);
   if (sessionId) {
-    const sessionIds = await projectSessionIds(
-      fetchJson,
+    const authorized = await sessionAuthorizedForCaller(
+      sessionId,
       project,
+      fetchJson,
       scope,
       owner,
     );
-    if (!sessionIds.has(sessionId)) throw resourceNotFound();
+    if (!authorized) throw resourceNotFound();
   }
 
   const messageId =
@@ -807,9 +942,12 @@ export async function shapeMobileOpenCodeResponse(
   requestPath?: string,
   owner?: MobileOpenCodeOwnerScope,
   ownerUnscopedDiscovery = false,
+  sharedScope?: ResourceScope,
 ): Promise<unknown> {
   if (!owner) throw resourceNotFound();
-  const scope: ResourceScope = {};
+  // Reuse the authorization pass's scope when the caller threads one through,
+  // so a single request resolves each upstream collection at most once.
+  const scope: ResourceScope = sharedScope ?? {};
   let scopedValue = value;
   switch (operation.operationId) {
     case 'path.get':
@@ -989,15 +1127,16 @@ export async function mobileSessionBelongsToProject(
   project: MobileProjectScope,
   fetchJson: MobileOpenCodeJsonFetcher,
   owner?: MobileOpenCodeOwnerScope,
+  sharedScope?: ResourceScope,
 ): Promise<boolean> {
   if (!owner) return false;
-  const scope: ResourceScope = {};
-  return (await projectSessionIds(
-    fetchJson,
+  return sessionAuthorizedForCaller(
+    sessionId,
     project,
-    scope,
+    fetchJson,
+    sharedScope ?? {},
     owner,
-  )).has(sessionId);
+  );
 }
 
 function mobileSseType(value: unknown): string | null {

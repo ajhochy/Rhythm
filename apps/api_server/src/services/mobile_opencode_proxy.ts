@@ -37,6 +37,7 @@ import {
   shapeMobileOpenCodeResponse,
   shapeMobileOpenCodeTextResponse,
   type MobileOpenCodeJsonFetcher,
+  type MobileOpenCodeResourceScope,
 } from './mobile_opencode_security';
 import {
   resolveProfileIdForOpenCodeAgent,
@@ -977,6 +978,10 @@ export class MobileOpenCodeProxy {
           );
         }
       };
+      // One scope for the whole request: the authorization pass and the
+      // response-shaping pass resolve the same upstream collections, and
+      // previously each built its own cache and fetched them twice.
+      const resourceScope: MobileOpenCodeResourceScope = {};
       await authorizeMobileOpenCodeOperation(
         operation,
         input.path,
@@ -985,6 +990,7 @@ export class MobileOpenCodeProxy {
         input.query,
         input.body,
         owner,
+        resourceScope,
       );
       const sanitizedBody = !acceptsBody || input.body === undefined
         ? undefined
@@ -1186,6 +1192,7 @@ export class MobileOpenCodeProxy {
           input.path,
           owner,
           ownerUnscopedDiscovery,
+          resourceScope,
         );
         const safeBody = Buffer.from(JSON.stringify(
           attachSafeSessionState(

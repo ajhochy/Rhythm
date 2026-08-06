@@ -2,6 +2,20 @@
 
 ## Current focus
 
+Two parallel tracks:
+
+**Mobile gateway authorization (#1327) — merged 2026-08-06.** Two fixes:
+1. Session-scoped requests listed the project's engine sessions to authorize a
+   single id; an explicit ownership row now short-circuits that to one indexed
+   local read with no engine traffic.
+2. Subagent approvals never reached the phone. A subagent runs in a child
+   session, `PermissionRequest.sessionID` names that child, and children
+   spawned inside the engine never pass through the proxy so they never get an
+   ownership row — their approvals were filtered out and replying 404'd.
+   Authorization now walks `parentID` ancestry.
+   Remaining: confirm a real subagent approval surfaces and can be replied to
+   from the phone (on-device).
+
 **Mega integration `mega/run-2026-08-04`** — one branch consolidating eight PRs so
 there is a single merge to `main` after smoke testing. Two themes:
 
@@ -15,10 +29,24 @@ there is a single merge to `main` after smoke testing. Two themes:
 
 ## Active branch / PR
 
+- [#1327](https://github.com/ajhochy/Rhythm/pull/1327)
+  (`claude/mobile-direct-agent-connection-hu75he`): merged to `main` 2026-08-06.
 - Branch: `mega/run-2026-08-04` (off `main`)
 - Consolidates **#1312, #1313, #1314, #1315, #1316, #1317, #1318, #1304** — those
   are superseded and closed in favour of one merge.
 - Merge remains a manual human action after smoke testing.
+
+## Corrections on record (#1327)
+
+- The two-account isolation guard is **not** in
+  `issue_1175_mobile_gateway_security.test.ts` — that file has no two-account
+  assertions. It lives in `issue_1285_mobile_chat_discovery.test.ts`
+  (ownerA/ownerB). The 2026-07-30 session-visibility decision mis-attributed
+  it to #1175.
+- User has declared the two-account concern void for this deployment. The
+  owner-dimension short-circuit was still not built: the confirmed defect was
+  child-session ancestry, not owner matching, so relaxing owner checks would
+  not have fixed it.
 
 ## What is in the mega branch
 
@@ -131,6 +159,11 @@ fix that stops it being blocked.
 
 - api_server: 474 files / 3964 tests pass, 0 fail, 85 skipped (`--fileParallelism=false`).
   Typecheck clean.
+- #1327: both new tests verified fail-first against pre-change sources;
+  #1175/#1169/#1285/#1286 contract files pass unmodified; full serial suite
+  green on the branch (469 files / 3,842 tests at the time). GitNexus MCP tools
+  were unavailable that session, so `impact` / `detect_changes` were not run —
+  blast radius established by reading call sites.
 - mcp_server: 155/155. Typecheck, lint, build clean in both.
 - opencode fork: typecheck clean; session suite 388 pass / 0 fail; tool 297; file 95.
 - All four CI workflows green on `f8ece4f5` and on `447f564c`.
@@ -201,21 +234,21 @@ up from 636 runnable. Lesson: a green run count is not coverage. `+636` looked
 healthy while 413 tests were not executing at all, and a red CI at the *first*
 gate hides everything downstream of it.
 
-## Next step (updated 2026-08-05)
+## Next step
 
-Relaunched and live-verified: message timestamps are zoned, transcript order matches
-DB truth, and AJ confirmed the chat pane renders correctly. Remaining before merge is
-AJ's own pass over sections G–M of `docs/testing/mega-2026-08-04-smoke.md` — none of
-that has been exercised through the UI. Then `gh pr ready 1319` and merge; `main` has
-no branch protection, so the draft flag is the only technical blocker (the red check
-is a cancelled duplicate Mobile CI run).
+- **#1327 (merged):** verify on device — confirm a real subagent approval now
+  surfaces and can be replied to from the phone.
+- **#1319:** AJ's own pass over sections G–M of
+  `docs/testing/mega-2026-08-04-smoke.md` — none of that has been exercised
+  through the UI. Then `gh pr ready 1319` and merge; `main` has no branch
+  protection, so the draft flag is the only technical blocker (the red check is
+  a cancelled duplicate Mobile CI run).
 
 Outstanding code, both follow-up-able: taint propagation to the parent on an async
 wake, and `rhythm_delegation_transcript`. Open issues from this work: #1322 (plan-mode
 read-only bash), #1323, #1324, #1325, #1326.
 
-## Previous next step
-
-User's call on merge. `mega/run-2026-08-04` (PR #1319) is the single open PR, still
-draft; merge is a manual human action. #1322 tracks the remaining blocklist gaps
-and can be a follow-up.
+Follow-ups tracked on issue #1287: desktop persisting profile bindings onto
+agent_sessions rows; decision on cleaning pre-fix corrupted profile rows;
+cold-start first-open latency budget; device-tier test gap for scope-flip
+cache lifecycles.
