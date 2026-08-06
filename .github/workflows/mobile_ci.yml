@@ -1,8 +1,13 @@
 name: Mobile CI
 
 on:
+  # Only the default branch pushes here. On a PR branch the `pull_request`
+  # trigger below is the one whose result the PR reports, so listening to both
+  # events launched two identical suites per commit (#1287 runner contention).
+  # Restricting push to `main` removes the duplicate at the source, which is
+  # strictly better than launching both and cancelling one (#1329).
   push:
-    branches: ['**']
+    branches: [main]
     paths:
       - 'apps/mobile/**'
       - 'apps/opencode_fork/packages/opencode/package.json'
@@ -23,12 +28,18 @@ on:
       - 'tests/contract/issue-1175.mjs'
       - '.github/workflows/mobile_ci.yml'
 
-# The push and pull_request triggers both fire on PR branches, launching two
-# identical suites seconds apart on shared runners; the contention produced
-# rotating Playwright click-timeout flakes (#1287). Keying on the head SHA
-# collapses the pair to one run per commit.
+# #1329: this used to key on the head SHA to collapse the push/pull_request pair
+# into one run. It did dedupe them — but `cancel-in-progress` then killed one of
+# two runs for the SAME commit, and which one died was a race. When the loser was
+# the `pull_request` run, the PR reported a red check with a cancelled job and no
+# failing test, indistinguishable from a real failure. Observed flipping across
+# 558f7e04 / ee6ea444 / 8faea09f.
+#
+# The duplicate is now prevented by the trigger scoping above, so this group only
+# has to supersede OLDER commits on the same branch/PR — never a sibling event for
+# the same commit. Keying on the ref (not the SHA) is what makes that work.
 concurrency:
-  group: mobile-ci-${{ github.event.pull_request.head.sha || github.sha }}
+  group: mobile-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

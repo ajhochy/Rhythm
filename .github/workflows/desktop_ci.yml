@@ -19,18 +19,47 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed .
-      - run: flutter analyze --no-fatal-infos
-      - run: flutter test
+      - id: deps
+        run: flutter pub get
+
+      # #1328 — formatting, analysis, tests and the build are INDEPENDENT
+      # signals, but a step's default condition is `success()`, which is false
+      # once ANY earlier step failed. As plain sequential steps the cheapest gate
+      # therefore hid every gate behind it: an unformatted `ws_send_queue_test.dart`
+      # failed `dart format`, so `flutter test` never ran, so 64 test files that
+      # could not COMPILE went unnoticed for two days and the 413 tests inside
+      # them silently did not execute. The run looked like a trivial formatting
+      # nit.
+      #
+      # Each gate now reports on its own. `!cancelled()` lets a gate run after an
+      # earlier gate FAILED but not when the run was cancelled, and each `if`
+      # names the step it genuinely depends on — so a real prerequisite failure
+      # still skips its dependents instead of emitting cascading noise.
+      # `flutter analyze` alone would have caught the compile breakage above: it
+      # reports `invalid_override`.
+      - name: Check formatting
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: flutter analyze --no-fatal-infos
+      - name: Test
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: flutter test
+
       - name: Configure macOS debug build
+        id: configure
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: >
           flutter build macos --debug --config-only
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
       - name: Install CocoaPods dependencies
+        id: pods
+        if: ${{ !cancelled() && steps.configure.outcome == 'success' }}
         working-directory: apps/desktop_flutter/macos
         run: pod install
       - name: Build macOS debug app
+        if: ${{ !cancelled() && steps.pods.outcome == 'success' }}
         working-directory: apps/desktop_flutter/macos
         run: >
           xcodebuild -workspace Runner.xcworkspace -scheme Runner

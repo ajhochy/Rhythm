@@ -275,7 +275,16 @@ export function buildTaskDelegatePermissions(
   selfId?: string | null,
 ): Record<string, 'allow' | 'deny'> {
   const roster = delegateRoster.filter(
-    (delegate) => delegate.trim() !== '' && delegate !== selfId,
+    (delegate) =>
+      delegate.trim() !== '' &&
+      delegate !== selfId &&
+      // The roster is spread AFTER the natives below, so an entry naming an
+      // engine built-in would override the `"*": "deny"` and grant it. Rhythm
+      // does not delegate to `plan`, `build`, or the internal pipeline agents,
+      // and `explore`/`general` are already granted as natives — so no roster
+      // entry ever legitimately names a built-in. Dropping them here means a
+      // stale or hand-edited allowed_delegates_json cannot reintroduce one.
+      !BUILTIN_OPENCODE.has(delegate),
   );
   return {
     '*': 'deny',
@@ -303,6 +312,39 @@ const CLI_MODEL_PRESETS = new Set<string>(CLI_MODEL_PRESET_IDS);
 
 export function isReservedAgentConfigId(id: string): boolean {
   return BUILTIN_OPENCODE.has(id) || CLI_MODEL_PRESETS.has(id);
+}
+
+/**
+ * The only engine built-in a user may pick as a session agent.
+ *
+ * `build` is the engine's DEFAULT agent, and Rhythm deliberately falls back to
+ * it for an agent-less session (see agent_sessions_controller), so it stays
+ * selectable. Every other built-in is either an internal pipeline agent the
+ * engine drives itself (`compaction`, `summary`, `title`), a primary mode Rhythm
+ * does not use (`plan`), or a `task`-only subagent (`explore`, `general`) that is
+ * a delegation target rather than something to start a conversation as.
+ */
+const SELECTABLE_BUILTIN_OPENCODE_AGENT_IDS = new Set<string>(['build']);
+
+/**
+ * Whether an engine-reported agent may be offered in Rhythm's agent list/picker.
+ *
+ * The engine's `GET /agent` returns all seven built-ins alongside Rhythm's own
+ * projected profiles, and it does NOT set `builtIn` on them — so before this
+ * filter existed they were indistinguishable from real Rhythm agents and all
+ * seven appeared in the picker (measured live 2026-08-06: 43 entries including
+ * `plan`, `compaction`, `summary`, `title`).
+ *
+ * Deliberately fail-CLOSED: anything in BUILTIN_OPENCODE_AGENT_IDS is hidden
+ * unless explicitly allow-listed above, so a built-in added by a future engine
+ * release stays out of the picker until someone decides it belongs there.
+ * Non-built-in names (Rhythm's own profiles) always pass.
+ */
+export function isSelectableEngineAgent(name: string): boolean {
+  return (
+    !BUILTIN_OPENCODE.has(name) ||
+    SELECTABLE_BUILTIN_OPENCODE_AGENT_IDS.has(name)
+  );
 }
 
 /**
