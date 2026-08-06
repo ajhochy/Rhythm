@@ -19,7 +19,6 @@
 //
 // These tests exercise the queue/flush contract against a fake socket rather than
 // a live server, so they run in CI.
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
