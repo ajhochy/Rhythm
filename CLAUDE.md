@@ -21,6 +21,24 @@ Do **not** write session logs to the Obsidian vault note via `obsidian_post_file
 3. The PR stays open while the user tests locally.
 4. **Only merge to `main` on GitHub after the user confirms testing is successful.**
 
+### Worktree hygiene
+
+Remove a worktree as soon as its branch is pushed. A worktree is a **full second
+checkout** — measured 2026-08-04, they run 200 MB–12 GB each, and 61 of them had
+accumulated to **65 GB** (75% of the repo) before a cleanup reclaimed it.
+
+`git worktree remove <path>` keeps the branch and every commit — only
+*uncommitted* changes are lost. So a pushed branch's worktree is pure duplication
+and is always safe to delete. Run it **without** `--force`, so git itself refuses
+anything with unsaved work rather than relying on you to check.
+
+Two traps that made the last cleanup slow:
+- Most "uncommitted changes" in old worktrees turned out to be **regenerated
+  smoke-test screenshots** (`.proof/**/*.png`) — binary diffs of zero lines. Check
+  what is actually dirty before assuming a worktree holds real work.
+- Stale worktree indexes are also what forces `repo:` on every GitNexus call
+  (see the GitNexus section), so pruning worktrees makes that tooling usable again.
+
 Never merge a PR automatically. Always leave it open for human review and sign-off.
 
 ---
@@ -310,7 +328,8 @@ This project is indexed by GitNexus as **Rhythm** (61361 symbols, 122092 relatio
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream", repo: "Rhythm"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+  - **`repo: "Rhythm"` is required, not optional.** 45 repositories are indexed and several share the name `Rhythm` (the main checkout plus per-worktree indexes), so omitting it fails with *"Multiple repositories indexed. Specify which one…"*. That error lists `Rhythm` among the options, which reads like a not-found and has been misreported as a broken tool. It is not — it is a disambiguation prompt. The same applies to `context`, `query` and `detect_changes`.
 - **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
 - When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.

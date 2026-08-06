@@ -1,8 +1,8 @@
-import { describe, expect } from "bun:test"
+import { afterEach, describe, expect } from "bun:test"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { GrepTool } from "../../src/tool/grep"
 import { provideInstance, TestInstance } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
@@ -161,6 +161,54 @@ describe("tool.grep", () => {
 
       expect(result.metadata.matches).toBe(1)
       expect(requests.find((req) => req.permission === "external_directory")).toBeUndefined()
+    }),
+  )
+})
+
+// `grep` shared the glob tool's unbounded exposure: ripgrep walks the whole tree regardless of
+// --max-count, so a search rooted at a huge directory could burn the run-level inactivity window
+// exactly the way the glob incident did. Both directions are asserted, so the guard cannot be
+// silently disabled without a test going red.
+describe("tool.grep timeout", () => {
+  const original = process.env.RHYTHM_RIPGREP_TIMEOUT_MS
+  afterEach(() => {
+    if (original === undefined) delete process.env.RHYTHM_RIPGREP_TIMEOUT_MS
+    else process.env.RHYTHM_RIPGREP_TIMEOUT_MS = original
+  })
+
+  it.instance("fails with an actionable error when the search outlives the budget", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => Bun.write(path.join(test.directory, "deep/nested/tree/a.ts"), "const needle = 1\n"))
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "1"
+      const info = yield* GrepTool
+      const grep = yield* info.init()
+      const started = Date.now()
+      const exit = yield* grep.execute({ pattern: "needle", path: test.directory }, ctx).pipe(Effect.exit)
+      const elapsed = Date.now() - started
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const err = Cause.squash(exit.cause)
+        const message = err instanceof Error ? err.message : String(err)
+        expect(message).toContain("grep timed out after 1ms")
+        expect(message).toContain(test.directory)
+        expect(message).toContain("needle")
+        expect(message).toContain("RHYTHM_RIPGREP_TIMEOUT_MS")
+      }
+      expect(elapsed).toBeLessThan(10_000)
+    }),
+  )
+
+  it.instance("leaves a normal search alone when the budget is generous", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => Bun.write(path.join(test.directory, "deep/nested/tree/a.ts"), "const needle = 1\n"))
+      process.env.RHYTHM_RIPGREP_TIMEOUT_MS = "60000"
+      const info = yield* GrepTool
+      const grep = yield* info.init()
+      const result = yield* grep.execute({ pattern: "needle", path: test.directory }, ctx)
+      expect(result.metadata.matches).toBe(1)
+      expect(result.output).toContain(path.join(test.directory, "deep/nested/tree/a.ts"))
     }),
   )
 })

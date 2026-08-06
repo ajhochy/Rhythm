@@ -96,7 +96,7 @@ class _PagingRepository implements AgentsRepository {
   }
 
   @override
-  void send(Map<String, dynamic> msg) {}
+  bool send(Map<String, dynamic> msg) => true;
 
   @override
   Future<List<AgentSession>> listSessions({

@@ -80,10 +80,18 @@ describe("rhythm_delegate MCP tool", () => {
           authorization: "Bearer token",
           "content-type": "application/json",
         }),
+        // callerSdkSessionId comes from the trusted security context, not the
+        // model, and is what the server actually resolves the caller session
+        // from. callerSessionId is still forwarded when a programmatic caller
+        // supplies it explicitly.
+        // callerSdkSessionId is appended AFTER the signed tool arguments — the
+        // approval gate compares its payload against the signed args, so the
+        // derived caller identity may only be added to the HTTP body.
         body: JSON.stringify({
           targetAgentConfigId: "coding-agent",
           prompt: "Handle this issue.",
           callerSessionId: "manager-session",
+          callerSdkSessionId: "sdk-delegation-test",
         }),
       }),
     );

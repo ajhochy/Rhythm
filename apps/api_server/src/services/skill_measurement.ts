@@ -19,8 +19,22 @@
  * anchored numeric score (0–100) from the upgraded LLM judge (skill_refiner's
  * `scoreSkillBody`). `baseline_score` scores the PRIOR body; `post_score` scores
  * the REVISED body; same rubric/prompt. Decision: improvement iff
- * `post_score > baseline_score` (STRICTLY greater). Ties / parse failures /
- * thrown judge → NO improvement → revert (FAIL-CLOSED).
+ * `post_score > baseline_score` (STRICTLY greater). Ties → NO improvement →
+ * revert (FAIL-CLOSED).
+ *
+ * 2026-07-11 incident — an UNKNOWN score (unparseable/absent/errored judge, see
+ * `ScoreResult.unknown`) short-circuits that comparison to `revert`. It used to
+ * be coerced to 0, which was wrong in BOTH directions: an unknown POST reverted
+ * (harmless), but an unknown BASELINE scored 0 and made ANY post score look
+ * like an improvement, so an unmeasured revision was kept over a good prior
+ * body.
+ *
+ * BODY AUTHORITY (#1082, reaffirmed by 2026-07-11 incident): the FILE is the source of truth
+ * for a skill body; `agent_skills.body` is lifecycle metadata that a
+ * file-authored skill never populates. Every restore path here therefore
+ * prefers the raw pre-apply FILE snapshot, and the DB-history fallback now
+ * REFUSES to write an empty body rather than "restoring" nothing over real
+ * content.
  *
  * Revert:
  *   - Managed target → rollback(skillId, base_version) (snapshots the
@@ -201,16 +215,27 @@ export async function measureAppliedSkill(
     };
 
     // Score baseline (prior body) and post (current revised body). scoreSkillBody
-    // never throws; an unparseable/failed scorer yields 0 (fail-closed).
+    // never throws; an unparseable/failed scorer yields UNKNOWN (2026-07-11 incident).
     const scorer = deps.scorer ?? undefined;
     const baseline = await scoreSkillBody(purpose, prior?.body ?? null, scorer);
     const post = await scoreSkillBody(purpose, skill.body ?? null, scorer);
 
-    const improved = post.score > baseline.score; // STRICTLY greater
-    const reason =
-      `baseline=${baseline.score} (${baseline.reason}); ` +
-      `post=${post.score} (${post.reason}); ` +
-      `decision=${improved ? 'keep' : 'revert'}`;
+    // 2026-07-11 incident — either score being UNKNOWN makes the comparison meaningless, so
+    // never let it decide "keep". Note the old `post.score > baseline.score`
+    // over unknown-as-0 was wrong in BOTH directions: an unknown BASELINE (0)
+    // made any post score look like an improvement, so an unmeasured revision
+    // was KEPT over a perfectly good prior body. Unknown → revert, which
+    // restores the pre-apply file: the non-destructive direction for a row that
+    // is mid-flight by construction (status='measuring').
+    const scoreUnavailable = baseline.unknown === true || post.unknown === true;
+    const improved = !scoreUnavailable && post.score > baseline.score; // STRICTLY greater
+    const reason = scoreUnavailable
+      ? `baseline=${baseline.unknown ? 'unknown' : baseline.score} (${baseline.reason}); ` +
+        `post=${post.unknown ? 'unknown' : post.score} (${post.reason}); ` +
+        `decision=revert (score UNKNOWN — not a judgement about the revision)`
+      : `baseline=${baseline.score} (${baseline.reason}); ` +
+        `post=${post.score} (${post.reason}); ` +
+        `decision=${improved ? 'keep' : 'revert'}`;
 
     if (improved) {
       // KEEP: persist scores + reason, transition measuring → active.
@@ -322,7 +347,23 @@ async function revertAppliedSkill(
           );
           return 'skipped';
         }
-        io.restore(name, Buffer.from(prior?.body ?? restored.body ?? '', 'utf8'));
+        // 2026-07-11 incident — the old `?? ''` here would WRITE AN EMPTY FILE whenever
+        // neither the version snapshot nor the rolled-back row carried a body,
+        // which is the normal state for a file-authored skill (its content
+        // lives in the SKILL.md; the DB row is lifecycle metadata, see the
+        // authority note in the module docstring). Restoring nothing over real
+        // content is worse than not restoring at all: leave the live file and
+        // the measuring row alone so the content survives for a human.
+        const priorBody = prior?.body ?? restored.body ?? null;
+        if (priorBody === null || priorBody.trim() === '') {
+          logger.warn(
+            `[skill-measure] refusing to restore '${name}' from an EMPTY prior body ` +
+              `(no prior content in the file snapshot or v${skill.baseVersion} history) — ` +
+              `leaving the live file untouched`,
+          );
+          return 'skipped';
+        }
+        io.restore(name, Buffer.from(priorBody, 'utf8'));
       }
       wroteFile = true;
     } catch (err) {

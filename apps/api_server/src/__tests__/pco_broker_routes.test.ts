@@ -149,6 +149,35 @@ describe('GET /integrations/planning-center/api/service-types', () => {
   });
 });
 
+describe('GET /integrations/planning-center/api/service-types/:id/plans', () => {
+  it('threads ?filter=past through to the service', async () => {
+    listPlans.mockResolvedValue([]);
+
+    const { status } = await req(
+      'GET',
+      '/integrations/planning-center/api/service-types/st1/plans?filter=past',
+    );
+
+    expect(status).toBe(200);
+    expect(listPlans).toHaveBeenCalledWith(freshAccount, 'st1', 'past');
+  });
+
+  it('defaults to future and never forwards an unrecognized filter upstream', async () => {
+    listPlans.mockResolvedValue([]);
+
+    for (const query of ['', '?filter=future', '?filter=all', '?filter=past%26order%3Dbogus']) {
+      await req('GET', `/integrations/planning-center/api/service-types/st1/plans${query}`);
+    }
+
+    expect(listPlans.mock.calls.map((call) => call[2])).toEqual([
+      'future',
+      'future',
+      'future',
+      'future',
+    ]);
+  });
+});
+
 describe('PCO permission denial signaling', () => {
   it('maps PcoPermissionError to HTTP 403 with code pco_permission_denied (not 500)', async () => {
     listServiceTypes.mockRejectedValue(new PcoPermissionError('nope'));

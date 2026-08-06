@@ -145,7 +145,7 @@ class _StubAgentsRepository implements AgentsRepository {
   }
 
   @override
-  void send(Map<String, dynamic> msg) {}
+  bool send(Map<String, dynamic> msg) => true;
 
   /// Captures the last scope passed to [listSessions] so tests can assert the
   /// `?scope=` param (#1025).

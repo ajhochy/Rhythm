@@ -94,8 +94,40 @@ class AgentSessionMessage {
   }
 }
 
+/// Parse an api_server timestamp, treating a designator-less value as UTC.
+///
+/// The api_server stores and returns SQLite `datetime('now')` output, e.g.
+/// `2026-08-05 22:18:21` — UTC, but with NO trailing `Z` and no offset. Dart reads
+/// a string without a designator as LOCAL time, so that parsed to 22:18 local:
+/// seven hours in the future on PDT. Streamed messages use
+/// `DateTime.now().toUtc()` and are correct, so every REST-loaded message sorted
+/// AFTER every live one and the transcript rendered badly out of order.
+///
+/// Measured: `DateTime.parse('2026-08-05 22:18:21')` → `2026-08-06 05:18:21Z`
+/// versus `…21Z` → `2026-08-05 22:18:21Z`. A 7-hour skew.
+///
+/// This is why the `seq` tiebreaker in compareChatMessages did not fix the
+/// ordering on its own — with a seven-hour skew the timestamps never tie, so the
+/// tiebreaker is never consulted.
 DateTime _parseDateTime(String? value) {
-  final parsed = DateTime.tryParse(value ?? '');
-  if (parsed == null) return DateTime.fromMillisecondsSinceEpoch(0);
-  return parsed;
+  final raw = (value ?? '').trim();
+  if (raw.isEmpty) return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  final parsed = DateTime.tryParse(_asUtcInstant(raw));
+  if (parsed == null)
+    return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  return parsed.toUtc();
 }
+
+/// True when the string already states its zone (trailing `Z`, or a `+hh:mm` /
+/// `-hh:mm` offset after the time portion).
+bool _hasZoneDesignator(String raw) {
+  if (raw.endsWith('Z') || raw.endsWith('z')) return true;
+  // Only look past the date part, so the '-' in `2026-08-05` is not mistaken
+  // for a negative offset.
+  final timeStart = raw.indexOf(RegExp(r'[T ]'));
+  if (timeStart < 0) return false;
+  final timePart = raw.substring(timeStart);
+  return timePart.contains('+') || timePart.contains('-');
+}
+
+String _asUtcInstant(String raw) => _hasZoneDesignator(raw) ? raw : '${raw}Z';

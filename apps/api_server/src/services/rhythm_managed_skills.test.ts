@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 import {
+  defaultManagedSkillsRoot,
   managedSkillsRoot,
   legacyManagedSkillsRoot,
   migrateLegacyManagedSkills,
@@ -76,13 +77,38 @@ describe('writeManagedSkill — #873 context scan integration', () => {
 
 // ── #947 — sole skill source is ~/.config/opencode/skills ──────────────────
 describe('#947 managed skills dir is the sole source', () => {
-  it('managedSkillsRoot defaults to ~/.config/opencode/skills (not the retired sibling)', () => {
+  it('the default root is ~/.config/opencode/skills (not the retired sibling)', () => {
+    expect(defaultManagedSkillsRoot()).toBe(join(homedir(), '.config', 'opencode', 'skills'));
+  });
+
+  // ── Test-isolation guard: managedSkillsRoot() must refuse to resolve to the
+  // user's REAL skill library during a test run. This is the check that stops a
+  // regression of the silent-clobber bug; if it ever fails, tests can destroy
+  // hand-authored SKILL.md files again.
+  it('managedSkillsRoot THROWS under vitest when it would resolve to the real skills dir', () => {
     const prev = process.env.RHYTHM_MANAGED_SKILLS_DIR;
     delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
     try {
-      expect(managedSkillsRoot()).toBe(join(homedir(), '.config', 'opencode', 'skills'));
+      expect(() => managedSkillsRoot()).toThrow(/TEST ISOLATION VIOLATION/);
+      // …and equally when pointed AT the real path explicitly.
+      process.env.RHYTHM_MANAGED_SKILLS_DIR = defaultManagedSkillsRoot();
+      expect(() => managedSkillsRoot()).toThrow(/TEST ISOLATION VIOLATION/);
     } finally {
-      if (prev !== undefined) process.env.RHYTHM_MANAGED_SKILLS_DIR = prev;
+      if (prev === undefined) delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
+      else process.env.RHYTHM_MANAGED_SKILLS_DIR = prev;
+    }
+  });
+
+  it('managedSkillsRoot returns a redirected temp root unchanged', () => {
+    const prev = process.env.RHYTHM_MANAGED_SKILLS_DIR;
+    const temp = mkdtempSync(join(tmpdir(), 'rhythm-guard-ok-'));
+    process.env.RHYTHM_MANAGED_SKILLS_DIR = temp;
+    try {
+      expect(managedSkillsRoot()).toBe(temp);
+    } finally {
+      if (prev === undefined) delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
+      else process.env.RHYTHM_MANAGED_SKILLS_DIR = prev;
+      rmSync(temp, { recursive: true, force: true });
     }
   });
 

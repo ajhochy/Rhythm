@@ -192,7 +192,18 @@ async function proposeRefineRecipe(
     description: recipe.description ?? null,
   };
 
-  const { score } = await scoreSkillBody(purpose, priorBody, scorer);
+  const scored = await scoreSkillBody(purpose, priorBody, scorer);
+  // 2026-07-11 incident — UNKNOWN IS NOT ZERO. An unreadable score used to arrive as 0, i.e.
+  // below every adequacy threshold, so a judge outage manufactured a
+  // refine-recipe proposal for every recipe in the org. Propose nothing.
+  if (scored.unknown) {
+    logger.warn(
+      `[recipe-generator] could not read a score for recipe '${recipe.title}' ` +
+        `(${scored.reason}) — proposing nothing; a later pass will retry`,
+    );
+    return null;
+  }
+  const { score } = scored;
   if (score >= RECIPE_ADEQUACY_THRESHOLD) {
     // Already adequate — no refinement candidate.
     return null;

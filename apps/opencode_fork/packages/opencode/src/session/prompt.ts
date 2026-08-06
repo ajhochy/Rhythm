@@ -50,6 +50,7 @@ import { Shell } from "@/shell/shell"
 import { ShellID } from "@/tool/shell/id"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Truncate } from "@/tool/truncate"
+import * as ImageGeneration from "@/tool/image-generation"
 import { decodeDataUrl, decodeDataUrlBytes } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
@@ -824,6 +825,37 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         tools[key] = wrapped
       }
 
+      // Rhythm carried patch (#1094): native OpenAI image generation. Injected
+      // here rather than through ToolRegistry because a provider tool has no
+      // `execute` — OpenAI runs it server-side on this turn's own connection.
+      const imageRuleset = Permission.merge(input.agent.permission, input.session.permission ?? [])
+      const imageAction = ImageGeneration.enabledFor(input.model, imageRuleset)
+      if (imageAction) {
+        // Provider-executed means the image already exists by the time the call
+        // reaches us, so there is no mid-call hook to ask from. `ask` therefore
+        // resolves once, up front, before the tool is offered at all. Passing an
+        // empty ruleset makes the prompt unconditional (the action is already
+        // decided above); the instance-level approvals `ask` keeps internally
+        // still short-circuit it after an "always" reply, so this is one prompt
+        // per engine boot, not one per turn. A rejection just withholds the tool.
+        const approved =
+          imageAction === "allow" ||
+          (yield* permission
+            .ask({
+              permission: ImageGeneration.ID,
+              patterns: ["*"],
+              always: ["*"],
+              sessionID: input.session.id,
+              metadata: {},
+              ruleset: [],
+            })
+            .pipe(
+              Effect.as(true),
+              Effect.catch(() => Effect.succeed(false)),
+            ))
+        if (approved) tools[ImageGeneration.ID] = ImageGeneration.tool()
+      }
+
       // Rhythm carried patch (mcp-scope): measurement instrument for the per-session
       // MCP allowlist. resolveToolsCount is the number of tool schemas injected into
       // model context; allowlistActive indicates whether the session was scoped by a
@@ -835,6 +867,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // that would otherwise have been individually schema-injected).
       log.debug("resolveTools complete", {
         resolveToolsCount: Object.keys(tools).length,
+        // #1094: undefined when the profile does not grant image_generation or
+        // the model is not an OpenAI Responses one — the two ways this stays off.
+        imageGeneration: imageAction,
+        imageGenerationOffered: ImageGeneration.ID in tools,
         allowlistActive: !!input.session.mcpAllowlist,
         deferredMcpActive: deferredMcp || deferredKeys.size > 0,
         deferredMcpCatalogSize: deferredKeys.size > 0 ? deferredKeys.size : undefined,

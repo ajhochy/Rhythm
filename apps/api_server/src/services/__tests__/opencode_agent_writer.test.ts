@@ -101,7 +101,14 @@ describe('injectManagerPreamble — hub manager with a non-empty roster (#889)',
     // #891: domain delegation must use the engine-native `task` tool (a real
     // subagent that nests under the caller), NOT the rhythm_delegate MCP tool
     // (which orphans a top-level session with no parent link).
-    expect(result).not.toContain('rhythm_delegate');
+    // #891 guard, narrowed. The defect is the SYNC `rhythm_delegate`, which never
+    // sets parentSessionId and so leaves an orphaned top-level session. The
+    // interactive path `rhythm_delegate_async` DOES set
+    // `parentSessionId: callerSession.id` (agent_delegation_service.ts:309), so it
+    // is parent-linked and must be recommended for interactive chat (#1322). The
+    // old bare substring check also matched the async variant.
+    expect(result).not.toMatch(/rhythm_delegate(?!_async)/);
+    expect(result).toContain('rhythm_delegate_async');
     expect(result).toContain('`task` tool');
     expect(result).toContain('subagent_type');
     for (const id of roster) {
@@ -195,7 +202,14 @@ describe('buildHubRoutingPreamble', () => {
     const result = buildHubRoutingPreamble(roster);
 
     // #891: engine-native `task`/subagent_type (nests), NOT rhythm_delegate (orphans).
-    expect(result).not.toContain('rhythm_delegate');
+    // #891 guard, narrowed. The defect is the SYNC `rhythm_delegate`, which never
+    // sets parentSessionId and so leaves an orphaned top-level session. The
+    // interactive path `rhythm_delegate_async` DOES set
+    // `parentSessionId: callerSession.id` (agent_delegation_service.ts:309), so it
+    // is parent-linked and must be recommended for interactive chat (#1322). The
+    // old bare substring check also matched the async variant.
+    expect(result).not.toMatch(/rhythm_delegate(?!_async)/);
+    expect(result).toContain('rhythm_delegate_async');
     expect(result).toContain('`task` tool');
     expect(result).toContain('subagent_type');
     for (const id of roster) {
@@ -222,8 +236,35 @@ describe('buildTaskDelegatePermissions', () => {
     // the engine task permission map on a stale, pre-edit allowlist.
     expect(buildTaskDelegatePermissions(['config-doctor', 'theologian'])).toEqual({
       '*': 'deny',
+      // #1322 — the engine-native subagents are always granted: `task` is FOR
+      // read-only fan-out inside a profile. Crossing a profile boundary is the
+      // explicit roster below. Fail-closed is unchanged — `*` still denies.
+      explore: 'allow',
+      general: 'allow',
       'config-doctor': 'allow',
       theologian: 'allow',
+    });
+  });
+
+  it('#1322: excludes the caller from its own roster (self-delegation is token burn)', () => {
+    // 47 calls / 7.2% of all cross-profile task traffic was self-delegation.
+    // A stale roster entry must not reintroduce it.
+    const map = buildTaskDelegatePermissions(
+      ['coding-agent', 'workflow-orchestrator'],
+      'workflow-orchestrator',
+    );
+    expect(map['workflow-orchestrator']).toBeUndefined();
+    expect(map['coding-agent']).toBe('allow');
+    expect(map['*']).toBe('deny');
+  });
+
+  it('#1322: a non-manager gets the natives and NO cross-profile delegate', () => {
+    // Previously a non-manager got no `task` key at all and inherited the engine
+    // default `"*": "allow"` — unrestricted delegation to any profile.
+    expect(buildTaskDelegatePermissions([], 'ui-ux-designer')).toEqual({
+      '*': 'deny',
+      explore: 'allow',
+      general: 'allow',
     });
   });
 });

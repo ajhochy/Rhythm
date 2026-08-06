@@ -88,7 +88,10 @@ class _RecordingRepository implements AgentsRepository {
   String? rejectCallId;
 
   @override
-  void send(Map<String, dynamic> msg) => sends.add(msg);
+  bool send(Map<String, dynamic> msg) {
+    sends.add(msg);
+    return true;
+  }
 
   @override
   Future<void> replyQuestion(

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { tool, type ModelMessage } from "ai"
+import type { LanguageModelV3StreamPart } from "@ai-sdk/provider"
 import { Cause, Effect, Exit, Stream } from "effect"
 import z from "zod"
 import { makeRuntime } from "../../src/effect/run-service"
@@ -117,6 +118,138 @@ describe("session.llm.hasToolCalls", () => {
       },
     ] as ModelMessage[]
     expect(LLM.hasToolCalls(messages)).toBe(true)
+  })
+})
+
+describe("session.llm.providerStreamInactivityMiddleware", () => {
+  // Short budgets keep this fast: 100ms plain, 500ms while a provider-executed
+  // tool call is outstanding.
+  const IDLE_MS = 100
+  const EXTENDED_MS = IDLE_MS * LLM.PROVIDER_EXECUTED_TOOL_INACTIVITY_FACTOR
+  let previous: string | undefined
+
+  beforeAll(() => {
+    previous = process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
+    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = String(IDLE_MS)
+  })
+
+  afterAll(() => {
+    if (previous === undefined) delete process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
+    else process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = previous
+  })
+
+  function sleep(ms: number) {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms))
+  }
+
+  const providerToolCall = (id: string): LanguageModelV3StreamPart => ({
+    type: "tool-call",
+    toolCallId: id,
+    toolName: "image_generation",
+    input: "{}",
+    providerExecuted: true,
+  })
+
+  const providerToolResult = (id: string, preliminary = false): LanguageModelV3StreamPart => ({
+    type: "tool-result",
+    toolCallId: id,
+    toolName: "image_generation",
+    result: { result: "<base64>" },
+    ...(preliminary ? { preliminary: true } : {}),
+  })
+
+  /** Feed the middleware a stream we control part by part. */
+  async function harness() {
+    const ctrl = new AbortController()
+    let source!: ReadableStreamDefaultController<LanguageModelV3StreamPart>
+    const middleware = LLM.providerStreamInactivityMiddleware({
+      abort: ctrl.signal,
+      abortRequest: () => ctrl.abort(),
+    })
+    const wrapped = await middleware.wrapStream!({
+      doStream: async () => ({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          start(controller) {
+            source = controller
+          },
+        }),
+      }),
+    } as any)
+
+    return {
+      aborted: () => ctrl.signal.aborted,
+      push: (part: LanguageModelV3StreamPart) => source.enqueue(part),
+      close: () => source.close(),
+      /** Read until the stream ends or the watchdog errors it. */
+      drain: async () => {
+        const reader = wrapped.stream.getReader()
+        const parts: LanguageModelV3StreamPart[] = []
+        const started = Date.now()
+        try {
+          for (;;) {
+            const next = await reader.read()
+            if (next.done) return { parts, error: undefined as unknown, elapsed: Date.now() - started }
+            parts.push(next.value)
+          }
+        } catch (error) {
+          return { parts, error, elapsed: Date.now() - started }
+        }
+      },
+    }
+  }
+
+  test("does not abort while a provider-executed tool call is outstanding", async () => {
+    const stream = await harness()
+    stream.push(providerToolCall("call_1"))
+    await sleep(IDLE_MS * 2.5) // past the plain budget, inside the extended one
+    stream.push(providerToolResult("call_1"))
+    stream.close()
+
+    const { parts, error } = await stream.drain()
+    expect(error).toBeUndefined()
+    expect(parts.map((part) => part.type)).toEqual(["tool-call", "tool-result"])
+    expect(stream.aborted()).toBe(false)
+  })
+
+  test("still aborts a stream that is idle with no provider-executed tool in flight", async () => {
+    const stream = await harness()
+
+    const { error } = await stream.drain()
+    expect(String(error)).toContain(`Provider stream inactive for ${IDLE_MS}ms`)
+    expect(stream.aborted()).toBe(true)
+  })
+
+  test("restores the plain budget once the provider-executed tool completes", async () => {
+    const stream = await harness()
+    stream.push(providerToolCall("call_1"))
+    stream.push(providerToolResult("call_1"))
+
+    const { parts, error, elapsed } = await stream.drain()
+    expect(parts.map((part) => part.type)).toEqual(["tool-call", "tool-result"])
+    expect(String(error)).toContain(`Provider stream inactive for ${IDLE_MS}ms`)
+    expect(elapsed).toBeLessThan(EXTENDED_MS)
+  })
+
+  test("keeps the extended budget finite when a provider-executed tool never returns", async () => {
+    const stream = await harness()
+    stream.push(providerToolCall("call_1"))
+
+    const { error } = await stream.drain()
+    expect(String(error)).toContain(`Provider stream inactive for ${EXTENDED_MS}ms`)
+    expect(stream.aborted()).toBe(true)
+  })
+
+  test("treats a preliminary tool result as the call still running", async () => {
+    const stream = await harness()
+    stream.push(providerToolCall("call_1"))
+    stream.push(providerToolResult("call_1", true))
+    await sleep(IDLE_MS * 2.5)
+    stream.push(providerToolResult("call_1"))
+    stream.close()
+
+    const { parts, error } = await stream.drain()
+    expect(error).toBeUndefined()
+    expect(parts).toHaveLength(3)
   })
 })
 

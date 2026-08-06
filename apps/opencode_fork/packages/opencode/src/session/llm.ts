@@ -35,6 +35,22 @@ export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 type Result = Awaited<ReturnType<typeof streamText>>
 export const PROVIDER_STREAM_INACTIVITY_DEFAULT_MS = 180_000
 
+/**
+ * How much slack a provider-executed tool call buys the inactivity watchdog.
+ *
+ * Provider-executed tools (OpenAI's `image_generation`, `code_interpreter`, …)
+ * run server-side inside the same Responses call and emit nothing between the
+ * `tool-call` part and the `tool-result` part, so the stream is *legitimately*
+ * silent for the entire run. At the plain 180s budget any gpt-image-1 render
+ * slower than 3 minutes aborted with "Provider stream inactive for 180000ms".
+ *
+ * ponytail: a multiplier rather than a second env knob — one dial still tunes
+ * both, and the extended budget stays finite so a provider tool that never
+ * returns is still detected (5 × 180s = 15 min). Make it its own setting when
+ * some tool legitimately needs longer than that.
+ */
+export const PROVIDER_EXECUTED_TOOL_INACTIVITY_FACTOR = 5
+
 export class ProviderStreamInactivityError extends Error {
   constructor(readonly timeoutMs: number) {
     super(`Provider stream inactive for ${timeoutMs}ms`)
@@ -47,7 +63,9 @@ export function providerStreamInactivityMs() {
   return Number.isFinite(configured) && configured > 0 ? configured : PROVIDER_STREAM_INACTIVITY_DEFAULT_MS
 }
 
-function providerStreamInactivityMiddleware(input: StreamRequest): LanguageModelV3Middleware {
+export function providerStreamInactivityMiddleware(
+  input: Pick<StreamRequest, "abort" | "abortRequest">,
+): LanguageModelV3Middleware {
   const timeoutMs = providerStreamInactivityMs()
   let aborted = false
   const abortOnce = () => {
@@ -55,7 +73,7 @@ function providerStreamInactivityMiddleware(input: StreamRequest): LanguageModel
     aborted = true
     input.abortRequest()
   }
-  const timeoutError = () => new ProviderStreamInactivityError(timeoutMs)
+  const timeoutError = (ms = timeoutMs) => new ProviderStreamInactivityError(ms)
 
   const open = (doStream: () => PromiseLike<LanguageModelV3StreamResult>) =>
     new Promise<LanguageModelV3StreamResult>((resolve, reject) => {
@@ -97,16 +115,38 @@ function providerStreamInactivityMiddleware(input: StreamRequest): LanguageModel
         clearTimeout(timer)
         timer = undefined
       }
+
+      // Tool calls the provider is executing for us right now. While any is
+      // outstanding the silence is expected work, not a stalled stream, so the
+      // watchdog runs on the extended budget instead of aborting a render
+      // mid-flight. Generic on purpose: keyed off `providerExecuted`, not off
+      // any one tool name.
+      const outstandingProviderTools = new Set<string>()
+      const trackProviderTool = (part: LanguageModelV3StreamPart) => {
+        if (part.type === "tool-call" || part.type === "tool-input-start") {
+          if (!part.providerExecuted) return
+          outstandingProviderTools.add(part.type === "tool-call" ? part.toolCallId : part.id)
+          return
+        }
+        // A tool-result on a model stream can only come from the provider.
+        // Preliminary ones (partial image frames, streamed previews) replace
+        // each other and mean the call is still running.
+        if (part.type === "tool-result" && !part.preliminary) outstandingProviderTools.delete(part.toolCallId)
+      }
+
       const armTimer = (controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>) => {
         clearTimer()
+        const budgetMs = outstandingProviderTools.size
+          ? timeoutMs * PROVIDER_EXECUTED_TOOL_INACTIVITY_FACTOR
+          : timeoutMs
         timer = setTimeout(() => {
           if (closed || input.abort.aborted) return
           closed = true
-          const error = timeoutError()
+          const error = timeoutError(budgetMs)
           controller.error(error)
           void reader.cancel(error).catch(() => undefined)
           abortOnce()
-        }, timeoutMs)
+        }, budgetMs)
       }
 
       return {
@@ -124,6 +164,7 @@ function providerStreamInactivityMiddleware(input: StreamRequest): LanguageModel
                     controller.close()
                     return
                   }
+                  trackProviderTool(next.value)
                   controller.enqueue(next.value)
                   armTimer(controller)
                 }

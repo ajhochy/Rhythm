@@ -268,7 +268,20 @@ export class AgentConfigsController {
     try {
       const config = repo.getById(req.params.id);
       if (!config) throw AppError.notFound('AgentConfig');
-      writeAgentProfileFile(config);
+      const result = writeAgentProfileFile(config);
+      // A blocked or failed write leaves the file stale. Reporting 200 here made
+      // that indistinguishable from a successful resync — the exact confusion
+      // this endpoint exists to resolve. The scanned content is never echoed
+      // back; only the fact that it was rejected.
+      if (result === 'blocked') {
+        throw AppError.badRequest(
+          `Agent file for "${config.id}" was not written: its system prompt was rejected by the ` +
+            `content scanner. Edit the system prompt and resync again.`,
+        );
+      }
+      if (result === 'failed') {
+        throw AppError.internal(`Agent file for "${config.id}" could not be written. See server logs.`);
+      }
       broadcastAgentConfigsChanged();
       res.json(config);
     } catch (err) {

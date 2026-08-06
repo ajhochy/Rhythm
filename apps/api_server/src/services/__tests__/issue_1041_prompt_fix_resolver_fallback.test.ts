@@ -28,6 +28,7 @@ import {
   resetProposalPluginsForTests,
 } from '../org_proposal_apply_service';
 import { registerAllProposalAppliers } from '../org_proposal_appliers_wiring';
+import { useTempManagedSkillsRoot } from '../../__tests__/_managed_skills_temp_root';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -35,6 +36,11 @@ function makeDb() {
   runMigrations(db);
   return db;
 }
+
+// The appliers below write real SKILL.md files, and these fixtures use the REAL
+// skill name `monday-worship-planning` — without this the suite overwrote the
+// user's live skill with `concreteFix` text.
+useTempManagedSkillsRoot('rhythm-1041');
 
 beforeEach(() => {
   setDb(makeDb());

@@ -34,6 +34,8 @@ function makeCtx(overrides: Partial<DiagnosisContext> = {}): DiagnosisContext {
     ],
     profile: null,
     agentConfig: null,
+    mcpScope: { shape: 'unrestricted', servers: [], toolsByServer: {} },
+    coreCapabilities: { actions: {}, granted: [] },
     skillBody: null,
     deniedTools: [],
     delegationOutbound: [],

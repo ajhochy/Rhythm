@@ -35,6 +35,18 @@
  * window's skill names, so the SAME streak never re-signals, but a NEW bad
  * skill entering the window can.
  *
+ * ── 2026-07-11 incident — UNKNOWN IS NOT ZERO (data-loss regression guard) ───────────────
+ * The tier boundaries above only apply to a score the judge actually RETURNED.
+ * An unparseable/absent/errored score (`ScoreResult.unknown`) is a FOURTH
+ * outcome: do nothing. No status change, no file write, no disable, no rewrite
+ * flag — the draft stays `status: draft` and the next pass retries it. Before
+ * this, `scoreSkillBody` coerced unknown to 0, which is the BOTTOM of the
+ * rubric, so a judge outage was indistinguishable from "this skill is garbage"
+ * and took the destructive branch. On 2026-07-11 that emptied four of the
+ * user's hand-written skills inside eight minutes, recording the reason
+ * verbatim as `harvest-eval: disabled (score=0 < 40); unparseable score —
+ * treated as 0`.
+ *
  * Never throws. isTestEnv() short-circuits the real scorer to zero side
  * effects (mirrors skill_measurement.ts / skill_refiner.ts); a test injects
  * `deps.scorer` to exercise the real branch. No-op under Postgres (agent
@@ -106,6 +118,7 @@ import {
   scoreSkillBody,
   rewriteSkillBody,
   isSkillRefinementEnabled,
+  KEEP_SCORE_BAR,
   type ScoreCall,
   type RewriteCall,
   type SkillPurpose,
@@ -233,8 +246,9 @@ async function withHarvestJudgeTimeout<T>(
 }
 
 /** Reuses skill_refiner.ts's OWN rubric bands (buildScoreSystemPrompt) verbatim
- *  as the keep/disable tier boundaries — no separately-invented bar. */
-const KEEP_SCORE_BAR = 61;
+ *  as the keep/disable tier boundaries — no separately-invented bar.
+ *  KEEP_SCORE_BAR now lives in skill_refiner.ts (the rubric's owner) so the
+ *  external-adoption floor shares the exact same number. */
 const DISABLE_SCORE_BAR = 20;
 
 /** Issue's own worked example, implemented literally. */
@@ -274,6 +288,12 @@ export interface EvaluateSummary {
   kept: number;
   disabled: number;
   rewriteNeeded: number;
+  /**
+   * 2026-07-11 incident — drafts whose score could NOT be read this pass. These are NOT
+   * evaluated, NOT counted in kept/disabled/rewriteNeeded, and were left
+   * byte-for-byte untouched for a later pass to retry.
+   */
+  scoreUnknown: number;
   /** #969 — rewrite-needed drafts given a candidate-rewrite attempt this pass. */
   rewriteAttempted: number;
   /** #969 — of those attempts, how many measurably improved and moved to active. */
@@ -286,6 +306,7 @@ const EMPTY_SUMMARY: EvaluateSummary = {
   kept: 0,
   disabled: 0,
   rewriteNeeded: 0,
+  scoreUnknown: 0,
   rewriteAttempted: 0,
   rewritten: 0,
   harvesterSignalCreated: false,
@@ -438,6 +459,23 @@ async function rewriteFlaggedDrafts(
         () => scoreSkillBody(purpose, candidateBody, deps.scorer),
       );
       if (!candidateScore) continue;
+
+      // 2026-07-11 incident — an unreadable score cannot justify writing anything, including
+      // the `rewriteAttemptedAt` cap marker: stamping it would burn this
+      // draft's ONE lifetime attempt on a judge outage. Leave the file exactly
+      // as it is and let a later pass retry.
+      // ponytail: ceiling — a permanently broken judge re-runs the
+      // generate+score pair once per idle sweep for this draft. Bound it with a
+      // separate unknown-attempt counter in frontmatter only if that shows up
+      // in the cost logs.
+      if (candidateScore.unknown) {
+        logger.warn(
+          `[harvest-eval] rewrite judge for '${name}' returned no readable score ` +
+            `(${candidateScore.reason}) — leaving the draft untouched and NOT consuming its rewrite attempt`,
+        );
+        continue;
+      }
+
       const baselineScore = draft.frontmatter.postScore ?? 0;
       const attemptedAtNow = now();
 
@@ -535,6 +573,22 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
           () => scoreSkillBody(purpose, draft.body, deps.scorer),
         );
         if (!result) continue;
+
+        // 2026-07-11 incident — UNKNOWN IS NOT ZERO. A judge response we could not read tells
+        // us NOTHING about this skill, so do nothing at all: no status change,
+        // no file write, no disable, no rewrite flag. The draft stays
+        // `status: draft`, which is exactly the condition this loop selects on,
+        // so the next pass retries it for free. Treating unknown as 0 is what
+        // emptied four hand-written skills on 2026-07-11.
+        if (result.unknown) {
+          summary.scoreUnknown++;
+          logger.warn(
+            `[harvest-eval] could NOT read a score for '${name}' (${result.reason}) — ` +
+              `leaving the draft untouched; a later pass will retry`,
+          );
+          continue;
+        }
+
         summary.evaluated++;
         const evaluatedAt = now();
 

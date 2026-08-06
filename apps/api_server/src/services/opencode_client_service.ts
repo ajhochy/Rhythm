@@ -796,6 +796,26 @@ export class OpencodeClientService {
         );
       }
 
+      // #1094 follow-up — DELIBERATELY NOT raising
+      // RHYTHM_PROVIDER_STREAM_INACTIVITY_MS here any more.
+      //
+      // An interim mitigation on this line raised the engine child's watchdog to
+      // 600_000ms, because `image_generation` runs server-side with partial
+      // images disabled and so streams nothing at all while rendering — any
+      // gpt-image-1 render slower than the 180s default aborted with
+      // "Provider stream inactive for 180000ms".
+      //
+      // That was a blunt global raise: it also delayed detection of a genuinely
+      // hung stream from 3 to 10 minutes for EVERY request. The engine now
+      // handles this properly — `providerStreamInactivityMiddleware` in
+      // session/llm.ts tracks outstanding provider-executed tool calls and
+      // extends the budget by PROVIDER_EXECUTED_TOOL_INACTIVITY_FACTOR only
+      // while one is in flight, returning ordinary text streams to the tight
+      // 180s detection the watchdog exists for (#1211).
+      //
+      // Strictly better on both axes, so the mitigation is removed rather than
+      // layered on top. An operator-supplied env value still wins, as before.
+
       const t5 = Date.now();
       clearTrustedMcpVerifier();
       const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });

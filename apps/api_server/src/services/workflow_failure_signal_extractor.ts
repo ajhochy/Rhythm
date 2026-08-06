@@ -50,6 +50,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { isToolAllowed } from './mcp_dispatch_guard';
 import type { AgentSession, AgentSessionMessage, AgentSessionStatus } from '../models/agent_session';
 
 // ── Public shapes ────────────────────────────────────────────────────────
@@ -429,12 +430,27 @@ async function detectMissingScopeSignals(
     const config = configsRepo.getById(entry.agentConfigId);
     if (!config) continue;
 
-    // #936 stale-fixed safeguard: the scope has already been granted since
-    // the denial(s) were recorded — the gap this signal would report is gone.
-    const alreadyGranted =
-      parseJsonStringArray(config.allowedMcpsJson).includes(entry.toolName) ||
-      parseJsonStringArray(config.allowedSkillsJson).includes(entry.toolName);
-    if (alreadyGranted) continue;
+    // #936 stale-fixed safeguard: the scope has already been granted — the gap
+    // this signal would report does not exist.
+    //
+    // A DENIAL IS NOT PROOF OF A MISSING GRANT. This check used to compare a
+    // model-facing TOOL id ('gitnexus_query') against a list of SERVER names
+    // parsed with a local array-only helper, so it matched nothing: it never
+    // fired for the tools-map shape, and never for a tool id at all. Real
+    // denials on in-scope tools (a dispatch-guard/scope disagreement) therefore
+    // became "missing-scope" signals, which is how a profile that HAS gitnexus
+    // got a high-risk "grant gitnexus" proposal filed against it. `isToolAllowed`
+    // is the same predicate the dispatch guard enforces with, so "in scope"
+    // means exactly what the runtime means by it.
+    if (isToolAllowed(entry.toolName, config.allowedMcpsJson ?? null)) {
+      logger.warn(
+        `[workflow-failure-signals] denied tool '${entry.toolName}' IS within ${entry.agentConfigId}'s ` +
+          `resolved MCP scope — not filing a missing-scope signal. The denial is real but its cause is ` +
+          `not a missing grant (check the enforcing session's mcp_allowed_tools_json).`,
+      );
+      continue;
+    }
+    if (parseJsonStringArray(config.allowedSkillsJson).includes(entry.toolName)) continue;
 
     signals.push({
       category: 'missing-scope',

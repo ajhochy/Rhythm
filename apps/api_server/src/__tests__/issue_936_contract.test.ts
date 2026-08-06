@@ -102,7 +102,12 @@ describe('issue-936-c2: the shared per-run cap holds for workflow-derived propos
     const deniedRepo = new DeniedToolEventsRepository();
     for (let i = 0; i < 8; i++) {
       const id = `profile-${i}`;
-      configsRepo.insert({ id, label: id, icon: 'x' });
+      // The profiles must be SCOPED for these denials to be real missing-scope
+      // signals: an unrestricted profile (allowedMcpsJson=null) already reaches
+      // every server, so "grant it nfl_mcp" is not a gap — and applying it would
+      // REPLACE unrestricted access with `["nfl_mcp"]` alone. The optimizer now
+      // refuses to file that (org_optimizer_scope_false_positives.test.ts).
+      configsRepo.insert({ id, label: id, icon: 'x', allowedMcpsJson: JSON.stringify(['rhythm']) });
       await deniedRepo.recordAsync({ sessionId: `sess-${i}`, agentConfigId: id, toolName: 'nfl_mcp' });
     }
 

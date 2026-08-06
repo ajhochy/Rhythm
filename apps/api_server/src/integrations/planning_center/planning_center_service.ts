@@ -646,10 +646,34 @@ export class PlanningCenterService {
     }));
   }
 
-  async listPlans(account: IntegrationAccount, serviceTypeId: string) {
+  /**
+   * `filter` was hard-coded to `future`, which made past plans unreachable
+   * through Rhythm entirely. The pco-song-usage-sync job exists to record
+   * which songs were played on which past service dates, and the skill points
+   * it at this endpoint — so the job could never be completed as specified.
+   * Every run since 2026-07-26 reported the same blocker, in the agent's own
+   * words: "the available PCO listing does not expose pagination, so it cannot
+   * provide a verifiable complete historic export."
+   *
+   * Past listings are ordered newest-first on purpose: PCO defaults to
+   * ascending sort_date, so `filter=past` alone returns the OLDEST plans in
+   * the service type's history — for a service running weekly since 2016 that
+   * is a decade of irrelevant rows and none of the recent ones.
+   *
+   * ponytail: one page of 100 (PCO's per_page max), no offset paging. Newest
+   * 100 past plans is ~2 years of a weekly service and the applier is
+   * idempotent, so a weekly sync can never fall behind it. Add offset paging
+   * here if some job ever needs deeper history — not in the callers.
+   */
+  async listPlans(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    filter: 'future' | 'past' = 'future',
+  ) {
+    const order = filter === 'past' ? '&order=-sort_date' : '';
     const res = await this.getJson(
       account,
-      `/services/v2/service_types/${serviceTypeId}/plans?filter=future&per_page=100`,
+      `/services/v2/service_types/${serviceTypeId}/plans?filter=${filter}&per_page=100${order}`,
     );
     return (res.data ?? []).map((r) => ({
       id: r.id,

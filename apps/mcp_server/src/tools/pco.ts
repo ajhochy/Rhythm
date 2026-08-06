@@ -62,11 +62,20 @@ export function registerPcoTools(
   );
 
   registerTool(server, 'rhythm_pco_list_plans',
-    'List upcoming (future) Planning Center plans for a service type. Returns id, title, dates.',
-    { service_type_id: z.string().describe('Service type id from rhythm_pco_list_service_types.') },
-    async ({ service_type_id }: { service_type_id: string }, extra) => {
+    'List Planning Center plans for a service type. Returns id, title, dates. ' +
+    'Defaults to upcoming (future) plans; pass filter="past" for plans that ' +
+    'have already happened, newest first — that is what a song-usage or ' +
+    'service-history sync needs. Returns at most 100 plans per call.',
+    {
+      service_type_id: z.string().describe('Service type id from rhythm_pco_list_service_types.'),
+      filter: z.enum(['future', 'past']).optional().describe(
+        'Which side of today to list. "future" (default) for upcoming plans, "past" for plans already held, newest first.',
+      ),
+    },
+    async ({ service_type_id, filter }: { service_type_id: string; filter?: 'future' | 'past' }, extra) => {
       try {
-        const data = await apiGet<unknown>(apiUrl, apiToken, `/integrations/planning-center/api/service-types/${service_type_id}/plans`);
+        const query = filter ? `?filter=${filter}` : '';
+        const data = await apiGet<unknown>(apiUrl, apiToken, `/integrations/planning-center/api/service-types/${service_type_id}/plans${query}`);
         return await externalResult(data, 'pco.plans', 'Planning Center plans', extra);
       } catch (err) { return handleErr(err); }
     },

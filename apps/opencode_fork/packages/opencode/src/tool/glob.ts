@@ -53,7 +53,9 @@ export const GlobTool = Tool.define(
 
           const limit = 100
           let truncated = false
-          const files = yield* rg.files({ cwd: search, glob: [params.pattern], signal: ctx.abort }).pipe(
+          // The traversal budget lives in Ripgrep (see ripgrepTimeoutMs); `label` is what the
+          // model sees if it expires.
+          const files = yield* rg.files({ cwd: search, glob: [params.pattern], signal: ctx.abort, label: "glob" }).pipe(
             Stream.mapEffect((file) =>
               Effect.gen(function* () {
                 const full = path.resolve(search, file)

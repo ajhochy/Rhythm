@@ -294,10 +294,19 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
 
     await new AsyncDelegationCompletionService().onChildIdle(child.id);
     const promptOptions = engineSpies.promptAsync.mock.calls[0][4] as {
-      messageID: string;
+      messageID?: string;
     };
     const wakeText = String(engineSpies.promptAsync.mock.calls[0][1]);
-    expect(promptOptions.messageID).toMatch(/^msg_rhythm_async_/);
+
+    // The wake must NOT carry a fabricated message id. Engine ids are
+    // `msg_` + 12 HEX chars encoding a timestamp, and the engine orders a
+    // session's messages by that decoded value. `msg_rhythm_async_<sha256>` is
+    // undecodable, so the wake had no position in time and the engine re-invoked
+    // the model forever (56 assistant turns, observed 2026-08-05). Recovery keys
+    // on the deterministic MARKER in the text instead, which is what makes this
+    // idempotent.
+    expect(promptOptions.messageID).toBeUndefined();
+    expect(wakeText).toMatch(/<!-- rhythm-async-delegation:msg_rhythm_async_[0-9a-f]{24} -->/);
 
     // Simulate the only ambiguous crash window: OpenCode accepted/persisted the
     // deterministic user message, but api_server died before its notified write.
@@ -311,7 +320,9 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     engineSpies.promptAsync.mockClear();
     engineSpies.listMessages.mockResolvedValue([
       {
-        info: { id: promptOptions.messageID },
+        // A realistic engine-assigned id (12 hex + base62) — recovery must
+        // recognise the wake from the marker in the text, not from id equality.
+        info: { id: 'msg_fd3811aaaa01Zq7TmLr4Wc9Xb' },
         parts: [{ type: 'text', text: wakeText }],
       },
     ]);

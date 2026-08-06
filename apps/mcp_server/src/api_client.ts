@@ -10,10 +10,41 @@ export class RhythmApiError extends Error {
   }
 }
 
+/**
+ * Render an API error body as text an AGENT can act on.
+ *
+ * Rhythm's error envelope is `{ error: { code, message } }` — an object. The
+ * previous `String(body.error)` therefore produced the literal
+ * "[object Object]" for every structured error, which is what an agent saw and
+ * relayed to the user. Observed live 2026-08-04: Memory Consolidation reported
+ * only "approval requests were rejected by the server" for 8x
+ * `409: [object Object]`, and separately swallowed a `400: [object Object]` on a
+ * memory write — in both cases the actual reason existed server-side and was
+ * discarded here.
+ */
+function describeErrorBody(body: Record<string, unknown>, fallback: string): string {
+  const err = body.error ?? body.message ?? null;
+  if (typeof err === 'string' && err.trim()) return err;
+  if (err && typeof err === 'object') {
+    const rec = err as Record<string, unknown>;
+    const message = typeof rec.message === 'string' ? rec.message : null;
+    const code = typeof rec.code === 'string' ? rec.code : null;
+    if (message && code) return `${code}: ${message}`;
+    if (message) return message;
+    if (code) return code;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      /* fall through to the status text */
+    }
+  }
+  return fallback;
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as Record<string, unknown>;
-    throw new RhythmApiError(res.status, String(body.error ?? res.statusText));
+    throw new RhythmApiError(res.status, describeErrorBody(body, res.statusText));
   }
   return res.json() as Promise<T>;
 }
