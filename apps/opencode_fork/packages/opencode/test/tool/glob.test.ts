@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { GlobTool } from "../../src/tool/glob"
@@ -76,6 +76,60 @@ describe("tool.glob", () => {
         const err = Cause.squash(exit.cause)
         expect(err instanceof Error ? err.message : String(err)).toContain("glob path must be a directory")
       }
+    }),
+  )
+})
+
+// The budget itself now lives in Ripgrep (test/file/ripgrep.test.ts covers parsing, `search`
+// and `tree`). These two prove the glob tool is still bounded end to end, that the error still
+// reads as a glob error, and — because they set the pre-centralization variable — that
+// RHYTHM_GLOB_TIMEOUT_MS is still honored.
+describe("tool.glob timeout", () => {
+  const original = process.env.RHYTHM_GLOB_TIMEOUT_MS
+  afterEach(() => {
+    if (original === undefined) delete process.env.RHYTHM_GLOB_TIMEOUT_MS
+    else process.env.RHYTHM_GLOB_TIMEOUT_MS = original
+  })
+
+  // A traversal that outlives the budget errors instead of hanging. Squeezing the budget to 1ms
+  // is the deterministic stand-in for the real trigger (`**/x.py` rooted at $HOME), which would
+  // otherwise need a genuinely enormous tree to reproduce.
+  it.instance("fails with an actionable error when the traversal outlives the budget", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => Bun.write(path.join(test.directory, "deep/nested/tree/a.ts"), "export const a = 1\n"))
+      process.env.RHYTHM_GLOB_TIMEOUT_MS = "1"
+      const info = yield* GlobTool
+      const glob = yield* info.init()
+      const started = Date.now()
+      const exit = yield* glob.execute({ pattern: "**/*.py", path: test.directory }, ctx).pipe(Effect.exit)
+      const elapsed = Date.now() - started
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const err = Cause.squash(exit.cause)
+        const message = err instanceof Error ? err.message : String(err)
+        expect(message).toContain("glob timed out after 1ms")
+        expect(message).toContain(test.directory)
+        expect(message).toContain("**/*.py")
+        expect(message).toContain("RHYTHM_RIPGREP_TIMEOUT_MS")
+      }
+      // it returns, rather than sitting on the run-level inactivity window
+      expect(elapsed).toBeLessThan(10_000)
+    }),
+  )
+
+  it.instance("leaves a normal glob alone when the budget is generous", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => Bun.write(path.join(test.directory, "deep/nested/tree/a.ts"), "export const a = 1\n"))
+      yield* Effect.promise(() => Bun.write(path.join(test.directory, "b.txt"), "hello\n"))
+      process.env.RHYTHM_GLOB_TIMEOUT_MS = "60000"
+      const info = yield* GlobTool
+      const glob = yield* info.init()
+      const result = yield* glob.execute({ pattern: "**/*.ts", path: test.directory }, ctx)
+      expect(result.metadata.count).toBe(1)
+      expect(result.metadata.truncated).toBe(false)
+      expect(result.output).toContain(path.join(test.directory, "deep/nested/tree/a.ts"))
     }),
   )
 })

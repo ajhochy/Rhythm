@@ -75,6 +75,7 @@ describe('evaluateHarvestedDrafts — test-env guard', () => {
       kept: 0,
       disabled: 0,
       rewriteNeeded: 0,
+      scoreUnknown: 0,
       rewriteAttempted: 0,
       rewritten: 0,
       harvesterSignalCreated: false,
@@ -194,10 +195,16 @@ describe('evaluateHarvestedDrafts — Unit 3 keep/disable/rewrite-needed (guard 
       reload: noopReload,
       proposalsRepo: new AgentOrgProposalsRepository(),
     });
-    // scoreSkillBody itself is fail-closed (score 0 on a throw), so this
-    // still evaluates to a disable outcome rather than crashing the pass.
-    expect(summary.evaluated).toBe(1);
-    expect(summary.disabled).toBe(1);
+    // 2026-07-11 incident — this test previously asserted `evaluated: 1, disabled: 1`,
+    // documenting the data-loss bug: a THROWN judge was fail-closed to score 0,
+    // the bottom of the rubric, so an outage disabled the skill. A thrown judge
+    // is now an UNKNOWN score, so the draft is left exactly as it is (which is
+    // what this test's own name always claimed) and a later pass retries it.
+    expect(summary.evaluated).toBe(0);
+    expect(summary.disabled).toBe(0);
+    expect(summary.scoreUnknown).toBe(1);
+    expect(readDraftSkill('flaky-skill')?.frontmatter.status).toBe('draft');
+    expect(listDisabledSkillNames()).toEqual([]);
   });
 
   it('times out one hanging judge call and still evaluates later eligible drafts', async () => {

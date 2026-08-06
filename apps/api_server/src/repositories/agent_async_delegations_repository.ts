@@ -5,7 +5,8 @@ export type AsyncDelegationStatus =
   | 'completed'
   | 'waking'
   | 'notified'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 export interface AgentAsyncDelegation {
   id: string;
@@ -77,6 +78,45 @@ export class AgentAsyncDelegationsRepository {
     return this.findByChildSessionId(input.childSessionId)!;
   }
 
+  /** Every delegation this parent has dispatched, newest first. */
+  listForParent(parentSessionId: string, limit = 50): AgentAsyncDelegation[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_async_delegations
+          WHERE parent_session_id = ?
+          ORDER BY created_at DESC
+          LIMIT ?`,
+      )
+      .all(parentSessionId, limit) as AgentAsyncDelegationRow[];
+    return rows.map(rowToModel);
+  }
+
+  /**
+   * Mark a delegation cancelled. Terminal states are left alone so a cancel that
+   * races a completion cannot rewrite a result the parent may already have been
+   * woken with. Returns the row when it actually transitioned, else null.
+   */
+  markCancelled(id: string): AgentAsyncDelegation | null {
+    const db = getDb();
+    db.prepare(
+      `UPDATE agent_async_delegations
+          SET status = 'cancelled', updated_at = datetime('now')
+        WHERE id = ? AND status IN ('dispatched', 'waking')`,
+    ).run(id);
+    const row = db
+      .prepare(`SELECT * FROM agent_async_delegations WHERE id = ?`)
+      .get(id) as AgentAsyncDelegationRow | undefined;
+    if (!row) return null;
+    return row.status === 'cancelled' ? rowToModel(row) : null;
+  }
+
+  findById(id: string): AgentAsyncDelegation | null {
+    const row = getDb()
+      .prepare(`SELECT * FROM agent_async_delegations WHERE id = ?`)
+      .get(id) as AgentAsyncDelegationRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
   findByChildSessionId(childSessionId: string): AgentAsyncDelegation | null {
     const row = getDb()
       .prepare(
@@ -101,6 +141,9 @@ export class AgentAsyncDelegationsRepository {
                 completed_at = COALESCE(completed_at, ?),
                 updated_at = ?
           WHERE child_session_id = ?
+            -- A cancelled delegation must never be resurrected, and must never
+            -- wake the parent with a result its owner explicitly stopped.
+            AND status != 'cancelled'
             AND status = 'dispatched'`,
       )
       .run(completionText, errorText, now, now, childSessionId);
@@ -118,6 +161,9 @@ export class AgentAsyncDelegationsRepository {
                 completed_at = COALESCE(completed_at, ?),
                 updated_at = ?
           WHERE child_session_id = ?
+            -- A cancelled delegation must never be resurrected, and must never
+            -- wake the parent with a result its owner explicitly stopped.
+            AND status != 'cancelled'
             AND status = 'dispatched'`,
       )
       .run(errorText, now, now, childSessionId);
@@ -131,6 +177,9 @@ export class AgentAsyncDelegationsRepository {
         `UPDATE agent_async_delegations
             SET status = 'failed', error_text = ?, updated_at = ?
           WHERE child_session_id = ?
+            -- A cancelled delegation must never be resurrected, and must never
+            -- wake the parent with a result its owner explicitly stopped.
+            AND status != 'cancelled'
             AND status = 'dispatched'`,
       )
       .run(errorText, now, childSessionId);

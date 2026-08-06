@@ -364,6 +364,9 @@ async function checkThinHistoryNoAutoAppliedTighten(): Promise<void> {
         isManager: false,
         enabled: true,
         allowedMcps: ['rhythm', 'nfl-mcp'],
+        // Server-name-array shape — the grant granularity this usage lane judges.
+        mcpScopeShape: 'servers' as const,
+        allowedMcpTools: { rhythm: [], 'nfl-mcp': [] },
         allowedSkills: [],
         allowedDelegates: [],
       },
@@ -373,6 +376,9 @@ async function checkThinHistoryNoAutoAppliedTighten(): Promise<void> {
         isManager: false,
         enabled: true,
         allowedMcps: ['rhythm', 'nfl-mcp'],
+        // Server-name-array shape — the grant granularity this usage lane judges.
+        mcpScopeShape: 'servers' as const,
+        allowedMcpTools: { rhythm: [], 'nfl-mcp': [] },
         allowedSkills: [],
         allowedDelegates: [],
       },

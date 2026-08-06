@@ -104,6 +104,7 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['org-optimizer.run', 'rhythm_run_org_optimizer'],
   ['delegation.start', 'rhythm_delegate'],
   ['delegation.start-async', 'rhythm_delegate_async'],
+  ['delegation.cancel', 'rhythm_delegation_cancel'],
   ['notification.send', 'rhythm_notify'],
   ['scheduled-task.create', 'rhythm_create_scheduled_task'],
   ['scheduled-task.cancel', 'rhythm_cancel_scheduled_task'],
@@ -139,8 +140,27 @@ async function requireTrustedCall(
       Date.now(),
       nonceScope,
     );
-  } catch {
-    throw AppError.forbidden('trusted Rhythm MCP caller is required');
+  } catch (err) {
+    // Naming the reason is the whole point of this catch. It used to swallow
+    // the error, which made the #1094 dashboard 403 undiagnosable: the
+    // operator saw a bare "403" and could not tell a missing envelope from a
+    // replayed nonce, a stale proof, or a tool-name mismatch — the three have
+    // completely different fixes.
+    //
+    // Every reason verifyTrustedMcpCall throws is a fixed, content-free
+    // sentence ('trusted MCP call is missing', '… payload mismatch', '… is
+    // expired', '… was already consumed', '… signature is invalid'). It
+    // carries no external content, no arguments, no digest and no key
+    // material, so it is safe to log and to return to the localhost caller.
+    // The error handler logs every AppError message, so this is the
+    // server-side log too.
+    const reason =
+      err instanceof Error && err.message !== ''
+        ? err.message
+        : 'unknown trusted-call verification failure';
+    throw AppError.forbidden(
+      `trusted Rhythm MCP caller is required for ${expectedToolName}: ${reason}`,
+    );
   }
 }
 

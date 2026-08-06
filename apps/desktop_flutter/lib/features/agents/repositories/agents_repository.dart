@@ -15,7 +15,17 @@ class AgentsRepository {
 
   Future<void> connect() => _dataSource.connect();
   Future<void> dispose() => _dataSource.dispose();
-  void send(Map<String, dynamic> msg) => _dataSource.send(msg);
+
+  /// Returns false when the frame was queued because the socket is down, so a
+  /// caller can mark its optimistic message as not-yet-delivered rather than
+  /// leaving a phantom in the transcript.
+  bool send(Map<String, dynamic> msg) => _dataSource.send(msg);
+
+  /// Emits when an outbound frame had to be dropped (queue overflow).
+  Stream<String> get sendFailures => _dataSource.sendFailures;
+
+  /// Frames waiting for the socket to come back.
+  int get pendingSendCount => _dataSource.pendingSendCount;
 
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,

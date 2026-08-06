@@ -11,7 +11,27 @@ import { queueSkillExtraction } from './skill_extractor';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
-import { classifyCommand, extractBashCommand } from '../security/command_approval';
+import { classifyCommands, extractBashCommands } from '../security/command_approval';
+
+/**
+ * Engine permission ids that are permission SCOPES rather than tool names.
+ *
+ * `permission.asked` carries its id in `permission`, and the bridge derives
+ * `toolName` from it (see the permission.asked handler). These seven are not tools,
+ * so they must never be matched against a session's tool allowlist — doing so
+ * denies doom-loop detection, plan enter/exit and question prompts on every
+ * role-scoped session. Mirrors the defaults in
+ * apps/opencode_fork/packages/opencode/src/agent/agent.ts.
+ */
+const NON_TOOL_PERMISSION_SCOPES = new Set([
+  'doom_loop',
+  'external_directory',
+  'plan_enter',
+  'plan_exit',
+  'question',
+  'repo_clone',
+  'repo_overview',
+]);
 import { resolveApprovalsMode } from '../config/env';
 import {
   advanceFallbackCascade,
@@ -63,7 +83,14 @@ function useGlobalStream(): boolean {
  * tools, otherwise a role scoped to (for example) `rhythm` falsely rejects
  * native calls such as `skill` and `read`.
  *
- * Keep this list aligned with apps/opencode_fork/.../tool/registry.ts.
+ * Keep this list aligned with apps/opencode_fork/.../tool/registry.ts — plus
+ * `image_generation` (#1094), which is engine-native but NOT in the registry:
+ * it is a provider-executed tool injected in session/prompt.ts (the registry
+ * only holds tools with a local `execute`). It is still governed by OpenCode's
+ * agent permission policy — the per-profile `permission.image_generation`
+ * grant — so this guard must not gate it. Omitting it made a role-scoped
+ * session reject every call with "not permitted for this agent's role", which
+ * is indistinguishable from the profile lacking the grant.
  */
 const OPENCODE_NATIVE_TOOLS = new Set([
   'invalid',
@@ -84,6 +111,7 @@ const OPENCODE_NATIVE_TOOLS = new Set([
   'question',
   'lsp',
   'plan_exit',
+  'image_generation',
 ]);
 
 /**
@@ -1738,12 +1766,28 @@ export class OpencodeStreamBridge {
           summary?: string;
           metadata?: Record<string, unknown>;
           args?: Record<string, unknown>;
+          // The engine's real payload for a shell permission. It sends NO
+          // `args`/`command` — the command text lives here, one entry per
+          // parsed command node. See extractBashCommands.
+          patterns?: unknown[];
+          /** Permission id ('bash' | 'edit' | 'webfetch' | 'external_directory'). */
+          permission?: string;
+          /** Points at the tool part carrying the real, unsplit arguments. */
+          tool?: { messageID?: string; callID?: string };
         };
         const permissionId = perm.permissionID ?? perm.id;
         if (!permissionId || !localSessionId) break;
 
         const sdkSessionId = opencodeSessionId ?? '';
-        const toolName = perm.toolName ?? perm.type ?? '';
+        // The engine's Permission.Request carries the permission id in
+        // `permission` — NOT `toolName` and NOT `type` (neither field exists on
+        // it; `type` here only ever matched the outer envelope in tests). A real
+        // ask looks like:
+        //   {"permission":"bash","patterns":["git push --force …"],"metadata":{}}
+        // so this resolved to '' for every engine permission, which silently
+        // disabled BOTH the #736 allowlist backstop below and the #878 command
+        // gate — a hardline `curl … | sh` reached the shell with no card.
+        const toolName = perm.toolName ?? perm.type ?? perm.permission ?? '';
         const args = perm.args ?? perm.metadata ?? {};
         const summary = perm.summary ?? perm.title ?? toolName;
 
@@ -1753,7 +1797,14 @@ export class OpencodeStreamBridge {
         // analog. If the tool is outside a role-scoped session's allowlist,
         // auto-DENY it (reject) and surface a denied result instead of forwarding
         // the permission card or auto-accepting. Non-role sessions pass through.
-        if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
+        //
+        // Several engine permission ids are SCOPES, not tools. Now that toolName
+        // resolves from `perm.permission`, any of them can land here, and matching
+        // one against a tool allowlist would deny it for every role-scoped session
+        // — silently breaking doom-loop detection, plan transitions and questions.
+        // Enumerated from the engine's own defaults in agent/agent.ts.
+        const isToolScopedPermission = !NON_TOOL_PERMISSION_SCOPES.has(toolName);
+        if (toolName && isToolScopedPermission && !this.isToolAllowedForSession(localSessionId, toolName)) {
           const dir = (() => {
             try {
               return this.sessionsRepo.findById(localSessionId)?.cwd;
@@ -1779,6 +1830,79 @@ export class OpencodeStreamBridge {
           break;
         }
 
+        // Consult the session's permission_mode to decide whether to
+        // auto-respond or forward to the user.
+        //
+        // Resolved HERE, above the #878 bash gate, because #878's `ask` branch
+        // needs to know whether anyone is actually listening. See the
+        // `isUnattended` note in that branch.
+        let permissionMode: PermissionMode = 'default';
+        let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
+        try {
+          dbSession = this.sessionsRepo.findById(localSessionId);
+          permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
+        } catch (err) {
+          logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
+        }
+
+        // #1156 — Delegated subagent/child sessions (spawned via the engine's
+        // `task` tool) get a local row via upsertChildSession with
+        // permission_mode left NULL (-> 'default'), and there is no Flutter UI
+        // watching a headless child to answer a forwarded permission.asked —
+        // the write hung indefinitely. A row is "headless" when it has a
+        // non-null parentSessionId (delegated child — the sole writer of that
+        // column is upsertChildSession) or when no row resolves at all (the
+        // create-vs-permission race: the child row hasn't been upserted yet).
+        // An interactive/UI session ALWAYS resolves to a row with
+        // parentSessionId===NULL (POST /agent-sessions never sets it), so this
+        // never widens auto-accept for a real interactive prompt (c5 guard).
+        // ponytail: heuristic keyed on parent-id-presence, not a full
+        // isHeadless field — cheapest signal that already distinguishes every
+        // known case; revisit if a headless session type ever gets a null
+        // parent id.
+        // plan-mode auto-deny must stay authoritative over the new headless
+        // auto-accept — a child explicitly placed in plan mode must not run.
+        // Computed first so `isHeadless` below can defer to it.
+        const shouldAutoDeny = permissionMode === 'plan';
+        const isDelegatedChild = !dbSession || dbSession.parentSessionId != null;
+        const isHeadless = !shouldAutoDeny && isDelegatedChild;
+
+        // True when NOTHING is watching this session for an approval answer.
+        //
+        // NOT the same thing as `bypassPermissions`. An interactive session the
+        // user has put in bypass mode still has a human at the keyboard, and
+        // #878 deliberately forces a dangerous-but-not-hardline command
+        // (`git push --force`) to surface a card even there — see
+        // opencode_stream_bridge.test.ts "manual mode (default) surfaces an
+        // approval ask ... even under bypassPermissions". Treating bypass mode
+        // as unattended would silently delete that prompt.
+        //
+        // The two shapes where no human can possibly answer:
+        //   • a delegated child (#1156 — no UI watches a subagent)
+        //   • a scheduler-originated system run (`is_system` + a scheduled task
+        //     id; the same discriminator the unattended auto-approve path uses)
+        //
+        // Deliberately NOT guarded on `shouldAutoDeny`: a plan-mode unattended
+        // session must also skip registering a card (nobody would answer it),
+        // and instead fall through to the auto-DENY below, where plan mode
+        // stays authoritative. Gating this on !shouldAutoDeny would re-create
+        // the hang for exactly that combination.
+        const isScheduledRun = Boolean(dbSession?.isSystem && dbSession?.scheduledTaskId);
+
+        // POSITIVE EVIDENCE ONLY. `isDelegatedChild` above is true when NO row
+        // resolves at all (`!dbSession`) — deliberate for #1156's auto-accept,
+        // which covers the transient create-vs-permission race. It must NOT
+        // qualify a session as unattended for the #878 branch below: an unknown
+        // session is exactly the case where we CANNOT prove no human is
+        // watching, and a session created directly against the engine has no
+        // Rhythm row at all. Requiring a real parent id (or a scheduler run)
+        // means only provable unattendedness skips the approval card.
+        //
+        // Found by smoke test 2026-08-04 (E2): a session created straight on
+        // the engine under bypassPermissions ran `git push --force` with no card,
+        // because `!dbSession` had made it "unattended".
+        const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
+
         // #878 — command-approval classification for the bash tool. This runs
         // BEFORE the permissionMode auto-accept check below so a hardline-
         // blocked or high-risk command is never let through by
@@ -1787,9 +1911,26 @@ export class OpencodeStreamBridge {
         // Low-risk / explicitly-allowed commands fall through unchanged to the
         // existing permissionMode logic (no behavior change for safe commands).
         if (toolName.toLowerCase() === 'bash') {
-          const command = extractBashCommand(args);
-          if (command) {
-            const classification = classifyCommand(command, resolveApprovalsMode());
+          // `args` is empty for engine-issued shell permissions, and `patterns`
+          // holds each parsed command NODE rather than the command line — so a
+          // pipeline reaches us pre-split and `curl URL | sh` loses its pipe.
+          // The full line is on the tool part the permission points at, so pull
+          // that too and classify every candidate (#1322). A missing part (the
+          // permission can beat message.part.updated) just falls back to
+          // patterns, exactly as before.
+          const toolInput =
+            perm.tool?.messageID && perm.tool?.callID
+              ? this.messagesRepo.findToolPartInput(
+                  localSessionId,
+                  perm.tool.messageID,
+                  perm.tool.callID,
+                )
+              : null;
+          const commands = extractBashCommands(args, perm.patterns, toolInput);
+          const classification = commands.length
+            ? classifyCommands(commands, resolveApprovalsMode())
+            : null;
+          if (classification) {
             if (classification.decision === 'deny') {
               const dir = (() => {
                 try {
@@ -1825,10 +1966,10 @@ export class OpencodeStreamBridge {
               );
               break;
             }
-            if (classification.decision === 'ask') {
+            if (classification.decision === 'ask' && !isUnattended) {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
-              // surface an approval ask even under bypassPermissions/acceptEdits.
+              // surface an approval ask even under acceptEdits.
               this.registerPermission(localSessionId, {
                 permissionId,
                 toolName,
@@ -1838,47 +1979,45 @@ export class OpencodeStreamBridge {
               });
               break;
             }
+            if (classification.decision === 'ask') {
+              // UNATTENDED: registering a permission card here is a guaranteed
+              // hang, not a safety measure. `resolveApprovalsMode()` defaults to
+              // 'manual' (APPROVALS_MODE is unset and nothing in the app sets
+              // it), and in manual mode EVERY command the engine escalates
+              // classifies 'ask' — so this branch used to `break` past the
+              // #1156 headless auto-accept below and leave a scheduled run
+              // waiting on a human who was never going to arrive, until the
+              // 600s inactivity abort killed the whole run.
+              //
+              // Falling through is safe because it does NOT weaken the parts of
+              // #878 that actually protect anything: the hardline blocklist and
+              // 'deny' classification are handled above and still break out
+              // unconditionally. Only the "uncertain, ask a human" case is
+              // downgraded to allow, and only where there is provably no human.
+              logger.warn(
+                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in an ` +
+                  `unattended session (reason=${classification.reason}, ` +
+                  `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
+                  `${classification.detail}`,
+              );
+              // fall through to the auto-accept path below
+            }
             // classification.decision === 'allow' — fall through unchanged.
           }
         }
-
-        // Consult the session's permission_mode to decide whether to
-        // auto-respond or forward to the user.
-        let permissionMode: PermissionMode = 'default';
-        let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
-        try {
-          dbSession = this.sessionsRepo.findById(localSessionId);
-          permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
-        } catch (err) {
-          logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
-        }
-
-        // #1156 — Delegated subagent/child sessions (spawned via the engine's
-        // `task` tool) get a local row via upsertChildSession with
-        // permission_mode left NULL (-> 'default'), and there is no Flutter UI
-        // watching a headless child to answer a forwarded permission.asked —
-        // the write hung indefinitely. A row is "headless" when it has a
-        // non-null parentSessionId (delegated child — the sole writer of that
-        // column is upsertChildSession) or when no row resolves at all (the
-        // create-vs-permission race: the child row hasn't been upserted yet).
-        // An interactive/UI session ALWAYS resolves to a row with
-        // parentSessionId===NULL (POST /agent-sessions never sets it), so this
-        // never widens auto-accept for a real interactive prompt (c5 guard).
-        // ponytail: heuristic keyed on parent-id-presence, not a full
-        // isHeadless field — cheapest signal that already distinguishes every
-        // known case; revisit if a headless session type ever gets a null
-        // parent id.
-        // plan-mode auto-deny must stay authoritative over the new headless
-        // auto-accept — a child explicitly placed in plan mode must not run.
-        // Computed first so `isHeadless` below can defer to it.
-        const shouldAutoDeny = permissionMode === 'plan';
-        const isHeadless = !shouldAutoDeny && (!dbSession || dbSession.parentSessionId != null);
 
         const editTools = new Set(['write', 'edit', 'patch']);
         const shouldAutoAccept =
           permissionMode === 'bypassPermissions' ||
           (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase())) ||
-          isHeadless;
+          isHeadless ||
+          // A scheduler-originated ROOT run has no parent, so `isHeadless` does
+          // not cover it. In practice agent_runner sets its permission mode to
+          // `bypassPermissions`, but depending on that left the whole
+          // no-human-is-watching class one missed assignment away from hanging
+          // again — children were found sitting at 'default' for exactly that
+          // reason. Plan-guarded so an explicit plan-mode run still auto-denies.
+          (!shouldAutoDeny && isScheduledRun);
 
         if (shouldAutoAccept || shouldAutoDeny) {
           const decision = shouldAutoAccept ? 'accept' : 'deny';

@@ -74,10 +74,19 @@ import type {
 } from '../org_audit_service';
 import type { WorkflowFailureSignal, WorkflowFailureCategory } from '../workflow_failure_signal_extractor';
 import { resolveKnownMcpServerName } from '../mcp_scope_name';
+import { resolveProfileMcpScope, type ResolvedProfileMcpScope } from '../agent_profile_scope';
+import { isToolAllowed } from '../mcp_dispatch_guard';
+import {
+  coreCapabilityName,
+  resolveCoreCapabilitySurface,
+  type CoreCapabilitySurface,
+} from '../profile_capability_surface';
 
 export interface WorkflowSignalGeneratorDeps {
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
   proposalsRepo?: Pick<AgentOrgProposalsRepository, 'createAsync' | 'existsByDedupKeyAsync'>;
+  /** Injectable configs repo — read-only, used to confirm a scope gap is real. */
+  configsRepo?: AgentConfigsRepository;
 }
 
 export interface WorkflowSignalGeneratorResult {
@@ -125,16 +134,45 @@ async function createIfNotDuplicate(
 async function proposeMissingScope(
   signal: WorkflowFailureSignal,
   proposalsRepo: NonNullable<WorkflowSignalGeneratorDeps['proposalsRepo']>,
+  configsRepo: AgentConfigsRepository = new AgentConfigsRepository(),
 ): Promise<AgentOrgProposal | null> {
   const toolName = parseDeniedToolName(signal.evidence);
   if (!toolName || !signal.agentConfigId) {
     logger.warn(`[workflow-signal-generator] unparseable missing-scope evidence: '${signal.evidence}'`);
     return null;
   }
+  // A core/provider-EXECUTED tool (bash, write, image_generation, …) is not an
+  // MCP server and can never be granted by an MCP allowlist entry, yet
+  // `isPlausibleMcpServerName` happily accepts its bare name. Route it nowhere
+  // rather than proposing e.g. an 'image_generation' MCP server that cannot exist.
+  const coreName = coreCapabilityName(toolName);
+  if (coreName) {
+    logger.info(
+      `[workflow-signal-generator] denied tool '${toolName}' is the core/provider-executed capability ` +
+        `'${coreName}', not an MCP server — no broaden-scope proposal (it is granted via corePermissionsJson).`,
+    );
+    return null;
+  }
   const { serverName } = await resolveKnownMcpServerName(toolName);
   if (!serverName) {
     logger.warn(`[workflow-signal-generator] denied tool '${toolName}' does not map to a known MCP server`);
     return null;
+  }
+
+  // "Denied" and "not granted" are different conditions. Confirm the server is
+  // genuinely absent from the profile's RESOLVED scope before asserting a gap —
+  // a denial on an in-scope tool has some other cause, and filing a grant for a
+  // grant that already exists is both false and (at apply time) a no-op write.
+  const config = configsRepo.getById(signal.agentConfigId);
+  if (config) {
+    const scope = resolveProfileMcpScope(config.allowedMcpsJson ?? null, config.id, config.label);
+    if (scope.shape === 'unrestricted' || scope.servers.includes(serverName)) {
+      logger.warn(
+        `[workflow-signal-generator] '${serverName}' is ALREADY in ${signal.agentConfigId}'s resolved MCP ` +
+          `scope (shape=${scope.shape}) — not filing a broaden-scope proposal for denied tool '${toolName}'.`,
+      );
+      return null;
+    }
   }
 
   const changeJson = JSON.stringify({
@@ -205,6 +243,7 @@ export async function generateWorkflowSignalProposals(
   deps: WorkflowSignalGeneratorDeps = {},
 ): Promise<WorkflowSignalGeneratorResult> {
   const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
   const created: AgentOrgProposal[] = [];
 
   for (const signal of snapshot.workflowFailureSignals ?? []) {
@@ -217,7 +256,7 @@ export async function generateWorkflowSignalProposals(
 
       const proposal =
         signal.category === 'missing-scope'
-          ? await proposeMissingScope(signal, proposalsRepo)
+          ? await proposeMissingScope(signal, proposalsRepo, configsRepo)
           : await proposeCreateRecipeForCategory(signal, proposalsRepo);
 
       if (proposal) created.push(proposal);
@@ -299,6 +338,18 @@ export interface DiagnosisContext {
   signals: WorkflowFailureSignal[];
   profile: ProfileScopeSnapshot | null;
   agentConfig: AgentConfig | null;
+  /**
+   * The profile's MCP scope resolved through the SHARED resolver (both stored
+   * shapes + the unrestricted case), so the prompt states what is granted rather
+   * than an ambiguous `[]`.
+   */
+  mcpScope: ResolvedProfileMcpScope;
+  /**
+   * The profile's NON-MCP grant surface: core permissions plus provider-executed
+   * capabilities (image_generation). Absence from the MCP allowlist says nothing
+   * about these.
+   */
+  coreCapabilities: CoreCapabilitySurface;
   skillBody: string | null;
   deniedTools: DeniedToolAggregate[];
   delegationOutbound: DelegationEdge[];
@@ -430,6 +481,97 @@ function deriveScopePatchFromProse(
     : { agentConfigId, field, remove: names };
 }
 
+/** Outcome of {@link sanitizeScopePatch}. */
+interface SanitizedScopePatch {
+  /** The patch with no-op/mis-layered entries dropped; undefined when nothing actionable remains. */
+  patch?: ScopePatch;
+  /**
+   * True when an entry was dropped because the profile ALREADY has it. The
+   * diagnosis was then built on a false premise ("this agent lacks X" when it
+   * has X), so the caller must not file the proposal at all.
+   */
+  alreadySatisfied: boolean;
+  /** Human-readable reason for the caller's log line. */
+  reason?: string;
+}
+
+/**
+ * Last line of defense for a `scope-change` diagnosis: drop every `add` entry the
+ * profile does not actually need, and report WHY.
+ *
+ * Two classes are dropped:
+ *   - already granted — the named MCP server is in the resolved scope (or the
+ *     profile is unrestricted), or the named core capability is already granted.
+ *     A "missing scope" claim about it is false; `alreadySatisfied` is set so the
+ *     whole proposal is skipped rather than filed as a no-op high-risk row.
+ *   - wrong layer — a core/provider-executed capability name (image_generation,
+ *     bash, …) proposed as an MCP allowlist entry. It cannot be granted there, so
+ *     the patch is dropped and the prose survives for the human gate.
+ *
+ * `remove` entries are left alone: removing something already absent is a
+ * harmless no-op, and narrowing is never the false-positive direction here.
+ */
+function sanitizeScopePatch(
+  patch: ScopePatch | undefined,
+  agentConfigId: string,
+  configsRepo: AgentConfigsRepository,
+): SanitizedScopePatch {
+  if (!patch) return { alreadySatisfied: false };
+  const config = configsRepo.getById(agentConfigId);
+  if (!config) return { patch, alreadySatisfied: false };
+
+  if (patch.field === 'corePermissionsJson') {
+    const surface = resolveCoreCapabilitySurface(config);
+    const set = patch.set ?? {};
+    const requested = Object.keys(set);
+    const missing = requested.filter(
+      (name) => !(surface.granted.includes(name) && set[name] === 'allow'),
+    );
+    if (requested.length > 0 && missing.length === 0 && !patch.unset?.length) {
+      return {
+        alreadySatisfied: true,
+        reason: `every requested core capability (${requested.join(', ')}) is already granted`,
+      };
+    }
+    return { patch, alreadySatisfied: false };
+  }
+
+  if (patch.field !== 'allowedMcpsJson' || !patch.add?.length) {
+    return { patch, alreadySatisfied: false };
+  }
+
+  const scope = resolveProfileMcpScope(config.allowedMcpsJson ?? null, config.id, config.label);
+  const surface = resolveCoreCapabilitySurface(config);
+  const alreadyGranted: string[] = [];
+  const wrongLayer: string[] = [];
+  const add = patch.add.filter((name) => {
+    const core = coreCapabilityName(name);
+    if (core) {
+      (surface.granted.includes(core) ? alreadyGranted : wrongLayer).push(name);
+      return false;
+    }
+    if (scope.shape === 'unrestricted' || scope.servers.includes(name)) {
+      alreadyGranted.push(name);
+      return false;
+    }
+    return true;
+  });
+
+  if (add.length > 0) {
+    return { patch: { ...patch, add }, alreadySatisfied: false };
+  }
+  if (alreadyGranted.length > 0) {
+    return {
+      alreadySatisfied: true,
+      reason: `'${alreadyGranted.join("', '")}' already granted to ${agentConfigId} (mcp scope shape=${scope.shape})`,
+    };
+  }
+  return {
+    alreadySatisfied: false,
+    reason: `'${wrongLayer.join("', '")}' is a core/provider-executed capability, not an MCP server — patch dropped, prose kept`,
+  };
+}
+
 /**
  * #981 — resolve the scheduled task the failing signals actually ran under.
  * The scheduler tags every session it launches with `scheduled_task_id`, so the
@@ -534,8 +676,17 @@ function buildDiagnosisSystemPrompt(): string {
     '- config: The agent profile config is wrong (model too weak/strong, system prompt',
     '  misleading, ocAgent mode wrong). Fix = the specific config field + value to change.',
     '- scope: Profile tool scope has two layers. MCP/skill allowlists use allowedMcpsJson or',
-    '  allowedSkillsJson. Shell and local-file tools (bash, read, edit, glob, grep, write) use',
-    '  corePermissionsJson. Fix = the exact layer and names to add/remove or set/unset.',
+    '  allowedSkillsJson. Shell and local-file tools (bash, read, edit, glob, grep, write) and',
+    '  provider-EXECUTED tools (image_generation) use corePermissionsJson — those are NOT MCP',
+    '  servers and their absence from allowedMcps means nothing. Fix = the exact layer and names',
+    '  to add/remove or set/unset.',
+    '  Two hard rules before you diagnose scope:',
+    '   1. The context states the profile\'s RESOLVED scope. A denied tool marked IN SCOPE is NOT a',
+    '      missing grant — a denial and a missing grant are different conditions. Never claim a grant',
+    '      is absent when the context shows it present; if you cannot establish the cause, say the',
+    '      cause is unestablished and pick rootCause "external" rather than inventing a scope gap.',
+    '   2. Check the "provider-executed + core capabilities GRANTED" line before claiming the agent',
+    '      lacks any capability listed there (image_generation above all).',
     '- delegation: The profile can\'t delegate to the specialist it needs, or delegates',
     '  to the wrong one. Fix = which delegate to add/remove.',
     '- task: The SCHEDULED TASK definition itself is wrong — its run instructions/prompt',
@@ -565,6 +716,50 @@ function buildDiagnosisSystemPrompt(): string {
   ].join('\n');
 }
 
+/**
+ * Render a profile's resolved MCP scope so no reader can mistake "no restriction"
+ * or "tool-scoped" for "no access".
+ */
+function describeMcpScope(scope: ResolvedProfileMcpScope): string {
+  switch (scope.shape) {
+    case 'unrestricted':
+      return '(UNRESTRICTED — no MCP allowlist on this profile; every connected MCP server is available)';
+    case 'invalid':
+      return '(INVALID stored value — resolves to deny-all; fix the stored JSON, do not add servers)';
+    default: {
+      if (scope.servers.length === 0) return '[] (explicit deny-all — no MCP server is granted)';
+      const detail = scope.servers
+        .map((s) => {
+          const tools = scope.toolsByServer[s] ?? [];
+          return tools.length === 0 ? `${s}: ALL tools` : `${s}: ${tools.length} explicit tool(s)`;
+        })
+        .join('; ');
+      return `${JSON.stringify(scope.servers)} — ${detail}`;
+    }
+  }
+}
+
+/**
+ * State whether a denied tool is inside the profile's resolved scope. `isToolAllowed`
+ * is the same predicate the dispatch guard enforces with, so this answers the only
+ * question that distinguishes "denied" from "not granted".
+ */
+function describeDeniedToolScope(toolName: string, ctx: DiagnosisContext): string {
+  if (!ctx.agentConfig) return 'UNKNOWN: profile not found — scope membership cannot be confirmed';
+  const core = coreCapabilityName(toolName);
+  if (core) {
+    return ctx.coreCapabilities.granted.includes(core)
+      ? `IN SCOPE: '${core}' is a core/provider-executed capability this profile is already granted (NOT an MCP server)`
+      : `NOT-IN-SCOPE, core capability: '${core}' is granted via corePermissionsJson, NOT via the MCP allowlist`;
+  }
+  if (ctx.mcpScope.shape === 'unrestricted') {
+    return 'IN SCOPE: the profile has no MCP allowlist at all, so this denial is not a missing MCP grant';
+  }
+  return isToolAllowed(toolName, ctx.agentConfig?.allowedMcpsJson ?? null)
+    ? 'IN SCOPE: the profile already grants this tool — this denial is NOT evidence of a missing grant'
+    : 'NOT-IN-SCOPE: no allowlist entry of this profile grants this tool';
+}
+
 /** Build the user message with full context for the LLM. */
 function buildDiagnosisUserPrompt(ctx: DiagnosisContext): string {
   const lines: string[] = [];
@@ -579,17 +774,27 @@ function buildDiagnosisUserPrompt(ctx: DiagnosisContext): string {
     lines.push(`  ocAgent: ${ctx.agentConfig.ocAgent ?? '(default)'}`);
     lines.push(`  isManager: ${ctx.agentConfig.isManager}`);
     lines.push(`  systemPrompt: ${(ctx.agentConfig.systemPrompt ?? '(none)').slice(0, 500)}`);
-    lines.push(`  allowedMcps: ${JSON.stringify(ctx.profile?.allowedMcps ?? [])}`);
+    // MCP scope, stated unambiguously. An `allowedMcps: []` line was previously
+    // printed for BOTH an unrestricted profile and a tools-map profile, and the
+    // LLM (reasonably) read it as "this agent has no MCP access" and diagnosed
+    // missing scope that was never missing.
+    lines.push(`  allowedMcps: ${describeMcpScope(ctx.mcpScope)}`);
     lines.push(`  allowedSkills: ${JSON.stringify(ctx.profile?.allowedSkills ?? [])}`);
     lines.push(`  allowedDelegates: ${JSON.stringify(ctx.profile?.allowedDelegates ?? [])}`);
-    let corePermissions: Record<string, unknown> = {};
-    try {
-      const parsed = ctx.agentConfig.corePermissionsJson ? JSON.parse(ctx.agentConfig.corePermissionsJson) : {};
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) corePermissions = parsed as Record<string, unknown>;
-    } catch {
-      // A malformed stored value is represented as empty context; projection has its own defensive boundary.
-    }
-    lines.push(`  corePermissions: ${JSON.stringify(corePermissions)}`);
+    // Core + provider-EXECUTED capabilities — a DIFFERENT grant surface from the
+    // MCP allowlist above. `image_generation` in particular is executed by the
+    // model provider and granted by the profile's imageGenerationEnabled flag /
+    // a permission.image_generation entry; it is not, and cannot be, an MCP server.
+    lines.push(`  corePermissions: ${JSON.stringify(ctx.coreCapabilities.actions)}`);
+    lines.push(
+      `  provider-executed + core capabilities GRANTED: ${
+        ctx.coreCapabilities.granted.length > 0 ? ctx.coreCapabilities.granted.join(', ') : '(none)'
+      }`,
+    );
+    lines.push(
+      `    (image_generation is granted here — via imageGenerationEnabled / permission.image_generation — ` +
+        `NOT through the MCP allowlist. Absence from allowedMcps proves nothing about it.)`,
+    );
     lines.push('');
   } else {
     lines.push('AGENT PROFILE CONFIG: (not found — profile may have been deleted)');
@@ -617,8 +822,12 @@ function buildDiagnosisUserPrompt(ctx: DiagnosisContext): string {
   if (ctx.deniedTools.length > 0) {
     lines.push('DENIED TOOL EVENTS (tools the agent tried to use but was blocked):');
     for (const d of ctx.deniedTools.slice(0, 10)) {
-      lines.push(`  ${d.toolName} (count=${d.count})`);
+      lines.push(`  ${d.toolName} (count=${d.count}) — ${describeDeniedToolScope(d.toolName, ctx)}`);
     }
+    lines.push(
+      '  A denial is NOT proof of a missing grant. Only a tool marked NOT-IN-SCOPE above supports a',
+      '  scope diagnosis; for an IN-SCOPE one the cause is elsewhere — say so instead of inventing a gap.',
+    );
     lines.push('');
   }
 
@@ -867,6 +1076,14 @@ function buildDiagnosisContext(
     signals: skillSignals,
     profile,
     agentConfig,
+    mcpScope: resolveProfileMcpScope(
+      agentConfig?.allowedMcpsJson ?? null,
+      agentConfigId,
+      agentConfig?.label ?? null,
+    ),
+    coreCapabilities: agentConfig
+      ? resolveCoreCapabilitySurface(agentConfig)
+      : { actions: {}, granted: [] },
     skillBody,
     deniedTools,
     delegationOutbound,
@@ -997,11 +1214,31 @@ async function proposeFixFromSignals(
           ? (resolveConfigPatch(result.configPatch, agentConfigId, configsRepo) ??
             deriveConfigPatchFromProse(result.concreteFix, agentConfigId, configsRepo))
           : undefined;
-      const scopePatch =
+      // A scope-change diagnosis is only filed once the claimed gap is confirmed
+      // to exist. `sanitizeScopePatch` drops grants the profile already has (and
+      // capability names that belong to the core/provider layer, not the MCP
+      // allowlist); when the whole patch was already satisfied, the diagnosis
+      // rests on a false premise and NOTHING is filed.
+      const sanitized =
         result.fixType === 'scope-change'
-          ? (resolveScopePatch(result.scopePatch, agentConfigId, configsRepo) ??
-            deriveScopePatchFromProse(result.concreteFix, agentConfigId, configsRepo))
-          : undefined;
+          ? sanitizeScopePatch(
+              resolveScopePatch(result.scopePatch, agentConfigId, configsRepo) ??
+                deriveScopePatchFromProse(result.concreteFix, agentConfigId, configsRepo),
+              agentConfigId,
+              configsRepo,
+            )
+          : { alreadySatisfied: false as const };
+      if (sanitized.alreadySatisfied) {
+        logger.warn(
+          `[workflow-signal-generator] ${agentConfigId}: DROPPED scope-change diagnosis — ${sanitized.reason}. ` +
+            `Diagnosis was: ${result.diagnosis.slice(0, 160)}`,
+        );
+        continue;
+      }
+      if (sanitized.reason) {
+        logger.info(`[workflow-signal-generator] ${agentConfigId}: scope patch adjusted — ${sanitized.reason}`);
+      }
+      const scopePatch = sanitized.patch;
       // #981 — task-change: scheduledTaskId is server-resolved from the failing
       // signal's own task (never the LLM's id); prose fallback covers cron edits.
       const taskPatch =

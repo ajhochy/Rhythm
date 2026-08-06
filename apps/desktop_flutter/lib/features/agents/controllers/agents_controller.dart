@@ -2998,6 +2998,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           sessionId: sessionId,
           role: row.role,
           createdAt: row.createdAt,
+          seq: row.id,
           // OPC-M2-4: propagate cost/tokens from REST rows.
           cost: row.cost,
           tokens: row.tokens,
@@ -3011,6 +3012,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
             .indexWhere((m) => m.id == msgId);
         if (existingIdx >= 0) {
           final existing = _chatMessagesBySession[sessionId]![existingIdx];
+          // Backfill the ordering key for a message first seen over WS. Without
+          // this it keeps seq == null forever and always sorts to the tail, which
+          // scrambles the transcript as soon as an older page is loaded.
+          existing.seq ??= row.id;
           if (existing.cost == null && row.cost != null) {
             existing.cost = row.cost;
           }
@@ -3020,10 +3025,29 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      // Populate parts only when the REST row carries them AND the message has
-      // no WS-streamed parts yet (avoid overwriting live streaming state).
+      // Adopt whichever copy of the parts is MORE COMPLETE.
+      //
+      // This used to be `if (existingParts == null || existingParts.isEmpty)` —
+      // i.e. REST was ignored whenever ANY local part existed, to avoid clobbering
+      // a live stream. That protected in-flight streams and permanently stranded
+      // interrupted ones identically: navigate away from an ACTIVE session
+      // mid-stream and the partial delta left behind blocked the authoritative
+      // REST content forever, so the message rendered truncated or blank on every
+      // subsequent visit. Reported live 2026-08-05, and it survived the ordering
+      // fix in 585abf89 because it is a different defect — content, not order.
+      //
+      // Comparing completeness is safe in both directions: REST wins for a stream
+      // that was cut off (it holds the finished text), local wins while a stream
+      // is genuinely mid-flight and ahead of what the DB has persisted.
       final existingParts = _chatPartsByMessage[msgId];
-      if (existingParts == null || existingParts.isEmpty) {
+      final restParts =
+          row.parts?.map((p) => ChatPart.fromJson(msgId, p)).toList();
+      final restIsMoreComplete = restParts != null &&
+          restParts.isNotEmpty &&
+          partsWeight(restParts) >= partsWeight(existingParts);
+      if (restIsMoreComplete) {
+        _chatPartsByMessage[msgId] = restParts;
+      } else if (existingParts == null || existingParts.isEmpty) {
         final rawParts = row.parts;
         if (rawParts != null && rawParts.isNotEmpty) {
           _chatPartsByMessage[msgId] =
@@ -3041,10 +3065,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     }
-    (_chatMessagesBySession[sessionId] ??= []).sort((left, right) {
-      final byTime = left.createdAt.compareTo(right.createdAt);
-      return byTime != 0 ? byTime : left.id.compareTo(right.id);
-    });
+    (_chatMessagesBySession[sessionId] ??= []).sort(compareChatMessages);
   }
 
   // --------------------------------------------------------------------------

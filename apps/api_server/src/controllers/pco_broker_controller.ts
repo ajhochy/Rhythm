@@ -51,7 +51,10 @@ export class PcoBrokerController {
       const account = await integrationsService.ensureFreshPlanningCenterAccount(
         req.auth!.user.id,
       );
-      return planningCenter.listPlans(account, req.params.serviceTypeId);
+      // Whitelisted, never interpolated from the raw query: this value lands
+      // in the upstream PCO URL.
+      const filter = req.query.filter === 'past' ? 'past' : 'future';
+      return planningCenter.listPlans(account, req.params.serviceTypeId, filter);
     });
   }
 

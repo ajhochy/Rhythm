@@ -86,7 +86,10 @@ class _StubAgentsRepository implements AgentsRepository {
   }
 
   @override
-  void send(Map<String, dynamic> msg) => sentFrames.add(msg);
+  bool send(Map<String, dynamic> msg) {
+    sentFrames.add(msg);
+    return true;
+  }
 
   @override
   Future<List<AgentSession>> listSessions({

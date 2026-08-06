@@ -9,6 +9,12 @@ function parsePermissionYaml(text: string): Record<string, string> {
   const permissions: Record<string, string> = {};
 
   for (const line of block.trimEnd().split('\n')) {
+    // Nested maps (`task:`, `bash:`, `external_directory:`, …) and their indented
+    // children are not scalar permissions — skip them. Since #1322 EVERY profile
+    // carries a nested `task:` block, so this parser can no longer assume the
+    // whole permission block is flat.
+    if (/^  (?:"[^"]+"|[a-z_]+):$/.test(line)) continue;
+    if (/^ {4}/.test(line)) continue;
     const match = line.match(/^  (?:"([^"]+)"|([a-z_]+)): (allow|ask|deny)$/);
     if (!match) throw new Error(`Invalid permission YAML: ${line}`);
     permissions[match[1] ?? match[2]] = match[3];
@@ -108,6 +114,9 @@ function managerConfig(
   };
 }
 
+const NATIVE_TASK_BLOCK =
+  '"*": deny\n    "explore": allow\n    "general": allow\n';
+
 describe('workflow-orchestrator file projection', () => {
   it('projects direct-first routing for Secretary, Theologian, and Coding Workflow', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
@@ -166,14 +175,16 @@ describe('workflow-orchestrator file projection', () => {
     expect(workflow).toContain('Perform in-scope orchestration directly.');
     expect(workflow).toContain('mandatory independent verification-gate before a draft PR');
 
+    // #1322 — the engine-native subagents are projected first (read-only fan-out
+    // inside the profile), then the explicit cross-profile roster.
     expect(secretary).toContain(
-      '  task:\n    "*": deny\n    "workflow-orchestrator": allow\n    "theologian": allow',
+      '  task:\n    ' + NATIVE_TASK_BLOCK + '    "workflow-orchestrator": allow\n    "theologian": allow',
     );
     expect(theologian).toContain(
-      '  task:\n    "*": deny\n    "Theological-Researcher": allow',
+      '  task:\n    ' + NATIVE_TASK_BLOCK + '    "Theological-Researcher": allow',
     );
     expect(workflow).toContain(
-      '  task:\n    "*": deny\n    "coding-agent": allow\n    "verification-gate": allow',
+      '  task:\n    ' + NATIVE_TASK_BLOCK + '    "coding-agent": allow\n    "verification-gate": allow',
     );
   });
 
@@ -590,7 +601,11 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(projected).not.toContain('"permission": read');
     // With every malformed entry skipped, only #1123's mandatory fail-closed
     // async-delegation deny remains.
-    expect(projected).toContain('permission:\n  rhythm_delegate_async: deny');
+    // #1322 — every profile now carries a `task` key. A non-manager used to get
+    // none and inherited the engine default `"*": "allow"`, i.e. unrestricted
+    // cross-profile delegation. Natives only here.
+    expect(projected).toContain('permission:\n  task:\n    ' + NATIVE_TASK_BLOCK);
+    expect(projected).toContain('rhythm_delegate_async: deny');
   });
 
   it('still projects a valid flat-map corePermissions shape', () => {
@@ -697,7 +712,11 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
       corePermissionsJson: null,
     });
     const projected = readProjected('empties-perms');
-    expect(projected).toContain('permission:\n  rhythm_delegate_async: deny');
+    // #1322 — every profile now carries a `task` key. A non-manager used to get
+    // none and inherited the engine default `"*": "allow"`, i.e. unrestricted
+    // cross-profile delegation. Natives only here.
+    expect(projected).toContain('permission:\n  task:\n    ' + NATIVE_TASK_BLOCK);
+    expect(projected).toContain('rhythm_delegate_async: deny');
     expect(projected).not.toContain('read: allow');
   });
 

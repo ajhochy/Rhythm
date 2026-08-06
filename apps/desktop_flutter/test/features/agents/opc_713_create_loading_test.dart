@@ -93,7 +93,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   }
 
   @override
-  void send(Map<String, dynamic> msg) {}
+  bool send(Map<String, dynamic> msg) => true;
 
   @override
   Future<List<AgentSession>> listSessions({
@@ -425,7 +425,16 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<void> dispose() => inner.dispose();
 
   @override
-  void send(Map<String, dynamic> msg) => inner.send(msg);
+  bool send(Map<String, dynamic> msg) {
+    inner.send(msg);
+    return true;
+  }
+
+  @override
+  Stream<String> get sendFailures => inner.sendFailures;
+
+  @override
+  int get pendingSendCount => inner.pendingSendCount;
 
   @override
   Future<List<AgentSession>> listSessions({

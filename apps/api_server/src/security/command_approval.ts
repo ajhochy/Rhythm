@@ -41,6 +41,52 @@ export function extractBashCommand(args: Record<string, unknown> | undefined | n
   return typeof candidate === 'string' && candidate.trim() !== '' ? candidate : null;
 }
 
+/**
+ * Every shell command carried by a `bash` permission event.
+ *
+ * The engine's `permission.asked` payload (`Permission.Request` in
+ * apps/opencode_fork/packages/opencode/src/permission/index.ts) has NO `args`
+ * and NO `command` field: for the shell tool it passes `metadata: {}` and puts
+ * the raw text of each parsed command node in `patterns` (`source(node)` in
+ * .../tool/shell.ts). Reading only `args.command` therefore matched nothing for
+ * every real engine permission, which silently disabled this entire gate —
+ * hardline blocklist included — in the running app, while unit tests that
+ * hand-build `args: { command }` stayed green.
+ *
+ * One event can carry several commands (`a && b`, pipelines, redirections), so
+ * this returns all of them and the caller must classify every one — see
+ * {@link classifyCommands}.
+ *
+ * `patterns` alone is NOT sufficient: the engine populates it with each parsed
+ * command NODE, so `curl URL | sh` arrives as `["curl URL", "sh"]` and the pipe
+ * — the whole signature of the `curl-pipe-shell` hardline pattern — is gone.
+ * `toolInput` is the tool part's own `state.input`, which holds the full command
+ * line; pass it when the permission's `tool.{messageID, callID}` resolves to a
+ * persisted part (#1322).
+ *
+ * Every source is UNIONED rather than preferred in order. Classifying the full
+ * line and its segments both is strictly safer: the union can only ever produce
+ * a more restrictive verdict, never a laxer one.
+ */
+export function extractBashCommands(
+  args: Record<string, unknown> | undefined | null,
+  patterns?: readonly unknown[] | null,
+  toolInput?: Record<string, unknown> | undefined | null,
+): string[] {
+  const out: string[] = [];
+  const push = (value: string | null): void => {
+    if (value && !out.includes(value)) out.push(value);
+  };
+  push(extractBashCommand(args));
+  push(extractBashCommand(toolInput));
+  if (Array.isArray(patterns)) {
+    for (const p of patterns) {
+      if (typeof p === 'string' && p.trim() !== '') push(p);
+    }
+  }
+  return out;
+}
+
 export interface ClassifyResult {
   decision: ApprovalDecision;
   /** Machine-readable reason code, always present so a UI/log can explain the outcome. */
@@ -102,6 +148,27 @@ export function classifyCommand(
 
   // mode === 'manual' (default): always ask.
   return { decision: 'ask', reason: 'manual-mode', detail: 'approvals.mode=manual — awaiting user approval.' };
+}
+
+/**
+ * Classify every command and return the most restrictive result
+ * (`deny` > `ask` > `allow`), or null when there is nothing to classify. A
+ * compound command must not become auto-approvable just because one of its
+ * segments is harmless.
+ */
+export function classifyCommands(
+  commands: readonly string[],
+  mode: ApprovalsMode,
+  approvalStore: ApprovalStore = new ApprovalStore(),
+): ClassifyResult | null {
+  const rank: Record<ApprovalDecision, number> = { allow: 0, ask: 1, deny: 2 };
+  let strongest: ClassifyResult | null = null;
+  for (const command of commands) {
+    const result = classifyCommand(command, mode, approvalStore);
+    if (!strongest || rank[result.decision] > rank[strongest.decision]) strongest = result;
+    if (strongest.decision === 'deny') break;
+  }
+  return strongest;
 }
 
 export type ApprovalResponse = 'once' | 'session' | 'always' | 'deny';

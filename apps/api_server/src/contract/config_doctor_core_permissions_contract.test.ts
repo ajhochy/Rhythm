@@ -171,9 +171,13 @@ describe('config-doctor core-permissions acceptance contract', () => {
         : JSON.stringify({ diagnosis: 'No local tools.', rootCause: 'scope', fixType: 'scope-change', concreteFix: 'Add read.', confidence: 'high' }),
     }));
     const { defaultDiagnose } = await import('../services/generators/workflow_signal_generator');
+    const { resolveCoreCapabilitySurface } = await import('../services/profile_capability_surface');
+    const { resolveProfileMcpScope } = await import('../services/agent_profile_scope');
     const result = await defaultDiagnose({
       affectedSkill: profile.id, signals: [signal(profile.id)], agentConfig: profile,
       profile: { id: profile.id, label: profile.label, isManager: false, enabled: true, allowedMcps: ['rhythm'], allowedSkills: [], allowedDelegates: [], corePermissions: verificationGatePermissions() } as never,
+      mcpScope: resolveProfileMcpScope(profile.allowedMcpsJson ?? null, profile.id, profile.label),
+      coreCapabilities: resolveCoreCapabilitySurface(profile),
       skillBody: null, deniedTools: [], delegationOutbound: [], delegationInbound: [],
     });
     expect(result?.fixType).toBe('external-noop');

@@ -17,6 +17,11 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { startTestServer } from './helpers/real_server';
+import { useTempManagedSkillsRoot } from './_managed_skills_temp_root';
+
+// GET /opencode/skills resolves the managed-skills root to flag `managed`
+// skills, so this file must not read the user's real library.
+useTempManagedSkillsRoot('skill-names-alignment');
 
 const listSkills = vi.fn();
 vi.mock('../services/opencode_engine', () => ({

@@ -39,6 +39,24 @@ import { scanContextContent } from '../security/context_scanner';
 import { parseSkillFrontmatter, stripFrontmatterBlock, type SkillFrontmatter } from './skill_frontmatter';
 
 /**
+ * The REAL user-owned skill library: `~/.config/opencode/skills`. Pure — no
+ * override, no guard — so the default-resolution contract can be asserted
+ * without tripping {@link managedSkillsRoot}'s test-isolation guard.
+ */
+export function defaultManagedSkillsRoot(): string {
+  return join(homedir(), '.config', 'opencode', 'skills');
+}
+
+/**
+ * True during a vitest run. Mirrors `isTestEnv()` in opencode_agent_writer.ts,
+ * which fail-closes writes to the sibling `~/.config/opencode/agents` dir the
+ * same way.
+ */
+function isTestRun(): boolean {
+  return process.env.VITEST !== undefined || process.env.NODE_ENV === 'test';
+}
+
+/**
  * The canonical Rhythm-managed skills dir — `~/.config/opencode/skills`, the
  * engine's auto-scanned config skills dir and Rhythm's SOLE managed source
  * (#947). No longer a distinct sibling: `sync-globals` stopped writing here, so
@@ -46,12 +64,36 @@ import { parseSkillFrontmatter, stripFrontmatterBlock, type SkillFrontmatter } f
  *
  * Resolved lazily (not a captured constant) so tests can redirect it via
  * `RHYTHM_MANAGED_SKILLS_DIR` without manipulating the home directory.
+ *
+ * ── TEST-ISOLATION GUARD ────────────────────────────────────────────────────
+ * Under vitest this THROWS rather than resolving to the real
+ * `~/.config/opencode/skills`. The DB is isolated per test (`setDb(makeDb())`
+ * on `:memory:`) but the FILESYSTEM was not: appliers reaching
+ * `writeManagedSkill()` overwrote real, user-authored SKILL.md files — using
+ * real skill names, because the fixtures were copied from live evidence. That
+ * is silent data loss, and it recurred because nothing failed when it happened.
+ *
+ * Every sibling path (`draftsRoot`, `disabledRoot`, the rollback-snapshot root,
+ * `managedSkillDir`) funnels through here, so the guard covers reads, writes
+ * and deletes alike — one chokepoint, no leaks.
+ *
+ * Hitting this? Call `useTempManagedSkillsRoot()` from
+ * `src/__tests__/_managed_skills_temp_root.ts` at the top of your test file.
+ * Do NOT delete the guard, and do NOT set RHYTHM_MANAGED_SKILLS_DIR to the real
+ * path to silence it.
  */
 export function managedSkillsRoot(): string {
-  return (
-    process.env.RHYTHM_MANAGED_SKILLS_DIR ??
-    join(homedir(), '.config', 'opencode', 'skills')
-  );
+  const root = process.env.RHYTHM_MANAGED_SKILLS_DIR ?? defaultManagedSkillsRoot();
+  if (isTestRun() && resolve(root) === resolve(defaultManagedSkillsRoot())) {
+    throw new Error(
+      '[managed-skills] TEST ISOLATION VIOLATION: a test resolved the managed-skills root to ' +
+        `the REAL user skill library (${defaultManagedSkillsRoot()}). Writes there destroy ` +
+        'the user\'s authored skills. Redirect it to a temp dir by adding ' +
+        "`useTempManagedSkillsRoot();` (from src/__tests__/_managed_skills_temp_root.ts) " +
+        'at the top of your test file. Do not point RHYTHM_MANAGED_SKILLS_DIR at the real path.',
+    );
+  }
+  return root;
 }
 
 /**
@@ -105,6 +147,68 @@ export class ContextInjectionBlockedError extends Error {
     this.name = 'ContextInjectionBlockedError';
     this.warning = warning;
   }
+}
+
+/**
+ * 2026-07-11 incident — thrown by every body-writing entry point in this module when the
+ * incoming body is EMPTY and the file already on disk has a NON-EMPTY body.
+ *
+ * This is the hard write-boundary invariant, not a call-site check: on
+ * 2026-07-11 four hand-written skills were emptied because an unreadable judge
+ * score was treated as 0 and the sub-threshold branch then rewrote their files.
+ * Any FUTURE caller with a similar bug (a `?? ''` fallback, a failed generation
+ * degrading to '', a "restore" from a DB row that never carried a body) is
+ * stopped here instead of destroying the user's content.
+ *
+ * Callers already treat {@link InvalidSkillNameError} /
+ * {@link ContextInjectionBlockedError} as "the write was refused"; this behaves
+ * identically. Empty→content and content→content writes are untouched, and an
+ * empty→empty write is a harmless no-op that is also allowed.
+ */
+export class EmptyBodyOverwriteBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EmptyBodyOverwriteBlockedError';
+  }
+}
+
+/**
+ * The frontmatter-stripped, trimmed body of an existing SKILL.md, or null when
+ * the file is absent/unreadable or already effectively empty. Unreadable counts
+ * as "nothing to lose" — the invariant only ever blocks a write it can PROVE
+ * would destroy content.
+ */
+function existingSkillBodyAt(location: string): string | null {
+  if (!existsSync(location)) return null;
+  try {
+    const body = stripFrontmatterBlock(readFileSync(location, 'utf8')).trim();
+    return body === '' ? null : body;
+  } catch (err) {
+    logger.warn(`[managed-skills] could not read '${location}' for the empty-body guard:`, err);
+    return null;
+  }
+}
+
+/**
+ * HARD INVARIANT: an empty body must NEVER replace a non-empty one. Throws
+ * {@link EmptyBodyOverwriteBlockedError} and logs at ERROR when it fires — a
+ * silent refusal would hide the caller bug that produced the empty body.
+ *
+ * `newBody` is what the caller is about to put where the body goes: the rendered
+ * body for the SKILL.md writers, and the WHOLE file contents for the byte-exact
+ * restore path (see {@link restoreManagedSkillBytes} for why they differ).
+ */
+function assertNotEmptyingExistingBody(location: string, newBody: string, label: string): void {
+  if ((newBody ?? '').trim() !== '') return;
+  const existing = existingSkillBodyAt(location);
+  if (existing === null) return;
+  const message =
+    `REFUSED to overwrite ${label} with an EMPTY body — the file at ${location} ` +
+    `already holds ${existing.length} chars. An empty body is never a legitimate ` +
+    `replacement for existing content (2026-07-11 incident); the caller has a bug (unknown score ` +
+    `treated as 0, a failed generation degrading to '', or a restore from a body-less row).`;
+  logger.error(`[managed-skills] ${message}`);
+  throw new EmptyBodyOverwriteBlockedError(message);
 }
 
 export function slugForSkillName(name: string): string {
@@ -245,8 +349,10 @@ export function writeDraftManagedSkill(skill: DraftManagedSkillInput): string {
     throw new ContextInjectionBlockedError(scan.warning!);
   }
   const dir = draftSkillDir(skill.name);
-  mkdirSync(dir, { recursive: true });
   const location = join(dir, 'SKILL.md');
+  // This is the exact path the 2026-07-11 incident wrote through.
+  assertNotEmptyingExistingBody(location, skill.body, `draft skill '${skill.name}'`);
+  mkdirSync(dir, { recursive: true });
   writeFileSync(location, renderDraftSkillMarkdown(skill), 'utf8');
   return location;
 }
@@ -339,9 +445,12 @@ export function moveDraftToDisabled(
   if (!draft) return false;
 
   const dir = disabledSkillDir(name);
+  const archiveLocation = join(dir, 'SKILL.md');
+  // 2026-07-11 incident — never let an empty draft body clobber a non-empty prior archive.
+  assertNotEmptyingExistingBody(archiveLocation, draft.body, `disabled archive of '${name}'`);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
-    join(dir, 'SKILL.md'),
+    archiveLocation,
     renderDraftSkillMarkdown({
       name,
       description: draft.frontmatter.description,
@@ -547,8 +656,10 @@ export function writeManagedSkill(skill: ManagedSkillInput): string {
     throw new ContextInjectionBlockedError(scan.warning!);
   }
   const dir = managedSkillDir(skill.name);
-  mkdirSync(dir, { recursive: true });
   const location = join(dir, 'SKILL.md');
+  // 2026-07-11 incident — hard invariant: an empty body never replaces a non-empty one.
+  assertNotEmptyingExistingBody(location, skill.body, `managed skill '${skill.name}'`);
+  mkdirSync(dir, { recursive: true });
   writeFileSync(location, renderSkillMarkdown(skill), 'utf8');
   return location;
 }
@@ -566,8 +677,19 @@ export function restoreManagedSkillBytes(
   contents: string | NodeJS.ArrayBufferView,
 ): string {
   const dir = managedSkillDir(name);
-  mkdirSync(dir, { recursive: true });
   const location = join(dir, 'SKILL.md');
+  // 2026-07-11 incident — this path is byte-exact rollback to a KNOWN pre-apply snapshot, so
+  // it deliberately compares the WHOLE contents, not the stripped body: a
+  // skill whose file legitimately holds frontmatter and an empty body must
+  // still be restorable to exactly that (issue #1082 contract c4). What is
+  // never legitimate is restoring literally NOTHING — that only happens when a
+  // caller synthesized `''` because it had no snapshot at all.
+  const asText =
+    typeof contents === 'string'
+      ? contents
+      : Buffer.from(contents.buffer, contents.byteOffset, contents.byteLength).toString('utf8');
+  assertNotEmptyingExistingBody(location, asText, `managed skill '${name}' (byte restore)`);
+  mkdirSync(dir, { recursive: true });
   writeFileSync(location, contents);
   return location;
 }

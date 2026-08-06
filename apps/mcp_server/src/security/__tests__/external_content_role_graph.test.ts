@@ -67,6 +67,9 @@ const externalReads = new Map<string, string>([
 
 const trustedNonUserReads = new Set([
   "rhythm_ping",
+  // Rhythm's own delegation metadata. Returns NO child content by construction
+  // (see async_delegation_status_service.ts) so it cannot carry external taint.
+  "rhythm_delegation_status",
   "rhythm_list_creative_capabilities",
   "rhythm_creative_capability_status",
   "rhythm_verify_creative_capability",
@@ -82,6 +85,12 @@ const unavailableLegacyTools = new Set([
 const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
   [
     ["rhythm_send_email", { action: "email.send", sourceFile: "google.ts" }],
+    // Stopping work in flight is consequential: an injection could cancel
+    // legitimate delegations (denial of service), so it is gated like any write.
+    [
+      "rhythm_delegation_cancel",
+      { action: "delegation.cancel", sourceFile: "agentDelegation.ts" },
+    ],
     [
       "rhythm_send_message",
       { action: "message.send", sourceFile: "messages.ts" },
@@ -579,6 +588,20 @@ describe("#1175 external-content role graph", () => {
         block,
         `${tool} must report its declared provenance source`,
       ).toMatch(new RegExp(`["']${externalReads.get(tool)}["']`));
+      // #1094: registerTool() is what runs the handler inside
+      // runWithTrustedSecurityCall, which is what puts the engine's signed
+      // proof in async-local scope. A tool registered with the raw
+      // `server.tool()` still passes the identity shape check — so it looks
+      // wired — but its taint POST goes out with `trustedCall: null` and the
+      // agent server refuses it 403. `rhythm_get_dashboard` was registered
+      // that way, and this assertion is what would have caught it. It applies
+      // to every declared external read, not just the one that got exercised.
+      expect(
+        block,
+        `${tool} must register via registerTool(): the raw server.tool() path ` +
+          `leaves the engine proof out of async-local scope, so its taint POST ` +
+          `is unsigned and the agent server refuses it 403`,
+      ).toMatch(/^registerTool\(/);
     }
 
     const boundary = readFileSync(

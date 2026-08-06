@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { apiGet, toolResult, toolError } from '../api_client.js';
 import { scanContextContentAndRecordExternalContentTaint } from '../security/external_content_boundary.js';
 import { trustedSecurityContext } from '../security/security_context.js';
+import { registerTool } from './_tool.js';
 
 interface PastDeadlineTaskSummary {
   id: string;
@@ -71,7 +72,14 @@ export function registerDashboardTools(
   apiToken: string,
   agentUrl = process.env.RHYTHM_AGENT_URL ?? 'http://127.0.0.1:4001',
 ) {
-  server.tool(
+  // registerTool, not server.tool: registerTool is what runs the handler
+  // inside runWithTrustedSecurityCall, which puts the engine's signed proof in
+  // async-local scope. A tool registered with the raw SDK call still receives
+  // `extra._meta` (so trustedSecurityContext works and the identity guard
+  // passes) but currentTrustedSecurityCall() returns null, so every taint POST
+  // it makes is unsigned and the agent server refuses it 403. That was #1094.
+  registerTool(
+    server,
     'rhythm_get_dashboard',
     'Get a summary snapshot of open tasks, active rhythms, active projects, and recent message threads. ' +
     'Task counts and lists are based on scheduledDate (when you plan to do the work); if scheduledDate is ' +

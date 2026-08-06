@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { opencodeClient } from './opencode_engine';
 import { alignMcpName } from './mcp_name_alignment';
+import { resolveProfileMcpScope, type ProfileMcpScopeShape } from './agent_profile_scope';
 import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
@@ -54,7 +55,27 @@ export interface ProfileScopeSnapshot {
   label: string;
   isManager: boolean;
   enabled: boolean;
+  /**
+   * MCP SERVER names the profile grants, resolved from EITHER stored shape via
+   * the shared `resolveProfileMcpScope` (server-name array AND tools-map).
+   * Empty means "grants no server" ONLY when `mcpScopeShape` is 'invalid' — for
+   * 'unrestricted' it means "no allowlist at all, every server is available".
+   * Read `mcpScopeShape` before concluding anything from an empty array.
+   */
   allowedMcps: string[];
+  /**
+   * Which shape `allowed_mcps_json` used. 'unrestricted' = the column is NULL.
+   * Present because `allowedMcps: []` is otherwise ambiguous between "no
+   * restriction" and "nothing granted" — the ambiguity the optimizer read as
+   * "this agent has no MCP access" and filed false scope proposals on.
+   */
+  mcpScopeShape: ProfileMcpScopeShape;
+  /**
+   * server → its explicit per-tool grants. An EMPTY array means EVERY tool of
+   * that server (a `null` / `[]` value, or the server-name-array shape), never
+   * "no tools".
+   */
+  allowedMcpTools: Record<string, string[]>;
   allowedSkills: string[];
   allowedDelegates: string[];
 }
@@ -148,12 +169,20 @@ function parseJsonStringArray(json: string | null): string[] {
 }
 
 function toProfileScopeSnapshot(config: AgentConfig): ProfileScopeSnapshot {
+  // MCP scope is read through the SHARED resolver, never `parseJsonStringArray`:
+  // that helper returns [] for the tools-map shape ({"gitnexus":null,...}) and
+  // for NULL alike, so a fully-scoped live profile was reported as having no MCP
+  // access — which is what the LLM diagnosis lane quoted back as
+  // "allowedMcps: [] (empty)" while inventing a missing-scope root cause.
+  const mcpScope = resolveProfileMcpScope(config.allowedMcpsJson ?? null, config.id, config.label);
   return {
     id: config.id,
     label: config.label,
     isManager: config.isManager,
     enabled: config.enabled,
-    allowedMcps: parseJsonStringArray(config.allowedMcpsJson),
+    allowedMcps: mcpScope.servers,
+    mcpScopeShape: mcpScope.shape,
+    allowedMcpTools: mcpScope.toolsByServer,
     allowedSkills: parseJsonStringArray(config.allowedSkillsJson),
     allowedDelegates: parseJsonStringArray(config.allowedDelegatesJson),
   };
@@ -326,6 +355,26 @@ export function detectTightenGaps(
   if (liveMcpNames.size === 0) return [];
   const gaps: OrgAuditGap[] = [];
   for (const profile of profiles) {
+    // Usage-judgement lane, deliberately NOT widened by the scope-shape fix.
+    //
+    // Stated as "skip tools-map", NOT "keep only 'servers'": a caller that
+    // builds a ProfileScopeSnapshot without `mcpScopeShape` (e.g.
+    // tools/release/org_optimizer_guard_check.ts, which is outside this
+    // package's tsc scope) must keep the behavior it had, never lose the
+    // feature silently. That guard exists precisely to catch a suppression
+    // like that, and it caught this one.
+    // `allowedMcps` now also resolves the tools-map shape, which makes 18 more
+    // live profiles visible here for the first time. This lane's only "was it
+    // used" evidence is denied-tool telemetry (a denial counts as an
+    // exercised-ATTEMPT); a server used SUCCESSFULLY produces no event at all,
+    // so every such grant looks "never invoked" — and tighten-scope is
+    // risk='low', i.e. it AUTO-APPLIES. Letting the corrected read feed this
+    // lane would have auto-stripped live grants (verified against the live org:
+    // workflow-orchestrator's gitnexus + obsidian, among others). Judging those
+    // grants needs real exercised-tool evidence
+    // (org_exercised_tools_resolver.resolveExercisedTools), which is a separate
+    // change; until then this lane keeps exactly the reach it already had.
+    if (profile.mcpScopeShape === 'tools-map') continue;
     const sessionCount = sessionCountByProfile.get(profile.id) ?? 0;
     const observationDays = observationDaysByProfile.get(profile.id) ?? 0;
     if (sessionCount < MIN_TIGHTEN_ACTIVITY_COUNT) continue;
