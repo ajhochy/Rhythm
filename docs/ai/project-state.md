@@ -2,23 +2,24 @@
 
 ## Current focus
 
-Post-merge steady state: PR #1284 (mobile reliability/parity/profile rollup,
-#1277–#1287) and PR #1303 (Config Doctor remediation) are both MERGED to main
-(ba00cc27, bf235979) after user-confirmed physical-device smoke. Zero open PRs.
+Mobile gateway request cost. Session-scoped gateway requests listed the
+project's engine sessions to authorize a single id; an explicit ownership row
+now short-circuits that to one indexed local read with no engine traffic.
 
 ## Active branch / PR
 
-- Branch: `codex/mobile-fixes-rollup`
+- Branch: `claude/mobile-direct-agent-connection-hu75he`
 - Base: `main`
-- PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
-- Latest work: native SSE consumer over `expo/fetch`
-  (`apps/mobile/lib/opencode/global-event-stream.ts`) + data-driven
-  connected-status in `opencode-provider.tsx`.
+- PR: none yet — landing target undecided (main, or stacked on the open draft
+  PR [#1319](https://github.com/ajhochy/Rhythm/pull/1319) `mega/run-2026-08-04`,
+  which does not touch these files).
 - Merge remains a manual human action after review.
 
 ## In progress
 
-- None.
+- Fix 3 from the latency diagnosis — short-circuit owner checks when the Mac
+  has exactly one paired user — deliberately not built. It changes what the
+  #1175 two-account contract asserts, so it is a user decision.
 
 ## Risks / known issues
 
@@ -32,15 +33,23 @@ Post-merge steady state: PR #1284 (mobile reliability/parity/profile rollup,
 
 ## Test status
 
+- api_server: `tsc --noEmit` clean; full serial vitest suite PASS —
+  468 files / 3,838 tests, 85 files and 128 tests skipped, 0 failures.
+- New `mobile_session_authorization_cost.test.ts` verified fail-first against
+  the pre-change sources; #1175/#1169/#1285 contract files pass unmodified.
+- GitNexus MCP tools were unavailable this session, so the CLAUDE.md
+  `impact` / `detect_changes` steps were not run for this change.
 - Mobile: typecheck PASS, lint 0 errors, jest 24/24 PASS (incl. new
   `global-event-stream` regression), fake-server self-test PASS, contract
   PASS, Playwright web E2E 71/71 PASS.
-- GitNexus unstaged detect_changes: LOW (3 files / 7 symbols / 0 processes).
 - Physical iPhone: desktop→mobile and mobile→desktop both live without
   refresh, full boundary diagnostics captured (see run log
   2026-08-01-issue-1287-native-sse-stream.md).
 
 ## Next step
+
+Decide where the gateway-cost change lands (main vs stacked on #1319), then
+whether Fix 3 is wanted.
 
 Follow-ups tracked on issue #1287: desktop persisting profile bindings onto
 agent_sessions rows; decision on cleaning pre-fix corrupted profile rows;
