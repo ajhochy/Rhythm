@@ -195,7 +195,54 @@ build). A stale binary silently tests the wrong engine.
 
 ---
 
-# Round 4 — 2026-08-05 work (OUTSTANDING)
+# Round 4 — RESULTS (2026-08-05/06)
+
+Two passes: a Codex session driving the API/DB from outside the app, then AJ by hand
+for everything only a human can judge.
+
+**Codex (API/DB only — its sandbox denied `osascript` with `-10827` and even `ps`,
+so all visual items came back NOT-TESTED): 18 passed, 3 failed, 0 blocked,
+8 not-tested. No new defects.**
+
+The three failures were all already-filed known gaps, not discoveries:
+- **J3 FAIL** — taint propagation. Evidence: `child_taint_rows=1`,
+  `parent_taint_rows=0`, `fenced_wake_rows=1`. The wake IS fenced; the parent is
+  not marked tainted. Exactly the stated gap.
+- **K4 FAIL** — #1324, oldest-200 truncation. Unfixed by design.
+- **M2 FAIL** — #1326, api_server stdout captured nowhere.
+
+**G2 PASS is the notable one** — the hardline pipeline case had never been verified
+end to end. Verbatim:
+
+```
+Command blocked: Blocked (cannot be overridden): curl piping a remote URL
+directly into a shell interpreter (reason: hardline-blocklist:curl-pipe-shell)
+```
+
+So the whole chain works live: the engine escalates the bare `sh` segment, Rhythm
+recovers the full command from the tool part, and the blocklist denies it.
+
+**AJ by hand:**
+
+| item | verdict |
+|---|---|
+| K1 newest turns stay at the tail | **PASS** |
+| K3 interrupted stream repairs itself | **PASS** |
+| H5 non-manager cannot cross a profile boundary | **PASS** — "it hasn't delegated" |
+| H8 child nests under the parent | **PASS** — observed as `1 subagent · Async delegation: …` |
+| H4 headless still uses `task` | **PASS** — 19 `task` calls across 257 scheduled/system sessions, ZERO async attempts |
+| L1–L4 restored skills | **PASS** (Codex) |
+
+**Still outstanding:** K2 only. It needs the WebSocket to drop while the client
+stays running, and there is no respawn for the agent server, so inducing it strands
+the app until a manual server start. Deferred to a coordinated attempt.
+
+G3 is deliberately never tested (running a destructive command to test a deny path
+risks the disk). M1 is a post-incident observation, not a pass/fail.
+
+---
+
+# Round 4 — item definitions (2026-08-05 work)
 
 Everything below landed after the A–F pass. Where an item was already verified live
 during development, the evidence is stated; those still need a human click-through
