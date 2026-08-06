@@ -227,6 +227,7 @@ recovers the full command from the tool part, and the blocklist denies it.
 | item | verdict |
 |---|---|
 | K1 newest turns stay at the tail | **PASS** |
+| K2 a message typed while the socket is down is not lost | **PASS** (attempt 2 — see below) |
 | K3 interrupted stream repairs itself | **PASS** |
 | H5 non-manager cannot cross a profile boundary | **PASS** — "it hasn't delegated" |
 | H8 child nests under the parent | **PASS** — observed as `1 subagent · Async delegation: …` |
@@ -271,6 +272,35 @@ start a bare manual server for smoke**. Attempt 1 broke that rule.
    construction. The WS client then reconnects on its own (backoff capped at 30s)
    and flushes.
 5. PASS = the probe text is in the real DB and the row count rose.
+
+### K2 attempt 2 (2026-08-06) — **PASS**
+
+Ran the procedure above. AJ sent `k2 test two` while :4001 was down (the app showed
+"no agents connected"), and the app brought its own server back.
+
+| step | evidence |
+|---|---|
+| target session pre-existed the outage | `2558d284…` (`ui-ux-designer`), created `2026-08-06T15:27:48Z` |
+| server was down at send time | :4001 subtree killed ~15:52; app showed "no agents connected" |
+| app respawned it with correct env | server pid 66824 started `15:53:30Z`, parent = Rhythm app 62363, DB = `Application Support/Rhythm/rhythm.db` |
+| the queued frame flushed on reconnect | `k2 test two` persisted at `15:53:38Z` — 8s after the server came up, inside the 30s backoff cap |
+| the message actually ran | the agent answered in the same second (row 39963) |
+| row count moved | 38148 → 38150 |
+
+The 8-second gap between server start and message persistence is the whole result:
+the frame was typed before the server existed and was written after it returned, so
+it was held client-side across the outage instead of being discarded.
+
+**Latent hazard still open in this same code path** (not what K2 exercised, and not
+yet fixed): `WebSocketChannel.connect()` is lazy — it returns a channel object
+before the socket is up, and `sink.add` on a dead channel buffers silently instead
+of throwing. So `_channel != null` does not mean "connected". If a message is typed
+while a reconnect ATTEMPT is in flight, `send()` takes the success path and the
+frame is swallowed; worse, `_flushPendingSends()` can drain the queue into that
+doomed channel. K2 passed because the socket was fully torn down (`_channel` null),
+which is the path the queue covers. The fix is `channel.ready` (present in the
+pinned `web_socket_channel` 3.0.3) plus an explicit `_connected` flag set only
+after it completes.
 
 G3 is deliberately never tested (running a destructive command to test a deny path
 risks the disk). M1 is a post-incident observation, not a pass/fail.

@@ -157,6 +157,33 @@ Fixed in f8ece4f5 with three tests built from a payload captured off the engine'
 throughout because they hand-build `metadata: { command }`, a shape no engine
 event has — assert against captured payloads, not hand-written ones.
 
+## Manual smoke complete (2026-08-06)
+
+K2 was the last outstanding item and **passed** on the second attempt. Attempt 1 was
+INVALID, not a fail: the server was restarted by hand without `DB_PATH`, so `env.ts`
+defaulted it to `cwd/rhythm.db` (a 13-message scratch DB) and — because
+`ApiServerService` reuses any healthy server on :4001 — the client reconnected there.
+AJ caught it from the session list being unfamiliar. Never start a bare manual server
+for smoke; kill the app-owned subtree and let the app respawn it, which supplies the
+correct env by construction. Full procedure and evidence in
+`docs/testing/mega-2026-08-04-smoke.md`.
+
+**#1305 is now genuinely fixed**, not worked around. `opencode_client_service`
+resolves `opencode_bin` three levels up because in the packaged bundle it is a
+SIBLING of `api_server`; from source that same walk lands on `apps/opencode_bin`,
+while the launcher staged only `apps/api_server/opencode_bin`. Result: a verified
+fresh build coexisting with a stale binary actually serving :4096. `install_engine`
+now writes both paths and `verify_running_engine` compares **sha256** against the
+staged copy — two builds differing only by timestamp share a `--version` string, so
+the hash is the only proof the fresh bytes are live (4eec569f).
+
+**Still open, latent, in code this branch introduced:** `WebSocketChannel.connect()`
+is lazy, so `_channel != null` ≠ connected and `sink.add` on a dead channel buffers
+instead of throwing. A message typed while a reconnect attempt is in flight can be
+swallowed, and `_flushPendingSends()` can drain into that doomed channel. Fix is
+`channel.ready` (available in the pinned 3.0.3) plus an explicit `_connected` flag.
+K2 does not cover it — it exercises the fully-torn-down path.
+
 ## Next step (updated 2026-08-05)
 
 Relaunched and live-verified: message timestamps are zoned, transcript order matches
