@@ -29,6 +29,7 @@ export interface MobileOpenCodeOwnerScope {
 }
 
 export type MobileOpenCodeResourceScope = {
+  engineSessions?: unknown[];
   sessions?: unknown[];
   sessionIds?: Set<string>;
   authorizedSessions?: Map<string, boolean>;
@@ -282,6 +283,57 @@ function sessionVisibleInChatCatalog(
   );
 }
 
+/** Bound the parent walk so malformed or cyclic ancestry cannot spin. */
+const MAX_SESSION_ANCESTRY_DEPTH = 32;
+
+async function engineSessions(
+  fetchJson: MobileOpenCodeJsonFetcher,
+  scope: ResourceScope,
+): Promise<unknown[]> {
+  if (!scope.engineSessions) {
+    scope.engineSessions = asArray(await fetchJson('/session'));
+  }
+  return scope.engineSessions;
+}
+
+/**
+ * A subagent runs in a child session the caller never created, so no ownership
+ * row is ever written for it — children spawned inside the engine do not travel
+ * through this proxy. Treating that as "not yours" silently dropped every
+ * subagent approval out of the mobile permission list and turned replying to
+ * one into a 404.
+ *
+ * Walk `parentID` instead: a session is addressable when it, or an ancestor,
+ * carries a claim for this caller. The walk reads only the session collection
+ * already fetched for this project, so no additional id is addressed upstream
+ * and the #1175 no-oracle contract is untouched.
+ */
+function ancestryAuthorizesSession(
+  session: unknown,
+  sessionsById: Map<string, unknown>,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+): boolean {
+  let current: unknown = session;
+  for (
+    let depth = 0;
+    current !== undefined && depth < MAX_SESSION_ANCESTRY_DEPTH;
+    depth += 1
+  ) {
+    const currentId = stringField(current, 'id');
+    if (
+      currentId &&
+      resourceOwnedByCaller('session', currentId, project, owner)
+    ) {
+      return true;
+    }
+    const parentId = stringField(current, 'parentID');
+    if (!parentId) return false;
+    current = sessionsById.get(parentId);
+  }
+  return false;
+}
+
 async function projectSessions(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
@@ -289,15 +341,15 @@ async function projectSessions(
   owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.sessions) {
-    scope.sessions = asArray(await fetchJson('/session'))
-      .filter((session) =>
-        sessionBelongsToProject(session, project) &&
-        resourceOwnedByCaller(
-          'session',
-          stringField(session, 'id'),
-          project,
-          owner,
-        ));
+    const all = await engineSessions(fetchJson, scope);
+    const sessionsById = new Map<string, unknown>();
+    for (const session of all) {
+      const id = stringField(session, 'id');
+      if (id) sessionsById.set(id, session);
+    }
+    scope.sessions = all.filter((session) =>
+      sessionBelongsToProject(session, project) &&
+      ancestryAuthorizesSession(session, sessionsById, project, owner));
   }
   return scope.sessions;
 }

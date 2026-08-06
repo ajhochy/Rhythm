@@ -37,6 +37,15 @@ landed.
   - New. Owned session authorizes with no `/session` listing; a non-owner is
     still refused without the id ever being addressed upstream; the list
     resolves at most once per request.
+- `apps/api_server/src/services/mobile_opencode_security.ts` (second pass)
+  - Adds `ancestryAuthorizesSession` + `engineSessions`: a session is
+    addressable when it *or an ancestor reachable by `parentID`* carries a
+    claim, bounded at depth 32. Fixes subagent approvals being invisible and
+    unreplyable on mobile.
+- `apps/api_server/src/__tests__/mobile_child_session_permissions.test.ts`
+  - New. Child-session approval lists and replies for the owner; stays hidden
+    from a caller owning no ancestor; a child whose ancestry leaves the project
+    is still excluded.
 
 ## Checks
 
@@ -49,6 +58,15 @@ landed.
   — PASS, 6 files / 34 tests, all contract files **unmodified**.
 - `npx vitest run --maxWorkers=1` (full api_server suite) — PASS,
   468 files / 3,838 tests, 85 files and 128 tests skipped, 0 failures.
+- Fail-first for the child-session defect:
+  `mobile_child_session_permissions.test.ts` against the pre-fix sources —
+  2 failed / 2 passed. The permission list returned `[]` where it must list the
+  child's approval, and replying to it rejected. The two negative cases passed
+  on both sides by design.
+- Full api_server suite after the child-session fix — PASS,
+  **469 files / 3,842 tests**, 85 files and 128 tests skipped, 0 failures.
+- PR [#1327](https://github.com/ajhochy/Rhythm/pull/1327) CI on the first
+  commit: `foundation` and `server-checks` both success.
 
 ## Notes
 

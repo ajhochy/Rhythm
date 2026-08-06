@@ -2,9 +2,17 @@
 
 ## Current focus
 
-Mobile gateway request cost. Session-scoped gateway requests listed the
-project's engine sessions to authorize a single id; an explicit ownership row
-now short-circuits that to one indexed local read with no engine traffic.
+Mobile gateway authorization: cost and correctness, on PR
+[#1327](https://github.com/ajhochy/Rhythm/pull/1327).
+
+1. Session-scoped requests listed the project's engine sessions to authorize a
+   single id; an explicit ownership row now short-circuits that to one indexed
+   local read with no engine traffic.
+2. Subagent approvals never reached the phone. A subagent runs in a child
+   session, `PermissionRequest.sessionID` names that child, and children
+   spawned inside the engine never pass through the proxy so they never get an
+   ownership row — their approvals were filtered out and replying 404'd.
+   Authorization now walks `parentID` ancestry.
 
 ## Active branch / PR
 
@@ -17,9 +25,20 @@ now short-circuits that to one indexed local read with no engine traffic.
 
 ## In progress
 
-- Fix 3 from the latency diagnosis — short-circuit owner checks when the Mac
-  has exactly one paired user — deliberately not built. It changes what the
-  #1175 two-account contract asserts, so it is a user decision.
+- Local verification of #1327 against real session history and a real subagent
+  approval on device.
+
+## Corrections on record
+
+- The two-account isolation guard is **not** in
+  `issue_1175_mobile_gateway_security.test.ts` — that file has no two-account
+  assertions. It lives in `issue_1285_mobile_chat_discovery.test.ts`
+  (ownerA/ownerB). The 2026-07-30 session-visibility decision mis-attributed
+  it to #1175.
+- User has declared the two-account concern void for this deployment. The
+  owner-dimension short-circuit was still not built: the confirmed defect was
+  child-session ancestry, not owner matching, so relaxing owner checks would
+  not have fixed it.
 
 ## Risks / known issues
 
@@ -34,9 +53,9 @@ now short-circuits that to one indexed local read with no engine traffic.
 ## Test status
 
 - api_server: `tsc --noEmit` clean; full serial vitest suite PASS —
-  468 files / 3,838 tests, 85 files and 128 tests skipped, 0 failures.
-- New `mobile_session_authorization_cost.test.ts` verified fail-first against
-  the pre-change sources; #1175/#1169/#1285 contract files pass unmodified.
+  469 files / 3,842 tests, 85 files and 128 tests skipped, 0 failures.
+- Both new tests verified fail-first against the pre-change sources;
+  #1175/#1169/#1285/#1286 contract files pass unmodified.
 - GitNexus MCP tools were unavailable this session, so the CLAUDE.md
   `impact` / `detect_changes` steps were not run for this change.
 - Mobile: typecheck PASS, lint 0 errors, jest 24/24 PASS (incl. new
@@ -48,8 +67,8 @@ now short-circuits that to one indexed local read with no engine traffic.
 
 ## Next step
 
-Decide where the gateway-cost change lands (main vs stacked on #1319), then
-whether Fix 3 is wanted.
+Verify #1327 on device: confirm a real subagent approval now surfaces and can
+be replied to from the phone, then mark the PR ready and merge after sign-off.
 
 Follow-ups tracked on issue #1287: desktop persisting profile bindings onto
 agent_sessions rows; decision on cleaning pre-fix corrupted profile rows;
