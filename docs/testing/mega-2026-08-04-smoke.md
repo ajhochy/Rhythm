@@ -235,7 +235,42 @@ recovers the full command from the tool part, and the blocklist denies it.
 
 **Still outstanding:** K2 only. It needs the WebSocket to drop while the client
 stays running, and there is no respawn for the agent server, so inducing it strands
-the app until a manual server start. Deferred to a coordinated attempt.
+the app until the server is brought back.
+
+### K2 attempt 1 (2026-08-06) — INVALID, not a fail
+
+The first attempt reported "message never persisted" and was wrong. After killing
+the app's server I restarted one **by hand**:
+
+```bash
+cd apps/api_server && AGENT_LOCAL=true PORT=4001 npx tsx src/server.ts   # ← WRONG
+```
+
+`env.ts` defaults `dbPath` to `process.cwd()/rhythm.db`, so that server opened
+`apps/api_server/rhythm.db` — 10 sessions, 13 messages — instead of
+`~/Library/Application Support/Rhythm/rhythm.db` (38k messages). `ApiServerService`
+health-checks :4001 and **reuses any healthy server there**, so the client happily
+reconnected to the scratch DB and created a fresh session in it. AJ spotted it
+immediately: "it's not reconnected to the right server, the sessions list is
+unfamiliar." I was querying the real DB while the client wrote to a different one,
+so the absence of the message measured nothing about the queue.
+
+This is documented behaviour, not a new discovery — the standing rule is **never
+start a bare manual server for smoke**. Attempt 1 broke that rule.
+
+**Correct procedure — no manual server:**
+
+1. Confirm the running server is on the real DB, and record the baseline:
+   `lsof -p $(lsof -tiTCP:4001 -sTCP:LISTEN) | grep rhythm.db` must show
+   `Application Support/Rhythm/rhythm.db`.
+2. Kill the app-owned server subtree (`Rhythm → npm exec tsx → node → node`) and
+   any engine left on :4096 — an orphan engine can block the respawn and fake a FAIL.
+3. Type the probe message into an existing session while :4001 is down.
+4. Click **Retry** in the app. `ApiServerController.retry()` → `initialize()`
+   respawns the server with the app's own env, so `DB_PATH` is correct by
+   construction. The WS client then reconnects on its own (backoff capped at 30s)
+   and flushes.
+5. PASS = the probe text is in the real DB and the row count rose.
 
 G3 is deliberately never tested (running a destructive command to test a deny path
 risks the disk). M1 is a post-incident observation, not a pass/fail.

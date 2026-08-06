@@ -7,6 +7,13 @@ APP_BUNDLE="$APP_DIR/build/macos/Build/Products/Debug/Rhythm.app"
 OPENCODE_PACKAGE="$ROOT/apps/opencode_fork/packages/opencode"
 BUILT_ENGINE="$OPENCODE_PACKAGE/dist/opencode-darwin-arm64/bin/opencode"
 STAGED_ENGINE="$ROOT/apps/api_server/opencode_bin/opencode"
+# In the PACKAGED bundle, opencode_bin is a SIBLING of api_server, so
+# opencode_client_service resolves it three levels up from dist/services. Run
+# from source (tsx src/server.ts) that same three-up walk lands on
+# apps/opencode_bin — not the path above. Staging only one of them leaves a
+# stale binary shadowing the fresh build on :4096 (#1305), which is invisible
+# because both report the same branch in --version. Stage both.
+DEV_SHADOW_ENGINE="$ROOT/apps/opencode_bin/opencode"
 HEALTH_URL="http://localhost:4001/opencode/health"
 CAPABILITIES_URL="http://localhost:4001/agents/capabilities"
 STALE_SYSTEM_VERSION="1.14.40"
@@ -23,6 +30,23 @@ canonical_path() {
   printf '%s/%s\n' "$directory" "$(basename "$path")"
 }
 
+install_engine() {
+  local source_engine="$1"
+  local dest="$2"
+
+  mkdir -p "$(dirname "$dest")"
+  cp "$source_engine" "$dest"
+  chmod +x "$dest"
+  xattr -dr com.apple.provenance "$dest" >/dev/null 2>&1 || true
+
+  # Re-sign ad-hoc after copy. `cp` rewrites the file such that the embedded
+  # Mach-O signature no longer validates against its on-disk bytes, and Apple
+  # Silicon AMFI SIGKILLs (rc=137) any arm64 binary whose signature is invalid.
+  # Without this the next `--version` read dies and staging fails.
+  codesign --force --sign - "$dest" >/dev/null 2>&1 ||
+    fail "could not ad-hoc re-sign staged opencode binary at $dest"
+}
+
 stage_engine() {
   local source_engine="${RHYTHM_OPENCODE_SOURCE:-}"
 
@@ -37,17 +61,8 @@ stage_engine() {
   [[ -x "$source_engine" ]] ||
     fail "forked opencode binary is not executable: $source_engine"
 
-  mkdir -p "$(dirname "$STAGED_ENGINE")"
-  cp "$source_engine" "$STAGED_ENGINE"
-  chmod +x "$STAGED_ENGINE"
-  xattr -dr com.apple.provenance "$STAGED_ENGINE" >/dev/null 2>&1 || true
-
-  # Re-sign ad-hoc after copy. `cp` rewrites the file such that the embedded
-  # Mach-O signature no longer validates against its on-disk bytes, and Apple
-  # Silicon AMFI SIGKILLs (rc=137) any arm64 binary whose signature is invalid.
-  # Without this the next `--version` read dies and staging fails.
-  codesign --force --sign - "$STAGED_ENGINE" >/dev/null 2>&1 ||
-    fail "could not ad-hoc re-sign staged opencode binary"
+  install_engine "$source_engine" "$STAGED_ENGINE"
+  install_engine "$source_engine" "$DEV_SHADOW_ENGINE"
 
   local staged_version
   staged_version="$("$STAGED_ENGINE" --version)" ||
@@ -131,10 +146,22 @@ verify_running_engine() {
   [[ -n "$engine_path" ]] ||
     fail "could not resolve executable for :4096 PID $engine_pid"
 
+  # Either staged path is legitimate — which one is used depends on whether the
+  # server runs from source or from the packaged bundle. Both are written from
+  # the same source_engine, so the authoritative check is the CONTENT hash, not
+  # the path: two builds differing only by timestamp report an identical
+  # --version, so a version match alone never proves the fresh binary is live.
   expected_path="$(canonical_path "$STAGED_ENGINE")"
   engine_path="$(canonical_path "$engine_path")"
-  [[ "$engine_path" == "$expected_path" ]] ||
-    fail ":4096 is running $engine_path, expected $expected_path"
+  [[ "$engine_path" == "$expected_path" ||
+    "$engine_path" == "$(canonical_path "$DEV_SHADOW_ENGINE")" ]] ||
+    fail ":4096 is running $engine_path, expected $expected_path or $DEV_SHADOW_ENGINE"
+
+  local running_sha staged_sha
+  running_sha="$(shasum -a 256 "$engine_path" | awk '{print $1}')"
+  staged_sha="$(shasum -a 256 "$STAGED_ENGINE" | awk '{print $1}')"
+  [[ "$running_sha" == "$staged_sha" ]] ||
+    fail ":4096 engine at $engine_path is not the freshly staged build (sha256 ${running_sha:0:12} != ${staged_sha:0:12})"
 
   running_version="$("$engine_path" --version)" ||
     fail "could not read running opencode version"
