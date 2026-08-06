@@ -90,7 +90,8 @@ void main() {
   group('outbound send durability', () {
     test('a message typed while disconnected is QUEUED, not discarded', () {
       final box = _Outbox()..connected = false;
-      expect(box.send(input('what is the subbasin filter supposed to show?')), isFalse);
+      expect(box.send(input('what is the subbasin filter supposed to show?')),
+          isFalse);
       expect(box.send(input('hello?')), isFalse);
       expect(box.delivered, isEmpty);
       expect(box.pending.length, 2, reason: 'both must survive the outage');
@@ -107,7 +108,9 @@ void main() {
       expect(box.delivered[1], contains('second'));
     });
 
-    test('a socket that looked open but was closing re-queues instead of losing it', () {
+    test(
+        'a socket that looked open but was closing re-queues instead of losing it',
+        () {
       final box = _Outbox()
         ..connected = true
         ..throwOnAdd = true;
@@ -129,7 +132,8 @@ void main() {
       box.throwOnAdd = true;
       box.onConnect(); // fails on the first frame
       expect(box.delivered, isEmpty);
-      expect(box.pending.length, 3, reason: 'all three re-queued, still in order');
+      expect(box.pending.length, 3,
+          reason: 'all three re-queued, still in order');
 
       box.throwOnAdd = false;
       box.onConnect();
@@ -142,7 +146,8 @@ void main() {
         box.send(input(t));
       }
       expect(box.pending.length, 3);
-      expect(box.failures.length, 1, reason: 'a silent drop is the original bug');
+      expect(box.failures.length, 1,
+          reason: 'a silent drop is the original bug');
       // Oldest dropped, newest kept.
       expect(box.pending.map((m) => m['data']), ['2', '3', '4']);
     });

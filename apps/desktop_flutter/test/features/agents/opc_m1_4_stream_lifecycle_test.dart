@@ -114,8 +114,9 @@ class _StubAgentsRepository implements AgentsRepository {
   }
 
   @override
-  void send(Map<String, dynamic> msg) {
+  bool send(Map<String, dynamic> msg) {
     sentMessages.add(Map<String, dynamic>.from(msg));
+    return true;
   }
 
   @override

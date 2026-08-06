@@ -75,7 +75,10 @@ class _RecordingRepository implements AgentsRepository {
   List<List<String>>? replyAnswers;
 
   @override
-  void send(Map<String, dynamic> msg) => sends.add(msg);
+  bool send(Map<String, dynamic> msg) {
+    sends.add(msg);
+    return true;
+  }
 
   @override
   Future<void> replyQuestion(

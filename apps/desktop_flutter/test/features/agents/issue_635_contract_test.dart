@@ -101,7 +101,10 @@ class _RecordingRepository implements AgentsRepository {
   }
 
   @override
-  void send(Map<String, dynamic> msg) => sent.add(msg);
+  bool send(Map<String, dynamic> msg) {
+    sent.add(msg);
+    return true;
+  }
 
   @override
   Future<List<AgentSession>> listSessions({

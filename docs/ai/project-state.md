@@ -177,12 +177,29 @@ now writes both paths and `verify_running_engine` compares **sha256** against th
 staged copy — two builds differing only by timestamp share a `--version` string, so
 the hash is the only proof the fresh bytes are live (4eec569f).
 
-**Still open, latent, in code this branch introduced:** `WebSocketChannel.connect()`
-is lazy, so `_channel != null` ≠ connected and `sink.add` on a dead channel buffers
-instead of throwing. A message typed while a reconnect attempt is in flight can be
-swallowed, and `_flushPendingSends()` can drain into that doomed channel. Fix is
-`channel.ready` (available in the pinned 3.0.3) plus an explicit `_connected` flag.
-K2 does not cover it — it exercises the fully-torn-down path.
+**The lazy-connect hole is now fixed** (was latent in code this branch introduced).
+`WebSocketChannel.connect()` returns a channel before the socket is up and
+`sink.add` on it buffers instead of throwing, so `_channel != null` never meant
+connected: a send during an in-flight reconnect was swallowed, and
+`_flushPendingSends()` could drain the queue into that channel. Now gated on
+`await channel.ready` plus an explicit `_connected` flag. Mutation-verified against
+a real `HttpServer` in `ws_send_queue_live_socket_test.dart` — the fake-sink suite
+could never have caught it, because the fake modelled `connected` as an explicit
+flag, i.e. the fake was right and the production code was wrong.
+
+**413 desktop tests had not been running since 2026-08-05.** `031e28e7` changed
+`AgentsRepository.send` from `void` to `bool` without updating the test fakes that
+override it, so 64 test files failed to COMPILE — one "Failed to load" each, and
+every test inside them silently skipped. Desktop CI did not catch it because it
+died earlier, at the `dart format --set-exit-if-changed` gate, on an unformatted
+`ws_send_queue_test.dart`; the format gate short-circuits before `flutter test`
+runs. All 65 fakes updated (plus the two other members `031e28e7` added,
+`sendFailures` and `pendingSendCount`, missing from three of them).
+
+Desktop suite now: **1049 tests pass, 0 fail, 0 analyze errors, format clean** —
+up from 636 runnable. Lesson: a green run count is not coverage. `+636` looked
+healthy while 413 tests were not executing at all, and a red CI at the *first*
+gate hides everything downstream of it.
 
 ## Next step (updated 2026-08-05)
 

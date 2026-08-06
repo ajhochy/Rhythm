@@ -44,9 +44,13 @@ Future<Map<String, dynamic>> _decodeResponseMap(http.Response response) {
 }
 
 class AgentsDataSource {
-  AgentsDataSource({http.Client? client})
+  // `wsUrl` is injectable for the same reason as `client`: the queue/flush
+  // contract can only be verified against a REAL socket. A fake sink cannot
+  // reproduce the lazy-connect behaviour that broke it (see
+  // ws_send_queue_live_socket_test.dart).
+  AgentsDataSource({http.Client? client, String? wsUrl})
       : _baseUrl = AppConstants.agentLocalBaseUrl,
-        _wsUrl = AppConstants.agentLocalWsUrl,
+        _wsUrl = wsUrl ?? AppConstants.agentLocalWsUrl,
         _client = client ?? http.Client();
 
   final String _baseUrl;
@@ -93,7 +97,16 @@ class AgentsDataSource {
 
   /// How many frames are waiting for the socket to come back.
   int get pendingSendCount => _pendingSends.length;
-  bool get isConnected => _channel != null;
+
+  /// True only once the socket is actually live.
+  ///
+  /// Deliberately NOT `_channel != null`. `WebSocketChannel.connect` is lazy: it
+  /// returns a channel object immediately and connects in the background, so a
+  /// non-null channel says nothing about whether anything can be sent.
+  bool get isConnected => _connected;
+
+  /// Set only after `channel.ready` completes, cleared on every disconnect.
+  bool _connected = false;
 
   // --------------------------------------------------------------------------
   // WebSocket
@@ -101,25 +114,39 @@ class AgentsDataSource {
 
   Future<void> connect() async {
     if (_channel != null) return;
+    final channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+    // Claim the slot before the first await so concurrent calls (the reconnect
+    // timer racing a manual connect) cannot open two sockets.
+    _channel = channel;
     try {
-      _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      _channelSub = _channel!.stream.listen(
+      _channelSub = channel.stream.listen(
         _onRaw,
         onDone: _handleDisconnect,
         onError: (_) => _handleDisconnect(),
         cancelOnError: false,
       );
-      // Reset backoff on a successful connect attempt.
-      _backoff = const Duration(milliseconds: 250);
-      // Cancel any pending disconnect-fail timer and signal connected.
-      _disconnectFailTimer?.cancel();
-      _disconnectFailTimer = null;
-      _connectivityController.add(true);
-      // Deliver anything typed while the socket was down.
-      _flushPendingSends();
+      // `WebSocketChannel.connect` returns BEFORE the socket exists, and
+      // `sink.add` on a not-yet-live channel buffers into it rather than
+      // throwing. So a frame sent between here and `ready` completing would be
+      // swallowed with no error — the exact silent loss this queue exists to
+      // prevent. `ready` is the only signal that the socket can carry traffic.
+      await channel.ready;
     } catch (_) {
-      _scheduleReconnect();
+      // Connection refused / handshake failed. Anything typed meanwhile is
+      // already queued, and _handleDisconnect schedules the next attempt.
+      _handleDisconnect();
+      return;
     }
+    _connected = true;
+    // Reset backoff only once a connection genuinely succeeded — resetting on a
+    // mere attempt would defeat the backoff against a server that is still down.
+    _backoff = const Duration(milliseconds: 250);
+    // Cancel any pending disconnect-fail timer and signal connected.
+    _disconnectFailTimer?.cancel();
+    _disconnectFailTimer = null;
+    _connectivityController.add(true);
+    // Deliver anything typed while the socket was down.
+    _flushPendingSends();
   }
 
   void _onRaw(dynamic raw) {
@@ -132,6 +159,7 @@ class AgentsDataSource {
   }
 
   void _handleDisconnect() {
+    _connected = false;
     _channelSub?.cancel();
     _channelSub = null;
     _channel = null;
@@ -161,7 +189,9 @@ class AgentsDataSource {
   /// lost user message.
   bool send(Map<String, dynamic> msg) {
     final ch = _channel;
-    if (ch == null) {
+    // Readiness, not the presence of a channel — a channel mid-handshake accepts
+    // frames into a buffer that is discarded if the handshake fails.
+    if (ch == null || !_connected) {
       _queueSend(msg);
       return false;
     }
@@ -192,7 +222,9 @@ class AgentsDataSource {
   void _flushPendingSends() {
     if (_pendingSends.isEmpty) return;
     final ch = _channel;
-    if (ch == null) return;
+    // Never drain into a channel that is not live: it would consume the queue and
+    // buffer every frame into a socket that may never come up.
+    if (ch == null || !_connected) return;
     final queued = List<Map<String, dynamic>>.from(_pendingSends);
     _pendingSends.clear();
     for (var i = 0; i < queued.length; i++) {
@@ -207,6 +239,7 @@ class AgentsDataSource {
   }
 
   Future<void> dispose() async {
+    _connected = false;
     _reconnectTimer?.cancel();
     _disconnectFailTimer?.cancel();
     await _channelSub?.cancel();

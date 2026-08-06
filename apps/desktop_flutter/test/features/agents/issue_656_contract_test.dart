@@ -76,7 +76,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   @override
   bool get isConnected => true;
   @override
-  void send(Map<String, dynamic> msg) {}
+  bool send(Map<String, dynamic> msg) => true;
   @override
   Future<void> dispose() async {}
   @override

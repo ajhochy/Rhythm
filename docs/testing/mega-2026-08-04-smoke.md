@@ -291,16 +291,30 @@ The 8-second gap between server start and message persistence is the whole resul
 the frame was typed before the server existed and was written after it returned, so
 it was held client-side across the outage instead of being discarded.
 
-**Latent hazard still open in this same code path** (not what K2 exercised, and not
-yet fixed): `WebSocketChannel.connect()` is lazy — it returns a channel object
-before the socket is up, and `sink.add` on a dead channel buffers silently instead
-of throwing. So `_channel != null` does not mean "connected". If a message is typed
-while a reconnect ATTEMPT is in flight, `send()` takes the success path and the
-frame is swallowed; worse, `_flushPendingSends()` can drain the queue into that
-doomed channel. K2 passed because the socket was fully torn down (`_channel` null),
-which is the path the queue covers. The fix is `channel.ready` (present in the
-pinned `web_socket_channel` 3.0.3) plus an explicit `_connected` flag set only
-after it completes.
+**Latent hazard in the same code path — found while diagnosing K2, now FIXED.**
+`WebSocketChannel.connect()` is lazy: it returns a channel object before the socket
+is up, and `sink.add` on a not-yet-live channel buffers into it instead of throwing.
+So `_channel != null` never meant "connected". A message typed while a reconnect
+ATTEMPT was in flight took `send()`'s success path and was swallowed, and
+`_flushPendingSends()` would drain the whole queue into that doomed channel. K2
+passed only because it exercises the fully-torn-down path, where `_channel` is null.
+
+Fixed by awaiting `channel.ready` (present in the pinned `web_socket_channel` 3.0.3)
+and gating `send`/`_flushPendingSends`/`isConnected` on an explicit `_connected`
+flag set only after it completes.
+
+Both halves of the defect are mutation-verified in
+`test/features/agents/ws_send_queue_live_socket_test.dart`, which drives the REAL
+`AgentsDataSource` against a real `HttpServer` (a `wsUrl` test seam was added for
+this, mirroring the existing `client` seam). Reintroducing the pre-fix behaviour
+fails them: the mid-handshake send reports `Expected: false, Actual: <true>`, and
+the failed-connect case reports `Expected: <1>, Actual: <0>` — the queue drained
+into a socket that never came up.
+
+This is why the fake-sink suite could not have caught it: `ws_send_queue_test.dart`
+modelled `connected` as an explicit flag, so **the fake was correct and the
+production code was not**. A contract restated against a fake only tests the
+restatement.
 
 G3 is deliberately never tested (running a destructive command to test a deny path
 risks the disk). M1 is a post-incident observation, not a pass/fail.
