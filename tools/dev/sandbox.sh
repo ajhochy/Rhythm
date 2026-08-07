@@ -135,6 +135,18 @@ up() {
     "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
     "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
     "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
+    # #1332 — name the sandbox's engine session store EXPLICITLY.
+    #
+    # HOME above already redirects the engine's data dir, so this is belt-and-
+    # braces rather than the sole isolation. It is worth stating anyway: the
+    # engine used to get accidental per-branch stores because our build stamps
+    # the channel with the git branch, and api_server now pins the stable
+    # `opencode.db` so real work is never branch-scoped. A sandbox must not
+    # inherit that pin and start writing live-looking session names — declare a
+    # distinct file so the isolation is visible in the filename, not implied.
+    # OPENCODE_DB is checked FIRST in the engine's storage/db.ts Path, so this
+    # wins over the api_server default.
+    "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
     # The gateway port is a THIRD listener and was previously unset, so the
