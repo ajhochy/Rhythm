@@ -57,7 +57,7 @@ import { managedSkillsRoot, slugForSkillName } from "./rhythm_managed_skills";
 import { parseFrontmatter } from "./skill_seed_importer";
 
 /** schema_meta key for the version gate. Bump (v2, v3, …) to re-push a revision. */
-export const CONFIG_SEEDS_MARKER = "config_seeds_v2";
+export const CONFIG_SEEDS_MARKER = "config_seeds_v3";
 
 /**
  * Never touch the real ~/.config from a test run. Mirrored VERBATIM from

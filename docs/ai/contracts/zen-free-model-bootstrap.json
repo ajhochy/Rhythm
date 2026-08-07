@@ -1,0 +1,41 @@
+{
+  "issue": null,
+  "date": "2026-08-07",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/zen_free_model_bootstrap.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c1",
+      "text": "Fresh installs seed config-doctor and rhythm-setup with opencode/deepseek-v4-flash-free and grant zen-free-models without mutating existing installs.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap.test.ts",
+      "status": "pass",
+      "reason": "Fresh-only behavior is gated by the Config Doctor INSERT OR IGNORE result; the regression also proves an existing Config Doctor row missing v2 receives only the original v2 repair, never the Zen model or skill."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c2",
+      "text": "listAuthedProviders includes a live keyless opencode provider.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap.test.ts",
+      "status": "pass",
+      "reason": "Uses the real discovery method with only the SDK boundary faked."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c3",
+      "text": "A fresh no-auth sandbox resolves rhythm-setup to opencode/deepseek-v4-flash-free, config-doctor receives the zen-free-models grant, and a real engine turn produces assistant output.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed against a disposable empty SQLite source and empty source HOME through sandbox API :4098 and engine :4097. auth.json was absent; the real no-auth rhythm-setup turn reached idle with exact output zen-bootstrap-ok."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c4",
+      "text": "The identical live and seeded zen-free-models skill documents privacy warning, selection/probe rules, roster, and handoff limits.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Approved policy and handoff separation are present, and the seeded and managed SKILL.md files are byte-identical."
+    }
+  ],
+  "not_tested": []
+}

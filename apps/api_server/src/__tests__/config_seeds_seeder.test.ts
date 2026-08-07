@@ -244,6 +244,6 @@ describe("config_seeds_seeder.seedConfigAssets", () => {
   });
 
   it("exports a stable version marker key", () => {
-    expect(CONFIG_SEEDS_MARKER).toBe("config_seeds_v2");
+    expect(CONFIG_SEEDS_MARKER).toBe("config_seeds_v3");
   });
 });
