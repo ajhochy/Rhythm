@@ -180,10 +180,17 @@ describe('issue-703-c1: GET /agent-sessions/agents returns SDK-reported agent li
     // Response must have an `agents` array
     expect(Array.isArray(body.agents)).toBe(true);
 
-    // Must include built-in build and plan
+    // Must include the built-in `build` — the engine default Rhythm falls back
+    // to for an agent-less session.
+    //
+    // This used to also assert `plan`, which was how #703 demonstrated that
+    // built-ins surface at all. That is no longer the contract: Rhythm does not
+    // use the engine's `plan` agent, so it must not be offered as a selectable
+    // agent (2026-08-06). The `build` assertion still covers "built-ins surface",
+    // and the exclusion is now pinned explicitly below.
     const names = body.agents.map((a) => a.name);
     expect(names).toContain('build');
-    expect(names).toContain('plan');
+    expect(names).not.toContain('plan');
 
     // Must include the custom agent from the fixture
     expect(names).toContain('my-custom-agent');
@@ -196,19 +203,20 @@ describe('issue-703-c1: GET /agent-sessions/agents returns SDK-reported agent li
     expect(listAgentsSpy).toHaveBeenCalledOnce();
   });
 
-  it('issue-703-c1b: GET /agent-sessions/agents returns built-ins only when no custom agents', async () => {
+  it('issue-703-c1b: GET /agent-sessions/agents returns selectable built-ins only when no custom agents', async () => {
     listAgentsSpy.mockResolvedValue([
       AGENTS_FIXTURE[0]!,  // build
-      AGENTS_FIXTURE[1]!,  // plan
+      AGENTS_FIXTURE[1]!,  // plan — filtered out, not selectable in Rhythm
     ]);
 
     const res = await fetch(`${baseUrl}/agent-sessions/agents`);
     expect(res.status).toBe(200);
     const body = await res.json() as { agents: Array<{ name: string }> };
-    expect(body.agents).toHaveLength(2);
+    // The engine reports both built-ins; only `build` is offered.
+    expect(body.agents).toHaveLength(1);
     const names = body.agents.map((a) => a.name);
     expect(names).toContain('build');
-    expect(names).toContain('plan');
+    expect(names).not.toContain('plan');
     expect(names).not.toContain('my-custom-agent');
   });
 });

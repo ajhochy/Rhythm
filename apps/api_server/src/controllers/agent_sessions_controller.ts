@@ -25,7 +25,10 @@ import {
 } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
-import { isReservedAgentConfigId } from '../services/opencode_agent_writer';
+import {
+  isReservedAgentConfigId,
+  isSelectableEngineAgent,
+} from '../services/opencode_agent_writer';
 import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
@@ -356,7 +359,13 @@ export class AgentSessionsController {
       // (isReservedAgentConfigId) and any engine agent with no matching DB
       // row at all (not Rhythm-managed) — reject only an agent whose id or
       // ocAgent matches a DISABLED agent_configs row.
-      const agents = filterInvokableAgents(rawAgents, configs);
+      // Engine built-ins Rhythm does not offer as session agents are dropped
+      // here, at the listing boundary only — `refreshAgents` below still
+      // reconciles against the UNFILTERED engine list, so hiding an agent from
+      // the picker can never affect profile sync.
+      const agents = filterInvokableAgents(rawAgents, configs).filter(
+        (agent) => !agent.name || isSelectableEngineAgent(agent.name),
+      );
       const pickerView = req.query.view === 'picker' && req.query.full !== '1';
       res.json({
         agents: pickerView

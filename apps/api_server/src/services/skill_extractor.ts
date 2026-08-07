@@ -320,6 +320,21 @@ const defaultLlmCall: LlmCall = async (systemPrompt, userContent) => {
     mcpRole: 'skill-extract',
     allowedMcpsJson: '{}',
     allowedSkillsJson: '[]',
+    // #1331 — this run must not be able to DO anything. Its input is a verbatim
+    // transcript of someone else's session, i.e. untrusted text that frequently
+    // reads like a set of instructions; distillation needs no tools at all, since
+    // the transcript is already inlined in `combined` above.
+    //
+    // On 2026-08-06 this loop read a session about debugging a port conflict and
+    // then force-killed the engine on :4096, quoting "PID 48683" — a number that
+    // appeared only in the material it was summarising. It was not choosing to
+    // manage processes; it was replaying the transcript's task as its own.
+    //
+    // `allowedMcpsJson: '{}'` above was NOT enough: it denies MCP tools only, and
+    // `bash` is engine-native. denyAllTools closes that with an engine-side deny
+    // on every tool, so the class is unreachable regardless of what the transcript
+    // says or how the prompt is worded.
+    denyAllTools: true,
   });
   // '' triggers the SAME fail path (LLM declined / no session) the old
   // no-session / empty-parts return used.

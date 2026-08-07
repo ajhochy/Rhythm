@@ -344,6 +344,25 @@ export function resolveRhythmMcpCommand(): string[] {
 }
 
 /**
+ * #1332 — pin the engine to its stable session store (see the call site in
+ * `_initializeImpl` for the full rationale and the measured session counts).
+ *
+ * Exported and env-injectable purely so this is testable without spawning an
+ * engine: the behaviour it guards — "a test build must not orphan real
+ * conversations" — is data integrity, not a preference.
+ *
+ * Idempotent, and never overrides an explicit choice: a caller that has already
+ * set `OPENCODE_DISABLE_CHANNEL_DB` (e.g. `=0` to deliberately restore
+ * per-branch stores) keeps it, and `OPENCODE_DB` is honoured ahead of this flag
+ * by the engine itself, so a sandbox naming its own file always wins.
+ */
+export function pinEngineSessionStore(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  env.OPENCODE_DISABLE_CHANNEL_DB ??= '1';
+}
+
+/**
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
  * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
  * which contain the opencode binary. Idempotent: prepends each dir at most once.
@@ -688,6 +707,34 @@ export class OpencodeClientService {
       // createOpencode()'s child inherits it; `??=` lets an explicit override win
       // (e.g. a dev deliberately re-enabling external skills).
       process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS ??= '1';
+      // #1332 — pin the engine to its STABLE session database.
+      //
+      // The engine names its DB after the installation channel
+      // (storage/db.ts getChannelPath): `latest`/`beta`/`prod` get the plain
+      // `opencode.db`, anything else gets `opencode-<channel>.db`. Our fork's
+      // build stamps the channel with the current GIT BRANCH
+      // (script/build.ts → OPENCODE_CHANNEL), so every branch silently opened a
+      // BRAND-NEW EMPTY session store, and every conversation from the previous
+      // branch became invisible — not deleted, just in another file.
+      //
+      // Measured 2026-08-07 after four branch switches in five days:
+      //   opencode.db                                        838 sessions
+      //   opencode-mega-run-2026-08-04.db                    376 sessions
+      //   opencode-workflow-run-2026-08-06-…-plan-agent.db    19 sessions
+      // AJ lost access to a day of real work purely by being on a test build.
+      // Sessions are where the accumulated context lives, so this is data loss
+      // in practice even though every byte survives on disk.
+      //
+      // Real work must never be branch-scoped. Sandbox isolation is a separate,
+      // EXPLICIT mode and does not rely on this filename: tools/dev/sandbox.sh
+      // isolates by pointing HOME at a throwaway dir, and the engine's data path
+      // derives from HOME — so forcing the stable name here cannot leak a smoke
+      // run into the live store.
+      //
+      // `??=` keeps both escape hatches: set OPENCODE_DISABLE_CHANNEL_DB=0 to
+      // restore per-branch stores, or OPENCODE_DB=<name|abs path|:memory:> to
+      // pick a specific one (that flag is checked first in storage/db.ts Path).
+      pinEngineSessionStore();
       logger.info(`[Opencode][timing] augmentPath took ${Date.now() - t1}ms`);
 
       // Phase 2: dynamic import of the ESM-only SDK.

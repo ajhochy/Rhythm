@@ -349,6 +349,33 @@ export interface AgentRunOptions {
    */
   modelOverride?: { providerID: string; modelID: string };
   /**
+   * #1331 — deny EVERY tool for this run, enforced by the engine.
+   *
+   * For a run whose whole job is "read the text I gave you, return text" — the
+   * skill extractor being the motivating case — tools are not merely unnecessary,
+   * they are a liability: the transcript being summarised is untrusted input, and
+   * an agent that can execute may replay the transcript's task as its own. That
+   * is what happened on 2026-08-06, when the extractor read a session about
+   * debugging a port conflict and then force-killed the engine, quoting a PID that
+   * appeared only in the material it was reading.
+   *
+   * `allowedMcpsJson: '{}'` does NOT cover this. It denies MCP tools only; `bash`,
+   * `write`, `edit` and friends are engine-NATIVE and were still reachable.
+   *
+   * Implemented via the engine's per-prompt `tools` map, which the fork turns into
+   * a session permission ruleset: `{ '*': false }` becomes
+   * `{ permission: '*', action: 'deny', pattern: '*' }`, and `evaluate()` matches
+   * the rule's permission field as a wildcard — so every tool name is denied.
+   * A deny is refused by the engine itself and never surfaces as a
+   * `permission.asked` event, so Rhythm's bridge cannot auto-approve it. (Note
+   * `permissionMode: 'bypassPermissions'` below is a RHYTHM-side concept — the
+   * string appears nowhere in the fork — so it cannot soften this.)
+   *
+   * Fail-closed by construction: a tool added by a future engine release is denied
+   * without anyone having to remember to add it to a list.
+   */
+  denyAllTools?: boolean;
+  /**
    * #844 (tokens-04) — optional task-kind hint ('triage' | 'formatting' |
    * 'extraction' | 'summarization' | 'planning' | 'judgment' | ...) used for
    * BUDGET-AWARE TIERED ROUTING via agent_model_resolver.resolveTieredModel().
@@ -1161,6 +1188,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           }
         : {}),
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
+      // #1331 — see AgentRunOptions.denyAllTools. The engine converts this map
+      // into the session's permission ruleset, so '*': false is an engine-side
+      // hard deny on every tool, not a request the bridge could auto-approve.
+      ...(opts.denyAllTools === true ? { tools: { '*': false } } : {}),
     };
     // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created
     // under effectiveCwd (cwd ?? process.cwd()); every post-creation call MUST

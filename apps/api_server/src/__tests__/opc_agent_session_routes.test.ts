@@ -187,8 +187,13 @@ describe('GET /agent-sessions/agents -> client.app.agents', () => {
   it('calls client.app.agents with the directory query and returns { agents }', async () => {
     const { status, body } = await req('GET', '/agent-sessions/agents?cwd=/Users/x/proj');
     expect(status).toBe(200);
-    expect(body.agents).toHaveLength(2);
+    // The fixture reports build + plan. `plan` is an engine built-in Rhythm does
+    // not use, so it is filtered out of the listing (2026-08-06) and only `build`
+    // — the engine default — is offered. The point of this test is the SDK call
+    // shape below; the count just has to match the filtered reality.
+    expect(body.agents).toHaveLength(1);
     expect(body.agents[0]).toMatchObject({ name: 'build', builtIn: true });
+    expect(body.agents.map((a: { name: string }) => a.name)).not.toContain('plan');
     // The REAL SDK call site: client.app.agents({ query: { directory } }).
     const agentsFn = (fake.ref as any).app.agents;
     expect(agentsFn).toHaveBeenCalledWith({ query: { directory: '/Users/x/proj' } });
