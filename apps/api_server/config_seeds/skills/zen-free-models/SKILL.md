@@ -76,13 +76,7 @@ No signup, key, or payment is needed for the free path. Build the live free list
 
 Known live fallback IDs are `deepseek-v4-flash-free`, `laguna-s-2.1-free`, `longcat-2.0-free`, `mimo-v2.5-free`, `nemotron-3-ultra-free`, and `big-pickle`.
 
-Always probe the selected ID before assigning it with an 8-token chat completion using `Authorization: Bearer public`; require a `choices` array. For example:
-
-```sh
-curl --fail-with-body https://opencode.ai/zen/v1/chat/completions \
-  -H 'Authorization: Bearer public' -H 'Content-Type: application/json' \
-  -d '{"model":"<model-id>","max_tokens":8,"messages":[{"role":"user","content":"Reply OK."}]}'
-```
+Always run `node tools/dev/zen-probe.mjs` from the Rhythm repository before assigning a route. It intersects served/free models, probes each with an 8-token completion using `Authorization: Bearer public`, and fails when the current bootstrap seed fails.
 
 Use guidance rather than a static mapping: choose the strongest live coder for code; use nemotron or longcat for heavy/long-context work (both 1M); use mimo-v2.5 for image input (the only free `attachment:true` route); use the smallest live model for mechanical checks. North Mini Code looks natural but was dead on the last probe, so the probe wins.
 

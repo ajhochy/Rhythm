@@ -70,3 +70,50 @@ tags: [run, api_server]
 - WAIVED: bookkeeping-only identity correction; verification is: focused contract tests, JSON parse, `git diff --check`, and scoped legacy-identity search.
 - Bookkeeping correction: contract is no-issue (`issue: null`) at `docs/ai/contracts/zen-free-model-bootstrap.json`; the 34 focused tests, JSON parse, whitespace check, and changed-file legacy-identity search passed.
 - Zen availability is inherently time-sensitive. Last approved probe roster: available `deepseek-v4-flash-free`, `laguna-s-2.1-free`, `longcat-2.0-free`, `mimo-v2.5-free`, `nemotron-3-ultra-free`, `big-pickle`; unavailable `north-mini-code-free` and both Ling free variants.
+
+## Expiry fallback follow-up
+
+### Files
+
+- `apps/api_server/src/services/agent_model_resolver.ts` — keyless-only local catalog fallback for stale Zen ids; credentialed Zen configs remain unchanged.
+- `apps/api_server/src/services/opencode_client_service.ts` — narrow auth-store-only accessor that distinguishes credentialed from keyless providers.
+- `apps/api_server/src/__tests__/agent_model_resolver_zen_fallback.test.ts` and `zen_free_model_bootstrap_live_e2e.test.ts` — stale-catalog unit and observable live contracts.
+- `tools/dev/zen-probe.mjs`, both `zen-free-models/SKILL.md` copies, and `docs/ai/testing-guide.md` — manual probe and operator guidance.
+
+### Contract
+
+- Failing pre-implementation run: `cd apps/api_server && npx vitest run src/__tests__/agent_model_resolver_zen_fallback.test.ts` → **3 failed / 2 passed**. Stale ids were returned unchanged instead of the pinned fallback, first catalog entry, or `undefined` for an empty catalog.
+- Contract: `docs/ai/contracts/zen-free-model-bootstrap.json`; unit criteria c5–c9 pass. Live criterion c10 is **UNVERIFIED** because sandbox ownership safety prevented startup.
+
+### Checks
+
+- `npx vitest run src/__tests__/agent_model_resolver_zen_fallback.test.ts src/__tests__/zen_free_model_bootstrap.test.ts src/__tests__/rhythm_setup_seed.test.ts src/__tests__/config_seeds_seeder.test.ts src/__tests__/migrations_replay_guard.test.ts src/__tests__/opencode_client_service.test.ts` → **6 files / 39 passed**.
+- `node_modules/.bin/tsc --noEmit && npm run build` → **passed**.
+- `cmp -s apps/api_server/config_seeds/skills/zen-free-models/SKILL.md "$HOME/.config/opencode/skills/zen-free-models/SKILL.md" && git diff --check` → **passed**.
+- `bun run build --single` in `apps/opencode_fork/packages/opencode` → **passed**.
+- `node tools/dev/zen-probe.mjs` → exit **0** (the seeded model passed):
+
+```text
+north-mini-code-free   FAIL  HTTP 401: no choices                     256000   false
+longcat-2.0-free       OK                                             1000000  false
+ling-3.0-flash-free    OK                                             262144   false
+laguna-s-2.1-free      OK                                             256000   false
+deepseek-v4-flash-free OK                                             200000   false
+ling-3.0-tiny-free     OK                                             262144   false
+mimo-v2.5-free         OK                                             200000   true
+big-pickle             OK                                             200000   false
+nemotron-3-ultra-free  FAIL  The operation was aborted due to timeout 1000000  false
+```
+- Required live launch used only `tools/dev/sandbox.sh` with `RHYTHM_LIVE_DB_PATH=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/zen-fresh-install/rhythm.db`, empty source HOME, and API/engine ports `4098/4097`. It was blocked: `sandbox: port :4098 is occupied; refusing to touch it`. Scoped `down` then failed closed: `sandbox engine port :4097 is occupied without a recorded engine PID; refusing to kill it`. `status`/`lsof` still show API PID **54230** and engine PID **54254** listening; they were not killed manually.
+- `gitnexus_detect_changes({scope:'compare', base_ref:'main'})` → **low** risk; 10 changed symbols, 0 affected processes.
+
+### Notes
+
+- GitNexus pre-edit impact: `resolveModelFromAgentConfigs` and `OpencodeClientService` were both **LOW** (0 indexed callers/processes); the indexed `listAuthedProviders` method could not be resolved on this branch, so the containing class was analyzed.
+- No scheduler, cron, auto-assignment, or profile mutation mechanism was added. The fallback is a per-turn local catalog lookup only; it never makes a network completion request.
+
+### Resumed live verification
+
+- With `HOME=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/zen-fresh-install/empty-source-home` (no `auth.json`) and source DB `/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/zen-fresh-install/rhythm.db`, `tools/dev/sandbox.sh up` launched only API `:4098` and engine `:4097`. The live contract ran with both `DB_PATH` and `RHYTHM_LIVE_DB_PATH` set to the disposable sandbox copy, changed only `rhythm-setup` to `does-not-exist-free`, and passed: **1 file / 1 test**, exact persisted output `zen-bootstrap-ok`.
+- The first immediate post-idle transcript read raced persistence; the live contract now polls the existing messages endpoint for up to 30 seconds, while retaining its exact output assertion. No runtime code changed.
+- `tools/dev/sandbox.sh down` completed after every launch. Final listeners: `4097/4098/4099` empty; live API PID `50975` remained on `4001` and live engine PID `50995` remained on `4096`.

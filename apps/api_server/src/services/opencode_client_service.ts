@@ -988,6 +988,11 @@ export class OpencodeClientService {
     return [...connected];
   }
 
+  /** True only for a credential recorded by the auth store, never a keyless provider. */
+  isProviderInAuthStore(providerId: string): boolean {
+    return this.authStore.listAuthedProviders().includes(providerId);
+  }
+
   /** Get available models for a provider */
   async listModels(
     providerId: string,

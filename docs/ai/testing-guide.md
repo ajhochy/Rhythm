@@ -245,6 +245,7 @@ Playwright, computer-control, and manual-only coverage are N/A: this is a
 deterministic backend HTTP surface.
 
 ### api_server (Node.js/TypeScript)
+Run `node tools/dev/zen-probe.mjs` to verify the served/free Zen roster and current bootstrap seed.
 ```bash
 cd apps/api_server
 npm test                  # vitest run — 965 tests (as of #738-fix, 2026-06-23)

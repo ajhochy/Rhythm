@@ -5,6 +5,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { homedir } from 'node:os';
+import Database from 'better-sqlite3';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
@@ -32,6 +33,19 @@ async function waitForIdle(id: string): Promise<{ status: string }> {
   throw new Error(`session ${id} did not finish within 120 seconds`);
 }
 
+async function waitForOutput(id: string): Promise<string> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const { messages } = await apiJson<{ messages: Array<{ role?: string; rawText?: string }> }>(
+      `/agent-sessions/${id}/messages`,
+    );
+    const output = messages.find((message) => message.role === 'output')?.rawText?.trim();
+    if (output) return output;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+  throw new Error(`session ${id} reached idle without persisted assistant output`);
+}
+
 describeLive('Zen free-model bootstrap live acceptance contract', () => {
   beforeAll(() => assertLiveE2EIsolation());
 
@@ -40,7 +54,7 @@ describeLive('Zen free-model bootstrap live acceptance contract', () => {
     sessionId = undefined;
   });
 
-  it('completes a no-auth rhythm-setup turn over opencode/deepseek-v4-flash-free', async () => {
+  it('completes a no-auth rhythm-setup turn after its seeded Zen id expires', async () => {
     const profile = await apiJson<{
       modelProvider: string;
       modelId: string;
@@ -59,6 +73,12 @@ describeLive('Zen free-model bootstrap live acceptance contract', () => {
       modelId: 'deepseek-v4-flash-free',
     });
     expect(JSON.parse(configDoctor.allowedSkillsJson ?? '[]')).toContain('zen-free-models');
+
+    const dbPath = process.env.RHYTHM_LIVE_DB_PATH;
+    if (!dbPath) throw new Error('RHYTHM_LIVE_DB_PATH is required for the stale-model setup');
+    const db = new Database(dbPath);
+    db.prepare(`UPDATE agent_configs SET model_id = 'does-not-exist-free' WHERE id = 'rhythm-setup'`).run();
+    db.close();
 
     const session = await apiJson<{ id: string }>('/agent-sessions', {
       method: 'POST',
@@ -84,13 +104,9 @@ describeLive('Zen free-model bootstrap live acceptance contract', () => {
     const finished = await waitForIdle(session.id);
     ws.close();
 
-    // Regression: an absent keyless opencode route leaves this turn in error
-    // instead of producing any completed real-engine response.
+    // Regression: an expired seeded Zen id must still produce a real response.
     expect(finished.status).toBe('idle');
-    const { messages } = await apiJson<{ messages: Array<{ role?: string; rawText?: string }> }>(
-      `/agent-sessions/${session.id}/messages`,
-    );
-    const output = messages.find((message) => message.role === 'output')?.rawText?.trim();
+    const output = await waitForOutput(session.id);
     expect(output).toBe('zen-bootstrap-ok');
     console.log(output);
   }, 140_000);
