@@ -2,20 +2,20 @@
 
 ## Current focus
 
-Prepare the verified delegation model-override change for a draft PR. Both
+Hand off the verified delegation model-override draft PR for manual smoke. Both
 `rhythm_delegate` and `rhythm_delegate_async` accept an optional validated
 `{providerID, modelID}` override; omission retains the target profile default.
 
 ## Active branch / PR
 
 - Branch: `feat/delegation-model-override`.
-- PR: not opened yet. There is no associated GitHub issue; the local
+- Draft PR: [#1335](https://github.com/ajhochy/Rhythm/pull/1335), commit
+  `31e1ca16`. There is no associated GitHub issue; the local
   `docs/ai/contracts/issue-001.json` is a workflow contract only.
 
 ## In progress
 
-- The orchestrator is running final Git checks, then will commit, push, and open a
-  draft PR. No merge is authorized.
+- Draft PR #1335 is open and awaiting human manual smoke. No merge is authorized.
 - Sync delegation passes `modelOverride`; async delegation passes the selected
   provider into `createSession` and the full model into `promptAsync`. Agent-profile
   scope is unchanged.
@@ -43,5 +43,4 @@ Prepare the verified delegation model-override change for a draft PR. Both
 
 ## Next step
 
-Orchestrator completes final Git checks, commits, pushes, and opens a draft PR.
-Human manual smoke and merge remain required.
+Human manual smoke PR #1335, then merge only with explicit approval.

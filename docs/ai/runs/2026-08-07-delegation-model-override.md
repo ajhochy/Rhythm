@@ -2,9 +2,9 @@
 date: 2026-08-07
 repo: Rhythm
 branch: feat/delegation-model-override
-pr: null
+pr: 1335
 issues: []
-status: passed
+status: pr-open-awaiting-smoke
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -50,5 +50,5 @@ index: "[[Rhythm]]"
   owns final `detect_changes`.
 - No GitHub issue was supplied. `docs/ai/contracts/issue-001.json` is a local
   workflow contract, not a GitHub issue reference.
-- Next: orchestrator final Git checks, commit, push, and draft PR; human manual
-  smoke and merge only.
+- Draft PR [#1335](https://github.com/ajhochy/Rhythm/pull/1335) is open at commit
+  `31e1ca16`. Next: human manual smoke, then merge only with explicit approval.
