@@ -23,7 +23,8 @@ Recently merged to `main`:
 - Branch: `workflow/run-2026-08-06-ci-gates-and-plan-agent`, PR
   [#1330](https://github.com/ajhochy/Rhythm/pull/1330) (draft), head `b57d9c05`
   plus a merge of `origin/main`.
-- Task-search: `feat/task-search-tier12` (base `617d9045`); no PR yet.
+- Task-search: `feat/task-search-tier12` (base `617d9045`), draft PR
+  [#1336](https://github.com/ajhochy/Rhythm/pull/1336), head `9bf3efe5`.
 - Closes **#1328** (Desktop CI gate ordering), **#1329** (Mobile CI
   self-cancellation), **#1331** (skill extractor could execute what it read),
   **#1332** (engine session store was branch-scoped).
@@ -148,6 +149,5 @@ switch and an engine restart present identically (engine reports 0 sessions).
 Merge #1330 → `main`, dispatch `desktop_release.yml` with `0.18.55`, then watch the
 release build (it does its own full build + sign + notarize, which is the real
 verification of the desktop side). After that, the on-device #1327 subagent-approval
-confirmation and the two owed #1319 code items. For task-search, commit and push
-`feat/task-search-tier12`, open a draft PR, then hand off the production deployment
-window and manual smoke to a human.
+confirmation and the two owed #1319 code items. For task-search, hand off low-traffic
+deployment and manual smoke review to a human; do not merge.
