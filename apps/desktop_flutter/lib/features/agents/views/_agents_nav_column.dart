@@ -29,7 +29,6 @@ import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_playbooks/views/agent_playbooks_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
-import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '_agent_profile_sheet.dart';
@@ -80,13 +79,28 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
   final Set<String> _multiSelected = {};
 
   bool _archivedSectionExpanded = false;
+  bool _sessionsExpanded = true;
+  final _toolsFocusNode = FocusNode();
 
   bool get _hasMultiSelection => _multiSelected.isNotEmpty;
 
   @override
   void dispose() {
     _searchController.dispose();
+    _toolsFocusNode.dispose();
     super.dispose();
+  }
+
+  void _expandAndRevealTools() {
+    widget.onToggleCollapse();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _toolsFocusNode.requestFocus();
+    });
+  }
+
+  void _expandSessions() {
+    setState(() => _sessionsExpanded = true);
+    widget.onToggleCollapse();
   }
 
   void _onRowTap(String id) {
@@ -205,7 +219,7 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
   @override
   Widget build(BuildContext context) {
     if (widget.isCollapsed) {
-      // Render a narrow collapsed strip — just the toggle icon.
+      // The collapsed rail keeps the primary Agents destinations available.
       return Container(
         width: 48,
         decoration: BoxDecoration(
@@ -218,8 +232,9 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
           children: [
             const SizedBox(height: 12),
             IconButton(
+              key: const ValueKey('collapsed-nav-expand'),
               icon: const Icon(Icons.menu, size: 18),
-              tooltip: 'Expand navigation',
+              tooltip: 'Expand',
               onPressed: widget.onToggleCollapse,
               style: IconButton.styleFrom(
                 foregroundColor: context.rhythm.textMuted,
@@ -227,6 +242,32 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                 padding: EdgeInsets.zero,
               ),
             ),
+            IconButton(
+              key: const ValueKey('collapsed-nav-new-session'),
+              icon: const Icon(Icons.add, size: 18),
+              tooltip: 'New Session',
+              onPressed: widget.onNewSession,
+            ),
+            IconButton(
+              key: const ValueKey('collapsed-nav-sessions'),
+              icon: const Icon(Icons.forum_outlined, size: 18),
+              tooltip: 'Sessions',
+              onPressed: _expandSessions,
+            ),
+            IconButton(
+              key: const ValueKey('collapsed-nav-tools'),
+              icon: const Icon(Icons.build_outlined, size: 18),
+              tooltip: 'Tools',
+              onPressed: _expandAndRevealTools,
+            ),
+            const Spacer(),
+            IconButton(
+              key: const ValueKey('collapsed-nav-agent-settings'),
+              icon: const Icon(Icons.tune_rounded, size: 18),
+              tooltip: 'Agent settings',
+              onPressed: () => showAgentSettingsSheet(context),
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       );
@@ -358,52 +399,33 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
           ),
           const SizedBox(height: 10),
 
-          // ── CHATS section ───────────────────────────────────────────────
+          // ── Session scope and controls ──────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: Row(
               children: [
-                // #1025 (USO A2) — category filter dropdown. Replaces the
-                // static "CHATS" header; switching scope reloads the list with
-                // the matching `?scope=` param. Default scope's headerLabel is
-                // 'CHATS', preserving the original section wording.
-                PopupMenuButton<AgentSessionScope>(
-                  key: const ValueKey('session-scope-dropdown'),
-                  tooltip: 'Filter sessions by category',
-                  initialValue: controller.scope,
-                  onSelected: (s) =>
-                      context.read<AgentsController>().loadSessions(s),
-                  itemBuilder: (_) => [
-                    for (final s in AgentSessionScope.values)
-                      PopupMenuItem<AgentSessionScope>(
-                        value: s,
-                        child: Text(s.menuLabel),
-                      ),
-                  ],
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          controller.scope.headerLabel,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: context.rhythm.textMuted,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_drop_down,
-                        size: 16,
-                        color: context.rhythm.textMuted,
-                      ),
-                    ],
+                Expanded(
+                  child: _SessionScopeTabs(
+                    scope: controller.scope,
+                    onSelected: (scope) =>
+                        context.read<AgentsController>().loadSessions(scope),
                   ),
                 ),
-                const Spacer(),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Row(
+              children: [
+                if (isChatsScope)
+                  Expanded(
+                    child: _ByProjectSelector(
+                      onAddProject: widget.onShowNewProjectDialog,
+                    ),
+                  )
+                else
+                  const Spacer(),
                 // #903 — sort menu.
                 PopupMenuButton<_SessionSortField>(
                   key: const ValueKey('session-sort-menu'),
@@ -462,18 +484,41 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             ),
           ),
 
-          // "By Project" selector — only meaningful for CHATS. Scheduled /
-          // self_improvement runs are not project-scoped, so the filter is
-          // hidden entirely outside the chats scope (smoke follow-up to #1025).
-          if (isChatsScope) ...[
-            _ByProjectSelector(
-              onAddProject: widget.onShowNewProjectDialog,
+          InkWell(
+            key: const ValueKey('sessions-disclosure'),
+            onTap: () => setState(() => _sessionsExpanded = !_sessionsExpanded),
+            child: Semantics(
+              button: true,
+              expanded: _sessionsExpanded,
+              label: 'Sessions (${filteredSessions.length})',
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      _sessionsExpanded
+                          ? Icons.expand_more
+                          : Icons.chevron_right,
+                      size: 16,
+                      color: context.rhythm.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Sessions (${filteredSessions.length})',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 4),
-          ],
+          ),
 
           // Multi-select bulk-action bar.
-          if (_hasMultiSelection)
+          if (_sessionsExpanded && _hasMultiSelection)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -519,42 +564,26 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
               ),
             ),
 
-          // ── Scrollable middle region ─────────────────────────────────────
-          //
-          // Everything between the pinned header above and the pinned footer
-          // below lives inside a single SingleChildScrollView. This makes the
-          // CHATS controls, session list, AND TOOLS section scroll together as
-          // one area when the window is short — eliminating the layout overflow
-          // that occurred when the 8-row TOOLS section exceeded the available
-          // flex space.
-          //
-          // SessionListBody uses shrinkWrap:true so it does not try to fill an
-          // unbounded height; it competes for natural column height instead.
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Session list — CHATS body (rich rows from SessionListBody).
-                  SessionListBody(
-                    filteredSessions: filteredSessions,
-                    resumableSectionExpanded: widget.resumableSectionExpanded,
-                    onToggleResumable: widget.onToggleResumable,
-                    archivedSectionExpanded: _archivedSectionExpanded,
-                    onToggleArchived: _onToggleArchived,
-                    multiSelected: _multiSelected,
-                    onRowTap: _onRowTap,
-                    searchQuery: _searchQuery,
-                    shrinkWrap: true,
-                  ),
-
-                  Divider(height: 1, color: context.rhythm.borderSubtle),
-
-                  // ── TOOLS section ──────────────────────────────────────
-                  const _ToolsSection(),
-                ],
+          if (_sessionsExpanded)
+            Expanded(
+              child: SessionListBody(
+                filteredSessions: filteredSessions,
+                resumableSectionExpanded: widget.resumableSectionExpanded,
+                onToggleResumable: widget.onToggleResumable,
+                archivedSectionExpanded: _archivedSectionExpanded,
+                onToggleArchived: _onToggleArchived,
+                multiSelected: _multiSelected,
+                onRowTap: _onRowTap,
+                searchQuery: _searchQuery,
               ),
-            ),
+            )
+          else
+            const Spacer(),
+
+          Divider(height: 1, color: context.rhythm.borderSubtle),
+          SizedBox(
+            height: 180,
+            child: _ToolsSection(focusNode: _toolsFocusNode),
           ),
 
           Divider(height: 1, color: context.rhythm.borderSubtle),
@@ -782,12 +811,65 @@ class _ByProjectSelector extends StatelessWidget {
   }
 }
 
+class _SessionScopeTabs extends StatelessWidget {
+  const _SessionScopeTabs({required this.scope, required this.onSelected});
+
+  final AgentSessionScope scope;
+  final ValueChanged<AgentSessionScope> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Session scope',
+      child: Row(
+        key: const ValueKey('session-scope-tabs'),
+        children: [
+          for (final tab in [
+            (AgentSessionScope.chats, 'Chats'),
+            (AgentSessionScope.scheduled, 'Scheduled'),
+            (AgentSessionScope.selfImprovement, 'Background'),
+          ])
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1),
+                child: TextButton(
+                  onPressed: () => onSelected(tab.$1),
+                  style: TextButton.styleFrom(
+                    foregroundColor: tab.$1 == scope
+                        ? context.rhythm.accent
+                        : context.rhythm.textSecondary,
+                    backgroundColor: tab.$1 == scope
+                        ? context.rhythm.accentMuted
+                        : Colors.transparent,
+                    minimumSize: const Size(0, 28),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: Semantics(
+                    selected: tab.$1 == scope,
+                    child: Text(tab.$2, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // TOOLS section
 // ---------------------------------------------------------------------------
 
 class _ToolsSection extends StatelessWidget {
-  const _ToolsSection();
+  const _ToolsSection({required this.focusNode});
+
+  final FocusNode focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -796,154 +878,182 @@ class _ToolsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 6),
-            child: Text(
-              'TOOLS',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: context.rhythm.textMuted,
-                letterSpacing: 0.8,
+          Focus(
+            key: const ValueKey('tools-heading'),
+            focusNode: focusNode,
+            child: Builder(
+              builder: (context) => Semantics(
+                excludeSemantics: true,
+                header: true,
+                label: 'Tools',
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.only(left: 4, bottom: 6),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Focus.of(context).hasFocus
+                          ? context.rhythm.accent
+                          : Colors.transparent,
+                    ),
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                  ),
+                  child: Text(
+                    'TOOLS',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: context.rhythm.textMuted,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          _ToolsRow(
-            key: const ValueKey('tools-row-brain'),
-            icon: '🧠',
-            label: 'Brain',
-            subtitle: 'Persistent agent memories',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentMemoryView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-research'),
-            icon: '🔬',
-            label: 'Deep Research',
-            subtitle: 'Multi-source research runs',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentResearchView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-tasks'),
-            icon: '⏰',
-            label: 'Tasks',
-            subtitle: 'Scheduled agent jobs',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentSchedulesView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-webhooks'),
-            icon: '🪝',
-            label: 'Webhooks',
-            subtitle: 'Inbound trigger endpoints',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentWebhooksView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-profiles'),
-            icon: '🤖',
-            label: 'Profiles',
-            subtitle: 'Agent identity & permissions',
-            onTap: () => showAgentProfilesManagerSheet(context),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-skills'),
-            icon: '✨',
-            label: 'Skills',
-            subtitle: 'Self-improving skill library',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentSkillsView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-playbooks'),
-            icon: '📜',
-            label: 'Playbooks',
-            subtitle: 'Custom slash commands',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentPlaybooksView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-cookbook'),
-            icon: '📖',
-            label: 'Cookbook',
-            subtitle: 'Agent prompt recipes',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentCookbookView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-review-queue'),
-            icon: '🛂',
-            label: 'Review Queue',
-            subtitle: 'Human-gated org optimizer proposals',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const OrgProposalsView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-run-quality'),
-            icon: '📋',
-            label: 'Report Card',
-            subtitle: 'How agents have been doing lately',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const RunQualityView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-email'),
-            icon: '📧',
-            label: 'Email',
-            subtitle: 'Gmail signals & assistant',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentEmailView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-gallery'),
-            icon: '🎨',
-            label: 'Gallery',
-            subtitle: 'Canva design workspace',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentGalleryView(),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-brain'),
+                    icon: '🧠',
+                    label: 'Brain',
+                    subtitle: 'Persistent agent memories',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentMemoryView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-research'),
+                    icon: '🔬',
+                    label: 'Deep Research',
+                    subtitle: 'Multi-source research runs',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentResearchView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-tasks'),
+                    icon: '⏰',
+                    label: 'Tasks',
+                    subtitle: 'Scheduled agent jobs',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentSchedulesView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-webhooks'),
+                    icon: '🪝',
+                    label: 'Webhooks',
+                    subtitle: 'Inbound trigger endpoints',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentWebhooksView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-profiles'),
+                    icon: '🤖',
+                    label: 'Profiles',
+                    subtitle: 'Agent identity & permissions',
+                    onTap: () => showAgentProfilesManagerSheet(context),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-skills'),
+                    icon: '✨',
+                    label: 'Skills',
+                    subtitle: 'Self-improving skill library',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentSkillsView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-playbooks'),
+                    icon: '📜',
+                    label: 'Playbooks',
+                    subtitle: 'Custom slash commands',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentPlaybooksView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-cookbook'),
+                    icon: '📖',
+                    label: 'Cookbook',
+                    subtitle: 'Agent prompt recipes',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentCookbookView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-review-queue'),
+                    icon: '🛂',
+                    label: 'Review Queue',
+                    subtitle: 'Human-gated org optimizer proposals',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const OrgProposalsView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-run-quality'),
+                    icon: '📋',
+                    label: 'Report Card',
+                    subtitle: 'How agents have been doing lately',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const RunQualityView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-email'),
+                    icon: '📧',
+                    label: 'Email',
+                    subtitle: 'Gmail signals & assistant',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentEmailView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-gallery'),
+                    icon: '🎨',
+                    label: 'Gallery',
+                    subtitle: 'Canva design workspace',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentGalleryView(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1050,25 +1160,10 @@ class _NavFooter extends StatelessWidget {
           ),
           // Agent settings (keeps the existing showAgentSettingsSheet path).
           IconButton(
+            key: const ValueKey('nav-col-agent-settings'),
             icon: const Icon(Icons.tune_rounded, size: 16),
             tooltip: 'Agent settings',
             onPressed: () => showAgentSettingsSheet(context),
-            style: IconButton.styleFrom(
-              foregroundColor: context.rhythm.textMuted,
-              minimumSize: const Size(28, 28),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-          // Settings navigation.
-          IconButton(
-            key: const ValueKey('nav-col-settings'),
-            icon: const Icon(Icons.settings_outlined, size: 16),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const SettingsView(),
-              ),
-            ),
             style: IconButton.styleFrom(
               foregroundColor: context.rhythm.textMuted,
               minimumSize: const Size(28, 28),

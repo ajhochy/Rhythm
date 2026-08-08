@@ -1,0 +1,19 @@
+{
+  "issue": "ui-desktop-global-navigation",
+  "date": "2026-08-08",
+  "test_command": "cd apps/desktop_flutter && flutter test test/app/core/layout/global_navigation_contract_test.dart",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"task-desktop-global-navigation-c1","text":"No NavigationSidebar is rendered beside feature content; global navigation occupies the shell header and returns the former sidebar width to content.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c2","text":"Existing selected index values 0–9 and all routes/views remain unchanged; notification/deep-link callbacks that assign selectedIndex continue to work.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c3","text":"Wide windows show all workspace destinations as text-first tabs; narrow windows preserve Dashboard, Planner, Tasks, Rhythms, Projects, Messages, Agents and expose Facilities, Automations through a More menu without overflow.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c4","text":"If an overflow destination is active, More has selected treatment and the active menu item is marked.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c5","text":"Messages unread badge remains live through MessagesController.totalUnreadCount.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c6","text":"Settings remains reachable through the existing account/settings control and is not a workspace tab.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Existing account control is preserved without modification; manual shell smoke confirms Settings opens and is absent from tabs."},
+    {"criterion_id":"task-desktop-global-navigation-c7","text":"Tabs/menu are keyboard focusable and expose selected semantics; no color-only selection.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c8","text":"No new dependency, routing abstraction, or unrelated redesign.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Diff review is the verification surface."},
+    {"criterion_id":"task-desktop-global-navigation-c9","text":"At 1024x700 and 200% text scale, navigation does not overflow or scale labels down; overflow destinations remain under More.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"},
+    {"criterion_id":"task-desktop-global-navigation-c10","text":"Unread messages use an accessible compliant indicator rather than 10px white text on danger.","mode":"ui","test":"apps/desktop_flutter/test/app/core/layout/global_navigation_contract_test.dart","status":"pass"}
+  ],
+  "not_tested": ["task-desktop-global-navigation-c6", "task-desktop-global-navigation-c8"]
+}

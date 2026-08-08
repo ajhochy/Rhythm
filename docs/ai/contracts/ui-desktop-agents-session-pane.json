@@ -1,0 +1,122 @@
+{
+  "issue": "ui-desktop-agents-session-pane",
+  "date": "2026-08-08",
+  "test_command": "export PATH=\"/Users/ajhochhalter/development/flutter/bin:$PATH\" && cd apps/desktop_flutter && flutter test test/features/agents/agents_nav_column_mounted_test.dart test/features/agents/issue_910_subagent_collapse_test.dart",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c1",
+      "text": "Replace Chats/Scheduled Tasks/Background self-improvement popup with compact tabs labeled Chats, Scheduled, Background, directly above the project/sort row; reuse AgentSessionScope and loadSessions unchanged.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c2",
+      "text": "Search/sort survive scope changes; project selector remains Chats-only; refresh/sort remain available.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c3",
+      "text": "Add a keyboard-operable Sessions disclosure header with visible count. Expanded by default; local transient state only. Collapsing hides session rows/bulk actions but leaves the 280px pane open.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c4",
+      "text": "Sessions list is bounded/independently scrollable enough that Tools remains reachable without scrolling through all sessions. Do not make collapse the only route to Tools.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c5",
+      "text": "Whole Agents pane 48px collapse remains independent.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c6",
+      "text": "Replace active/child/resumable/archived session cards with compact borderless text rows: desktop target 32–36px parent and 28–32px child where practical; transparent default; subtle hover; restrained selected highlight; no persistent border/shadow/card fill.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c7",
+      "text": "Preserve status, icons, worktree glyph, titles, menus, archive/resume, multi-select, parent/subagent expand/collapse, collapse-all, creation/loading/error/empty states, and selected-session behavior.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart; apps/desktop_flutter/test/features/agents/issue_910_subagent_collapse_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c8",
+      "text": "Add visible keyboard focus and selected/expanded semantics; status must have a semantic label, not color alone.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c9",
+      "text": "Populate collapsed 48px Agents rail with: Expand, New Session, Sessions shortcut, Tools shortcut, bottom Agent settings. Each has tooltip/semantic label; Tools expands and reveals/focuses Tools; avoid global Settings duplication.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c10",
+      "text": "No controller/provider/API/persistence/dependency changes unless truly unavoidable; if discovered, return NEEDS_CONTEXT before expanding ownership.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Ownership and diff review verify this constraint."
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c11",
+      "text": "Scope tabs explicitly announce selected state.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c12",
+      "text": "Subagent disclosures announce expanded state and support keyboard activation.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/issue_910_subagent_collapse_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c13",
+      "text": "The collapsed Sessions rail shortcut reveals an expanded Sessions region, while Tools remains reachable.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c14",
+      "text": "Expanded Agents retains Agent settings but removes duplicate global Settings.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c15",
+      "text": "Tools rail shortcut expands/reveals Tools and moves focus to a meaningful labeled Tools heading/control with visible focus treatment.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-ui-desktop-agents-session-pane-c16",
+      "text": "Interactive child session rows have a 28px minimum height without restoring persistent card border or fill.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/issue_910_subagent_collapse_test.dart",
+      "status": "pass"
+    }
+  ],
+  "not_tested": ["task-ui-desktop-agents-session-pane-c10"]
+}

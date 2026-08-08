@@ -431,7 +431,7 @@ void main() {
   }
 
   group('AgentsNavColumn — mounted surface', () {
-    testWidgets('nav column renders with CHATS section and session list',
+    testWidgets('nav column renders with Chats tab and session list',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -452,11 +452,11 @@ void main() {
         reason: 'Agents nav column should render',
       );
 
-      // (2) CHATS section label present
+      // (2) Chats tab is present.
       expect(
-        find.text('CHATS'),
+        find.text('Chats'),
         findsOneWidget,
-        reason: 'CHATS section label should be present',
+        reason: 'Chats session-scope tab should be present',
       );
 
       // (3) Session rows render (use at-least-1 since the selected session's
@@ -601,7 +601,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('footer Settings affordance is present', (tester) async {
+    testWidgets(
+        'footer retains Agent settings but not duplicate global Settings',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -610,11 +612,92 @@ void main() {
       await tester.pumpWidget(await _buildTestApp(controller));
       await tester.pump();
 
-      // (7) Footer Settings icon.
+      expect(find.byTooltip('Agent settings'), findsOneWidget);
+      expect(find.byKey(const ValueKey('nav-col-settings')), findsNothing);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    testWidgets('session pane contract controls render', (tester) async {
+      // Regression: the category popup and unbounded mixed scroll made the
+      // session list difficult to navigate and hid Tools behind all sessions.
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _makeControllerWithSessions([
+        _makeSession('s1', 'Compact Session'),
+      ]);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('session-scope-tabs')), findsOneWidget);
+      expect(find.byKey(const ValueKey('sessions-disclosure')), findsOneWidget);
+      expect(find.byKey(const ValueKey('session-list-scrollable')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('session-row-s1')), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('nav-col-settings')),
+        tester.getSemantics(find.text('Chats')),
+        containsSemantics(isButton: true, isSelected: true),
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    testWidgets('collapsed rail exposes session and tools shortcuts',
+        (tester) async {
+      // Regression: a collapsed Agents pane previously stranded all navigation.
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _makeControllerWithSessions([]);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('sessions-disclosure')));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Collapse navigation'));
+      await tester.pump();
+
+      expect(
+          find.byKey(const ValueKey('collapsed-nav-expand')), findsOneWidget);
+      expect(find.byKey(const ValueKey('collapsed-nav-new-session')),
+          findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('collapsed-nav-sessions')), findsOneWidget);
+      expect(find.byKey(const ValueKey('collapsed-nav-tools')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('collapsed-nav-agent-settings')),
         findsOneWidget,
-        reason: 'Footer Settings affordance should render',
+      );
+
+      await tester.tap(find.byKey(const ValueKey('collapsed-nav-sessions')));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('sessions-disclosure')), findsOneWidget);
+      expect(
+        tester.getSemantics(
+          find.byKey(const ValueKey('sessions-disclosure')),
+        ),
+        containsSemantics(isExpanded: true, isButton: true),
+      );
+
+      // Regression: the Tools shortcut used to focus an unlabeled wrapper,
+      // leaving keyboard users without a meaningful focused destination.
+      await tester.tap(find.byTooltip('Collapse navigation'));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('collapsed-nav-tools')));
+      await tester.pump();
+
+      final toolsHeading = find.byKey(const ValueKey('tools-heading'));
+      expect(toolsHeading, findsOneWidget);
+      expect(
+        tester.getSemantics(toolsHeading),
+        containsSemantics(label: 'Tools', isHeader: true),
+      );
+      expect(
+        tester.binding.focusManager.primaryFocus?.context,
+        tester.element(toolsHeading),
+        reason: 'Tools shortcut must focus the labeled Tools heading',
       );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
@@ -750,12 +833,12 @@ void main() {
         reason: 'Nav column must render at 680px height',
       );
 
-      // Footer Settings affordance is directly visible (pinned).
+      // Agent settings remains directly visible (pinned).
       expect(
-        find.byKey(const ValueKey('nav-col-settings')),
+        find.byTooltip('Agent settings'),
         findsOneWidget,
         reason:
-            'Footer Settings must be visible without scrolling (pinned footer)',
+            'Agent settings must be visible without scrolling (pinned footer)',
       );
 
       // Scroll the middle region to reach a TOOLS row.
@@ -896,10 +979,9 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('USO Phase A — nav column', () {
-    // (A2) category dropdown renders + switching scope reloads with the correct
+    // (A2) scope tabs render + switching scope reloads with the correct
     // `?scope=` param and the list still renders rows.
-    testWidgets('#1025 scope dropdown switches scope and reloads',
-        (tester) async {
+    testWidgets('#1025 scope tabs switch scope and reload', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -916,18 +998,16 @@ void main() {
       await tester.pumpWidget(await _buildTestApp(controller));
       await tester.pump();
 
-      // Dropdown renders; default scope is chats.
+      // Tabs render; default scope is chats.
       expect(
-        find.byKey(const ValueKey('session-scope-dropdown')),
+        find.byKey(const ValueKey('session-scope-tabs')),
         findsOneWidget,
-        reason: 'Category scope dropdown should render at the CHATS header',
+        reason: 'Session-scope tabs should render above session controls',
       );
       expect(controller.scope, AgentSessionScope.chats);
 
-      // Open the dropdown and pick "Scheduled Tasks".
-      await tester.tap(find.byKey(const ValueKey('session-scope-dropdown')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Scheduled Tasks'));
+      // Select Scheduled.
+      await tester.tap(find.text('Scheduled'));
       await tester.pumpAndSettle();
 
       expect(controller.scope, AgentSessionScope.scheduled);
@@ -1035,7 +1115,7 @@ void main() {
     });
 
     // Smoke follow-up (1): the By-Project filter is hidden outside the chats
-    // scope; the category dropdown + sort menu remain in every scope.
+    // scope; the category tabs + sort menu remain in every scope.
     testWidgets('By-Project filter hidden outside chats scope', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1059,21 +1139,19 @@ void main() {
         reason: 'By-Project filter must be visible in the CHATS scope',
       );
 
-      // Switch to Scheduled Tasks.
-      await tester.tap(find.byKey(const ValueKey('session-scope-dropdown')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Scheduled Tasks'));
+      // Switch to Scheduled.
+      await tester.tap(find.text('Scheduled'));
       await tester.pumpAndSettle();
 
       expect(controller.scope, AgentSessionScope.scheduled);
-      // By-Project selector hidden; category dropdown + sort menu still there.
+      // By-Project selector hidden; category tabs + sort menu still there.
       expect(
         find.byKey(const ValueKey('by-project-selector')),
         findsNothing,
         reason: 'By-Project filter must be hidden outside the CHATS scope',
       );
       expect(
-        find.byKey(const ValueKey('session-scope-dropdown')),
+        find.byKey(const ValueKey('session-scope-tabs')),
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('session-sort-menu')), findsOneWidget);
@@ -1264,7 +1342,7 @@ void main() {
 
     // (A4) the Session History nav item is gone from the sidebar.
     testWidgets('#1027 Session History nav item is removed', (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       final messages = MessagesController(

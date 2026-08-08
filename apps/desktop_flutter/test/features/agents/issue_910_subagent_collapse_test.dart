@@ -271,4 +271,36 @@ void main() {
 
     controller.dispose();
   });
+
+  testWidgets('subagent disclosure exposes expanded button semantics',
+      (tester) async {
+    final controller = _buildController();
+    await tester.pumpWidget(await _buildTestApp(controller));
+    await tester.pump();
+
+    final disclosure = find.byKey(const ValueKey('subagent-group-disclosure'));
+    expect(
+      tester.getSemantics(disclosure),
+      containsSemantics(isButton: true, isExpanded: true),
+    );
+
+    controller.dispose();
+  });
+
+  testWidgets('child session rows meet the 28px desktop minimum',
+      (tester) async {
+    final controller = _buildController();
+    await tester.pumpWidget(await _buildTestApp(controller));
+    await tester.pump();
+
+    // Regression: compact child rows shrank to about 21px, too small for
+    // desktop pointer and keyboard targeting.
+    expect(
+      tester.getSize(find.byType(ChildSessionRow).first).height,
+      greaterThanOrEqualTo(28),
+      reason: 'Interactive child rows must be at least 28px tall',
+    );
+
+    controller.dispose();
+  });
 }
