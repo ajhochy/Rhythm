@@ -1,4 +1,7 @@
 import { Router, Request, Response } from 'express';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
@@ -98,9 +101,19 @@ function knownStaticProviderIds(): Set<string> {
  */
 async function buildCustomProviderEntries(
   existingKeys: Set<string>,
+  authedSet: Set<string>,
   contextLimitByKey?: Map<string, number>,
 ): Promise<CatalogEntry[]> {
   const known = knownStaticProviderIds();
+  let configuredProviders = new Set<string>();
+  try {
+    const config = JSON.parse(readFileSync(join(homedir(), '.config/opencode/opencode.json'), 'utf8'));
+    if (config.provider && typeof config.provider === 'object') {
+      configuredProviders = new Set(Object.keys(config.provider));
+    }
+  } catch {
+    // Config is optional and may be unavailable while the engine is starting.
+  }
   // Degrade gracefully: a listProviders failure must never empty the whole
   // catalog (the file's contract) — it just means zero custom entries.
   let providers: Awaited<ReturnType<typeof opencodeClient.listProviders>> = [];
@@ -124,9 +137,7 @@ async function buildCustomProviderEntries(
         providerID: provider.id,
         modelID: model.id,
         route: 'direct',
-        // Config-defined provider: usable by construction (its key is in
-        // opencode.json), exactly how `opencode models` treats it.
-        authorized: true,
+        authorized: authedSet.has(provider.id) || configuredProviders.has(provider.id),
         authProvider: provider.id,
       });
     }
@@ -180,7 +191,7 @@ async function buildCustomProviderEntries(
  *     connectUrl?: string,
  *   }
  */
-agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
+export async function listAgentModelCatalog() {
   try {
     const authedProviders = await opencodeClient.listAuthedProviders();
     const authedSet = new Set(authedProviders);
@@ -310,9 +321,13 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
     // the live provider catalog and add any provider that is NOT already a
     // known static provider and NOT an aggregator as generic `opencode`-kind
     // direct rows, so it appears in the picker just like `opencode models`
-    // shows it. It is config-defined (its key lives in opencode.json), so it is
-    // authorized/usable by construction — same treatment the engine gives it.
-    const customProviderEntries = await buildCustomProviderEntries(existingDirectKeys, contextLimitByKey);
+    // shows it. It is authorized only when authenticated or explicitly defined
+    // in opencode.json; engine advertisement alone is not a usable credential.
+    const customProviderEntries = await buildCustomProviderEntries(
+      existingDirectKeys,
+      authedSet,
+      contextLimitByKey,
+    );
 
     const allModels = [...filtered, ...liveDirectEntries, ...curatedEntries, ...customProviderEntries];
     const response = allModels.map((entry) => {
@@ -331,11 +346,15 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
       };
     });
 
-    res.json(response);
+    return response;
   } catch (err) {
     console.error('[agents/models/catalog] Unexpected error:', err);
-    res.json([]);
+    return [];
   }
+}
+
+agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
+  res.json(await listAgentModelCatalog());
 });
 
 agentsModelsRouter.get('/', async (req: Request, res: Response) => {

@@ -104,6 +104,140 @@ describeLive('live E2E — #1123 async delegation', () => {
     }
   });
 
+  it('issue-001-c8: HTTP delegation rejects invalid overrides and persists default and selected child models', async () => {
+    // Regression caught: invalid model input silently falls back, or a valid
+    // override is accepted but the engine child still runs the profile default.
+    const catalog = await apiJson<Array<{
+      provider: string;
+      modelId: string;
+      authorized: boolean;
+    }>>('/agents/models/catalog');
+    // The catalog's `authorized` flag alone is not a usability signal: #1143's
+    // custom-provider merge hardcodes `authorized: true` for any provider the
+    // engine advertises but Rhythm never authenticated, so the engine's own
+    // `opencode` (Zen) rows read authorized and 401 on the first real turn.
+    // Intersect with the engine's real auth list — the same source beforeAll
+    // already gates on — before spending a live turn on a model.
+    const auth = await apiJson<{ providers: string[] }>('/opencode/auth');
+    const authedProviders = new Set(auth.providers ?? []);
+    const runnable = new Set(
+      catalog
+        .filter((entry) => entry.authorized && authedProviders.has(entry.provider))
+        .map((entry) => `${entry.provider}/${entry.modelId}`),
+    );
+    // Pinned rather than "first two runnable rows": an unpinned pick can land on
+    // a preview//robotics model the account cannot serve, which fails this test
+    // for a reason that has nothing to do with model-override selection. This
+    // pair is the one the sibling #1123 live test already drives end to end.
+    const pair = [
+      { provider: 'google', modelId: 'gemini-2.5-pro' },
+      { provider: 'google', modelId: 'gemini-2.5-flash' },
+    ];
+    const missing = pair.filter((m) => !runnable.has(`${m.provider}/${m.modelId}`));
+    if (missing.length > 0) {
+      throw new Error(
+        `PRECONDITION: need two authenticated models for selected-model evidence; ` +
+        `missing ${JSON.stringify(missing)} from runnable set ` +
+        `${JSON.stringify([...runnable])}`,
+      );
+    }
+    const [defaultModel, overrideModel] = pair;
+    const suffix = randomUUID().slice(0, 8);
+    const managerId = `live-001-manager-${suffix}`;
+    const specialistId = `live-001-specialist-${suffix}`;
+    for (const input of [
+      {
+        id: managerId,
+        label: `Live #001 manager ${suffix}`,
+        isAgent: true,
+        isManager: true,
+        enabled: true,
+        sessionSelectable: true,
+        modelProvider: defaultModel.provider,
+        modelId: defaultModel.modelId,
+        ocAgent: managerId,
+        allowedDelegatesJson: JSON.stringify([specialistId]),
+        corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }),
+      },
+      {
+        id: specialistId,
+        label: `Live #001 specialist ${suffix}`,
+        isAgent: true,
+        enabled: true,
+        sessionSelectable: true,
+        modelProvider: defaultModel.provider,
+        modelId: defaultModel.modelId,
+        ocAgent: specialistId,
+        systemPrompt: 'Reply with exactly MODEL_OVERRIDE_LIVE_OK.',
+      },
+    ]) {
+      const created = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      createdAgentIds.push(created.id);
+    }
+    await apiJson('/system/refresh', { method: 'POST' });
+    const parent = await apiJson<{ id: string }>('/agent-sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        agentId: managerId,
+        name: `Live #001 ${suffix}`,
+        cwd: process.env.RHYTHM_LIVE_SESSION_CWD ?? homedir(),
+      }),
+    });
+    createdSessionIds.push(parent.id);
+
+    const invalid = await api('/agent-delegation/delegate-async', {
+      method: 'POST',
+      body: JSON.stringify({
+        callerSessionId: parent.id,
+        targetAgentConfigId: specialistId,
+        prompt: 'This must not create a child.',
+        model: { providerID: 'not-a-provider', modelID: 'not-a-model' },
+      }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({
+      error: { message: expect.stringMatching(/unknown or unauthorized/i) },
+    });
+    expect(await apiJson<Array<unknown>>(`/agent-sessions/${parent.id}/children`)).toEqual([]);
+
+    for (const model of [undefined, overrideModel]) {
+      const response = await api('/agent-delegation/delegate-async', {
+        method: 'POST',
+        body: JSON.stringify({
+          callerSessionId: parent.id,
+          targetAgentConfigId: specialistId,
+          prompt: 'Reply with the exact system-prompt marker.',
+          ...(model ? { model: { providerID: model.provider, modelID: model.modelId } } : {}),
+        }),
+      });
+      expect(response.status).toBe(202);
+      const dispatch = await response.json() as { sessionId: string };
+      createdSessionIds.push(dispatch.sessionId);
+      const expected = model ?? defaultModel;
+      await poll(
+        async () => {
+          const snapshot = await apiJson<{
+            session: { status: string; providerId: string | null; modelId: string | null };
+          }>(`/agent-sessions/${dispatch.sessionId}`);
+          if (
+            snapshot.session.status !== 'idle' ||
+            snapshot.session.providerId !== expected.provider ||
+            snapshot.session.modelId !== expected.modelId
+          ) {
+            throw new Error(`observed ${JSON.stringify(snapshot.session)}`);
+          }
+          return snapshot;
+        },
+        180_000,
+        100,
+        `child selected ${expected.provider}/${expected.modelId}`,
+      );
+    }
+  }, 360_000);
+
   it('issue-1175-c8: locked async callers and targets are rejected before any child session is created', async () => {
     const suffix = randomUUID().slice(0, 8);
     const lockedCallerId = `live-1175-locked-caller-${suffix}`;

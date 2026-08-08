@@ -1,0 +1,75 @@
+{
+  "issue": 1,
+  "date": "2026-08-07",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/agent_delegation_auth.test.ts src/__tests__/issue_1123_contract.test.ts src/__tests__/agents_models_catalog.test.ts && cd ../mcp_server && npx vitest run src/tools/agentDelegation.test.ts",
+  "live_test_command": "cd apps/api_server && DB_PATH=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/rhythm-delegation-sandbox/rhythm.db RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_DB_PATH=/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/rhythm-delegation-sandbox/rhythm.db npx vitest run src/__tests__/issue_1123_live_e2e.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-001-c1",
+      "text": "`rhythm_delegate` and `rhythm_delegate_async` schemas accept optional `model: { providerID: string; modelID: string }` and forward it through the signed payload/request body without weakening the approval payload identity rules.",
+      "mode": "unit",
+      "test": "apps/mcp_server/src/tools/agentDelegation.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-001-c2",
+      "text": "Omitting model preserves today's behavior exactly: target profile model.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-001-c3",
+      "text": "Supplying model runs the delegated child on that model while all other target-profile scoping remains unchanged: MCP allowlist, skills, systemPrompt, ocAgent, permissions, delegation depth.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-001-c4",
+      "text": "Async computes `runModel = input.model ?? profileScope.model` and passes `runModel.providerID` to createSession and full `runModel` to promptAsync.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-001-c5",
+      "text": "Sync forwards the validated override through existing `runAgent({ modelOverride })`; omit the property when no override if needed for byte-identical behavior.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-001-c6",
+      "text": "Malformed, unknown, or unauthenticated override pairs (including engine-advertised providers absent from auth and opencode.json) return clear 400 errors, no fallback.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "status": "pass",
+      "reason": "Regression first failed with the advertised opencode Zen row authorized=true, then passed after the catalog required either engine auth or an explicit opencode.json provider definition. agent_delegation_auth.test.ts also proves the resulting unauthorized Zen override returns 400 and does not invoke the runner."
+    },
+    {
+      "criterion_id": "issue-001-c7",
+      "text": "Existing delegation tests pass; add focused supplied/omitted/invalid coverage for MCP, controller/service sync and async behavior.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts; apps/api_server/src/__tests__/issue_1123_contract.test.ts; apps/mcp_server/src/tools/agentDelegation.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-001-c8",
+      "text": "Add and run an env-gated live behavioral test through the real MCP/HTTP delegation surface against the sandbox API/engine that asserts observable selected-model behavior and default behavior (not mocked call assertions). Record exact command/output in run note. If a real authorized second model is unavailable, mark only that specific criterion not_tested with exact environment limitation, but still prove invalid rejection live and do not fabricate evidence.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/issue_1123_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Final repair re-verification passed 3/3 in 45.00s against the isolated sandbox. The live HTTP test rejected an unknown override with 400 and no child, then observed both the omitted/default google/gemini-2.5-pro child and selected google/gemini-2.5-flash child reach idle with the expected persisted provider/model."
+    },
+    {
+      "criterion_id": "issue-001-c9",
+      "text": "`apps/opencode_fork` has no tracked changes in your diff.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

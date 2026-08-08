@@ -104,6 +104,7 @@ export function registerAgentDelegationTools(
         .describe(
           "Optional manager context to prepend to the delegated prompt.",
         ),
+      model: z.object({ providerID: z.string(), modelID: z.string() }).optional(),
       approval_id: z
         .string()
         .optional()
@@ -112,7 +113,7 @@ export function registerAgentDelegationTools(
         ),
     },
     async (
-      { targetAgentConfigId, prompt, callerSessionId, context, approval_id },
+      { targetAgentConfigId, prompt, callerSessionId, context, model, approval_id },
       extra,
     ) => {
       const ctx = trustedSecurityContext(extra);
@@ -126,6 +127,7 @@ export function registerAgentDelegationTools(
         prompt,
         ...(callerSessionId !== undefined && { callerSessionId }),
         ...(context !== undefined && { context }),
+        ...(model !== undefined && { model }),
       };
       // #1322 follow-up: the authoritative caller identity. A model cannot know
       // its own Rhythm session id and invents one when asked, so the server
@@ -189,6 +191,7 @@ export function registerAgentDelegationTools(
         .describe(
           "Optional manager context to prepend to the delegated prompt.",
         ),
+      model: z.object({ providerID: z.string(), modelID: z.string() }).optional(),
       approval_id: z
         .string()
         .optional()
@@ -202,6 +205,7 @@ export function registerAgentDelegationTools(
         prompt,
         callerSessionId,
         context,
+        model,
         approval_id,
       },
       extra,
@@ -217,6 +221,7 @@ export function registerAgentDelegationTools(
         prompt,
         ...(callerSessionId !== undefined && { callerSessionId }),
         ...(context !== undefined && { context }),
+        ...(model !== undefined && { model }),
       };
       // #1322 follow-up: the authoritative caller identity. A model cannot know
       // its own Rhythm session id and invents one when asked, so the server
