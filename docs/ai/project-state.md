@@ -2,45 +2,47 @@
 
 ## Current focus
 
-Hand off the verified delegation model-override draft PR for manual smoke. Both
-`rhythm_delegate` and `rhythm_delegate_async` accept an optional validated
-`{providerID, modelID}` override; omission retains the target profile default.
+Hand off the signed, notarized `v0.18.56` prerelease for clean-Mac installation
+smoke. This temporary test build combines the free Zen fresh-install setup from
+draft PR #1333 with delegation model overrides from draft PR #1335.
 
 ## Active branch / PR
 
-- Branch: `feat/delegation-model-override`.
-- Draft PR: [#1335](https://github.com/ajhochy/Rhythm/pull/1335), commit
-  `31e1ca16`. There is no associated GitHub issue; the local
-  `docs/ai/contracts/issue-001.json` is a workflow contract only.
+- Temporary integration branch: `test/free-model-delegation-build`.
+- Integration merge: `b689c926`; evidence/release head: `d2fc915d`.
+- Source draft PRs remain unmerged: [#1333](https://github.com/ajhochy/Rhythm/pull/1333)
+  at `29146db9` and [#1335](https://github.com/ajhochy/Rhythm/pull/1335) at
+  `c2882c2d`.
 
 ## In progress
 
-- Draft PR #1335 is open and awaiting human manual smoke. No merge is authorized.
-- Sync delegation passes `modelOverride`; async delegation passes the selected
-  provider into `createSession` and the full model into `promptAsync`. Agent-profile
-  scope is unchanged.
+- [Prerelease `v0.18.56`](https://github.com/ajhochy/Rhythm/releases/tag/v0.18.56)
+  is published with signed/notarized universal DMG and ZIP artifacts.
+- Product verification and release publication are complete. Human installation
+  on a clean Apple Silicon Mac remains outstanding.
 
 ## Risks / known issues
 
-- Five full API-suite memory failures reproduce identically on `origin/main` and
-  are unrelated to this branch.
-- Model-catalog custom-provider authorization was repaired: only authenticated,
-  keyless, or explicitly `opencode.json`-configured providers are authorized.
-  Built-in unauthenticated Zen is rejected with 400; #1143 custom-provider behavior
-  remains covered.
-- GitNexus pre-edit impact was LOW with zero affected processes. Final
-  `detect_changes` remains with the orchestrator.
+- This snapshot describes a temporary prerelease integration branch, not `main`;
+  neither source draft PR has been merged.
+- Clean-Mac Gatekeeper/install and first-run behavior have not yet been observed.
 
 ## Test status
 
-- Verification gate: **PASS**; contract criteria C1–C9 pass.
-- API: focused 40 tests pass; TypeScript and build pass.
-- MCP: focused 2 and full 156 tests pass; TypeScript and build pass.
-- Live: 3/3 pass. Default `google/gemini-2.5-pro` and override
-  `google/gemini-2.5-flash` reached idle with expected persisted models; an invalid
-  override returned 400 and created no child.
-- Sandbox stopped; ports 4097 and 4098 are clear.
+- Integration verification: **PASS**. Fresh empty DB/HOME with no credentials
+  returned exact `zen-bootstrap-ok`, including stale-ID recovery.
+- API: 48 focused tests, TypeScript, and build pass. MCP: 2/2 TypeScript/build
+  checks pass. GitNexus reported LOW risk and no affected processes.
+- Live async override to `opencode/deepseek-v4-flash-free` returned 202, reached
+  idle, returned exact `ZEN_DELEGATION_OVERRIDE_OK`, and persisted the model;
+  unknown model returned 400 and created no child.
+- Desktop Release [run 31233721224](https://github.com/ajhochy/Rhythm/actions/runs/31233721224)
+  passed all steps from `d2fc915d4449374bdd6de4a83e70798fdb1b879b`.
+- Sandbox stopped; ports are clear.
 
 ## Next step
 
-Human manual smoke PR #1335, then merge only with explicit approval.
+AJ installs the
+[DMG](https://github.com/ajhochy/Rhythm/releases/download/v0.18.56/Rhythm-macOS.dmg)
+on a clean Apple Silicon Mac and tests setup/free-model flow plus delegated model
+override. Source PRs remain draft pending separate approval.
