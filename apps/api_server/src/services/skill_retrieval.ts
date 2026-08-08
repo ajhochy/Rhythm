@@ -27,6 +27,7 @@
 
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import type { AgentSkill } from '../models/agent_skill';
+import { scoreDocsBm25, tokenize } from './bm25';
 
 // Re-derived from the checked-in issue #1209 replay plus the established
 // multi-skill injection fixture. 0.45 retains a clearly relevant secondary
@@ -36,34 +37,6 @@ const RELATIVE_THRESHOLD = 0.45;
 const DEFAULT_TOP_N = 5;
 /** Draft skills must clear this confidence bar to be eligible (fail-closed). */
 const DRAFT_CONFIDENCE_GATE = 0.6;
-
-/**
- * Tokenize text the same way Odysseus `_tokenize` does:
- *   - lowercase
- *   - split on whitespace
- *   - strip a fixed set of edge punctuation (.,!?";:()[])
- *   - drop tokens of length <= 1
- *   - dedupe into a Set
- *
- * NOTE on the issue spec: the issue text said "split on non-alphanumeric",
- * but the Odysseus reference is authoritative and splits on whitespace then
- * strips edge punctuation only (so an interior hyphen/underscore keeps the
- * token whole, e.g. "weekly-report" stays one token). We mirror the reference
- * exactly to keep scoring parity with the existing skill store semantics.
- */
-function tokenize(text: string | null | undefined): Set<string> {
-  const out = new Set<string>();
-  if (!text) return out;
-  for (const raw of text.toLowerCase().split(/\s+/)) {
-    // Strip the same leading/trailing punctuation Python's str.strip(chars) does.
-    const w = raw.replace(/^[.,!?";:()[\]]+/, '').replace(/[.,!?";:()[\]]+$/, '');
-    if (w.length > 1) out.add(w);
-  }
-  return out;
-}
-
-const BM25_K1 = 1.2;
-const BM25_B = 0.75;
 
 /**
  * Coerce a possibly-missing/garbage confidence to a float, mirroring Odysseus
@@ -131,30 +104,7 @@ function skillText(skill: AgentSkill): string {
  * semantics; term frequency is therefore either zero or one.
  */
 export function scoreSkillsBm25(query: string, skills: AgentSkill[]): number[] {
-  if (skills.length === 0) return [];
-  const queryTokens = tokenize(query);
-  if (queryTokens.size === 0) return skills.map(() => 0);
-  const documents = skills.map((skill) => tokenize(skillText(skill)));
-  const averageLength =
-    documents.reduce((sum, document) => sum + document.size, 0) / documents.length;
-
-  return documents.map((document) => {
-    let score = 0;
-    for (const term of queryTokens) {
-      if (!document.has(term)) continue;
-      const documentFrequency = documents.reduce(
-        (count, candidate) => count + (candidate.has(term) ? 1 : 0),
-        0,
-      );
-      const idf = Math.log(
-        1 + (documents.length - documentFrequency + 0.5) / (documentFrequency + 0.5),
-      );
-      const lengthNormalization =
-        1 - BM25_B + BM25_B * (document.size / Math.max(averageLength, 1));
-      score += idf * ((BM25_K1 + 1) / (1 + BM25_K1 * lengthNormalization));
-    }
-    return score;
-  });
+  return scoreDocsBm25(query, skills.map(skillText));
 }
 
 function applyScoreBoosts(query: string, skill: AgentSkill, baseScore: number): number {

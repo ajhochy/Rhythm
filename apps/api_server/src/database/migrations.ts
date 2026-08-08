@@ -350,6 +350,28 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE tasks ADD COLUMN scheduled_order INTEGER`);
   }
 
+  // External-content FTS5 keeps task text indexed without duplicating task data.
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts
+      USING fts5(title, notes, content='tasks', content_rowid='rowid');
+
+    CREATE TRIGGER IF NOT EXISTS tasks_fts_ai AFTER INSERT ON tasks BEGIN
+      INSERT INTO tasks_fts(rowid, title, notes) VALUES (new.rowid, new.title, new.notes);
+    END;
+    CREATE TRIGGER IF NOT EXISTS tasks_fts_ad AFTER DELETE ON tasks BEGIN
+      INSERT INTO tasks_fts(tasks_fts, rowid, title, notes)
+        VALUES ('delete', old.rowid, old.title, old.notes);
+    END;
+    CREATE TRIGGER IF NOT EXISTS tasks_fts_au AFTER UPDATE OF title, notes ON tasks BEGIN
+      INSERT INTO tasks_fts(tasks_fts, rowid, title, notes)
+        VALUES ('delete', old.rowid, old.title, old.notes);
+      INSERT INTO tasks_fts(rowid, title, notes) VALUES (new.rowid, new.title, new.notes);
+    END;
+  `);
+  runOnce('tasks_fts_backfill_v1', () => {
+    db.exec(`INSERT INTO tasks_fts(tasks_fts) VALUES ('rebuild')`);
+  });
+
   const stepCols = (db.pragma('table_info(project_instance_steps)') as { name: string }[]).map((c) => c.name);
   if (!stepCols.includes('notes')) {
     db.exec(`ALTER TABLE project_instance_steps ADD COLUMN notes TEXT`);

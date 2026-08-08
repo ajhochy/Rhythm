@@ -4,6 +4,7 @@ import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type { CreateTaskDto, Task, TaskCollaborator, UpdateTaskDto } from '../models/task';
 import type { TaskFilter } from '../models/task_filter';
+import { scoreDocsBm25 } from '../services/bm25';
 
 interface TaskRow {
   id: string;
@@ -85,45 +86,43 @@ const TASK_SELECT = `
    AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
 `;
 
-/**
- * Apply TaskFilter predicates to an already-fetched list of Task objects.
- * Used as the Postgres fallback until the Postgres query layer is updated.
- * All date comparisons use plain string comparison (ISO dates sort lexicographically).
- */
-function applyFilterInMemory(tasks: Task[], filter: TaskFilter): Task[] {
-  const { status, scheduledBefore, dueBefore, overdue, today, search } = filter;
-  const todayStr = today ?? new Date().toISOString().slice(0, 10);
+function compareCanonicalTasks(a: Task, b: Task, today: string): number {
+  const priority = (task: Task) => task.scheduledDate ?? task.dueDate;
+  const overdue = (task: Task) =>
+    task.status !== 'done' && priority(task) !== null && priority(task)! < today;
+  const overdueOrder = Number(overdue(a)) - Number(overdue(b));
+  if (overdueOrder !== 0) return -overdueOrder;
 
-  return tasks.filter((t) => {
-    // status
-    if (status === 'open' && t.status === 'done') return false;
-    if (status !== 'all' && status !== 'open' && t.status !== status) return false;
+  const compareNullable = (left: string | number | null, right: string | number | null) => {
+    if (left === right) return 0;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    return left < right ? -1 : 1;
+  };
+  return (
+    compareNullable(priority(a), priority(b)) ||
+    compareNullable(a.scheduledOrder, b.scheduledOrder) ||
+    a.createdAt.localeCompare(b.createdAt) ||
+    a.id.localeCompare(b.id)
+  );
+}
 
-    // scheduled_before
-    if (scheduledBefore !== undefined) {
-      const priority = t.scheduledDate ?? t.dueDate;
-      if (!priority || priority > scheduledBefore) return false;
-    }
+function rankSearchResults(tasks: Task[], search: string, today: string): Task[] {
+  const scores = scoreDocsBm25(search, tasks.map((task) => `${task.title} ${task.notes ?? ''}`));
+  return tasks
+    .map((task, index) => ({ task, score: scores[index] }))
+    .sort((a, b) => b.score - a.score || compareCanonicalTasks(a.task, b.task, today))
+    .map(({ task }) => task);
+}
 
-    // due_before
-    if (dueBefore !== undefined) {
-      if (!t.dueDate || t.dueDate > dueBefore) return false;
-    }
+function ftsTerms(search: string): string[] {
+  return search.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+}
 
-    // overdue
-    if (overdue !== undefined) {
-      const priority = t.scheduledDate ?? t.dueDate;
-      const isOverdue = t.status !== 'done' && !!priority && priority < todayStr;
-      if (overdue !== isOverdue) return false;
-    }
-
-    // search
-    if (search !== undefined && search !== '') {
-      if (!t.title.toLowerCase().includes(search.toLowerCase())) return false;
-    }
-
-    return true;
-  });
+function isFtsUnavailable(error: unknown): boolean {
+  return /no such table: tasks_fts|no such module: fts5/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
 }
 
 export class TasksRepository {
@@ -205,19 +204,76 @@ export class TasksRepository {
     return tasks;
   }
 
-  /**
-   * Fetch tasks for a user with optional server-side filters using parameterized SQL.
-   * All user-supplied values are bound as parameters — never interpolated into SQL.
-   *
-   * Postgres falls back to in-memory filtering via findAllAsync until the Postgres
-   * query layer is updated in a follow-up issue.
-   */
   async findByFilterAsync(filter: TaskFilter): Promise<Task[]> {
     if (env.dbClient === 'postgres') {
-      // Postgres fallback: fetch all, filter in JS (same logic as SQLite below but
-      // operating on already-mapped Task objects).
-      const all = await this.findAllAsync(filter.userId);
-      return applyFilterInMemory(all, filter);
+      const { userId, status, scheduledBefore, dueBefore, overdue, today } = filter;
+      const search = filter.search?.trim();
+      const todayForSort = today ?? new Date().toISOString().slice(0, 10);
+      const clauses = [
+        '(tasks.owner_id = $1 OR EXISTS (SELECT 1 FROM task_collaborators tc WHERE tc.task_id = tasks.id AND tc.user_id = $1))',
+      ];
+      const params: unknown[] = [userId];
+      const bind = (value: unknown) => {
+        params.push(value);
+        return `$${params.length}`;
+      };
+
+      if (status === 'open') clauses.push("tasks.status != 'done'");
+      else if (status !== 'all') clauses.push(`tasks.status = ${bind(status)}`);
+      if (scheduledBefore !== undefined) {
+        clauses.push(`COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) <= ${bind(scheduledBefore)}`);
+      }
+      if (dueBefore !== undefined) {
+        clauses.push(`tasks.due_date IS NOT NULL AND tasks.due_date <= ${bind(dueBefore)}`);
+      }
+      if (overdue !== undefined) {
+        const todayParam = bind(todayForSort);
+        clauses.push(overdue
+          ? `tasks.status != 'done' AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) < ${todayParam}`
+          : `(tasks.status = 'done' OR COALESCE(tasks.scheduled_date, tasks.due_date) IS NULL OR COALESCE(tasks.scheduled_date, tasks.due_date) >= ${todayParam})`);
+      }
+      if (search) {
+        clauses.push(`tasks.search_vector @@ plainto_tsquery('english', ${bind(search)})`);
+      }
+      const todayParam = bind(todayForSort);
+      const result = await getPostgresPool().query<TaskRow>(
+        `SELECT tasks.*,
+          CASE
+            WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+            WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+            ELSE NULL
+          END AS source_name,
+          CASE WHEN tasks.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
+         FROM tasks
+         LEFT JOIN project_instances pi
+           ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
+         LEFT JOIN project_templates pt ON pi.template_id = pt.id
+         LEFT JOIN recurring_task_rules rr
+           ON tasks.source_type = 'recurring_rule'
+          AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
+         WHERE ${clauses.join('\n           AND ')}
+         ORDER BY
+           CASE WHEN tasks.status != 'done'
+             AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL
+             AND COALESCE(tasks.scheduled_date, tasks.due_date) < ${todayParam}
+             THEN 0 ELSE 1 END ASC,
+           COALESCE(tasks.scheduled_date, tasks.due_date) ASC NULLS LAST,
+           tasks.scheduled_order ASC NULLS LAST,
+           tasks.created_at ASC,
+           tasks.id ASC`,
+        params,
+      );
+      const tasks = result.rows.map(rowToTask);
+      if (tasks.length > 0) {
+        const collaborators = await getPostgresPool().query<{ task_id: string; user_id: number; name: string; photo_url: string | null }>(
+          `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+           FROM task_collaborators tc JOIN users u ON u.id = tc.user_id
+           WHERE tc.task_id = ANY($1)`,
+          [tasks.map((task) => task.id)],
+        );
+        attachCollaboratorsToTasks(tasks, collaborators.rows);
+      }
+      return search ? rankSearchResults(tasks, search, todayForSort) : tasks;
     }
 
     return this.findByFilter(filter);
@@ -229,7 +285,8 @@ export class TasksRepository {
    * parameters to prevent SQL injection.
    */
   findByFilter(filter: TaskFilter): Task[] {
-    const { userId, status, scheduledBefore, dueBefore, overdue, today, search } = filter;
+    const { userId, status, scheduledBefore, dueBefore, overdue, today } = filter;
+    const search = filter.search?.trim();
 
     const clauses: string[] = [
       // Visibility: own tasks OR tasks the user is a collaborator on.
@@ -275,16 +332,11 @@ export class TasksRepository {
       }
     }
 
-    // --- search: case-insensitive substring match on title ---
-    if (search !== undefined && search !== '') {
-      clauses.push('LOWER(tasks.title) LIKE ?');
-      params.push('%' + search.toLowerCase() + '%');
-    }
-
     const todayForSort = today ?? new Date().toISOString().slice(0, 10);
-    const where = clauses.map((c, i) => (i === 0 ? `WHERE ${c}` : `AND ${c}`)).join('\n  ');
-
-    const sql = `
+    const query = (candidateClause?: string) => {
+      const whereClauses = candidateClause ? [...clauses, candidateClause] : clauses;
+      const where = whereClauses.map((c, i) => (i === 0 ? `WHERE ${c}` : `AND ${c}`)).join('\n  ');
+      return `
       SELECT
         tasks.*,
         CASE
@@ -312,12 +364,28 @@ export class TasksRepository {
         tasks.scheduled_order ASC NULLS LAST,
         tasks.created_at ASC
     `;
+    };
 
-    // userId for the is_shared CASE expression goes first, then the WHERE params,
-    // then the today value for the overdue ORDER BY CASE expression.
-    const rows = getDb()
-      .prepare(sql)
-      .all(userId, ...params, todayForSort) as TaskRow[];
+    let rows: TaskRow[];
+    if (!search) {
+      rows = getDb().prepare(query()).all(userId, ...params, todayForSort) as TaskRow[];
+    } else {
+      const terms = ftsTerms(search);
+      if (terms.length === 0) return [];
+      const ftsQuery = terms.map((term) => `"${term}"`).join(' AND ');
+      try {
+        rows = getDb()
+          .prepare(query('tasks.rowid IN (SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH ?)'))
+          .all(userId, ...params, ftsQuery, todayForSort) as TaskRow[];
+      } catch (error) {
+        if (!isFtsUnavailable(error)) throw error;
+        console.warn('tasks FTS5 unavailable; using title+notes LIKE fallback');
+        const like = `%${search.toLowerCase()}%`;
+        rows = getDb()
+          .prepare(query("(LOWER(tasks.title) LIKE ? OR LOWER(COALESCE(tasks.notes, '')) LIKE ?)"))
+          .all(userId, ...params, like, like, todayForSort) as TaskRow[];
+      }
+    }
 
     const tasks = rows.map(rowToTask);
 
@@ -334,7 +402,7 @@ export class TasksRepository {
       attachCollaboratorsToTasks(tasks, collabRows);
     }
 
-    return tasks;
+    return search ? rankSearchResults(tasks, search, todayForSort) : tasks;
   }
 
   async findAllIncludingLegacyAsync(): Promise<Task[]> {

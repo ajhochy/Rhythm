@@ -3,6 +3,7 @@
 ## Current focus
 
 Shipping the 2026-08-06/07 fix batch to `main` and cutting a desktop release.
+Task-search Tier 1+2 is locally complete and fully verified on its feature branch.
 
 Recently merged to `main`:
 - **#1319** as `f1520c99` — scheduled-agent autonomy, engine timeouts, org-optimizer
@@ -22,6 +23,7 @@ Recently merged to `main`:
 - Branch: `workflow/run-2026-08-06-ci-gates-and-plan-agent`, PR
   [#1330](https://github.com/ajhochy/Rhythm/pull/1330) (draft), head `b57d9c05`
   plus a merge of `origin/main`.
+- Task-search: `feat/task-search-tier12` (base `617d9045`); no PR yet.
 - Closes **#1328** (Desktop CI gate ordering), **#1329** (Mobile CI
   self-cancellation), **#1331** (skill extractor could execute what it read),
   **#1332** (engine session store was branch-scoped).
@@ -43,6 +45,10 @@ Recently merged to `main`:
   lockdown makes replay harmless; fencing would stop it being attempted.
 - AJ's review of the re-authored `AI Trend Research…` skill body (no recoverable
   original).
+- Task-search Tier 1+2 implementation is complete and verified locally: indexed
+  title+notes search on Postgres and SQLite, shared BM25 ordering, and bounded MCP
+  projection with compatibility behavior preserved. Run and contract records are
+  under `docs/ai/`.
 
 ## Risks / known issues
 
@@ -96,6 +102,10 @@ Recently merged to `main`:
 - `APPROVALS_MODE` is unset (`manual`) and no UI can reach it.
 - Pre-existing, out of scope: `apps/mobile` checks fail locally on a missing `eslint`
   and a wrong npm script; they pass in CI.
+- Task-search migrations are additive and non-destructive. Production GIN creation
+  may briefly lock or load the 397-row `tasks` table. Postgres English stemming and
+  SQLite tokenization can differ in candidate membership; shared BM25 aligns ordering
+  for common candidates.
 
 ## Corrections on record
 
@@ -127,10 +137,17 @@ switch and an engine restart present identically (engine reports 0 sessions).
   created none for them. Local suite is green on `b57d9c05`.
 - `agents_capabilities_routes.test.ts` flaked once with `UND_ERR_SOCKET` under
   full-suite load; passes 20/20 in isolation and did not recur.
+- **Task-search Tier 1+2 verification PASS:** api_server 4055 pass/131 skip;
+  mcp_server 161 pass/2 skip; live real API+engine+MCP 3/3; typechecks, builds, and
+  security checks pass. All 75 contract criteria pass or are reasoned `not_tested`,
+  with no unresolved statuses. The 397-task fixture shrank from 234,425 to 20,059
+  characters (91.4%) in three repeated runs.
 
 ## Next step
 
 Merge #1330 → `main`, dispatch `desktop_release.yml` with `0.18.55`, then watch the
 release build (it does its own full build + sign + notarize, which is the real
 verification of the desktop side). After that, the on-device #1327 subagent-approval
-confirmation and the two owed #1319 code items.
+confirmation and the two owed #1319 code items. For task-search, commit and push
+`feat/task-search-tier12`, open a draft PR, then hand off the production deployment
+window and manual smoke to a human.
