@@ -6,13 +6,20 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import type { AgentKind } from '../models/agent_session';
 import { delegateToAgent } from '../services/agent_delegation_service';
+import { AgentDelegationController } from '../controllers/agent_delegation_controller';
 
 const { runMock } = vi.hoisted(() => ({
   runMock: vi.fn(),
 }));
 
+const { listCatalogMock } = vi.hoisted(() => ({ listCatalogMock: vi.fn() }));
+
 vi.mock('../services/agent_runner', () => ({
   run: runMock,
+}));
+
+vi.mock('../routes/agents_models_routes', () => ({
+  listAgentModelCatalog: listCatalogMock,
 }));
 
 function makeDb() {
@@ -84,6 +91,9 @@ describe('manager delegation authorization contracts', () => {
       status: 'done',
       result: 'delegated result',
     });
+    listCatalogMock.mockResolvedValue([
+      { provider: 'anthropic', modelId: 'claude-sonnet-4-5', authorized: true },
+    ]);
   });
 
   it('issue-P4-manager-delegation-c3: allowed manager delegation invokes target profile', async () => {
@@ -113,6 +123,97 @@ describe('manager delegation authorization contracts', () => {
         delegationDepth: 1,
       }),
     );
+  });
+
+  it('issue-001-c5: forwards a supplied model only as the runner override', async () => {
+    // Regression caught: the delegation accepts model input but silently runs the
+    // target profile default instead of forwarding the explicit override.
+    await delegateToAgent({
+      authenticatedUserId: 42,
+      callerSessionId: seedCallerSession('manager'),
+      targetAgentConfigId: 'specialist',
+      prompt: 'Use the requested model.',
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+    });
+
+    expect(runMock).toHaveBeenCalledWith(expect.objectContaining({
+      modelOverride: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+    }));
+  });
+
+  it('issue-001-c2: omitting model leaves the runner override absent', async () => {
+    // Regression caught: an omitted selection is serialized as an override and
+    // changes the target profile's normal model-resolution behavior.
+    await delegateToAgent({
+      authenticatedUserId: 42,
+      callerSessionId: seedCallerSession('manager'),
+      targetAgentConfigId: 'specialist',
+      prompt: 'Use the target profile default.',
+    });
+
+    expect(runMock).toHaveBeenCalledWith(expect.not.objectContaining({ modelOverride: expect.anything() }));
+  });
+
+  it('issue-001-c6: rejects an unknown override rather than falling back', async () => {
+    // Regression caught: an invalid selection is ignored and executes against
+    // the target profile's default, misleading the caller about the model used.
+    await expect(delegateToAgent({
+      authenticatedUserId: 42,
+      callerSessionId: seedCallerSession('manager'),
+      targetAgentConfigId: 'specialist',
+      prompt: 'Do not silently fall back.',
+      model: { providerID: 'unknown', modelID: 'unknown-model' },
+    })).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('model') });
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('issue-001-c6: rejects malformed and unauthorized overrides without running', async () => {
+    // Regression caught: malformed or unauthenticated selections fall through
+    // to the target profile default and run a task the caller did not request.
+    const input = {
+      authenticatedUserId: 42,
+      callerSessionId: seedCallerSession('manager'),
+      targetAgentConfigId: 'specialist',
+      prompt: 'Do not fall back.',
+    };
+    await expect(delegateToAgent({ ...input, model: { providerID: 'anthropic' } }))
+      .rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('providerID and modelID') });
+    listCatalogMock.mockResolvedValueOnce([
+      // An engine-advertised Zen row must be rejected before the runner can
+      // create a child; it has neither auth nor an opencode.json provider key.
+      { provider: 'opencode', modelId: 'north-mini-code-free', authorized: false },
+    ]);
+    await expect(delegateToAgent({
+      ...input,
+      model: { providerID: 'opencode', modelID: 'north-mini-code-free' },
+    })).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('unknown or unauthorized') });
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('issue-001-c6: controller forwards malformed model unchanged and reports 400 without a run', async () => {
+    // Regression caught: controller coercion drops malformed input, allowing
+    // service default-model delegation instead of returning a client error.
+    const controller = new AgentDelegationController();
+    const next = vi.fn();
+    const res = { json: vi.fn(), status: vi.fn().mockReturnThis() };
+    const request = {
+      body: {
+        callerSessionId: seedCallerSession('manager'),
+        targetAgentConfigId: 'specialist',
+        prompt: 'Malformed model must stop here.',
+        model: ['anthropic', 'claude-sonnet-4-5'],
+      },
+      auth: { user: { id: 42 } },
+    };
+
+    await controller.delegate(request as never, res as never, next);
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({
+      statusCode: 400,
+      message: expect.stringContaining('providerID and modelID'),
+    }));
+    expect(res.json).not.toHaveBeenCalled();
+    expect(runMock).not.toHaveBeenCalled();
   });
 
   it('issue-P4-manager-delegation-c4: rejects unauthorized and self calls from the resolved caller session', async () => {

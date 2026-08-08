@@ -104,4 +104,57 @@ describe("rhythm_delegate MCP tool", () => {
       ],
     });
   });
+
+  it("issue-001-c1: forwards supplied and omitted models for sync and async delegation", async () => {
+    // Regression caught: schema/handler drops model, so an approved tool call
+    // silently delegates with the target profile default.
+    const server = new FakeServer();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ sessionId: "delegate-session", output: "done" }),
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ allowed: true, consumed: false }),
+    }));
+    registerAgentDelegationTools(server as never, "http://localhost:4001", "token", fetchMock as never);
+
+    await server.registered.get("rhythm_delegate")!(
+      {
+        targetAgentConfigId: "coding-agent",
+        prompt: "Handle this issue.",
+        model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+      },
+      { _meta: { [RHYTHM_SECURITY_CONTEXT_META_KEY]: { sdkSessionId: "sdk", turnId: "turn", agentName: "manager", toolCallId: "call" } } },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:4001/agent-delegation/delegate",
+      expect.objectContaining({
+        body: expect.stringContaining('"model":{"providerID":"anthropic","modelID":"claude-sonnet-4-5"}'),
+      }),
+    );
+
+    await server.registered.get("rhythm_delegate_async")!(
+      {
+        targetAgentConfigId: "coding-agent",
+        prompt: "Handle this asynchronously.",
+        model: { providerID: "anthropic", modelID: "claude-sonnet-4-5" },
+      },
+      { _meta: { [RHYTHM_SECURITY_CONTEXT_META_KEY]: { sdkSessionId: "sdk", turnId: "turn", agentName: "manager", toolCallId: "call-async" } } },
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:4001/agent-delegation/delegate-async",
+      expect.objectContaining({
+        body: expect.stringContaining('"model":{"providerID":"anthropic","modelID":"claude-sonnet-4-5"}'),
+      }),
+    );
+
+    await server.registered.get("rhythm_delegate_async")!(
+      { targetAgentConfigId: "coding-agent", prompt: "Use the profile default." },
+      { _meta: { [RHYTHM_SECURITY_CONTEXT_META_KEY]: { sdkSessionId: "sdk", turnId: "turn", agentName: "manager", toolCallId: "call-async-default" } } },
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("model");
+  });
 });
