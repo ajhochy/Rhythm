@@ -7,16 +7,7 @@ import WebSocket from 'ws';
 const port = 4196;
 const prefix = '/api';
 const origin = `http://127.0.0.1:${port}`;
-const server = spawn(process.execPath, ['tests/fake-opencode/server.mjs'], {
-  cwd: process.cwd(),
-  env: {
-    ...process.env,
-    FAKE_OPENCODE_BASE_PATH: prefix,
-    FAKE_OPENCODE_PORT: String(port),
-    FAKE_OPENCODE_SCENARIO: 'happy-path',
-  },
-  stdio: 'inherit',
-});
+let server;
 
 async function response(pathname, init) {
   return fetch(`${origin}${prefix}${pathname}`, init);
@@ -98,8 +89,97 @@ async function nextEvent(reader, predicate) {
   throw new Error('Timed out waiting for SSE event');
 }
 
+function waitForChildExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once('close', resolve));
+}
+
+async function stopFakeServer(child) {
+  if (!child) return;
+  const exited = waitForChildExit(child);
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGTERM');
+    const escalation = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }, 2_000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(escalation);
+    }
+    return;
+  }
+  await exited;
+}
+
+// #1337: bind port 0 so CI retries cannot collide with a transient socket.
+function startFakeServer({ command = process.execPath, args = ['tests/fake-opencode/server.mjs'], serverPort = 0, timeoutMs = 5_000 } = {}) {
+  const child = spawn(command, args, {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      FAKE_OPENCODE_BASE_PATH: prefix,
+      FAKE_OPENCODE_PORT: String(serverPort),
+      FAKE_OPENCODE_SCENARIO: 'happy-path',
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+
+  return new Promise((resolve, reject) => {
+    let output = '';
+    let timer;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off('data', onData);
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const settle = (callback, value) => {
+      cleanup();
+      callback(value);
+    };
+    const onData = (chunk) => {
+      output += chunk.toString();
+      const [, listening] = output.match(/listening on http:\/\/127\.0\.0\.1:(\d+)/) ?? [];
+      if (listening) settle(resolve, { child, port: Number(listening) });
+    };
+    const onError = (error) => settle(reject, new Error(`Fake server failed to spawn: ${error.message}`));
+    const onExit = (code, signal) =>
+      settle(reject, new Error(`Fake server exited before listening (${signal ?? code}): ${output}`));
+    timer = setTimeout(() =>
+      settle(reject, new Error(`Fake server timed out after ${timeoutMs}ms waiting to listen: ${output}`)), timeoutMs);
+    child.stdout.on('data', onData);
+    child.once('error', onError);
+    child.once('exit', onExit);
+  }).catch(async (error) => {
+    await stopFakeServer(child);
+    throw error;
+  });
+}
+
+async function assertStartupFailure(options, expectedMessage) {
+  let started;
+  let failure;
+  try {
+    started = await startFakeServer(options);
+  } catch (error) {
+    failure = error;
+  } finally {
+    if (started?.child) {
+      await stopFakeServer(started.child);
+    }
+  }
+  assert(failure?.message.includes(expectedMessage), `Expected startup failure containing ${expectedMessage}`);
+}
+
 try {
+  ({ child: server } = await startFakeServer({ serverPort: port }));
   await waitUntilReady();
+
+  // Regression: a child that never reports readiness or cannot spawn must reject
+  // promptly instead of holding the outer Playwright timeout open.
+  await assertStartupFailure({ args: ['-e', 'setInterval(() => {}, 1_000)'], timeoutMs: 100 }, 'timed out');
+  await assertStartupFailure({ command: '__missing_fake_opencode__' }, 'failed to spawn');
 
   const pathPayload = await request('/path');
   assert(pathPayload.directory === '/workspace', 'Missing fake path payload');
@@ -344,7 +424,23 @@ try {
   assert(questions.length === 1, 'Pending question list failed');
   await request(`/question/${questions[0].id}/reply`, json('POST', { answers: [['Minimal']] }));
 
+  // Two concurrent instances stand in for a test and its retry: kernel-assigned
+  // ports are always distinct and free, so neither can hit EADDRINUSE.
+  const ephemeral = await Promise.all([startFakeServer(), startFakeServer()]);
+  try {
+    assert(ephemeral[0].port !== ephemeral[1].port, 'Ephemeral instances shared a port');
+    for (const instance of ephemeral) {
+      assert(instance.port > 0, 'Ephemeral instance never reported a bound port');
+      assert(
+        (await fetch(`http://127.0.0.1:${instance.port}${prefix}/path`)).ok,
+        `Ephemeral instance on ${instance.port} did not serve ${prefix}/path`,
+      );
+    }
+  } finally {
+    await Promise.all(ephemeral.map((instance) => stopFakeServer(instance.child)));
+  }
+
   console.log('Fake OpenCode 1.14.49 server self-test passed.');
 } finally {
-  server.kill('SIGTERM');
+  await stopFakeServer(server);
 }
