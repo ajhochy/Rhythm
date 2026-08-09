@@ -46,7 +46,7 @@ safe_sandbox_path() {
 
 copy_runtime_files() {
   local sandbox_home="$SB/home"
-  mkdir -p "$sandbox_home/.config/opencode" "$sandbox_home/.local/share/opencode" "$SB/vault"
+  mkdir -p "$sandbox_home/.config/opencode" "$sandbox_home/.local/share/opencode" "$SB/vault" "$SB/live-artifacts"
   chmod 700 "$SB" "$sandbox_home"
   if [[ -f "$HOME/.local/share/opencode/auth.json" ]]; then
     cp "$HOME/.local/share/opencode/auth.json" "$sandbox_home/.local/share/opencode/auth.json"
@@ -99,6 +99,15 @@ wait_for_ready() {
   fail "sandbox did not become healthy; no log at $LOG_FILE"
 }
 
+ensure_rhythm_mcp() {
+  local token
+  token="$(sqlite3 "$SB/rhythm.db" "SELECT token FROM sessions WHERE expires_at IS NULL OR expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1;")"
+  [[ -n "$token" ]] || fail 'sandbox has no active user session for Rhythm MCP'
+  curl -fsS -X POST "http://127.0.0.1:$API_PORT/opencode/mcp/rhythm/ensure" \
+    -H 'Content-Type: application/json' \
+    --data "{\"apiToken\":\"$token\",\"apiUrl\":\"http://127.0.0.1:$API_PORT\"}" >/dev/null
+}
+
 wait_in_foreground() {
   local pid="$1"
   local wait_status=0
@@ -130,6 +139,7 @@ up() {
     "HOME=$SB/home"
     "PORT=$API_PORT"
     "DB_PATH=$SB/rhythm.db"
+    "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
     "MEMORY_VAULT_PATH=$SB/vault"
     "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
     "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
@@ -186,6 +196,7 @@ up() {
   fi
 
   wait_for_ready
+  ensure_rhythm_mcp
   if [[ "$mode" == foreground ]]; then
     wait_in_foreground "$api_pid"
   fi
@@ -250,8 +261,9 @@ down() {
 
 status() {
   safe_sandbox_path
-  printf 'sandbox: %s\napi :%s listener: %s\nengine :%s listener: %s\n' \
-    "$SB" "$API_PORT" "$(listener "$API_PORT" || true)" "$ENGINE_PORT" "$(listener "$ENGINE_PORT" || true)"
+  [[ -d "$SB/live-artifacts" ]] || fail "live-artifact storage root is missing"
+  printf 'sandbox: %s\nlive-artifact storage: %s\napi :%s listener: %s\nengine :%s listener: %s\n' \
+    "$SB" "$SB/live-artifacts" "$API_PORT" "$(listener "$API_PORT" || true)" "$ENGINE_PORT" "$(listener "$ENGINE_PORT" || true)"
 }
 
 usage() {

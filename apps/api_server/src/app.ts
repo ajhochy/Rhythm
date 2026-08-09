@@ -63,6 +63,7 @@ import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
+import { liveArtifactsRouter } from './routes/live_artifacts_routes';
 import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
@@ -129,6 +130,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   app.use('/message-threads', messagesRouter);
   app.use('/facilities', facilitiesRouter);
   app.use('/workspaces', workspaceRouter);
+  app.use('/live-artifacts', liveArtifactsRouter);
   // #755 — the agent-execution notifications surface must be mounted BEFORE the
   // always-on `/notifications` prefix (Express matches `/notifications` against
   // `/notifications/agent` otherwise). Gated like the rest of the agent

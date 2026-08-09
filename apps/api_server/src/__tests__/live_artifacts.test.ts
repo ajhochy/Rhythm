@@ -1,0 +1,345 @@
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+
+import { createApp } from '../app';
+import { env } from '../config/env';
+import { runMigrations } from '../database/migrations';
+import { setDb } from '../database/db';
+import { SessionsRepository } from '../repositories/sessions_repository';
+import { UsersRepository } from '../repositories/users_repository';
+import { startTestServer } from './helpers/real_server';
+
+const bundle = { html: '<h1>Calendar</h1><script>evil()</script>', css: 'h1 { color: red }', js: 'window.calendar = true;' };
+
+async function json(response: Response) {
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+describe('live artifacts (AV-02)', () => {
+  let db: Database.Database;
+  let users: UsersRepository;
+  let sessions: SessionsRepository;
+  let baseUrl: string;
+  let close: () => Promise<void>;
+
+  beforeEach(async () => {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    users = new UsersRepository();
+    sessions = new SessionsRepository();
+    ({ baseUrl, close } = await startTestServer(createApp()));
+  });
+
+  afterEach(async () => { await close(); db.close(); await rm(env.liveArtifactStorageDir, { recursive: true, force: true }); });
+
+  async function header(userId: number) {
+    const session = await sessions.createAsync(userId);
+    return { Authorization: `Bearer ${session.token}` };
+  }
+
+  function workspace(ownerId: number, memberIds: number[] = []) {
+    const row = db.prepare('INSERT INTO workspaces (name, join_code, created_by) VALUES (?, ?, ?)')
+      .run('AV02', `av02-${Math.random()}`, ownerId);
+    const id = Number(row.lastInsertRowid);
+    for (const userId of [ownerId, ...memberIds]) {
+      db.prepare('INSERT INTO workspace_members (workspace_id, user_id) VALUES (?, ?)').run(id, userId);
+    }
+    return id;
+  }
+
+  async function create(ownerId: number, workspaceId: number, visibility = 'private', content = bundle) {
+    const response = await fetch(`${baseUrl}/live-artifacts`, {
+      method: 'POST', headers: { ...(await header(ownerId)), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'html', title: 'Worship Calendar', workspaceId, visibility, bundle: content, state: { scripture: 'John 3:16' } }),
+    });
+    expect(response.status).toBe(201);
+    return json(response) as Promise<{ id: string; currentBundleRevision: number; currentStateRevision: number }>;
+  }
+
+  it('requires auth and mounts every always-on CRUD route', async () => {
+    expect((await fetch(`${baseUrl}/live-artifacts`)).status).toBe(401);
+    const owner = users.create({ name: 'Owner', email: 'av02-owner@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    for (const path of ['', `/${artifact.id}`, `/${artifact.id}/render`, `/${artifact.id}/collaborators`]) {
+      expect((await fetch(`${baseUrl}/live-artifacts${path}`, { headers: await header(owner.id) })).status).toBe(200);
+    }
+  });
+
+  it('rejects unauthenticated callers across all live-artifact routes', async () => {
+    // Regression: a newly mounted write route must not accidentally bypass requireAuth.
+    const id = '00000000-0000-4000-8000-000000000000';
+    const routes = [['GET', ''], ['POST', ''], ['GET', `/${id}`], ['GET', `/${id}/render`], ['PATCH', `/${id}`], ['GET', `/${id}/collaborators`], ['POST', `/${id}/collaborators`], ['DELETE', `/${id}/collaborators/1`], ['PUT', `/${id}/bundle`], ['PUT', `/${id}/state`], ['DELETE', `/${id}`]] as const;
+    for (const [method, suffix] of routes) expect((await fetch(`${baseUrl}/live-artifacts${suffix}`, { method })).status).toBe(401);
+  });
+
+  it('creates only html with public metadata and fixed initial content', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-shape@example.com' });
+    const created = await create(owner.id, workspace(owner.id));
+    expect(created.id).toMatch(/^[0-9a-f-]{36}$/i);
+    const detail = await json(await fetch(`${baseUrl}/live-artifacts/${created.id}`, { headers: await header(owner.id) }));
+    expect(detail).toMatchObject({ id: created.id, type: 'html', title: 'Worship Calendar', currentBundleRevision: 1, currentStateRevision: 1 });
+    expect(JSON.stringify(detail)).not.toMatch(/storage|path|key/i);
+  });
+
+  it('keeps immutable server-derived storage and rejects oversized state', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-storage@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/state`, {
+      method: 'PUT',
+      headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedStateRevision: 1, state: { payload: 'x'.repeat(512 * 1024) } }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('ignores path-shaped state fields and stores only canonical ID/hash paths', async () => {
+    // Regression: client-supplied storage-looking fields must not affect canonical state storage.
+    const owner = users.create({ name: 'Owner', email: 'av02-canonical-state@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const state = { scripture: 'John 3:17' };
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/state`, {
+      method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedStateRevision: 1, state, path: '../../secret', stateHash: 'attacker', contentHash: 'attacker', id: '../other', filename: 'state.json' }),
+    });
+    expect(response.status).toBe(200);
+    const stateHash = createHash('sha256').update(JSON.stringify(state)).digest('hex');
+    expect(await readFile(path.join(env.liveArtifactStorageDir, artifact.id, 'state', `${stateHash}.json`), 'utf8')).toBe(JSON.stringify(state));
+    expect(existsSync(path.join(env.liveArtifactStorageDir, 'other'))).toBe(false);
+  });
+
+  it('stores canonical hashes under fixed paths and keeps deleted content', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-fixed-storage@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const root = path.join(env.liveArtifactStorageDir, artifact.id);
+    const state = JSON.stringify({ scripture: 'John 3:16' });
+    const stateHash = createHash('sha256').update(state).digest('hex');
+    const bundleHash = createHash('sha256').update(JSON.stringify(bundle)).digest('hex');
+    expect(await readFile(path.join(root, 'bundles', bundleHash, 'index.html'), 'utf8')).toBe(bundle.html);
+    expect(await readFile(path.join(root, 'state', `${stateHash}.json`), 'utf8')).toBe(state);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { method: 'DELETE', headers: await header(owner.id) })).status).toBe(204);
+    expect(existsSync(root)).toBe(true);
+  });
+
+  it('rejects traversal-shaped route input without disclosure', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-traversal@example.com' });
+    const response = await fetch(`${baseUrl}/live-artifacts/..%2f..%2fetc%2fpasswd`, { headers: await header(owner.id) });
+    expect(response.status).toBe(404);
+    expect(JSON.stringify(await json(response))).not.toMatch(/etc|passwd|\.{2}|\//);
+  });
+
+  it('enforces private/shared/organization visibility and owner-only management', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-owner-auth@example.com' });
+    const collaborator = users.create({ name: 'Collaborator', email: 'av02-collab@example.com' });
+    const outsider = users.create({ name: 'Outsider', email: 'av02-out@example.com' });
+    const workspaceId = workspace(owner.id, [collaborator.id]);
+    const artifact = await create(owner.id, workspaceId, 'shared');
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(collaborator.id) })).status).toBe(404);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/collaborators`, { method: 'POST', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: collaborator.id }) })).status).toBe(201);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(collaborator.id) })).status).toBe(200);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(outsider.id) })).status).toBe(404);
+  });
+
+  it('AV-03 P1: creates shared artifacts with workspace collaborators visible immediately', async () => {
+    // Regression: create silently drops collaborators, leaving the shared artifact unreadable.
+    const owner = users.create({ name: 'Owner', email: 'av03-create-owner@example.com' });
+    const collaborator = users.create({ name: 'Collaborator', email: 'av03-create-collaborator@example.com' });
+    const workspaceId = workspace(owner.id, [collaborator.id]);
+    const response = await fetch(`${baseUrl}/live-artifacts`, {
+      method: 'POST',
+      headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'html', title: 'Worship Calendar', workspaceId, visibility: 'shared', collaborators: [collaborator.id], bundle, state: { scripture: 'John 3:16' } }),
+    });
+    expect(response.status).toBe(201);
+    const artifact = await json(response) as { id: string };
+    expect(await json(await fetch(`${baseUrl}/live-artifacts`, { headers: await header(collaborator.id) }))).toEqual([expect.objectContaining({ id: artifact.id })]);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(collaborator.id) })).status).toBe(200);
+  });
+
+  it('AV-03 P2: rejects invalid and cross-workspace collaborators before publishing any create state', async () => {
+    // Regression: storage or initial rows survive when one requested collaborator is invalid.
+    const owner = users.create({ name: 'Owner', email: 'av03-atomic-owner@example.com' });
+    const member = users.create({ name: 'Member', email: 'av03-atomic-member@example.com' });
+    const outsider = users.create({ name: 'Outsider', email: 'av03-atomic-outsider@example.com' });
+    const workspaceId = workspace(owner.id, [member.id]);
+    for (const collaborators of [[0], [outsider.id]]) {
+      const response = await fetch(`${baseUrl}/live-artifacts`, {
+        method: 'POST',
+        headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'html', title: 'Worship Calendar', workspaceId, visibility: 'shared', collaborators, bundle, state: { scripture: 'John 3:16' } }),
+      });
+      expect(response.status).toBe(400);
+    }
+    for (const table of ['live_artifacts', 'live_artifact_bundle_revisions', 'live_artifact_state_revisions', 'live_artifact_collaborators']) {
+      expect(db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
+    expect(existsSync(env.liveArtifactStorageDir)).toBe(false);
+  });
+
+  it('AV-03 P3: preserves default private owner-only create behavior', async () => {
+    // Regression: adding create-time sharing changes the default artifact visibility or access.
+    const owner = users.create({ name: 'Owner', email: 'av03-default-owner@example.com' });
+    const member = users.create({ name: 'Member', email: 'av03-default-member@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id, [member.id]));
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(member.id) })).status).toBe(404);
+    expect(db.prepare('SELECT visibility FROM live_artifacts WHERE id = ?').get(artifact.id)).toEqual({ visibility: 'private' });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifact_collaborators WHERE artifact_id = ?').get(artifact.id)).toEqual({ count: 0 });
+  });
+
+  it('revoked workspace member loses shared list and handler access', async () => {
+    // Regression: a collaborator row alone must not survive workspace revocation.
+    const owner = users.create({ name: 'Owner', email: 'av02-revoked-owner@example.com' });
+    const collaborator = users.create({ name: 'Collaborator', email: 'av02-revoked-collaborator@example.com' });
+    const workspaceId = workspace(owner.id, [collaborator.id]);
+    const artifact = await create(owner.id, workspaceId, 'shared');
+    await fetch(`${baseUrl}/live-artifacts/${artifact.id}/collaborators`, { method: 'POST', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: collaborator.id }) });
+    db.prepare('DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?').run(workspaceId, collaborator.id);
+    const collaboratorHeaders = await header(collaborator.id);
+    expect((await json(await fetch(`${baseUrl}/live-artifacts`, { headers: collaboratorHeaders }))).length).toBe(0);
+    for (const suffix of ['', '/render', '/state', '/bundle']) {
+      const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}${suffix}`, { method: suffix ? 'PUT' : 'GET', headers: suffix ? { ...collaboratorHeaders, 'Content-Type': 'application/json' } : collaboratorHeaders, body: suffix === '/state' ? JSON.stringify({ expectedStateRevision: 1, state: {} }) : suffix === '/bundle' ? JSON.stringify({ expectedBundleRevision: 1, bundle }) : undefined });
+      expect(response.status).toBe(404);
+    }
+  });
+
+  it('uses independent CAS and has exactly one concurrent state winner', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-cas@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const ownerHeaders = await header(owner.id);
+    const write = (state: string) => fetch(`${baseUrl}/live-artifacts/${artifact.id}/state`, { method: 'PUT', headers: { ...ownerHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedStateRevision: 1, state: { state } }) });
+    const statuses = await Promise.all([write('first'), write('second')]).then((responses) => Promise.all(responses.map((response) => response.status)));
+    expect(statuses.sort()).toEqual([200, 409]);
+  });
+
+  it('advances bundle and state independently with actor audit rows', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-independent-audit@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const headers = { ...(await header(owner.id)), 'Content-Type': 'application/json' };
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers, body: JSON.stringify({ expectedBundleRevision: 1, bundle: { ...bundle, js: 'window.updated = true;' } }) })).status).toBe(200);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/state`, { method: 'PUT', headers, body: JSON.stringify({ expectedStateRevision: 1, state: { scripture: 'John 3:17' } }) })).status).toBe(200);
+    const detail = await json(await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(owner.id) }));
+    expect(detail).toMatchObject({ currentBundleRevision: 2, currentStateRevision: 2 });
+    for (const table of ['live_artifact_bundle_revisions', 'live_artifact_state_revisions']) {
+      expect(db.prepare(`SELECT actor_user_id, hash, created_at FROM ${table} WHERE artifact_id = ? AND revision = 2`).get(artifact.id)).toMatchObject({ actor_user_id: owner.id });
+    }
+  });
+
+  it('atomically publishes updated bundles before advancing the pointer', async () => {
+    // Regression: mkdir(destination) must not expose an empty new hash to a successful PUT.
+    const owner = users.create({ name: 'Owner', email: 'av02-atomic-update@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const updatedBundle = { ...bundle, js: 'window.updatedBundle = true;' };
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 1, bundle: updatedBundle }) });
+    expect(response.status).toBe(200);
+    const rendered = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    expect(rendered.status).toBe(200);
+    expect(await rendered.text()).toContain(updatedBundle.js);
+    const bundleHash = createHash('sha256').update(JSON.stringify(updatedBundle)).digest('hex');
+    expect((await readdir(path.join(env.liveArtifactStorageDir, artifact.id, 'bundles', bundleHash))).sort()).toEqual(['app.js', 'index.html', 'styles.css']);
+  });
+
+  it('keeps the current bundle pointer unchanged when storage publication fails', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-publish-failure@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const bundles = path.join(env.liveArtifactStorageDir, artifact.id, 'bundles');
+    const before = db.prepare('SELECT current_bundle_revision, current_bundle_hash FROM live_artifacts WHERE id = ?').get(artifact.id);
+    const rows = db.prepare('SELECT COUNT(*) AS count FROM live_artifact_bundle_revisions WHERE artifact_id = ?').get(artifact.id) as { count: number };
+    await rm(bundles, { recursive: true, force: true });
+    await writeFile(bundles, 'not a directory');
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 1, bundle: { ...bundle, js: 'window.neverPublished = true;' } }) });
+    expect(response.status).toBe(500);
+    expect(db.prepare('SELECT current_bundle_revision, current_bundle_hash FROM live_artifacts WHERE id = ?').get(artifact.id)).toEqual(before);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifact_bundle_revisions WHERE artifact_id = ?').get(artifact.id)).toEqual(rows);
+  });
+
+  it('self-heals an old empty destination and leaves no bundle temp directories', async () => {
+    // Regression: a legacy empty hash directory is not valid idempotent content.
+    const owner = users.create({ name: 'Owner', email: 'av02-empty-destination@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const updatedBundle = { ...bundle, js: 'window.selfHealed = true;' };
+    const bundleHash = createHash('sha256').update(JSON.stringify(updatedBundle)).digest('hex');
+    const bundles = path.join(env.liveArtifactStorageDir, artifact.id, 'bundles');
+    await mkdir(path.join(bundles, bundleHash));
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 1, bundle: updatedBundle }) });
+    expect(response.status).toBe(200);
+    expect((await readdir(path.join(bundles, bundleHash))).sort()).toEqual(['app.js', 'index.html', 'styles.css']);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 2, bundle: updatedBundle }) })).status).toBe(200);
+    expect((await readdir(bundles)).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(200);
+  });
+
+  it('renders only fixed files under a nonce-bound restrictive CSP', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-render@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id), redirect: 'manual' });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-security-policy')).toMatch(/default-src 'none';.*connect-src 'none';.*form-action 'none';.*base-uri 'none';.*frame-src 'none';.*object-src 'none'/);
+    expect(await response.text()).toContain('<script>evil()</script>'); // CSP must deny this unnonced artifact markup.
+  });
+
+  it('sandboxes rendered documents without navigation or origin privileges', async () => {
+    // Regression: a resource-only CSP lets stored script/meta refresh navigate the top-level document.
+    const owner = users.create({ name: 'Owner', email: 'av02-csp@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    const csp = response.headers.get('content-security-policy') ?? '';
+    expect(csp).toContain('sandbox allow-scripts');
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).not.toMatch(/allow-(?:same-origin|top-navigation|popups|forms|modals)|unsafe-(?:inline|eval)/);
+  });
+
+  it('strips refresh navigation and never grants stored markup the response nonce', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-render-smuggling@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id), 'private', { ...bundle, html: '<meta http-equiv="refresh" content="0;https://attacker.test"><script nonce="attacker">window.pwned=1</script></script><script>window.pwned=2</script>' });
+    const document = await (await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).text();
+    const nonce = document.match(/<style nonce="([^"]+)">/)?.[1];
+    expect(document).not.toMatch(/http-equiv="refresh"/i);
+    expect(nonce).toBeTruthy();
+    expect(document.split(`nonce="${nonce}"`).length - 1).toBe(2);
+  });
+
+  it('missing stored content leaks no path or stack', async () => {
+    // Regression: raw node fs errors include the storage layout and stack frames in the shared error log.
+    const owner = users.create({ name: 'Owner', email: 'av02-storage-leak@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    await rm(path.join(env.liveArtifactStorageDir, artifact.id), { recursive: true, force: true });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(owner.id) });
+    const logged = JSON.stringify(error.mock.calls);
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await json(response))).not.toMatch(/state|bundles|ENOENT|\n\s+at\s/);
+    expect(logged).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
+    expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'state', op: 'read', code: 'ENOENT' });
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(500);
+    expect(JSON.stringify(error.mock.calls)).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
+    expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'bundle', op: 'read', code: 'ENOENT' });
+    error.mockRestore();
+  });
+
+  it('limits metadata capabilities to owner and the pco read allowlist', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-cap-owner@example.com' });
+    const member = users.create({ name: 'Member', email: 'av02-cap-member@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id, [member.id]), 'organization');
+    const rejected = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { method: 'PATCH', headers: { ...(await header(member.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ declaredCapabilities: ['pco.services.read'] }) });
+    expect(rejected.status).toBe(404);
+    const allowed = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { method: 'PATCH', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ declaredCapabilities: ['pco.services.read', 'anything.execute'] }) });
+    expect(allowed.status).toBe(400);
+  });
+
+  it('soft-deletes without disclosing paths, returning a tombstone only to prior access', async () => {
+    const owner = users.create({ name: 'Owner', email: 'av02-delete-owner@example.com' });
+    const member = users.create({ name: 'Member', email: 'av02-delete-member@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id, [member.id]), 'organization');
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(member.id) })).status).toBe(200);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { method: 'DELETE', headers: await header(owner.id) })).status).toBe(204);
+    const tombstone = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(member.id) });
+    expect(tombstone.status).toBe(410);
+    expect(JSON.stringify(await json(tombstone))).toContain('artifact_deleted');
+  });
+});
