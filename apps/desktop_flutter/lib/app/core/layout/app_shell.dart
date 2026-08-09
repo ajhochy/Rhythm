@@ -297,17 +297,16 @@ class _AppContent extends StatelessWidget {
                   constraints: const BoxConstraints(minHeight: 52),
                   child: Row(
                     children: [
-                      Flexible(
+                      Expanded(
                         child: NavigationSidebar(
                           selectedIndex: selectedIndex,
                           collapsed: false,
                           onItemSelected: onItemSelected,
                         ),
                       ),
-                      const Spacer(),
                       // #747 — Background activity indicator sits in the
-                      // empty header space between the Spacer and the
-                      // account cluster. Shows idle dot when quiet;
+                      // header space between navigation and the account
+                      // cluster. Shows idle dot when quiet;
                       // pulsing accent dot + count when active.
                       const Padding(
                         padding: EdgeInsets.only(right: 10),

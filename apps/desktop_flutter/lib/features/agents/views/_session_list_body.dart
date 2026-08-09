@@ -105,14 +105,6 @@ class SessionListBody extends StatelessWidget {
           const _CreatingSessionRow(),
           const SizedBox(height: 6),
         ],
-        // #910 — "collapse all / expand all" for subagent groups, shown only
-        // when at least one session in view actually has subagents.
-        if (_parentIdsWithChildren(filteredSessions).isNotEmpty) ...[
-          _SubagentCollapseAllToggle(
-            parentIds: _parentIdsWithChildren(filteredSessions),
-          ),
-          const SizedBox(height: 4),
-        ],
         // ── Active sessions ────────────────────────────────────────────────
         // Child sessions (parentId != null) are rendered indented under their
         // parent. Root sessions are rendered first; their children follow inline.
@@ -224,10 +216,8 @@ class SessionListBody extends StatelessWidget {
   }
 }
 
-/// #910 — every session id (within [sessions]) that has at least one child
-/// also present in [sessions]. Used to decide whether the "collapse all /
-/// expand all" toggle should render, and what it should act on.
-Set<String> _parentIdsWithChildren(List<AgentSession> sessions) {
+/// Every visible session id with at least one visible child.
+Set<String> parentIdsWithChildren(List<AgentSession> sessions) {
   final sessionIds = {for (final s in sessions) s.id};
   final parents = <String>{};
   for (final s in sessions) {
@@ -236,40 +226,6 @@ Set<String> _parentIdsWithChildren(List<AgentSession> sessions) {
     }
   }
   return parents;
-}
-
-/// #910 — a single "Collapse all" / "Expand all" text toggle for every
-/// subagent group currently in view. Reads current state as "collapse all"
-/// when ANY covered parent is expanded (so one tap always fully collapses
-/// first), matching common tree-view conventions.
-class _SubagentCollapseAllToggle extends StatelessWidget {
-  const _SubagentCollapseAllToggle({required this.parentIds});
-
-  final Set<String> parentIds;
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = context.watch<AgentsController>();
-    final anyExpanded =
-        parentIds.any((id) => !controller.isParentSessionCollapsed(id));
-    return Align(
-      alignment: Alignment.centerRight,
-      child: TextButton(
-        onPressed: () => controller.setAllParentSessionsCollapsed(
-          parentIds,
-          anyExpanded,
-        ),
-        style: TextButton.styleFrom(
-          foregroundColor: context.rhythm.accent,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-        ),
-        child: Text(anyExpanded ? 'Collapse all' : 'Expand all'),
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -449,7 +405,7 @@ class SessionRow extends StatelessWidget {
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
           // One compact text row; selection is the only persistent highlight.
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
           decoration: BoxDecoration(
             color:
                 highlighted ? context.rhythm.accentMuted : Colors.transparent,
@@ -998,74 +954,78 @@ class SessionRowMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'Session actions',
-      icon: Icon(
-        Icons.more_horiz,
-        size: 16,
-        color: context.rhythm.textMuted,
-      ),
-      padding: EdgeInsets.zero,
-      iconSize: 16,
-      splashRadius: 16,
-      itemBuilder: (_) => [
-        PopupMenuItem<String>(
-          value: 'rename',
-          child: Row(
-            children: [
-              Icon(
-                Icons.edit_outlined,
-                size: 16,
-                color: context.rhythm.textSecondary,
-              ),
-              const SizedBox(width: 8),
-              const Text('Rename'),
-            ],
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: PopupMenuButton<String>(
+        tooltip: 'Session actions',
+        padding: EdgeInsets.zero,
+        child: Center(
+          child: Icon(
+            Icons.more_horiz,
+            size: 16,
+            color: context.rhythm.textMuted,
           ),
         ),
-        PopupMenuItem<String>(
-          value: 'archive',
-          child: Row(
-            children: [
-              Icon(
-                Icons.archive_outlined,
-                size: 16,
-                color: context.rhythm.textSecondary,
-              ),
-              const SizedBox(width: 8),
-              const Text('Archive'),
-            ],
+        itemBuilder: (_) => [
+          PopupMenuItem<String>(
+            value: 'rename',
+            child: Row(
+              children: [
+                Icon(
+                  Icons.edit_outlined,
+                  size: 16,
+                  color: context.rhythm.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Rename'),
+              ],
+            ),
           ),
-        ),
-        PopupMenuItem<String>(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(
-                Icons.delete_outline,
-                size: 16,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Delete session',
-                style: TextStyle(
+          PopupMenuItem<String>(
+            value: 'archive',
+            child: Row(
+              children: [
+                Icon(
+                  Icons.archive_outlined,
+                  size: 16,
+                  color: context.rhythm.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Archive'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'delete',
+            child: Row(
+              children: [
+                Icon(
+                  Icons.delete_outline,
+                  size: 16,
                   color: Theme.of(context).colorScheme.error,
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                Text(
+                  'Delete session',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-      onSelected: (v) {
-        if (v == 'rename') {
-          _rename(context);
-        } else if (v == 'archive') {
-          context.read<AgentsController>().archiveSession(session.id);
-        } else if (v == 'delete') {
-          _confirmDelete(context);
-        }
-      },
+        ],
+        onSelected: (v) {
+          if (v == 'rename') {
+            _rename(context);
+          } else if (v == 'archive') {
+            context.read<AgentsController>().archiveSession(session.id);
+          } else if (v == 'delete') {
+            _confirmDelete(context);
+          }
+        },
+      ),
     );
   }
 }

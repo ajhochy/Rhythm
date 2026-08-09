@@ -2,9 +2,9 @@
 date: 2026-08-08
 repo: Rhythm
 branch: ui/desktop-mobile-session-polish
-pr: null
+pr: 1337
 issues: [ui-mobile-agents-session-list]
-status: READY_FOR_VERIFICATION
+status: pass
 tags: [run, mobile]
 ---
 
@@ -38,3 +38,7 @@ tags: [run, mobile]
 - Final repair: child titles now use `palette.text` in both theme palettes; their existing regular weight preserves hierarchy. Row-open stretches through the 56pt row, centers its text, and keeps the sibling 48pt controls untouched.
 - GitNexus impact: `ChatList` LOW (one direct caller, `AgentsScreen`), `flattenChats` LOW (one direct caller, rows), and `FlatChat` LOW (one direct importer, `apps/mobile/app/(tabs)/agents.tsx`); no affected execution flows.
 - No provider, service, API, persistence, dependency, fake-server, E2E, or Flutter files changed.
+
+## Final visual evidence
+
+- [PR #1337 UI smoke evidence](../evidence/2026-08-08-pr-1337-ui-smoke.md) records the final UI/UX reviewer PASS and the residual nonblocking VoiceOver traversal follow-up for offscreen dashboard task rows only.

@@ -3,10 +3,10 @@
 /// Pumps the real [SessionListBody] with a hand-built parent+children session
 /// list (no repository/network involved — filteredSessions is supplied
 /// directly) and asserts:
-///   - children render by default (expanded)
-///   - tapping the subagent-group summary collapses them to one line
-///   - tapping again re-expands them
-///   - the "Collapse all" / "Expand all" toggle flips every group at once
+///   - children start collapsed behind their summary
+///   - tapping the subagent-group summary expands them
+///   - tapping again re-collapses them
+///   - per-parent summaries flip each group without a separate bulk control
 ///
 /// Run with:
 ///   flutter test test/features/agents/issue_910_subagent_collapse_test.dart
@@ -212,7 +212,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'subagent group renders expanded by default, collapses and re-expands on tap',
+    'subagent group starts collapsed, expands and re-collapses on tap',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -221,31 +221,36 @@ void main() {
       await tester.pumpWidget(await _buildTestApp(controller));
       await tester.pump();
 
-      // Expanded by default: both child rows visible, summary shows "expand_more".
+      // Regression: newly discovered parent ids must default to collapsed.
+      expect(find.text('Subagent A'), findsNothing);
+      expect(find.text('Subagent B'), findsNothing);
+      expect(find.text('2 subagents'), findsOneWidget);
+      expect(
+        tester.getSemantics(
+          find.byKey(const ValueKey('subagent-group-disclosure')),
+        ),
+        containsSemantics(isButton: true, isExpanded: false),
+      );
+
+      // First toggle expands.
+      await tester.tap(find.text('2 subagents'));
+      await tester.pump();
+
       expect(find.text('Subagent A'), findsOneWidget);
       expect(find.text('Subagent B'), findsOneWidget);
-      expect(find.text('2 subagents'), findsOneWidget);
 
-      // Tap the summary to collapse.
+      // Subsequent toggle collapses.
       await tester.tap(find.text('2 subagents'));
       await tester.pump();
 
       expect(find.text('Subagent A'), findsNothing);
       expect(find.text('Subagent B'), findsNothing);
-      expect(find.text('2 subagents'), findsOneWidget);
-
-      // Tap again to expand.
-      await tester.tap(find.text('2 subagents'));
-      await tester.pump();
-
-      expect(find.text('Subagent A'), findsOneWidget);
-      expect(find.text('Subagent B'), findsOneWidget);
 
       controller.dispose();
     },
   );
 
-  testWidgets('Collapse all / Expand all toggles every subagent group at once',
+  testWidgets('per-parent summary remains independently toggleable',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(1600, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -254,20 +259,17 @@ void main() {
     await tester.pumpWidget(await _buildTestApp(controller));
     await tester.pump();
 
-    expect(find.text('Collapse all'), findsOneWidget);
+    expect(find.text('Subagent A'), findsNothing);
+
+    await tester.tap(find.text('2 subagents'));
+    await tester.pump();
+
     expect(find.text('Subagent A'), findsOneWidget);
 
-    await tester.tap(find.text('Collapse all'));
+    await tester.tap(find.text('2 subagents'));
     await tester.pump();
 
     expect(find.text('Subagent A'), findsNothing);
-    expect(find.text('Expand all'), findsOneWidget);
-
-    await tester.tap(find.text('Expand all'));
-    await tester.pump();
-
-    expect(find.text('Subagent A'), findsOneWidget);
-    expect(find.text('Collapse all'), findsOneWidget);
 
     controller.dispose();
   });
@@ -281,7 +283,7 @@ void main() {
     final disclosure = find.byKey(const ValueKey('subagent-group-disclosure'));
     expect(
       tester.getSemantics(disclosure),
-      containsSemantics(isButton: true, isExpanded: true),
+      containsSemantics(isButton: true, isExpanded: false),
     );
 
     controller.dispose();
@@ -290,6 +292,7 @@ void main() {
   testWidgets('child session rows meet the 28px desktop minimum',
       (tester) async {
     final controller = _buildController();
+    controller.toggleParentSessionCollapsed('parent-1');
     await tester.pumpWidget(await _buildTestApp(controller));
     await tester.pump();
 

@@ -28,6 +28,7 @@ Widget _navigation({
   required int selectedIndex,
   required ValueChanged<int> onItemSelected,
   required MessagesController messages,
+  bool completeHeader = false,
 }) =>
     MultiProvider(
       providers: [
@@ -36,10 +37,22 @@ Widget _navigation({
       child: MaterialApp(
         theme: AppTheme.light(),
         home: Scaffold(
-          body: NavigationSidebar(
-            selectedIndex: selectedIndex,
-            collapsed: false,
-            onItemSelected: onItemSelected,
+          body: SizedBox(
+            height: 52,
+            child: Row(
+              children: [
+                Flexible(
+                  child: NavigationSidebar(
+                    selectedIndex: selectedIndex,
+                    collapsed: false,
+                    onItemSelected: onItemSelected,
+                  ),
+                ),
+                if (completeHeader) ...[
+                  const SizedBox(width: 180),
+                ],
+              ],
+            ),
           ),
         ),
       ),
@@ -94,6 +107,66 @@ void main() {
     }
   });
 
+  testWidgets('wide complete header gives navigation all pre-control width',
+      (tester) async {
+    final messages = _MessagesWithUnread(0);
+    addTearDown(messages.dispose);
+    await tester.binding.setSurfaceSize(const Size(1600, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // Regression: a Flexible navigation followed by Spacer allocated only half
+    // the pre-control header width, hiding tabs despite a wide desktop shell.
+    await tester.pumpWidget(
+      _navigation(
+        selectedIndex: 0,
+        onItemSelected: (_) {},
+        messages: messages,
+        completeHeader: true,
+      ),
+    );
+
+    for (final label in [
+      'Dashboard',
+      'Planner',
+      'Tasks',
+      'Rhythms',
+      'Projects',
+      'Messages',
+      'Facilities',
+      'Automations',
+      'Integrations',
+      'Agents',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.text('More'), findsNothing);
+  });
+
+  testWidgets('selected tab uses an accent underline, not an accent pill',
+      (tester) async {
+    final messages = _MessagesWithUnread(0);
+    addTearDown(messages.dispose);
+
+    await tester.pumpWidget(
+      _navigation(selectedIndex: 0, onItemSelected: (_) {}, messages: messages),
+    );
+
+    final dashboardButton = tester.widget<TextButton>(
+      find.ancestor(
+          of: find.text('Dashboard'), matching: find.byType(TextButton)),
+    );
+    expect(dashboardButton.style?.backgroundColor?.resolve({}),
+        anyOf(isNull, Colors.transparent));
+    expect(
+      dashboardButton.style?.side?.resolve({WidgetState.focused})?.width,
+      2,
+    );
+    expect(
+      find.byKey(const ValueKey('global-navigation-active-underline')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('narrow navigation keeps core tabs and sends overflow to More',
       (tester) async {
     final messages = _MessagesWithUnread(0);
@@ -105,21 +178,9 @@ void main() {
       _navigation(selectedIndex: 0, onItemSelected: (_) {}, messages: messages),
     );
 
-    for (final label in [
-      'Dashboard',
-      'Planner',
-      'Tasks',
-      'Rhythms',
-      'Projects',
-      'Messages',
-      'Agents',
-    ]) {
-      expect(find.text(label), findsOneWidget);
-    }
+    expect(find.text('Dashboard'), findsOneWidget);
     expect(find.text('More'), findsOneWidget);
-    expect(find.text('Facilities'), findsNothing);
-    expect(find.text('Automations'), findsNothing);
-    expect(find.text('Integrations'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('More is selected and exposes the active overflow destination',
@@ -168,6 +229,45 @@ void main() {
     expect(find.byType(FittedBox), findsNothing);
     expect(find.text('More'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('1024px at 200% keeps More on the compact navigation row',
+      (tester) async {
+    final messages = _MessagesWithUnread(0);
+    addTearDown(messages.dispose);
+    await tester.binding.setSurfaceSize(const Size(1024, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // Regression: Wrap placed More alone on a second row, doubling the header.
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+      child: _navigation(
+        selectedIndex: 0,
+        onItemSelected: (_) {},
+        messages: messages,
+      ),
+    ));
+
+    final navigation =
+        tester.getRect(find.byKey(const ValueKey('global-navigation-tabs')));
+    final dashboardCenter = tester.getCenter(find.text('Dashboard'));
+    final moreCenter = tester.getCenter(find.text('More'));
+    final visibleTabs = [
+      'Dashboard',
+      'Planner',
+      'Tasks',
+      'Rhythms',
+      'Projects',
+      'Messages',
+      'Facilities',
+      'Automations',
+      'Integrations',
+      'Agents',
+    ].where((label) => find.text(label).evaluate().isNotEmpty).length;
+
+    expect(navigation.height, 48);
+    expect(moreCenter.dy, dashboardCenter.dy);
+    expect(visibleTabs, 4);
   });
 
   testWidgets('unread count is an accessible indicator, not white danger text',

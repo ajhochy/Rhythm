@@ -32,24 +32,67 @@ class NavigationSidebar extends StatelessWidget {
     _NavItem(AppConstants.navAgents, 'Agents'),
   ];
 
-  static const _overflowIndices = {
-    AppConstants.navFacilities,
-    AppConstants.navAutomations,
-    AppConstants.navIntegrations,
-  };
+  static const _primaryIndices = [
+    AppConstants.navDashboard,
+    AppConstants.navWeeklyPlanner,
+    AppConstants.navTasks,
+    AppConstants.navRhythms,
+    AppConstants.navProjects,
+    AppConstants.navMessages,
+    AppConstants.navAgents,
+  ];
 
   @override
   Widget build(BuildContext context) {
     final unreadCount = context.watch<MessagesController>().totalUnreadCount;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isNarrow = constraints.maxWidth <
-            1000 * MediaQuery.textScalerOf(context).scale(1);
-        final items = isNarrow
-            ? _items.where((item) => !_overflowIndices.contains(item.index))
-            : _items;
-        return Wrap(
+        final textScaler = MediaQuery.textScalerOf(context);
+        double tabWidth(_NavItem item, {required bool selected}) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: item.label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+            textDirection: TextDirection.ltr,
+            textScaler: textScaler,
+          )..layout();
+          return painter.width +
+              14 +
+              (item.index == AppConstants.navMessages && unreadCount > 0
+                  ? 12
+                  : 0);
+        }
+
+        final totalWidth = _items.fold<double>(
+          0,
+          (width, item) =>
+              width + tabWidth(item, selected: selectedIndex == item.index),
+        );
+        final visibleIndices = <int>{};
+        if (totalWidth <= constraints.maxWidth) {
+          visibleIndices.addAll(_items.map((item) => item.index));
+        } else {
+          const moreItem = _NavItem(-1, 'More');
+          var usedWidth = tabWidth(moreItem, selected: false);
+          for (final index in _primaryIndices) {
+            final item = _items.firstWhere((item) => item.index == index);
+            final width = tabWidth(item, selected: selectedIndex == item.index);
+            if (usedWidth + width > constraints.maxWidth) break;
+            usedWidth += width;
+            visibleIndices.add(index);
+          }
+        }
+        final items =
+            _items.where((item) => visibleIndices.contains(item.index));
+        final overflowItems =
+            _items.where((item) => !visibleIndices.contains(item.index));
+        return Row(
           key: const ValueKey('global-navigation-tabs'),
+          mainAxisSize: MainAxisSize.min,
           children: [
             for (final item in items)
               _WorkspaceTab(
@@ -59,9 +102,10 @@ class NavigationSidebar extends StatelessWidget {
                     item.index == AppConstants.navMessages ? unreadCount : null,
                 onSelected: () => onItemSelected(item.index),
               ),
-            if (isNarrow)
+            if (overflowItems.isNotEmpty)
               _MoreMenu(
                 selectedIndex: selectedIndex,
+                overflowItems: overflowItems,
                 onItemSelected: onItemSelected,
               ),
           ],
@@ -101,37 +145,62 @@ class _WorkspaceTab extends StatelessWidget {
           label: item.semanticLabel ?? item.label,
           child: TextButton(
             onPressed: onSelected,
-            style: TextButton.styleFrom(
-              minimumSize: const Size(0, 34),
-              padding: const EdgeInsets.symmetric(horizontal: 7),
-              foregroundColor: selected
-                  ? context.rhythm.textPrimary
-                  : context.rhythm.textSecondary,
-              backgroundColor:
-                  selected ? context.rhythm.accentMuted : Colors.transparent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.md),
-                side: BorderSide(
-                  color: selected
-                      ? context.rhythm.accent.withValues(alpha: 0.55)
-                      : Colors.transparent,
+            style: ButtonStyle(
+              minimumSize: const WidgetStatePropertyAll(Size(0, 34)),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(horizontal: 7),
+              ),
+              foregroundColor: WidgetStatePropertyAll(
+                selected
+                    ? context.rhythm.textPrimary
+                    : context.rhythm.textSecondary,
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.hovered)
+                    ? context.rhythm.accentMuted
+                    : Colors.transparent,
+              ),
+              side: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.focused)
+                    ? BorderSide(color: context.rhythm.accent, width: 2)
+                    : BorderSide.none,
+              ),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
                 ),
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Stack(
               children: [
-                Text(
-                  item.label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                    if ((unreadCount ?? 0) > 0) ...[
+                      const SizedBox(width: 4),
+                      _UnreadBadge(count: unreadCount!),
+                    ],
+                  ],
                 ),
-                if ((unreadCount ?? 0) > 0) ...[
-                  const SizedBox(width: 4),
-                  _UnreadBadge(count: unreadCount!),
-                ],
+                if (selected)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      key: const ValueKey('global-navigation-active-underline'),
+                      height: 2,
+                      color: context.rhythm.accent,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -140,14 +209,19 @@ class _WorkspaceTab extends StatelessWidget {
 }
 
 class _MoreMenu extends StatelessWidget {
-  const _MoreMenu({required this.selectedIndex, required this.onItemSelected});
+  const _MoreMenu({
+    required this.selectedIndex,
+    required this.overflowItems,
+    required this.onItemSelected,
+  });
 
   final int selectedIndex;
+  final Iterable<_NavItem> overflowItems;
   final ValueChanged<int> onItemSelected;
 
   @override
   Widget build(BuildContext context) {
-    final selected = NavigationSidebar._overflowIndices.contains(selectedIndex);
+    final selected = overflowItems.any((item) => item.index == selectedIndex);
     return Semantics(
       button: true,
       selected: selected,
@@ -156,9 +230,7 @@ class _MoreMenu extends StatelessWidget {
         tooltip: 'More',
         onSelected: onItemSelected,
         itemBuilder: (context) => [
-          for (final item in NavigationSidebar._items.where(
-            (item) => NavigationSidebar._overflowIndices.contains(item.index),
-          ))
+          for (final item in overflowItems)
             PopupMenuItem(
               value: item.index,
               child: Semantics(
@@ -184,13 +256,13 @@ class _MoreButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 7),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? context.rhythm.accentMuted : Colors.transparent,
+          color: Colors.transparent,
           borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(
-            color: selected
-                ? context.rhythm.accent.withValues(alpha: 0.55)
-                : Colors.transparent,
-          ),
+          border: selected
+              ? Border(
+                  bottom: BorderSide(color: context.rhythm.accent, width: 2),
+                )
+              : null,
         ),
         child: Text(
           'More',
