@@ -42,6 +42,8 @@ const EXTERNAL_CONTENT_SOURCES = new Set([
   'pco.plans',
   'pco.plan-items',
   'pco.needed-positions',
+  'live-artifact.list',
+  'live-artifact.get',
 ]);
 
 export const EXTERNAL_CONTENT_TOOLS = new Map<string, string>([
@@ -77,6 +79,8 @@ export const EXTERNAL_CONTENT_TOOLS = new Map<string, string>([
   ['pco.plans', 'rhythm_pco_list_plans'],
   ['pco.plan-items', 'rhythm_pco_get_plan_items'],
   ['pco.needed-positions', 'rhythm_pco_list_needed_positions'],
+  ['live-artifact.list', 'rhythm_list_live_artifacts'],
+  ['live-artifact.get', 'rhythm_get_live_artifact'],
 ]);
 
 export const SECURITY_ACTION_TOOLS = new Map<string, string>([
@@ -126,6 +130,9 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['creative-capability.install', 'rhythm_install_creative_capability'],
   ['creative-artifact.record', 'rhythm_record_design'],
   ['org-optimizer.external-discovery', 'rhythm_run_external_discovery'],
+  ['live-artifact.create', 'rhythm_create_live_artifact'],
+  ['live-artifact.state.update', 'rhythm_update_live_artifact_state'],
+  ['live-artifact.bundle.update', 'rhythm_update_live_artifact_bundle'],
 ]);
 
 async function requireTrustedCall(

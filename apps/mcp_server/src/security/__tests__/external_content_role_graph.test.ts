@@ -63,6 +63,8 @@ const externalReads = new Map<string, string>([
   ["rhythm_pco_list_plans", "pco.plans"],
   ["rhythm_pco_get_plan_items", "pco.plan-items"],
   ["rhythm_pco_list_needed_positions", "pco.needed-positions"],
+  ["rhythm_list_live_artifacts", "live-artifact.list"],
+  ["rhythm_get_live_artifact", "live-artifact.get"],
 ]);
 
 const trustedNonUserReads = new Set([
@@ -270,6 +272,9 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
         sourceFile: "orgOptimizer.ts",
       },
     ],
+    ["rhythm_create_live_artifact", { action: "live-artifact.create", sourceFile: "liveArtifacts.ts" }],
+    ["rhythm_update_live_artifact_state", { action: "live-artifact.state.update", sourceFile: "liveArtifacts.ts" }],
+    ["rhythm_update_live_artifact_bundle", { action: "live-artifact.bundle.update", sourceFile: "liveArtifacts.ts" }],
   ],
 );
 
@@ -571,6 +576,8 @@ describe("#1175 external-content role graph", () => {
       rhythm_pco_list_plans: "pco.ts",
       rhythm_pco_get_plan_items: "pco.ts",
       rhythm_pco_list_needed_positions: "pco.ts",
+      rhythm_list_live_artifacts: "liveArtifacts.ts",
+      rhythm_get_live_artifact: "liveArtifacts.ts",
     };
     for (const [tool, sourceName] of Object.entries(sourceByTool)) {
       const source = readFileSync(join(toolsDir, sourceName), "utf8");
