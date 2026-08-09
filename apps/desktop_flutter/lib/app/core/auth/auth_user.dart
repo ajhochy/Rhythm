@@ -9,6 +9,7 @@ class AuthUser {
     this.isFacilitiesManager = false,
     this.photoUrl,
     this.emailNotificationsEnabled = true,
+    this.artifactTabIds = const [],
   });
 
   final int id;
@@ -18,6 +19,7 @@ class AuthUser {
   final bool isFacilitiesManager;
   final String? photoUrl;
   final bool emailNotificationsEnabled;
+  final List<String> artifactTabIds;
 
   bool get isAdmin => role == 'admin' || role == 'system';
 
@@ -33,6 +35,9 @@ class AuthUser {
       photoUrl: _asString(json['photoUrl']) ?? _asString(json['photo_url']),
       emailNotificationsEnabled:
           json['emailNotificationsEnabled'] as bool? ?? true,
+      artifactTabIds: (json['artifactTabIds'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
     );
   }
 }
