@@ -28,8 +28,9 @@ or acceptance criteria for this deployment.
 
 ### Synology Docker runtime
 
-Deployment is manual — GitHub Actions builds and publishes the image to GHCR,
-then you SSH into the Synology and pull + restart the container.
+Deployment is automatic through the host-wide Watchtower after GitHub Actions
+publishes the image to GHCR. The SSH procedure below is legacy/manual fallback
+for an immediate deploy or a Watchtower outage.
 
 ### First-time setup
 
@@ -240,8 +241,8 @@ Local development builds should keep:
 ## GitHub Actions and credentials
 
 The GitHub workflow verifies the API, builds the container image, and publishes
-it to GHCR. It does not SSH into the Synology or perform any remote deploy —
-that step is always done manually as described above.
+it to GHCR. It does not SSH into the Synology; host-wide Watchtower performs the
+normal remote update, with the SSH procedure retained as the manual fallback.
 
 GitHub-side requirement:
 
@@ -263,6 +264,19 @@ automatically the next time the container starts.
 
 No manual `psql` intervention is required for columns added via `postgres_bootstrap.ts`.
 Simply deploy the new image (follow **Routine update summary** above) and restart.
+
+### Live-artifact backup and rollback
+
+Before a live-artifact rollout, back up both production Postgres metadata and the
+persistent `/data/live-artifacts` volume. Artifact bundle/state bytes are immutable
+content-addressed files; Postgres stores their IDs, revisions, hashes, sharing, and
+audit metadata. The migration is additive and bootstrap is idempotent: do not drop
+tables, truncate rows, or rewrite artifact bytes during rollout.
+
+To roll back an image, redeploy the prior image while preserving the `/data` volume
+and all Postgres rows. Do not delete artifact directories or revision rows; a later
+compatible image can recover the stable IDs and immutable bytes from those retained
+stores.
 
 ### Columns added by milestone
 
@@ -312,5 +326,5 @@ should return 200 and persist the value.
   bytes are written to `LIVE_ARTIFACT_STORAGE_DIR=/data/live-artifacts` and are
   not stored in Postgres.
 - The GitHub workflow publishes the API image to GHCR automatically on every push
-  to `main`. Synology deployment is always a manual SSH + `docker compose pull &&
-  up -d` step — there is no automated remote deploy.
+  to `main`. Host-wide Watchtower performs the normal Synology update; use the
+  documented manual SSH fallback only for an immediate deployment or outage.

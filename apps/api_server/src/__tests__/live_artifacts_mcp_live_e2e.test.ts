@@ -115,7 +115,7 @@ async function closeServer(server: Server | null): Promise<void> {
 }
 
 describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () => {
-  it('av03-c8: lists the five tools, creates, CAS-updates state, and reads the change back under one ID', async () => {
+  it('av07-ac8: the real engine MCP update is visible to a same-ID human collaborator with audited revision history', async () => {
     assertLiveE2EIsolation();
     if (!base || !engineUrl || !sandboxDir.startsWith('/')) {
       throw new Error('set RHYTHM_LIVE_URL, RHYTHM_LIVE_ENGINE_URL and RHYTHM_SANDBOX_DIR from tools/dev/sandbox.sh');
@@ -137,6 +137,13 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
         .lastInsertRowid,
     );
     db.prepare('INSERT INTO workspace_members (workspace_id, user_id) VALUES (?,?)').run(workspaceId, userId);
+    const collaboratorId = Number(
+      db.prepare('INSERT INTO users (name, email) VALUES (?,?)')
+        .run('AV07 human collaborator', `av07-human-${randomUUID()}@example.test`).lastInsertRowid,
+    );
+    const collaboratorToken = randomUUID();
+    db.prepare('INSERT INTO workspace_members (workspace_id, user_id) VALUES (?,?)').run(workspaceId, collaboratorId);
+    db.prepare('INSERT INTO sessions (token, user_id) VALUES (?,?)').run(collaboratorToken, collaboratorId);
     const localSessionId = randomUUID();
     const captured: Array<Record<string, unknown>> = [];
     const toolTurns: string[] = [];
@@ -170,13 +177,31 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
                 css: '#calendar{color:#111}',
                 js: 'window.av03Calendar=true',
               },
-              state: { services: [{ date: '2026-08-09', title: 'Sunday Gathering' }] },
+              visibility: 'shared',
+              collaborators: [collaboratorId],
+              state: {
+                services: [{
+                  date: '2026-08-09',
+                  title: 'Sunday Gathering',
+                  scripture: 'Psalm 23',
+                  theme: 'Shepherd',
+                  serviceDetails: { leader: 'AV07 Owner' },
+                }],
+              },
             });
           } else if (captured.length === 2 && artifact) {
             toolTurns.push('update_state');
             stream = toolStream('rhythm_rhythm_update_live_artifact_state', {
               id: artifact.id,
-              state: { services: [{ date: '2026-08-09', title: 'Sunday Gathering', scripture: 'John 3:16' }] },
+              state: {
+                services: [{
+                  date: '2026-08-09',
+                  title: 'AV07 Updated Gathering',
+                  scripture: 'John 3:16',
+                  theme: 'Hope',
+                  serviceDetails: { leader: 'AV07 Human' },
+                }],
+              },
               expected_state_revision: artifact.currentStateRevision,
             });
           } else if (captured.length === 3 && artifact) {
@@ -257,23 +282,34 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
       // an explicit 1 → 2 transition, not just "some number plus one".
       expect(artifact!.currentStateRevision).toBe(1);
 
-      // Observation: the changed field is visible through the HTTP contract
-      // under the SAME stable ID, at the incremented revision.
+      // Observation: a human collaborator reads the agent's changed calendar
+      // through the hosted API under the SAME stable ID, not a copied row.
       const read = await fetch(`${base}/live-artifacts/${artifact!.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${collaboratorToken}` },
       });
       expect(read.status).toBe(200);
       const readBody = (await read.json()) as {
         id: string;
         title: string;
         currentStateRevision: number;
-        state: { services: Array<{ scripture?: string }> };
+        state: { services: Array<{ title?: string; scripture?: string; theme?: string; serviceDetails?: Record<string, unknown> }> };
       };
       expect(readBody.id).toBe(artifact!.id);
       expect(readBody.title).toBe(title);
       expect(readBody.currentStateRevision).toBe(2);
       expect(readBody.currentStateRevision).toBe(artifact!.currentStateRevision + 1);
       expect(readBody.state.services[0].scripture).toBe('John 3:16');
+      // Regression caught: an MCP update that only changes a partial calendar
+      // payload would silently drop the Worship Calendar's other editable fields.
+      expect(readBody.state.services[0]).toMatchObject({
+        title: 'AV07 Updated Gathering',
+        scripture: 'John 3:16',
+        theme: 'Hope',
+        serviceDetails: { leader: 'AV07 Human' },
+      });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifacts WHERE id=?').get(artifact!.id)).toEqual({ count: 1 });
+      expect(db.prepare('SELECT updated_by_user_id AS actor FROM live_artifacts WHERE id=?').get(artifact!.id)).toEqual({ actor: userId });
+      expect(db.prepare('SELECT actor_user_id AS actor FROM live_artifact_state_revisions WHERE artifact_id=? AND revision=2').get(artifact!.id)).toEqual({ actor: userId });
     } finally {
       if (engineSessionId) {
         await fetch(`${engineUrl}/session/${engineSessionId}`, {
@@ -282,12 +318,15 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
         }).catch(() => undefined);
       }
       db.transaction(() => {
+        db.prepare('DELETE FROM live_artifact_collaborators WHERE artifact_id IN (SELECT id FROM live_artifacts WHERE workspace_id=?)').run(workspaceId);
         db.prepare('DELETE FROM live_artifact_bundle_revisions WHERE artifact_id IN (SELECT id FROM live_artifacts WHERE workspace_id=?)').run(workspaceId);
         db.prepare('DELETE FROM live_artifact_state_revisions WHERE artifact_id IN (SELECT id FROM live_artifacts WHERE workspace_id=?)').run(workspaceId);
         db.prepare('DELETE FROM live_artifacts WHERE workspace_id=?').run(workspaceId);
         db.prepare('DELETE FROM agent_sessions WHERE id=?').run(localSessionId);
+        db.prepare('DELETE FROM sessions WHERE token=?').run(collaboratorToken);
         db.prepare('DELETE FROM workspace_members WHERE workspace_id=?').run(workspaceId);
         db.prepare('DELETE FROM workspaces WHERE id=?').run(workspaceId);
+        db.prepare('DELETE FROM users WHERE id=?').run(collaboratorId);
       })();
       db.close();
       await fetch(`${engineUrl}/global/config`, {
