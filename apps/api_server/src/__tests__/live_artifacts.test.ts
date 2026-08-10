@@ -88,6 +88,17 @@ describe('live artifacts (AV-02)', () => {
     expect(JSON.stringify(detail)).not.toMatch(/storage|path|key/i);
   });
 
+  it('projects updater display names without publishing updater IDs', async () => {
+    // Regression: toolbar provenance must not require Flutter to receive an audit ID.
+    const owner = users.create({ name: 'Jane Smith', email: 'av06-provenance@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const detail = await json(await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(owner.id) }));
+    expect(detail).toMatchObject({ updatedByDisplayName: 'Jane Smith' });
+    expect(detail).not.toHaveProperty('updatedByUserId');
+    const listed = await json(await fetch(`${baseUrl}/live-artifacts`, { headers: await header(owner.id) }));
+    expect(listed[0]).not.toHaveProperty('updatedByUserId');
+  });
+
   it('keeps immutable server-derived storage and rejects oversized state', async () => {
     const owner = users.create({ name: 'Owner', email: 'av02-storage@example.com' });
     const artifact = await create(owner.id, workspace(owner.id));
@@ -294,6 +305,25 @@ describe('live artifacts (AV-02)', () => {
     expect(csp).not.toMatch(/allow-(?:same-origin|top-navigation|popups|forms|modals)|unsafe-(?:inline|eval)/);
   });
 
+  it('AV-06: mirrors loadHtmlString CSP in the first head child without header-only directives', async () => {
+    // Regression: loadHtmlString drops HTTP CSP, letting the bundled document fetch or submit.
+    const owner = users.create({ name: 'Owner', email: 'av06-meta-csp@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id));
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    const cspHeader = response.headers.get('content-security-policy') ?? '';
+    const document = await response.text();
+    const meta = document.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)?.[1] ?? '';
+    expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeGreaterThan(document.indexOf('<head>'));
+    expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeLessThan(document.indexOf('<meta charset'));
+    for (const directive of ["default-src 'none'", 'script-src', 'style-src', "connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-src 'none'", "object-src 'none'"]) {
+      expect(meta).toContain(directive);
+      expect(cspHeader).toContain(directive);
+    }
+    expect(meta).not.toContain('sandbox');
+    expect(meta).not.toContain('frame-ancestors');
+    expect(meta).toContain(document.match(/<style nonce="([^"]+)">/)?.[1] ?? 'missing-nonce');
+  });
+
   it('strips refresh navigation and never grants stored markup the response nonce', async () => {
     const owner = users.create({ name: 'Owner', email: 'av02-render-smuggling@example.com' });
     const artifact = await create(owner.id, workspace(owner.id), 'private', { ...bundle, html: '<meta http-equiv="refresh" content="0;https://attacker.test"><script nonce="attacker">window.pwned=1</script></script><script>window.pwned=2</script>' });
@@ -301,7 +331,22 @@ describe('live artifacts (AV-02)', () => {
     const nonce = document.match(/<style nonce="([^"]+)">/)?.[1];
     expect(document).not.toMatch(/http-equiv="refresh"/i);
     expect(nonce).toBeTruthy();
-    expect(document.split(`nonce="${nonce}"`).length - 1).toBe(2);
+    expect(document.split(`nonce="${nonce}"`).length - 1).toBe(3);
+  });
+
+  it('installs the immutable bridge bootstrap before stored artifact code', async () => {
+    // Regression: stored JS could replace the host callback or forge a response
+    // before the runtime has bound a request to its native artifact/user frame.
+    const owner = users.create({ name: 'Owner', email: 'av06-render-bootstrap@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id), 'private', {
+      ...bundle,
+      js: 'window.bootstrapOrder = typeof window.rhythm;',
+    });
+    const document = await (await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).text();
+    expect(document.indexOf('Object.defineProperty(window,"__rhythmHostResponse"')).toBeGreaterThan(-1);
+    expect(document.indexOf('Object.defineProperty(window,"__rhythmHostResponse"')).toBeLessThan(document.indexOf('window.bootstrapOrder'));
+    expect(document).toContain('configurable:false');
+    expect(document).toContain('RhythmBridge.postMessage');
   });
 
   it('missing stored content leaks no path or stack', async () => {

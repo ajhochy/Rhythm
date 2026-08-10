@@ -116,7 +116,6 @@ LiveArtifact _artifact(String id, String title) => LiveArtifact(
       id: id,
       title: title,
       updatedAt: DateTime(2026, 8, 8),
-      updatedByUserId: 1,
     );
 
 Widget _workspace(LiveArtifactsController controller) => MultiProvider(

@@ -24,21 +24,14 @@ LiveArtifactsController controller({String? error}) {
           id: 'one',
           status: LiveArtifactTabStatus.ready,
           artifact: LiveArtifact(
-              id: 'one',
-              title: 'Service Notes',
-              updatedAt: DateTime(2026),
-              updatedByUserId: 1)),
+              id: 'one', title: 'Service Notes', updatedAt: DateTime(2026))),
       LiveArtifactTab(
           id: 'two',
           status: LiveArtifactTabStatus.unavailable,
           message: 'This artifact is unavailable.'),
     ],
     available: [
-      LiveArtifact(
-          id: 'one',
-          title: 'Service Notes',
-          updatedAt: DateTime(2026),
-          updatedByUserId: 1)
+      LiveArtifact(id: 'one', title: 'Service Notes', updatedAt: DateTime(2026))
     ],
     error: error,
   );
@@ -179,17 +172,14 @@ void main() {
         matchesGoldenFile('goldens/av04_conflict_recovery_light.png'));
   });
 
-  testWidgets('conflict Refresh retries and renders unlike a generic error',
+  testWidgets('conflict and generic errors retain distinct recovery copy',
       (tester) async {
     // Regression: conflicts looked like generic failures and their recovery
     // action did not drive the controller's detail retry.
     final refreshed = Completer<LiveArtifact>();
     final artifacts = _SequencedArtifacts([
       Future.value(LiveArtifact(
-          id: 'one',
-          title: 'Initial artifact',
-          updatedAt: DateTime(2026),
-          updatedByUserId: 1)),
+          id: 'one', title: 'Initial artifact', updatedAt: DateTime(2026))),
       refreshed.future,
     ]);
     final value = LiveArtifactsController(
@@ -213,10 +203,7 @@ void main() {
     expect(artifacts.getCalls, 2);
     expect(find.text('Loading artifact…'), findsOneWidget);
     refreshed.complete(LiveArtifact(
-        id: 'one',
-        title: 'Recovered artifact',
-        updatedAt: DateTime(2026),
-        updatedByUserId: 1));
+        id: 'one', title: 'Recovered artifact', updatedAt: DateTime(2026)));
     await tester.pump();
     await tester.pump();
     expect(find.textContaining('Recovered artifact'), findsWidgets);
@@ -229,9 +216,12 @@ void main() {
           message: 'Could not load this artifact.')
     ]);
     generic.select('two');
+    // This is a distinct controller scenario; unmount the prior conflict view
+    // so its stateful viewer cannot satisfy the generic-error assertions.
+    await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(workspaceSubject(generic));
     expect(find.text('Could not load this artifact.'), findsOneWidget);
-    expect(find.text('Refresh artifact'), findsNothing);
+    expect(find.text('Refresh artifact'), findsOneWidget);
   });
 
   testWidgets('narrow long-title focused toolbar golden', (tester) async {
@@ -245,8 +235,7 @@ void main() {
           artifact: LiveArtifact(
               id: 'long',
               title: 'A very long Worship Calendar artifact title for overflow',
-              updatedAt: DateTime(2026),
-              updatedByUserId: 1)),
+              updatedAt: DateTime(2026))),
     ]);
     await tester.pumpWidget(subject(value));
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
@@ -267,8 +256,7 @@ void main() {
           artifact: LiveArtifact(
               id: 'long',
               title: 'A very long Worship Calendar artifact title for overflow',
-              updatedAt: DateTime(2026),
-              updatedByUserId: 1)),
+              updatedAt: DateTime(2026))),
     ]);
     await tester.pumpWidget(subject(value, mode: ThemeMode.dark));
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);

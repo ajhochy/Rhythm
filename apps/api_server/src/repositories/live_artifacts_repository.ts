@@ -3,16 +3,17 @@ import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
 import type { LiveArtifact, LiveArtifactVisibility } from '../models/live_artifact';
 
-type Row = { id: string; type: 'html'; title: string; owner_user_id: number; workspace_id: number; visibility: LiveArtifactVisibility; current_bundle_revision: number; current_bundle_hash: string; current_state_revision: number; current_state_hash: string; declared_capabilities_json: string | string[]; created_at: string | Date; updated_at: string | Date; updated_by_user_id: number; deleted_at: string | Date | null };
+type Row = { id: string; type: 'html'; title: string; owner_user_id: number; workspace_id: number; visibility: LiveArtifactVisibility; current_bundle_revision: number; current_bundle_hash: string; current_state_revision: number; current_state_hash: string; declared_capabilities_json: string | string[]; created_at: string | Date; updated_at: string | Date; updated_by_user_id: number; updated_by_display_name?: string | null; deleted_at: string | Date | null };
 const iso = (value: string | Date) => value instanceof Date ? value.toISOString() : value;
-const map = (row: Row): LiveArtifact => ({ id: row.id, type: row.type, title: row.title, ownerUserId: row.owner_user_id, workspaceId: row.workspace_id, visibility: row.visibility, currentBundleRevision: row.current_bundle_revision, currentBundleHash: row.current_bundle_hash, currentStateRevision: row.current_state_revision, currentStateHash: row.current_state_hash, declaredCapabilities: typeof row.declared_capabilities_json === 'string' ? JSON.parse(row.declared_capabilities_json) : row.declared_capabilities_json, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at), updatedByUserId: row.updated_by_user_id, deletedAt: row.deleted_at ? iso(row.deleted_at) : null });
+const map = (row: Row): LiveArtifact => ({ id: row.id, type: row.type, title: row.title, ownerUserId: row.owner_user_id, workspaceId: row.workspace_id, visibility: row.visibility, currentBundleRevision: row.current_bundle_revision, currentBundleHash: row.current_bundle_hash, currentStateRevision: row.current_state_revision, currentStateHash: row.current_state_hash, declaredCapabilities: typeof row.declared_capabilities_json === 'string' ? JSON.parse(row.declared_capabilities_json) : row.declared_capabilities_json, createdAt: iso(row.created_at), updatedAt: iso(row.updated_at), updatedByUserId: row.updated_by_user_id, updatedByDisplayName: row.updated_by_display_name ?? null, deletedAt: row.deleted_at ? iso(row.deleted_at) : null });
+const selectArtifact = 'SELECT live_artifacts.*, users.name AS updated_by_display_name FROM live_artifacts LEFT JOIN users ON users.id = live_artifacts.updated_by_user_id';
 
 export class LiveArtifactsRepository {
   async isWorkspaceMember(workspaceId: number, userId: number): Promise<boolean> {
     const row = env.dbClient === 'postgres' ? (await getPostgresPool().query('SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2', [workspaceId, userId])).rows[0] : getDb().prepare('SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?').get(workspaceId, userId);
     return !!row;
   }
-  async find(id: string): Promise<LiveArtifact | null> { const row = env.dbClient === 'postgres' ? (await getPostgresPool().query<Row>('SELECT * FROM live_artifacts WHERE id = $1', [id])).rows[0] : getDb().prepare('SELECT * FROM live_artifacts WHERE id = ?').get(id) as Row | undefined; return row ? map(row) : null; }
+  async find(id: string): Promise<LiveArtifact | null> { const row = env.dbClient === 'postgres' ? (await getPostgresPool().query<Row>(`${selectArtifact} WHERE live_artifacts.id = $1`, [id])).rows[0] : getDb().prepare(`${selectArtifact} WHERE live_artifacts.id = ?`).get(id) as Row | undefined; return row ? map(row) : null; }
   async canRead(artifact: LiveArtifact, userId: number): Promise<boolean> {
     if (artifact.ownerUserId === userId) return true;
     if (artifact.visibility === 'organization') return this.isWorkspaceMember(artifact.workspaceId, userId);
@@ -23,7 +24,7 @@ export class LiveArtifactsRepository {
     return !!row;
   }
   async list(userId: number, search?: string): Promise<LiveArtifact[]> {
-    const all = env.dbClient === 'postgres' ? (await getPostgresPool().query<Row>('SELECT * FROM live_artifacts WHERE deleted_at IS NULL ORDER BY updated_at DESC')).rows.map(map) : (getDb().prepare('SELECT * FROM live_artifacts WHERE deleted_at IS NULL ORDER BY updated_at DESC').all() as Row[]).map(map);
+    const all = env.dbClient === 'postgres' ? (await getPostgresPool().query<Row>(`${selectArtifact} WHERE live_artifacts.deleted_at IS NULL ORDER BY live_artifacts.updated_at DESC`)).rows.map(map) : (getDb().prepare(`${selectArtifact} WHERE live_artifacts.deleted_at IS NULL ORDER BY live_artifacts.updated_at DESC`).all() as Row[]).map(map);
     const visible = await Promise.all(all.map(async (artifact) => (await this.canRead(artifact, userId)) ? artifact : null));
     return visible.filter((artifact): artifact is LiveArtifact => !!artifact && (!search || artifact.title.toLowerCase().includes(search.toLowerCase())));
   }

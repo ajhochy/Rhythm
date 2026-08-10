@@ -47,7 +47,6 @@ LiveArtifact _artifact(String id, {String? title}) => LiveArtifact(
       title: title ??
           'A deliberately long artifact title that must truncate visibly',
       updatedAt: DateTime(2026, 8, 8),
-      updatedByUserId: 7,
     );
 
 Widget _subject(LiveArtifactsController controller) =>

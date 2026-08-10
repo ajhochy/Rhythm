@@ -7,6 +7,7 @@ import '../../../app/core/ui/rhythm_badge.dart';
 import '../controllers/live_artifacts_controller.dart';
 import '../data/live_artifacts_data_source.dart';
 import '../models/live_artifact.dart';
+import 'live_artifact_view.dart';
 import '../../settings/data/user_preferences_data_source.dart';
 
 class DashboardArtifactWorkspace extends StatefulWidget {
@@ -16,11 +17,23 @@ class DashboardArtifactWorkspace extends StatefulWidget {
     this.controller,
     this.baseUrl,
     this.manageAuthLifecycle = true,
+    this.enableNativeRuntime = true,
+    this.debugOnNativeReady,
+    this.debugOnHostRequest,
+    this.debugOnBridgeMessage,
   });
   final Widget dashboard;
   final LiveArtifactsController? controller;
   final String? baseUrl;
   final bool manageAuthLifecycle;
+  final bool enableNativeRuntime;
+
+  /// Assert-only native integration hook; it is invoked only by the viewer's
+  /// debug assertion and therefore has no release behavior.
+  final void Function(dynamic controller, bool inspectableDisabled)?
+      debugOnNativeReady;
+  final void Function(String operation)? debugOnHostRequest;
+  final void Function(String raw)? debugOnBridgeMessage;
   @override
   State<DashboardArtifactWorkspace> createState() =>
       _DashboardArtifactWorkspaceState();
@@ -67,11 +80,17 @@ class _DashboardArtifactWorkspaceState
         Expanded(
             child: controller.dashboardSelected
                 ? widget.dashboard
-                : _ArtifactPlaceholder(
+                : _ArtifactContent(
                     tab: controller.tabs
                         .firstWhere((tab) => tab.id == controller.selectedId),
-                    onRetry: () =>
-                        controller.retryTab(controller.selectedId!))),
+                    source: LiveArtifactsDataSource(
+                        baseUrl: widget.baseUrl,
+                        debugOnRequest: widget.debugOnHostRequest),
+                    enableNativeRuntime: widget.enableNativeRuntime,
+                    debugOnNativeReady: widget.debugOnNativeReady,
+                    debugOnBridgeMessage: widget.debugOnBridgeMessage,
+                    onRetry: () => controller.retryTab(controller.selectedId!),
+                    onRemove: () => controller.close(controller.selectedId!))),
       ]),
     );
   }
@@ -385,23 +404,45 @@ class _ClosePickerIntent extends Intent {
   const _ClosePickerIntent();
 }
 
-class _ArtifactPlaceholder extends StatelessWidget {
-  const _ArtifactPlaceholder({required this.tab, required this.onRetry});
+class _ArtifactContent extends StatelessWidget {
+  const _ArtifactContent(
+      {required this.tab,
+      required this.source,
+      required this.enableNativeRuntime,
+      this.debugOnNativeReady,
+      this.debugOnBridgeMessage,
+      required this.onRetry,
+      required this.onRemove});
   final LiveArtifactTab tab;
+  final LiveArtifactsDataSource source;
+  final bool enableNativeRuntime;
+  final void Function(dynamic controller, bool inspectableDisabled)?
+      debugOnNativeReady;
+  final void Function(String raw)? debugOnBridgeMessage;
   final VoidCallback onRetry;
+  final VoidCallback onRemove;
   @override
-  Widget build(BuildContext context) => Center(
-          child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(
-              tab.status == LiveArtifactTabStatus.ready
-                  ? '${tab.artifact!.title}\nArtifact viewing arrives in the next slice.'
-                  : tab.message ?? 'Loading artifact…',
-              textAlign: TextAlign.center),
-          if (tab.status == LiveArtifactTabStatus.conflict)
-            TextButton(
-                onPressed: onRetry, child: const Text('Refresh artifact')),
-        ]),
-      ));
+  Widget build(BuildContext context) {
+    if (tab.status == LiveArtifactTabStatus.ready) {
+      return LiveArtifactView(
+          artifact: tab.artifact!,
+          source: source,
+          enableNativeRuntime: enableNativeRuntime,
+          debugOnNativeReady: debugOnNativeReady,
+          debugOnBridgeMessage: debugOnBridgeMessage,
+          onRemove: onRemove);
+    }
+    return Center(
+        child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text(tab.message ?? 'Loading artifact…', textAlign: TextAlign.center),
+        if (tab.status == LiveArtifactTabStatus.conflict ||
+            tab.status == LiveArtifactTabStatus.error)
+          TextButton(onPressed: onRetry, child: const Text('Refresh artifact')),
+        if (tab.status == LiveArtifactTabStatus.deleted)
+          TextButton(onPressed: onRemove, child: const Text('Remove tab')),
+      ]),
+    ));
+  }
 }
