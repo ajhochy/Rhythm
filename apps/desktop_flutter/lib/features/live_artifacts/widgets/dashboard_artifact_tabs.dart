@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/auth/auth_session_service.dart';
@@ -14,6 +15,7 @@ class DashboardArtifactWorkspace extends StatefulWidget {
   const DashboardArtifactWorkspace({
     super.key,
     required this.dashboard,
+    required this.workspaceId,
     this.controller,
     this.baseUrl,
     this.manageAuthLifecycle = true,
@@ -23,6 +25,7 @@ class DashboardArtifactWorkspace extends StatefulWidget {
     this.debugOnBridgeMessage,
   });
   final Widget dashboard;
+  final int workspaceId;
   final LiveArtifactsController? controller;
   final String? baseUrl;
   final bool manageAuthLifecycle;
@@ -76,7 +79,16 @@ class _DashboardArtifactWorkspaceState
     return ListenableBuilder(
       listenable: controller,
       builder: (_, __) => Column(children: [
-        DashboardArtifactTabs(controller: controller),
+        DashboardArtifactTabs(
+            controller: controller,
+            onImport: (title, html) async {
+              final artifact =
+                  await LiveArtifactsDataSource(baseUrl: widget.baseUrl).create(
+                      workspaceId: widget.workspaceId,
+                      title: title,
+                      html: html);
+              await controller.open(artifact);
+            }),
         Expanded(
             child: controller.dashboardSelected
                 ? widget.dashboard
@@ -97,8 +109,10 @@ class _DashboardArtifactWorkspaceState
 }
 
 class DashboardArtifactTabs extends StatefulWidget {
-  const DashboardArtifactTabs({super.key, required this.controller});
+  const DashboardArtifactTabs(
+      {super.key, required this.controller, this.onImport});
   final LiveArtifactsController controller;
+  final Future<void> Function(String title, String html)? onImport;
   @override
   State<DashboardArtifactTabs> createState() => _DashboardArtifactTabsState();
 }
@@ -156,6 +170,7 @@ class _DashboardArtifactTabsState extends State<DashboardArtifactTabs> {
                 offset: const Offset(0, 6),
                 child: _ArtifactPicker(
                     controller: controller,
+                    onImport: widget.onImport,
                     onClose: _closePicker,
                     onSelected: (id) => _closePicker(selectedId: id)),
               ),
@@ -296,10 +311,12 @@ class _ArtifactPicker extends StatefulWidget {
   const _ArtifactPicker(
       {required this.controller,
       required this.onClose,
-      required this.onSelected});
+      required this.onSelected,
+      this.onImport});
   final LiveArtifactsController controller;
   final VoidCallback onClose;
   final ValueChanged<String> onSelected;
+  final Future<void> Function(String title, String html)? onImport;
   @override
   State<_ArtifactPicker> createState() => _ArtifactPickerState();
 }
@@ -337,6 +354,19 @@ class _ArtifactPickerState extends State<_ArtifactPicker> {
                         alignment: Alignment.centerLeft,
                         child: Text('Open live artifact')),
                     const SizedBox(height: 12),
+                    Row(children: [
+                      TextButton(
+                          onPressed: () => _showImport(context),
+                          child: const Text('Import HTML')),
+                      const SizedBox(width: 8),
+                      Semantics(
+                          label: 'Import HTML file',
+                          button: true,
+                          container: true,
+                          child: TextButton(
+                              onPressed: () => _showImport(context),
+                              child: const Text('Preview import'))),
+                    ]),
                     Shortcuts(
                       shortcuts: const {
                         SingleActivator(LogicalKeyboardKey.escape):
@@ -398,6 +428,73 @@ class _ArtifactPickerState extends State<_ArtifactPicker> {
       ),
     );
   }
+
+  Future<void> _showImport(BuildContext context) async {
+    final result = await showDialog<_HtmlImport>(
+        context: context, builder: (_) => const _HtmlImportDialog());
+    if (result == null || widget.onImport == null) return;
+    await widget.onImport!(result.title, result.html);
+    if (mounted) widget.onClose();
+  }
+}
+
+class _HtmlImport {
+  const _HtmlImport(this.title, this.html);
+  final String title;
+  final String html;
+}
+
+class _HtmlImportDialog extends StatefulWidget {
+  const _HtmlImportDialog();
+  @override
+  State<_HtmlImportDialog> createState() => _HtmlImportDialogState();
+}
+
+class _HtmlImportDialogState extends State<_HtmlImportDialog> {
+  String? _html;
+  String? _name;
+
+  Future<void> _pick() async {
+    final picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['html', 'htm'],
+        withData: true);
+    final file = picked?.files.singleOrNull;
+    final bytes = file?.bytes;
+    if (bytes == null) return;
+    setState(() {
+      _html = String.fromCharCodes(bytes);
+      _name = file!.name
+          .replaceFirst(RegExp(r'\.html?$', caseSensitive: false), '');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Import HTML'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Semantics(
+              label: 'Import HTML file',
+              button: true,
+              child: TextButton(
+                  onPressed: _pick, child: const Text('Choose HTML file'))),
+          const SizedBox(height: 8),
+          Text(_html == null
+              ? 'Preview import after choosing an HTML file.'
+              : 'Ready to import $_name.'),
+        ]),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: _html == null
+                  ? null
+                  : () => Navigator.pop(context,
+                      _HtmlImport(_name ?? 'Imported artifact', _html!)),
+              child: const Text('Import')),
+        ],
+      );
 }
 
 class _ClosePickerIntent extends Intent {

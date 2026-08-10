@@ -41,6 +41,31 @@ class LiveArtifactsDataSource {
         jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<LiveArtifact> create({
+    required int workspaceId,
+    required String title,
+    required String html,
+  }) async {
+    debugOnRequest?.call('create');
+    final response = await (_client?.post ?? http.post)(
+      Uri.parse('$_baseUrl/live-artifacts'),
+      headers: {
+        ...AuthSessionStore.headers(),
+        'Content-Type': 'application/json'
+      },
+      body: jsonEncode({
+        'type': 'html',
+        'title': title,
+        'workspaceId': workspaceId,
+        'bundle': {'html': html, 'css': '', 'js': ''},
+        'state': {},
+      }),
+    );
+    assertOk(response);
+    return LiveArtifact.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   /// This fetch remains in Flutter so the WebView never receives credentials.
   Future<String> render(String id) async {
     debugOnRequest?.call('render');

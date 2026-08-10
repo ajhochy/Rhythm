@@ -274,6 +274,7 @@ class _AppContent extends StatelessWidget {
     final views = <Widget>[
       DashboardArtifactWorkspace(
         baseUrl: baseUrl,
+        workspaceId: authSessionService.currentWorkspace!.id,
         dashboard: DashboardView(
           showPlanningBadge: false,
           openWeeklyPlanner: () =>

@@ -129,6 +129,7 @@ Widget _workspace(LiveArtifactsController controller) => MultiProvider(
       child: MaterialApp(
         home: Scaffold(
           body: DashboardArtifactWorkspace(
+            workspaceId: 1,
             dashboard: SizedBox.expand(),
             controller: controller,
           ),

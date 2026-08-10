@@ -40,6 +40,7 @@ void main() {
       child: MaterialApp(
         home: Scaffold(
           body: DashboardArtifactWorkspace(
+            workspaceId: 1,
             dashboard: const SizedBox.expand(),
             controller: controller,
             manageAuthLifecycle: false,
@@ -469,6 +470,7 @@ class _ContractWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DashboardArtifactWorkspace(
+        workspaceId: 1,
         dashboard: const SizedBox.expand(),
         controller: context.read<LiveArtifactsController>(),
         manageAuthLifecycle: false,

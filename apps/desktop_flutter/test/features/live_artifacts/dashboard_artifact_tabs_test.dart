@@ -79,6 +79,7 @@ Widget workspaceSubject(LiveArtifactsController value,
           themeMode: mode,
           home: Scaffold(
               body: DashboardArtifactWorkspace(
+                  workspaceId: 1,
                   dashboard: const SizedBox.expand(),
                   controller: value,
                   manageAuthLifecycle: false))),

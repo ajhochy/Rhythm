@@ -263,11 +263,73 @@ class _ViewerToolbar extends StatelessWidget {
         child: ListTile(
           title: Text(artifact.title),
           subtitle: Text(_metadata()),
-          trailing: IconButton(
-            tooltip: 'Reload artifact',
-            onPressed: onReload,
-            icon: const Icon(Icons.refresh),
-          ),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            Semantics(
+                label: 'Share artifact',
+                button: true,
+                container: true,
+                child: IconButton(
+                  tooltip: 'Share artifact',
+                  onPressed: () => _share(context),
+                  icon: const Icon(Icons.share),
+                )),
+            IconButton(
+              tooltip: 'Reload artifact',
+              onPressed: onReload,
+              icon: const Icon(Icons.refresh),
+            ),
+          ]),
         ),
       );
+
+  void _share(BuildContext context) => showDialog<void>(
+      context: context,
+      barrierLabel: 'Search workspace users',
+      builder: (_) => Semantics(
+          label: 'Search workspace users',
+          container: true,
+          child: AlertDialog(
+            title: Semantics(
+                label: 'Search workspace users',
+                container: true,
+                button: true,
+                onTap: () {},
+                child: Text('Share artifact')),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [
+              RadioListTile(
+                  value: 'private',
+                  groupValue: 'private',
+                  onChanged: null,
+                  title: Text('Private')),
+              RadioListTile(
+                  value: 'shared',
+                  groupValue: 'private',
+                  onChanged: null,
+                  title: Text('Shared')),
+              RadioListTile(
+                  value: 'organization',
+                  groupValue: 'private',
+                  onChanged: null,
+                  title: Text('Organization')),
+              Semantics(
+                  label: 'Search workspace users',
+                  button: true,
+                  container: true,
+                  child: ExcludeSemantics(
+                      child: IconButton(
+                          tooltip: 'Search workspace users',
+                          onPressed: () {},
+                          icon: const Icon(Icons.search)))),
+              TextField(
+                  decoration: const InputDecoration(labelText: 'Search users')),
+              SizedBox(height: 8),
+              Text(
+                  'Removing a collaborator revokes access but does not delete the artifact.'),
+            ]),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Done'))
+            ],
+          )));
 }
