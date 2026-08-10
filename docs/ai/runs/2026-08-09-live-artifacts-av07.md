@@ -3,8 +3,8 @@ date: 2026-08-09
 repo: Rhythm
 branch: feat/artifact-viewer
 pr: 1338
-issues: []
-status: PASS
+issues: [1339]
+status: automated_pass_manual_smoke_failed_not_ready
 tags: [run, live-artifacts, api_server, desktop_flutter]
 index: "[[Rhythm]]"
 ---
@@ -146,18 +146,34 @@ No affected GitNexus process lacks a corresponding focused and live check.
 The guarded DEBUG-only `MainFlutterWindow` registration retains its explicit
 startup-risk review and is absent from the Release binary.
 
+## Manual smoke outcome — 2026-08-10
+
+Human visual smoke **failed** and PR #1338 remains draft and **not ready**.
+The native evidence was a security/integration harness, not a complete shipping-app
+demo. The shipping app has no user-facing import of existing HTML/Claude artifacts,
+no Share dialog or collaborator management for an existing artifact, and no agent
+tool to update sharing after creation. #1339 tracks the sharing UI/tool gap. Import
+is not filed and requires AJ approval. The CI server check failed separately and
+remains untriaged.
+
+The automated PASS evidence above remains valid for the implemented backend,
+security, runtime, and same-ID flows; it does not establish usable product
+completion. The workflow corrections and next scope decision are recorded in
+`2026-08-10-retro-live-artifact-workflow-failure.md`.
+
 ## Notes
 
 - Final automated verification passed at `050f8c28` after merging `origin/main`
-  `8a3561d9`; no automated blocker remains.
+  `8a3561d9`.
 - Branch `feat/artifact-viewer` is pushed and tracking its remote. Draft PR
   [#1338](https://github.com/ajhochy/Rhythm/pull/1338) is open with the `WAIVED`
   issue-link line because no GitHub issue exists for this user-requested feature.
-- Human manual smoke per `docs/testing/manual-smoke.md` is pending; only a human
-  may merge after smoke approval. No deploy or automated merge is authorized.
+- Human manual smoke failed; do not merge or deploy. Decide import and #1339 scope,
+  then rerun an early shipping-app journey smoke before hardening or readiness.
 - AC1–AC12 are `pass` in `docs/ai/contracts/live-artifacts-av07.json`; no
-  product criterion is waived or not tested.
+  automated contract criterion is waived or not tested. Those criteria omitted the
+  failed import and existing-artifact sharing journeys.
 - Deployment handoff now explicitly preserves both Postgres metadata and
   `/data/live-artifacts` immutable bytes across an additive rollout/rollback.
-- Manual smoke is intentionally concise and points operators to the existing
-  screenshots rather than duplicating automated assertions.
+- The prior smoke checklist and screenshots remain automated/harness evidence;
+  the failed product smoke supersedes their readiness framing.

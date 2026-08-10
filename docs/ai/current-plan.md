@@ -2,10 +2,18 @@
 
 **Date:** 2026-08-10
 **Branch:** `feat/artifact-viewer` (synced with `origin/main` `8a3561d9`)
-**Status:** **COMPLETE — AV-01–AV-07 final verification PASS; ready for draft PR and human smoke**
+**Status:** **NOT READY — automated verification passed; human visual smoke failed**
 **Supersedes:** the local-file/Gallery Artifact Viewer plan previously in this file
 
-The approved design and acceptance contract below remain the durable scope record. Final results are in `docs/ai/contracts/live-artifacts-av07.json` and `docs/ai/runs/2026-08-09-live-artifacts-av07.md`.
+The approved design and acceptance contract below remain the durable scope record, including the automated PASS evidence in `docs/ai/contracts/live-artifacts-av07.json` and `docs/ai/runs/2026-08-09-live-artifacts-av07.md`. Human smoke later rejected the product workflow; see `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.
+
+## Current product outcome
+
+- Draft PR #1338 remains **not ready**. Backend/security/runtime work exists, but the demonstrated native surface was a security harness rather than the full shipping app.
+- The shipping app has no import path for existing HTML/Claude artifacts and no Share dialog or collaborator management for an existing artifact. Agents cannot update sharing after creation.
+- #1339 tracks the sharing UI/tool gap. Import is not filed and requires AJ approval.
+- The CI server check failed separately and remains untriaged.
+- Before implementation resumes, decide import and #1339 product scope. Validate the first clickable shipping-app journey early, before further hardening or readiness claims.
 
 ## Goal
 
@@ -356,4 +364,4 @@ This plan is wrong if WKWebView leaks authenticated origin access despite `conne
 
 ## Open questions
 
-None blocking. AJ approved the capability-based model and supplied the V1 product, authorization, interaction, security, use-case, and validation boundaries. Any request to add another capability, background freshness, generic plugin behavior, or broader artifact manager is a new design decision, not scope to infer during implementation.
+Blocking product-scope questions are whether/how the shipping app imports existing HTML/Claude artifacts and the exact #1339 sharing workflow. Import follow-up requires AJ approval before issue creation. Any additional capability, background freshness, generic plugin behavior, or broader artifact manager remains a new design decision, not scope to infer during implementation.
