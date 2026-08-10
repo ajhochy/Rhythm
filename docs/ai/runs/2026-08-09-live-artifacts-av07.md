@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/artifact-viewer
 pr: null
 issues: [AV-07]
-status: PENDING_GRAPH_RECONCILIATION
+status: PASS
 tags: [run, live-artifacts, api_server, desktop_flutter]
 ---
 
@@ -87,7 +87,7 @@ artifacts were verified present and SHA-256 matched:
 ```text
 f0357d4d5c9434d3c7d4ea5a572d91c922dcddac12983a5c1130e96c9f04f61e  docs/ai/runs/evidence/av06-dashboard-artifact.png
 82e8f338b003b83f3c5f0305d102aad7eb08d83458efa77454d4d5bd785a3d56  docs/ai/runs/evidence/av06-native-artifact.png
-c4dad5ed6db961dc1dd2ec71f1b20ce74b254aed79e54a72cca16264f17950f9  apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/MacOS/Rhythm
+1c72a4489caf5231c2e66d95f8ed350ab26836f90287178a605f39359181953c  apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/MacOS/Rhythm
 ```
 
 The Release binary exists and is executable. AV06's final native/security/a11y
@@ -113,36 +113,42 @@ mobile static/contract/fake-server/web checks.
 
 ```text
 python3 -m json.tool docs/ai/contracts/live-artifacts-av07.json >/dev/null
-python3 -m json.tool docs/ai/contracts/live-artifacts-av07-docs-repair.json >/dev/null
 python3 <local Markdown-fragment resolver>
 git diff --check
 ```
 
-Result: both JSON documents parsed, all AV07 Markdown-to-Markdown evidence
-fragments resolved, and `git diff --check` passed. No product tests were run.
+Result: the authoritative AV07 contract parsed, all AV07 Markdown-to-Markdown
+evidence fragments resolved, and `git diff --check` passed.
 
-## Documentation/evidence repair
+## Post-main-merge reconciliation
 
-WAIVED: documentation/evidence-only repair; verification is: JSON parsing, local Markdown-fragment resolution, deployment-posture consistency, and Git divergence proof.
+- Merged `origin/main` (`8a3561d9`) into the feature branch without conflicts.
+- The post-merge production gate passed: sanitized PR checks, API **4127**,
+  Flutter **1129**, live-artifact **48**, MCP **169**, focused MCP/security **21**,
+  AV03 contract **11**, Postgres bootstrap/parity **2**, and native AV06 A1–A10/C3–C5.
+- PR checks regenerated nine tracked `.proof` PNGs; they were restored to HEAD
+  because they are unrelated test-harness output, not feature evidence.
 
-- After origin/main sync, the manager MCP re-run was **LOW / 0** with **105
-  changed files**. The fresh CLI result was **HIGH / 15** across **105 files**.
-  They conflict and are recorded as unresolved; no index was mutated.
-- After `git fetch origin main`, `origin/main` is `8a3561d9` and the merge base
-  is `617d9045`; the branch has the live-artifact change set while `origin/main`
-  has the post-base navigation commit. This establishes divergence, but does not
-  prove it explains the GitNexus discrepancy.
-- The worktree lacks `.gitnexus/run.cjs`, so the local CLI result cannot be
-  independently refreshed here without creating an index. Branch sync followed
-  by a fresh GitNexus re-run is required before a PR.
-  AC12's product evidence remains pass; PR readiness remains pending graph
-  reconciliation.
+GitNexus was re-run after the merge. Manager MCP reported LOW / zero processes;
+the exact-worktree CLI conservatively reported **HIGH**, 95 source files, 651
+symbols, and eight affected processes. The HIGH result is retained for PR review.
+All eight flows reduce to two tested entry points:
+
+- Five `ReadPcoServices` flows (`Iso`, Postgres, SQLite, refresh, `AppError`) are
+  covered by AV05's 94 focused tests, controlled live PCO fixture, full API
+  suite, and Postgres parity gate.
+- Three `Create` flows (`AppError`, Postgres, SQLite workspace membership) are
+  covered by AV02 authorization/storage tests, the real MCP create flow, and
+  Postgres bootstrap/parity.
+
+No affected GitNexus process lacks a corresponding focused and live check.
+The guarded DEBUG-only `MainFlutterWindow` registration retains its explicit
+startup-risk review and is absent from the Release binary.
 
 ## Notes
 
 - AC1–AC12 are `pass` in `docs/ai/contracts/live-artifacts-av07.json`; no
-  product criterion is waived or not tested. This does not clear the pending
-  GitNexus reconciliation required for PR readiness.
+  product criterion is waived or not tested.
 - Deployment handoff now explicitly preserves both Postgres metadata and
   `/data/live-artifacts` immutable bytes across an additive rollout/rollback.
 - Manual smoke is intentionally concise and points operators to the existing
