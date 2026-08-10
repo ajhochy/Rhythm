@@ -29,7 +29,6 @@ import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_playbooks/views/agent_playbooks_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
-import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '_agent_profile_sheet.dart';
@@ -42,6 +41,17 @@ import '_session_list_body.dart';
 
 /// Width of the nav column.
 const double _kNavColumnWidth = 280.0;
+const double _kInitialToolsHeight = 180.0;
+const double _kMinToolsHeight = 120.0;
+const double _kToolsKeyboardStep = 16.0;
+const double _kExpandedAgentsReservedHeight = 300.0;
+const double _kCollapsedAgentsReservedHeight = 233.0;
+
+class _ResizeToolsIntent extends Intent {
+  const _ResizeToolsIntent(this.delta);
+
+  final double delta;
+}
 
 class AgentsNavColumn extends StatefulWidget {
   const AgentsNavColumn({
@@ -73,6 +83,9 @@ enum _SessionSortField { dateNewest, dateOldest, name, lastActivity, status }
 class _AgentsNavColumnState extends State<AgentsNavColumn> {
   String _searchQuery = '';
   final _searchController = TextEditingController();
+  final _searchFocusNode = FocusNode();
+  final _searchToggleFocusNode = FocusNode();
+  bool _searchExpanded = false;
   _SessionSortField _sortField = _SessionSortField.dateNewest;
 
   /// Sessions selected via Shift-click for bulk actions (mirrored from old
@@ -80,13 +93,53 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
   final Set<String> _multiSelected = {};
 
   bool _archivedSectionExpanded = false;
+  bool _sessionsExpanded = true;
+  double _toolsHeight = _kInitialToolsHeight;
+  final _toolsFocusNode = FocusNode();
+  final _toolsResizeFocusNode = FocusNode();
+  bool _toolsResizeFocused = false;
 
   bool get _hasMultiSelection => _multiSelected.isNotEmpty;
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
+    _searchToggleFocusNode.dispose();
+    _toolsFocusNode.dispose();
+    _toolsResizeFocusNode.dispose();
     super.dispose();
+  }
+
+  void _setToolsHeight(double height, double maxToolsHeight) {
+    setState(() {
+      _toolsHeight = height.clamp(_kMinToolsHeight, maxToolsHeight);
+    });
+  }
+
+  void _expandAndRevealTools() {
+    widget.onToggleCollapse();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _toolsFocusNode.requestFocus();
+    });
+  }
+
+  void _expandSessions() {
+    setState(() => _sessionsExpanded = true);
+    widget.onToggleCollapse();
+  }
+
+  void _openSearch() => setState(() => _searchExpanded = true);
+
+  void _closeSearch() {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _searchExpanded = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchToggleFocusNode.requestFocus();
+    });
   }
 
   void _onRowTap(String id) {
@@ -205,7 +258,7 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
   @override
   Widget build(BuildContext context) {
     if (widget.isCollapsed) {
-      // Render a narrow collapsed strip — just the toggle icon.
+      // The collapsed rail keeps the primary Agents destinations available.
       return Container(
         width: 48,
         decoration: BoxDecoration(
@@ -218,8 +271,9 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
           children: [
             const SizedBox(height: 12),
             IconButton(
+              key: const ValueKey('collapsed-nav-expand'),
               icon: const Icon(Icons.menu, size: 18),
-              tooltip: 'Expand navigation',
+              tooltip: 'Expand',
               onPressed: widget.onToggleCollapse,
               style: IconButton.styleFrom(
                 foregroundColor: context.rhythm.textMuted,
@@ -227,6 +281,32 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                 padding: EdgeInsets.zero,
               ),
             ),
+            IconButton(
+              key: const ValueKey('collapsed-nav-new-session'),
+              icon: const Icon(Icons.add, size: 18),
+              tooltip: 'New Session',
+              onPressed: widget.onNewSession,
+            ),
+            IconButton(
+              key: const ValueKey('collapsed-nav-sessions'),
+              icon: const Icon(Icons.forum_outlined, size: 18),
+              tooltip: 'Sessions',
+              onPressed: _expandSessions,
+            ),
+            IconButton(
+              key: const ValueKey('collapsed-nav-tools'),
+              icon: const Icon(Icons.build_outlined, size: 18),
+              tooltip: 'Tools',
+              onPressed: _expandAndRevealTools,
+            ),
+            const Spacer(),
+            IconButton(
+              key: const ValueKey('collapsed-nav-agent-settings'),
+              icon: const Icon(Icons.tune_rounded, size: 18),
+              tooltip: 'Agent settings',
+              onPressed: () => showAgentSettingsSheet(context),
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       );
@@ -271,272 +351,235 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
     // being appended to the bottom where it's easy to miss.
     // A sorted copy — controller.sessions is unmodifiable.
     final filteredSessions = [...searchFiltered]..sort(_compareSessions);
+    final subagentParentIds = parentIdsWithChildren(filteredSessions);
+    final anySubagentsExpanded =
+        subagentParentIds.any((id) => !controller.isParentSessionCollapsed(id));
 
-    return Container(
-      key: const ValueKey('agents-nav-column'),
-      width: _kNavColumnWidth,
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceRaised,
-        borderRadius: BorderRadius.circular(RhythmRadius.xl),
-        border: Border.all(color: context.rhythm.border),
-        boxShadow: RhythmElevation.panel,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Header — pinned ──────────────────────────────────────────────
-          _NavHeader(
-            onToggleCollapse: widget.onToggleCollapse,
-            onNewSession: canStartSession ? widget.onNewSession : null,
-            onOptionsPressed:
-                canStartSession ? widget.onShowSessionOptions : null,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxToolsHeight = (constraints.maxHeight -
+                (_sessionsExpanded
+                    ? _kExpandedAgentsReservedHeight
+                    : _kCollapsedAgentsReservedHeight))
+            .clamp(_kMinToolsHeight, constraints.maxHeight);
+        final effectiveToolsHeight =
+            _toolsHeight.clamp(_kMinToolsHeight, maxToolsHeight);
+        return Container(
+          key: const ValueKey('agents-nav-column'),
+          width: _kNavColumnWidth,
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.border),
+            boxShadow: RhythmElevation.panel,
           ),
-          Divider(height: 1, color: context.rhythm.borderSubtle),
-
-          // ── Search ──────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-            child: TextField(
-              key: const ValueKey('nav-search-field'),
-              controller: _searchController,
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.textPrimary,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header — pinned ──────────────────────────────────────────────
+              _NavHeader(
+                onToggleCollapse: widget.onToggleCollapse,
+                onNewSession: canStartSession ? widget.onNewSession : null,
+                onOptionsPressed:
+                    canStartSession ? widget.onShowSessionOptions : null,
+                searchExpanded: _searchExpanded,
+                searchController: _searchController,
+                searchFocusNode: _searchFocusNode,
+                searchToggleFocusNode: _searchToggleFocusNode,
+                onOpenSearch: _openSearch,
+                onCloseSearch: _closeSearch,
+                onSearchChanged: (value) =>
+                    setState(() => _searchQuery = value),
               ),
-              decoration: InputDecoration(
-                hintText: 'Search sessions…',
-                hintStyle: TextStyle(
-                  fontSize: 13,
-                  color: context.rhythm.textMuted,
+              Divider(height: 1, color: context.rhythm.borderSubtle),
+
+              // ── Session scope and controls ──────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _SessionScopeTabs(
+                        scope: controller.scope,
+                        onSelected: (scope) => context
+                            .read<AgentsController>()
+                            .loadSessions(scope),
+                      ),
+                    ),
+                  ],
                 ),
-                prefixIcon: Icon(
-                  Icons.search,
-                  size: 16,
-                  color: context.rhythm.textMuted,
-                ),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: Icon(
-                          Icons.close,
-                          size: 14,
-                          color: context.rhythm.textMuted,
-                        ),
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 28,
-                          minHeight: 28,
+              ),
+              Padding(
+                key: const ValueKey('project-filter-toolbar'),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+                child: Row(
+                  children: [
+                    if (isChatsScope)
+                      Expanded(
+                        child: _ByProjectSelector(
+                          onAddProject: widget.onShowNewProjectDialog,
                         ),
                       )
-                    : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  vertical: 8,
-                  horizontal: 10,
-                ),
-                filled: true,
-                fillColor: context.rhythm.surfaceMuted,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  borderSide: BorderSide(color: context.rhythm.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  borderSide: BorderSide(color: context.rhythm.borderSubtle),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  borderSide: BorderSide(color: context.rhythm.accent),
-                ),
-              ),
-              onChanged: (v) => setState(() => _searchQuery = v),
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // ── CHATS section ───────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            child: Row(
-              children: [
-                // #1025 (USO A2) — category filter dropdown. Replaces the
-                // static "CHATS" header; switching scope reloads the list with
-                // the matching `?scope=` param. Default scope's headerLabel is
-                // 'CHATS', preserving the original section wording.
-                PopupMenuButton<AgentSessionScope>(
-                  key: const ValueKey('session-scope-dropdown'),
-                  tooltip: 'Filter sessions by category',
-                  initialValue: controller.scope,
-                  onSelected: (s) =>
-                      context.read<AgentsController>().loadSessions(s),
-                  itemBuilder: (_) => [
-                    for (final s in AgentSessionScope.values)
-                      PopupMenuItem<AgentSessionScope>(
-                        value: s,
-                        child: Text(s.menuLabel),
-                      ),
-                  ],
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          controller.scope.headerLabel,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: context.rhythm.textMuted,
-                            letterSpacing: 0.8,
+                    else
+                      const Spacer(),
+                    const SizedBox(width: 4),
+                    // #903 — sort menu.
+                    SizedBox(
+                      key: const ValueKey('project-sort-button'),
+                      width: 24,
+                      height: 24,
+                      child: PopupMenuButton<_SessionSortField>(
+                        key: const ValueKey('session-sort-menu'),
+                        tooltip: 'Sort sessions',
+                        padding: EdgeInsets.zero,
+                        initialValue: _sortField,
+                        onSelected: (v) => setState(() => _sortField = v),
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: _SessionSortField.dateNewest,
+                            child: Text('Date (newest first)'),
                           ),
+                          PopupMenuItem(
+                            value: _SessionSortField.dateOldest,
+                            child: Text('Date (oldest first)'),
+                          ),
+                          PopupMenuItem(
+                            value: _SessionSortField.name,
+                            child: Text('Name'),
+                          ),
+                          PopupMenuItem(
+                            value: _SessionSortField.lastActivity,
+                            child: Text('Last activity'),
+                          ),
+                          PopupMenuItem(
+                            value: _SessionSortField.status,
+                            child: Text('Status'),
+                          ),
+                        ],
+                        child: Icon(
+                          Icons.sort_rounded,
+                          size: 13,
+                          color: context.rhythm.textMuted,
                         ),
                       ),
-                      Icon(
-                        Icons.arrow_drop_down,
-                        size: 16,
-                        color: context.rhythm.textMuted,
+                    ),
+                    const SizedBox(width: 2),
+                    // Refresh button (mirrored from old _SessionListHeader).
+                    SizedBox(
+                      key: const ValueKey('project-refresh-button'),
+                      width: 24,
+                      height: 24,
+                      child: IconButton(
+                        icon: const Icon(Icons.refresh, size: 13),
+                        tooltip: 'Refresh',
+                        padding: EdgeInsets.zero,
+                        onPressed: () =>
+                            context.read<AgentsController>().load(),
+                        style: IconButton.styleFrom(
+                          foregroundColor: context.rhythm.textMuted,
+                          minimumSize: const Size(24, 24),
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(
+                key: const ValueKey('agents-subagents-header'),
+                height: 28,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _CompactDisclosureHeading(
+                          key: const ValueKey('agents-disclosure'),
+                          label: 'AGENTS (${filteredSessions.length})',
+                          semanticsLabel:
+                              'Agents, ${_sessionsExpanded ? 'expanded' : 'collapsed'}',
+                          expanded: _sessionsExpanded,
+                          onPressed: () => setState(
+                              () => _sessionsExpanded = !_sessionsExpanded),
+                        ),
+                      ),
+                      Expanded(
+                        child: _CompactDisclosureHeading(
+                          key: const ValueKey('subagents-disclosure'),
+                          label: 'SUB AGENTS',
+                          semanticsLabel: subagentParentIds.isEmpty
+                              ? 'Sub Agents, unavailable'
+                              : 'Sub Agents, ${anySubagentsExpanded ? 'expanded' : 'collapsed'}',
+                          expanded: anySubagentsExpanded,
+                          enabled: subagentParentIds.isNotEmpty,
+                          alignEnd: true,
+                          onPressed: subagentParentIds.isEmpty
+                              ? null
+                              : () => controller.setAllParentSessionsCollapsed(
+                                    subagentParentIds,
+                                    anySubagentsExpanded,
+                                  ),
+                        ),
                       ),
                     ],
                   ),
                 ),
-                const Spacer(),
-                // #903 — sort menu.
-                PopupMenuButton<_SessionSortField>(
-                  key: const ValueKey('session-sort-menu'),
-                  tooltip: 'Sort sessions',
-                  initialValue: _sortField,
-                  onSelected: (v) => setState(() => _sortField = v),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
-                      value: _SessionSortField.dateNewest,
-                      child: Text('Date (newest first)'),
-                    ),
-                    PopupMenuItem(
-                      value: _SessionSortField.dateOldest,
-                      child: Text('Date (oldest first)'),
-                    ),
-                    PopupMenuItem(
-                      value: _SessionSortField.name,
-                      child: Text('Name'),
-                    ),
-                    PopupMenuItem(
-                      value: _SessionSortField.lastActivity,
-                      child: Text('Last activity'),
-                    ),
-                    PopupMenuItem(
-                      value: _SessionSortField.status,
-                      child: Text('Status'),
-                    ),
-                  ],
-                  child: SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: Icon(
-                      Icons.sort_rounded,
-                      size: 14,
-                      color: context.rhythm.textMuted,
-                    ),
+              ),
+
+              // Multi-select bulk-action bar.
+              if (_sessionsExpanded && _hasMultiSelection)
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: context.rhythm.accentMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${_multiSelected.length} selected',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: context.rhythm.accent,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => setState(() => _multiSelected.clear()),
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 4),
+                      FilledButton.tonal(
+                        onPressed: _confirmBulkDelete,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .error
+                              .withValues(alpha: 0.18),
+                          foregroundColor: Theme.of(context).colorScheme.error,
+                          minimumSize: const Size(0, 26),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        child: const Text('Delete'),
+                      ),
+                    ],
                   ),
                 ),
-                // Refresh button (mirrored from old _SessionListHeader).
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: IconButton(
-                    icon: const Icon(Icons.refresh, size: 14),
-                    tooltip: 'Refresh',
-                    padding: EdgeInsets.zero,
-                    onPressed: () => context.read<AgentsController>().load(),
-                    style: IconButton.styleFrom(
-                      foregroundColor: context.rhythm.textMuted,
-                      minimumSize: const Size(28, 28),
-                      padding: EdgeInsets.zero,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
 
-          // "By Project" selector — only meaningful for CHATS. Scheduled /
-          // self_improvement runs are not project-scoped, so the filter is
-          // hidden entirely outside the chats scope (smoke follow-up to #1025).
-          if (isChatsScope) ...[
-            _ByProjectSelector(
-              onAddProject: widget.onShowNewProjectDialog,
-            ),
-            const SizedBox(height: 4),
-          ],
-
-          // Multi-select bulk-action bar.
-          if (_hasMultiSelection)
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: context.rhythm.accentMuted,
-                borderRadius: BorderRadius.circular(RhythmRadius.md),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '${_multiSelected.length} selected',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: context.rhythm.accent,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => setState(() => _multiSelected.clear()),
-                    style: TextButton.styleFrom(
-                      minimumSize: Size.zero,
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 4),
-                  FilledButton.tonal(
-                    onPressed: _confirmBulkDelete,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .error
-                          .withValues(alpha: 0.18),
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                      minimumSize: const Size(0, 26),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                    child: const Text('Delete'),
-                  ),
-                ],
-              ),
-            ),
-
-          // ── Scrollable middle region ─────────────────────────────────────
-          //
-          // Everything between the pinned header above and the pinned footer
-          // below lives inside a single SingleChildScrollView. This makes the
-          // CHATS controls, session list, AND TOOLS section scroll together as
-          // one area when the window is short — eliminating the layout overflow
-          // that occurred when the 8-row TOOLS section exceeded the available
-          // flex space.
-          //
-          // SessionListBody uses shrinkWrap:true so it does not try to fill an
-          // unbounded height; it competes for natural column height instead.
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Session list — CHATS body (rich rows from SessionListBody).
-                  SessionListBody(
+              if (_sessionsExpanded)
+                Expanded(
+                  child: SessionListBody(
                     filteredSessions: filteredSessions,
                     resumableSectionExpanded: widget.resumableSectionExpanded,
                     onToggleResumable: widget.onToggleResumable,
@@ -545,24 +588,94 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                     multiSelected: _multiSelected,
                     onRowTap: _onRowTap,
                     searchQuery: _searchQuery,
-                    shrinkWrap: true,
                   ),
+                )
+              else
+                const Spacer(),
 
-                  Divider(height: 1, color: context.rhythm.borderSubtle),
-
-                  // ── TOOLS section ──────────────────────────────────────
-                  const _ToolsSection(),
-                ],
+              FocusableActionDetector(
+                focusNode: _toolsResizeFocusNode,
+                shortcuts: const {
+                  SingleActivator(LogicalKeyboardKey.arrowUp):
+                      _ResizeToolsIntent(_kToolsKeyboardStep),
+                  SingleActivator(LogicalKeyboardKey.arrowDown):
+                      _ResizeToolsIntent(-_kToolsKeyboardStep),
+                },
+                actions: {
+                  _ResizeToolsIntent: CallbackAction<_ResizeToolsIntent>(
+                    onInvoke: (intent) {
+                      _setToolsHeight(
+                        effectiveToolsHeight + intent.delta,
+                        maxToolsHeight,
+                      );
+                      return null;
+                    },
+                  ),
+                },
+                onShowFocusHighlight: (focused) =>
+                    setState(() => _toolsResizeFocused = focused),
+                child: Semantics(
+                  key: const ValueKey('tools-resize-handle'),
+                  label: 'Resize Tools panel',
+                  value: '${effectiveToolsHeight.round()} pixels',
+                  increasedValue:
+                      '${(effectiveToolsHeight + _kToolsKeyboardStep).clamp(_kMinToolsHeight, maxToolsHeight).round()} pixels',
+                  decreasedValue:
+                      '${(effectiveToolsHeight - _kToolsKeyboardStep).clamp(_kMinToolsHeight, maxToolsHeight).round()} pixels',
+                  slider: true,
+                  focusable: true,
+                  onIncrease: () => _setToolsHeight(
+                    effectiveToolsHeight + _kToolsKeyboardStep,
+                    maxToolsHeight,
+                  ),
+                  onDecrease: () => _setToolsHeight(
+                    effectiveToolsHeight - _kToolsKeyboardStep,
+                    maxToolsHeight,
+                  ),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.resizeUpDown,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _toolsResizeFocusNode.requestFocus,
+                      onVerticalDragStart: (_) =>
+                          _toolsResizeFocusNode.requestFocus(),
+                      onVerticalDragUpdate: (details) => _setToolsHeight(
+                        effectiveToolsHeight - details.delta.dy,
+                        maxToolsHeight,
+                      ),
+                      child: SizedBox(
+                        height: 8,
+                        child: Center(
+                          child: Container(
+                            width: 32,
+                            height: _toolsResizeFocused ? 3 : 2,
+                            decoration: BoxDecoration(
+                              color: _toolsResizeFocused
+                                  ? context.rhythm.accent
+                                  : context.rhythm.borderSubtle,
+                              borderRadius: BorderRadius.circular(1),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
+              SizedBox(
+                key: const ValueKey('tools-section'),
+                height: effectiveToolsHeight,
+                child: _ToolsSection(focusNode: _toolsFocusNode),
+              ),
+
+              Divider(height: 1, color: context.rhythm.borderSubtle),
+
+              // ── Footer — pinned ──────────────────────────────────────────────
+              const _NavFooter(),
+            ],
           ),
-
-          Divider(height: 1, color: context.rhythm.borderSubtle),
-
-          // ── Footer — pinned ──────────────────────────────────────────────
-          const _NavFooter(),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -571,93 +684,227 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
 // Header
 // ---------------------------------------------------------------------------
 
+class _CompactDisclosureHeading extends StatelessWidget {
+  const _CompactDisclosureHeading({
+    super.key,
+    required this.label,
+    required this.semanticsLabel,
+    required this.expanded,
+    required this.onPressed,
+    this.enabled = true,
+    this.alignEnd = false,
+  });
+
+  final String label;
+  final String semanticsLabel;
+  final bool expanded;
+  final VoidCallback? onPressed;
+  final bool enabled;
+  final bool alignEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      expanded: expanded,
+      label: semanticsLabel,
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: context.rhythm.textMuted,
+          disabledForegroundColor:
+              context.rhythm.textMuted.withValues(alpha: 0.5),
+          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+          padding: EdgeInsets.zero,
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!alignEnd)
+              Icon(
+                expanded ? Icons.expand_more : Icons.chevron_right,
+                size: 14,
+              ),
+            if (!alignEnd) const SizedBox(width: 2),
+            Text(label),
+            if (alignEnd) const SizedBox(width: 2),
+            if (alignEnd)
+              Icon(
+                expanded ? Icons.expand_more : Icons.chevron_right,
+                size: 14,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NavHeader extends StatelessWidget {
   const _NavHeader({
     required this.onToggleCollapse,
     required this.onNewSession,
     required this.onOptionsPressed,
+    required this.searchExpanded,
+    required this.searchController,
+    required this.searchFocusNode,
+    required this.searchToggleFocusNode,
+    required this.onOpenSearch,
+    required this.onCloseSearch,
+    required this.onSearchChanged,
   });
 
   final VoidCallback onToggleCollapse;
   final VoidCallback? onNewSession;
   final VoidCallback? onOptionsPressed;
+  final bool searchExpanded;
+  final TextEditingController searchController;
+  final FocusNode searchFocusNode;
+  final FocusNode searchToggleFocusNode;
+  final VoidCallback onOpenSearch;
+  final VoidCallback onCloseSearch;
+  final ValueChanged<String> onSearchChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-      child: Row(
-        children: [
-          // Collapse / hamburger toggle.
-          IconButton(
-            icon: const Icon(Icons.menu, size: 18),
-            tooltip: 'Collapse navigation',
-            onPressed: onToggleCollapse,
-            style: IconButton.styleFrom(
-              foregroundColor: context.rhythm.textMuted,
-              minimumSize: const Size(32, 32),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Wordmark.
-          Expanded(
-            child: Text(
-              'Agents',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: context.rhythm.textPrimary,
-              ),
-            ),
-          ),
-          // + New Session.
-          if (onNewSession != null)
-            FilledButton.tonal(
-              onPressed: onNewSession,
-              style: FilledButton.styleFrom(
-                backgroundColor: context.rhythm.accentMuted,
-                foregroundColor: context.rhythm.accent,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                minimumSize: const Size(0, 30),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                ),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.add, size: 14),
-                  SizedBox(width: 4),
-                  Text(
-                    'New',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          if (onOptionsPressed != null) ...[
-            const SizedBox(width: 2),
+    return SizedBox(
+      height: 67,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Row(
+          children: [
+            // Collapse / hamburger toggle.
             IconButton(
-              key: const Key('new-session-options-button'),
-              icon: const Icon(Icons.more_horiz, size: 16),
-              tooltip: 'Session options',
-              onPressed: onOptionsPressed,
+              icon: const Icon(Icons.menu, size: 18),
+              tooltip: 'Collapse navigation',
+              onPressed: onToggleCollapse,
               style: IconButton.styleFrom(
-                minimumSize: const Size(26, 30),
-                padding: EdgeInsets.zero,
                 foregroundColor: context.rhythm.textMuted,
+                minimumSize: const Size(32, 32),
+                padding: EdgeInsets.zero,
               ),
             ),
+            const SizedBox(width: 8),
+            // Wordmark / compact replacement search field.
+            Expanded(
+              child: searchExpanded
+                  ? CallbackShortcuts(
+                      bindings: {
+                        const SingleActivator(LogicalKeyboardKey.escape):
+                            onCloseSearch,
+                      },
+                      child: SizedBox(
+                        height: 30,
+                        child: TextField(
+                          key: const ValueKey('nav-search-field'),
+                          controller: searchController,
+                          focusNode: searchFocusNode,
+                          autofocus: true,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: context.rhythm.textPrimary,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Search sessions…',
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius:
+                                  BorderRadius.circular(RhythmRadius.md),
+                            ),
+                          ),
+                          onChanged: onSearchChanged,
+                        ),
+                      ),
+                    )
+                  : Text(
+                      'Agents',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: context.rhythm.textPrimary,
+                      ),
+                    ),
+            ),
+            SizedBox(
+              width: 30,
+              height: 30,
+              child: IconButton(
+                key: ValueKey(
+                  searchExpanded ? 'nav-search-close' : 'nav-search-toggle',
+                ),
+                focusNode: searchToggleFocusNode,
+                icon:
+                    Icon(searchExpanded ? Icons.close : Icons.search, size: 16),
+                tooltip: searchExpanded ? 'Close search' : 'Search sessions',
+                onPressed: searchExpanded ? onCloseSearch : onOpenSearch,
+                padding: EdgeInsets.zero,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(30, 30),
+                  foregroundColor: context.rhythm.textMuted,
+                ),
+              ),
+            ),
+            // + New Session.
+            if (onNewSession != null)
+              FilledButton.tonal(
+                key: const ValueKey('nav-new-session'),
+                onPressed: onNewSession,
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.rhythm.accentMuted,
+                  foregroundColor: context.rhythm.accent,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  minimumSize: const Size(0, 30),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.add, size: 14),
+                    SizedBox(width: 4),
+                    Text(
+                      'New',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (onOptionsPressed != null) ...[
+              const SizedBox(width: 2),
+              IconButton(
+                key: const Key('new-session-options-button'),
+                icon: const Icon(Icons.more_horiz, size: 16),
+                tooltip: 'Session options',
+                onPressed: onOptionsPressed,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(26, 30),
+                  padding: EdgeInsets.zero,
+                  foregroundColor: context.rhythm.textMuted,
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -678,104 +925,151 @@ class _ByProjectSelector extends StatelessWidget {
     final projects = ctrl.projects;
     final selectedId = ctrl.selectedProjectId;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              key: const ValueKey('by-project-selector'),
-              decoration: BoxDecoration(
-                color: context.rhythm.surfaceMuted,
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            key: const ValueKey('by-project-selector'),
+            height: 24,
+            decoration: BoxDecoration(
+              color: context.rhythm.surfaceMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+              border: Border.all(color: context.rhythm.borderSubtle),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String?>(
+                value: selectedId,
+                isExpanded: true,
+                isDense: true,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 borderRadius: BorderRadius.circular(RhythmRadius.md),
-                border: Border.all(color: context.rhythm.borderSubtle),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String?>(
-                  value: selectedId,
-                  isExpanded: true,
-                  isDense: true,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.rhythm.textPrimary,
+                ),
+                hint: Text(
+                  'By Project ▾',
                   style: TextStyle(
-                    fontSize: 12,
-                    color: context.rhythm.textPrimary,
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
                   ),
-                  hint: Text(
-                    'By Project ▾',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.rhythm.textSecondary,
+                ),
+                icon: const SizedBox.shrink(),
+                onChanged: (id) => ctrl.select(id),
+                items: [
+                  DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text(
+                      'All Sessions',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: context.rhythm.textPrimary,
+                      ),
                     ),
                   ),
-                  icon: const SizedBox.shrink(),
-                  onChanged: (id) => ctrl.select(id),
-                  items: [
-                    DropdownMenuItem<String?>(
-                      value: null,
+                  ...projects.map(
+                    (p) => DropdownMenuItem<String?>(
+                      value: p.id,
                       child: Text(
-                        'All Sessions',
+                        p.name,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           color: context.rhythm.textPrimary,
                         ),
                       ),
                     ),
-                    ...projects.map(
-                      (p) => DropdownMenuItem<String?>(
-                        value: p.id,
-                        child: Text(
-                          p.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: context.rhythm.textPrimary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (ctrl.status == AgentProjectsLoadStatus.error) ...[
+          const SizedBox(width: 4),
+          Tooltip(
+            message: 'Failed to load projects'
+                '${ctrl.error != null ? ': ${ctrl.error}' : ''}',
+            child: Icon(
+              Icons.warning_amber_rounded,
+              size: 13,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+        ],
+        const SizedBox(width: 4),
+        // Add project affordance.
+        Tooltip(
+          message: 'Add project',
+          child: SizedBox(
+            key: const ValueKey('project-add-button'),
+            width: 24,
+            height: 24,
+            child: Material(
+              color: context.rhythm.surfaceMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.sm),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                onTap: onAddProject,
+                child: Icon(
+                  Icons.add,
+                  size: 13,
+                  color: context.rhythm.textMuted,
                 ),
               ),
             ),
           ),
-          if (ctrl.status == AgentProjectsLoadStatus.error) ...[
-            const SizedBox(width: 6),
-            Tooltip(
-              message: 'Failed to load projects'
-                  '${ctrl.error != null ? ': ${ctrl.error}' : ''}',
-              child: Icon(
-                Icons.warning_amber_rounded,
-                size: 16,
-                color: context.rhythm.textMuted,
-              ),
-            ),
-          ],
-          const SizedBox(width: 6),
-          // Add project affordance.
-          Tooltip(
-            message: 'Add project',
-            child: SizedBox(
-              width: 28,
-              height: 28,
-              child: Material(
-                color: context.rhythm.surfaceMuted,
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                  onTap: onAddProject,
-                  child: Icon(
-                    Icons.add,
-                    size: 14,
-                    color: context.rhythm.textMuted,
+        ),
+      ],
+    );
+  }
+}
+
+class _SessionScopeTabs extends StatelessWidget {
+  const _SessionScopeTabs({required this.scope, required this.onSelected});
+
+  final AgentSessionScope scope;
+  final ValueChanged<AgentSessionScope> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Session scope',
+      child: Row(
+        key: const ValueKey('session-scope-tabs'),
+        children: [
+          for (final tab in [
+            (AgentSessionScope.chats, 'Chats'),
+            (AgentSessionScope.scheduled, 'Scheduled'),
+            (AgentSessionScope.selfImprovement, 'Background'),
+          ])
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1),
+                child: TextButton(
+                  onPressed: () => onSelected(tab.$1),
+                  style: TextButton.styleFrom(
+                    foregroundColor: tab.$1 == scope
+                        ? context.rhythm.accent
+                        : context.rhythm.textSecondary,
+                    backgroundColor: tab.$1 == scope
+                        ? context.rhythm.accentMuted
+                        : Colors.transparent,
+                    minimumSize: const Size(0, 28),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: Semantics(
+                    selected: tab.$1 == scope,
+                    child: Text(tab.$2, overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -787,7 +1081,9 @@ class _ByProjectSelector extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ToolsSection extends StatelessWidget {
-  const _ToolsSection();
+  const _ToolsSection({required this.focusNode});
+
+  final FocusNode focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -796,154 +1092,182 @@ class _ToolsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 6),
-            child: Text(
-              'TOOLS',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: context.rhythm.textMuted,
-                letterSpacing: 0.8,
+          Focus(
+            key: const ValueKey('tools-heading'),
+            focusNode: focusNode,
+            child: Builder(
+              builder: (context) => Semantics(
+                excludeSemantics: true,
+                header: true,
+                label: 'Tools',
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.only(left: 4, bottom: 6),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Focus.of(context).hasFocus
+                          ? context.rhythm.accent
+                          : Colors.transparent,
+                    ),
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                  ),
+                  child: Text(
+                    'TOOLS',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: context.rhythm.textMuted,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          _ToolsRow(
-            key: const ValueKey('tools-row-brain'),
-            icon: '🧠',
-            label: 'Brain',
-            subtitle: 'Persistent agent memories',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentMemoryView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-research'),
-            icon: '🔬',
-            label: 'Deep Research',
-            subtitle: 'Multi-source research runs',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentResearchView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-tasks'),
-            icon: '⏰',
-            label: 'Tasks',
-            subtitle: 'Scheduled agent jobs',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentSchedulesView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-webhooks'),
-            icon: '🪝',
-            label: 'Webhooks',
-            subtitle: 'Inbound trigger endpoints',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentWebhooksView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-profiles'),
-            icon: '🤖',
-            label: 'Profiles',
-            subtitle: 'Agent identity & permissions',
-            onTap: () => showAgentProfilesManagerSheet(context),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-skills'),
-            icon: '✨',
-            label: 'Skills',
-            subtitle: 'Self-improving skill library',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentSkillsView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-playbooks'),
-            icon: '📜',
-            label: 'Playbooks',
-            subtitle: 'Custom slash commands',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentPlaybooksView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-cookbook'),
-            icon: '📖',
-            label: 'Cookbook',
-            subtitle: 'Agent prompt recipes',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentCookbookView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-review-queue'),
-            icon: '🛂',
-            label: 'Review Queue',
-            subtitle: 'Human-gated org optimizer proposals',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const OrgProposalsView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-run-quality'),
-            icon: '📋',
-            label: 'Report Card',
-            subtitle: 'How agents have been doing lately',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const RunQualityView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-email'),
-            icon: '📧',
-            label: 'Email',
-            subtitle: 'Gmail signals & assistant',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentEmailView(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          _ToolsRow(
-            key: const ValueKey('tools-row-gallery'),
-            icon: '🎨',
-            label: 'Gallery',
-            subtitle: 'Canva design workspace',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentGalleryView(),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-brain'),
+                    icon: '🧠',
+                    label: 'Brain',
+                    subtitle: 'Persistent agent memories',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentMemoryView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-research'),
+                    icon: '🔬',
+                    label: 'Deep Research',
+                    subtitle: 'Multi-source research runs',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentResearchView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-tasks'),
+                    icon: '⏰',
+                    label: 'Tasks',
+                    subtitle: 'Scheduled agent jobs',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentSchedulesView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-webhooks'),
+                    icon: '🪝',
+                    label: 'Webhooks',
+                    subtitle: 'Inbound trigger endpoints',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentWebhooksView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-profiles'),
+                    icon: '🤖',
+                    label: 'Profiles',
+                    subtitle: 'Agent identity & permissions',
+                    onTap: () => showAgentProfilesManagerSheet(context),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-skills'),
+                    icon: '✨',
+                    label: 'Skills',
+                    subtitle: 'Self-improving skill library',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentSkillsView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-playbooks'),
+                    icon: '📜',
+                    label: 'Playbooks',
+                    subtitle: 'Custom slash commands',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentPlaybooksView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-cookbook'),
+                    icon: '📖',
+                    label: 'Cookbook',
+                    subtitle: 'Agent prompt recipes',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentCookbookView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-review-queue'),
+                    icon: '🛂',
+                    label: 'Review Queue',
+                    subtitle: 'Human-gated org optimizer proposals',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const OrgProposalsView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-run-quality'),
+                    icon: '📋',
+                    label: 'Report Card',
+                    subtitle: 'How agents have been doing lately',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const RunQualityView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-email'),
+                    icon: '📧',
+                    label: 'Email',
+                    subtitle: 'Gmail signals & assistant',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentEmailView(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _ToolsRow(
+                    key: const ValueKey('tools-row-gallery'),
+                    icon: '🎨',
+                    label: 'Gallery',
+                    subtitle: 'Canva design workspace',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const AgentGalleryView(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1050,25 +1374,10 @@ class _NavFooter extends StatelessWidget {
           ),
           // Agent settings (keeps the existing showAgentSettingsSheet path).
           IconButton(
+            key: const ValueKey('nav-col-agent-settings'),
             icon: const Icon(Icons.tune_rounded, size: 16),
             tooltip: 'Agent settings',
             onPressed: () => showAgentSettingsSheet(context),
-            style: IconButton.styleFrom(
-              foregroundColor: context.rhythm.textMuted,
-              minimumSize: const Size(28, 28),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-          // Settings navigation.
-          IconButton(
-            key: const ValueKey('nav-col-settings'),
-            icon: const Icon(Icons.settings_outlined, size: 16),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const SettingsView(),
-              ),
-            ),
             style: IconButton.styleFrom(
               foregroundColor: context.rhythm.textMuted,
               minimumSize: const Size(28, 28),

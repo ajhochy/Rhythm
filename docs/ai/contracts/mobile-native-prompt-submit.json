@@ -1,0 +1,55 @@
+{
+  "issue": "mobile-native-prompt-submit",
+  "date": "2026-08-08",
+  "test_command": "cd apps/mobile && node --test tests/contract/mobile-native-prompt-submit.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-mobile-native-prompt-submit-c1",
+      "text": "Reproduce the failure with a focused runnable test that proves an unbound session prompt currently passes explicitly undefined structured fields into the generated SDK/native request path or otherwise identifies the exact undefined object.",
+      "mode": "unit",
+      "test": "apps/mobile/tests/contract/mobile-native-prompt-submit.test.mjs",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-mobile-native-prompt-submit-c2",
+      "text": "A starter prompt from an unbound session reaches prompt_async without client-side exception.",
+      "mode": "live",
+      "test": "apps/mobile/tests/contract/mobile-native-prompt-submit.test.mjs",
+      "status": "pass",
+      "reason": "AJ manually submitted starter prompts in the iPhone 16 Pro simulator; the fake gateway recorded prompt_async POSTs for session-2 and session-3 with subsequent message/todo/status/diff refresh traffic, and no Action failed recurrence was reported."
+    },
+    {
+      "criterion_id": "task-mobile-native-prompt-submit-c3",
+      "text": "Optional agent/model/system values are omitted when absent; present values remain byte-for-byte equivalent when bound.",
+      "mode": "unit",
+      "test": "apps/mobile/tests/contract/mobile-native-prompt-submit.test.mjs",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-mobile-native-prompt-submit-c4",
+      "text": "Existing preference persistence, attachments, commands, notifications, errors, and bound-session prompt behavior remain unchanged.",
+      "mode": "manual",
+      "test": null,
+       "status": "pass",
+       "reason": "Focused regression, prompt-execution-plan coverage, 53-test Jest suite, and final diff review verify this unchanged surface."
+    },
+    {
+      "criterion_id": "task-mobile-native-prompt-submit-c5",
+      "text": "Run focused regression test, existing prompt-execution-plan tests, mobile lint, typecheck, and relevant broader Jest.",
+      "mode": "manual",
+      "test": null,
+       "status": "pass",
+       "reason": "The run note records PASS for focused regression, prompt-execution-plan, lint, typecheck, and 53-test Jest checks."
+    },
+    {
+      "criterion_id": "task-mobile-native-prompt-submit-c6",
+      "text": "Live behavioral smoke in the iPhone simulator: reset/dismiss error, submit a starter prompt, and prove the fake server recorded POST prompt_async plus the app rendered the expected response/no Action failed. Use current E2E server/Metro; restart only those two if required, never live desktop services.",
+      "mode": "live",
+      "test": null,
+      "status": "pass",
+      "reason": "AJ completed the simulator interaction manually. After the smoke, GET http://127.0.0.1:4396/__control/mobile confirmed POSTs to /mobile-gateway/opencode/session/session-2/prompt_async and /mobile-gateway/opencode/session/session-3/prompt_async, each followed by message/todo/status/diff refresh traffic; no Action failed recurrence was reported."
+    }
+  ],
+  "not_tested": []
+}

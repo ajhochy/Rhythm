@@ -293,13 +293,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             c.thisWeekTasks,
             DateTime.now().add(const Duration(days: 1)),
           );
-          final thisWeekOnDeckTasks = _onDeckAfterFirstTomorrow(
-            weekTasks: c.thisWeekTasks,
-            tomorrowTasks: tomorrowTasks,
-            currentUserId: currentUserId,
-            workspaceMembers: workspaceMembers,
-          );
-
           final todayCard = _buildTaskProgressPanel(
             panelTitle: 'TODAY',
             title: "Today's Tasks",
@@ -315,7 +308,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             onNextTap: c.todayTasks.isEmpty
                 ? null
                 : () => _showTaskEditDialog(c.todayTasks.first),
-            onDeckTitle: 'On Deck',
             onDeckTasks: _onDeckTaskItems(
               c.todayTasks,
               currentUserId: currentUserId,
@@ -339,8 +331,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
             onNextTap: tomorrowTasks.isEmpty
                 ? null
                 : () => _showTaskEditDialog(tomorrowTasks.first),
-            onDeckTitle: 'On Deck This Week',
-            onDeckTasks: thisWeekOnDeckTasks,
+            onDeckTasks: _onDeckTaskItems(
+              c.thisWeekTasks,
+              currentUserId: currentUserId,
+              workspaceMembers: workspaceMembers,
+            ),
             onTap: widget.openWeeklyPlanner,
           );
 
@@ -349,11 +344,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
             currentUserId: currentUserId,
             workspaceMembers: workspaceMembers,
           );
-          final glanceCards = <Widget>[
-            todayCard,
-            thisWeekCard,
-            ...projectCards,
-          ];
+          const glanceGap = 14.0;
+          final supportedDesktop = constraints.maxWidth >= 900;
+          final glanceCardWidth = supportedDesktop
+              ? (constraints.maxWidth - glanceGap) / 2
+              : constraints.maxWidth;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -376,10 +371,16 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     ),
               ),
               const SizedBox(height: RhythmSpacing.md),
-              for (var index = 0; index < glanceCards.length; index++) ...[
-                if (index > 0) const SizedBox(height: RhythmSpacing.sm),
-                glanceCards[index],
-              ],
+              Wrap(
+                spacing: glanceGap,
+                runSpacing: glanceGap,
+                children: [
+                  SizedBox(width: glanceCardWidth, child: todayCard),
+                  SizedBox(width: glanceCardWidth, child: thisWeekCard),
+                  for (final projectCard in projectCards)
+                    SizedBox(width: glanceCardWidth, child: projectCard),
+                ],
+              ),
             ],
           );
         },
@@ -649,8 +650,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
     required List<WorkspaceMember> workspaceMembers,
   }) {
     return tasks
-        .skip(1)
-        .take(3)
         .map(
           (task) => _onDeckTaskItem(
             task,
@@ -677,27 +676,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
         workspaceMembers,
       ),
     );
-  }
-
-  List<FocusOnDeckItem> _onDeckAfterFirstTomorrow({
-    required List<Task> weekTasks,
-    required List<Task> tomorrowTasks,
-    required int? currentUserId,
-    required List<WorkspaceMember> workspaceMembers,
-  }) {
-    final excludedTaskId =
-        tomorrowTasks.isEmpty ? null : tomorrowTasks.first.id;
-    return weekTasks
-        .where((task) => task.id != excludedTaskId)
-        .take(3)
-        .map(
-          (task) => _onDeckTaskItem(
-            task,
-            currentUserId: currentUserId,
-            workspaceMembers: workspaceMembers,
-          ),
-        )
-        .toList();
   }
 
   String? _onDeckTaskPersonLabel(
@@ -732,7 +710,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
     required String nextMetricLabel,
     required String nextTaskTitle,
     required VoidCallback? onNextTap,
-    required String onDeckTitle,
     required List<FocusOnDeckItem> onDeckTasks,
     required VoidCallback onTap,
   }) {
@@ -778,9 +755,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
           label: '$remainingCount open',
         ),
       ],
-      descriptionTitle: onDeckTitle,
       descriptionItems: onDeckTasks,
       showPeople: false,
+      compact: true,
+      showDescriptionTitle: false,
+      compactListHeight: 140,
       onTap: onTap,
     );
   }

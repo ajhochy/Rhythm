@@ -385,17 +385,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // #910 — collapsed subagent groups in the session list tree (in-memory only)
   // --------------------------------------------------------------------------
 
-  /// Parent session ids whose child (subagent) rows are collapsed to a single
-  /// summary line in the session list. In-memory only — resets on relaunch,
-  /// same tier as other pure view-state (e.g. `_resumableSectionExpanded`).
-  final Set<String> _collapsedParentSessions = {};
+  /// Parent session ids explicitly expanded for this app run. An empty set
+  /// deliberately makes newly discovered groups collapsed by default.
+  final Set<String> _expandedParentSessions = {};
 
   bool isParentSessionCollapsed(String parentId) =>
-      _collapsedParentSessions.contains(parentId);
+      !_expandedParentSessions.contains(parentId);
 
   void toggleParentSessionCollapsed(String parentId) {
-    if (!_collapsedParentSessions.add(parentId)) {
-      _collapsedParentSessions.remove(parentId);
+    if (!_expandedParentSessions.add(parentId)) {
+      _expandedParentSessions.remove(parentId);
     }
     notifyListeners();
   }
@@ -407,9 +406,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     bool collapsed,
   ) {
     if (collapsed) {
-      _collapsedParentSessions.addAll(parentIds);
+      _expandedParentSessions.removeAll(parentIds);
     } else {
-      _collapsedParentSessions.removeAll(parentIds);
+      _expandedParentSessions.addAll(parentIds);
     }
     notifyListeners();
   }
