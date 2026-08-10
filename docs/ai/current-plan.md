@@ -1,9 +1,11 @@
 # Current Plan — Cloud Live Artifacts / Worship Calendar
 
-**Date:** 2026-08-08
-**Branch/worktree:** `feat/artifact-viewer` at `/private/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/rhythm-artifact-viewer`
-**Status:** **READY — design approved by AJ; implementation slices may be dispatched sequentially as below**
+**Date:** 2026-08-10
+**Branch:** `feat/artifact-viewer` (synced with `origin/main` `8a3561d9`)
+**Status:** **COMPLETE — AV-01–AV-07 final verification PASS; ready for draft PR and human smoke**
 **Supersedes:** the local-file/Gallery Artifact Viewer plan previously in this file
+
+The approved design and acceptance contract below remain the durable scope record. Final results are in `docs/ai/contracts/live-artifacts-av07.json` and `docs/ai/runs/2026-08-09-live-artifacts-av07.md`.
 
 ## Goal
 

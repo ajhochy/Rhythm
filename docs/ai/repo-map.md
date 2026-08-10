@@ -18,6 +18,9 @@ apps/
 │   │   │   └── pty_runner.ts               ← DEAD CODE — kept pending removal PR
 │   │   ├── repositories/  ← SQLite/Postgres data access
 │   │   ├── models/        ← TypeScript interfaces
+│   │   ├── services/live_artifact_storage.ts      ← Immutable content-addressed bundle/state storage
+│   │   ├── controllers/live_artifacts_controller.ts ← Hosted artifact CRUD, sharing, CAS, render
+│   │   ├── routes/live_artifacts_routes.ts         ← Always-on authenticated `/live-artifacts` API
 │   │   └── @types/
 │   │       └── opencode-ai-sdk.d.ts        ← Hand-written type declarations (ESM/CJS bridge); OPC-M4-1: FilePartInput + PartInput union added; OPC-M4-3: McpStatusEntry, McpLocalConfigInput, McpRemoteConfigInput, mcp.add()
 │   └── package.json       ← @opencode-ai/sdk@1.14.49 in dependencies
@@ -39,6 +42,7 @@ apps/
 │       │   └── models/chat_models.dart         ← ChatMessage + ChatPart (durationMs for reasoning; fileMime/fileFilename/fileUrl for OPC-M4-1 file parts)
 │       ├── features/agent_configs/
 │       │   └── views/manage_agents_view.dart  ← "Connect an AI Account" card
+│       ├── features/live_artifacts/           ← Dashboard tabs/picker, hosted data/controller, secure WKWebView bridge/runtime
 │       └── features/settings/
 │           ├── views/settings_view.dart         ← OPC-M4-3: mounts McpSection after _ClaudeIntegrationSection
 │           ├── controllers/mcp_controller.dart  ← OPC-M4-3: McpController (ChangeNotifier); refresh/add/connect/disconnect/remove; per-server errorFor(name)
@@ -46,6 +50,7 @@ apps/
 │           └── widgets/
 │               ├── ai_account_section.dart  ← OAuth + API key auth UI; refreshes from GET /opencode/auth/
 │               └── mcp_section.dart         ← OPC-M4-3: McpSection — server list, status badges, add dialog, connect/disconnect/remove actions
+├── mcp_server/src/tools/liveArtifacts.ts ← Five hosted live-artifact MCP tools
 ├── web/                   ← React/Vite UI (prototype, NOT shipping)
 └── electron/              ← Electron wrapper (prototype, NOT shipping)
 
