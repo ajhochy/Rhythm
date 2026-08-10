@@ -6,13 +6,13 @@ Cloud-hosted collaborative live artifacts (AV-01–AV-07) are complete and final
 
 ## Active branch / PR
 
-- Branch: `feat/artifact-viewer`, with `origin/main` `8a3561d9` merged.
-- PR: not opened; branch is ready for push and a draft PR. No GitHub issue exists for this user-requested feature, so the PR must carry the `WAIVED` issue-link line.
+- Branch: `feat/artifact-viewer`, pushed and tracking its remote, with `origin/main` `8a3561d9` merged.
+- Draft PR: [#1338](https://github.com/ajhochy/Rhythm/pull/1338). No GitHub issue exists for this user-requested feature; the PR body carries the `WAIVED` issue-link line.
 - Final evidence includes deterministic Dashboard/native screenshots referenced by the AV-06 final and AV-07 run notes.
 
 ## In progress
 
-- No implementation or automated verification remains; only draft-PR creation and the human smoke/merge handoff remain.
+- No implementation or automated verification remains; human smoke and merge are pending.
 - Existing unrelated follow-ups remain: on-device confirmation of #1327 subagent approvals; #1319 parent taint propagation and `rhythm_delegation_transcript`; transcript fencing for the remaining half of #1331.
 
 ## Risks / known issues
@@ -32,4 +32,4 @@ Cloud-hosted collaborative live artifacts (AV-01–AV-07) are complete and final
 
 ## Next step
 
-Push the branch and open a draft PR with the waived issue-link line, then complete the human manual smoke in `docs/testing/manual-smoke.md`. A human may merge after smoke approval; do not deploy or merge automatically.
+Complete the human manual smoke in `docs/testing/manual-smoke.md`, then a human may merge PR #1338 after smoke approval. Do not deploy or merge automatically.

@@ -2,7 +2,7 @@
 date: 2026-08-09
 repo: Rhythm
 branch: feat/artifact-viewer
-pr: null
+pr: 1338
 issues: []
 status: PASS
 tags: [run, live-artifacts, api_server, desktop_flutter]
@@ -148,11 +148,13 @@ startup-risk review and is absent from the Release binary.
 
 ## Notes
 
-- Final verification gate passed at `050f8c28` after merging `origin/main`
-  `8a3561d9`; the working tree was clean before this memory update.
-- This was a user-requested feature with no GitHub issue. The draft PR must use
-  the waived issue-link line and hand off `docs/testing/manual-smoke.md` to a
-  human; no deploy or merge is authorized.
+- Final automated verification passed at `050f8c28` after merging `origin/main`
+  `8a3561d9`; no automated blocker remains.
+- Branch `feat/artifact-viewer` is pushed and tracking its remote. Draft PR
+  [#1338](https://github.com/ajhochy/Rhythm/pull/1338) is open with the `WAIVED`
+  issue-link line because no GitHub issue exists for this user-requested feature.
+- Human manual smoke per `docs/testing/manual-smoke.md` is pending; only a human
+  may merge after smoke approval. No deploy or automated merge is authorized.
 - AC1–AC12 are `pass` in `docs/ai/contracts/live-artifacts-av07.json`; no
   product criterion is waived or not tested.
 - Deployment handoff now explicitly preserves both Postgres metadata and
