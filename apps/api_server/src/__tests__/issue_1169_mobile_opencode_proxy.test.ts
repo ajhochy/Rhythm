@@ -67,6 +67,14 @@ function openApiOperations(): Array<{
   method: string;
   path: string;
 }> {
+  // #1352: MCP-App host operations are app-only by construction. They must
+  // never enter the model/mobile gateway manifest even though they remain in
+  // the bundled OpenAPI document for the trusted desktop/API bridge.
+  const appOnlyOperationIds = new Set([
+    'session.mcpAppExecution',
+    'session.mcpAppExecutionProof',
+    'session.mcpAppResource',
+  ]);
   const specPath = resolve(
     __dirname,
     '../../../opencode_fork/packages/sdk/openapi.json',
@@ -82,7 +90,10 @@ function openApiOperations(): Array<{
   for (const [path, pathItem] of Object.entries(spec.paths)) {
     for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
       const operation = pathItem[method];
-      if (operation?.operationId) {
+      if (
+        operation?.operationId &&
+        !appOnlyOperationIds.has(operation.operationId)
+      ) {
         operations.push({
           operationId: operation.operationId,
           method: method.toUpperCase(),

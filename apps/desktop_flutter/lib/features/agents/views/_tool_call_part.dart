@@ -164,12 +164,23 @@ class _ToolCallPartState extends State<ToolCallPart> {
             if (_structuredExpanded)
               Padding(
                 padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                child: SelectableText(
-                  part.mcpResult!.structuredJson!,
-                  style: const TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: 11,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!_expanded &&
+                        part.toolOutput != null &&
+                        part.toolOutput!.isNotEmpty) ...[
+                      SelectableText(part.toolOutput!),
+                      const SizedBox(height: 8),
+                    ],
+                    SelectableText(
+                      part.mcpResult!.structuredJson!,
+                      style: const TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],
