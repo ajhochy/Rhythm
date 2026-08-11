@@ -3795,9 +3795,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 bool _belongsToScope(AgentSession session, AgentSessionScope scope) {
   switch (scope) {
     case AgentSessionScope.chats:
-      return !session.isSystem &&
-          !session.isChildSession &&
-          session.category == 'chat';
+      return !session.isSystem && session.category == 'chat';
     case AgentSessionScope.scheduled:
       return session.category == 'scheduled';
     case AgentSessionScope.selfImprovement:

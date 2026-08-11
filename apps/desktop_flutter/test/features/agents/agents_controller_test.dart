@@ -656,7 +656,9 @@ void main() {
       expect(controller.sessions.map((s) => s.id), contains('chat-updated'));
     });
 
-    test('issue-1348-c3: child chat sessions never enter the Chats root list',
+    test(
+        'issue-1348-c3 (reverted per AJ): child chat sessions enter the Chats '
+        'list (grouped under their parent as a collapsed subagent group)',
         () async {
       expect(controller.scope, AgentSessionScope.chats);
 
@@ -669,8 +671,11 @@ void main() {
       ));
       await Future<void>.delayed(Duration.zero);
 
+      // AJ 2026-08-11: #1348's client-side exclusion is reverted; delegated
+      // children belong to the Chats scope again and the session-list tree
+      // (#910) nests them under their parent.
       expect(controller.sessions.map((s) => s.id),
-          isNot(contains('delegated-child')));
+          contains('delegated-child'));
     });
 
     test(

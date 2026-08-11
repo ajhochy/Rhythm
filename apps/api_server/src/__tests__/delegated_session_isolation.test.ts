@@ -173,10 +173,11 @@ describe('delegated-session isolation', () => {
     expect(repo.listAll(100, { scope: 'self_improvement' }).map(({ id }) => id)).toContain(child!.id);
   });
 
-  it('issue-r1-delegated-session-isolation-c3: plain chat children retain chat classification but stay out of Chats', () => {
-    // #1348 deliberately removes delegated children from the explicit Chats
-    // scope. They still retain their inherited Chat classification and remain
-    // available to internal no-scope consumers such as audit extraction.
+  it('issue-r1-delegated-session-isolation-c3: plain chat children retain chat classification and appear in Chats (grouped under parent client-side)', () => {
+    // AJ 2026-08-11: #1348's chats-scope exclusion of delegated children is
+    // reverted. Children retain their inherited Chat classification AND are
+    // returned by the Chats scope, carrying a parentSessionId so the desktop
+    // groups them under their parent as a collapsed "N subagents" group (#910).
     const refs = seedScopeReferences(db);
     const parent = repo.insert({
       agentKind: 'claude-code',
@@ -206,7 +207,7 @@ describe('delegated-session isolation', () => {
       delegationDepth: 1,
     });
     expect(repo.listAll(100).map(({ id }) => id)).toContain(child!.id);
-    expect(repo.listAll(100, { scope: 'chats' }).map(({ id }) => id)).not.toContain(child!.id);
+    expect(repo.listAll(100, { scope: 'chats' }).map(({ id }) => id)).toContain(child!.id);
   });
 
   it('issue-r1-delegated-session-isolation-c4: SQLite migration repairs only Chat children of non-Chat parents', () => {

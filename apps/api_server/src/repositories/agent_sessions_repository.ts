@@ -428,7 +428,7 @@ export class AgentSessionsRepository {
         ? "category = 'scheduled'"
         : scope === 'self_improvement'
           ? "category = 'self_improvement'"
-          : "category = 'chat' AND is_system = 0 AND parent_session_id IS NULL";
+          : "category = 'chat' AND is_system = 0";
     const archiveClause = opts.archivedOnly
       ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived

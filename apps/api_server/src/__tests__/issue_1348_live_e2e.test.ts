@@ -60,7 +60,7 @@ afterEach(async () => {
 });
 
 describeLive('live E2E — #1348 chat roots only', () => {
-  it('GET scope=chats returns the parent and excludes its delegated child', async () => {
+  it('GET scope=chats returns the parent and its delegated child (grouped under parent client-side)', async () => {
     const suffix = Date.now().toString(36);
     const parentId = await createSession(`1348 parent ${suffix}`);
     const childId = await createSession(`1348 child ${suffix}`);
@@ -78,6 +78,6 @@ describeLive('live E2E — #1348 chat roots only', () => {
     const body = (await response.json()) as { sessions: Array<{ id: string }> };
     const ids = body.sessions.map((session) => session.id);
     expect(ids).toContain(parentId);
-    expect(ids).not.toContain(childId);
+    expect(ids).toContain(childId);
   });
 });

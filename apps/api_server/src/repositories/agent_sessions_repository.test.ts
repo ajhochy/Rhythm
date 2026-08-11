@@ -186,10 +186,12 @@ describe('AgentSessionsRepository', () => {
       expect(chats.map((s) => s.id)).toEqual([chat.id]);
     });
 
-    it('issue-1348-c1: chats scope returns roots and excludes delegated children', () => {
-      // Regression caught: delegated rows inherit category=chat and
-      // is_system=0, so filtering on only those columns floods Chats with
-      // subagent runs.
+    it('issue-1348 (reverted per AJ): chats scope returns roots AND delegated children (grouped under the parent client-side)', () => {
+      // AJ 2026-08-11: #1348 originally filtered delegated children out of the
+      // chats scope, but the desktop already nests children under their parent
+      // as a collapsed "N subagents" group (#910), and that is the wanted UX.
+      // The chats scope therefore RETURNS delegated children (they carry a
+      // parentSessionId so the desktop groups them); it no longer hides them.
       const parent = repo.insert({
         agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Real chat',
       });
@@ -202,9 +204,9 @@ describe('AgentSessionsRepository', () => {
       );
 
       expect(child?.parentSessionId).toBe(parent.id);
-      expect(repo.listAll(100, { scope: 'chats' }).map((s) => s.id)).toEqual([
-        parent.id,
-      ]);
+      const chatIds = repo.listAll(100, { scope: 'chats' }).map((s) => s.id);
+      expect(chatIds).toContain(parent.id);
+      expect(chatIds).toContain(child!.id);
     });
 
     it('the three scopes return disjoint row sets', () => {
