@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../mcp_apps/mcp_app_readonly_host.dart';
+
 // OPC-M4-4 — Agent descriptor returned by GET /agent-sessions/agents.
 class AgentInfo {
   const AgentInfo({
@@ -181,6 +183,7 @@ class ChatPart {
     String? toolOutput,
     String? toolStatus,
     this.mcpResult,
+    this.mcpAppResource,
     this.durationMs,
     this.fileMime,
     this.fileFilename,
@@ -214,6 +217,7 @@ class ChatPart {
   String? _toolOutput;
   String? _toolStatus;
   McpResultEnvelope? mcpResult;
+  McpAppResourceDescriptor? mcpAppResource;
 
   /// OPC-M4-1: File-part fields. Non-null when [type] == 'file'.
   /// [fileMime] — MIME type, e.g. 'image/png', 'application/pdf'.
@@ -281,6 +285,9 @@ class ChatPart {
         if (out is String) toolOutput = out;
         toolStatus = state['status'] as String?;
         mcpResult = McpResultEnvelope.tryParse(state['mcpResult']);
+        mcpAppResource = McpAppResourceDescriptor.tryParse(
+          state['mcpAppResource'],
+        );
       }
     } else if (raw['type'] == 'reasoning') {
       final t = raw['text'];

@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1351 read-only MCP App pilot
+- Files modified: generic read-only host/WebView, additive completed-call descriptor parsing, generic tool-card integration, focused contract/widget/live tests, contract status, and run log.
+- Checks run: pure-Dart contract PASS; fork resource/descriptor contracts 9/9 PASS; API live test env-gated/skipped and API typecheck PASS; Flutter analyze PASS; focused Flutter test BLOCKED before assertions by sandbox socket EPERM.
+- Decisions made: activate only from canonical `readonly` plus strict persisted provenance; fetch by fixed localhost session/call only; keep fallback outside the WebView; retain no app-originated mutation callback.
+- Deviations from spec: live isolated sandbox and Debug/packaged Release visual smoke could not run in this managed worker.
+- Concerns: the HIGH-impact `ChatPart` change is additive/nullable but requires the final full Flutter gate; UI-capable orchestration must verify real Open Design compatibility before activation.
+
 ### 2026-08-10 — issue #1350 trusted MCP App shell
 - Files modified: additive production Swift shell/WebKit policy plus Runner source registration; Dart bounded host lifecycle policy; native/Flutter contracts; env-gated fixture and evidence records.
 - Checks run: native contract 4/4 PASS; standalone debug and optimized-release valid/malicious fixtures PASS; disabled-by-default guard and project-file lint PASS; Flutter analyze PASS; focused Flutter runtime BLOCKED before load by sandbox socket EPERM.

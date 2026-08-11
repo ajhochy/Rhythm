@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../mcp_apps/mcp_app_readonly_host.dart';
+import '../mcp_apps/mcp_app_readonly_view.dart';
 import '../models/chat_models.dart';
 
 /// Renders a single `ChatPart(type:'tool')` as a collapsible card inside the
@@ -9,8 +13,17 @@ import '../models/chat_models.dart';
 /// Header: tool name + status (pending/completed/error).
 /// Body: input args + output, collapsed by default.
 class ToolCallPart extends StatefulWidget {
-  const ToolCallPart({super.key, required this.part});
+  const ToolCallPart({
+    super.key,
+    required this.part,
+    this.mcpAppsMode,
+    this.mcpAppResourceFetcher,
+    this.enableMcpAppNativeRuntime = true,
+  });
   final ChatPart part;
+  final String? mcpAppsMode;
+  final McpAppResourceFetcher? mcpAppResourceFetcher;
+  final bool enableMcpAppNativeRuntime;
 
   @override
   State<ToolCallPart> createState() => _ToolCallPartState();
@@ -40,6 +53,12 @@ class _ToolCallPartState extends State<ToolCallPart> {
   Widget build(BuildContext context) {
     final part = widget.part;
     final name = part.toolName ?? '(unknown tool)';
+    final mode = widget.mcpAppsMode ??
+        Platform.environment['RHYTHM_MCP_APPS_MODE'] ??
+        'off';
+    final appDescriptor = mode == 'readonly' && part.toolStatus == 'completed'
+        ? part.mcpAppResource
+        : null;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
@@ -95,6 +114,22 @@ class _ToolCallPartState extends State<ToolCallPart> {
               ),
             ),
           ),
+          if (appDescriptor != null) ...[
+            Divider(height: 1, color: context.rhythm.borderSubtle),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: McpAppReadOnlyView(
+                descriptor: appDescriptor,
+                mode: mode,
+                fallbackText: part.toolOutput ?? '',
+                structuredFallback: part.mcpResult?.structuredJson,
+                toolInput: part.toolArgs,
+                toolResult: part.mcpResult?.structuredContent,
+                fetchResource: widget.mcpAppResourceFetcher,
+                enableNativeRuntime: widget.enableMcpAppNativeRuntime,
+              ),
+            ),
+          ],
           if (part.mcpResult?.structuredJson != null) ...[
             Divider(height: 1, color: context.rhythm.borderSubtle),
             InkWell(
