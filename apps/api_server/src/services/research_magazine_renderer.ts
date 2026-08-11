@@ -51,8 +51,8 @@ function markdownRenderer(markdown: string): { html: string; toc: Array<{ depth:
   const counts = new Map<string, number>();
   const toc: Array<{ depth: number; label: string; id: string }> = [];
 
-  renderer.html = ({ text }) => `<p>${escapeHtml(text)}</p>`;
-  renderer.image = ({ text }) => escapeHtml(text);
+  renderer.html = ({ text }: Tokens.HTML) => `<p>${escapeHtml(text)}</p>`;
+  renderer.image = ({ text }: Tokens.Image) => escapeHtml(text);
   renderer.link = function ({ href, title, tokens }: Tokens.Link) {
     const label = this.parser.parseInline(tokens);
     const url = safeUrl(href);
