@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/rhythm_badge.dart';
@@ -524,6 +525,9 @@ class _HtmlImportDialogState extends State<HtmlImportDialog> {
       if (supplied == null) return;
       return _preview(supplied);
     }
+    // ponytail: script/debug launches can leave the app without real macOS
+    // activation, so the native open panel ignores clicks; focus first.
+    await windowManager.focus();
     final picked = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['html', 'htm'],
