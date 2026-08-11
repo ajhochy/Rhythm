@@ -140,6 +140,7 @@ const mcpWithAllTools = Layer.succeed(
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
     tools: () => Effect.succeed(freshMockMcpTools()),
+    appTools: () => Effect.succeed({}),
     toolClientNames: () => Effect.succeed(MOCK_KEY_TO_SERVER),
     prompts: () => Effect.succeed({}),
     resources: () => Effect.succeed({}),

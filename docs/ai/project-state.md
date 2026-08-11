@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1352 MCP Apps negotiation and UI descriptors
+- Files modified: fork MCP discovery/registry (`apps/opencode_fork/packages/opencode/src/mcp/index.ts`), three typed MCP test doubles, issue contract/live tests and contract JSON supplied by acceptance-contract.
+- Checks run: focused #1352 contract plus MCP lifecycle suite 26/26 PASS (75 assertions); fork `bun run typecheck` PASS; `git diff --check` PASS; prompt/snapshot and OAuth/browser suites BLOCKED before assertions because the managed sandbox denies their HTTP server binds.
+- Decisions made: accept only exact `off|readonly|interactive` values (everything else is `off`); negotiate the stable `capabilities.extensions['io.modelcontextprotocol/ui']` MIME entry; retain `_meta` in tolerant discovery; interpret UI visibility only for negotiated peers, with missing visibility defaulting to model+app and malformed/ambiguous values granting neither surface.
+- Deviations from spec: env-gated live sandbox test was not run because network sockets are prohibited in this worker environment; no commit or push made by the coding-agent.
+- Concerns: the later socket-capable orchestrator gate must run the live negotiation fixture and the existing server-backed fork regression suites.
+
 ### 2026-08-10 — issue #1342 MCP result envelope
 - Files modified: fork session envelope/schema/plumbing (`mcp-result-envelope.ts`, `message-v2.ts`, `processor.ts`, `prompt.ts`); Flutter untrusted envelope model and collapsed JSON fallback (`chat_models.dart`, `_tool_call_part.dart`).
 - Checks run: fork contract 1/1 PASS; fork typecheck PASS; API contract 2/2 PASS with live test skipped; Flutter analyze PASS with 296 pre-existing infos; Dart format PASS; Flutter focused test BLOCKED before assertions by sandbox socket-bind EPERM; API typecheck/build BLOCKED by acceptance fixture's invalid `agentKind: 'build'`; fork binary build BLOCKED by denied `models.dev` network access; Flutter macOS build BLOCKED by sandbox/Xcode workspace failure.

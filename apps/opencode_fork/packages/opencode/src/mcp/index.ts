@@ -38,6 +38,80 @@ import {
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
+const MCP_UI_EXTENSION = "io.modelcontextprotocol/ui"
+const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app"
+
+type McpAppsMode = "off" | "readonly" | "interactive"
+
+function mcpAppsMode(): McpAppsMode {
+  const value = process.env.RHYTHM_MCP_APPS_MODE
+  if (value === "readonly" || value === "interactive") return value
+  return "off"
+}
+
+function mcpAppsClientOptions() {
+  if (mcpAppsMode() === "off") return undefined
+  return {
+    capabilities: {
+      extensions: {
+        [MCP_UI_EXTENSION]: { mimeTypes: [MCP_APP_MIME_TYPE] },
+      },
+    },
+  }
+}
+
+function supportsMcpApps(client: MCPClient) {
+  const capabilities = client.getServerCapabilities() as Record<string, unknown> | undefined
+  const extensions = capabilities?.extensions
+  if (!extensions || typeof extensions !== "object" || Array.isArray(extensions)) return false
+  const extension = (extensions as Record<string, unknown>)[MCP_UI_EXTENSION]
+  if (!extension || typeof extension !== "object" || Array.isArray(extension)) return false
+  const mimeTypes = (extension as Record<string, unknown>).mimeTypes
+  return Array.isArray(mimeTypes) && mimeTypes.includes(MCP_APP_MIME_TYPE)
+}
+
+type McpAppVisibility = "model" | "app"
+
+export interface McpAppTool extends MCPToolDef {
+  client: string
+  ui: {
+    resourceUri: string
+    visibility: McpAppVisibility[]
+  }
+}
+
+type UiDescriptorResult =
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | { kind: "valid"; resourceUri: string; visibility: McpAppVisibility[] }
+
+function uiDescriptor(tool: MCPToolDef): UiDescriptorResult {
+  const meta = tool._meta
+  if (!meta || typeof meta !== "object" || Array.isArray(meta) || !("ui" in meta)) return { kind: "none" }
+  const ui = meta.ui
+  if (!ui || typeof ui !== "object" || Array.isArray(ui)) return { kind: "invalid" }
+
+  const resourceUri = (ui as Record<string, unknown>).resourceUri
+  if (typeof resourceUri !== "string" || resourceUri.length === 0 || resourceUri.trim() !== resourceUri) {
+    return { kind: "invalid" }
+  }
+  try {
+    if (new URL(resourceUri).protocol !== "ui:") return { kind: "invalid" }
+  } catch {
+    return { kind: "invalid" }
+  }
+
+  const rawVisibility = (ui as Record<string, unknown>).visibility
+  if (rawVisibility === undefined) {
+    return { kind: "valid", resourceUri, visibility: ["model", "app"] }
+  }
+  if (!Array.isArray(rawVisibility) || rawVisibility.length === 0 || rawVisibility.length > 2) {
+    return { kind: "invalid" }
+  }
+  if (!rawVisibility.every((value) => value === "model" || value === "app")) return { kind: "invalid" }
+  if (new Set(rawVisibility).size !== rawVisibility.length) return { kind: "invalid" }
+  return { kind: "valid", resourceUri, visibility: rawVisibility as McpAppVisibility[] }
+}
 
 /**
  * Rhythm-only MCP request metadata. The engine adds this after the model has
@@ -180,11 +254,7 @@ function listTools(key: string, client: MCPClient, timeout: number) {
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
       }).pipe(
         Effect.map((result) =>
-          result.tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema,
-          })),
+          result.tools.map((tool) => ({ ...tool })),
         ),
       )
     }),
@@ -266,6 +336,7 @@ interface CreateResult {
   mcpClient?: MCPClient
   status: Status
   defs?: MCPToolDef[]
+  mcpAppsSupported?: boolean
 }
 
 interface AuthResult {
@@ -280,12 +351,14 @@ interface State {
   status: Record<string, Status>
   clients: Record<string, MCPClient>
   defs: Record<string, MCPToolDef[]>
+  mcpAppsSupported: Record<string, boolean>
 }
 
 export interface Interface {
   readonly status: () => Effect.Effect<Record<string, Status>>
   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
   readonly tools: () => Effect.Effect<Record<string, Tool>>
+  readonly appTools: () => Effect.Effect<Record<string, McpAppTool>>
   /** Rhythm carried patch (mcp-scope): returns composedKey → raw clientName for every connected tool. */
   readonly toolClientNames: () => Effect.Effect<Record<string, string>>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
@@ -332,7 +405,10 @@ export const layer = Layer.effect(
         (t) =>
           Effect.tryPromise({
             try: () => {
-              const client = new Client({ name: "opencode", version: InstallationVersion })
+              const client = new Client(
+                { name: "opencode", version: InstallationVersion },
+                mcpAppsClientOptions() as ConstructorParameters<typeof Client>[1],
+              )
               return withTimeout(client.connect(t), timeout).then(() => client)
             },
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -517,7 +593,12 @@ export const layer = Layer.effect(
       }
 
       log.info("create() successfully created client", { key, toolCount: listed.length })
-      return { mcpClient, status, defs: listed } satisfies CreateResult
+      return {
+        mcpClient,
+        status,
+        defs: listed,
+        mcpAppsSupported: mcpAppsMode() !== "off" && supportsMcpApps(mcpClient),
+      } satisfies CreateResult
     })
     const cfgSvc = yield* Config.Service
 
@@ -568,6 +649,7 @@ export const layer = Layer.effect(
           status: {},
           clients: {},
           defs: {},
+          mcpAppsSupported: {},
         }
 
         yield* Effect.forEach(
@@ -591,6 +673,7 @@ export const layer = Layer.effect(
               if (result.mcpClient) {
                 s.clients[key] = result.mcpClient
                 s.defs[key] = result.defs!
+                s.mcpAppsSupported[key] = result.mcpAppsSupported ?? false
                 watch(s, key, result.mcpClient, bridge, mcp.timeout)
               }
             }),
@@ -643,6 +726,7 @@ export const layer = Layer.effect(
       s.status[name] = { status: "connected" }
       s.clients[name] = client
       s.defs[name] = listed
+      s.mcpAppsSupported[name] = mcpAppsMode() !== "off" && supportsMcpApps(client)
       watch(s, name, client, bridge, timeout)
       return s.status[name]
     })
@@ -730,11 +814,38 @@ export const layer = Layer.effect(
 
             const timeout = entry?.timeout ?? defaultTimeout
             for (const mcpTool of listed) {
+              const descriptor = s.mcpAppsSupported[clientName] ? uiDescriptor(mcpTool) : { kind: "none" as const }
+              if (descriptor.kind === "invalid") continue
+              if (descriptor.kind === "valid" && !descriptor.visibility.includes("model")) continue
               result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(mcpTool, client, timeout)
             }
           }),
         { concurrency: "unbounded" },
       )
+      return result
+    })
+
+    const appTools = Effect.fn("MCP.appTools")(function* () {
+      const result: Record<string, McpAppTool> = {}
+      const s = yield* InstanceState.get(state)
+      for (const [clientName] of Object.entries(s.clients).filter(
+        ([name]) => s.status[name]?.status === "connected" && s.mcpAppsSupported[name],
+      )) {
+        const listed = s.defs[clientName]
+        if (!listed) continue
+        for (const mcpTool of listed) {
+          const descriptor = uiDescriptor(mcpTool)
+          if (descriptor.kind !== "valid" || !descriptor.visibility.includes("app")) continue
+          result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = {
+            ...mcpTool,
+            client: clientName,
+            ui: {
+              resourceUri: descriptor.resourceUri,
+              visibility: descriptor.visibility,
+            },
+          }
+        }
+      }
       return result
     })
 
@@ -749,6 +860,9 @@ export const layer = Layer.effect(
         const listed = s.defs[clientName]
         if (!listed) continue
         for (const mcpTool of listed) {
+          const descriptor = s.mcpAppsSupported[clientName] ? uiDescriptor(mcpTool) : { kind: "none" as const }
+          if (descriptor.kind === "invalid") continue
+          if (descriptor.kind === "valid" && !descriptor.visibility.includes("model")) continue
           result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = clientName
         }
       }
@@ -862,7 +976,10 @@ export const layer = Layer.effect(
 
       return yield* Effect.tryPromise({
         try: () => {
-          const client = new Client({ name: "opencode", version: InstallationVersion })
+          const client = new Client(
+            { name: "opencode", version: InstallationVersion },
+            mcpAppsClientOptions() as ConstructorParameters<typeof Client>[1],
+          )
           return client
             .connect(transport)
             .then(() => ({ authorizationUrl: "", oauthState, client }) satisfies AuthResult)
@@ -991,6 +1108,7 @@ export const layer = Layer.effect(
       status,
       clients,
       tools,
+      appTools,
       toolClientNames,
       prompts,
       resources,
