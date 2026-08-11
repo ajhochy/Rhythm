@@ -81,7 +81,12 @@ function makeMockTool(description: string) {
       properties: {},
       additionalProperties: false,
     }),
-    execute: async () => ({ content: [{ type: "text" as const, text: "ok" }] }),
+    execute: async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+      structuredContent: { kind: "issue-1342-contract", count: 2 },
+      _meta: { source: "mock-mcp-server", nested: { retained: true } },
+      isError: false,
+    }),
   })
 }
 
@@ -692,6 +697,18 @@ it.instance(
       // makeMockTool's execute() always returns the literal text "ok" — this
       // proves the REAL rhythm_ping.execute ran, not a stub/no-op.
       expect(dispatchPart?.state.output).toContain("ok")
+
+      // Regression caught: wrapMcpTool flattened CallToolResult to text and
+      // silently discarded the standard MCP result fields before the session
+      // part could be persisted. The assertion fails unless the real execute
+      // path retains the additive, JSON-safe result envelope.
+      expect(dispatchPart?.state).toMatchObject({
+        mcpResult: {
+          structuredContent: { kind: "issue-1342-contract", count: 2 },
+          _meta: { source: "mock-mcp-server", nested: { retained: true } },
+          isError: false,
+        },
+      })
     }),
   { git: true, config: cfg },
   10_000,

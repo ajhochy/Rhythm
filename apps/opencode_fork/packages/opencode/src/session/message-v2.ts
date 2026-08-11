@@ -272,6 +272,13 @@ export const ToolStateCompleted = Schema.Struct({
   output: Schema.String,
   title: Schema.String,
   metadata: Schema.Record(Schema.String, Schema.Any),
+  mcpResult: Schema.optional(
+    Schema.Struct({
+      structuredContent: Schema.optional(Schema.Any),
+      _meta: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
+      isError: Schema.optional(Schema.Boolean),
+    }),
+  ),
   time: Schema.Struct({
     start: NonNegativeInt,
     end: NonNegativeInt,

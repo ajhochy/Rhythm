@@ -71,6 +71,7 @@ import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { Global } from "@opencode-ai/core/global"
+import { mcpResultEnvelope } from "./mcp-result-envelope"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -725,6 +726,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 title: "",
                 metadata,
                 output: truncated.content,
+                mcpResult: mcpResultEnvelope(result),
                 attachments: attachments.map((attachment) => ({
                   ...attachment,
                   id: PartID.ascending(),

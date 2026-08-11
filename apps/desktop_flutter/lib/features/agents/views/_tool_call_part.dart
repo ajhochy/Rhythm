@@ -22,6 +22,7 @@ class _ToolCallPartState extends State<ToolCallPart> {
   // expanded, drowning the conversation. The header (tool name + status)
   // stays visible; users expand the calls they care about.
   bool _expanded = false;
+  bool _structuredExpanded = false;
 
   Color _statusColor(BuildContext context) {
     switch (widget.part.toolStatus) {
@@ -94,6 +95,48 @@ class _ToolCallPartState extends State<ToolCallPart> {
               ),
             ),
           ),
+          if (part.mcpResult?.structuredJson != null) ...[
+            Divider(height: 1, color: context.rhythm.borderSubtle),
+            InkWell(
+              onTap: () => setState(
+                () => _structuredExpanded = !_structuredExpanded,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+                child: Row(
+                  children: [
+                    Icon(
+                      _structuredExpanded
+                          ? Icons.expand_more
+                          : Icons.chevron_right,
+                      size: 16,
+                      color: context.rhythm.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Structured result',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_structuredExpanded)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: SelectableText(
+                  part.mcpResult!.structuredJson!,
+                  style: const TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+          ],
           if (_expanded) ...[
             Divider(height: 1, color: context.rhythm.borderSubtle),
             Padding(

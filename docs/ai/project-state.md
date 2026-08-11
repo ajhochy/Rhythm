@@ -36,3 +36,12 @@ Live-artifact automated verification passed, but the human visual smoke **failed
 ## Next step
 
 Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+
+## Recent coding-agent runs
+
+### 2026-08-10 — issue #1342 MCP result envelope
+- Files modified: fork session envelope/schema/plumbing (`mcp-result-envelope.ts`, `message-v2.ts`, `processor.ts`, `prompt.ts`); Flutter untrusted envelope model and collapsed JSON fallback (`chat_models.dart`, `_tool_call_part.dart`).
+- Checks run: fork contract 1/1 PASS; fork typecheck PASS; API contract 2/2 PASS with live test skipped; Flutter analyze PASS with 296 pre-existing infos; Dart format PASS; Flutter focused test BLOCKED before assertions by sandbox socket-bind EPERM; API typecheck/build BLOCKED by acceptance fixture's invalid `agentKind: 'build'`; fork binary build BLOCKED by denied `models.dev` network access; Flutter macOS build BLOCKED by sandbox/Xcode workspace failure.
+- Decisions made: retain only `structuredContent`, `_meta`, and `isError` in a JSON-round-tripped 1 MiB envelope; preserve `state.output` unchanged; render structured content as inert selectable text with no HTML execution.
+- Deviations from spec: env-gated live sandbox test not run because loopback/socket use is prohibited in this managed sandbox; no commit made by dispatched coding-agent.
+- Concerns: final gate needs the contract-owned API fixture corrected to a valid `AgentKind`, plus Flutter/live execution in a socket-capable environment.

@@ -63,6 +63,7 @@ export interface Handle {
       title: string
       metadata: Record<string, any>
       output: string
+      mcpResult?: MessageV2.ToolStateCompleted["mcpResult"]
       attachments?: MessageV2.FilePart[]
     },
   ) => Effect.Effect<void>
@@ -203,6 +204,7 @@ export const layer: Layer.Layer<
           title: string
           metadata: Record<string, any>
           output: string
+          mcpResult?: MessageV2.ToolStateCompleted["mcpResult"]
           attachments?: MessageV2.FilePart[]
         },
       ) {
@@ -215,6 +217,7 @@ export const layer: Layer.Layer<
             input: match.part.state.input,
             output: output.output,
             metadata: output.metadata,
+            mcpResult: output.mcpResult,
             title: output.title,
             time: { start: match.part.state.time.start, end: Date.now() },
             attachments: output.attachments,
