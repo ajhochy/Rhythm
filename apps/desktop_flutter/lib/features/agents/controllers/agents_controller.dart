@@ -1943,7 +1943,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final session = await _repository.createSession(
-        profileId: profileId,
+        // #1365: persist the effective profile binding — an explicit profileId,
+        // else the explicit/resolved default agent — so the session row is not
+        // left Unassigned (which mobile would then display).
+        profileId:
+            profileId ?? (resolvedAgentId.isEmpty ? agentId : resolvedAgentId),
         agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
         taskId: taskId,
         cwd: cwd,
