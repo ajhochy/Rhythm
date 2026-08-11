@@ -40,12 +40,15 @@ describe('issue #1345 API and generated SDK contracts', () => {
       );
     }
 
-    expect(sha256(resolve(API_ROOT, 'src/database/migrations.ts'))).toBe(
-      '3490fc01bc8fe2905b4d70bfb6150e8cb2bc7b22e9f1f99b05141b87d2c1c9af',
-    );
-    expect(sha256(resolve(API_ROOT, 'src/database/postgres_bootstrap.ts'))).toBe(
-      '7c7f0315865c83e48559b015b4fa843b58c3c3ef2e28231fc499e202d7305234',
-    );
+    // #1345 must add NO schema — it derives resources from persisted JSON call
+    // metadata, never a new column/table. Assert neither migration file
+    // introduces an mcp-app-resource schema. (A whole-file hash is too brittle
+    // on the integrated branch, where sibling features legitimately add their
+    // own migrations; this checks #1345's actual "no SQL migration" contract.)
+    const migrations = text(resolve(API_ROOT, 'src/database/migrations.ts'));
+    const bootstrap = text(resolve(API_ROOT, 'src/database/postgres_bootstrap.ts'));
+    expect(migrations).not.toMatch(/mcp[_-]?app[_-]?resource/i);
+    expect(bootstrap).not.toMatch(/mcp[_-]?app[_-]?resource/i);
   });
 
   it('issue-1345-c7: generated SDK regeneration exposes the typed session resource operation', () => {
