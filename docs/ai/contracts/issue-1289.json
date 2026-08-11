@@ -1,0 +1,56 @@
+{
+  "issue": 1289,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1289-c1",
+      "text": "Arbitrary search/navigation/image/tool URLs are not indexed as sources.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
+      "test_id": "issue-1289-c1: arbitrary search/navigation/image/tool URLs are not indexed as sources",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1289-c2",
+      "text": "Structured and full-text companions are independently recorded, including honest partial captures.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
+      "test_id": "issue-1289-c2: structured and full-text companions are independently recorded, including honest partial captures",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1289-c3",
+      "text": "Unrelated chats under research profiles are excluded.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
+      "test_id": "issue-1289-c3: unrelated chats under research profiles are excluded",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1289-c4",
+      "text": "Artifact/source completion is idempotent and traversal-safe.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
+      "test_id": "issue-1289-c4: artifact/source completion is idempotent and traversal-safe",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1289-c5",
+      "text": "Tests cover malformed payloads, duplicate completion, path traversal, symlink escape, missing files, and legacy sessions.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
+      "test_id": "issue-1289-c5: malformed payloads, duplicate completion, traversal, symlink escape, missing files, and legacy sessions are covered",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1289-c6",
+      "text": "RHYTHM_RESEARCH_PROJECTS_ENABLED must default OFF, and behavior with the flag off must be regression-tested at each issue, not just the last one.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
+      "test_id": "issue-1289-c6: the research-project feature flag defaults off and preserves legacy indexing",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
