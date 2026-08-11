@@ -92,6 +92,78 @@ async function waitForServer(request, url, timeoutMs = 10_000) {
   throw new Error(`Timed out waiting for fake server at ${url}`);
 }
 
+// A hardcoded listen port is unsafe on CI: Linux hands out 32768-60999 as
+// ephemeral ports, so any transient localhost socket in the job can already own
+// it, the child dies with EADDRINUSE, and every retry re-picks the same doomed
+// port (#1337). Bind port 0 instead and read back what the kernel assigned.
+async function stopFakeServer(child) {
+  if (!child) return;
+  const exited = child.exitCode !== null || child.signalCode !== null
+    ? Promise.resolve()
+    : new Promise((resolve) => child.once('close', resolve));
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGTERM');
+    const escalation = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }, 2_000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(escalation);
+    }
+  } else {
+    await exited;
+  }
+}
+
+async function startPrefixedFakeServer(basePath, timeoutMs = 5_000) {
+  const child = spawn(process.execPath, ['tests/fake-opencode/server.mjs'], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      FAKE_OPENCODE_PORT: '0',
+      FAKE_OPENCODE_SCENARIO: 'happy-path',
+      FAKE_OPENCODE_BASE_PATH: basePath,
+    },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+
+  const port = await new Promise((resolve, reject) => {
+    let output = '';
+    let timer;
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout.off('data', onData);
+      child.off('error', onError);
+      child.off('exit', onExit);
+    };
+    const settle = (callback, value) => {
+      cleanup();
+      callback(value);
+    };
+    const onData = (chunk) => {
+      output += chunk.toString();
+      const [, listening] = output.match(/listening on http:\/\/127\.0\.0\.1:(\d+)/) ?? [];
+      if (!listening) return;
+      child.stdout.resume();
+      settle(resolve, Number(listening));
+    };
+    const onError = (error) => settle(reject, new Error(`Fake server failed to spawn: ${error.message}`));
+    const onExit = (code, signal) =>
+      settle(reject, new Error(`Fake server exited before listening (${signal ?? code}): ${output}`));
+    timer = setTimeout(() =>
+      settle(reject, new Error(`Fake server timed out after ${timeoutMs}ms waiting to listen: ${output}`)), timeoutMs);
+    child.stdout.on('data', onData);
+    child.once('error', onError);
+    child.once('exit', onExit);
+  }).catch(async (error) => {
+    await stopFakeServer(child);
+    throw error;
+  });
+
+  return { child, port };
+}
+
 test('happy path keeps the main chat flow stable', async ({ page, request }) => {
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
@@ -302,19 +374,12 @@ test('polling fallback still finishes the flow when SSE is unavailable', async (
 
 test('settings explain root-vs-api mismatches and reconnect through a prefixed API base URL', async ({ page, request }) => {
   await resetScenario(request, 'happy-path');
-  const port = 44196;
-  const server = spawn(process.execPath, ['tests/fake-opencode/server.mjs'], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      FAKE_OPENCODE_PORT: String(port),
-      FAKE_OPENCODE_SCENARIO: 'happy-path',
-      FAKE_OPENCODE_BASE_PATH: '/api',
-    },
-    stdio: 'inherit',
-  });
+  let server;
 
   try {
+    const started = await startPrefixedFakeServer('/api');
+    server = started.child;
+    const { port } = started;
     await waitForServer(request, `http://127.0.0.1:${port}/api/path`);
     await openReadyChat(page);
 
@@ -333,6 +398,6 @@ test('settings explain root-vs-api mismatches and reconnect through a prefixed A
     await page.getByRole('button', { name: /Connection Connected/ }).click();
     await expect(page.getByText(new RegExp(`Connected to http://127.0.0.1:${port}/api`))).toBeVisible();
   } finally {
-    server.kill('SIGTERM');
+    await stopFakeServer(server);
   }
 });

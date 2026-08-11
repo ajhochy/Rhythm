@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Pressable,
   RefreshControl,
   StyleSheet,
   View,
@@ -12,7 +13,6 @@ import {
   Card,
   Dialog,
   Divider,
-  IconButton,
   Menu,
   Portal,
   Searchbar,
@@ -36,16 +36,44 @@ import {
 
 interface FlatChat extends AgentChatRecord {
   depth: number;
+  descendantCount: number;
+  runningDescendantCount: number;
 }
 
-function flattenChats(
+export function flattenChats(
   records: AgentChatRecord[],
   depth = 0,
+  collapsedIds: ReadonlySet<string> = new Set(),
+  bypassCollapse = false,
 ): FlatChat[] {
-  return records.flatMap((record) => [
-    { ...record, depth },
-    ...flattenChats(record.children, depth + 1),
-  ]);
+  const rows: FlatChat[] = [];
+  const visit = (
+    record: AgentChatRecord,
+    recordDepth: number,
+    visible: boolean,
+  ): Pick<FlatChat, 'descendantCount' | 'runningDescendantCount'> => {
+    const { children, ...chat } = record;
+    const row: FlatChat = {
+      ...chat,
+      children,
+      depth: recordDepth,
+      descendantCount: 0,
+      runningDescendantCount: 0,
+    };
+    if (visible) rows.push(row);
+
+    const showChildren = visible && (bypassCollapse || !collapsedIds.has(record.id));
+    for (const child of children) {
+      const counts = visit(child, recordDepth + 1, showChildren);
+      row.descendantCount += counts.descendantCount + 1;
+      row.runningDescendantCount +=
+        counts.runningDescendantCount + (child.status === 'running' ? 1 : 0);
+    }
+    return row;
+  };
+
+  records.forEach((record) => visit(record, depth, true));
+  return rows;
 }
 
 type ChatListProps = {
@@ -60,6 +88,7 @@ export function ChatList({ controller }: ChatListProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [query, setQuery] = useState('');
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{
     kind: 'rename';
@@ -83,7 +112,7 @@ export function ChatList({ controller }: ChatListProps) {
   );
   const rows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    return flattenChats(readModel).filter((item) => {
+    return flattenChats(readModel, 0, collapsedIds, Boolean(normalizedQuery)).filter((item) => {
       if (!normalizedQuery) return true;
       const projectLabel =
         projectsByPath.get(item.projectId ?? '')?.label ?? '';
@@ -91,7 +120,7 @@ export function ChatList({ controller }: ChatListProps) {
         value.toLocaleLowerCase().includes(normalizedQuery),
       );
     });
-  }, [projectsByPath, query, readModel]);
+  }, [collapsedIds, projectsByPath, query, readModel]);
   function routingProjectId(record: AgentChatRecord): string | undefined {
     return record.projectId ?? record.routingProjectId ?? opencode.activeProjectPath;
   }
@@ -104,6 +133,15 @@ export function ChatList({ controller }: ChatListProps) {
         sessionId: record.id,
         ...(projectId ? { projectId } : {}),
       },
+    });
+  }
+
+  function toggleCollapsed(id: string) {
+    setCollapsedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   }
 
@@ -204,118 +242,157 @@ export function ChatList({ controller }: ChatListProps) {
             tintColor={palette.tint}
           />
         }
-        renderItem={({ item }) => (
-          <Card
-            accessibilityLabel={`${item.title}, ${item.status}`}
-            accessibilityRole={
-              'button'
-            }
-            mode="outlined"
-            onPress={() => openChat(item)}
-            style={[
-              styles.card,
-              item.depth > 0 && styles.childCard,
-              { borderColor: palette.border },
-            ]}>
-            <Card.Title
-              title={item.title}
-              subtitle={item.projectId === null
-                ? `Desktop chat · ${item.status}`
-                : `${projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project'} · ${item.status}`}
-              titleNumberOfLines={2}
-              subtitleNumberOfLines={2}
-              right={() => (
-                <Menu
-                  anchor={
-                    <IconButton
-                      accessibilityLabel={`Chat actions for ${item.title}`}
-                      disabled={!chat.isOnline || busyId === item.id}
-                      icon="dots-horizontal"
-                      onPress={() => setActionMenuId(item.id)}
-                    />
-                  }
-                  onDismiss={() => setActionMenuId(null)}
-                  visible={actionMenuId === item.id}>
+        renderItem={({ item }) => {
+          const isCollapsed = collapsedIds.has(item.id);
+          const hiddenSummary = isCollapsed && item.descendantCount > 0
+            ? `${item.descendantCount} hidden descendant${item.descendantCount === 1 ? '' : 's'}${item.runningDescendantCount > 0 ? ` · ${item.runningDescendantCount} running` : ''}`
+            : '';
+          const projectLabel = item.projectId === null
+            ? 'Desktop chat'
+            : projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project';
+          const metadata = [projectLabel, item.status, hiddenSummary]
+            .filter(Boolean)
+            .join(' · ');
+          const rowLabel = [
+            item.title,
+            `level ${item.depth + 1}`,
+            item.status,
+            projectLabel,
+            hiddenSummary,
+          ].filter(Boolean).join(', ');
+          return (
+            <View
+              accessible={false}
+              style={[
+                styles.row,
+                { marginLeft: Math.min(item.depth * 12, 24) },
+              ]}
+              testID={`chat-row-${item.id}`}>
+              {item.children.length > 0 ? (
+                <Pressable
+                    accessibilityLabel={`${isCollapsed ? 'Expand' : 'Collapse'} ${item.title}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: !isCollapsed }}
+                    onPress={() => toggleCollapsed(item.id)}
+                    style={styles.disclosureButton}
+                    testID={`chat-disclosure-${item.id}`}>
+                    <Text accessible={false} style={styles.controlIcon}>
+                      {isCollapsed ? '›' : '⌄'}
+                    </Text>
+                  </Pressable>
+                ) : <View style={styles.disclosureSpacer} />}
+              <Pressable
+                accessibilityLabel={rowLabel}
+                accessibilityRole="button"
+                onPress={() => openChat(item)}
+                style={styles.rowText}
+                testID={`chat-row-open-${item.id}`}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.title,
+                    item.depth === 0 ? styles.parentTitle : styles.childTitle,
+                    { color: palette.text },
+                  ]}>
+                  {item.title}
+                </Text>
+                <Text numberOfLines={1} style={{ color: palette.text }} variant="bodySmall">
+                  {metadata}
+                </Text>
+              </Pressable>
+              <Menu
+                anchor={
+                  <Pressable
+                    accessibilityLabel={`Chat actions for ${item.title}`}
+                    accessibilityRole="button"
+                    disabled={!chat.isOnline || busyId === item.id}
+                    onPress={() => setActionMenuId(item.id)}
+                    style={styles.actionButton}
+                    testID={`chat-action-${item.id}`}>
+                    <Text accessible={false} style={styles.controlIcon}>⋯</Text>
+                  </Pressable>
+                }
+                onDismiss={() => setActionMenuId(null)}
+                visible={actionMenuId === item.id}>
+                <Menu.Item
+                  leadingIcon="open-in-new"
+                  onPress={() => {
+                    setActionMenuId(null);
+                    openChat(item);
+                  }}
+                  title="Open"
+                />
+                <Menu.Item
+                  leadingIcon="pencil-outline"
+                  onPress={() => {
+                    setActionMenuId(null);
+                    setTitle(item.title);
+                    setDialog({ kind: 'rename', target: item });
+                  }}
+                  title="Rename"
+                />
+                {item.archivedAt ? (
                   <Menu.Item
-                    leadingIcon="open-in-new"
-                    onPress={() => {
-                      setActionMenuId(null);
-                      openChat(item);
-                    }}
-                    title="Open"
-                  />
-                  <Menu.Item
-                    leadingIcon="pencil-outline"
-                    onPress={() => {
-                      setActionMenuId(null);
-                      setTitle(item.title);
-                      setDialog({ kind: 'rename', target: item });
-                    }}
-                    title="Rename"
-                  />
-                  {item.archivedAt ? (
-                    <Menu.Item
-                      leadingIcon="restore"
-                      onPress={() =>
-                        routingProjectId(item)
-                          ? void run(
-                              item.id,
-                              () =>
-                                chat.restoreChat(routingProjectId(item)!, item.id),
-                              'Chat restored.',
-                            )
-                          : undefined}
-                      title="Restore"
-                    />
-                  ) : (
-                    <Menu.Item
-                      leadingIcon="archive-outline"
-                      onPress={() =>
-                        routingProjectId(item)
-                          ? void run(
-                              item.id,
-                              () =>
-                                chat.archiveChat(routingProjectId(item)!, item.id),
-                              'Chat archived.',
-                            )
-                          : undefined}
-                      title="Archive"
-                    />
-                  )}
-                  <Menu.Item
-                    leadingIcon="source-fork"
+                    leadingIcon="restore"
                     onPress={() =>
                       routingProjectId(item)
                         ? void run(
                             item.id,
-                            async () => {
-                              const forked = await chat.forkChat(
-                                routingProjectId(item)!,
-                                item.id,
-                              );
-                              openChat(forked as unknown as AgentChatRecord);
-                            },
-                            'Chat forked.',
+                            () =>
+                              chat.restoreChat(routingProjectId(item)!, item.id),
+                            'Chat restored.',
                           )
                         : undefined}
-                    testID={`chat-action-fork-${item.id}`}
-                    title="Fork"
+                    title="Restore"
                   />
-                  <Divider />
+                ) : (
                   <Menu.Item
-                    leadingIcon="delete-outline"
-                    onPress={() => {
-                      setActionMenuId(null);
-                      confirmDelete(item);
-                    }}
-                    title="Delete"
-                    titleStyle={{ color: palette.danger }}
+                    leadingIcon="archive-outline"
+                    onPress={() =>
+                      routingProjectId(item)
+                        ? void run(
+                            item.id,
+                            () =>
+                              chat.archiveChat(routingProjectId(item)!, item.id),
+                            'Chat archived.',
+                          )
+                        : undefined}
+                    title="Archive"
                   />
-                </Menu>
-              )}
-            />
-          </Card>
-        )}
+                )}
+                <Menu.Item
+                  leadingIcon="source-fork"
+                  onPress={() =>
+                    routingProjectId(item)
+                      ? void run(
+                          item.id,
+                          async () => {
+                            const forked = await chat.forkChat(
+                              routingProjectId(item)!,
+                              item.id,
+                            );
+                            openChat(forked as unknown as AgentChatRecord);
+                          },
+                          'Chat forked.',
+                        )
+                      : undefined}
+                  testID={`chat-action-fork-${item.id}`}
+                  title="Fork"
+                />
+                <Divider />
+                <Menu.Item
+                  leadingIcon="delete-outline"
+                  onPress={() => {
+                    setActionMenuId(null);
+                    confirmDelete(item);
+                  }}
+                  title="Delete"
+                  titleStyle={{ color: palette.danger }}
+                />
+              </Menu>
+            </View>
+          );
+        }}
         ListEmptyComponent={
           chat.isLoading ? (
             <ToolScreenState state="loading" title="Loading chats" />
@@ -405,10 +482,17 @@ export function ChatList({ controller }: ChatListProps) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   filters: { gap: 12, padding: 16 },
-  list: { gap: 10, padding: 16, paddingBottom: 32 },
+  list: { padding: 8, paddingBottom: 32 },
   emptyList: { flexGrow: 1 },
-  card: { borderRadius: 16 },
-  childCard: { marginLeft: 24 },
+  row: { alignItems: 'center', flexDirection: 'row', minHeight: 56 },
+  disclosureButton: { alignItems: 'center', height: 48, justifyContent: 'center', width: 48 },
+  disclosureSpacer: { height: 48, width: 48 },
+  rowText: { alignSelf: 'stretch', flex: 1, gap: 2, justifyContent: 'center', minHeight: 44, minWidth: 0 },
+  title: { fontSize: 16 },
+  parentTitle: { fontWeight: '500' },
+  childTitle: { fontWeight: '400' },
+  actionButton: { alignItems: 'center', height: 48, justifyContent: 'center', width: 48 },
+  controlIcon: { fontSize: 24, lineHeight: 24 },
   empty: {
     alignItems: 'center',
     flex: 1,

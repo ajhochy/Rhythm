@@ -1676,7 +1676,11 @@ ptyWebSockets.on('connection', (socket) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
-  console.log(`Fake OpenCode server listening on http://127.0.0.1:${port} (${state.scenario})`);
+  // Report the port the kernel actually bound, so callers can pass
+  // FAKE_OPENCODE_PORT=0 and read the assigned port back off stdout.
+  console.log(
+    `Fake OpenCode server listening on http://127.0.0.1:${server.address().port} (${state.scenario})`,
+  );
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

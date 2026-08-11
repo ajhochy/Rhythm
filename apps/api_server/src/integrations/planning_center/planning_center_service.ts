@@ -185,6 +185,17 @@ export class PcoPermissionError extends Error {
   }
 }
 
+function pcoReadBaseUrl(): string {
+  const override = process.env.RHYTHM_LIVE_E2E === '1' ? process.env.RHYTHM_PCO_LIVE_BASE_URL : undefined;
+  if (override) {
+    try {
+      const url = new URL(override);
+      if ((url.protocol === 'http:' || url.protocol === 'https:') && ['127.0.0.1', 'localhost', '::1'].includes(url.hostname) && !url.username && !url.password) return url.origin;
+    } catch { /* production default below */ }
+  }
+  return 'https://api.planningcenteronline.com';
+}
+
 export class PlanningCenterService {
   async collectAutomationSignals(
     account: IntegrationAccount,
@@ -826,7 +837,7 @@ export class PlanningCenterService {
     account: IntegrationAccount,
     path: string,
   ): Promise<JsonApiResponse> {
-    const response = await fetch(`https://api.planningcenteronline.com${path}`, {
+    const response = await fetch(`${pcoReadBaseUrl()}${path}`, {
       headers: {
         Authorization: `Bearer ${account.accessToken}`,
         'User-Agent': 'Rhythm (https://github.com/ajhochy/Rhythm)',
@@ -834,6 +845,7 @@ export class PlanningCenterService {
       },
     });
 
+    if (response.status === 403) throw new PcoPermissionError();
     if (!response.ok) {
       const text = await response.text();
       throw AppError.badRequest(`Planning Center sync failed: ${text}`);

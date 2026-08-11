@@ -21,10 +21,10 @@ config_seeds/
 
 ## How seeding works
 
-- **Version-gated.** A `schema_meta` marker (`config_seeds_v1`) records that the
+- **Version-gated.** A `schema_meta` marker (`config_seeds_v3`) records that the
   current revision has been seeded. On a fresh install the marker is absent, so
   everything is copied and the marker is set. Bump the marker key
-  (`config_seeds_v2`, …) to force-push a new revision to existing installs — the
+  (`config_seeds_v4`, …) to force-push a new revision to existing installs — the
   copy OVERWRITES the managed tool/skill files so shipped fixes propagate (this
   mirrors the config-doctor `config_doctor_prompt_vN` runOnce force-push in
   `migrations.ts`).
@@ -54,7 +54,8 @@ work, then port them here (keeping them free of any hardcoded `/Users/...` path 
 the seeder does NO `$HOME` substitution; committed content ships byte-for-byte).
 Bump the seeder's `schema_meta` marker so existing installs pick up the change.
 
-The v2 bundle includes the creative-media skill set so Gallery works on an
+The v3 bundle adds `zen-free-models`, whose live copy must be validated first and
+then ported here byte-for-byte. The v2 bundle includes the creative-media skill set so Gallery works on an
 offline first run: document-creation, humanizer, claude-design,
 baoyu-infographic, popular-web-designs, excalidraw, design-md,
 social-video-pipeline, and hallmark.

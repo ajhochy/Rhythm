@@ -3,6 +3,8 @@ import { AppError } from '../errors/app_error';
 import { UsersRepository } from '../repositories/users_repository';
 
 const repo = new UsersRepository();
+const artifactTabId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const maxArtifactTabs = 50;
 
 /**
  * Validate that the given string is a recognised IANA timezone name.
@@ -74,7 +76,7 @@ export class UsersController {
   async updateMyPreferences(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.auth!.user.id;
-      const { emailNotificationsEnabled, timezone } = req.body as Record<string, unknown>;
+      const { emailNotificationsEnabled, timezone, artifactTabIds } = req.body as Record<string, unknown>;
       if (emailNotificationsEnabled !== undefined && typeof emailNotificationsEnabled !== 'boolean') {
         throw AppError.badRequest('emailNotificationsEnabled must be a boolean');
       }
@@ -85,6 +87,15 @@ export class UsersController {
       if (typeof timezone === 'string') {
         validateTimezone(timezone);
         patch.timezone = timezone;
+      }
+      if (artifactTabIds !== undefined) {
+        if (!Array.isArray(artifactTabIds) ||
+            artifactTabIds.length > maxArtifactTabs ||
+            artifactTabIds.some((id) => typeof id !== 'string' || !artifactTabId.test(id)) ||
+            new Set(artifactTabIds).size !== artifactTabIds.length) {
+          throw AppError.badRequest(`artifactTabIds must be at most ${maxArtifactTabs} unique UUID strings`);
+        }
+        patch.artifactTabIds = artifactTabIds;
       }
       if (Object.keys(patch).length === 0) {
         throw AppError.badRequest('No valid preference fields provided');

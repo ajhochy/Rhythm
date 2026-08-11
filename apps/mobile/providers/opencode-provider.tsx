@@ -2753,9 +2753,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
         await client.session.promptAsync({
           sessionID: sessionId,
-          agent: executionPlan.agent,
-          model: executionPlan.model,
-          system: executionPlan.system,
+          ...(executionPlan.agent !== undefined ? { agent: executionPlan.agent } : {}),
+          ...(executionPlan.model !== undefined ? { model: executionPlan.model } : {}),
+          ...(executionPlan.system !== undefined ? { system: executionPlan.system } : {}),
           parts,
         });
         promptAccepted = true;

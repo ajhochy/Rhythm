@@ -95,3 +95,4 @@ apps/opencode_bin/
 # never committed.
 docs/testing/results/
 .playwright-mcp/
+apps/api_server/live-artifacts/

@@ -7,6 +7,7 @@ export interface User {
   role: string;
   isFacilitiesManager: boolean;
   emailNotificationsEnabled: boolean;
+  artifactTabIds?: string[];
   timezone: string;
   createdAt: string;
   updatedAt: string;
@@ -20,6 +21,7 @@ export interface CreateUserDto {
   role?: string;
   isFacilitiesManager?: boolean;
   emailNotificationsEnabled?: boolean;
+  artifactTabIds?: string[];
   timezone?: string;
 }
 
@@ -31,5 +33,6 @@ export interface UpdateUserDto {
   role?: string;
   isFacilitiesManager?: boolean;
   emailNotificationsEnabled?: boolean;
+  artifactTabIds?: string[];
   timezone?: string;
 }

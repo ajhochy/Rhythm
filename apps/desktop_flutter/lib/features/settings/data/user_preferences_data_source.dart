@@ -21,4 +21,14 @@ class UserPreferencesDataSource {
     assertOk(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> updateArtifactTabIds(List<String> ids) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/users/me/preferences'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'artifactTabIds': ids}),
+    );
+    assertOk(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
 }

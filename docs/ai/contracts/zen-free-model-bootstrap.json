@@ -1,0 +1,105 @@
+{
+  "issue": null,
+  "date": "2026-08-07",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/zen_free_model_bootstrap.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c1",
+      "text": "Fresh installs seed config-doctor and rhythm-setup with opencode/deepseek-v4-flash-free and grant zen-free-models without mutating existing installs.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap.test.ts",
+      "status": "pass",
+      "reason": "Fresh-only behavior is gated by the Config Doctor INSERT OR IGNORE result; the regression also proves an existing Config Doctor row missing v2 receives only the original v2 repair, never the Zen model or skill."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c2",
+      "text": "listAuthedProviders includes a live keyless opencode provider.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap.test.ts",
+      "status": "pass",
+      "reason": "Uses the real discovery method with only the SDK boundary faked."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c3",
+      "text": "A fresh no-auth sandbox resolves rhythm-setup to opencode/deepseek-v4-flash-free, config-doctor receives the zen-free-models grant, and a real engine turn produces assistant output.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed against a disposable empty SQLite source and empty source HOME through sandbox API :4098 and engine :4097. auth.json was absent; the real no-auth rhythm-setup turn reached idle with exact output zen-bootstrap-ok."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c4",
+      "text": "The identical live and seeded zen-free-models skill documents privacy warning, selection/probe rules, roster, and handoff limits.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Approved policy and handoff separation are present, and the seeded and managed SKILL.md files are byte-identical."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c5",
+      "text": "A stale keyless opencode model resolves to the first available pinned Zen fallback.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_model_resolver_zen_fallback.test.ts",
+      "status": "pass",
+      "reason": "Regression test drives the resolver through its configured-profile surface with mocked auth and catalog boundaries."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c6",
+      "text": "A stale keyless opencode model with no pinned fallback resolves to the first live catalog entry.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_model_resolver_zen_fallback.test.ts",
+      "status": "pass",
+      "reason": "Regression test drives the resolver through its configured-profile surface with mocked auth and catalog boundaries."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c7",
+      "text": "A valid keyless opencode model remains unchanged.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_model_resolver_zen_fallback.test.ts",
+      "status": "pass",
+      "reason": "Regression test drives the resolver through its configured-profile surface with mocked auth and catalog boundaries."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c8",
+      "text": "A stale authed opencode model is not rerouted.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_model_resolver_zen_fallback.test.ts",
+      "status": "pass",
+      "reason": "Regression test protects the paid-model guard."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c9",
+      "text": "An empty keyless opencode catalog resolves to undefined.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/agent_model_resolver_zen_fallback.test.ts",
+      "status": "pass",
+      "reason": "Regression test preserves the existing empty-catalog behavior."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c10",
+      "text": "The live no-auth rhythm-setup turn succeeds after its seeded model is deliberately changed to a nonexistent id.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/zen_free_model_bootstrap_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed through the isolated sandbox with an empty source HOME and disposable database after changing only sandbox rhythm-setup to does-not-exist-free; the real turn reached idle and persisted exact output zen-bootstrap-ok."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c11",
+      "text": "tools/dev/zen-probe.mjs intersects served and free models, probes each with an 8-token completion, and fails when the seeded model fails.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Live third-party catalog and completion availability is verified by the required actual script execution."
+    },
+    {
+      "criterion_id": "task-zen-free-model-bootstrap-c12",
+      "text": "The seeded and managed zen-free-models skill copies remain byte-identical and reference the probe script.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Verified by cmp and documented script reference review."
+    }
+  ],
+  "not_tested": []
+}

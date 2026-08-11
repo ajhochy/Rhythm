@@ -1,0 +1,47 @@
+{
+  "issue": "AV-01",
+  "date": "2026-08-08",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/live_artifacts_schema_parity.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "av-01-c1",
+      "text": "Additive/idempotent SQLite and Postgres definitions exist for `live_artifacts`, `live_artifact_collaborators`, `live_artifact_bundle_revisions`, `live_artifact_state_revisions`, plus per-user ordered `artifact_tab_ids_json` preference.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/live_artifacts_schema_parity.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "av-01-c2",
+      "text": "Schema supports stable UUID text ID; html-only type; title; owner user; workspace; private/shared/organization visibility; current independent bundle/state revision+hash; declared capabilities; created/updated/updated-by; nullable soft-delete audit; collaborator composite key/audit; append-only revision/hash/actor/time metadata. Use repo-compatible types/defaults and minimum constraints/indexes required by the approved contract.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/live_artifacts_schema_parity.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "av-01-c3",
+      "text": "SQLite and Postgres schema are equivalent enough for production behavior; bootstrap is idempotent. Add explicit Postgres backfill/default handling if existing profiles require it. No destructive SQL (`DROP`, `TRUNCATE`, destructive ALTER, deletes) and never use reset-target.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/live_artifacts_schema_parity.test.ts",
+      "status": "pass",
+      "reason": "One real divergence was found and fixed while strengthening the parity test: live_artifacts.id was declared `id TEXT PRIMARY KEY`, which SQLite permits to hold NULL (verified: an INSERT of a NULL id succeeded) while Postgres rejects it. Both dialects now declare `id TEXT PRIMARY KEY NOT NULL`. The change is additive, non-destructive, and touches a table that does not exist in any deployed database yet. Postgres backfill was also proven live: on the throwaway Postgres 16.13 server, dropping artifact_tab_ids_json, seeding a users row, and re-running the bootstrap re-added the column as NOT NULL DEFAULT '[]' and the pre-existing row read back '[]' — so an already-deployed profile is backfilled rather than left NULL."
+    },
+    {
+      "criterion_id": "av-01-c4",
+      "text": "Add `LIVE_ARTIFACT_STORAGE_DIR`; default appropriately, production example documents `/data/live-artifacts`, and sandbox injects a directory inside its isolated sandbox root. Never expose or accept client paths in this slice.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/live_artifacts_schema_parity.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "av-01-c5",
+      "text": "Add focused parity/idempotency tests that fail if columns/constraints/defaults/indexes drift. If real throwaway Postgres is unavailable, record it as not_tested rather than faking evidence.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/live_artifacts_schema_parity.test.ts",
+      "status": "pass",
+      "reason": "Drift detection AND live Postgres execution are both proven. Drift: the parity test asserts exact column sets in BOTH dialects (SQLite via pragma introspection, Postgres via parsing the emitted CREATE TABLE bodies), every CHECK constraint, defaults, composite revision primary keys, SQLite nullability/primary-key ordinals, and all three required indexes including idx_live_artifacts_owner_updated. Verified by mutation: 7 seeded drift cases (Postgres column dropped; Postgres hash-length CHECK dropped; SQLite revision PK narrowed to (artifact_id); Postgres declared_capabilities_json default dropped; idx_live_artifacts_owner_updated removed from both; extra column added to SQLite only; id NOT NULL removed) each turned the test RED, and the unmutated baseline stayed GREEN. All 7 stayed GREEN against the previous version of this test. Live: a throwaway Postgres 16.13 container (docker run --rm postgres:16, port 55433, destroyed afterwards) ran runPostgresBootstrap twice with no error, and catalog inspection of the created schema matched this contract exactly — 16 live_artifacts columns with only deleted_at/deleted_by_user_id nullable, all six CHECK constraints, all four foreign keys, both composite revision primary keys, and all three required indexes (idx_live_artifacts_owner_updated as btree (owner_user_id, updated_at DESC)). A NULL id INSERT was rejected by the NOT NULL constraint, closing the c3 divergence on the real server. The pre-existing env-gated harness apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts also passed against the same throwaway server (1 passed). No production Postgres credentials were used and no repo file was added to produce this evidence."
+    }
+  ],
+  "not_tested": [],
+  "blocked": []
+}

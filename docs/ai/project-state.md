@@ -2,45 +2,37 @@
 
 ## Current focus
 
-Hand off the verified delegation model-override draft PR for manual smoke. Both
-`rhythm_delegate` and `rhythm_delegate_async` accept an optional validated
-`{providerID, modelID}` override; omission retains the target profile default.
+Live-artifact automated verification passed, but the human visual smoke **failed**: the tested native surface was a security/integration harness rather than a usable end-to-end shipping-app workflow. Existing backend, security, runtime, Dashboard tab, and same-ID agent-to-human work remains present, but it does not constitute usable completion. See `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.
 
 ## Active branch / PR
 
-- Branch: `feat/delegation-model-override`.
-- Draft PR: [#1335](https://github.com/ajhochy/Rhythm/pull/1335), commit
-  `31e1ca16`. There is no associated GitHub issue; the local
-  `docs/ai/contracts/issue-001.json` is a workflow contract only.
+- Branch: `feat/artifact-viewer`, pushed and tracking its remote, with `origin/main` `8a3561d9` merged.
+- Draft PR: [#1338](https://github.com/ajhochy/Rhythm/pull/1338) remains **NOT READY** after failed manual smoke.
+- Sharing follow-up: [#1339](https://github.com/ajhochy/Rhythm/issues/1339). Import has no issue and requires AJ approval before filing.
 
 ## In progress
 
-- Draft PR #1335 is open and awaiting human manual smoke. No merge is authorized.
-- Sync delegation passes `modelOverride`; async delegation passes the selected
-  provider into `createSession` and the full model into `promptAsync`. Agent-profile
-  scope is unchanged.
+- Product scope must be decided for importing existing HTML/Claude artifacts and for #1339 before implementation resumes.
+- Existing unrelated follow-ups remain: on-device confirmation of #1327 subagent approvals; #1319 parent taint propagation and `rhythm_delegation_transcript`; transcript fencing for the remaining half of #1331.
 
 ## Risks / known issues
 
-- Five full API-suite memory failures reproduce identically on `origin/main` and
-  are unrelated to this branch.
-- Model-catalog custom-provider authorization was repaired: only authenticated,
-  keyless, or explicitly `opencode.json`-configured providers are authorized.
-  Built-in unauthenticated Zen is rejected with 400; #1143 custom-provider behavior
-  remains covered.
-- GitNexus pre-edit impact was LOW with zero affected processes. Final
-  `detect_changes` remains with the orchestrator.
+- The shipping app has no user-facing import for existing HTML/Claude artifacts, no Share dialog or collaborator management for existing artifacts, and no agent tool to update sharing after creation.
+- The CI server check failed and remains separately untriaged; it is not the explanation for the product-smoke failure.
+- GitNexus CLI conservatively reports **HIGH** across eight flows; all eight map to tested PCO-read or artifact-create entry points and are covered. Manager MCP reports LOW. The guarded DEBUG-only `MainFlutterWindow` registration retained its pre-impact startup-risk review and is absent from the Release binary.
+- Unrelated nonblocking residual: VoiceOver traversal through offscreen dashboard rows.
+- #1322 remains partial: plan mode does not make arbitrary `bash` read-only.
+- Never start a bare manual `api_server` for smoke; use `tools/dev/sandbox.sh` to avoid the live engine/DB collision paths.
+- The rejected demo process remains running by AJ's direction; do not manipulate it.
+- `apps/api_server` still has no effective lint gate; TypeScript compilation is its static check.
 
 ## Test status
 
-- Verification gate: **PASS**; contract criteria C1–C9 pass.
-- API: focused 40 tests pass; TypeScript and build pass.
-- MCP: focused 2 and full 156 tests pass; TypeScript and build pass.
-- Live: 3/3 pass. Default `google/gemini-2.5-pro` and override
-  `google/gemini-2.5-flash` reached idle with expected persisted models; an invalid
-  override returned 400 and created no child.
-- Sandbox stopped; ports 4097 and 4098 are clear.
+- Automated verification: **PASS** after merging `origin/main`; sanitized `ai-workflow checks --level pr` passed.
+- Post-merge totals: API **4,127**, Flutter **1,129** (including **48** live-artifact), and MCP **169**; focused MCP/security **21**, AV-03 contract **11**, and real Postgres bootstrap/parity **2** passed.
+- Native AV-06 A1–A10/C3–C5, secure bridge/runtime checks, Release package verification, deterministic screenshots, and the real engine/MCP → hosted API → human same-ID flow passed.
+- Human visual smoke: **FAILED**; PR #1338 is not ready.
 
 ## Next step
 
-Human manual smoke PR #1335, then merge only with explicit approval.
+Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.

@@ -145,4 +145,13 @@ describe('ensureRhythmMcp diff logic', () => {
     expect(parsed.mcp.other).toBeTruthy();
     expect(parsed.mcp.rhythm).toBeTruthy();
   });
+
+  it('AV-03 P4: sandbox configures the Rhythm MCP for its isolated API without logging its token', () => {
+    // Regression: the sandbox-generated MCP server points at production or exposes its bearer token.
+    const sandbox = readFileSync(join(__dirname, '../../../../tools/dev/sandbox.sh'), 'utf8');
+    expect(sandbox).toContain('ensure_rhythm_mcp');
+    expect(sandbox).toMatch(/apiUrl\\":\\"http:\/\/127\.0\.0\.1:\$API_PORT/);
+    expect(sandbox).toContain('apiToken');
+    expect(sandbox).not.toMatch(/printf[^\n]*\$token|printf[^\n]*RHYTHM_API_TOKEN/);
+  });
 });

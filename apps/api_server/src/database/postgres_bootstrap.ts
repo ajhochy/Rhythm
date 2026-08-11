@@ -632,6 +632,67 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       FOR EACH ROW EXECUTE FUNCTION reject_share_audit_delete();
   `);
 
+  // AV-01: hosted artifacts are production-owned, so install their additive
+  // metadata schema before the cloud role skips agent-execution tables.
+  await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS artifact_tab_ids_json TEXT NOT NULL DEFAULT '[]';
+    UPDATE users SET artifact_tab_ids_json = '[]' WHERE artifact_tab_ids_json IS NULL;
+
+    CREATE TABLE IF NOT EXISTS live_artifacts (
+      -- NOT NULL is redundant here (PRIMARY KEY implies it) but keeps the
+      -- definition byte-identical to the SQLite migration, which needs it.
+      id TEXT PRIMARY KEY NOT NULL,
+      type TEXT NOT NULL CHECK (type = 'html'),
+      title TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id),
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
+      visibility TEXT NOT NULL DEFAULT 'private'
+        CHECK (visibility IN ('private', 'shared', 'organization')),
+      current_bundle_revision INTEGER NOT NULL CHECK (current_bundle_revision > 0),
+      current_bundle_hash TEXT NOT NULL CHECK (length(current_bundle_hash) = 64),
+      current_state_revision INTEGER NOT NULL CHECK (current_state_revision > 0),
+      current_state_hash TEXT NOT NULL CHECK (length(current_state_hash) = 64),
+      declared_capabilities_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_by_user_id INTEGER NOT NULL REFERENCES users(id),
+      deleted_at TEXT,
+      deleted_by_user_id INTEGER REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_live_artifacts_workspace_visibility
+      ON live_artifacts(workspace_id, visibility, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_live_artifacts_owner_updated
+      ON live_artifacts(owner_user_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS live_artifact_collaborators (
+      artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      added_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      added_by_user_id INTEGER NOT NULL REFERENCES users(id),
+      PRIMARY KEY (artifact_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_live_artifact_collaborators_user
+      ON live_artifact_collaborators(user_id, artifact_id);
+
+    CREATE TABLE IF NOT EXISTS live_artifact_bundle_revisions (
+      artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      PRIMARY KEY (artifact_id, revision)
+    );
+
+    CREATE TABLE IF NOT EXISTS live_artifact_state_revisions (
+      artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      PRIMARY KEY (artifact_id, revision)
+    );
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
