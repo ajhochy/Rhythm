@@ -4,6 +4,8 @@ tags: [decision, Rhythm]
 
 # OCU-35C (#1178) — transcript-sharing policy decision sheet, 2026-08-10
 
+> **STATUS: APPROVED by AJ 2026-08-11.** D1 org-only · D2 90-day expiry (purge ~30d after, see #1375) · D3 all sensitive categories excluded by default · D4 owner+admin revoke, audited. Net-new work: #1375.
+
 ## Context
 
 Issue #1178 (privacy-safe transcript sharing inside Rhythm) requires four
