@@ -191,6 +191,8 @@ export interface CreateAgentSessionDto {
   cwd: string;
   name: string;
   projectId?: string | null;
+  /** Session-scoped permission policy selected by the client. */
+  permissionMode?: PermissionMode;
   /** C1 — optional MCP role slug (e.g. "church-admin"). Null/undefined = no scoping. */
   mcpRole?: string | null;
   /**

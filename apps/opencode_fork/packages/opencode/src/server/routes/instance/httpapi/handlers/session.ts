@@ -20,6 +20,7 @@ import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import { notFound } from "../errors"
 import {
   CommandPayload,
   DiffQuery,
@@ -369,7 +370,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PermissionResponsePayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* permissionSvc.reply({ requestID: ctx.params.permissionID, reply: ctx.payload.response })
+      const resolved = yield* permissionSvc.reply({
+        requestID: ctx.params.permissionID,
+        sessionID: ctx.params.sessionID,
+        reply: ctx.payload.response,
+      })
+      if (!resolved) return yield* notFound("Permission request not found")
       return true
     })
 

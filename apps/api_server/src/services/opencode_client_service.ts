@@ -18,6 +18,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
+import type { PermissionMode } from '../models/agent_session';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -1138,6 +1139,10 @@ export class OpencodeClientService {
     // omitted by every pre-#1123 caller, so top-level create/resume/AgentRunner
     // behavior stays byte-for-byte unchanged.
     parentSdkSessionId?: string,
+    // #1322 — plan is an engine-enforced, per-session bash deny. Keeping this
+    // on the session (instead of prompt text or a caller-side check) covers
+    // every bash invocation, including commands introduced by tools/agents.
+    permissionMode?: PermissionMode,
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1227,6 +1232,11 @@ export class OpencodeClientService {
       if (mcpAllowlist !== undefined) {
         body.mcpAllowlist = mcpAllowlist;
       }
+      if (permissionMode === 'plan') {
+        body.permission = [
+          { permission: 'bash', pattern: '*', action: 'deny' },
+        ];
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
       if (skillAllowlist !== undefined) {
@@ -1260,6 +1270,32 @@ export class OpencodeClientService {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('[OpencodeClientService] createSession failed:', err);
       return { error: `Opencode session.create threw: ${message}` };
+    }
+  }
+
+  /** Keep the engine's session policy synchronized when Rhythm mode changes. */
+  async updateSessionPermissionMode(
+    sessionId: string,
+    permissionMode: PermissionMode,
+  ): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const permission = permissionMode === 'plan'
+        ? [{ permission: 'bash' as const, pattern: '*', action: 'deny' as const }]
+        : [];
+      const raw = await client.session.update({ sessionID: sessionId, permission });
+      if (raw.error) {
+        logger.warn(
+          '[OpencodeClientService] updateSessionPermissionMode SDK error for session %s: %o',
+          sessionId,
+          raw.error,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] updateSessionPermissionMode failed:', err);
+      return false;
     }
   }
 
@@ -2028,9 +2064,9 @@ export class OpencodeClientService {
    * endpoint `POST /permission/{requestID}/reply` (reply=once|always|reject
    * + optional {message}). `always` persists a project-level approval engine-
    * side; a reject message is fed back to the agent's next turn. This is the
-   * default path; the deprecated per-session endpoint
-   * ({@link respondToPermission}) is used ONLY as a fallback when the modern
-   * route 404s (older engine binary that predates it).
+   * default path. A 404 is authoritative: with the bundled fork it means the
+   * scoped request did not match a pending ask. Falling back would turn that
+   * required false result into a false-positive success (#1341).
    *
    * Direct fetch until a typed SDK adopts this route. Never throws — returns
    * true on 2xx, false on any failure (the caller still clears local UI
@@ -2055,21 +2091,6 @@ export class OpencodeClientService {
         body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
       });
       if (res.ok) return true;
-      // Older engine that never shipped /permission/:id/reply → fall back to
-      // the deprecated per-session endpoint (needs the SDK session id).
-      if (res.status === 404 && sdkSessionId) {
-        logger.warn(
-          '[OpencodeClientService] replyToPermission: modern /permission/%s/reply 404 — falling back to deprecated per-session endpoint',
-          requestID,
-        );
-        try {
-          await this.respondToPermission(sdkSessionId, requestID, reply, directory, message);
-          return true;
-        } catch (err) {
-          logger.error('[OpencodeClientService] replyToPermission fallback failed:', err);
-          return false;
-        }
-      }
       logger.error(
         `[OpencodeClientService] replyToPermission failed (${res.status}) for ${requestID}`,
       );
@@ -2217,6 +2238,8 @@ export class OpencodeClientService {
       id: string;
       sessionID: string;
       permission?: string;
+      patterns?: string[];
+      title?: string;
       metadata?: Record<string, unknown>;
       tool?: { callID?: string; messageID?: string };
     }>
@@ -2229,6 +2252,8 @@ export class OpencodeClientService {
         id: string;
         sessionID: string;
         permission?: string;
+        patterns?: string[];
+        title?: string;
         metadata?: Record<string, unknown>;
         tool?: { callID?: string; messageID?: string };
       }>;

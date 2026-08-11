@@ -531,6 +531,64 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
     expect(capturedBody).toHaveProperty('skillAllowlist');
     expect(capturedBody.skillAllowlist).toEqual({ skills: [] });
   });
+
+  it('issue-1322-c1: plan mode adds a session-level bash deny rule to session.create', async () => {
+    await Reflect.apply(svc.createSession, svc, [
+      'Plan Session',
+      '/workspace',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'plan',
+    ]);
+
+    expect(capturedBody.permission).toEqual([
+      { permission: 'bash', pattern: '*', action: 'deny' },
+    ]);
+  });
+
+  it('issue-1322-c2: non-plan modes do not add a session permission override', async () => {
+    for (const mode of ['default', 'acceptEdits', 'bypassPermissions']) {
+      capturedBody = {};
+      await Reflect.apply(svc.createSession, svc, [
+        `Non-plan ${mode}`,
+        '/workspace',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mode,
+      ]);
+      expect(capturedBody).not.toHaveProperty('permission');
+    }
+  });
+});
+
+describe('issue #1322 — updateSessionPermissionMode', () => {
+  it('updates the live engine session with bash deny for plan and clears it outside plan', async () => {
+    const svc = new OpencodeClientService();
+    const update = vi.fn().mockResolvedValue({ data: { id: 'sdk-plan' } });
+    (svc as unknown as Record<string, unknown>)['v2Client'] = vi.fn().mockResolvedValue({
+      session: { update },
+    });
+    const method = (svc as unknown as {
+      updateSessionPermissionMode?: (sessionId: string, mode: string) => Promise<boolean>;
+    }).updateSessionPermissionMode;
+
+    expect(typeof method).toBe('function');
+    await method!.call(svc, 'sdk-plan', 'plan');
+    await method!.call(svc, 'sdk-default', 'default');
+
+    expect(update).toHaveBeenNthCalledWith(1, {
+      sessionID: 'sdk-plan',
+      permission: [{ permission: 'bash', pattern: '*', action: 'deny' }],
+    });
+    expect(update).toHaveBeenNthCalledWith(2, {
+      sessionID: 'sdk-default',
+      permission: [],
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -848,5 +906,22 @@ describe('updateSessionSkillAllowlist — clear sentinel (#923)', () => {
       sessionID: 'sess-clear-skills',
       skillAllowlist: null,
     });
+  });
+});
+
+describe('replyToPermission — unmatched modern reply semantics (#1340/#1341)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns false on engine 404 instead of treating it as a legacy-endpoint fallback', async () => {
+    const svc = new OpencodeClientService();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const legacyFallback = vi
+      .spyOn(svc, 'respondToPermission')
+      .mockResolvedValue(undefined);
+
+    await expect(
+      svc.replyToPermission('perm-missing', 'once', undefined, '/correct', 'sdk-1'),
+    ).resolves.toBe(false);
+    expect(legacyFallback).not.toHaveBeenCalled();
   });
 });

@@ -203,6 +203,10 @@ export interface PendingPermission {
   toolName: string;
   args: Record<string, unknown>;
   summary: string;
+  directory?: string;
+  patterns?: string[];
+  title?: string;
+  createdAt?: string;
   /** SDK session ID (needed to call respondPermission). */
   sdkSessionId: string;
 }
@@ -296,6 +300,7 @@ export class OpencodeStreamBridge {
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
   private pendingPermissions = new Map<string, PendingPermission>();
+  private repliedPermissions = new Set<string>();
 
   /** Return the pending permission for a session+permissionId, or undefined. */
   getPendingPermission(localSessionId: string, permissionId: string): PendingPermission | undefined {
@@ -305,6 +310,27 @@ export class OpencodeStreamBridge {
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+  }
+
+  /** Broadcast the canonical reply frame once and retire the pending ask. */
+  markPermissionReplied(localSessionId: string, permissionId: string): void {
+    const key = `${localSessionId}:${permissionId}`;
+    if (this.repliedPermissions.has(key)) return;
+    const pending = this.pendingPermissions.get(key);
+    this.pendingPermissions.delete(key);
+    this.repliedPermissions.add(key);
+    const directory = pending?.directory ?? this.sessionsRepo.findById(localSessionId)?.cwd ?? '';
+    broadcast({
+      v: 1,
+      type: 'permission.replied',
+      sessionId: localSessionId,
+      permissionID: permissionId,
+      directory,
+      tool: pending?.toolName ?? '',
+      patterns: pending?.patterns ?? [],
+      title: pending?.title ?? pending?.summary ?? '',
+      createdAt: pending?.createdAt ?? new Date().toISOString(),
+    });
   }
 
   /**
@@ -322,15 +348,24 @@ export class OpencodeStreamBridge {
     if (this.stoppedSessions.has(localSessionId)) return false;
     const key = `${localSessionId}:${entry.permissionId}`;
     if (this.pendingPermissions.has(key)) return false;
-    this.pendingPermissions.set(key, entry);
+    const normalized: PendingPermission = {
+      ...entry,
+      directory: entry.directory ?? this.sessionsRepo.findById(localSessionId)?.cwd ?? '',
+      patterns: entry.patterns ?? [],
+      title: entry.title ?? entry.summary,
+      createdAt: entry.createdAt ?? new Date().toISOString(),
+    };
+    this.pendingPermissions.set(key, normalized);
     broadcast({
       v: 1,
       type: 'permission.asked',
       sessionId: localSessionId,
-      permissionId: entry.permissionId,
-      toolName: entry.toolName,
-      args: entry.args,
-      summary: entry.summary,
+      permissionID: normalized.permissionId,
+      directory: normalized.directory,
+      tool: normalized.toolName,
+      patterns: normalized.patterns,
+      title: normalized.title,
+      createdAt: normalized.createdAt,
     });
     return true;
   }
@@ -406,6 +441,8 @@ export class OpencodeStreamBridge {
       id: string;
       sessionID: string;
       permission?: string;
+      patterns?: string[];
+      title?: string;
       metadata?: Record<string, unknown>;
       tool?: { callID?: string };
     }>;
@@ -433,6 +470,9 @@ export class OpencodeStreamBridge {
         args: (p.metadata as Record<string, unknown>) ?? {},
         summary: toolName,
         sdkSessionId: p.sessionID,
+        directory,
+        patterns: Array.isArray(p.patterns) ? p.patterns : [],
+        title: typeof p.title === 'string' ? p.title : toolName,
       });
     }
   }
@@ -1754,6 +1794,14 @@ export class OpencodeStreamBridge {
       // shape: {permissionID,toolName,summary,args}) — confirmed from the live
       // event trace. Listening for only one name dropped the request and hung
       // the write forever. Extract fields defensively from either shape.
+      case 'permission.replied': {
+        const reply = event.properties as { requestID?: string };
+        if (localSessionId && reply.requestID) {
+          this.markPermissionReplied(localSessionId, reply.requestID);
+        }
+        break;
+      }
+
       case 'permission.asked':
       case 'permission.updated': {
         const perm = event.properties as {
@@ -1869,13 +1917,10 @@ export class OpencodeStreamBridge {
 
         // True when NOTHING is watching this session for an approval answer.
         //
-        // NOT the same thing as `bypassPermissions`. An interactive session the
-        // user has put in bypass mode still has a human at the keyboard, and
-        // #878 deliberately forces a dangerous-but-not-hardline command
-        // (`git push --force`) to surface a card even there — see
-        // opencode_stream_bridge.test.ts "manual mode (default) surfaces an
-        // approval ask ... even under bypassPermissions". Treating bypass mode
-        // as unattended would silently delete that prompt.
+        // NOT the same thing as `bypassPermissions`. A bypass session may still
+        // be interactive, but its explicit contract is that non-hardline asks
+        // auto-resolve without surfacing. `isUnattended` remains the separate
+        // signal used for default/acceptEdits sessions with no possible viewer.
         //
         // The two shapes where no human can possibly answer:
         //   • a delegated child (#1156 — no UI watches a subagent)
@@ -1966,7 +2011,11 @@ export class OpencodeStreamBridge {
               );
               break;
             }
-            if (classification.decision === 'ask' && !isUnattended) {
+            if (
+              classification.decision === 'ask' &&
+              permissionMode !== 'bypassPermissions' &&
+              !isUnattended
+            ) {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
               // surface an approval ask even under acceptEdits.
@@ -1976,18 +2025,19 @@ export class OpencodeStreamBridge {
                 args,
                 summary: `${summary} — ${classification.detail}`,
                 sdkSessionId,
+                patterns: Array.isArray(perm.patterns)
+                  ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+                  : [],
+                title: perm.title ?? perm.summary ?? summary,
               });
               break;
             }
             if (classification.decision === 'ask') {
-              // UNATTENDED: registering a permission card here is a guaranteed
-              // hang, not a safety measure. `resolveApprovalsMode()` defaults to
-              // 'manual' (APPROVALS_MODE is unset and nothing in the app sets
-              // it), and in manual mode EVERY command the engine escalates
-              // classifies 'ask' — so this branch used to `break` past the
-              // #1156 headless auto-accept below and leave a scheduled run
-              // waiting on a human who was never going to arrive, until the
-              // 600s inactivity abort killed the whole run.
+              // Registering a permission card here is a guaranteed hang for an
+              // unattended session and contradicts the explicit autonomy
+              // contract for bypassPermissions. `resolveApprovalsMode()`
+              // defaults to 'manual', where every escalated command classifies
+              // as ask; only the hardline deny branch above remains absolute.
               //
               // Falling through is safe because it does NOT weaken the parts of
               // #878 that actually protect anything: the hardline blocklist and
@@ -1995,8 +2045,9 @@ export class OpencodeStreamBridge {
               // unconditionally. Only the "uncertain, ask a human" case is
               // downgraded to allow, and only where there is provably no human.
               logger.warn(
-                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in an ` +
-                  `unattended session (reason=${classification.reason}, ` +
+                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in a ` +
+                  `${permissionMode === 'bypassPermissions' ? 'bypass' : 'unattended'} session ` +
+                  `(reason=${classification.reason}, ` +
                   `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
                   `${classification.detail}`,
               );
@@ -2062,6 +2113,10 @@ export class OpencodeStreamBridge {
           args,
           summary,
           sdkSessionId,
+          patterns: Array.isArray(perm.patterns)
+            ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+            : [],
+          title: perm.title ?? perm.summary ?? summary,
         });
         break;
       }
@@ -2191,6 +2246,7 @@ export class OpencodeStreamBridge {
     this.stoppedSessions.clear();
     this.pendingText.clear();
     this.pendingPermissions.clear();
+    this.repliedPermissions.clear();
     this.pendingQuestions.clear();
   }
 }

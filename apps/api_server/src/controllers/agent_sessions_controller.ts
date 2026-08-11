@@ -607,6 +607,16 @@ export class AgentSessionsController {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
 
+      const permissionMode = body.permissionMode === undefined
+        ? 'default'
+        : body.permissionMode;
+      if (
+        typeof permissionMode !== 'string' ||
+        !PERMISSION_MODES.includes(permissionMode as PermissionMode)
+      ) {
+        throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
+      }
+
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
       if (
@@ -888,6 +898,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        permissionMode: permissionMode as PermissionMode,
         // C1 — MCP role (null when no role was requested).
         mcpRole: resolvedMcpRole,
         mcpAllowedToolsJson,
@@ -961,11 +972,18 @@ export class AgentSessionsController {
       // C1: pass mcpRoleConfig so callers/tests can spy on the init-time allowlist;
       // the SDK itself doesn't have a per-session tool param (documented in service).
       const tSdkCreate = Date.now();
-      const opencodeSession = await opencodeClient.createSession(
-        typeof name === 'string' ? name.trim() : '',
-        dto.cwd,
-        mcpRoleConfig,
-      );
+      const sessionTitle = typeof name === 'string' ? name.trim() : '';
+      const opencodeSession = permissionMode === 'plan'
+        ? await opencodeClient.createSession(
+            sessionTitle,
+            dto.cwd,
+            mcpRoleConfig,
+            undefined,
+            undefined,
+            undefined,
+            permissionMode,
+          )
+        : await opencodeClient.createSession(sessionTitle, dto.cwd, mcpRoleConfig);
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
       // `null` on failure, so a truthy `{ error }` object must not pass `!x`.
@@ -1195,6 +1213,20 @@ export class AgentSessionsController {
           'OpenCode rejected the session rename',
         );
       }
+      if (
+        fields.permissionMode !== undefined &&
+        session.sdkSessionId &&
+        !(await opencodeClient.updateSessionPermissionMode(
+          session.sdkSessionId,
+          fields.permissionMode,
+        ))
+      ) {
+        throw new AppError(
+          502,
+          'SESSION_PERMISSION_SYNC_FAILED',
+          'OpenCode rejected the session permission-mode update',
+        );
+      }
       repo.updateFields(session.id, fields);
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);
@@ -1276,26 +1308,81 @@ export class AgentSessionsController {
         opencodeId,
       );
 
-      // Clear the pending permission from the bridge.
-      streamBridge.clearPendingPermission(session.id, permissionId);
+      if (!ok) {
+        throw AppError.notFound('Permission request');
+      }
 
-      // Broadcast resolution so other connected clients update their UI. Keep
-      // the legacy accept/deny decision word on the WS frame the Flutter card
-      // still expects (OCU-02 handles the always affordance UI-side).
+      // Keep the pre-#1340 reply route self-contained: existing Flutter clients
+      // depend on this route's canonical broadcast even when the newer pending-
+      // permission bridge state is unavailable (for example after a restart).
+      streamBridge.clearPendingPermission(session.id, permissionId);
       const { broadcast } = await import('../services/ws_gateway');
       broadcast({
         v: 1,
-        type: 'permission.resolved',
+        type: 'permission.replied',
         sessionId: session.id,
-        permissionId,
-        decision: reply === 'reject' ? 'deny' : 'accept',
+        permissionID: permissionId,
+        directory: session.cwd,
+        tool: '',
+        patterns: [],
+        title: '',
+        createdAt: new Date().toISOString(),
       });
 
-      if (!ok) {
-        // Non-fatal: SDK may not support this endpoint yet.
-        console.warn(`[AgentSessionsController] respondPermission: SDK returned false for session ${session.id}`);
-      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
 
+  async listPendingPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.badRequest('Session has no SDK mapping for permission.');
+      const pending = await opencodeClient.listPermissions(session.cwd);
+      const createdAt = new Date().toISOString();
+      res.json(
+        pending
+          .filter((permission) => permission.sessionID === sdkSessionId)
+          .map((permission) => ({
+            sessionId: session.id,
+            permissionID: permission.id,
+            directory: session.cwd,
+            tool: permission.permission ?? '',
+            patterns: permission.patterns ?? [],
+            title: permission.title ?? permission.permission ?? '',
+            createdAt,
+          })),
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async replyPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.badRequest('Session has no SDK mapping for permission.');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const reply = body.reply;
+      if (reply !== 'once' && reply !== 'always' && reply !== 'reject') {
+        throw AppError.badRequest('reply must be once, always, or reject');
+      }
+      const message = typeof body.message === 'string' ? body.message : undefined;
+      const permissionID = req.params.permissionID;
+      const ok = await opencodeClient.replyToPermission(
+        permissionID,
+        reply,
+        message,
+        session.cwd,
+        sdkSessionId,
+      );
+      if (!ok) throw AppError.notFound('Permission request');
+      streamBridge.markPermissionReplied(session.id, permissionID);
       res.status(204).end();
     } catch (err) {
       next(err);
@@ -1654,7 +1741,17 @@ export class AgentSessionsController {
         logger.info(
           `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
         );
-        const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+        const opencodeSession = session.permissionMode === 'plan'
+          ? await opencodeClient.createSession(
+              session.name,
+              session.cwd,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              session.permissionMode,
+            )
+          : await opencodeClient.createSession(session.name, session.cwd);
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
           throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
