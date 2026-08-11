@@ -67,14 +67,10 @@ function openApiOperations(): Array<{
   method: string;
   path: string;
 }> {
-  // #1352: MCP-App host operations are app-only by construction. They must
-  // never enter the model/mobile gateway manifest even though they remain in
-  // the bundled OpenAPI document for the trusted desktop/API bridge.
-  const appOnlyOperationIds = new Set([
-    'session.mcpAppExecution',
-    'session.mcpAppExecutionProof',
-    'session.mcpAppResource',
-  ]);
+  // Every bundled OpenAPI operation must appear in the manifest with an
+  // explicit allow/deny decision (same contract as alternate-only ops in
+  // issue-1174-c3). #1352 MCP-App host operations are present but denied to
+  // mobile (allowed:false), never reachable — asserted separately in c1.
   const specPath = resolve(
     __dirname,
     '../../../opencode_fork/packages/sdk/openapi.json',
@@ -90,10 +86,7 @@ function openApiOperations(): Array<{
   for (const [path, pathItem] of Object.entries(spec.paths)) {
     for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
       const operation = pathItem[method];
-      if (
-        operation?.operationId &&
-        !appOnlyOperationIds.has(operation.operationId)
-      ) {
+      if (operation?.operationId) {
         operations.push({
           operationId: operation.operationId,
           method: method.toUpperCase(),
@@ -135,6 +128,15 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     expect(actual).toEqual(expected);
     expect(new Set(actual.map((entry) => entry.operationId)).size)
       .toBe(actual.length);
+    // #1352: MCP-App host operations are present in the manifest but denied to
+    // mobile — never reachable through the generic gateway.
+    const appOnly = ['session.mcpAppExecution', 'session.mcpAppExecutionProof', 'session.mcpAppResource'];
+    for (const id of appOnly) {
+      const entry = (proxy?.MOBILE_OPENCODE_OPERATION_MANIFEST ?? [])
+        .find((e) => e.operationId === id);
+      expect(entry, `${id} must be in the manifest`).toBeDefined();
+      expect(entry?.allowed, `${id} must be denied to mobile`).toBe(false);
+    }
     expect(
       (proxy?.MOBILE_OPENCODE_OPERATION_MANIFEST ?? [])
         .filter((entry) => entry.allowed).length,
