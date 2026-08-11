@@ -248,17 +248,20 @@ export class AgentConfigsController {
       const engineAvailable = opencodeClient.isReady;
       if (engineAvailable) {
         try {
-          const [skills, mcpStatusMap] = await Promise.all([
-            opencodeClient.listSkills(),
-            opencodeClient.listMcp(),
-          ]);
+          const skills = await opencodeClient.listSkills();
           liveSkillNames = new Set(skills.map((s) => s.name));
+        } catch {
+          // Engine reported ready but the skill call failed — the enabled
+          // check is not judgeable, but MCP diagnostics may still be useful.
+        }
+        try {
+          const mcpStatusMap = await opencodeClient.listMcp();
           mcpStatuses = Object.fromEntries(
             Object.entries(mcpStatusMap).map(([name, entry]) => [name, entry.status]),
           );
         } catch {
-          // Engine reported ready but the call failed — treat as unavailable
-          // (liveSkillNames stays empty → the not-enabled check is skipped).
+          // MCP capability diagnostics degrade independently from the #958
+          // live-skill wiring result.
         }
       }
       const mismatches = detectAgentSkillWiringMismatches(

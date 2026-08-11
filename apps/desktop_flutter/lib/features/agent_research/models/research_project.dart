@@ -142,13 +142,41 @@ class ResearchProjectRun {
 
 class ResearchCapabilityWarning {
   const ResearchCapabilityWarning(this.agentId, this.warnings);
-  factory ResearchCapabilityWarning.fromJson(Map<String, dynamic> json) =>
-      ResearchCapabilityWarning(
-          asString(json['agentId']) ?? 'research',
-          (json['warnings'] as List?)
-                  ?.map((value) => value.toString())
-                  .toList() ??
-              const []);
+  factory ResearchCapabilityWarning.fromJson(Map<String, dynamic> json) {
+    final warnings = <String>{
+      ...?((json['warnings'] as List?)
+          ?.map((value) => value.toString().trim())
+          .where((value) => value.isNotEmpty)),
+    };
+    final channels = json['channels'];
+    if (channels is Map) {
+      for (final entry in channels.entries) {
+        final diagnostic = entry.value;
+        if (diagnostic is! Map || diagnostic['available'] == true) continue;
+        final channel = _researchChannelLabel(entry.key.toString());
+        final action = diagnostic['action']?.toString();
+        final via = diagnostic['via']?.toString();
+        final reason = diagnostic['reason']?.toString().trim();
+        final detail = action == 'fallback' && via != null && via.isNotEmpty
+            ? ' — using $via fallback'
+            : reason != null && reason.isNotEmpty
+                ? ': $reason'
+                : '';
+        warnings.add('$channel unavailable$detail');
+      }
+    }
+    return ResearchCapabilityWarning(
+        asString(json['agentId']) ?? 'research', warnings.toList());
+  }
   final String agentId;
   final List<String> warnings;
 }
+
+String _researchChannelLabel(String channel) => switch (channel) {
+      'x' => 'X',
+      'youtube' => 'YouTube',
+      'gmail' => 'Gmail',
+      _ => channel.isEmpty
+          ? 'Channel'
+          : '${channel[0].toUpperCase()}${channel.substring(1)}',
+    };

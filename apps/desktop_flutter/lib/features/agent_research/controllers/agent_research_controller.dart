@@ -54,7 +54,6 @@ class AgentResearchController extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      _jobs = await _repository.list();
       try {
         _projects = await _repository.listProjects();
         _projectsAvailable = true;
@@ -68,10 +67,18 @@ class AgentResearchController extends ChangeNotifier {
         } catch (_) {
           _capabilities = [];
         }
+        try {
+          _jobs = await _repository.list();
+        } catch (_) {
+          // Legacy history is supplementary while Projects is available; a
+          // malformed or unavailable legacy response must not hide Projects.
+          _jobs = [];
+        }
       } on AppError catch (e) {
         if (e.statusCode != 404) rethrow;
         _projectsAvailable = false;
         _projects = [];
+        _jobs = await _repository.list();
       }
       _status = AgentResearchStatus.idle;
     } catch (e) {
