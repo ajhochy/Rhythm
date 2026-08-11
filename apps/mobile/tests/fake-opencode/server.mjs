@@ -246,11 +246,17 @@ function handleSse(req, res, directory = state.project.worktree) {
     'Access-Control-Allow-Origin': '*',
   });
   res.flushHeaders();
-  res.write(`data: ${JSON.stringify({
-    directory,
-    payload: { id: `event-${state.nextEventId++}`, type: 'server.connected', properties: {} },
-  })}\n\n`);
   state.sseClients.set(res, directory);
+  const writeHandshakeEvent = (event) => {
+    res.write(`data: ${JSON.stringify({
+      directory,
+      payload: { id: `event-${state.nextEventId++}`, ...event },
+    })}\n\n`);
+  };
+  writeHandshakeEvent({ type: 'server.connected', properties: {} });
+  for (const request of state.pendingPermissions) {
+    writeHandshakeEvent({ type: 'permission.asked', properties: request });
+  }
   req.on('close', () => {
     state.sseClients.delete(res);
   });

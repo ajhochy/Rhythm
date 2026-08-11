@@ -53,7 +53,7 @@ import { Truncate } from "@/tool/truncate"
 import * as ImageGeneration from "@/tool/image-generation"
 import { decodeDataUrl, decodeDataUrlBytes } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Duration, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { TaskTool, type TaskPromptOps } from "@/tool/task"
@@ -1202,7 +1202,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 extendEnv: true,
                 env: { ...shellEnv.env, TERM: "dumb" },
                 stdin: "ignore",
-                forceKillAfter: "3 seconds",
+                forceKillAfter: Duration.millis(flags.shellKillGraceMs),
               })
               const handle = yield* spawner.spawn(cmd)
               yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>

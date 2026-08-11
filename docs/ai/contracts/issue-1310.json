@@ -1,0 +1,16 @@
+{
+  "issue": 1310,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1310-c1",
+      "text": "Cancellation settles only after the real shell process exits, with the genuinely-needed escalation grace injectable and set to zero in tests.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "issue-1310-c1: cancel persists aborted shell result after zero-grace escalation",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

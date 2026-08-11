@@ -24,6 +24,7 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
   experimentalPlanMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_PLAN_MODE"),
   experimentalEventSystem: enabledByExperimental("OPENCODE_EXPERIMENTAL_EVENT_SYSTEM"),
   experimentalWorkspaces: enabledByExperimental("OPENCODE_EXPERIMENTAL_WORKSPACES"),
+  shellKillGraceMs: Config.int("OPENCODE_SHELL_KILL_GRACE_MS").pipe(Config.withDefault(3_000)),
   client: Config.string("OPENCODE_CLIENT").pipe(Config.withDefault("cli")),
 }) {}
 
