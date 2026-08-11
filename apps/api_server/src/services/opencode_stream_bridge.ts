@@ -1869,13 +1869,10 @@ export class OpencodeStreamBridge {
 
         // True when NOTHING is watching this session for an approval answer.
         //
-        // NOT the same thing as `bypassPermissions`. An interactive session the
-        // user has put in bypass mode still has a human at the keyboard, and
-        // #878 deliberately forces a dangerous-but-not-hardline command
-        // (`git push --force`) to surface a card even there — see
-        // opencode_stream_bridge.test.ts "manual mode (default) surfaces an
-        // approval ask ... even under bypassPermissions". Treating bypass mode
-        // as unattended would silently delete that prompt.
+        // NOT the same thing as `bypassPermissions`. A bypass session may still
+        // be interactive, but its explicit contract is that non-hardline asks
+        // auto-resolve without surfacing. `isUnattended` remains the separate
+        // signal used for default/acceptEdits sessions with no possible viewer.
         //
         // The two shapes where no human can possibly answer:
         //   • a delegated child (#1156 — no UI watches a subagent)
@@ -1966,7 +1963,11 @@ export class OpencodeStreamBridge {
               );
               break;
             }
-            if (classification.decision === 'ask' && !isUnattended) {
+            if (
+              classification.decision === 'ask' &&
+              permissionMode !== 'bypassPermissions' &&
+              !isUnattended
+            ) {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
               // surface an approval ask even under acceptEdits.
@@ -1980,14 +1981,11 @@ export class OpencodeStreamBridge {
               break;
             }
             if (classification.decision === 'ask') {
-              // UNATTENDED: registering a permission card here is a guaranteed
-              // hang, not a safety measure. `resolveApprovalsMode()` defaults to
-              // 'manual' (APPROVALS_MODE is unset and nothing in the app sets
-              // it), and in manual mode EVERY command the engine escalates
-              // classifies 'ask' — so this branch used to `break` past the
-              // #1156 headless auto-accept below and leave a scheduled run
-              // waiting on a human who was never going to arrive, until the
-              // 600s inactivity abort killed the whole run.
+              // Registering a permission card here is a guaranteed hang for an
+              // unattended session and contradicts the explicit autonomy
+              // contract for bypassPermissions. `resolveApprovalsMode()`
+              // defaults to 'manual', where every escalated command classifies
+              // as ask; only the hardline deny branch above remains absolute.
               //
               // Falling through is safe because it does NOT weaken the parts of
               // #878 that actually protect anything: the hardline blocklist and
@@ -1995,8 +1993,9 @@ export class OpencodeStreamBridge {
               // unconditionally. Only the "uncertain, ask a human" case is
               // downgraded to allow, and only where there is provably no human.
               logger.warn(
-                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in an ` +
-                  `unattended session (reason=${classification.reason}, ` +
+                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in a ` +
+                  `${permissionMode === 'bypassPermissions' ? 'bypass' : 'unattended'} session ` +
+                  `(reason=${classification.reason}, ` +
                   `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
                   `${classification.detail}`,
               );

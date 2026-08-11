@@ -1,0 +1,16 @@
+{
+  "issue": 1367,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1367-c1",
+      "text": "Bypass mode auto-approves EVERY permission ask — full autonomy, zero hangs. No permission ask of any level/type should surface or block while bypass is active.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_stream_bridge.test.ts",
+      "test_id": "bypassPermissions mode: auto-accepts every permission type without surfacing an ask",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
