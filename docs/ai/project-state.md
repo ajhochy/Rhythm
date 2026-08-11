@@ -36,3 +36,12 @@ Live-artifact automated verification passed, but the human visual smoke **failed
 ## Next step
 
 Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+
+## Recent coding-agent runs
+
+### 2026-08-10 — issue #1324 newest transcript window
+- Files modified: `agent_sessions_controller.ts` (non-paged detail now selects the newest bounded page), `issue_1324_transcript_window.test.ts` and contract JSON (205-message regression coverage).
+- Checks run: focused Vitest contract + existing transcript pagination suite PASS (8 tests); API TypeScript `--noEmit` PASS.
+- Decisions made: preserve the legacy non-paged response shape while reusing the repository's stable newest-first selection/reverse implementation.
+- Deviations from spec: none.
+- Concerns: full baseline `npm test` contains pre-existing loopback-socket failures under this restricted sandbox; focused tests avoid sockets.

@@ -586,8 +586,8 @@ export class AgentSessionsController {
           },
         });
       } else {
-        const messages = messagesRepo.listBySessionStructured(session.id, 200);
-        res.json({ session, messages });
+        const page = messagesRepo.listBySessionStructuredPage(session.id, 200);
+        res.json({ session, messages: page.messages });
       }
 
       // Non-blocking: if the session never recorded a model (created without an
