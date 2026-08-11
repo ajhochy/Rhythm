@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/task-search-tier12
 pr: null
 issues: [task-search-tier12]
-status: READY_FOR_VERIFICATION
+status: PASS
 tags: [run, rhythm, task-search, live-e2e]
 ---
 
@@ -17,6 +17,8 @@ tags: [run, rhythm, task-search, live-e2e]
 - `docs/ai/runs/2026-08-08-task-search-tier12-live.md`
 
 ## Acceptance
+
+WAIVED: documentation-only evidence-hygiene repair; verification is: owned-file diff review and `git diff --check`.
 
 The initial live-contract attempt was red before finalizing the test harness: the real MCP stdio child path omitted the `apps/` segment and failed with `spawn .../mcp_server/node_modules/.bin/tsx ENOENT`. Correcting that new-test-only path produced the executable contract below; no production file changed.
 
@@ -34,6 +36,7 @@ The test is skipped unless `RHYTHM_LIVE_E2E=1`. It creates a disposable sandbox 
 | `cd apps/api_server && node_modules/.bin/tsc --noEmit` | PASS |
 | `cd apps/api_server && npx vitest run src/__tests__/task_search_schema.test.ts --no-file-parallelism` | PASS — 1 file, 3 tests; deterministic SQLite and Postgres SQL contract |
 | `tools/dev/sandbox.sh down && tools/dev/sandbox.sh status; lsof -nP -iTCP:4098 -sTCP:LISTEN; lsof -nP -iTCP:4097 -sTCP:LISTEN` | PASS — sandbox removed; no API or engine listeners |
+| `git diff --check -- <five owned Tier 1+2 run notes>` | PASS — documentation-only status hygiene repair |
 
 ## Observable live evidence
 

@@ -4,7 +4,7 @@ repo: Rhythm
 branch: feat/task-search-tier12
 pr: null
 issues: [task-search-tier12-s1]
-status: READY_FOR_VERIFICATION
+status: PASS
 tags: [run, api_server, task-search, bm25]
 ---
 

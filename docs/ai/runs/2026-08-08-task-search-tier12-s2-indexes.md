@@ -40,7 +40,7 @@ did not declare `tasks.search_vector`.
 ## Notes
 
 - PostgreSQL uses a stored vector with title weight A and notes weight B plus `idx_tasks_search` GIN indexing. The additive ALTER and index execute before the agent-execution role early return.
-- SQLite uses external-content `tasks_fts`, an every-boot FTS rebuild for pre-existing rows, and idempotent insert/update/delete triggers keyed by task `rowid`.
+- SQLite uses external-content `tasks_fts`, a one-time legacy backfill under `tasks_fts_backfill_v1`, then trigger synchronization with zero-write settled migration replay; its idempotent insert/update/delete triggers are keyed by task `rowid`.
 - Deployment risk: ordinary PostgreSQL GIN index creation can briefly lock/load the 397-task production table. It intentionally does not use `CREATE INDEX CONCURRENTLY` because bootstrap transaction behavior was not redesigned.
 - No user-query logic, dependencies, task content writes, or destructive DDL were added.
 
