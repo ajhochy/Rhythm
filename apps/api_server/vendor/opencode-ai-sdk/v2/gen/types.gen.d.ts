@@ -3119,6 +3119,8 @@ export type GlobalHealthResponses = {
     200: {
         healthy: true;
         version: string;
+        pid: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN";
+        bootId: string;
     };
 };
 export type GlobalHealthResponse = GlobalHealthResponses[keyof GlobalHealthResponses];

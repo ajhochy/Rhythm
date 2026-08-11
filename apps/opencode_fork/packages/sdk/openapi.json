@@ -229,11 +229,49 @@
                     },
                     "version": {
                       "type": "string"
+                    },
+                    "pid": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "NaN"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "-Infinity"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "bootId": {
+                      "type": "string"
                     }
                   },
                   "required": [
                     "healthy",
-                    "version"
+                    "version",
+                    "pid",
+                    "bootId"
                   ],
                   "additionalProperties": false,
                   "description": "Health information"
