@@ -512,6 +512,7 @@ class _HtmlImportDialogState extends State<HtmlImportDialog> {
   String? _error;
   List<String> _warnings = const [];
   final _title = TextEditingController();
+  bool _opening = false;
 
   @override
   void dispose() {
@@ -520,22 +521,30 @@ class _HtmlImportDialogState extends State<HtmlImportDialog> {
   }
 
   Future<void> _pick() async {
-    final supplied = await widget.pickFile?.call();
-    if (widget.pickFile != null) {
-      if (supplied == null) return;
-      return _preview(supplied);
+    // The native panel can take a beat to appear on first open; without a
+    // busy state the button looks dead and invites a second click.
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      final supplied = await widget.pickFile?.call();
+      if (widget.pickFile != null) {
+        if (supplied == null) return;
+        return await _preview(supplied);
+      }
+      // ponytail: script/debug launches can leave the app without real macOS
+      // activation, so the native open panel ignores clicks; focus first.
+      await windowManager.focus();
+      final picked = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: const ['html', 'htm'],
+          withData: true);
+      final file = picked?.files.singleOrNull;
+      final bytes = file?.bytes;
+      if (bytes == null || file == null) return;
+      await _preview(HtmlImportFile(name: file.name, bytes: bytes));
+    } finally {
+      if (mounted) setState(() => _opening = false);
     }
-    // ponytail: script/debug launches can leave the app without real macOS
-    // activation, so the native open panel ignores clicks; focus first.
-    await windowManager.focus();
-    final picked = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['html', 'htm'],
-        withData: true);
-    final file = picked?.files.singleOrNull;
-    final bytes = file?.bytes;
-    if (bytes == null || file == null) return;
-    await _preview(HtmlImportFile(name: file.name, bytes: bytes));
   }
 
   Future<void> _preview(HtmlImportFile file) async {
@@ -565,7 +574,8 @@ class _HtmlImportDialogState extends State<HtmlImportDialog> {
               label: 'Import HTML file',
               button: true,
               child: TextButton(
-                  onPressed: _pick, child: const Text('Choose HTML file'))),
+                  onPressed: _opening ? null : _pick,
+                  child: Text(_opening ? 'Opening…' : 'Choose HTML file'))),
           const SizedBox(height: 8),
           if (_error != null) Text(_error!),
           if (_bundle == null && _error == null)
