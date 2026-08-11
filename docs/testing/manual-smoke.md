@@ -372,6 +372,49 @@ credential, or webhook secret.
 - [ ] Force-quit during an active run, relaunch, and confirm the interrupted run
   remains visible and recovers after reconnect.
 
+#### Mobile lifecycle follow-up (#1280, #1364, #1366)
+
+- [ ] On a physical iPhone, type/wrap enough text to grow the composer from one
+  line through six lines. Confirm the box grows on each real UIKit layout event,
+  caps at six lines, and only then scrolls internally.
+- [ ] After a cold launch over the representative remote gateway, open an exact
+  desktop/projectless chat and record tap-to-first-transcript latency. It must
+  stay below `OPEN_PROJECT_SESSION_TIMEOUT_MS` (15 seconds) while the remaining
+  chat catalog continues to appear in the background.
+- [ ] While discovery is still loading, switch paired project scope and open a
+  different explicit chat. Delay/restore the old response and confirm it cannot
+  replace the selected transcript or introduce duplicate/cross-scope rows.
+- [ ] Drop and restore Mac/Tailscale reachability during that open. Confirm the
+  offline state appears, polling resumes while the stream is unavailable, the
+  stream reconnects, and the recovered transcript contains no duplicate turns.
+- [ ] Background/foreground and force-quit/relaunch once during the matrix to
+  exercise native timer suspension and UIKit/network lifecycle behavior that
+  Jest cannot reproduce.
+
+#### Reviewed session-binding cleanup (#1363 — human-gated)
+
+Run this only against the local-agent SQLite database on the paired Mac. The
+command is dry-run-only unless `--apply` is explicitly present, and output paths
+must not already exist.
+
+- [ ] Build the API CLI: `cd apps/api_server && npm run build`.
+- [ ] Generate the candidate report without mutation:
+  `node dist/cli/index.js session-binding-cleanup --db <rhythm.db> --output <review.json>`.
+- [ ] Match every candidate to the corresponding desktop and mobile chat. Set
+  every `reviewDecision` to either `approve` or `preserve`; leave intentional
+  `Theological-Researcher` bindings as `preserve`. For an approved row, set the
+  reviewed `proposed.profileId` and matching `proposed.agentKind`, or use a null
+  profile only when the chat should be Unassigned.
+- [ ] Stop unless a human has approved the complete reviewed JSON. Applying is
+  intentionally not part of automated verification.
+- [ ] After approval only, apply once and reserve a new audit path:
+  `node dist/cli/index.js session-binding-cleanup --db <rhythm.db> --apply --approval-file <review.json> --audit-output <audit.json>`.
+- [ ] Confirm the audit is `applied`, lists only explicitly approved session
+  IDs under `appliedSessionIds`, and lists legitimate bindings under
+  `preservedSessionIds`.
+- [ ] Fully quit and relaunch both desktop and mobile, then verify each approved
+  chat shows the reviewed profile and each preserved chat is unchanged.
+
 ### Every Tool and destructive confirmations (#1173)
 
 - [ ] Open every Tool: Brain, Research, Scheduled Jobs, Webhooks, Profiles,

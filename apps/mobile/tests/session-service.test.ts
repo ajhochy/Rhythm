@@ -1,4 +1,5 @@
 import {
+  resolveExactSession,
   resolveOwnerDiscoveredSession,
   getSessionDiff,
   getSessionMessages,
@@ -6,6 +7,39 @@ import {
 } from '@/providers/services/session-service';
 
 describe('mobile session transcript loading', () => {
+  test('resolves a registered project session through the scoped exact endpoint', async () => {
+    const get = jest.fn().mockResolvedValue({
+      data: { id: 'ses-project', title: 'New project chat' },
+    });
+    const ownerList = jest.fn();
+    const client = {
+      experimental: { session: { list: ownerList } },
+      session: { get },
+    } as never;
+
+    await expect(resolveExactSession(client, 'ses-project')).resolves
+      .toMatchObject({ id: 'ses-project' });
+    expect(get).toHaveBeenCalledWith({ sessionID: 'ses-project' });
+    expect(ownerList).not.toHaveBeenCalled();
+  });
+
+  test('falls back to owner discovery when a session is outside the scoped project', async () => {
+    const notFound = new Error('Session not found', {
+      cause: { status: 404 },
+    });
+    const get = jest.fn().mockRejectedValue(notFound);
+    const ownerList = jest.fn().mockResolvedValue({
+      data: [{ id: 'ses-projectless', title: 'Desktop chat' }],
+    });
+    const client = {
+      experimental: { session: { list: ownerList } },
+      session: { get },
+    } as never;
+
+    await expect(resolveExactSession(client, 'ses-projectless')).resolves
+      .toMatchObject({ id: 'ses-projectless' });
+  });
+
   test('resolves one owner-authorized session outside the selected catalog', async () => {
     const list = jest.fn().mockResolvedValue({
       data: [{ id: 'ses-projectless', title: 'Desktop chat' }],

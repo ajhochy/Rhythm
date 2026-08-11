@@ -11,6 +11,7 @@ import {
 } from 'react';
 
 import { useOpencode } from '@/providers/opencode-provider';
+import { pairedReachabilityAction } from '@/providers/opencode-provider-selectors';
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import {
@@ -241,11 +242,12 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const wasOnline = wasOnlineRef.current;
     wasOnlineRef.current = isOnline;
-    if (!isOnline) {
+    const action = pairedReachabilityAction(wasOnline, isOnline);
+    if (action === 'mark-offline') {
       setIsOfflineCache(true);
       return;
     }
-    if (!wasOnline) {
+    if (action === 'refresh') {
       lastSweepCompletedAtRef.current = 0;
       void refresh();
     }

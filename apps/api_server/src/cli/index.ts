@@ -30,9 +30,18 @@ async function main(): Promise<void> {
       await runSetupCli(rest);
       return;
     }
+    case 'session-binding-cleanup': {
+      const { runSessionBindingCleanupCli } = await import(
+        './session_binding_cleanup'
+      );
+      await runSessionBindingCleanupCli(rest);
+      return;
+    }
     default: {
       // eslint-disable-next-line no-console
-      console.log('Usage: rhythm <doctor|setup> [options]');
+      console.log(
+        'Usage: rhythm <doctor|setup|session-binding-cleanup> [options]',
+      );
       process.exitCode = 1;
     }
   }
