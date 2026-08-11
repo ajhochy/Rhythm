@@ -674,8 +674,7 @@ void main() {
       // AJ 2026-08-11: #1348's client-side exclusion is reverted; delegated
       // children belong to the Chats scope again and the session-list tree
       // (#910) nests them under their parent.
-      expect(controller.sessions.map((s) => s.id),
-          contains('delegated-child'));
+      expect(controller.sessions.map((s) => s.id), contains('delegated-child'));
     });
 
     test(
