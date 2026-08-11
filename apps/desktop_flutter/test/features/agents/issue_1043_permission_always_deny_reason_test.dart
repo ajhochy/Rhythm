@@ -219,7 +219,7 @@ void main() {
       await tester.tap(find.text('Submit'));
       await tester.pump();
 
-      expect(repo.calls, contains(('deny', 'not needed right now')));
+      expect(repo.calls, contains(('reject', 'not needed right now')));
     });
 
     testWidgets('Deny with an empty reason still submits (skippable)',
@@ -235,7 +235,7 @@ void main() {
       await tester.tap(find.text('Submit'));
       await tester.pump();
 
-      expect(repo.calls, contains(('deny', null)));
+      expect(repo.calls, contains(('reject', null)));
     });
 
     testWidgets('Accept still works', (tester) async {
@@ -248,7 +248,7 @@ void main() {
       await tester.tap(find.text('Accept'));
       await tester.pump();
 
-      expect(repo.calls, contains(('accept', null)));
+      expect(repo.calls, contains(('once', null)));
     });
   });
 
@@ -291,7 +291,7 @@ void main() {
       await tester.tap(find.text('Submit'));
       await tester.pumpAndSettle();
 
-      expect(repo.calls, contains(('deny', 'too risky')));
+      expect(repo.calls, contains(('reject', 'too risky')));
     });
   });
 }

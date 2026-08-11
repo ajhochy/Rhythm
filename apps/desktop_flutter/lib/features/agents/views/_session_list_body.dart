@@ -443,20 +443,22 @@ class SessionRow extends StatelessWidget {
               ],
               const SizedBox(width: 6),
               if (isWaitingForPermission)
-                Container(
-                  key: ValueKey('session-waiting-${session.id}'),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: context.rhythm.warning.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(RhythmRadius.pill),
-                  ),
-                  child: Text(
-                    'Waiting on you',
-                    style: TextStyle(
-                      color: context.rhythm.warning,
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
+                ExcludeSemantics(
+                  child: Container(
+                    key: ValueKey('session-waiting-${session.id}'),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: context.rhythm.warning.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                    ),
+                    child: Text(
+                      'Waiting on you',
+                      style: TextStyle(
+                        color: context.rhythm.warning,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 )

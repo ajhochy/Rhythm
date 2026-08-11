@@ -412,14 +412,18 @@ export class AgentSessionsRepository {
     // USO B1 (#1028): the `scope` selects which slice of sessions to return,
     // filtered on the persisted `category` column (upgraded from A1's
     // is_system/scheduled_task_id placeholder).
-    //   - 'chats' (default) → category = 'chat' AND is_system = 0. The is_system
-    //     guard is retained so a stray is_system=1 row can never leak into the
-    //     default Chats view even if its category were 'chat'.
+    //   - no scope (internal callers) → the legacy non-system Chat set,
+    //     including delegated children needed by persistence/audit consumers.
+    //   - 'chats' → root category = 'chat' rows only. The is_system guard is
+    //     retained so a stray is_system=1 row can never leak into Chats even if
+    //     its category were 'chat'.
     //   - 'scheduled' → category = 'scheduled'.
     //   - 'self_improvement' → category = 'self_improvement'.
-    const scope = opts.scope ?? 'chats';
+    const scope = opts.scope;
     const scopeClause =
-      scope === 'scheduled'
+      scope === undefined
+        ? "category = 'chat' AND is_system = 0"
+        : scope === 'scheduled'
         ? "category = 'scheduled'"
         : scope === 'self_improvement'
           ? "category = 'self_improvement'"
