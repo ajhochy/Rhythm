@@ -52,3 +52,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: use fork-issued pid + random per-boot UUID; reattach through the existing global-stream resubscribe path and rerun durable async-delegation recovery; normalize bare SQLite UTC timestamps before staleness comparison.
 - Deviations from spec: live respawn evidence is env-gated for the orchestrator because this worker cannot bind sockets.
 - Concerns: the global GitNexus index is stale, though all affected class/function reports were LOW risk.
+
+### 2026-08-10 — issue #1326 durable api_server logging
+- Files modified: logger rotation/console tee utilities; loopback-only dev log router; early server logger install; app route mount; launcher path banner; focused and env-gated live tests plus contract JSON.
+- Checks run: focused Vitest PASS (3 tests, 1 env-gated live probe skipped); API TypeScript `--noEmit` PASS; launcher `bash -n` PASS.
+- Decisions made: synchronous 5 MiB rotation with four backups keeps crash-adjacent lines durable without a dependency; route clamps tails to 1–1000 non-empty lines and is mounted only with local agent-execution surfaces.
+- Deviations from spec: live endpoint evidence is deferred to the sandbox orchestrator because this worker cannot bind sockets.
+- Concerns: logger impact is UNKNOWN in the stale GitNexus index; app/server impacts are LOW.

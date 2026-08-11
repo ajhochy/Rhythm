@@ -36,6 +36,12 @@ setGlobalDispatcher(
 );
 
 async function main() {
+  const {
+    apiServerLogPath,
+    installPersistentConsoleLogging,
+  } = await import('./utils/logger');
+  installPersistentConsoleLogging();
+
   const [
     { createApp },
     { initDb },
@@ -65,6 +71,8 @@ async function main() {
     import('./mobile_gateway_surface'),
     import('./mobile_gateway_config'),
   ]);
+
+  logger.info(`[server] durable log: ${apiServerLogPath()}`);
 
   const port = Number(process.env.PORT ?? 4000);
   // #1175 — AGENT_LOCAL bypass is safe only behind an explicit IPv4 loopback

@@ -66,6 +66,7 @@ import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
 import { liveArtifactsRouter } from './routes/live_artifacts_routes';
+import { devLogsRouter } from './routes/dev_logs_routes';
 import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
@@ -170,6 +171,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   // handlers) so concurrent handler-owning issues (#736/#765/#737) are left
   // untouched.
   if (env.agentExecutionEnabled) {
+    app.use('/dev', devLogsRouter);
     app.use(
       '/mobile-gateway',
       options.mobileGatewayRouter ?? createMobileGatewayRouter(),
