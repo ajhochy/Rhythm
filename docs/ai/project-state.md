@@ -1,5 +1,25 @@
 # Project State
 
+## Recent coding-agent run — issue #1295
+
+- Existing schedules can target a research project; duplicate local-day ticks coalesce without altering ordinary schedule dispatch.
+- Checks: #1294–#1295 contracts 12/12 and TypeScript compilation passed.
+
+## Recent coding-agent run — issue #1296
+
+- Added dry-run/apply historical reconciliation with deterministic grouping and preserved evidence.
+- Checks: #1295–#1296 contracts 12/12 and TypeScript compilation passed.
+
+## Recent coding-agent run — issue #1297
+
+- Added the shipping Flutter Projects/Legacy Research UI, factual timelines, artifact tabs, warnings/budgets, and lifecycle controls.
+- Formatting and analysis passed; widget execution is deferred for the known sandbox socket EPERM.
+
+## Recent coding-agent run — issue #1298
+
+- Added owner-scoped safe magazine rendering, deterministic HTML/Markdown exports, strict CSP, print CSS, curated provenance, and Flutter report actions.
+- Checks: focused API contracts 17/17, API build, Dart formatting, and full Flutter analyze passed. Flutter widget/browser print execution is deferred to #1300 for the known socket EPERM.
+
 ## Current focus
 
 Live-artifact automated verification passed, but the human visual smoke **failed**: the tested native surface was a security/integration harness rather than a usable end-to-end shipping-app workflow. Existing backend, security, runtime, Dashboard tab, and same-ID agent-to-human work remains present, but it does not constitute usable completion. See `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.
@@ -66,3 +86,8 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: use versioned code-owned prompts; feed stages only owned-run artifact/source rows; run synthesis with explicit degraded language when pass or critic evidence is missing.
 - Deviations from spec: live disagreement scenario remains in the env-gated #1300 sandbox run.
 - Concerns: canonical vault artifacts are registered through the existing `rhythm_complete_research_pass` transcript/indexer contract; the short stage report remains a preview, not canonical.
+# Recent coding-agent run — issue #1294
+
+- Added factual project lifecycle progress and persisted token/cost accounting.
+- Added idempotent run/pass cancellation, selective retry, restart interruption/resume, budget gating, and project events.
+- Checks: #1292–#1294 contracts 16/16; `npx tsc --noEmit` passed. Live abort/restart checks deferred to #1300 isolated sandbox validation.

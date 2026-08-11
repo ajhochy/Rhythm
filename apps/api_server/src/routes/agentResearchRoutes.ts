@@ -15,7 +15,13 @@ router.patch('/projects/:projectId', (req, res, next) => controller.updateProjec
 router.post('/projects/:projectId/archive', (req, res, next) => controller.archiveProject(req, res, next));
 router.get('/projects/:projectId/runs', (req, res, next) => controller.listProjectRuns(req, res, next));
 router.post('/projects/:projectId/runs', (req, res, next) => controller.createProjectRun(req, res, next));
+router.get('/projects/:projectId/runs/:runId/magazine', (req, res, next) => controller.getProjectMagazine(req, res, next));
+router.get('/projects/:projectId/runs/:runId/export', (req, res, next) => controller.exportProjectMagazine(req, res, next));
 router.get('/projects/:projectId/runs/:runId', (req, res, next) => controller.getProjectRun(req, res, next));
+router.post('/projects/:projectId/runs/:runId/cancel', (req, res, next) => controller.cancelProjectRun(req, res, next));
+router.post('/projects/:projectId/runs/:runId/resume', (req, res, next) => controller.resumeProjectRun(req, res, next));
+router.post('/projects/:projectId/runs/:runId/passes/:passId/cancel', (req, res, next) => controller.cancelProjectPass(req, res, next));
+router.post('/projects/:projectId/runs/:runId/passes/:passId/retry', (req, res, next) => controller.retryProjectPass(req, res, next));
 router.get('/projects/:projectId/artifacts/:artifactId', (req, res, next) => controller.getProjectArtifact(req, res, next));
 
 router.get('/', (req, res, next) => controller.list(req, res, next));

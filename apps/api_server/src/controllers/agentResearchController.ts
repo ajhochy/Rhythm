@@ -23,15 +23,36 @@ import {
   type ResearchJob,
   type ResearchProjectInput,
   type ResearchProjectPatch,
+  type ResearchProject,
   type ResearchProjectRun,
 } from '../repositories/agent_research_repository';
 import { logger } from '../utils/logger';
 import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
 import { ResearchProjectOrchestrator } from '../services/research_project_orchestrator';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { emitAppEvent } from '../utils/app_events';
+import {
+  renderResearchMagazine,
+  renderResearchMarkdownExport,
+  researchMagazineHeaders,
+  type ResearchMagazineInput,
+} from '../services/research_magazine_renderer';
 
 const researchJobs = new AgentResearchRepository();
 const projectOrchestrator = new ResearchProjectOrchestrator(researchJobs);
+
+async function abortResearchSession(localSessionId: string): Promise<boolean> {
+  const session = new AgentSessionsRepository().findById(localSessionId);
+  if (!session) return false;
+  const sdkSessionId = opencodeSessionMap.get(localSessionId) ?? session.sdkSessionId;
+  return sdkSessionId ? opencodeClient.abortSession(sdkSessionId, session.cwd) : false;
+}
+
+function emitProjectUpdate(run: ResearchProjectRun): void {
+  emitAppEvent({ event: 'research.project_update', projectId: run.projectId, runId: run.id, ownerUserId: run.ownerUserId, status: run.status });
+}
 
 function projectOwner(req: Request): number {
   const owner = req.auth?.user.id;
@@ -104,6 +125,33 @@ function triggerType(value: unknown): ResearchProjectRun['triggerType'] {
   throw AppError.badRequest('triggerType must be manual, scheduled, or follow-up');
 }
 
+function magazineInput(project: ResearchProject, run: ResearchProjectRun): ResearchMagazineInput {
+  const stages = Array.isArray(run.progress.stages)
+    ? run.progress.stages.filter((stage): stage is Record<string, unknown> => !!stage && typeof stage === 'object')
+    : [];
+  const reportFor = (role: string): string | null => {
+    const stage = stages.find((candidate) => candidate.role === role && candidate.status === 'done');
+    return typeof stage?.report === 'string' && stage.report.trim() ? stage.report : null;
+  };
+  const synthesis = reportFor('synthesis');
+  if (!synthesis) throw AppError.conflict('The canonical synthesis is not available for this run');
+  return {
+    project: { id: project.id, name: project.name, question: project.question },
+    run: {
+      id: run.id,
+      status: run.status,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      usage: run.usage,
+      progress: run.progress,
+      diagnostics: run.diagnostics,
+    },
+    synthesis,
+    critic: reportFor('critic'),
+    sources: run.sources,
+  };
+}
+
 function researchPrompt(job: ResearchJob): string {
   return `You are running a Deep Research pipeline for query: "${job.query}"
 
@@ -159,6 +207,7 @@ export async function recoverStaleResearchJobs(): Promise<number> {
 
 export async function recoverInterruptedResearchProjectRuns(): Promise<number> {
   if (!env.researchProjectsEnabled) return 0;
+  await researchJobs.markActiveProjectWorkInterrupted();
   const owners = await researchJobs.listInterruptedProjectRunOwners();
   const recovered = await Promise.all(
     owners.map((ownerUserId) => projectOrchestrator.reconcileInterruptedStarts(ownerUserId)),
@@ -314,6 +363,82 @@ export class AgentResearchController {
       const run = await researchJobs.getProjectRun(req.params.runId, projectOwner(req));
       if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
       res.json(run);
+    } catch (err) { next(err); }
+  }
+
+  async getProjectMagazine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const [project, run] = await Promise.all([
+        researchJobs.getProject(req.params.projectId, owner),
+        researchJobs.getProjectRun(req.params.runId, owner),
+      ]);
+      if (!project || !run || run.projectId !== project.id) throw AppError.notFound('ResearchProjectRun');
+      res.set(researchMagazineHeaders()).type('html').send(renderResearchMagazine(magazineInput(project, run)));
+    } catch (err) { next(err); }
+  }
+
+  async exportProjectMagazine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const format = req.query.format;
+      if (format !== 'html' && format !== 'markdown') throw AppError.badRequest('format must be html or markdown');
+      const owner = projectOwner(req);
+      const [project, run] = await Promise.all([
+        researchJobs.getProject(req.params.projectId, owner),
+        researchJobs.getProjectRun(req.params.runId, owner),
+      ]);
+      if (!project || !run || run.projectId !== project.id) throw AppError.notFound('ResearchProjectRun');
+      const input = magazineInput(project, run);
+      const extension = format === 'html' ? 'html' : 'md';
+      res.set({
+        ...researchMagazineHeaders(),
+        'Content-Disposition': `attachment; filename="research-${project.id}-${run.id}.${extension}"`,
+      });
+      if (format === 'html') res.type('html').send(renderResearchMagazine(input));
+      else res.type('text/markdown').send(renderResearchMarkdownExport(input));
+    } catch (err) { next(err); }
+  }
+
+  async cancelProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const run = await researchJobs.cancelProjectRun(req.params.runId, projectOwner(req), abortResearchSession);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      emitProjectUpdate(run); res.json(run);
+    } catch (err) { next(err); }
+  }
+
+  async resumeProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const run = await researchJobs.getProjectRun(req.params.runId, owner);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      const resumed = await researchJobs.updateProjectRunState(run.id, owner, { status: 'resumable', diagnostics: { ...run.diagnostics, resumable: true } });
+      if (!resumed) throw AppError.notFound('ResearchProjectRun');
+      emitProjectUpdate(resumed); res.status(202).json(resumed);
+      void projectOrchestrator.start(run.id, owner).then(emitProjectUpdate).catch((error) => logger.error(String(error)));
+    } catch (err) { next(err); }
+  }
+
+  async cancelProjectPass(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const run = await researchJobs.getProjectRun(req.params.runId, owner);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      const pass = await researchJobs.cancelProjectPass(req.params.passId, owner, abortResearchSession);
+      if (!pass || pass.projectRunId !== run.id) throw AppError.notFound('ResearchProjectPass');
+      emitProjectUpdate((await researchJobs.getProjectRun(run.id, owner))!); res.json(pass);
+    } catch (err) { next(err); }
+  }
+
+  async retryProjectPass(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const run = await researchJobs.getProjectRun(req.params.runId, owner);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      const pass = await researchJobs.retryProjectPassJob(req.params.passId, owner);
+      if (!pass || pass.projectRunId !== run.id) throw AppError.notFound('ResearchProjectPass');
+      res.status(202).json(pass);
+      void projectOrchestrator.start(run.id, owner).then(emitProjectUpdate).catch((error) => logger.error(String(error)));
     } catch (err) { next(err); }
   }
 

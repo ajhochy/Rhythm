@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/agent_research_job.dart';
+import '../models/research_project.dart';
 import '../repositories/agent_research_repository.dart';
+import '../../../app/core/errors/app_error.dart';
 
 enum AgentResearchStatus { idle, loading, error }
 
@@ -16,10 +18,23 @@ class AgentResearchController extends ChangeNotifier {
   AgentResearchStatus _status = AgentResearchStatus.idle;
   String? _error;
   Timer? _pollingTimer;
+  bool _projectsAvailable = false;
+  List<ResearchProject> _projects = [];
+  List<ResearchCapabilityWarning> _capabilities = [];
+  ResearchProject? _selectedProject;
+  List<ResearchProjectRun> _runs = [];
+  ResearchProjectRun? _selectedRun;
 
   List<AgentResearchJob> get jobs => List.unmodifiable(_jobs);
   AgentResearchStatus get status => _status;
   String? get error => _error;
+  bool get projectsAvailable => _projectsAvailable;
+  List<ResearchProject> get projects => List.unmodifiable(_projects);
+  List<ResearchCapabilityWarning> get capabilities =>
+      List.unmodifiable(_capabilities);
+  ResearchProject? get selectedProject => _selectedProject;
+  List<ResearchProjectRun> get runs => List.unmodifiable(_runs);
+  ResearchProjectRun? get selectedRun => _selectedRun;
 
   List<AgentResearchJob> get activeJobs =>
       _jobs.where((j) => j.isActive).toList();
@@ -40,12 +55,164 @@ class AgentResearchController extends ChangeNotifier {
     notifyListeners();
     try {
       _jobs = await _repository.list();
+      try {
+        _projects = await _repository.listProjects();
+        _projectsAvailable = true;
+        if (_projects.isNotEmpty && _selectedProject == null) {
+          _selectedProject = _projects.first;
+          _runs = await _repository.listProjectRuns(_selectedProject!.id);
+          if (_runs.isNotEmpty) _selectedRun = _runs.first;
+        }
+        try {
+          _capabilities = await _repository.researchCapabilities();
+        } catch (_) {
+          _capabilities = [];
+        }
+      } on AppError catch (e) {
+        if (e.statusCode != 404) rethrow;
+        _projectsAvailable = false;
+        _projects = [];
+      }
       _status = AgentResearchStatus.idle;
     } catch (e) {
       _error = e.toString();
       _status = AgentResearchStatus.error;
     }
     notifyListeners();
+  }
+
+  Future<void> selectProject(ResearchProject project) async {
+    _selectedProject = project;
+    _selectedRun = null;
+    _runs = [];
+    notifyListeners();
+    try {
+      _runs = await _repository.listProjectRuns(project.id);
+      if (_runs.isNotEmpty) _selectedRun = _runs.first;
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
+  }
+
+  void clearProjectSelection() {
+    _selectedProject = null;
+    _selectedRun = null;
+    _runs = [];
+    notifyListeners();
+  }
+
+  Future<ResearchProject?> createProject(Map<String, dynamic> input) async {
+    try {
+      final project = await _repository.createProject(input);
+      _projects = [project, ..._projects];
+      await selectProject(project);
+      return project;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<bool> updateProject(String id, Map<String, dynamic> input) async {
+    try {
+      final project = await _repository.updateProject(id, input);
+      _projects =
+          _projects.map((item) => item.id == id ? project : item).toList();
+      if (_selectedProject?.id == id) _selectedProject = project;
+      _error = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
+    return false;
+  }
+
+  Future<bool> archiveProject(String id) async {
+    try {
+      await _repository.archiveProject(id);
+      _projects = _projects.where((project) => project.id != id).toList();
+      if (_selectedProject?.id == id) {
+        _selectedProject = null;
+        _selectedRun = null;
+        _runs = [];
+      }
+      _error = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
+    return false;
+  }
+
+  Future<void> startProjectRun() async {
+    final project = _selectedProject;
+    if (project == null) return;
+    try {
+      final run = await _repository.startProjectRun(project.id);
+      _runs = [run, ..._runs.where((item) => item.id != run.id)];
+      _selectedRun = run;
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
+  }
+
+  Future<void> selectRun(ResearchProjectRun run) async {
+    final project = _selectedProject;
+    if (project == null) return;
+    _selectedRun = await _repository.getProjectRun(project.id, run.id);
+    notifyListeners();
+  }
+
+  Future<void> runAction(String action) async {
+    final project = _selectedProject;
+    final run = _selectedRun;
+    if (project == null || run == null) return;
+    try {
+      _selectedRun = await _repository.runAction(project.id, run.id, action);
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
+  }
+
+  Future<void> passAction(ResearchStage stage, String action) async {
+    final project = _selectedProject;
+    final run = _selectedRun;
+    if (project == null || run == null) return;
+    try {
+      await _repository.passAction(project.id, run.id, stage.id, action);
+      _selectedRun = await _repository.getProjectRun(project.id, run.id);
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
+  }
+
+  Uri? magazineUri() {
+    final project = _selectedProject;
+    final run = _selectedRun;
+    return project == null || run == null
+        ? null
+        : _repository.magazineUri(project.id, run.id);
+  }
+
+  Uri? exportUri(String format) {
+    final project = _selectedProject;
+    final run = _selectedRun;
+    return project == null || run == null
+        ? null
+        : _repository.exportUri(project.id, run.id, format);
   }
 
   // --------------------------------------------------------------------------
@@ -99,6 +266,16 @@ class AgentResearchController extends ChangeNotifier {
       for (final job in active) {
         await pollJob(job.id);
       }
+      final project = _selectedProject;
+      final run = _selectedRun;
+      if (project != null &&
+          run != null &&
+          !_terminalRunStates.contains(run.status)) {
+        try {
+          _selectedRun = await _repository.getProjectRun(project.id, run.id);
+          notifyListeners();
+        } catch (_) {}
+      }
     });
   }
 
@@ -113,3 +290,12 @@ class AgentResearchController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+const _terminalRunStates = {
+  'complete',
+  'passes_complete',
+  'budget_exhausted',
+  'cancelled',
+  'error',
+  'degraded',
+};
