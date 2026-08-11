@@ -11,25 +11,26 @@ const _onePixelPng =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 Map<String, dynamic> _imageToolPart(String path) => {
-  'id': 'part_image_1306',
-  'messageID': 'msg_1306',
-  'type': 'tool',
-  'tool': 'image_generation',
-  'state': {
-    'status': 'completed',
-    'input': const {'prompt': 'A sunrise over a church'},
-    'output': 'Image generated and saved to $path',
-    'title': 'Generated image',
-    'metadata': {'path': path},
-  },
-};
+      'id': 'part_image_1306',
+      'messageID': 'msg_1306',
+      'type': 'tool',
+      'tool': 'image_generation',
+      'state': {
+        'status': 'completed',
+        'input': const {'prompt': 'A sunrise over a church'},
+        'output': 'Image generated and saved to $path',
+        'title': 'Generated image',
+        'metadata': {'path': path},
+      },
+    };
 
 Widget _wrap(ChatPart part) => MaterialApp(
-  theme: AppTheme.light(),
-  home: Scaffold(
-    body: SizedBox(width: 700, height: 700, child: ToolCallPart(part: part)),
-  ),
-);
+      theme: AppTheme.light(),
+      home: Scaffold(
+        body:
+            SizedBox(width: 700, height: 700, child: ToolCallPart(part: part)),
+      ),
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

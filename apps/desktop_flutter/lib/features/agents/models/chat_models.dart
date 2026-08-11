@@ -27,17 +27,17 @@ class AgentInfo {
   String get executionAgentId => opencodeAgentId ?? name;
 
   factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
-    name: (json['name'] as String?) ?? '',
-    builtIn: (json['builtIn'] as bool?) ?? false,
-    profileId: json['profileId'] as String?,
-    opencodeAgentId: json['opencodeAgentId'] as String?,
-    defaults: (json['defaults'] as Map<String, dynamic>?) ?? const {},
-    display: (json['display'] as Map<String, dynamic>?) ?? const {},
-    profileAvailability:
-        (json['profileAvailability'] as String?) ?? 'unassigned',
-    description: json['description'] as String?,
-    mode: json['mode'] as String?,
-  );
+        name: (json['name'] as String?) ?? '',
+        builtIn: (json['builtIn'] as bool?) ?? false,
+        profileId: json['profileId'] as String?,
+        opencodeAgentId: json['opencodeAgentId'] as String?,
+        defaults: (json['defaults'] as Map<String, dynamic>?) ?? const {},
+        display: (json['display'] as Map<String, dynamic>?) ?? const {},
+        profileAvailability:
+            (json['profileAvailability'] as String?) ?? 'unassigned',
+        description: json['description'] as String?,
+        mode: json['mode'] as String?,
+      );
 }
 
 /// Parts-based chat model mirroring Opencode Desktop's `Message` + `Part`
@@ -143,11 +143,11 @@ class ChatPart {
     this.fileFilename,
     this.fileUrl,
     this.agentName,
-  }) : _text = text,
-       _toolArgs = toolArgs,
-       _toolOutput = toolOutput,
-       _toolStatus = toolStatus,
-       _toolMetadata = toolMetadata;
+  })  : _text = text,
+        _toolArgs = toolArgs,
+        _toolOutput = toolOutput,
+        _toolStatus = toolStatus,
+        _toolMetadata = toolMetadata;
 
   final String id;
   final String messageId;
@@ -215,8 +215,7 @@ class ChatPart {
   factory ChatPart.fromJson(String messageId, Map<String, dynamic> raw) {
     final type = (raw['type'] as String?) ?? 'text';
     // Generate a stable part id: prefer 'id' field; fall back to hash.
-    final partId =
-        (raw['id'] as String?) ??
+    final partId = (raw['id'] as String?) ??
         '${messageId}_${type}_${raw.hashCode.toRadixString(16)}';
     final part = ChatPart(
       id: partId,
