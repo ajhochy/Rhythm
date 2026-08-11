@@ -283,7 +283,7 @@ const approvalRequestTool = "rhythm_request_approval";
 
 function toolBlock(source: string, tool: string): string {
   const match = new RegExp(
-    `(?:registerTool\\(\\s*server\\s*,|server\\.tool\\()\\s*['"]${tool}['"]`,
+    `(?:register(?:App)?Tool\\(\\s*server\\s*,|server\\.tool\\()\\s*['"]${tool}['"]`,
   ).exec(source);
   const toolIndex = match?.index ?? -1;
   expect(
@@ -291,7 +291,7 @@ function toolBlock(source: string, tool: string): string {
     `${tool} must have a static tool registration block`,
   ).toBeGreaterThanOrEqual(0);
   const remainder = source.slice(toolIndex + (match?.[0].length ?? 1));
-  const nextRelative = remainder.search(/(?:registerTool\(|server\.tool\()/);
+  const nextRelative = remainder.search(/(?:register(?:App)?Tool\(|server\.tool\()/);
   const next =
     nextRelative < 0
       ? undefined
@@ -315,7 +315,7 @@ function rhythmTools(role: RoleFile): string[] {
 function registeredRhythmTools(): Map<string, string> {
   const registered = new Map<string, string>();
   const registration =
-    /(?:registerTool\(\s*server\s*,|server\.tool\()\s*["'](rhythm_[a-z0-9_]+)["']/g;
+    /(?:register(?:App)?Tool\(\s*server\s*,|server\.tool\()\s*["'](rhythm_[a-z0-9_]+)["']/g;
   for (const name of readdirSync(toolsDir)) {
     if (
       !name.endsWith(".ts") ||
@@ -609,7 +609,7 @@ describe("#1175 external-content role graph", () => {
         `${tool} must register via registerTool(): the raw server.tool() path ` +
           `leaves the engine proof out of async-local scope, so its taint POST ` +
           `is unsigned and the agent server refuses it 403`,
-      ).toMatch(/^registerTool\(/);
+      ).toMatch(/^register(?:App)?Tool\(/);
     }
 
     const boundary = readFileSync(

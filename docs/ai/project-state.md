@@ -39,6 +39,12 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1355 dashboard MCP App pilot
+- Files modified: existing dashboard registration/result, additive trusted app-tool helper, self-contained dashboard resource, focused MCP/security contracts, and evidence records.
+- Checks run: focused MCP/security 13/13 PASS; MCP typecheck/build PASS; generic Dart host contract PASS; listener-dependent full-suite cases environment-blocked by socket EPERM.
+- Decisions made: preserve the one existing tool and full fenced text fallback; expose only aggregate numeric structured metrics; keep Flutter entirely pilot-agnostic.
+- Concerns: both-pilot live and packaged smoke remains release-blocking before activation.
+
 ### 2026-08-10 — issue #1357 same-server MCP App execution
 - Files modified: fork proof/execution gate and endpoints; regenerated v2 SDK; API server-only proof broker and typed wrappers; Flutter `tools/call` transport policy; focused contract/live tests and run log.
 - Checks run: fork focused contracts 11/11 PASS and typecheck PASS; SDK regeneration PASS; API focused contracts 4 PASS / live skipped and typecheck PASS; pure-Dart interactive transport PASS.
