@@ -29,6 +29,61 @@ export function registerAgentResearchTools(
 ) {
   registerTool(
     server,
+    "rhythm_complete_research_pass",
+    "Register the versioned canonical artifacts and curated provenance for one persisted research pass. Paths must be vault-relative Markdown files; the API indexes this completed tool call idempotently from the persisted session transcript.",
+    {
+      version: z.literal(1),
+      job_id: z.string().min(1),
+      run_id: z.string().min(1),
+      pass_id: z.string().min(1),
+      artifacts: z.array(z.object({
+        role: z.enum(["canonical", "supporting"]),
+        kind: z.enum(["structured", "full-text"]),
+        vault_path: z.string().min(1),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+      })),
+      sources: z.array(z.object({
+        url: z.string().url(),
+        canonical_url: z.string().url(),
+        capture_status: z.enum(["complete", "partial", "failed"]),
+        structured_vault_path: z.string().min(1).optional(),
+        full_text_vault_path: z.string().min(1).optional(),
+        structured_sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+        full_text_sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+        failure: z.object({ code: z.string().min(1), message: z.string().min(1) }).optional(),
+      })),
+      approval_id: z.string().optional().describe(
+        "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+      ),
+    },
+    async (input, extra) => {
+      const { approval_id, ...completion } = input;
+      const payload = completion;
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "research.complete-pass",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [{ type: "text" as const, text: gate.refusalMessage as string }],
+          isError: true as const,
+        };
+      }
+      return toolResult(JSON.stringify({
+        accepted: true,
+        version: completion.version,
+        job_id: completion.job_id,
+        run_id: completion.run_id,
+        pass_id: completion.pass_id,
+      }));
+    },
+  );
+
+  registerTool(
+    server,
     "rhythm_start_research",
     `Start a multi-step deep research job. The agent will:
 1. Plan 3-5 authoritative sources for the query

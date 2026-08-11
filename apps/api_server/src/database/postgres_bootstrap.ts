@@ -917,8 +917,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_research_artifacts (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
-      project_run_id TEXT NOT NULL REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
       job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
       artifact_role TEXT NOT NULL,
       vault_path TEXT NOT NULL,
@@ -927,6 +927,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_research_artifacts ALTER COLUMN project_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE agent_research_artifacts ALTER COLUMN project_run_id DROP NOT NULL`);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_research_artifacts_run_role
       ON agent_research_artifacts(project_run_id, artifact_role)
@@ -934,7 +936,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_research_curated_sources (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
       project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
       job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
       canonical_url TEXT NOT NULL,
@@ -949,6 +951,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_research_curated_sources ALTER COLUMN project_id DROP NOT NULL`);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_research_curated_sources_project_url
       ON agent_research_curated_sources(project_id, canonical_url)

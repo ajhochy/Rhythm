@@ -8,7 +8,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
       "test_id": "issue-1289-c1: arbitrary search/navigation/image/tool URLs are not indexed as sources",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1289-c2",
@@ -16,7 +16,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
       "test_id": "issue-1289-c2: structured and full-text companions are independently recorded, including honest partial captures",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1289-c3",
@@ -24,7 +24,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
       "test_id": "issue-1289-c3: unrelated chats under research profiles are excluded",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1289-c4",
@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
       "test_id": "issue-1289-c4: artifact/source completion is idempotent and traversal-safe",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1289-c5",
@@ -40,7 +40,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
       "test_id": "issue-1289-c5: malformed payloads, duplicate completion, traversal, symlink escape, missing files, and legacy sessions are covered",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1289-c6",
@@ -48,7 +48,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/contract/issue_1289.test.ts",
       "test_id": "issue-1289-c6: the research-project feature flag defaults off and preserves legacy indexing",
-      "status": "pending"
+      "status": "pass"
     }
   ],
   "stack": "typescript",

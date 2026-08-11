@@ -1793,8 +1793,8 @@ export function runMigrations(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_research_artifacts (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
-      project_run_id TEXT NOT NULL REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
       job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
       artifact_role TEXT NOT NULL,
       vault_path TEXT NOT NULL,
@@ -1807,7 +1807,7 @@ export function runMigrations(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS agent_research_curated_sources (
       id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
       project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
       job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
       canonical_url TEXT NOT NULL,

@@ -98,7 +98,7 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
  * from a measured run — a stale mirror here passes vacuously and guards nothing.
  */
 const EXPECTED_REGISTRAR_CALLS = 24;
-const EXPECTED_TOOL_NAMES = 91;
+const EXPECTED_TOOL_NAMES = 92;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {
@@ -156,6 +156,7 @@ describe('MCP server tool registration (issue #864 guard)', () => {
           'rhythm_update_live_artifact_state',
           'rhythm_update_live_artifact_bundle',
           'rhythm_update_live_artifact_sharing',
+          'rhythm_complete_research_pass',
         ]),
       );
     } finally {

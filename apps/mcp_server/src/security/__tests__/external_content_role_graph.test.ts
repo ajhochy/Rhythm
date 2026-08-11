@@ -165,6 +165,10 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
       { action: "research.update", sourceFile: "agentResearch.ts" },
     ],
     [
+      "rhythm_complete_research_pass",
+      { action: "research.complete-pass", sourceFile: "agentResearch.ts" },
+    ],
+    [
       "rhythm_run_org_optimizer",
       { action: "org-optimizer.run", sourceFile: "orgOptimizer.ts" },
     ],

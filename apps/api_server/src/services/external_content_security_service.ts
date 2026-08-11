@@ -37,6 +37,7 @@ export const SECURITY_ACTIONS = [
   'memory.forget',
   'research.start',
   'research.update',
+  'research.complete-pass',
   'org-optimizer.run',
   'delegation.start',
   'delegation.start-async',
