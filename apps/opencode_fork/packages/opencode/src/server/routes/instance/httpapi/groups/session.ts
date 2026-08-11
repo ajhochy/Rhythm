@@ -10,6 +10,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
+import { McpAppResourceContent } from "@/session/mcp-app-resource-schema"
 import { Schema, Struct } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -88,6 +89,7 @@ export const SessionPaths = {
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
+  mcpAppResource: `${root}/:sessionID/mcp-app-resource/:callID`,
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
@@ -444,6 +446,18 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "part.update",
             description: "Update a part in a message.",
+          }),
+        ),
+        HttpApiEndpoint.get("mcpAppResource", SessionPaths.mcpAppResource, {
+          params: { sessionID: SessionID, callID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(McpAppResourceContent, "Bound MCP App HTML resource"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.mcpAppResource",
+            summary: "Read a session-bound MCP App resource",
+            description: "Read bounded MCP App HTML using provenance persisted on an originating tool call.",
           }),
         ),
       )

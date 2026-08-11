@@ -13,6 +13,8 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
+import { MCP } from "@/mcp"
+import { readSessionBoundMcpAppResource } from "@/session/mcp-app-resource"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
@@ -48,6 +50,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
+    const mcp = yield* MCP.Service
     const summary = yield* SessionSummary.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
@@ -148,6 +151,49 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapStorageNotFound(
         MessageV2.get({ sessionID: ctx.params.sessionID, messageID: ctx.params.messageID }),
       )
+    })
+
+    const mcpAppResource = Effect.fn("SessionHttpApi.mcpAppResource")(function* (ctx: {
+      params: { sessionID: SessionID; callID: string }
+    }) {
+      const current = yield* requireSession(ctx.params.sessionID)
+      const found = yield* SessionError.mapStorageNotFound(
+        session.findMessage(ctx.params.sessionID, (entry) =>
+          entry.parts.some((part) => part.type === "tool" && part.callID === ctx.params.callID),
+        ),
+      )
+      const message = Option.getOrUndefined(found)
+      const part = message?.parts.find((item) => item.type === "tool" && item.callID === ctx.params.callID)
+      if (!part || part.type !== "tool" || part.state.status !== "completed" || !part.state.mcpAppResource) {
+        return yield* new HttpApiError.BadRequest({})
+      }
+
+      const origin = part.state.mcpAppResource
+      const registry = yield* mcp.appTools()
+      const stillAdvertised = Object.values(registry).some(
+        (tool) => tool.client === origin.serverName && tool.ui.resourceUri === origin.resourceUri,
+      )
+      if (!stillAdvertised) return yield* new HttpApiError.BadRequest({})
+
+      const mode = process.env.RHYTHM_MCP_APPS_MODE
+      return yield* Effect.tryPromise({
+        try: () =>
+          readSessionBoundMcpAppResource(
+            {
+              mode,
+              sessionID: current.id,
+              callID: ctx.params.callID,
+              cwd: current.directory,
+              now: new Date().toISOString(),
+              persistedOrigin: origin,
+            },
+            {
+              readResource: ({ serverName, resourceUri }) =>
+                Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+            },
+          ),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
     })
 
     const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: Session.CreateInput }) {
@@ -415,6 +461,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)
+      .handle("mcpAppResource", mcpAppResource)
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)

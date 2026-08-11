@@ -2492,6 +2492,28 @@ export class Session2 extends HeyApiClient {
             ...params,
         });
     }
+    /**
+     * Read a session-bound MCP App resource
+     *
+     * Read bounded MCP App HTML using provenance persisted on an originating tool call.
+     */
+    mcpAppResource(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "path", key: "callID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).get({
+            url: "/session/{sessionID}/mcp-app-resource/{callID}",
+            ...options,
+            ...params,
+        });
+    }
 }
 export class Part extends HeyApiClient {
     /**

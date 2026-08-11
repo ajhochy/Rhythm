@@ -827,6 +827,7 @@ export const layer = Layer.effect(
 
     const appTools = Effect.fn("MCP.appTools")(function* () {
       const result: Record<string, McpAppTool> = {}
+      if (mcpAppsMode() === "off") return result
       const s = yield* InstanceState.get(state)
       for (const [clientName] of Object.entries(s.clients).filter(
         ([name]) => s.status[name]?.status === "connected" && s.mcpAppsSupported[name],

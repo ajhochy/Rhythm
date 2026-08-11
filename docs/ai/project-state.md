@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-11 — issue #1345 session-bound MCP App resource reads
+- Files modified: fork provenance/policy/session route, generated OpenAPI and both SDK surfaces, api_server owned route/controller/wrapper, fixed-localhost Flutter data source, acceptance/live contracts, and run log.
+- Checks run: fork #1345+#1352 9/9 PASS; fork and SDK typechecks PASS; SDK regeneration PASS; API contract 2/2 PASS with live skipped and API typecheck PASS; Flutter format/analyze PASS; Flutter and pre-existing API route tests BLOCKED before assertions by sandbox socket EPERM; GitNexus change detection MEDIUM and scoped to expected session/resource surfaces.
+- Decisions made: persist a 10-minute ISO-Z provenance envelope on completed tool state; revalidate mode, exact session/call/cwd, expiry, and the current same-server app registry before the sole bounded MCP read; return only exact single text HTML content.
+- Deviations from spec: live sandbox and Flutter runtime tests could not run because this worker cannot bind sockets; no commit or push made by coding-agent.
+- Concerns: socket-capable orchestration must run the env-gated live path and the pre-existing route/Flutter suites before any completion claim.
+
 ### 2026-08-10 — issue #1343 MCP App isolation feasibility probe
 - Files modified: disposable WebKit policy and standalone DEBUG/env-gated launcher under `apps/desktop_flutter/macos`; five-case native contract; manual evidence contract; NO-GO ADR and run log.
 - Checks run: native contract 5/5 PASS; standalone Swift launcher compile PASS; disabled-by-default exit-64 guard PASS; Flutter offline pub resolution, Dart format (463 files, 0 changed), and analyze PASS.

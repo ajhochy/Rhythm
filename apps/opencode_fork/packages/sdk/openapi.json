@@ -7452,6 +7452,89 @@
         ]
       }
     },
+    "/session/{sessionID}/mcp-app-resource/{callID}": {
+      "get": {
+        "tags": [
+          "session"
+        ],
+        "operationId": "session.mcpAppResource",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "callID",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bound MCP App HTML resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpAppResourceContent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read bounded MCP App HTML using provenance persisted on an originating tool call.",
+        "summary": "Read a session-bound MCP App resource",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.mcpAppResource({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/sync/start": {
       "post": {
         "tags": [
@@ -15284,6 +15367,25 @@
         ],
         "additionalProperties": false
       },
+      "McpAppResourceContent": {
+        "type": "object",
+        "properties": {
+          "mimeType": {
+            "type": "string",
+            "enum": [
+              "text/html;profile=mcp-app"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mimeType",
+          "text"
+        ],
+        "additionalProperties": false
+      },
       "McpLocalConfig": {
         "type": "object",
         "properties": {
@@ -22537,6 +22639,55 @@
           },
           "metadata": {
             "type": "object"
+          },
+          "mcpResult": {
+            "type": "object",
+            "properties": {
+              "structuredContent": {},
+              "_meta": {
+                "type": "object"
+              },
+              "isError": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "mcpAppResource": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "callID": {
+                "type": "string"
+              },
+              "serverName": {
+                "type": "string"
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "resourceUri": {
+                "type": "string"
+              },
+              "advertisedAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "sessionID",
+              "callID",
+              "serverName",
+              "cwd",
+              "resourceUri",
+              "advertisedAt",
+              "expiresAt"
+            ],
+            "additionalProperties": false
           },
           "time": {
             "type": "object",

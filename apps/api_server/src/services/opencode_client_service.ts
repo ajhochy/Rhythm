@@ -2635,6 +2635,22 @@ export class OpencodeClientService {
     return raw.data ?? [];
   }
 
+  async readSessionMcpAppResource(
+    sdkId: string,
+    callId: string,
+    directory: string,
+  ): Promise<{ mimeType: 'text/html;profile=mcp-app'; text: string }> {
+    const client = this.requireClient();
+    const raw = await client.session.mcpAppResource({
+      path: { id: sdkId, callID: callId },
+      query: { directory },
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(404, 'NOT_FOUND', 'MCP App resource unavailable');
+    }
+    return raw.data;
+  }
+
   /**
    * GET /session/{id}/todo — todo list for the session.
    *

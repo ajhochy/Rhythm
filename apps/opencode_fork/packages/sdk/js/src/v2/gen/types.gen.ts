@@ -1547,6 +1547,11 @@ export type McpStatusNeedsClientRegistration = {
   error: string
 }
 
+export type McpAppResourceContent = {
+  mimeType: "text/html;profile=mcp-app"
+  text: string
+}
+
 export type McpLocalConfig = {
   /**
    * Type of MCP server connection
@@ -3409,6 +3414,22 @@ export type ToolStateCompleted = {
   title: string
   metadata: {
     [key: string]: unknown
+  }
+  mcpResult?: {
+    structuredContent?: unknown
+    _meta?: {
+      [key: string]: unknown
+    }
+    isError?: boolean
+  }
+  mcpAppResource?: {
+    sessionID: string
+    callID: string
+    serverName: string
+    cwd: string
+    resourceUri: string
+    advertisedAt: string
+    expiresAt: string
   }
   time: {
     start: number
@@ -6481,6 +6502,41 @@ export type PartUpdateResponses = {
 }
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
+
+export type SessionMcpAppResourceData = {
+  body?: never
+  path: {
+    sessionID: string
+    callID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/mcp-app-resource/{callID}"
+}
+
+export type SessionMcpAppResourceErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionMcpAppResourceError = SessionMcpAppResourceErrors[keyof SessionMcpAppResourceErrors]
+
+export type SessionMcpAppResourceResponses = {
+  /**
+   * Bound MCP App HTML resource
+   */
+  200: McpAppResourceContent
+}
+
+export type SessionMcpAppResourceResponse = SessionMcpAppResourceResponses[keyof SessionMcpAppResourceResponses]
 
 export type SyncStartData = {
   body?: never

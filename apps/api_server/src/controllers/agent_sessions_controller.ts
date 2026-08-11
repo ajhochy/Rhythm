@@ -1901,6 +1901,31 @@ export class AgentSessionsController {
     }
   }
 
+  async getMcpAppResource(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (Object.keys(req.query).length !== 0) {
+        throw AppError.notFound('McpAppResource');
+      }
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('McpAppResource');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.notFound('McpAppResource');
+
+      const resource = await opencodeClient.readSessionMcpAppResource(
+        sdkSessionId,
+        req.params.callId,
+        session.cwd,
+      );
+      res.json(resource);
+    } catch {
+      next(AppError.notFound('McpAppResource'));
+    }
+  }
+
   /**
    * #841 (tokens-01) — GET /agent-sessions/:id/tool-surface
    *

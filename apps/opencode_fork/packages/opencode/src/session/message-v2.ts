@@ -279,6 +279,17 @@ export const ToolStateCompleted = Schema.Struct({
       isError: Schema.optional(Schema.Boolean),
     }),
   ),
+  mcpAppResource: Schema.optional(
+    Schema.Struct({
+      sessionID: Schema.String,
+      callID: Schema.String,
+      serverName: Schema.String,
+      cwd: Schema.String,
+      resourceUri: Schema.String,
+      advertisedAt: Schema.String,
+      expiresAt: Schema.String,
+    }),
+  ),
   time: Schema.Struct({
     start: NonNegativeInt,
     end: NonNegativeInt,

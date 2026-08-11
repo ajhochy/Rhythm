@@ -98,6 +98,20 @@ class AgentsDataSource {
   /// How many frames are waiting for the socket to come back.
   int get pendingSendCount => _pendingSends.length;
 
+  Future<Map<String, dynamic>> fetchMcpAppResource({
+    required String sessionId,
+    required String toolCallId,
+  }) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-resource/${Uri.encodeComponent(toolCallId)}',
+      ),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return _decodeResponseMap(response);
+  }
+
   /// True only once the socket is actually live.
   ///
   /// Deliberately NOT `_channel != null`. `WebSocketChannel.connect` is lazy: it
