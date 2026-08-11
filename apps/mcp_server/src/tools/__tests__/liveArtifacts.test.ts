@@ -22,13 +22,13 @@ const ok = (body: unknown, status = 200) => ({ ok: status < 400, status, statusT
 describe("AV-03 live-artifact MCP contract", () => {
   beforeEach(() => vi.unstubAllGlobals());
 
-  it("registers exactly the five focused tools", () => {
-    // Regression: exposing a generic artifact executor or omitting one narrow tool.
+  it("registers exactly the six focused tools", () => {
+    // Regression: omitting the narrow owner-authorized sharing tool or exposing a generic executor.
     const { server, tools } = makeServer();
     registerLiveArtifactTools(server as never, "http://hosted", "token", "http://agent");
     expect([...tools.keys()]).toEqual([
       "rhythm_list_live_artifacts", "rhythm_get_live_artifact", "rhythm_create_live_artifact",
-      "rhythm_update_live_artifact_state", "rhythm_update_live_artifact_bundle",
+      "rhythm_update_live_artifact_state", "rhythm_update_live_artifact_bundle", "rhythm_update_live_artifact_sharing",
     ]);
   });
 
@@ -70,6 +70,34 @@ describe("AV-03 live-artifact MCP contract", () => {
     expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => url)).toContain("http://hosted/live-artifacts");
     expect(fetch.mock.calls.filter(([, init]) => init?.method === "PUT").map(([url]) => url)).toEqual(expect.arrayContaining(["http://hosted/live-artifacts/artifact-1/state", "http://hosted/live-artifacts/artifact-1/bundle"]));
     expect(JSON.parse(String(fetch.mock.calls[3][1].body))).toEqual({ expectedStateRevision: 1, state: worshipCalendar.state });
+  });
+
+  it("resolves collaborators and applies the minimal owner-authorized sharing diff", async () => {
+    // Regression: a share mutation skips identity validation or churns unchanged collaborator rows.
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(ok({ allowed: true }))
+      .mockResolvedValueOnce(ok([{ id: 2, name: "Bea Example", email: "bea@example.test" }, { id: 3, name: "Cal Example", email: "cal@example.test" }]))
+      .mockResolvedValueOnce(ok({ id: "artifact-1", visibility: "private" }))
+      .mockResolvedValueOnce(ok([{ userId: 3 }]))
+      .mockResolvedValueOnce(ok({ id: "artifact-1", visibility: "shared" }))
+      .mockResolvedValueOnce(ok({ userId: 2 }, 201));
+    vi.stubGlobal("fetch", fetch);
+    const { server, tools } = makeServer();
+    registerLiveArtifactTools(server as never, "http://hosted", "token", "http://agent");
+    const result = await tools.get("rhythm_update_live_artifact_sharing")!.handler({ id: "artifact-1", visibility: "shared", collaborators: ["bea@example.test", "Cal"] , approval_id: "approval-sharing" }, extra);
+    expect(result.isError, result.content[0].text).toBeUndefined();
+    expect(fetch.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ["http://agent/agent-approvals/consume", "POST"],
+      ["http://hosted/users", undefined],
+      ["http://hosted/live-artifacts/artifact-1", undefined],
+      ["http://hosted/live-artifacts/artifact-1/collaborators", undefined],
+      ["http://hosted/live-artifacts/artifact-1", "PATCH"],
+      ["http://hosted/live-artifacts/artifact-1/collaborators", "POST"],
+    ]);
+    expect(JSON.parse(String(fetch.mock.calls[5][1].body))).toEqual({ userId: 2 });
+    expect(result.content[0].text).toContain("Bea Example");
+    expect(result.content[0].text).toContain("bea@example.test");
+    expect(result.content[0].text).not.toMatch(/token|path/i);
   });
 
   it("preserves 404, 409 current revision, and 410 as failed results", async () => {

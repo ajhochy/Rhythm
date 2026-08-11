@@ -56,6 +56,7 @@ const writes: Array<[string, Record<string, unknown>]> = [
   ["rhythm_create_live_artifact", { ...worshipCalendar, approval_id: "approval-create" }],
   ["rhythm_update_live_artifact_state", { id: "artifact-1", state: worshipCalendar.state, expected_state_revision: 1, approval_id: "approval-state" }],
   ["rhythm_update_live_artifact_bundle", { id: "artifact-1", bundle: worshipCalendar.bundle, expected_bundle_revision: 1, approval_id: "approval-bundle" }],
+  ["rhythm_update_live_artifact_sharing", { id: "artifact-1", visibility: "shared", collaborators: ["bea@example.test"], approval_id: "approval-sharing" }],
 ];
 
 describe("AV-03 live-artifact write path fails closed", () => {
@@ -131,5 +132,43 @@ describe("AV-03 live-artifact write path fails closed", () => {
     } finally {
       await client.close();
     }
+  });
+
+  it.each([
+    ["unknown", [{ id: 2, name: "Bea", email: "bea@example.test" }], /unknown collaborator/i, "Nobody"],
+    ["ambiguous", [{ id: 2, name: "Bea One", email: "bea.one@example.test" }, { id: 3, name: "Bea Two", email: "bea.two@example.test" }], /candidates.*Bea One.*Bea Two/i, "Bea"],
+  ])("rejects %s collaborator identity before any hosted mutation", async (_kind, users, message, identity) => {
+    // Regression: an unresolved identity changes visibility or collaborator membership.
+    const fetch = vi.fn().mockResolvedValueOnce(json({ allowed: true })).mockResolvedValueOnce(json(users));
+    vi.stubGlobal("fetch", fetch);
+    const { server, tools } = makeServer();
+    registerLiveArtifactTools(server as never, API, TOKEN, AGENT);
+    const result = await tools.get("rhythm_update_live_artifact_sharing")!({ id: "artifact-1", visibility: "shared", collaborators: [identity], approval_id: "approval-sharing" }, extra);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(message);
+    expect(mutations(fetch)).toEqual([]);
+  });
+
+  it("passes a non-owner hosted 403 through without attempting later mutations", async () => {
+    // Regression: owner authorization failure is swallowed or the tool continues with membership writes.
+    const fetch = vi.fn().mockResolvedValueOnce(json({ allowed: true })).mockResolvedValueOnce(json([{ id: 2, name: "Bea", email: "bea@example.test" }])).mockResolvedValueOnce(json({ error: { message: "owner only" } }, 403));
+    vi.stubGlobal("fetch", fetch);
+    const { server, tools } = makeServer();
+    registerLiveArtifactTools(server as never, API, TOKEN, AGENT);
+    const result = await tools.get("rhythm_update_live_artifact_sharing")!({ id: "artifact-1", visibility: "shared", collaborators: ["bea@example.test"], approval_id: "approval-sharing" }, extra);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("403");
+    expect(mutations(fetch)).toEqual([]);
+  });
+
+  it("does not mutate an already matching sharing configuration", async () => {
+    // Regression: a no-op share edit still sends PATCH/POST/DELETE requests.
+    const fetch = vi.fn().mockResolvedValueOnce(json({ allowed: true })).mockResolvedValueOnce(json([{ id: 2, name: "Bea", email: "bea@example.test" }])).mockResolvedValueOnce(json({ id: "artifact-1", visibility: "shared" })).mockResolvedValueOnce(json([{ userId: 2 }]));
+    vi.stubGlobal("fetch", fetch);
+    const { server, tools } = makeServer();
+    registerLiveArtifactTools(server as never, API, TOKEN, AGENT);
+    const result = await tools.get("rhythm_update_live_artifact_sharing")!({ id: "artifact-1", visibility: "shared", collaborators: ["bea@example.test"], approval_id: "approval-sharing" }, extra);
+    expect(result.isError).toBeUndefined();
+    expect(mutations(fetch)).toEqual([]);
   });
 });

@@ -275,6 +275,7 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
     ["rhythm_create_live_artifact", { action: "live-artifact.create", sourceFile: "liveArtifacts.ts" }],
     ["rhythm_update_live_artifact_state", { action: "live-artifact.state.update", sourceFile: "liveArtifacts.ts" }],
     ["rhythm_update_live_artifact_bundle", { action: "live-artifact.bundle.update", sourceFile: "liveArtifacts.ts" }],
+    ["rhythm_update_live_artifact_sharing", { action: "live-artifact.sharing.update", sourceFile: "liveArtifacts.ts" }],
   ],
 );
 

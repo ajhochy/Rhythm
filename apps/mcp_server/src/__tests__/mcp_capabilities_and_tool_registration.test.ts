@@ -94,11 +94,11 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
 /**
  * Registrar calls (one `register*(server…)` line per tool GROUP) and tool NAMES
  * are different counts and drift apart: one new registrar can add five tools.
- * AV-03 added 1 registrar (23 → 24) and 5 tool names (85 → 90). Both are pinned
+ * AV-03 added 1 registrar (23 → 24) and 5 tool names (85 → 90); #1339 adds one (90 → 91). Both are pinned
  * from a measured run — a stale mirror here passes vacuously and guards nothing.
  */
 const EXPECTED_REGISTRAR_CALLS = 24;
-const EXPECTED_TOOL_NAMES = 90;
+const EXPECTED_TOOL_NAMES = 91;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {
@@ -155,6 +155,7 @@ describe('MCP server tool registration (issue #864 guard)', () => {
           'rhythm_create_live_artifact',
           'rhythm_update_live_artifact_state',
           'rhythm_update_live_artifact_bundle',
+          'rhythm_update_live_artifact_sharing',
         ]),
       );
     } finally {

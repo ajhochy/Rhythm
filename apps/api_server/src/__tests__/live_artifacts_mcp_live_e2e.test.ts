@@ -9,8 +9,14 @@
  * session — the pattern issue_1175_trusted_mcp_proof_live.test.ts established.
  *
  * This test drives a fixture Anthropic provider so the engine performs real MCP
- * tool calls: create → state CAS update → get, all under one stable artifact ID,
- * then reads the changed fields back through the hosted-style HTTP contract.
+ * tool calls: create → share by email → state CAS update → get, all under one
+ * stable artifact ID, then reads the changed fields back through the
+ * hosted-style HTTP contract.
+ *
+ * The `get` turn consumes external content, which arms the #1134 outbound gate.
+ * The revocation half therefore runs the full normal approval flow — refused
+ * without a token, approval requested and granted for that exact sharing
+ * action, then applied — instead of expecting an unapproved mutation to land.
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
@@ -37,6 +43,7 @@ const expectedTools = [
   'rhythm_rhythm_create_live_artifact',
   'rhythm_rhythm_update_live_artifact_state',
   'rhythm_rhythm_update_live_artifact_bundle',
+  'rhythm_rhythm_update_live_artifact_sharing',
 ];
 
 function sse(events: unknown[]): string {
@@ -137,9 +144,10 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
         .lastInsertRowid,
     );
     db.prepare('INSERT INTO workspace_members (workspace_id, user_id) VALUES (?,?)').run(workspaceId, userId);
+    const collaboratorEmail = `av07-human-${randomUUID()}@example.test`;
     const collaboratorId = Number(
       db.prepare('INSERT INTO users (name, email) VALUES (?,?)')
-        .run('AV07 human collaborator', `av07-human-${randomUUID()}@example.test`).lastInsertRowid,
+        .run('AV07 human collaborator', collaboratorEmail).lastInsertRowid,
     );
     const collaboratorToken = randomUUID();
     db.prepare('INSERT INTO workspace_members (workspace_id, user_id) VALUES (?,?)').run(workspaceId, collaboratorId);
@@ -150,12 +158,28 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
     let artifact: { id: string; currentStateRevision: number } | null = null;
     let fixture: Server | null = null;
     let engineSessionId: string | null = null;
+    // Revocation half: the `get` turn below feeds external content into the
+    // session, so the #1134 gate must refuse the follow-up sharing mutation
+    // until a human approves THAT action. These record the refusal, the access
+    // that survived it, and the one approval minted for it.
+    let refusal = '';
+    let accessDuringRefusal = 0;
+    let approvalId = '';
+    let approvalRow: Record<string, unknown> | null = null;
+    let humanDecisions = 0;
+    let revokeResult = '';
+    const collaboratorAccess = async (): Promise<number> =>
+      (
+        await fetch(`${base}/live-artifacts/${artifact!.id}`, {
+          headers: { Authorization: `Bearer ${collaboratorToken}` },
+        })
+      ).status;
 
     try {
       fixture = createServer((request, response) => {
         const chunks: Buffer[] = [];
         request.on('data', (chunk: Buffer) => chunks.push(chunk));
-        request.on('end', () => {
+        request.on('end', async () => {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
           captured.push(body);
           const previous = lastToolResult(body);
@@ -177,8 +201,7 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
                 css: '#calendar{color:#111}',
                 js: 'window.av03Calendar=true',
               },
-              visibility: 'shared',
-              collaborators: [collaboratorId],
+               visibility: 'private',
               state: {
                 services: [{
                   date: '2026-08-09',
@@ -190,6 +213,13 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
               },
             });
           } else if (captured.length === 2 && artifact) {
+            toolTurns.push('update_sharing');
+            stream = toolStream('rhythm_rhythm_update_live_artifact_sharing', {
+              id: artifact.id,
+              visibility: 'shared',
+              collaborators: [collaboratorEmail],
+            });
+          } else if (captured.length === 3 && artifact) {
             toolTurns.push('update_state');
             stream = toolStream('rhythm_rhythm_update_live_artifact_state', {
               id: artifact.id,
@@ -204,10 +234,59 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
               },
               expected_state_revision: artifact.currentStateRevision,
             });
-          } else if (captured.length === 3 && artifact) {
+          } else if (captured.length === 4 && artifact) {
             toolTurns.push('get');
             stream = toolStream('rhythm_rhythm_get_live_artifact', { id: artifact.id });
+          } else if (captured.length === 6 && artifact) {
+            // Revocation with NO approval token. `get` above consumed external
+            // content, so this must be refused rather than silently applied.
+            toolTurns.push('revoke_denied');
+            stream = toolStream('rhythm_rhythm_update_live_artifact_sharing', {
+              id: artifact.id,
+              visibility: 'private',
+              collaborators: [],
+            });
+          } else if (captured.length === 7 && artifact) {
+            refusal = previous;
+            // Read the collaborator's access mid-flight: a refused mutation
+            // must leave the artifact exactly as it was.
+            accessDuringRefusal = await collaboratorAccess();
+            toolTurns.push('request_approval');
+            stream = toolStream('rhythm_rhythm_request_approval', {
+              action: 'Revoke the AV07 human collaborator from the AV03 artifact',
+              security_action: 'live-artifact.sharing.update',
+              security_payload: { id: artifact.id, visibility: 'private', collaborators: [] },
+            });
+          } else if (captured.length === 8 && artifact) {
+            approvalId = /id=([0-9a-fA-F-]{36})/.exec(previous)?.[1] ?? '';
+            // Stand in for the human tapping Approve on that card. Only the
+            // decision is simulated — the row, its action, its canonical
+            // payload digest and its taint binding were all minted by the
+            // server from the agent's own request. The signed-decision
+            // ceremony needs the desktop Keychain key, which no sandbox holds
+            // (it has the public half only); human_approval_signature.test.ts
+            // and issue_1175_adversarial_live.test.ts cover that half.
+            humanDecisions = approvalId
+              ? db
+                  .prepare(
+                    `UPDATE agent_approvals SET status='approved', actor=?, decided_at=?
+                     WHERE id=? AND status='pending' AND security_action='live-artifact.sharing.update'`,
+                  )
+                  .run(`user:${userId}`, new Date().toISOString(), approvalId).changes
+              : 0;
+            approvalRow = approvalId
+              ? ((db.prepare('SELECT * FROM agent_approvals WHERE id=?').get(approvalId) ??
+                  null) as Record<string, unknown> | null)
+              : null;
+            toolTurns.push('revoke_approved');
+            stream = toolStream('rhythm_rhythm_update_live_artifact_sharing', {
+              id: artifact.id,
+              visibility: 'private',
+              collaborators: [],
+              approval_id: approvalId,
+            });
           } else {
+            if (captured.length === 9) revokeResult = previous;
             stream = textStream();
           }
           response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -263,19 +342,23 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
         body: JSON.stringify({
           agent: 'build',
           model: { providerID: providerId, modelID: modelId },
-          parts: [{ type: 'text', text: 'Create the AV03 worship calendar artifact, update its state, then read it back.' }],
+          parts: [{ type: 'text', text: 'Create the AV03 worship calendar artifact, share it with the named human collaborator, update its state, then read it back.' }],
         }),
       });
       expect(prompt.status, await prompt.clone().text()).toBe(200);
 
-      // Listing: the engine really advertised all five MCP tools to the model.
+      // Listing: the engine really advertised every live-artifact MCP tool.
       const advertised = (
         (captured[0]?.tools as Array<{ name: string }> | undefined) ?? []
       ).map((tool) => tool.name);
       expect(advertised).toEqual(expect.arrayContaining(expectedTools));
+      // The revocation half below drives the real approval flow, so the
+      // approval-request tool has to be advertised on this session too.
+      expect(advertised).toContain('rhythm_rhythm_request_approval');
 
-      // Invocation: create → state CAS update → get all ran as real MCP calls.
-      expect(toolTurns).toEqual(['create', 'update_state', 'get']);
+       // Invocation: create → named share → state CAS update → get all ran as real MCP calls.
+       expect(toolTurns).toEqual(['create', 'update_sharing', 'update_state', 'get']);
+       expect(lastToolResult(captured[2])).toContain(collaboratorEmail);
       expect(artifact, JSON.stringify(captured.map(lastToolResult), null, 2)).toBeTruthy();
       expect(lastToolResult(captured[1])).toContain(artifact!.id);
       // A fresh artifact starts at state revision 1, so the CAS update below is
@@ -301,12 +384,61 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
       expect(readBody.state.services[0].scripture).toBe('John 3:16');
       // Regression caught: an MCP update that only changes a partial calendar
       // payload would silently drop the Worship Calendar's other editable fields.
-      expect(readBody.state.services[0]).toMatchObject({
+       expect(readBody.state.services[0]).toMatchObject({
         title: 'AV07 Updated Gathering',
         scripture: 'John 3:16',
         theme: 'Hope',
         serviceDetails: { leader: 'AV07 Human' },
-      });
+       });
+       // Live sharing proof: this human only acquired access through the MCP
+       // email resolution/membership update, not creation-time collaborator IDs.
+       expect((await fetch(`${base}/live-artifacts/${artifact!.id}`, {
+         headers: { Authorization: `Bearer ${collaboratorToken}` },
+       })).status).toBe(200);
+       const revokePrompt = await fetch(`${engineUrl}/session/${engineSessionId}/message`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', 'X-OpenCode-Directory': engineDirectory },
+         body: JSON.stringify({
+           agent: 'build', model: { providerID: providerId, modelID: modelId },
+           parts: [{ type: 'text', text: 'Revoke the human collaborator from the artifact now.' }],
+         }),
+       });
+       expect(revokePrompt.status, await revokePrompt.clone().text()).toBe(200);
+       expect(toolTurns).toEqual([
+         'create', 'update_sharing', 'update_state', 'get',
+         'revoke_denied', 'request_approval', 'revoke_approved',
+       ]);
+       // Approval is REQUIRED: the unapproved revocation was refused by the
+       // server, and the collaborator's access survived that refusal intact.
+       expect(refusal).toContain('human approval is required after external content was consumed');
+       expect(accessDuringRefusal).toBe(200);
+       // The approval that unblocked it was minted for THIS action and THIS
+       // exact payload — no reuse of the state/bundle/create actions, and no
+       // reuse of the earlier untainted share. `preview` is server-authored
+       // from the canonical payload, so it cannot be restated by the model.
+       expect(humanDecisions).toBe(1);
+       expect(approvalRow).toMatchObject({
+         session_id: localSessionId,
+         security_action: 'live-artifact.sharing.update',
+         status: 'approved',
+         preview: `live-artifact.sharing.update: {"collaborators":[],"id":"${artifact!.id}","visibility":"private"}`,
+       });
+       // Revocation is IMMEDIATE: same stable ID, collaborator now locked out.
+       expect((await fetch(`${base}/live-artifacts/${artifact!.id}`, {
+         headers: { Authorization: `Bearer ${collaboratorToken}` },
+       })).status).toBe(404);
+       // ...and it is a real revocation, not just a hidden artifact. The agent's
+       // observable outcome must be success, and the collaborator's GRANT must
+       // be gone — otherwise re-sharing later silently restores a revoked user.
+       expect(revokeResult).not.toContain('Rhythm API error');
+       expect(
+         db.prepare('SELECT COUNT(*) AS count FROM live_artifact_collaborators WHERE artifact_id=?')
+           .get(artifact!.id),
+       ).toEqual({ count: 0 });
+       // The token was spent, so a replay of the same revocation cannot reuse it.
+       expect(
+         db.prepare('SELECT consumed_at FROM agent_approvals WHERE id=?').get(approvalId),
+       ).not.toEqual({ consumed_at: null });
       expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifacts WHERE id=?').get(artifact!.id)).toEqual({ count: 1 });
       expect(db.prepare('SELECT updated_by_user_id AS actor FROM live_artifacts WHERE id=?').get(artifact!.id)).toEqual({ actor: userId });
       expect(db.prepare('SELECT actor_user_id AS actor FROM live_artifact_state_revisions WHERE artifact_id=? AND revision=2').get(artifact!.id)).toEqual({ actor: userId });
@@ -322,6 +454,9 @@ describeLive('AV-03 c8 — live-artifact MCP tools through the real engine', () 
         db.prepare('DELETE FROM live_artifact_bundle_revisions WHERE artifact_id IN (SELECT id FROM live_artifacts WHERE workspace_id=?)').run(workspaceId);
         db.prepare('DELETE FROM live_artifact_state_revisions WHERE artifact_id IN (SELECT id FROM live_artifacts WHERE workspace_id=?)').run(workspaceId);
         db.prepare('DELETE FROM live_artifacts WHERE workspace_id=?').run(workspaceId);
+        db.prepare('DELETE FROM agent_approvals WHERE session_id=?').run(localSessionId);
+        db.prepare('DELETE FROM agent_external_content_events WHERE session_id=?').run(localSessionId);
+        db.prepare('DELETE FROM agent_external_taint_state WHERE session_id=?').run(localSessionId);
         db.prepare('DELETE FROM agent_sessions WHERE id=?').run(localSessionId);
         db.prepare('DELETE FROM sessions WHERE token=?').run(collaboratorToken);
         db.prepare('DELETE FROM workspace_members WHERE workspace_id=?').run(workspaceId);

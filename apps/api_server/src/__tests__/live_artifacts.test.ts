@@ -157,6 +157,18 @@ describe('live artifacts (AV-02)', () => {
     expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(outsider.id) })).status).toBe(404);
   });
 
+  it('removes a collaborator using the numeric route parameter and rejects non-numeric IDs', async () => {
+    // Regression: Express supplies path params as strings; strict integer validation must not leave a revoked grant behind.
+    const owner = users.create({ name: 'Owner', email: 'av02-delete-collaborator-owner@example.com' });
+    const collaborator = users.create({ name: 'Collaborator', email: 'av02-delete-collaborator-user@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id, [collaborator.id]), 'shared');
+    const headers = await header(owner.id);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/collaborators`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: collaborator.id }) })).status).toBe(201);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/collaborators/${collaborator.id}`, { method: 'DELETE', headers })).status).toBe(204);
+    expect(await json(await fetch(`${baseUrl}/live-artifacts/${artifact.id}/collaborators`, { headers }))).toEqual([]);
+    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/collaborators/not-a-number`, { method: 'DELETE', headers })).status).toBe(400);
+  });
+
   it('AV-03 P1: creates shared artifacts with workspace collaborators visible immediately', async () => {
     // Regression: create silently drops collaborators, leaving the shared artifact unreadable.
     const owner = users.create({ name: 'Owner', email: 'av03-create-owner@example.com' });
@@ -285,53 +297,50 @@ describe('live artifacts (AV-02)', () => {
     expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(200);
   });
 
-  it('renders only fixed files under a nonce-bound restrictive CSP', async () => {
-    const owner = users.create({ name: 'Owner', email: 'av02-render@example.com' });
-    const artifact = await create(owner.id, workspace(owner.id));
-    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id), redirect: 'manual' });
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-security-policy')).toMatch(/default-src 'none';.*connect-src 'none';.*form-action 'none';.*base-uri 'none';.*frame-src 'none';.*object-src 'none'/);
-    expect(await response.text()).toContain('<script>evil()</script>'); // CSP must deny this unnonced artifact markup.
-  });
+  const parityPolicy = "default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com data:; img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'";
 
-  it('sandboxes rendered documents without navigation or origin privileges', async () => {
-    // Regression: a resource-only CSP lets stored script/meta refresh navigate the top-level document.
-    const owner = users.create({ name: 'Owner', email: 'av02-csp@example.com' });
-    const artifact = await create(owner.id, workspace(owner.id));
+  it('renders fragment bundles with the exact Claude-parity CSP while preserving sandbox boundaries', async () => {
+    // Regression: a nonce CSP or an omitted CDN host makes otherwise valid Claude artifacts fail to render.
+    const owner = users.create({ name: 'Owner', email: 'rt-fragment-csp@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id), 'private', { ...bundle, html: '<meta http-equiv="refresh" content="0;https://attacker.test"><main>fragment</main>' });
     const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
-    const csp = response.headers.get('content-security-policy') ?? '';
-    expect(csp).toContain('sandbox allow-scripts');
-    expect(csp).toContain("frame-ancestors 'none'");
-    expect(csp).not.toMatch(/allow-(?:same-origin|top-navigation|popups|forms|modals)|unsafe-(?:inline|eval)/);
-  });
-
-  it('AV-06: mirrors loadHtmlString CSP in the first head child without header-only directives', async () => {
-    // Regression: loadHtmlString drops HTTP CSP, letting the bundled document fetch or submit.
-    const owner = users.create({ name: 'Owner', email: 'av06-meta-csp@example.com' });
-    const artifact = await create(owner.id, workspace(owner.id));
-    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
-    const cspHeader = response.headers.get('content-security-policy') ?? '';
     const document = await response.text();
-    const meta = document.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)?.[1] ?? '';
-    expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeGreaterThan(document.indexOf('<head>'));
+    const headerPolicy = response.headers.get('content-security-policy') ?? '';
+    const metaPolicy = document.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)?.[1] ?? '';
+    expect(headerPolicy).toBe(`sandbox allow-scripts; ${parityPolicy}; frame-ancestors 'none'`);
+    expect(metaPolicy).toBe(parityPolicy);
+    expect(document).toMatch(/^<!doctype html><html><head>/i);
+    expect(document).not.toMatch(/http-equiv="refresh"/i);
+    expect(document).not.toMatch(/nonce=/i);
+    expect(headerPolicy).not.toContain("'unsafe-eval'");
     expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeLessThan(document.indexOf('<meta charset'));
-    for (const directive of ["default-src 'none'", 'script-src', 'style-src', "connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-src 'none'", "object-src 'none'"]) {
-      expect(meta).toContain(directive);
-      expect(cspHeader).toContain(directive);
-    }
-    expect(meta).not.toContain('sandbox');
-    expect(meta).not.toContain('frame-ancestors');
-    expect(meta).toContain(document.match(/<style nonce="([^"]+)">/)?.[1] ?? 'missing-nonce');
   });
 
-  it('strips refresh navigation and never grants stored markup the response nonce', async () => {
-    const owner = users.create({ name: 'Owner', email: 'av02-render-smuggling@example.com' });
-    const artifact = await create(owner.id, workspace(owner.id), 'private', { ...bundle, html: '<meta http-equiv="refresh" content="0;https://attacker.test"><script nonce="attacker">window.pwned=1</script></script><script>window.pwned=2</script>' });
+  it('injects full documents without double wrapping and preserves inline artifact blocks', async () => {
+    // Regression: wrapping a standalone Claude document discards its head/body semantics or breaks inline style and script execution.
+    const owner = users.create({ name: 'Owner', email: 'rt-full-document@example.com' });
+    const fullHtml = ' \n<!DOCTYPE html><html lang="en"><body><style>.kept { color: rebeccapurple; }</style><script>window.inlineArtifact = true;</script><main class="kept">Claude</main></body></html>';
+    const artifact = await create(owner.id, workspace(owner.id), 'private', { html: fullHtml, css: 'body { margin: 0; }', js: 'window.bundleArtifact = true;' });
     const document = await (await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).text();
-    const nonce = document.match(/<style nonce="([^"]+)">/)?.[1];
-    expect(document).not.toMatch(/http-equiv="refresh"/i);
-    expect(nonce).toBeTruthy();
-    expect(document.split(`nonce="${nonce}"`).length - 1).toBe(3);
+    expect(document.match(/<!doctype/gi)).toHaveLength(1);
+    expect(document.match(/<html\b/gi)).toHaveLength(1);
+    expect(document).toContain('<style>.kept { color: rebeccapurple; }</style>');
+    expect(document).toContain('<script>window.inlineArtifact = true;</script>');
+    expect(document).toContain('<style>body { margin: 0; }</style>');
+    expect(document).toContain('<script>window.bundleArtifact = true;</script>');
+    expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeLessThan(document.indexOf('<meta charset'));
+  });
+
+  it('strips refresh navigation and escapes bundle CSS and JS in fragment and full-document paths', async () => {
+    // Regression: a refresh or closing tag from any assembly path can navigate or terminate an injected bundle block.
+    const owner = users.create({ name: 'Owner', email: 'rt-escaping@example.com' });
+    for (const html of ['<meta http-equiv="refresh" content="0;https://attacker.test"><main>fragment</main>', '<!doctype html><html><body><meta http-equiv="refresh" content="0;https://attacker.test"><main>full</main></body></html>']) {
+      const artifact = await create(owner.id, workspace(owner.id), 'private', { html, css: 'x</style><style>y', js: 'x</script><script>y' });
+      const document = await (await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).text();
+      expect(document).not.toMatch(/http-equiv="refresh"/i);
+      expect(document).toContain('\\3c /style');
+      expect(document).toContain('<\\/script>');
+    }
   });
 
   it('installs the immutable bridge bootstrap before stored artifact code', async () => {
@@ -347,6 +356,7 @@ describe('live artifacts (AV-02)', () => {
     expect(document.indexOf('Object.defineProperty(window,"__rhythmHostResponse"')).toBeLessThan(document.indexOf('window.bootstrapOrder'));
     expect(document).toContain('configurable:false');
     expect(document).toContain('RhythmBridge.postMessage');
+    expect(document).toContain('nonce:n');
   });
 
   it('missing stored content leaks no path or stack', async () => {

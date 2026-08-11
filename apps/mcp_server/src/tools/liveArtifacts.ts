@@ -12,6 +12,20 @@ import { registerTool } from "./_tool.js";
 const bundle = z.object({ html: z.string(), css: z.string(), js: z.string() });
 const capability = z.literal("pco.services.read");
 type Json = Record<string, unknown>;
+type Collaborator = { id: number; name: string; email: string };
+
+function resolveCollaborators(identities: string[], users: Collaborator[]): Collaborator[] {
+  return identities.map((identity) => {
+    const query = identity.trim().toLowerCase();
+    const exactEmail = users.filter((user) => user.email.toLowerCase() === query);
+    const matches = exactEmail.length ? exactEmail : users.filter((user) =>
+      user.name.toLowerCase().includes(query) || user.email.toLowerCase().includes(query),
+    );
+    if (matches.length === 1) return matches[0];
+    if (matches.length === 0) throw new Error(`Unknown collaborator: ${identity}`);
+    throw new Error(`Ambiguous collaborator ${identity}; candidates: ${matches.map((user) => `${user.name} <${user.email}>`).join(", ")}`);
+  });
+}
 
 async function request(apiUrl: string, apiToken: string, path: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(`${apiUrl}${path}`, {
@@ -89,5 +103,25 @@ export function registerLiveArtifactTools(
     if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusalMessage as string }], isError: true as const };
     try { return toolResult(JSON.stringify(await request(apiUrl, apiToken, `/live-artifacts/${encodeURIComponent(id)}/bundle`, { method: "PUT", body: JSON.stringify({ expectedBundleRevision: expected_bundle_revision, bundle: artifactBundle }) }), null, 2)); }
     catch (error) { return toolError(error); }
+  });
+
+  registerTool(server, "rhythm_update_live_artifact_sharing", "Owner-only update of an existing live artifact's visibility and named collaborators.", {
+    id: z.string(), visibility: z.enum(["private", "shared", "organization"]), collaborators: z.array(z.string()), approval_id: z.string().optional(),
+  }, async ({ id, visibility, collaborators, approval_id }: { id: string; visibility: "private" | "shared" | "organization"; collaborators: string[]; approval_id?: string }, extra) => {
+    const payload = { id, visibility, collaborators };
+    const gate = await authorizeOutboundAction({ agentUrl, context: trustedSecurityContext(extra), approvalId: approval_id, action: "live-artifact.sharing.update", payload });
+    if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusalMessage as string }], isError: true as const };
+    try {
+      const users = await request(apiUrl, apiToken, "/users") as Collaborator[];
+      const resolved = resolveCollaborators(collaborators, users);
+      const artifact = await request(apiUrl, apiToken, `/live-artifacts/${encodeURIComponent(id)}`) as { visibility: "private" | "shared" | "organization" };
+      const current = await request(apiUrl, apiToken, `/live-artifacts/${encodeURIComponent(id)}/collaborators`) as Array<{ userId: number }>;
+      const requestedIds = new Set(resolved.map((user) => user.id));
+      const currentIds = new Set(current.map(({ userId }) => userId));
+      if (artifact.visibility !== visibility) await request(apiUrl, apiToken, `/live-artifacts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ visibility }) });
+      for (const user of resolved) if (!currentIds.has(user.id)) await request(apiUrl, apiToken, `/live-artifacts/${encodeURIComponent(id)}/collaborators`, { method: "POST", body: JSON.stringify({ userId: user.id }) });
+      for (const { userId } of current) if (!requestedIds.has(userId)) await request(apiUrl, apiToken, `/live-artifacts/${encodeURIComponent(id)}/collaborators/${encodeURIComponent(String(userId))}`, { method: "DELETE" });
+      return toolResult(JSON.stringify({ id, visibility, collaborators: resolved.map(({ name, email }) => ({ name, email })) }, null, 2));
+    } catch (error) { return toolError(error); }
   });
 }

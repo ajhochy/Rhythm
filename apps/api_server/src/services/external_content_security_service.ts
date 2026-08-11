@@ -65,6 +65,7 @@ export const SECURITY_ACTIONS = [
   'live-artifact.create',
   'live-artifact.state.update',
   'live-artifact.bundle.update',
+  'live-artifact.sharing.update',
 ] as const;
 export type SecurityAction = (typeof SECURITY_ACTIONS)[number];
 

@@ -133,6 +133,7 @@ export const SECURITY_ACTION_TOOLS = new Map<string, string>([
   ['live-artifact.create', 'rhythm_create_live_artifact'],
   ['live-artifact.state.update', 'rhythm_update_live_artifact_state'],
   ['live-artifact.bundle.update', 'rhythm_update_live_artifact_bundle'],
+  ['live-artifact.sharing.update', 'rhythm_update_live_artifact_sharing'],
 ]);
 
 async function requireTrustedCall(
