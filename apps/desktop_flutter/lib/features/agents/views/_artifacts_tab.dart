@@ -284,6 +284,7 @@ class _ArtifactsTabState extends State<ArtifactsTab> {
               constraints: const BoxConstraints(minHeight: 44),
               child: Semantics(
                 container: true,
+                explicitChildNodes: true,
                 label: 'Artifact selector. $selectedLabel',
                 child: FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
@@ -362,7 +363,9 @@ class _ArtifactsTabState extends State<ArtifactsTab> {
       );
     }
     final artifact = row!.artifact!;
-    final previewKey = ValueKey('artifact-preview-${artifact.id}');
+    final previewKey = ValueKey(
+      'artifact-preview-runtime-${widget.sessionId}-${widget.userId}',
+    );
     final preview = widget.previewBuilder?.call(
           context,
           artifact,
@@ -379,11 +382,27 @@ class _ArtifactsTabState extends State<ArtifactsTab> {
           debugOnDisposed: widget.debugOnViewerDisposed,
         );
 
+    final mountedPreview = Stack(
+      fit: StackFit.expand,
+      children: [
+        preview,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ExcludeSemantics(
+              child: SizedBox(
+                key: ValueKey('artifact-preview-${artifact.id}'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
     if (widget.onOpenInDashboard == null &&
         widget.dashboardController == null) {
       return KeyedSubtree(
         key: ValueKey('artifact-viewer-${widget.sessionId}-${widget.userId}'),
-        child: preview,
+        child: mountedPreview,
       );
     }
     return Column(
@@ -393,16 +412,16 @@ class _ArtifactsTabState extends State<ArtifactsTab> {
           child: Semantics(
             label: 'Open ${artifact.title} in Dashboard',
             button: true,
-            child: ExcludeSemantics(
-              child: TextButton.icon(
-                key: const ValueKey('artifact-open-dashboard-button'),
-                onPressed: () => _openInDashboard(artifact),
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(44, 44),
-                ),
-                icon: const Icon(Icons.open_in_new),
-                label: const Text('Open in Dashboard'),
+            excludeSemantics: true,
+            onTap: () => _openInDashboard(artifact),
+            child: TextButton.icon(
+              key: const ValueKey('artifact-open-dashboard-button'),
+              onPressed: () => _openInDashboard(artifact),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(44, 44),
               ),
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Open in Dashboard'),
             ),
           ),
         ),
@@ -411,7 +430,7 @@ class _ArtifactsTabState extends State<ArtifactsTab> {
             key: ValueKey(
               'artifact-viewer-${widget.sessionId}-${widget.userId}',
             ),
-            child: preview,
+            child: mountedPreview,
           ),
         ),
       ],

@@ -107,7 +107,7 @@ void main() {
       expect(find.text('Alpha'), findsWidgets);
       expect(find.text('Beta'), findsWidgets);
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
       expect(
@@ -167,6 +167,10 @@ void main() {
       addTearDown(controller.dispose);
 
       expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const ValueKey('artifact-selector')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(title).last);
+      await tester.pumpAndSettle();
       expect(find.bySemanticsLabel('Artifact $title. Status Available'),
           findsOneWidget);
       final titleWidgets = tester.widgetList<Text>(find.text(title));

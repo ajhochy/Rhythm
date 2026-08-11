@@ -329,6 +329,7 @@ class _ViewerToolbar extends StatelessWidget {
   Widget build(BuildContext context) => Material(
         child: Semantics(
           container: true,
+          explicitChildNodes: true,
           label: 'Selected artifact ${artifact.title}. ${_metadata()}',
           child: ListTile(
             minTileHeight: 44,
@@ -361,6 +362,8 @@ class _ViewerToolbar extends StatelessWidget {
               Semantics(
                 label: 'Reload ${artifact.title}',
                 button: true,
+                excludeSemantics: true,
+                onTap: onReload,
                 child: IconButton(
                   key: const ValueKey('artifact-reload-button'),
                   tooltip: 'Reload artifact',

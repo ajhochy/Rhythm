@@ -425,6 +425,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(failureCalls, 3);
 
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+
       var noProgressCalls = 0;
       await tester.pumpWidget(_tab(
         messages: const [],
@@ -474,6 +477,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(source.getCalls.toSet(), unavailableIds.toSet());
+      await tester.tap(find.byKey(const ValueKey('artifact-selector')));
+      await tester.pumpAndSettle();
       for (final id in unavailableIds) {
         expect(find.byKey(ValueKey('artifact-row-$id')), findsOneWidget);
       }

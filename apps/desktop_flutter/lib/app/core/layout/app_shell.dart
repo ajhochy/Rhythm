@@ -13,6 +13,8 @@ import '../../../features/notifications/views/notification_panel.dart';
 import 'background_activity_indicator.dart';
 import '../../../features/dashboard/views/dashboard_view.dart';
 import '../../../features/live_artifacts/widgets/dashboard_artifact_tabs.dart';
+// DashboardArtifactTabs and LiveArtifactsController are mounted by the
+// Dashboard artifact workspace and shared with the Session Inspector.
 import '../../../features/live_artifacts/controllers/live_artifacts_controller.dart';
 import '../../../features/live_artifacts/data/live_artifacts_data_source.dart';
 import '../../../features/settings/data/user_preferences_data_source.dart';
