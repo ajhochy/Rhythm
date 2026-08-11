@@ -21,12 +21,86 @@ import { env } from '../config/env';
 import {
   AgentResearchRepository,
   type ResearchJob,
+  type ResearchProjectInput,
+  type ResearchProjectPatch,
+  type ResearchProjectRun,
 } from '../repositories/agent_research_repository';
 import { logger } from '../utils/logger';
 import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
 
 const researchJobs = new AgentResearchRepository();
+
+function projectOwner(req: Request): number {
+  const owner = req.auth?.user.id;
+  if (owner === undefined) throw AppError.unauthorized('Research projects require an authenticated owner');
+  return owner;
+}
+
+function optionalObject(value: unknown, field: string): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw AppError.badRequest(`${field} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function optionalArray(value: unknown, field: string): unknown[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw AppError.badRequest(`${field} must be an array`);
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw AppError.badRequest(`${field} must be a string or null`);
+  return value.trim();
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw AppError.badRequest(`${field} is required`);
+  }
+  return value.trim();
+}
+
+function projectInput(body: Record<string, unknown>): ResearchProjectInput {
+  return {
+    name: requiredString(body.name, 'name'),
+    question: requiredString(body.question, 'question'),
+    goals: optionalArray(body.goals, 'goals'),
+    domain: optionalString(body.domain, 'domain'),
+    profileId: optionalString(body.profileId, 'profileId'),
+    passConfig: optionalArray(body.passConfig, 'passConfig'),
+    modelPolicy: optionalObject(body.modelPolicy, 'modelPolicy'),
+    criticConfig: optionalObject(body.criticConfig, 'criticConfig'),
+    synthesisConfig: optionalObject(body.synthesisConfig, 'synthesisConfig'),
+    scheduleRef: optionalString(body.scheduleRef, 'scheduleRef'),
+    budget: optionalObject(body.budget, 'budget'),
+  };
+}
+
+function projectPatch(body: Record<string, unknown>): ResearchProjectPatch {
+  const patch: ResearchProjectPatch = {};
+  if ('name' in body) patch.name = requiredString(body.name, 'name');
+  if ('question' in body) patch.question = requiredString(body.question, 'question');
+  if ('goals' in body) patch.goals = optionalArray(body.goals, 'goals');
+  if ('domain' in body) patch.domain = optionalString(body.domain, 'domain');
+  if ('profileId' in body) patch.profileId = optionalString(body.profileId, 'profileId');
+  if ('passConfig' in body) patch.passConfig = optionalArray(body.passConfig, 'passConfig');
+  if ('modelPolicy' in body) patch.modelPolicy = optionalObject(body.modelPolicy, 'modelPolicy');
+  if ('criticConfig' in body) patch.criticConfig = optionalObject(body.criticConfig, 'criticConfig');
+  if ('synthesisConfig' in body) patch.synthesisConfig = optionalObject(body.synthesisConfig, 'synthesisConfig');
+  if ('scheduleRef' in body) patch.scheduleRef = optionalString(body.scheduleRef, 'scheduleRef');
+  if ('budget' in body) patch.budget = optionalObject(body.budget, 'budget');
+  return patch;
+}
+
+function triggerType(value: unknown): ResearchProjectRun['triggerType'] {
+  if (value === undefined) return 'manual';
+  if (value === 'manual' || value === 'scheduled' || value === 'follow-up') return value;
+  throw AppError.badRequest('triggerType must be manual, scheduled, or follow-up');
+}
 
 function researchPrompt(job: ResearchJob): string {
   return `You are running a Deep Research pipeline for query: "${job.query}"
@@ -155,6 +229,87 @@ async function resetResearchJob(job: ResearchJob): Promise<ResearchJob> {
 }
 
 export class AgentResearchController {
+  async listProjects(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await researchJobs.listProjects(projectOwner(req), req.query.includeArchived === 'true'));
+    } catch (err) { next(err); }
+  }
+
+  async createProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const created = await researchJobs.createProject(
+        projectOwner(req),
+        projectInput(req.body as Record<string, unknown>),
+      );
+      res.status(201).json(created);
+    } catch (err) { next(err); }
+  }
+
+  async getProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await researchJobs.getProject(req.params.projectId, projectOwner(req));
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async updateProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await researchJobs.updateProject(
+        req.params.projectId,
+        projectOwner(req),
+        projectPatch(req.body as Record<string, unknown>),
+      );
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async archiveProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await researchJobs.archiveProject(req.params.projectId, projectOwner(req));
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async listProjectRuns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const project = await researchJobs.getProject(req.params.projectId, owner);
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(await researchJobs.listProjectRuns(project.id, owner));
+    } catch (err) { next(err); }
+  }
+
+  async createProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const run = await researchJobs.createProjectRun(
+        req.params.projectId,
+        projectOwner(req),
+        triggerType((req.body as Record<string, unknown>).triggerType),
+      );
+      if (!run) throw AppError.notFound('ResearchProject');
+      res.status(201).json(run);
+    } catch (err) { next(err); }
+  }
+
+  async getProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const run = await researchJobs.getProjectRun(req.params.runId, projectOwner(req));
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      res.json(run);
+    } catch (err) { next(err); }
+  }
+
+  async getProjectArtifact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const artifact = await researchJobs.getArtifact(req.params.artifactId, projectOwner(req));
+      if (!artifact || artifact.project_id !== req.params.projectId) throw AppError.notFound('ResearchArtifact');
+      res.json(artifact);
+    } catch (err) { next(err); }
+  }
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       res.json(await researchJobs.listVisible(req.auth?.user.id));

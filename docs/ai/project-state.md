@@ -45,3 +45,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: repair only the exact shipped stale profile fingerprint; model Gmail as unavailable unless an actual Gmail MCP is connected; gate optional-channel fallback behavior behind `RHYTHM_RESEARCH_PROJECTS_ENABLED`.
 - Deviations from spec: none.
 - Concerns: live engine/channel status remains covered by the env-gated milestone E2E in #1300 because this worker cannot rely on socket binding.
+
+### 2026-08-11 — issue #1291 named research projects and immutable runs
+- Files modified: research repository/controller/routes, Research MCP tool group, MCP registration count guard, acceptance contract/tests.
+- Checks run: #1291 contract passes (5 tests); API typecheck and focused research regressions pass; MCP registration tests and build pass.
+- Decisions made: immutable run snapshots copy all mutable project configuration at creation; every child lookup rechecks owner; new routes remain 404-gated while the feature flag is off.
+- Deviations from spec: none.
+- Concerns: run usage is a stable zero-valued reference until factual session accounting is added by dependency-ordered issue #1294; live HTTP/MCP evidence remains assigned to #1300.

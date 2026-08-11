@@ -1,5 +1,7 @@
 import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
+import { randomUUID } from 'node:crypto';
+import { AppError } from '../errors/app_error';
 
 export interface ResearchJob {
   id: string;
@@ -31,6 +33,94 @@ export type ResearchJobPatch = Partial<
     | 'vaultPath'
   >
 >;
+
+export interface ResearchProjectInput {
+  name: string;
+  question: string;
+  goals: unknown[];
+  domain: string | null;
+  profileId: string | null;
+  passConfig: unknown[];
+  modelPolicy: Record<string, unknown>;
+  criticConfig: Record<string, unknown>;
+  synthesisConfig: Record<string, unknown>;
+  scheduleRef: string | null;
+  budget: Record<string, unknown>;
+}
+
+export interface ResearchProject extends ResearchProjectInput {
+  id: string;
+  ownerUserId: number;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ResearchProjectPatch = Partial<ResearchProjectInput>;
+
+export interface ResearchProjectRun {
+  id: string;
+  projectId: string;
+  ownerUserId: number;
+  triggerType: 'manual' | 'scheduled' | 'follow-up';
+  configSnapshot: Record<string, unknown>;
+  status: string;
+  progress: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  canonicalArtifact: Record<string, unknown> | null;
+  artifacts: Record<string, unknown>[];
+  sources: Record<string, unknown>[];
+  usage: { tokens: number; costUsd: number };
+}
+
+function parsedJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function projectRow(row: Record<string, unknown>): ResearchProject {
+  return {
+    id: row.id as string,
+    ownerUserId: Number(row.owner_user_id),
+    name: row.name as string,
+    question: row.question as string,
+    goals: parsedJson(row.goals_json, []),
+    domain: (row.domain as string | null) ?? null,
+    profileId: (row.profile_id as string | null) ?? null,
+    passConfig: parsedJson(row.pass_config_json, []),
+    modelPolicy: parsedJson(row.model_policy_json, {}),
+    criticConfig: parsedJson(row.critic_config_json, {}),
+    synthesisConfig: parsedJson(row.synthesis_config_json, {}),
+    scheduleRef: (row.schedule_ref as string | null) ?? null,
+    budget: parsedJson(row.budget_json, {}),
+    archivedAt: row.archived_at ? timestamp(row.archived_at) : null,
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function baseRunRow(row: Record<string, unknown>): Omit<ResearchProjectRun, 'canonicalArtifact' | 'artifacts' | 'sources' | 'usage'> {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    ownerUserId: Number(row.owner_user_id),
+    triggerType: row.trigger_type as ResearchProjectRun['triggerType'],
+    configSnapshot: parsedJson(row.config_snapshot_json, {}),
+    status: row.status as string,
+    progress: parsedJson(row.progress_json, {}),
+    diagnostics: parsedJson(row.diagnostics_json, {}),
+    startedAt: row.started_at ? timestamp(row.started_at) : null,
+    completedAt: row.completed_at ? timestamp(row.completed_at) : null,
+    createdAt: timestamp(row.created_at),
+  };
+}
 
 function timestamp(value: unknown): string {
   return typeof value === 'string' ? value : (value as Date).toISOString();
@@ -68,6 +158,241 @@ function rowToModel(row: Record<string, unknown>): ResearchJob {
  * An authenticated owner may see its own rows plus ownerless legacy rows.
  */
 export class AgentResearchRepository {
+  private requireProjectsEnabled(): void {
+    if (!env.researchProjectsEnabled) throw AppError.notFound('ResearchProject');
+  }
+
+  async createProject(
+    ownerUserId: number,
+    input: ResearchProjectInput,
+  ): Promise<ResearchProject> {
+    this.requireProjectsEnabled();
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const values = [
+      id, ownerUserId, input.name, input.question, JSON.stringify(input.goals),
+      input.domain, input.profileId, JSON.stringify(input.passConfig),
+      JSON.stringify(input.modelPolicy), JSON.stringify(input.criticConfig),
+      JSON.stringify(input.synthesisConfig), input.scheduleRef,
+      JSON.stringify(input.budget), now, now,
+    ];
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO agent_research_projects
+          (id, owner_user_id, name, question, goals_json, domain, profile_id,
+           pass_config_json, model_policy_json, critic_config_json,
+           synthesis_config_json, schedule_ref, budget_json, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        values,
+      );
+    } else {
+      getDb().prepare(
+        `INSERT INTO agent_research_projects
+          (id, owner_user_id, name, question, goals_json, domain, profile_id,
+           pass_config_json, model_policy_json, critic_config_json,
+           synthesis_config_json, schedule_ref, budget_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(...values);
+    }
+    return (await this.getProject(id, ownerUserId))!;
+  }
+
+  async listProjects(ownerUserId: number, includeArchived = false): Promise<ResearchProject[]> {
+    this.requireProjectsEnabled();
+    const archived = includeArchived ? '' : ' AND archived_at IS NULL';
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_research_projects WHERE owner_user_id = $1${archived} ORDER BY updated_at DESC`,
+        [ownerUserId],
+      );
+      return result.rows.map(projectRow);
+    }
+    return (getDb().prepare(
+      `SELECT * FROM agent_research_projects WHERE owner_user_id = ?${archived} ORDER BY updated_at DESC`,
+    ).all(ownerUserId) as Record<string, unknown>[]).map(projectRow);
+  }
+
+  async getProject(id: string, ownerUserId: number): Promise<ResearchProject | null> {
+    this.requireProjectsEnabled();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        'SELECT * FROM agent_research_projects WHERE id = $1 AND owner_user_id = $2',
+        [id, ownerUserId],
+      );
+      return result.rows[0] ? projectRow(result.rows[0]) : null;
+    }
+    const row = getDb().prepare(
+      'SELECT * FROM agent_research_projects WHERE id = ? AND owner_user_id = ?',
+    ).get(id, ownerUserId) as Record<string, unknown> | undefined;
+    return row ? projectRow(row) : null;
+  }
+
+  async updateProject(
+    id: string,
+    ownerUserId: number,
+    patch: ResearchProjectPatch,
+  ): Promise<ResearchProject | null> {
+    const current = await this.getProject(id, ownerUserId);
+    if (!current) return null;
+    const next = { ...current, ...patch };
+    const now = new Date().toISOString();
+    const values = [
+      next.name, next.question, JSON.stringify(next.goals), next.domain,
+      next.profileId, JSON.stringify(next.passConfig), JSON.stringify(next.modelPolicy),
+      JSON.stringify(next.criticConfig), JSON.stringify(next.synthesisConfig),
+      next.scheduleRef, JSON.stringify(next.budget), now, id, ownerUserId,
+    ];
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE agent_research_projects SET name=$1, question=$2, goals_json=$3,
+          domain=$4, profile_id=$5, pass_config_json=$6, model_policy_json=$7,
+          critic_config_json=$8, synthesis_config_json=$9, schedule_ref=$10,
+          budget_json=$11, updated_at=$12 WHERE id=$13 AND owner_user_id=$14`,
+        values,
+      );
+    } else {
+      getDb().prepare(
+        `UPDATE agent_research_projects SET name=?, question=?, goals_json=?,
+          domain=?, profile_id=?, pass_config_json=?, model_policy_json=?,
+          critic_config_json=?, synthesis_config_json=?, schedule_ref=?,
+          budget_json=?, updated_at=? WHERE id=? AND owner_user_id=?`,
+      ).run(...values);
+    }
+    return this.getProject(id, ownerUserId);
+  }
+
+  async archiveProject(id: string, ownerUserId: number): Promise<ResearchProject | null> {
+    this.requireProjectsEnabled();
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'UPDATE agent_research_projects SET archived_at=$1, updated_at=$1 WHERE id=$2 AND owner_user_id=$3',
+        [now, id, ownerUserId],
+      );
+    } else {
+      getDb().prepare(
+        'UPDATE agent_research_projects SET archived_at=?, updated_at=? WHERE id=? AND owner_user_id=?',
+      ).run(now, now, id, ownerUserId);
+    }
+    return this.getProject(id, ownerUserId);
+  }
+
+  async createProjectRun(
+    projectId: string,
+    ownerUserId: number,
+    triggerType: ResearchProjectRun['triggerType'],
+  ): Promise<ResearchProjectRun | null> {
+    this.requireProjectsEnabled();
+    const project = await this.getProject(projectId, ownerUserId);
+    if (!project || project.archivedAt) return null;
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const snapshot = {
+      projectId: project.id,
+      name: project.name,
+      question: project.question,
+      goals: project.goals,
+      domain: project.domain,
+      profileId: project.profileId,
+      passConfig: project.passConfig,
+      modelPolicy: project.modelPolicy,
+      criticConfig: project.criticConfig,
+      synthesisConfig: project.synthesisConfig,
+      scheduleRef: project.scheduleRef,
+      budget: project.budget,
+      triggerType,
+      createdAt: now,
+    };
+    const values = [id, projectId, ownerUserId, triggerType, JSON.stringify(snapshot), now];
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO agent_research_project_runs
+          (id, project_id, owner_user_id, trigger_type, config_snapshot_json, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        values,
+      );
+    } else {
+      getDb().prepare(
+        `INSERT INTO agent_research_project_runs
+          (id, project_id, owner_user_id, trigger_type, config_snapshot_json, created_at)
+         VALUES (?,?,?,?,?,?)`,
+      ).run(...values);
+    }
+    return this.getProjectRun(id, ownerUserId);
+  }
+
+  async listProjectRuns(projectId: string, ownerUserId: number): Promise<ResearchProjectRun[]> {
+    this.requireProjectsEnabled();
+    const project = await this.getProject(projectId, ownerUserId);
+    if (!project) return [];
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          'SELECT * FROM agent_research_project_runs WHERE project_id=$1 AND owner_user_id=$2 ORDER BY created_at DESC',
+          [projectId, ownerUserId],
+        )).rows
+      : getDb().prepare(
+          'SELECT * FROM agent_research_project_runs WHERE project_id=? AND owner_user_id=? ORDER BY created_at DESC',
+        ).all(projectId, ownerUserId) as Record<string, unknown>[];
+    return Promise.all(rows.map((row: Record<string, unknown>) => this.hydrateRun(row)));
+  }
+
+  async getProjectRun(id: string, ownerUserId: number): Promise<ResearchProjectRun | null> {
+    this.requireProjectsEnabled();
+    const row = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          'SELECT * FROM agent_research_project_runs WHERE id=$1 AND owner_user_id=$2',
+          [id, ownerUserId],
+        )).rows[0]
+      : getDb().prepare(
+          'SELECT * FROM agent_research_project_runs WHERE id=? AND owner_user_id=?',
+        ).get(id, ownerUserId) as Record<string, unknown> | undefined;
+    return row ? this.hydrateRun(row) : null;
+  }
+
+  private async hydrateRun(row: Record<string, unknown>): Promise<ResearchProjectRun> {
+    const base = baseRunRow(row);
+    const artifacts = await this.listRunRows('agent_research_artifacts', base.id);
+    const sources = await this.listRunRows('agent_research_curated_sources', base.id);
+    const canonicalArtifact = artifacts.find((artifact) => artifact.artifact_role === 'canonical') ?? null;
+    return {
+      ...base,
+      canonicalArtifact,
+      artifacts,
+      sources,
+      usage: { tokens: 0, costUsd: 0 },
+    };
+  }
+
+  private async listRunRows(table: 'agent_research_artifacts' | 'agent_research_curated_sources', runId: string): Promise<Record<string, unknown>[]> {
+    if (env.dbClient === 'postgres') {
+      return (await getPostgresPool().query(
+        `SELECT * FROM ${table} WHERE project_run_id=$1 ORDER BY created_at`,
+        [runId],
+      )).rows;
+    }
+    return getDb().prepare(
+      `SELECT * FROM ${table} WHERE project_run_id=? ORDER BY created_at`,
+    ).all(runId) as Record<string, unknown>[];
+  }
+
+  async getArtifact(id: string, ownerUserId: number): Promise<Record<string, unknown> | null> {
+    this.requireProjectsEnabled();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT a.* FROM agent_research_artifacts a
+          JOIN agent_research_projects p ON p.id=a.project_id
+         WHERE a.id=$1 AND p.owner_user_id=$2`,
+        [id, ownerUserId],
+      );
+      return result.rows[0] ?? null;
+    }
+    return (getDb().prepare(
+      `SELECT a.* FROM agent_research_artifacts a
+        JOIN agent_research_projects p ON p.id=a.project_id
+       WHERE a.id=? AND p.owner_user_id=?`,
+    ).get(id, ownerUserId) as Record<string, unknown> | undefined) ?? null;
+  }
+
   async insert(
     job: Omit<ResearchJob, 'createdAt' | 'updatedAt'>,
   ): Promise<ResearchJob> {

@@ -27,6 +27,10 @@ export const SECURITY_ACTIONS = [
   "research.start",
   "research.update",
   "research.complete-pass",
+  "research.project.create",
+  "research.project.update",
+  "research.project.archive",
+  "research.project.run.start",
   "org-optimizer.run",
   "delegation.start",
   "delegation.start-async",
@@ -78,6 +82,9 @@ export type ExternalContentSource =
   | "memory.search"
   | "memory.list"
   | "research.job"
+  | "research.project.list"
+  | "research.project.get"
+  | "research.project.run"
   | "automation.list"
   | "automation.get"
   | "automation.preview"
