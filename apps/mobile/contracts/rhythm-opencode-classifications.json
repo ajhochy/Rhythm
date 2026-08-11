@@ -4,7 +4,7 @@
     "enginePackage": "opencode",
     "engineVersion": "1.14.49",
     "openapiPath": "apps/opencode_fork/packages/sdk/openapi.json",
-    "openapiSha256": "42ef292d051e66edfa44d130a7b480d46d2d15dc514b7f69c017c3f01a62f1fe",
+    "openapiSha256": "f960fbd07a9495b8911ffd511e297307f2f9e6f7e400a0d36f0740aac96dfd56",
     "operationCount": 133
   },
   "classificationDefinitions": {
