@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1350 trusted MCP App shell
+- Files modified: additive production Swift shell/WebKit policy plus Runner source registration; Dart bounded host lifecycle policy; native/Flutter contracts; env-gated fixture and evidence records.
+- Checks run: native contract 4/4 PASS; standalone debug and optimized-release valid/malicious fixtures PASS; disabled-by-default guard and project-file lint PASS; Flutter analyze PASS; focused Flutter runtime BLOCKED before load by sandbox socket EPERM.
+- Decisions made: keep the child in an opaque `allow-scripts`-only iframe, expose the native handler only through the validated outer shell/main frame, create a fresh nonpersistent store per view, and parse all non-canonical modes as off.
+- Deviations from spec: interactive packaged-app evidence could not run in this non-UI managed worker; it remains explicit in the manual evidence matrix.
+- Concerns: a UI-capable orchestrator must run the focused Flutter test and malicious Debug/packaged Release fixture before activation.
+
 ### 2026-08-11 — issue #1345 session-bound MCP App resource reads
 - Files modified: fork provenance/policy/session route, generated OpenAPI and both SDK surfaces, api_server owned route/controller/wrapper, fixed-localhost Flutter data source, acceptance/live contracts, and run log.
 - Checks run: fork #1345+#1352 9/9 PASS; fork and SDK typechecks PASS; SDK regeneration PASS; API contract 2/2 PASS with live skipped and API typecheck PASS; Flutter format/analyze PASS; Flutter and pre-existing API route tests BLOCKED before assertions by sandbox socket EPERM; GitNexus change detection MEDIUM and scoped to expected session/resource surfaces.

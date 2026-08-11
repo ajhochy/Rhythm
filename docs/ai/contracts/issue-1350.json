@@ -1,0 +1,71 @@
+{
+  "issue": 1350,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1350-c1",
+      "text": "Outer shell exclusively owns AppBridge and Dart channel.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1350_mcp_app_host_contract.test.mjs",
+      "test_id": "issue-1350-c1: outer shell exclusively owns the native channel",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1350-c2",
+      "text": "Sandbox, origin, and boot nonce checks are enforced.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1350_mcp_app_host_contract.test.mjs",
+      "test_id": "issue-1350-c2: sandbox, origin, and boot nonce fail closed",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1350-c3",
+      "text": "Storage is isolated and nonpersistent.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1350_mcp_app_host_contract.test.mjs",
+      "test_id": "issue-1350-c3: every configuration owns nonpersistent storage",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1350-c4",
+      "text": "Network, navigation, downloads, and undeclared origins are blocked.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1350_mcp_app_host_contract.test.mjs",
+      "test_id": "issue-1350-c4: CSP, network, navigation, and downloads deny by default",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1350-c5",
+      "text": "Content, messages, views, dimensions, and lifetime are bounded with teardown.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1350_mcp_app_host_policy_test.dart",
+      "test_id": "bounds and lifecycle teardown",
+      "status": "environment_blocked",
+      "reason": "The focused Flutter test cannot start because this managed worker denies its required 127.0.0.1:0 test-harness socket. Flutter static analysis passes."
+    },
+    {
+      "criterion_id": "issue-1350-c6",
+      "text": "Unknown methods are denied deterministically.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1350_mcp_app_host_policy_test.dart",
+      "test_id": "unknown methods are denied",
+      "status": "environment_blocked",
+      "reason": "The focused Flutter test cannot start because this managed worker denies its required 127.0.0.1:0 test-harness socket. Flutter static analysis passes."
+    },
+    {
+      "criterion_id": "issue-1350-c7",
+      "text": "Packaged and debug fixtures are env-gated and evidence-recorded.",
+      "mode": "manual",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/McpAppHostFixtureLauncher.swift",
+      "test_id": "RHYTHM_MCP_APP_HOST_FIXTURE",
+      "status": "environment_blocked",
+      "reason": "The env-gated fixture passes as standalone debug and optimized-release executables; interactive packaged Rhythm.app WebKit evidence needs the UI-capable orchestrator."
+    }
+  ],
+  "stack": "flutter-swift",
+  "not_tested": [
+    "issue-1350-c5",
+    "issue-1350-c6",
+    "issue-1350-c7 packaged UI"
+  ]
+}
