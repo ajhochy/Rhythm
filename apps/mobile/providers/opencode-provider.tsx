@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { Platform } from 'react-native';
 
+import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
 import {
   buildClient,
   defaultConnectionSettings,
@@ -2731,7 +2732,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             try {
               const FileSystem = await import('expo-file-system/legacy');
               const info = await FileSystem.getInfoAsync(att.uri);
-              if (info.exists && typeof info.size === 'number' && info.size > 10 * 1024 * 1024) {
+              if (
+                info.exists &&
+                typeof info.size === 'number' &&
+                info.size > MOBILE_ATTACHMENT_LIMIT_BYTES
+              ) {
                 throw new Error('File exceeds the 10 MB attachment limit.');
               }
               const base64 = await FileSystem.readAsStringAsync(att.uri, { encoding: 'base64' });

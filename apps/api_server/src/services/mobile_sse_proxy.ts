@@ -4,6 +4,7 @@ import { AppError } from '../errors/app_error';
 import type {
   MobileOpenCodeOwnershipReader,
 } from '../repositories/mobile_opencode_ownership_repository';
+import { logger } from '../utils/logger';
 import {
   getMobileOpenCodeOwnershipRepository,
 } from './mobile_opencode_ownership_runtime';
@@ -340,6 +341,9 @@ export class MobileSseProxy {
           },
         );
         if (!response.ok) {
+          logger.warn(
+            `[MobileSseProxy] synthesized 502 for upstream status ${response.status} during scope validation`,
+          );
           await response.body?.cancel();
           throw new AppError(
             502,
@@ -412,6 +416,11 @@ export class MobileSseProxy {
               ?.toLowerCase()
               .includes('text/event-stream')
           ) {
+            if (!upstream.ok) {
+              logger.warn(
+                `[MobileSseProxy] event stream rejected with upstream status ${upstream.status}`,
+              );
+            }
             await upstream.body?.cancel();
             throw new Error('OpenCode event stream unavailable');
           }

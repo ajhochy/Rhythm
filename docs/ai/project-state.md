@@ -45,3 +45,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: preserve Secretary-first selection, otherwise use the first gateway-filtered selectable profile; keep an empty catalog blocked with the product-approved explanation.
 - Deviations from spec: none.
 - Concerns: none beyond final physical-device smoke owned by the combined mobile workstream.
+
+### 2026-08-10 — issues #1280, #1308, and #1311 mobile transport
+- Files modified: mobile attachment ceiling constant/callers; dedicated gateway JSON policy; OpenCode HTTP/SSE proxy error handling; focused gateway/proxy tests.
+- Checks run: #1280 composer 6/6 PASS; #1308/#1311 focused API 3/3 PASS; API/mobile TypeScript and targeted mobile ESLint PASS.
+- Decisions made: keep the ordinary gateway parser at 1 MB and the proxy default at 512 KB, while granting only attachment-carrying prompt operations 15 MB; pass upstream 4xx bytes/status unchanged, synthesize 502 only for unusable transport/response failures, and 504 for timeouts.
+- Deviations from spec: physical-iPhone #1280 verification remains human-gated; socket-based API integration tests cannot bind in this worker sandbox (EPERM), so the orchestrator must run them later.
+- Concerns: the existing intrinsic composer fix is present and deterministic tests pass, but only a real UIKit event stream can close #1280.

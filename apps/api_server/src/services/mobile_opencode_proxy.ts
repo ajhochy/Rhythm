@@ -80,9 +80,20 @@ const PROMPT_FILE_PART_OPERATIONS = new Set([
 ]);
 
 export const MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES = 512 * 1024;
+export const MOBILE_OPENCODE_PROMPT_BODY_LIMIT_BYTES = 15 * 1024 * 1024;
 export const MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
 export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;
 const MOBILE_OPENCODE_TIMEOUT_MS = 30_000;
+
+export function mobileOpenCodeRequestBodyLimitBytes(
+  operationId: string,
+  requestBodyLimitBytes = MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES,
+  promptRequestBodyLimitBytes = MOBILE_OPENCODE_PROMPT_BODY_LIMIT_BYTES,
+): number {
+  return PROMPT_FILE_PART_OPERATIONS.has(operationId)
+    ? promptRequestBodyLimitBytes
+    : requestBodyLimitBytes;
+}
 
 type FetchFn = (
   input: string | URL | Request,
@@ -93,6 +104,7 @@ export interface MobileOpenCodeProxyOptions {
   baseUrl?: string;
   fetchFn?: FetchFn;
   requestBodyLimitBytes?: number;
+  promptRequestBodyLimitBytes?: number;
   responseBodyLimitBytes?: number;
   timeoutMs?: number;
   ownershipRepository?: MobileOpenCodeOwnershipStore;
@@ -743,11 +755,11 @@ async function readBoundedBody(
 }
 
 function normalizedUpstreamError(status: number): MobileOpenCodeProxyResponse {
-  const clientSafeStatus = [400, 404, 409, 422, 429].includes(status)
-    ? status
-    : 502;
+  logger.warn(
+    `[MobileOpenCodeProxy] synthesized 502 for upstream status ${status}`,
+  );
   return {
-    status: clientSafeStatus,
+    status: 502,
     contentType: 'application/json',
     body: Buffer.from(JSON.stringify({
       error: {
@@ -790,6 +802,7 @@ export class MobileOpenCodeProxy {
   private readonly baseUrl: string;
   private readonly fetchFn: FetchFn;
   private readonly requestBodyLimitBytes: number;
+  private readonly promptRequestBodyLimitBytes: number;
   private readonly responseBodyLimitBytes: number;
   private readonly timeoutMs: number;
   private readonly configuredOwnershipRepository?:
@@ -806,6 +819,9 @@ export class MobileOpenCodeProxy {
     this.requestBodyLimitBytes =
       options.requestBodyLimitBytes ??
       MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES;
+    this.promptRequestBodyLimitBytes =
+      options.promptRequestBodyLimitBytes ??
+      MOBILE_OPENCODE_PROMPT_BODY_LIMIT_BYTES;
     this.responseBodyLimitBytes =
       options.responseBodyLimitBytes ??
       MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES;
@@ -919,12 +935,17 @@ export class MobileOpenCodeProxy {
     }
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
     const acceptsBody = operation.method !== 'GET';
+    const requestBodyLimitBytes = mobileOpenCodeRequestBodyLimitBytes(
+      operation.operationId,
+      this.requestBodyLimitBytes,
+      this.promptRequestBodyLimitBytes,
+    );
     const callerBody = !acceptsBody || input.body === undefined
       ? undefined
       : JSON.stringify(input.body);
     if (
       callerBody !== undefined &&
-      Buffer.byteLength(callerBody, 'utf8') > this.requestBodyLimitBytes
+      Buffer.byteLength(callerBody, 'utf8') > requestBodyLimitBytes
     ) {
       throw new AppError(
         413,
@@ -957,6 +978,9 @@ export class MobileOpenCodeProxy {
           },
         );
         if (!response.ok) {
+          logger.warn(
+            `[MobileOpenCodeProxy] synthesized 502 for upstream status ${response.status} during scope validation`,
+          );
           await response.body?.cancel();
           throw new AppError(
             502,
@@ -1011,7 +1035,7 @@ export class MobileOpenCodeProxy {
         : JSON.stringify(scopedBody);
       if (
         encodedBody !== undefined &&
-        Buffer.byteLength(encodedBody, 'utf8') > this.requestBodyLimitBytes
+        Buffer.byteLength(encodedBody, 'utf8') > requestBodyLimitBytes
       ) {
         throw new AppError(
           413,
@@ -1047,6 +1071,16 @@ export class MobileOpenCodeProxy {
       });
 
       if (!response.ok) {
+        if (response.status >= 400 && response.status < 500) {
+          return {
+            status: response.status,
+            contentType: response.headers.get('content-type') ?? undefined,
+            body: await readBoundedBody(
+              response,
+              this.responseBodyLimitBytes,
+            ),
+          };
+        }
         await response.body?.cancel();
         return normalizedUpstreamError(response.status);
       }
@@ -1251,6 +1285,17 @@ export class MobileOpenCodeProxy {
       };
     } catch (error) {
       if (error instanceof AppError) throw error;
+      if (
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === 'AbortError')
+      ) {
+        logger.warn('[MobileOpenCodeProxy] upstream request timed out');
+        throw new AppError(
+          504,
+          'OPENCODE_TIMEOUT',
+          'OpenCode request timed out',
+        );
+      }
       const causeCode = error instanceof Error &&
           typeof error.cause === 'object' &&
           error.cause !== null &&
