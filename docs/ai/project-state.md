@@ -36,3 +36,12 @@ Live-artifact automated verification passed, but the human visual smoke **failed
 ## Next step
 
 Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+
+## Recent coding-agent runs
+
+### 2026-08-11 — issue #1290 research capability diagnostics
+- Files modified: research profile seed, skill-wiring diagnostics, Config Doctor route, AgentRunner preflight, acceptance contract/tests.
+- Checks run: focused #1290/profile/wiring tests pass (16 tests); Config Doctor route regression passes; API TypeScript check passes.
+- Decisions made: repair only the exact shipped stale profile fingerprint; model Gmail as unavailable unless an actual Gmail MCP is connected; gate optional-channel fallback behavior behind `RHYTHM_RESEARCH_PROJECTS_ENABLED`.
+- Deviations from spec: none.
+- Concerns: live engine/channel status remains covered by the env-gated milestone E2E in #1300 because this worker cannot rely on socket binding.

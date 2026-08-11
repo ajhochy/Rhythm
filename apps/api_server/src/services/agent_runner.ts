@@ -41,6 +41,7 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
+import { partitionResearchMcpPreflight } from './agent_skill_wiring';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -1009,9 +1010,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
             deadlinePolicy,
             'MCP readiness preflight',
           );
-          const unavailable = requiredServers.flatMap((name) => {
+          const unavailableByServer = new Map<string, string>();
+          for (const name of requiredServers) {
             const status = statusMap[name]?.status;
-            if (status === 'connected') return [];
+            if (status === 'connected') continue;
 
             const remediation =
               status === 'needs_auth'
@@ -1021,8 +1023,26 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
                   : status === 'failed'
                     ? 'check the server configuration and restart it'
                     : 'add or configure it in MCP settings';
-            return [`${name} (${status ?? 'missing'} — ${remediation})`];
-          });
+            unavailableByServer.set(
+              name,
+              `${name} (${status ?? 'missing'} — ${remediation})`,
+            );
+          }
+          const partition = partitionResearchMcpPreflight(
+            effectiveConfigId,
+            [...unavailableByServer.keys()],
+            env.researchProjectsEnabled,
+          );
+          if (partition.degraded.length > 0) {
+            logger.warn(
+              `[AgentRunner] research channels degraded; safe fallback/skip required: ${partition.degraded
+                .map((name) => unavailableByServer.get(name))
+                .join(', ')}`,
+            );
+          }
+          const unavailable = partition.blocking.map(
+            (name) => unavailableByServer.get(name)!,
+          );
           if (unavailable.length > 0) {
             const msg = `AgentRunner: required MCP unavailable: ${unavailable.join(', ')} before delegating to this specialist`;
             logger.warn(`[AgentRunner] ${msg}`);

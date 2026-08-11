@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
+import { accessSync, constants as fsConstants } from 'node:fs';
 import { env } from '../config/env';
+import { resolveMemoryVaultPath } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentConfigInput } from '../repositories/agent_configs_repository';
@@ -16,7 +18,10 @@ import {
   parseAgentConfigBundle,
 } from '../services/agent_config_export_import';
 import { opencodeClient } from '../services/opencode_engine';
-import { detectAgentSkillWiringMismatches } from '../services/agent_skill_wiring';
+import {
+  buildResearchCapabilityDiagnostics,
+  detectAgentSkillWiringMismatches,
+} from '../services/agent_skill_wiring';
 import { broadcastAgentConfigsChanged } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
 
@@ -48,6 +53,29 @@ function parseAllowedSkills(json: string | null): string[] | null {
     return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : null;
   } catch {
     return null;
+  }
+}
+
+function parseAllowedMcps(json: string | null): string[] {
+  if (json === null) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((value): value is string => typeof value === 'string');
+    }
+    if (parsed && typeof parsed === 'object') return Object.keys(parsed);
+  } catch {
+    // Malformed scope is already reported by the profile validation surface.
+  }
+  return [];
+}
+
+function researchVaultWritable(): boolean {
+  try {
+    accessSync(resolveMemoryVaultPath(), fsConstants.W_OK);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -216,11 +244,18 @@ export class AgentConfigsController {
     try {
       const configs = repo.list();
       let liveSkillNames = new Set<string>();
+      let mcpStatuses: Record<string, string | undefined> = {};
       const engineAvailable = opencodeClient.isReady;
       if (engineAvailable) {
         try {
-          const skills = await opencodeClient.listSkills();
+          const [skills, mcpStatusMap] = await Promise.all([
+            opencodeClient.listSkills(),
+            opencodeClient.listMcp(),
+          ]);
           liveSkillNames = new Set(skills.map((s) => s.name));
+          mcpStatuses = Object.fromEntries(
+            Object.entries(mcpStatusMap).map(([name, entry]) => [name, entry.status]),
+          );
         } catch {
           // Engine reported ready but the call failed — treat as unavailable
           // (liveSkillNames stays empty → the not-enabled check is skipped).
@@ -235,12 +270,29 @@ export class AgentConfigsController {
         })),
         liveSkillNames,
       );
+      const capabilityDiagnostics = configs
+        .filter((config) =>
+          ['research', 'AI-Trend-Researcher', 'Theological-Researcher'].includes(config.id),
+        )
+        .map((config) =>
+          ({
+            agentId: config.id,
+            ...buildResearchCapabilityDiagnostics({
+              requestedSkills: parseAllowedSkills(config.allowedSkillsJson) ?? [],
+              availableSkills: [...liveSkillNames],
+              requestedMcps: parseAllowedMcps(config.allowedMcpsJson),
+              mcpStatuses,
+              vaultWritable: researchVaultWritable(),
+            }),
+          }),
+        );
       res.json({
         engineAvailable,
         liveSkillCount: liveSkillNames.size,
         checkedAgents: configs.length,
         mismatchCount: mismatches.length,
         mismatches,
+        ...(env.researchProjectsEnabled ? { capabilityDiagnostics } : {}),
       });
     } catch (err) {
       next(err);

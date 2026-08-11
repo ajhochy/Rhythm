@@ -1,0 +1,48 @@
+{
+  "issue": 1290,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1290-c1",
+      "text": "Generic Researcher can load every skill required by its prompt.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1290.test.ts",
+      "test_id": "issue-1290-c1: repairs the exact stale generic Researcher fingerprint with all required skills",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1290-c2",
+      "text": "Customized profiles are not overwritten.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1290.test.ts",
+      "test_id": "issue-1290-c2: preserves a customized research profile even when required skills are absent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1290-c3",
+      "text": "Unavailable channels are reported before execution and skipped/fallback-routed safely.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1290.test.ts",
+      "test_id": "issue-1290-c3: reports channel degradation and never treats unavailable Gmail as granted",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1290-c4",
+      "text": "Current specialist profile behavior remains intact.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1290.test.ts",
+      "test_id": "issue-1290-c4: leaves correctly wired specialist profiles without mismatches",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1290-c5",
+      "text": "Tests cover stale fingerprint repair, customized profiles, missing skills, missing MCPs, and degraded channels.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1290.test.ts",
+      "test_id": "issue-1290-c5: emits serializable requested available unavailable and fallback diagnostics",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
