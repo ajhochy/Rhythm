@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +10,8 @@ import '../../../app/core/ui/rhythm_badge.dart';
 import '../controllers/live_artifacts_controller.dart';
 import '../data/live_artifacts_data_source.dart';
 import '../models/live_artifact.dart';
+import '../services/html_import_analyzer.dart';
+import '../services/html_import_decomposer.dart';
 import 'live_artifact_view.dart';
 import '../../settings/data/user_preferences_data_source.dart';
 
@@ -19,6 +23,7 @@ class DashboardArtifactWorkspace extends StatefulWidget {
     this.controller,
     this.baseUrl,
     this.manageAuthLifecycle = true,
+    this.activeUserId,
     this.enableNativeRuntime = true,
     this.debugOnNativeReady,
     this.debugOnHostRequest,
@@ -29,6 +34,7 @@ class DashboardArtifactWorkspace extends StatefulWidget {
   final LiveArtifactsController? controller;
   final String? baseUrl;
   final bool manageAuthLifecycle;
+  final int? activeUserId;
   final bool enableNativeRuntime;
 
   /// Assert-only native integration hook; it is invoked only by the viewer's
@@ -58,13 +64,16 @@ class _DashboardArtifactWorkspaceState
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!widget.manageAuthLifecycle) return;
-    final user = context.watch<AuthSessionService>().currentUser;
-    if (!_identityInitialized || _activeUserId != user?.id) {
+    if (!widget.manageAuthLifecycle && widget.activeUserId == null) return;
+    final user = widget.manageAuthLifecycle
+        ? context.watch<AuthSessionService>().currentUser
+        : null;
+    final userId = widget.activeUserId ?? user?.id;
+    if (!_identityInitialized || _activeUserId != userId) {
       _identityInitialized = true;
-      _activeUserId = user?.id;
+      _activeUserId = userId;
       _controller.reset();
-      if (user == null) return;
+      if (userId == null || user == null) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _controller.restore(user.id, user.artifactTabIds);
@@ -81,12 +90,14 @@ class _DashboardArtifactWorkspaceState
       builder: (_, __) => Column(children: [
         DashboardArtifactTabs(
             controller: controller,
-            onImport: (title, html) async {
+            onImport: (title, bundle) async {
               final artifact =
                   await LiveArtifactsDataSource(baseUrl: widget.baseUrl).create(
                       workspaceId: widget.workspaceId,
                       title: title,
-                      html: html);
+                      html: bundle.html,
+                      css: bundle.css,
+                      js: bundle.js);
               await controller.open(artifact);
             }),
         Expanded(
@@ -101,6 +112,7 @@ class _DashboardArtifactWorkspaceState
                     enableNativeRuntime: widget.enableNativeRuntime,
                     debugOnNativeReady: widget.debugOnNativeReady,
                     debugOnBridgeMessage: widget.debugOnBridgeMessage,
+                    currentUserId: _activeUserId,
                     onRetry: () => controller.retryTab(controller.selectedId!),
                     onRemove: () => controller.close(controller.selectedId!))),
       ]),
@@ -112,7 +124,8 @@ class DashboardArtifactTabs extends StatefulWidget {
   const DashboardArtifactTabs(
       {super.key, required this.controller, this.onImport});
   final LiveArtifactsController controller;
-  final Future<void> Function(String title, String html)? onImport;
+  final Future<void> Function(String title, HtmlImportDecomposition bundle)?
+      onImport;
   @override
   State<DashboardArtifactTabs> createState() => _DashboardArtifactTabsState();
 }
@@ -316,7 +329,8 @@ class _ArtifactPicker extends StatefulWidget {
   final LiveArtifactsController controller;
   final VoidCallback onClose;
   final ValueChanged<String> onSelected;
-  final Future<void> Function(String title, String html)? onImport;
+  final Future<void> Function(String title, HtmlImportDecomposition bundle)?
+      onImport;
   @override
   State<_ArtifactPicker> createState() => _ArtifactPickerState();
 }
@@ -431,42 +445,112 @@ class _ArtifactPickerState extends State<_ArtifactPicker> {
 
   Future<void> _showImport(BuildContext context) async {
     final result = await showDialog<_HtmlImport>(
-        context: context, builder: (_) => const _HtmlImportDialog());
+        context: context, builder: (_) => const HtmlImportDialog());
     if (result == null || widget.onImport == null) return;
-    await widget.onImport!(result.title, result.html);
+    await widget.onImport!(result.title, result.bundle);
     if (mounted) widget.onClose();
   }
 }
 
 class _HtmlImport {
-  const _HtmlImport(this.title, this.html);
+  const _HtmlImport(this.title, this.bundle);
   final String title;
-  final String html;
+  final HtmlImportDecomposition bundle;
 }
 
-class _HtmlImportDialog extends StatefulWidget {
-  const _HtmlImportDialog();
+/// Leaves JSON-envelope headroom beneath the server's 1 MiB request ceiling.
+const maxHtmlImportBytes = 900 * 1024;
+
+class HtmlImportPreview {
+  const HtmlImportPreview._(
+      {required this.title, required this.bundle, required this.warnings});
+  final String title;
+  final HtmlImportDecomposition bundle;
+  String get html => bundle.html;
+  final List<String> warnings;
+
+  static HtmlImportPreview parse(
+      {required String filename, required List<int> bytes}) {
+    if (!RegExp(r'\.html?$', caseSensitive: false).hasMatch(filename)) {
+      throw const FormatException('Choose an HTML (.html or .htm) file.');
+    }
+    if (bytes.length > maxHtmlImportBytes) {
+      throw const FormatException('This HTML file is too large to import.');
+    }
+    final html = utf8.decode(bytes, allowMalformed: false);
+    final fallback =
+        filename.replaceFirst(RegExp(r'\.html?$', caseSensitive: false), '');
+    final match = RegExp(r'<title\b[^>]*>(.*?)</title>',
+            caseSensitive: false, dotAll: true)
+        .firstMatch(html);
+    final title = match?.group(1)?.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+    final warnings = HtmlImportAnalyzer.analyze(html).warnings;
+    final bundle = HtmlImportDecomposer.decompose(html);
+    return HtmlImportPreview._(
+        title: title?.isNotEmpty == true ? title! : fallback,
+        bundle: bundle,
+        warnings: warnings);
+  }
+}
+
+class HtmlImportFile {
+  const HtmlImportFile({required this.name, required this.bytes});
+  final String name;
+  final List<int> bytes;
+}
+
+class HtmlImportDialog extends StatefulWidget {
+  const HtmlImportDialog({super.key, this.pickFile});
+  final Future<HtmlImportFile?> Function()? pickFile;
   @override
-  State<_HtmlImportDialog> createState() => _HtmlImportDialogState();
+  State<HtmlImportDialog> createState() => _HtmlImportDialogState();
 }
 
-class _HtmlImportDialogState extends State<_HtmlImportDialog> {
-  String? _html;
-  String? _name;
+class _HtmlImportDialogState extends State<HtmlImportDialog> {
+  HtmlImportDecomposition? _bundle;
+  String? _error;
+  List<String> _warnings = const [];
+  final _title = TextEditingController();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
 
   Future<void> _pick() async {
+    final supplied = await widget.pickFile?.call();
+    if (widget.pickFile != null) {
+      if (supplied == null) return;
+      return _preview(supplied);
+    }
     final picked = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['html', 'htm'],
         withData: true);
     final file = picked?.files.singleOrNull;
     final bytes = file?.bytes;
-    if (bytes == null) return;
-    setState(() {
-      _html = String.fromCharCodes(bytes);
-      _name = file!.name
-          .replaceFirst(RegExp(r'\.html?$', caseSensitive: false), '');
-    });
+    if (bytes == null || file == null) return;
+    await _preview(HtmlImportFile(name: file.name, bytes: bytes));
+  }
+
+  Future<void> _preview(HtmlImportFile file) async {
+    try {
+      final preview =
+          HtmlImportPreview.parse(filename: file.name, bytes: file.bytes);
+      setState(() {
+        _bundle = preview.bundle;
+        _title.text = preview.title;
+        _warnings = preview.warnings;
+        _error = null;
+      });
+    } on FormatException catch (error) {
+      setState(() {
+        _bundle = null;
+        _warnings = const [];
+        _error = error.message.toString();
+      });
+    }
   }
 
   @override
@@ -479,19 +563,32 @@ class _HtmlImportDialogState extends State<_HtmlImportDialog> {
               child: TextButton(
                   onPressed: _pick, child: const Text('Choose HTML file'))),
           const SizedBox(height: 8),
-          Text(_html == null
-              ? 'Preview import after choosing an HTML file.'
-              : 'Ready to import $_name.'),
+          if (_error != null) Text(_error!),
+          if (_bundle == null && _error == null)
+            const Text('Preview import after choosing an HTML file.'),
+          if (_bundle != null) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _title,
+              decoration: const InputDecoration(labelText: 'Artifact title'),
+            ),
+            const SizedBox(height: 8),
+            Text('HTML ready (${_bundle!.html.length} characters).'),
+            if (_warnings.isNotEmpty)
+              Text(
+                'Some features may be limited: ${_warnings.join(', ')}.',
+              ),
+          ],
         ]),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel')),
           FilledButton(
-              onPressed: _html == null
+              onPressed: _bundle == null
                   ? null
-                  : () => Navigator.pop(context,
-                      _HtmlImport(_name ?? 'Imported artifact', _html!)),
+                  : () => Navigator.pop(
+                      context, _HtmlImport(_title.text.trim(), _bundle!)),
               child: const Text('Import')),
         ],
       );
@@ -506,6 +603,7 @@ class _ArtifactContent extends StatelessWidget {
       {required this.tab,
       required this.source,
       required this.enableNativeRuntime,
+      this.currentUserId,
       this.debugOnNativeReady,
       this.debugOnBridgeMessage,
       required this.onRetry,
@@ -513,6 +611,7 @@ class _ArtifactContent extends StatelessWidget {
   final LiveArtifactTab tab;
   final LiveArtifactsDataSource source;
   final bool enableNativeRuntime;
+  final int? currentUserId;
   final void Function(dynamic controller, bool inspectableDisabled)?
       debugOnNativeReady;
   final void Function(String raw)? debugOnBridgeMessage;
@@ -527,6 +626,7 @@ class _ArtifactContent extends StatelessWidget {
           enableNativeRuntime: enableNativeRuntime,
           debugOnNativeReady: debugOnNativeReady,
           debugOnBridgeMessage: debugOnBridgeMessage,
+          currentUserId: currentUserId,
           onRemove: onRemove);
     }
     return Center(

@@ -168,6 +168,7 @@ void main() {
                   body: DashboardArtifactWorkspace(
                 dashboard:
                     const Center(child: Text('Dashboard content unchanged')),
+                workspaceId: int.parse(_workspace),
                 controller: workspaceController,
                 baseUrl: _base,
                 manageAuthLifecycle: false,

@@ -86,7 +86,8 @@ void main() {
     ));
 
     expect(
-      find.text('Updated Aug 9, 2026 by Jane Smith · Bundle 1 · State 2'),
+      find.text(
+          'Updated Aug 9, 2026 by Jane Smith · Bundle 1 · State 2 · Private'),
       findsOneWidget,
     );
     expect(find.textContaining('updatedByUserId'), findsNothing);

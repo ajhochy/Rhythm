@@ -45,6 +45,8 @@ class LiveArtifactsDataSource {
     required int workspaceId,
     required String title,
     required String html,
+    String css = '',
+    String js = '',
   }) async {
     debugOnRequest?.call('create');
     final response = await (_client?.post ?? http.post)(
@@ -57,13 +59,82 @@ class LiveArtifactsDataSource {
         'type': 'html',
         'title': title,
         'workspaceId': workspaceId,
-        'bundle': {'html': html, 'css': '', 'js': ''},
+        'visibility': 'private',
+        'bundle': {'html': html, 'css': css, 'js': js},
         'state': {},
       }),
     );
     assertOk(response);
     return LiveArtifact.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<LiveArtifact> updateVisibility(
+    String id,
+    LiveArtifactVisibility visibility,
+  ) async {
+    debugOnRequest?.call('updateVisibility');
+    final response = await (_client?.patch ?? http.patch)(
+      Uri.parse('$_baseUrl/live-artifacts/$id'),
+      headers: {
+        ...AuthSessionStore.headers(),
+        'Content-Type': 'application/json'
+      },
+      body: jsonEncode({'visibility': visibility.wireName}),
+    );
+    assertOk(response);
+    return LiveArtifact.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<List<int>> collaborators(String id) async {
+    debugOnRequest?.call('collaborators');
+    final response = await (_client?.get ?? http.get)(
+      Uri.parse('$_baseUrl/live-artifacts/$id/collaborators'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return (jsonDecode(response.body) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map((json) => json['userId'] as int)
+        .toList(growable: false);
+  }
+
+  Future<void> addCollaborator(String id, int userId) =>
+      _collaboratorMutation('POST', id, userId);
+
+  Future<void> removeCollaborator(String id, int userId) =>
+      _collaboratorMutation('DELETE', id, userId);
+
+  Future<void> _collaboratorMutation(
+      String method, String id, int userId) async {
+    debugOnRequest
+        ?.call(method == 'POST' ? 'addCollaborator' : 'removeCollaborator');
+    final uri = Uri.parse(method == 'POST'
+        ? '$_baseUrl/live-artifacts/$id/collaborators'
+        : '$_baseUrl/live-artifacts/$id/collaborators/$userId');
+    final headers = {
+      ...AuthSessionStore.headers(),
+      'Content-Type': 'application/json'
+    };
+    final response = method == 'POST'
+        ? await (_client?.post ?? http.post)(uri,
+            headers: headers, body: jsonEncode({'userId': userId}))
+        : await (_client?.delete ?? http.delete)(uri, headers: headers);
+    assertOk(response);
+  }
+
+  Future<List<LiveArtifactUser>> users() async {
+    debugOnRequest?.call('users');
+    final response = await (_client?.get ?? http.get)(
+      Uri.parse('$_baseUrl/users'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return (jsonDecode(response.body) as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(LiveArtifactUser.fromJson)
+        .toList(growable: false);
   }
 
   /// This fetch remains in Flutter so the WebView never receives credentials.
