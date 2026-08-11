@@ -2,37 +2,31 @@
 
 ## Current focus
 
-Live-artifact automated verification passed, but the human visual smoke **failed**: the tested native surface was a security/integration harness rather than a usable end-to-end shipping-app workflow. Existing backend, security, runtime, Dashboard tab, and same-ID agent-to-human work remains present, but it does not constitute usable completion. See `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.
+Desktop chat surface work for #1340, #1348, and #1323 is implemented on the mega workstream: permission prompts and waiting state, root-only Chats listings with sync delegation parent links, and system-style async delegation wake rendering.
 
 ## Active branch / PR
 
-- Branch: `feat/artifact-viewer`, pushed and tracking its remote, with `origin/main` `8a3561d9` merged.
-- Draft PR: [#1338](https://github.com/ajhochy/Rhythm/pull/1338) remains **NOT READY** after failed manual smoke.
-- Sharing follow-up: [#1339](https://github.com/ajhochy/Rhythm/issues/1339). Import has no issue and requires AJ approval before filing.
+- Branch: `mega-ws/chat-ui`
+- No PR was opened or pushed, per the mega worker mandate.
 
 ## In progress
 
-- Product scope must be decided for importing existing HTML/Claude artifacts and for #1339 before implementation resumes.
-- Existing unrelated follow-ups remain: on-device confirmation of #1327 subagent approvals; #1319 parent taint propagation and `rhythm_delegation_transcript`; transcript fencing for the remaining half of #1331.
+- The orchestrator must run the env-gated #1348 live HTTP contract against `tools/dev/sandbox.sh` and run Flutter/widget visual verification in an environment that permits loopback sockets and macOS dependencies.
 
 ## Risks / known issues
 
-- The shipping app has no user-facing import for existing HTML/Claude artifacts, no Share dialog or collaborator management for existing artifacts, and no agent tool to update sharing after creation.
-- The CI server check failed and remains separately untriaged; it is not the explanation for the product-smoke failure.
-- GitNexus CLI conservatively reports **HIGH** across eight flows; all eight map to tested PCO-read or artifact-create entry points and are covered. Manager MCP reports LOW. The guarded DEBUG-only `MainFlutterWindow` registration retained its pre-impact startup-risk review and is absent from the Release binary.
-- Unrelated nonblocking residual: VoiceOver traversal through offscreen dashboard rows.
-- #1322 remains partial: plan mode does not make arbitrary `bash` read-only.
-- Never start a bare manual `api_server` for smoke; use `tools/dev/sandbox.sh` to avoid the live engine/DB collision paths.
-- The rejected demo process remains running by AJ's direction; do not manipulate it.
-- `apps/api_server` still has no effective lint gate; TypeScript compilation is its static check.
+- This worker sandbox forbids binding `127.0.0.1:0`, so Flutter tests and socket-backed API suites cannot execute here.
+- The integration-test macOS build also attempted to fetch the CocoaPods trunk and was blocked by restricted network access.
+- The permission routes/events were implemented against the future server contract supplied in `.mega-task/BRIEF.md`; their server work lands from another workstream.
 
 ## Test status
 
-- Automated verification: **PASS** after merging `origin/main`; sanitized `ai-workflow checks --level pr` passed.
-- Post-merge totals: API **4,127**, Flutter **1,129** (including **48** live-artifact), and MCP **169**; focused MCP/security **21**, AV-03 contract **11**, and real Postgres bootstrap/parity **2** passed.
-- Native AV-06 A1–A10/C3–C5, secure bridge/runtime checks, Release package verification, deterministic screenshots, and the real engine/MCP → hosted API → human same-ID flow passed.
-- Human visual smoke: **FAILED**; PR #1338 is not ready.
+- `flutter pub get --offline`, `dart format . --set-exit-if-changed`, and `flutter analyze --no-fatal-infos --no-pub`: passed (297 informational findings, no warnings/errors).
+- API `tsc --noEmit`, `npm run build`, and focused #1323/#1348 tests: passed; 58 passed, 2 env-gated live tests skipped.
+- Full `flutter test --no-pub`: blocked before test execution by loopback socket `EPERM`.
+- Full `npm test`: socket/process suites failed or timed out under the no-bind restriction; the run was stopped after the environment failure was established.
+- GitNexus compare-to-main change detection: LOW risk, 26 files / 44 indexed symbols, no affected processes.
 
 ## Next step
 
-Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+Run the two env-gated live tests and the desktop widget/visual smoke in the orchestrator's socket-enabled isolated sandbox, then assemble the umbrella PR without merging.
