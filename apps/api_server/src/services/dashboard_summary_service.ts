@@ -1,4 +1,5 @@
 import { MessagesRepository } from '../repositories/messages_repository';
+import { GoalsRepository } from '../repositories/goals_repository';
 import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
 import { ProjectTemplatesRepository } from '../repositories/project_templates_repository';
 import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
@@ -66,14 +67,16 @@ export class DashboardSummaryService {
   private projectInstancesRepo = new ProjectInstancesRepository();
   private projectTemplatesRepo = new ProjectTemplatesRepository();
   private messagesRepo = new MessagesRepository();
+  private goalsRepo = new GoalsRepository();
 
   async getSummaryAsync(userId: number, timezone = 'America/Los_Angeles'): Promise<DashboardSummary> {
-    const [tasks, rules, instances, templates, threads] = await Promise.all([
+    const [tasks, rules, instances, templates, threads, goals] = await Promise.all([
       this.tasksRepo.findAllAsync(userId),
       this.rulesRepo.findAllAsync(userId),
       this.projectInstancesRepo.findAllAsync(userId),
       this.projectTemplatesRepo.findAllAsync(userId),
       this.messagesRepo.findAllThreadsForUserAsync(userId),
+      this.goalsRepo.findAllAsync(userId),
     ]);
 
     const today = todayDateInTimezone(timezone);
@@ -227,6 +230,22 @@ export class DashboardSummaryService {
       projects: {
         activeCount: projectItems.length,
         items: projectItems,
+      },
+      goals: {
+        activeCount: goals.length,
+        items: goals.map((goal) => ({
+          id: goal.id,
+          title: goal.title,
+          metricType: goal.metricType,
+          currentValue: goal.currentValue,
+          endValue: goal.endValue,
+          health: goal.health,
+          startDate: goal.startDate,
+          endDate: goal.endDate,
+          progress: Math.max(0, Math.min(1,
+            (goal.currentValue - goal.startValue) / (goal.endValue - goal.startValue),
+          )),
+        })),
       },
       messages: {
         threadCount: threads.length,

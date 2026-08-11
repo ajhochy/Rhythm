@@ -79,6 +79,7 @@ class DashboardSummaryMessageSlice {
 class DashboardSummary {
   DashboardSummary({
     required this.tasks,
+    this.goals = const [],
     required this.rhythms,
     required this.projects,
     required this.messages,
@@ -107,6 +108,13 @@ class DashboardSummary {
       tasks: DashboardSummaryTaskSlice.fromJson(
         (json['tasks'] as Map<String, dynamic>?) ?? {},
       ),
+      goals: (((json['goals'] as Map<String, dynamic>?)?['items']
+                  as List<dynamic>?) ??
+              const [])
+          .map((item) => DashboardGoalProgress.fromJson(
+                item as Map<String, dynamic>,
+              ))
+          .toList(),
       rhythms: parseRhythms(),
       projects: parseProjects(),
       messages: DashboardSummaryMessageSlice.fromJson(
@@ -116,9 +124,47 @@ class DashboardSummary {
   }
 
   final DashboardSummaryTaskSlice tasks;
+  final List<DashboardGoalProgress> goals;
   final List<DashboardRhythmProgress> rhythms;
   final List<DashboardProjectProgress> projects;
   final DashboardSummaryMessageSlice messages;
+}
+
+class DashboardGoalProgress {
+  const DashboardGoalProgress({
+    required this.id,
+    required this.title,
+    required this.metricType,
+    required this.currentValue,
+    required this.endValue,
+    required this.progress,
+    required this.health,
+    this.startDate,
+    this.endDate,
+  });
+
+  factory DashboardGoalProgress.fromJson(Map<String, dynamic> json) =>
+      DashboardGoalProgress(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        metricType: json['metricType'] as String? ?? 'number',
+        currentValue: (json['currentValue'] as num?)?.toDouble() ?? 0,
+        endValue: (json['endValue'] as num?)?.toDouble() ?? 1,
+        progress: ((json['progress'] as num?)?.toDouble() ?? 0).clamp(0, 1),
+        health: json['health'] as String? ?? 'on_track',
+        startDate: json['startDate'] as String?,
+        endDate: json['endDate'] as String?,
+      );
+
+  final String id;
+  final String title;
+  final String metricType;
+  final double currentValue;
+  final double endValue;
+  final double progress;
+  final String health;
+  final String? startDate;
+  final String? endDate;
 }
 
 abstract class DashboardProgressItem {

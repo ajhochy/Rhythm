@@ -21,6 +21,7 @@ interface RuleRow {
   enabled: number | boolean;
   sequential: number | boolean;
   owner_id: number | null;
+  goal_id: string | null;
   created_at: string;
 }
 
@@ -39,6 +40,7 @@ function rowToRule(row: RuleRow): RecurringTaskRule {
     enabled,
     sequential,
     ownerId: row.owner_id,
+    goalId: row.goal_id ?? null,
     steps: parseSteps(row.steps_json),
     collaborators: [],
     createdAt: row.created_at,
@@ -268,8 +270,8 @@ export class RecurringTaskRulesRepository {
       const id = uuidv4();
       const now = new Date().toISOString();
       await getPostgresPool().query(
-        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, sequential, owner_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, sequential, owner_id, goal_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           id,
           data.title,
@@ -281,6 +283,7 @@ export class RecurringTaskRulesRepository {
           data.enabled !== false,
           data.sequential === true,
           data.ownerId ?? null,
+          data.goalId ?? null,
           now,
         ],
       );
@@ -296,8 +299,8 @@ export class RecurringTaskRulesRepository {
     const sequential = data.sequential === true ? 1 : 0;
     getDb()
       .prepare(
-        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, sequential, owner_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, sequential, owner_id, goal_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -310,6 +313,7 @@ export class RecurringTaskRulesRepository {
         enabled,
         sequential,
         data.ownerId ?? null,
+        data.goalId ?? null,
         now,
       );
     return this.findById(id);
@@ -325,8 +329,8 @@ export class RecurringTaskRulesRepository {
       const steps = data.steps !== undefined ? data.steps : existing.steps;
       await getPostgresPool().query(
         `UPDATE recurring_task_rules
-         SET title = $1, frequency = $2, day_of_week = $3, day_of_month = $4, month = $5, steps_json = $6, enabled = $7, sequential = $8, owner_id = $9
-         WHERE id = $10`,
+         SET title = $1, frequency = $2, day_of_week = $3, day_of_month = $4, month = $5, steps_json = $6, enabled = $7, sequential = $8, owner_id = $9, goal_id = $10
+         WHERE id = $11`,
         [
           data.title ?? existing.title,
           data.frequency ?? existing.frequency,
@@ -337,6 +341,7 @@ export class RecurringTaskRulesRepository {
           data.enabled !== undefined ? data.enabled : existing.enabled,
           data.sequential !== undefined ? data.sequential : existing.sequential,
           data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+          data.goalId !== undefined ? data.goalId : existing.goalId,
           id,
         ],
       );
@@ -358,7 +363,7 @@ export class RecurringTaskRulesRepository {
     getDb()
       .prepare(
         `UPDATE recurring_task_rules
-         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, steps_json = ?, enabled = ?, sequential = ?, owner_id = ?
+         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, steps_json = ?, enabled = ?, sequential = ?, owner_id = ?, goal_id = ?
          WHERE id = ?`,
       )
       .run(
@@ -371,6 +376,7 @@ export class RecurringTaskRulesRepository {
         enabled,
         sequential,
         data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+        data.goalId !== undefined ? data.goalId : existing.goalId,
         id,
       );
     return this.findById(id, userId);

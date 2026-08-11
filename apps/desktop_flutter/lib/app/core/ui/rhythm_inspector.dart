@@ -35,6 +35,7 @@ class RhythmTaskInspectorSaveRequest {
     required this.dueDate,
     required this.scheduledDate,
     required this.preferredAgent,
+    required this.energy,
   });
 
   final String title;
@@ -44,6 +45,7 @@ class RhythmTaskInspectorSaveRequest {
 
   /// One of 'claude-code', 'codex', or null.
   final String? preferredAgent;
+  final String? energy;
 }
 
 class RhythmProjectStepInspectorSaveRequest {
@@ -445,6 +447,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
   late String? _scheduledDate;
   late String? _dueDate;
   late String? _preferredAgent;
+  late String? _energy;
   bool _editing = false;
   bool _saving = false;
   bool _updatingCollaborators = false;
@@ -466,6 +469,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     _scheduledDate = widget.task.scheduledDate;
     _dueDate = widget.task.dueDate;
     _preferredAgent = widget.task.preferredAgent;
+    _energy = widget.task.energy;
     // Read-only sources (calendar shadow events, prod mirrors) stay read-only
     // regardless of the default.
     _editing = widget.initialEditMode && !_readOnly;
@@ -562,6 +566,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                       _scheduledDate = widget.task.scheduledDate;
                       _dueDate = widget.task.dueDate;
                       _preferredAgent = widget.task.preferredAgent;
+                      _energy = widget.task.energy;
                     });
                   },
             label: 'Cancel',
@@ -604,6 +609,31 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                     ),
                   )
                 : _readOnlyNotes(context, _notesController.text.trim()),
+          ),
+          const SizedBox(height: 18),
+          _InspectorSection(
+            title: 'Energy',
+            subtitle: 'A lightweight cue used when ordering flexible work.',
+            child: _editing && !_readOnly
+                ? DropdownButtonFormField<String?>(
+                    value: _energy,
+                    decoration: const InputDecoration(
+                      labelText: 'Energy or motivation',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: const [
+                      DropdownMenuItem<String?>(
+                          value: null, child: Text('None')),
+                      DropdownMenuItem(
+                          value: '🔥', child: Text('🔥 Energizing')),
+                      DropdownMenuItem(value: '⚡', child: Text('⚡ Momentum')),
+                      DropdownMenuItem(
+                          value: '🌱', child: Text('🌱 Gentle start')),
+                    ],
+                    onChanged: (value) => setState(() => _energy = value),
+                  )
+                : _MetaRow(label: 'Energy', value: _energy ?? 'Not set'),
           ),
           const SizedBox(height: 18),
           _InspectorSection(
@@ -917,6 +947,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           dueDate: _dueDate,
           scheduledDate: _scheduledDate,
           preferredAgent: _preferredAgent,
+          energy: _energy,
         ),
       );
       if (mounted) Navigator.of(context).pop();

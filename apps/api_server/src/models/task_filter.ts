@@ -22,6 +22,10 @@ export interface TaskFilter {
   overdue?: boolean;
   /** Case-insensitive substring match against title. */
   search?: string;
+  /** Exact canonical tag membership (not a substring match). */
+  tag?: string;
+  /** Return tasks whose integer priority is at least this value. */
+  minPriority?: number;
   /**
    * Today's date in YYYY-MM-DD format, injected by the controller.
    * Required when `overdue` is set; ignored otherwise.

@@ -53,6 +53,10 @@ class Task {
     this.isShared = false,
     this.collaborators = const [],
     this.preferredAgent,
+    this.goalId,
+    this.priority,
+    this.tags = const [],
+    this.energy,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -81,6 +85,12 @@ class Task {
       createdAt: asString(json['createdAt']) ?? '',
       updatedAt: asString(json['updatedAt']) ?? '',
       preferredAgent: asString(json['preferredAgent']),
+      goalId: asString(json['goalId']),
+      priority: asInt(json['priority']),
+      tags: ((json['tags'] as List<dynamic>?) ?? const [])
+          .whereType<String>()
+          .toList(growable: false),
+      energy: asString(json['energy']),
     );
   }
 
@@ -106,6 +116,10 @@ class Task {
 
   /// Preferred agent for this task. One of 'claude-code', 'codex', or null.
   final String? preferredAgent;
+  final String? goalId;
+  final int? priority;
+  final List<String> tags;
+  final String? energy;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -125,6 +139,10 @@ class Task {
         'createdAt': createdAt,
         'updatedAt': updatedAt,
         'preferredAgent': preferredAgent,
+        'goalId': goalId,
+        'priority': priority,
+        'tags': tags,
+        'energy': energy,
       };
 
   Task copyWith({
@@ -139,6 +157,10 @@ class Task {
     bool? isShared,
     List<TaskCollaborator>? collaborators,
     Object? preferredAgent = _sentinel,
+    Object? goalId = _sentinel,
+    Object? priority = _sentinel,
+    List<String>? tags,
+    Object? energy = _sentinel,
   }) {
     return Task(
       id: id,
@@ -163,6 +185,11 @@ class Task {
       preferredAgent: identical(preferredAgent, _sentinel)
           ? this.preferredAgent
           : preferredAgent as String?,
+      goalId: identical(goalId, _sentinel) ? this.goalId : goalId as String?,
+      priority:
+          identical(priority, _sentinel) ? this.priority : priority as int?,
+      tags: tags ?? this.tags,
+      energy: identical(energy, _sentinel) ? this.energy : energy as String?,
     );
   }
 }

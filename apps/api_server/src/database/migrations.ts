@@ -109,13 +109,27 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(instance_id, id)
+    );
+
     CREATE TABLE IF NOT EXISTS project_instance_steps (
       id TEXT PRIMARY KEY,
       instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
       step_id TEXT NOT NULL REFERENCES project_template_steps(id),
       title TEXT NOT NULL,
       due_date TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open'
+      status TEXT NOT NULL DEFAULT 'open',
+      milestone_id TEXT,
+      FOREIGN KEY (instance_id, milestone_id) REFERENCES project_milestones(instance_id, id)
     );
 
     CREATE TABLE IF NOT EXISTS weekly_plans (
@@ -3357,5 +3371,95 @@ If someone asks for creative work that needs a local capability:
     );
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
       ON agent_scheduled_task_runs(task_id, started_at DESC);
+  `);
+
+  // #1243 — first-class season goals. This is deliberately additive: existing
+  // tasks, project instances, and rhythms remain ungrouped with a NULL goal_id.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      metric_type TEXT NOT NULL,
+      start_value REAL NOT NULL,
+      current_value REAL NOT NULL,
+      end_value REAL NOT NULL,
+      health TEXT NOT NULL DEFAULT 'on_track',
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_goals_owner_dates
+      ON goals(owner_id, start_date, end_date);
+  `);
+  for (const table of ['tasks', 'project_instances', 'recurring_task_rules']) {
+    const columns = (db.pragma(`table_info(${table})`) as { name: string }[])
+      .map((column) => column.name);
+    if (!columns.includes('goal_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_goal_id ON ${table}(goal_id)`);
+  }
+
+  // #1244 — nullable priority and normalized JSON-array tags for task organization.
+  const taskColumns = (db.pragma('table_info(tasks)') as { name: string }[])
+    .map((column) => column.name);
+  if (!taskColumns.includes('priority')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN priority INTEGER');
+  }
+  if (!taskColumns.includes('tags')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!taskColumns.includes('energy')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN energy TEXT');
+  }
+
+  // #1246 — compact, instance-scoped milestones. Fresh databases receive the
+  // composite FK above; triggers enforce the same invariant on legacy tables
+  // where SQLite cannot add a table constraint without rebuilding the table.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(instance_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_milestones_instance_order
+      ON project_milestones(instance_id, sort_order);
+  `);
+  const milestoneStepColumns = (
+    db.pragma('table_info(project_instance_steps)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!milestoneStepColumns.includes('milestone_id')) {
+    db.exec('ALTER TABLE project_instance_steps ADD COLUMN milestone_id TEXT');
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_project_instance_steps_milestone
+      ON project_instance_steps(instance_id, milestone_id);
+    CREATE TRIGGER IF NOT EXISTS project_instance_steps_milestone_insert_guard
+    BEFORE INSERT ON project_instance_steps
+    WHEN NEW.milestone_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM project_milestones
+      WHERE id = NEW.milestone_id AND instance_id = NEW.instance_id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'milestone must belong to the project instance');
+    END;
+    CREATE TRIGGER IF NOT EXISTS project_instance_steps_milestone_update_guard
+    BEFORE UPDATE OF instance_id, milestone_id ON project_instance_steps
+    WHEN NEW.milestone_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM project_milestones
+      WHERE id = NEW.milestone_id AND instance_id = NEW.instance_id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'milestone must belong to the project instance');
+    END;
   `);
 }

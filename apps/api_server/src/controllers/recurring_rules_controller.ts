@@ -13,12 +13,14 @@ import type {
 import type { Task } from '../models/task';
 import { NotificationsRepository } from '../repositories/notifications_repository';
 import { NotificationService } from '../services/notification_service';
+import { GoalsRepository } from '../repositories/goals_repository';
 
 const repo = new RecurringTaskRulesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
 const recurrenceService = new RecurrenceService();
 const tasksRepo = new TasksRepository();
 const usersRepo = new UsersRepository();
+const goalsRepo = new GoalsRepository();
 
 const DEFAULT_LOOKAHEAD_WEEKS = 8;
 
@@ -55,7 +57,7 @@ export class RecurringRulesController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, frequency, dayOfWeek, dayOfMonth, month, steps, sequential } = req.body as Record<string, unknown>;
+      const { title, frequency, dayOfWeek, dayOfMonth, month, steps, sequential, goalId } = req.body as Record<string, unknown>;
 
       if (!title || typeof title !== 'string') throw AppError.badRequest('title is required');
       if (!frequency || !VALID_FREQUENCIES.includes(frequency as never)) {
@@ -64,6 +66,10 @@ export class RecurringRulesController {
 
       const parsedSteps = parseSteps(steps);
       validateSteps(frequency as 'weekly' | 'monthly' | 'annual', parsedSteps);
+      if (goalId !== undefined && goalId !== null) {
+        if (typeof goalId !== 'string') throw AppError.badRequest('goalId must be a goal ID or null');
+        await goalsRepo.findByIdAsync(goalId, req.auth!.user.id);
+      }
 
       const rule = await repo.createAsync({
         title,
@@ -74,6 +80,7 @@ export class RecurringRulesController {
         ownerId: req.auth!.user.id,
         steps: parsedSteps,
         sequential: sequential === true,
+        goalId: typeof goalId === 'string' ? goalId : null,
       });
 
       // Immediately generate task instances so they appear in the weekly planner
@@ -94,6 +101,10 @@ export class RecurringRulesController {
     try {
       const body = req.body as Record<string, unknown>;
       const userId = req.auth!.user.id;
+      if ('goalId' in body && body.goalId !== null) {
+        if (typeof body.goalId !== 'string') throw AppError.badRequest('goalId must be a goal ID or null');
+        await goalsRepo.findByIdAsync(body.goalId, userId);
+      }
 
       // Validate steps if present in the request body
       if ('steps' in body) {
