@@ -1943,8 +1943,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final session = await _repository.createSession(
-        profileId:
-            profileId ?? (resolvedAgentId.isEmpty ? agentId : resolvedAgentId),
+        profileId: profileId,
+        agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
         taskId: taskId,
         cwd: cwd,
         name: name,
