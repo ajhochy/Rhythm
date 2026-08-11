@@ -36,3 +36,12 @@ Live-artifact automated verification passed, but the human visual smoke **failed
 ## Next step
 
 Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+
+## Recent coding-agent runs
+
+### 2026-08-10 — issue #1270 mobile profile fallback
+- Files modified: mobile new-session preference utility, provider/create sheet, and focused contract/widget tests.
+- Checks run: MSP-002 contract 9/9 PASS; session configuration widget 4/4 PASS; mobile TypeScript and targeted ESLint PASS.
+- Decisions made: preserve Secretary-first selection, otherwise use the first gateway-filtered selectable profile; keep an empty catalog blocked with the product-approved explanation.
+- Deviations from spec: none.
+- Concerns: none beyond final physical-device smoke owned by the combined mobile workstream.

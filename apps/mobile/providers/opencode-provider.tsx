@@ -89,6 +89,7 @@ import {
   getInitialProviderId,
   getModelIdForProvider,
   getNewSessionPreferences,
+  NO_SELECTABLE_PROFILE_MESSAGE,
   getProjectLabel,
   getSelectedModelParts,
   getSessionExecutionState,
@@ -1423,9 +1424,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           : availableAgents;
         preferences = getNewSessionPreferences(profiles, chatPreferences);
         if (!preferences) {
-          throw new Error(
-            'The Secretary profile is unavailable for new chats.',
-          );
+          throw new Error(NO_SELECTABLE_PROFILE_MESSAGE);
         }
       }
       preferences ??= chatPreferences;
