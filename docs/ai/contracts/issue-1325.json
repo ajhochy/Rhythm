@@ -1,0 +1,40 @@
+{
+  "issue": 1325,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1325-c1",
+      "text": "Detect engine identity changes (pid, or the /global/health version/boot id) and re-run the same subscription + recovery path the server performs at boot.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1325_engine_respawn.test.ts",
+      "test_id": "issue-1325-c1: engine boot identity change re-subscribes and reruns recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1325-c2",
+      "text": "Make /opencode/health reflect BRIDGE liveness, not just \"the engine answers HTTP\". A ready engine with a dead subscription must not report ready.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1325_engine_respawn.test.ts",
+      "test_id": "issue-1325-c2: bridge liveness becomes false after the subscription is disposed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1325-c3",
+      "text": "If the engine reports active sessions while the api_server has persisted nothing for N minutes, log loudly and attempt reattach.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1325_engine_respawn.test.ts",
+      "test_id": "issue-1325-c3: stale active engine logs an error and reattaches",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1325-c4",
+      "text": "The engine global health response exposes a per-boot identity that changes across respawns.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1325_engine_respawn.test.ts",
+      "test_id": "issue-1325-c4: client reads pid and bootId from global health",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

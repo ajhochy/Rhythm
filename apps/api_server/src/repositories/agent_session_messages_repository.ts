@@ -102,6 +102,19 @@ function rowToStructured(row: AgentSessionMessageRow): StructuredAgentSessionMes
 }
 
 export class AgentSessionMessagesRepository {
+  /** Latest persisted agent-message timestamp across all sessions. */
+  latestPersistedAt(): number | null {
+    const row = getDb()
+      .prepare('SELECT MAX(created_at) AS created_at FROM agent_session_messages')
+      .get() as { created_at: string | null };
+    if (!row.created_at) return null;
+    const timestamp = /(?:Z|[+-]\d{2}:?\d{2})$/.test(row.created_at)
+      ? row.created_at
+      : `${row.created_at.replace(' ', 'T')}Z`;
+    const parsed = Date.parse(timestamp);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
   append(
     sessionId: string,
     role: 'output' | 'input' | 'system',

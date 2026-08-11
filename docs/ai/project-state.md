@@ -45,3 +45,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: preserve the legacy non-paged response shape while reusing the repository's stable newest-first selection/reverse implementation.
 - Deviations from spec: none.
 - Concerns: full baseline `npm test` contains pre-existing loopback-socket failures under this restricted sandbox; focused tests avoid sockets.
+
+### 2026-08-10 — issue #1325 engine respawn recovery
+- Files modified: fork global-health schema/handler plus engine identity helper; API client identity reader; stream bridge identity/staleness watchdog and recovery; bridge-aware health payload; startup bridge subscription; focused API/fork/live tests and contract JSON.
+- Checks run: focused API Vitest PASS (76 tests, 1 env-gated live probe skipped); API TypeScript `--noEmit` PASS; focused fork Bun test PASS (1 test). Fork `tsgo --noEmit` could not start because the pre-cloned dependency tree lacks `tsgo`.
+- Decisions made: use fork-issued pid + random per-boot UUID; reattach through the existing global-stream resubscribe path and rerun durable async-delegation recovery; normalize bare SQLite UTC timestamps before staleness comparison.
+- Deviations from spec: live respawn evidence is env-gated for the orchestrator because this worker cannot bind sockets.
+- Concerns: the global GitNexus index is stale, though all affected class/function reports were LOW risk.

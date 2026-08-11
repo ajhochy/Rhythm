@@ -46,6 +46,8 @@ import { opencodeSpilloverRouter } from './routes/opencode_spillover_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
+import { streamBridge } from './services/opencode_stream_bridge';
+import { buildOpencodeHealthPayload } from './services/opencode_health';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
 import agentMemoryRouter from './routes/agentMemoryRoutes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
@@ -259,13 +261,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
       }
     });
     app.get('/opencode/health', (_req, res) => {
-      res.json({
-        status: opencodeClient.isReady ? 'ready' : 'unavailable',
-        message: opencodeClient.statusMessage,
-        // OCU-08 (#1049) — surface websearch-tool availability so the UI can
-        // show it as configured/not. Never exposes the key itself.
-        websearchConfigured: opencodeClient.websearchConfigured,
-      });
+      res.json(buildOpencodeHealthPayload(opencodeClient, streamBridge));
     });
   }
 

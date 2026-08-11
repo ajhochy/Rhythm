@@ -570,6 +570,8 @@ async function main() {
       // down. Non-fatal: a reconcile failure must never block boot.
       try {
         const { streamBridge } = await import('./services/opencode_stream_bridge');
+        await streamBridge.ensureGlobalStream();
+        await streamBridge.checkEngineHealthNow();
         await streamBridge.reconcileSessionStatuses();
         logger.info('[server] session status resync complete (#1045)');
       } catch (e) {

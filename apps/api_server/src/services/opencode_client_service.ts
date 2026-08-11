@@ -489,6 +489,12 @@ export function augmentPathForOpencode(): void {
 
 type OpencodeServerHandle = { url: string; close(): void };
 
+export interface OpencodeEngineIdentity {
+  version: string;
+  pid: number;
+  bootId: string;
+}
+
 export class OpencodeClientService {
   private status: EngineStatus = 'uninitialized';
   private client: OpencodeClient | null = null;
@@ -1787,6 +1793,44 @@ export class OpencodeClientService {
     }
 
     return { stream: iterate(), abort: () => controller.abort() };
+  }
+
+  /**
+   * Read the engine process identity from `/global/health`.
+   *
+   * Version alone is deliberately insufficient: a replacement process runs
+   * the same build. The fork exposes both pid and a random per-boot id so the
+   * still-running api_server can detect that its SSE subscription belongs to
+   * a dead predecessor.
+   */
+  async getEngineIdentity(): Promise<OpencodeEngineIdentity | null> {
+    try {
+      const res = await fetch(`${this.serverUrl}/global/health`, {
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!res.ok) return null;
+      const body = await res.json() as Partial<OpencodeEngineIdentity> & {
+        healthy?: boolean;
+      };
+      if (
+        body.healthy !== true ||
+        typeof body.version !== 'string' ||
+        !Number.isInteger(body.pid) ||
+        typeof body.bootId !== 'string' ||
+        body.bootId.length === 0
+      ) {
+        logger.warn('[OpencodeClientService] /global/health omitted engine identity');
+        return null;
+      }
+      return {
+        version: body.version,
+        pid: body.pid as number,
+        bootId: body.bootId,
+      };
+    } catch (err) {
+      logger.warn(`[OpencodeClientService] engine identity check failed: ${String(err)}`);
+      return null;
+    }
   }
 
   /**
