@@ -65,11 +65,17 @@ class _DashboardArtifactWorkspaceState
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!widget.manageAuthLifecycle && widget.activeUserId == null) return;
-    final user = widget.manageAuthLifecycle
-        ? context.watch<AuthSessionService>().currentUser
-        : null;
-    final userId = widget.activeUserId ?? user?.id;
+    // #1381: In non-managed mode the parent (app_shell) owns this controller
+    // and drives its reset/restore lifecycle. The Dashboard is rebuilt from
+    // scratch on every navigation — app_shell renders views[index], not an
+    // IndexedStack — so this State is recreated on each return. Previously we
+    // reset() the SHARED controller here on that remount, wiping the tabs the
+    // parent had already restored, and (with no watched user in this mode)
+    // never restored them: imported artifacts vanished on navigate-away.
+    // Leave the parent-owned controller untouched; app_shell restores it.
+    if (!widget.manageAuthLifecycle) return;
+    final user = context.watch<AuthSessionService>().currentUser;
+    final userId = user?.id;
     if (!_identityInitialized || _activeUserId != userId) {
       _identityInitialized = true;
       _activeUserId = userId;
