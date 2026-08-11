@@ -27,17 +27,17 @@ class AgentInfo {
   String get executionAgentId => opencodeAgentId ?? name;
 
   factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
-        name: (json['name'] as String?) ?? '',
-        builtIn: (json['builtIn'] as bool?) ?? false,
-        profileId: json['profileId'] as String?,
-        opencodeAgentId: json['opencodeAgentId'] as String?,
-        defaults: (json['defaults'] as Map<String, dynamic>?) ?? const {},
-        display: (json['display'] as Map<String, dynamic>?) ?? const {},
-        profileAvailability:
-            (json['profileAvailability'] as String?) ?? 'unassigned',
-        description: json['description'] as String?,
-        mode: json['mode'] as String?,
-      );
+    name: (json['name'] as String?) ?? '',
+    builtIn: (json['builtIn'] as bool?) ?? false,
+    profileId: json['profileId'] as String?,
+    opencodeAgentId: json['opencodeAgentId'] as String?,
+    defaults: (json['defaults'] as Map<String, dynamic>?) ?? const {},
+    display: (json['display'] as Map<String, dynamic>?) ?? const {},
+    profileAvailability:
+        (json['profileAvailability'] as String?) ?? 'unassigned',
+    description: json['description'] as String?,
+    mode: json['mode'] as String?,
+  );
 }
 
 /// Parts-based chat model mirroring Opencode Desktop's `Message` + `Part`
@@ -137,15 +137,17 @@ class ChatPart {
     Map<String, dynamic>? toolArgs,
     String? toolOutput,
     String? toolStatus,
+    Map<String, dynamic>? toolMetadata,
     this.durationMs,
     this.fileMime,
     this.fileFilename,
     this.fileUrl,
     this.agentName,
-  })  : _text = text,
-        _toolArgs = toolArgs,
-        _toolOutput = toolOutput,
-        _toolStatus = toolStatus;
+  }) : _text = text,
+       _toolArgs = toolArgs,
+       _toolOutput = toolOutput,
+       _toolStatus = toolStatus,
+       _toolMetadata = toolMetadata;
 
   final String id;
   final String messageId;
@@ -169,6 +171,7 @@ class ChatPart {
   Map<String, dynamic>? _toolArgs;
   String? _toolOutput;
   String? _toolStatus;
+  Map<String, dynamic>? _toolMetadata;
 
   /// OPC-M4-1: File-part fields. Non-null when [type] == 'file'.
   /// [fileMime] — MIME type, e.g. 'image/png', 'application/pdf'.
@@ -195,6 +198,11 @@ class ChatPart {
   String? get toolStatus => _toolStatus;
   set toolStatus(String? v) => _toolStatus = v;
 
+  /// Provider-owned metadata emitted with a tool state. This stays structured
+  /// and path-only; binary output is never copied into the transcript.
+  Map<String, dynamic>? get toolMetadata => _toolMetadata;
+  set toolMetadata(Map<String, dynamic>? v) => _toolMetadata = v;
+
   /// OPC-M1-3: construct a [ChatPart] from a structured REST part object.
   ///
   /// A structured part looks like:
@@ -207,7 +215,8 @@ class ChatPart {
   factory ChatPart.fromJson(String messageId, Map<String, dynamic> raw) {
     final type = (raw['type'] as String?) ?? 'text';
     // Generate a stable part id: prefer 'id' field; fall back to hash.
-    final partId = (raw['id'] as String?) ??
+    final partId =
+        (raw['id'] as String?) ??
         '${messageId}_${type}_${raw.hashCode.toRadixString(16)}';
     final part = ChatPart(
       id: partId,
@@ -235,6 +244,8 @@ class ChatPart {
         final out = state['output'];
         if (out is String) toolOutput = out;
         toolStatus = state['status'] as String?;
+        final metadata = state['metadata'];
+        if (metadata is Map<String, dynamic>) toolMetadata = metadata;
       }
     } else if (raw['type'] == 'reasoning') {
       final t = raw['text'];
