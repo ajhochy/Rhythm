@@ -2,7 +2,13 @@ import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
-import type { ProjectInstance, ProjectInstanceStep } from '../models/project_instance';
+import type {
+  CreateProjectMilestoneDto,
+  ProjectInstance,
+  ProjectInstanceStep,
+  ProjectMilestone,
+  UpdateProjectMilestoneDto,
+} from '../models/project_instance';
 import type { Task } from '../models/task';
 
 interface InstanceRow {
@@ -12,6 +18,7 @@ interface InstanceRow {
   anchor_date: string;
   status: string;
   owner_id: number | null;
+  goal_id: string | null;
   created_at: string;
 }
 
@@ -26,6 +33,18 @@ interface InstanceStepRow {
   notes: string | null;
   assignee_id: number | null;
   assignee_name: string | null;
+  milestone_id: string | null;
+}
+
+interface MilestoneRow {
+  id: string;
+  instance_id: string;
+  title: string;
+  due_date: string | null;
+  color: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 function rowToStep(row: InstanceStepRow): ProjectInstanceStep {
@@ -40,10 +59,28 @@ function rowToStep(row: InstanceStepRow): ProjectInstanceStep {
     notes: row.notes ?? null,
     assigneeId: row.assignee_id ?? null,
     assigneeName: row.assignee_name ?? null,
+    milestoneId: row.milestone_id ?? null,
   };
 }
 
-function rowToInstance(row: InstanceRow, steps: ProjectInstanceStep[]): ProjectInstance {
+function rowToMilestone(row: MilestoneRow): ProjectMilestone {
+  return {
+    id: row.id,
+    instanceId: row.instance_id,
+    title: row.title,
+    dueDate: row.due_date ?? null,
+    color: row.color ?? null,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function rowToInstance(
+  row: InstanceRow,
+  steps: ProjectInstanceStep[],
+  milestones: ProjectMilestone[],
+): ProjectInstance {
   return {
     id: row.id,
     templateId: row.template_id,
@@ -51,7 +88,9 @@ function rowToInstance(row: InstanceRow, steps: ProjectInstanceStep[]): ProjectI
     anchorDate: row.anchor_date,
     status: row.status,
     ownerId: row.owner_id,
+    goalId: row.goal_id ?? null,
     createdAt: row.created_at,
+    milestones,
     steps,
   };
 }
@@ -85,6 +124,9 @@ function stepRowToPlannerTask(row: {
     createdAt: '',
     updatedAt: '',
     preferredAgent: null,
+    priority: null,
+    tags: [],
+    energy: null,
   };
 }
 
@@ -101,6 +143,30 @@ interface PlannerStepRow {
 }
 
 export class ProjectInstancesRepository {
+  private async getMilestonesAsync(instanceId: string): Promise<ProjectMilestone[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<MilestoneRow>(
+        `SELECT * FROM project_milestones
+         WHERE instance_id = $1
+         ORDER BY sort_order ASC, due_date ASC NULLS LAST, created_at ASC`,
+        [instanceId],
+      );
+      return result.rows.map(rowToMilestone);
+    }
+    return this.getMilestones(instanceId);
+  }
+
+  private getMilestones(instanceId: string): ProjectMilestone[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM project_milestones
+         WHERE instance_id = ?
+         ORDER BY sort_order ASC, due_date IS NULL ASC, due_date ASC, created_at ASC`,
+      )
+      .all(instanceId) as MilestoneRow[];
+    return rows.map(rowToMilestone);
+  }
+
   private async getStepsAsync(instanceId: string): Promise<ProjectInstanceStep[]> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<InstanceStepRow>(
@@ -270,7 +336,9 @@ export class ProjectInstancesRepository {
          ORDER BY created_at DESC`,
       )
       .all(userId) as InstanceRow[];
-    return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
+    return rows.map((row) =>
+      rowToInstance(row, this.getSteps(row.id), this.getMilestones(row.id)),
+    );
   }
 
   async findAllAsync(userId: number): Promise<ProjectInstance[]> {
@@ -283,7 +351,11 @@ export class ProjectInstancesRepository {
       );
       return Promise.all(
         result.rows.map(async (row) =>
-          rowToInstance(row, await this.getStepsAsync(row.id)),
+          rowToInstance(
+            row,
+            await this.getStepsAsync(row.id),
+            await this.getMilestonesAsync(row.id),
+          ),
         ),
       );
     }
@@ -294,7 +366,9 @@ export class ProjectInstancesRepository {
     const rows = getDb()
       .prepare('SELECT * FROM project_instances ORDER BY created_at DESC')
       .all() as InstanceRow[];
-    return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
+    return rows.map((row) =>
+      rowToInstance(row, this.getSteps(row.id), this.getMilestones(row.id)),
+    );
   }
 
   async findAllIncludingLegacyAsync(): Promise<ProjectInstance[]> {
@@ -304,7 +378,11 @@ export class ProjectInstancesRepository {
       );
       return Promise.all(
         result.rows.map(async (row) =>
-          rowToInstance(row, await this.getStepsAsync(row.id)),
+          rowToInstance(
+            row,
+            await this.getStepsAsync(row.id),
+            await this.getMilestonesAsync(row.id),
+          ),
         ),
       );
     }
@@ -319,7 +397,9 @@ export class ProjectInstancesRepository {
          ORDER BY anchor_date DESC`,
       )
       .all(templateId, userId) as InstanceRow[];
-    return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
+    return rows.map((row) =>
+      rowToInstance(row, this.getSteps(row.id), this.getMilestones(row.id)),
+    );
   }
 
   async findByTemplateIdAsync(
@@ -335,7 +415,11 @@ export class ProjectInstancesRepository {
       );
       return Promise.all(
         result.rows.map(async (row) =>
-          rowToInstance(row, await this.getStepsAsync(row.id)),
+          rowToInstance(
+            row,
+            await this.getStepsAsync(row.id),
+            await this.getMilestonesAsync(row.id),
+          ),
         ),
       );
     }
@@ -348,7 +432,9 @@ export class ProjectInstancesRepository {
         'SELECT * FROM project_instances WHERE template_id = ? ORDER BY anchor_date DESC',
       )
       .all(templateId) as InstanceRow[];
-    return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
+    return rows.map((row) =>
+      rowToInstance(row, this.getSteps(row.id), this.getMilestones(row.id)),
+    );
   }
 
   async findByTemplateIdIncludingLegacyAsync(
@@ -361,7 +447,11 @@ export class ProjectInstancesRepository {
       );
       return Promise.all(
         result.rows.map(async (row) =>
-          rowToInstance(row, await this.getStepsAsync(row.id)),
+          rowToInstance(
+            row,
+            await this.getStepsAsync(row.id),
+            await this.getMilestonesAsync(row.id),
+          ),
         ),
       );
     }
@@ -376,7 +466,7 @@ export class ProjectInstancesRepository {
       )
       .get(id, userId) as InstanceRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstance');
-    return rowToInstance(row, this.getSteps(id));
+    return rowToInstance(row, this.getSteps(id), this.getMilestones(id));
   }
 
   async findByIdAsync(id: string, userId: number): Promise<ProjectInstance> {
@@ -388,7 +478,11 @@ export class ProjectInstancesRepository {
       );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectInstance');
-      return rowToInstance(row, await this.getStepsAsync(id));
+      return rowToInstance(
+        row,
+        await this.getStepsAsync(id),
+        await this.getMilestonesAsync(id),
+      );
     }
     return this.findById(id, userId);
   }
@@ -398,7 +492,7 @@ export class ProjectInstancesRepository {
       .prepare('SELECT * FROM project_instances WHERE id = ?')
       .get(id) as InstanceRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstance');
-    return rowToInstance(row, this.getSteps(id));
+    return rowToInstance(row, this.getSteps(id), this.getMilestones(id));
   }
 
   async findByIdIncludingLegacyAsync(id: string): Promise<ProjectInstance> {
@@ -409,7 +503,11 @@ export class ProjectInstancesRepository {
       );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectInstance');
-      return rowToInstance(row, await this.getStepsAsync(id));
+      return rowToInstance(
+        row,
+        await this.getStepsAsync(id),
+        await this.getMilestonesAsync(id),
+      );
     }
     return this.findByIdIncludingLegacy(id);
   }
@@ -430,7 +528,11 @@ export class ProjectInstancesRepository {
       )
       .get(templateId, anchorDate, name ?? null, userId) as InstanceRow | undefined;
     if (!row) return null;
-    return rowToInstance(row, this.getSteps(row.id));
+    return rowToInstance(
+      row,
+      this.getSteps(row.id),
+      this.getMilestones(row.id),
+    );
   }
 
   async findByTemplateAndAnchorAsync(
@@ -450,7 +552,11 @@ export class ProjectInstancesRepository {
       );
       const row = result.rows[0];
       if (!row) return null;
-      return rowToInstance(row, await this.getStepsAsync(row.id));
+      return rowToInstance(
+        row,
+        await this.getStepsAsync(row.id),
+        await this.getMilestonesAsync(row.id),
+      );
     }
     return this.findByTemplateAndAnchor(templateId, anchorDate, name, userId);
   }
@@ -467,7 +573,11 @@ export class ProjectInstancesRepository {
       )
       .get(templateId, anchorDate, name ?? null) as InstanceRow | undefined;
     if (!row) return null;
-    return rowToInstance(row, this.getSteps(row.id));
+    return rowToInstance(
+      row,
+      this.getSteps(row.id),
+      this.getMilestones(row.id),
+    );
   }
 
   createWithSteps(
@@ -476,6 +586,7 @@ export class ProjectInstancesRepository {
     name: string | null,
     ownerId: number | null,
     steps: Array<{ stepId: string; title: string; dueDate: string; assigneeId?: number | null }>,
+    goalId: string | null = null,
   ): ProjectInstance {
     const instanceId = uuidv4();
     const now = new Date().toISOString();
@@ -483,7 +594,7 @@ export class ProjectInstancesRepository {
 
     const db = getDb();
     const insertInstance = db.prepare(
-      `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, goal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertStep = db.prepare(
       `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, scheduled_date, status, assignee_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -497,6 +608,7 @@ export class ProjectInstancesRepository {
         anchorDate,
         'active',
         ownerId,
+        goalId,
         now,
       );
       for (const step of steps) {
@@ -522,15 +634,16 @@ export class ProjectInstancesRepository {
     name: string | null,
     ownerId: number | null,
     steps: Array<{ stepId: string; title: string; dueDate: string; assigneeId?: number | null }>,
+    goalId: string | null = null,
   ): Promise<ProjectInstance> {
     if (env.dbClient === 'postgres') {
       const instanceId = uuidv4();
       const now = new Date().toISOString();
       const templateAssignees = await this.getTemplateStepAssigneesAsync(templateId);
       await getPostgresPool().query(
-        `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [instanceId, templateId, name, anchorDate, 'active', ownerId, now],
+        `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, goal_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [instanceId, templateId, name, anchorDate, 'active', ownerId, goalId, now],
       );
       for (const step of steps) {
         await getPostgresPool().query(
@@ -550,12 +663,154 @@ export class ProjectInstancesRepository {
       }
       return this.findByIdIncludingLegacyAsync(instanceId);
     }
-    return this.createWithSteps(templateId, anchorDate, name, ownerId, steps);
+    return this.createWithSteps(templateId, anchorDate, name, ownerId, steps, goalId);
+  }
+
+  async listMilestonesAsync(
+    instanceId: string,
+    userId: number,
+  ): Promise<ProjectMilestone[]> {
+    await this.findByIdAsync(instanceId, userId);
+    return this.getMilestonesAsync(instanceId);
+  }
+
+  async createMilestoneAsync(
+    instanceId: string,
+    data: CreateProjectMilestoneDto,
+    userId: number,
+  ): Promise<ProjectMilestone> {
+    await this.findByIdAsync(instanceId, userId);
+    const id = uuidv4();
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO project_milestones
+          (id, instance_id, title, due_date, color, sort_order, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          id,
+          instanceId,
+          data.title,
+          data.dueDate ?? null,
+          data.color ?? null,
+          data.sortOrder ?? 0,
+          now,
+          now,
+        ],
+      );
+    } else {
+      getDb()
+        .prepare(
+          `INSERT INTO project_milestones
+            (id, instance_id, title, due_date, color, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          instanceId,
+          data.title,
+          data.dueDate ?? null,
+          data.color ?? null,
+          data.sortOrder ?? 0,
+          now,
+          now,
+        );
+    }
+    const milestones = await this.getMilestonesAsync(instanceId);
+    return milestones.find((milestone) => milestone.id === id)!;
+  }
+
+  async updateMilestoneAsync(
+    instanceId: string,
+    milestoneId: string,
+    data: UpdateProjectMilestoneDto,
+    userId: number,
+  ): Promise<ProjectMilestone> {
+    await this.findByIdAsync(instanceId, userId);
+    const existing = (await this.getMilestonesAsync(instanceId)).find(
+      (milestone) => milestone.id === milestoneId,
+    );
+    if (!existing) throw AppError.notFound('ProjectMilestone');
+    const now = new Date().toISOString();
+    const values = [
+      data.title ?? existing.title,
+      data.dueDate !== undefined ? data.dueDate : existing.dueDate,
+      data.color !== undefined ? data.color : existing.color,
+      data.sortOrder ?? existing.sortOrder,
+      now,
+      milestoneId,
+      instanceId,
+    ] as const;
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE project_milestones
+         SET title = $1, due_date = $2, color = $3, sort_order = $4, updated_at = $5
+         WHERE id = $6 AND instance_id = $7`,
+        [...values],
+      );
+    } else {
+      getDb()
+        .prepare(
+          `UPDATE project_milestones
+           SET title = ?, due_date = ?, color = ?, sort_order = ?, updated_at = ?
+           WHERE id = ? AND instance_id = ?`,
+        )
+        .run(...values);
+    }
+    return (await this.getMilestonesAsync(instanceId)).find(
+      (milestone) => milestone.id === milestoneId,
+    )!;
+  }
+
+  async deleteMilestoneAsync(
+    instanceId: string,
+    milestoneId: string,
+    userId: number,
+  ): Promise<void> {
+    await this.findByIdAsync(instanceId, userId);
+    const existing = (await this.getMilestonesAsync(instanceId)).some(
+      (milestone) => milestone.id === milestoneId,
+    );
+    if (!existing) throw AppError.notFound('ProjectMilestone');
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `WITH ungrouped AS (
+           UPDATE project_instance_steps
+           SET milestone_id = NULL
+           WHERE instance_id = $1 AND milestone_id = $2
+         )
+         DELETE FROM project_milestones WHERE instance_id = $1 AND id = $2`,
+        [instanceId, milestoneId],
+      );
+      return;
+    }
+    getDb().transaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE project_instance_steps
+           SET milestone_id = NULL
+           WHERE instance_id = ? AND milestone_id = ?`,
+        )
+        .run(instanceId, milestoneId);
+      getDb()
+        .prepare('DELETE FROM project_milestones WHERE instance_id = ? AND id = ?')
+        .run(instanceId, milestoneId);
+    })();
+  }
+
+  async updateGoalAsync(id: string, goalId: string | null, userId: number): Promise<ProjectInstance> {
+    await this.findByIdAsync(id, userId);
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query('UPDATE project_instances SET goal_id = $1 WHERE id = $2', [goalId, id]);
+    } else {
+      getDb().prepare('UPDATE project_instances SET goal_id = ? WHERE id = ?').run(goalId, id);
+    }
+    return this.findByIdAsync(id, userId);
   }
 
   updateStep(
     stepId: string,
-    data: { title?: string; dueDate?: string; scheduledDate?: string | null; status?: string; notes?: string | null; assigneeId?: number | null },
+    data: { title?: string; dueDate?: string; scheduledDate?: string | null; status?: string; notes?: string | null; assigneeId?: number | null; milestoneId?: string | null },
     userId?: number,
   ): ProjectInstanceStep {
     const row = (userId != null
@@ -577,10 +832,20 @@ export class ProjectInstancesRepository {
           )
           .get(stepId)) as InstanceStepRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstanceStep');
+    if (data.milestoneId != null) {
+      const milestone = getDb()
+        .prepare(
+          'SELECT id FROM project_milestones WHERE id = ? AND instance_id = ?',
+        )
+        .get(data.milestoneId, row.instance_id);
+      if (!milestone) throw AppError.badRequest('milestoneId must belong to the project instance');
+    }
 
     getDb()
       .prepare(
-        `UPDATE project_instance_steps SET title = ?, due_date = ?, scheduled_date = ?, status = ?, notes = ?, assignee_id = ? WHERE id = ?`,
+        `UPDATE project_instance_steps
+         SET title = ?, due_date = ?, scheduled_date = ?, status = ?, notes = ?, assignee_id = ?, milestone_id = ?
+         WHERE id = ?`,
       )
       .run(
         data.title ?? row.title,
@@ -589,6 +854,7 @@ export class ProjectInstancesRepository {
         data.status ?? row.status,
         data.notes !== undefined ? data.notes : row.notes,
         data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
+        data.milestoneId !== undefined ? data.milestoneId : row.milestone_id,
         stepId,
       );
 
@@ -607,7 +873,7 @@ export class ProjectInstancesRepository {
 
   async updateStepAsync(
     stepId: string,
-    data: { title?: string; dueDate?: string; scheduledDate?: string | null; status?: string; notes?: string | null; assigneeId?: number | null },
+    data: { title?: string; dueDate?: string; scheduledDate?: string | null; status?: string; notes?: string | null; assigneeId?: number | null; milestoneId?: string | null },
     userId?: number,
   ): Promise<ProjectInstanceStep> {
     if (env.dbClient === 'postgres') {
@@ -630,11 +896,21 @@ export class ProjectInstancesRepository {
             );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectInstanceStep');
+      if (data.milestoneId != null) {
+        const milestone = await getPostgresPool().query<{ id: string }>(
+          'SELECT id FROM project_milestones WHERE id = $1 AND instance_id = $2',
+          [data.milestoneId, row.instance_id],
+        );
+        if (!milestone.rows[0]) {
+          throw AppError.badRequest('milestoneId must belong to the project instance');
+        }
+      }
 
       await getPostgresPool().query(
         `UPDATE project_instance_steps
-         SET title = $1, due_date = $2, scheduled_date = $3, status = $4, notes = $5, assignee_id = $6
-         WHERE id = $7`,
+         SET title = $1, due_date = $2, scheduled_date = $3, status = $4, notes = $5,
+             assignee_id = $6, milestone_id = $7
+         WHERE id = $8`,
         [
           data.title ?? row.title,
           data.dueDate ?? row.due_date,
@@ -642,6 +918,7 @@ export class ProjectInstancesRepository {
           data.status ?? row.status,
           data.notes !== undefined ? data.notes : row.notes,
           data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
+          data.milestoneId !== undefined ? data.milestoneId : row.milestone_id,
           stepId,
         ],
       );

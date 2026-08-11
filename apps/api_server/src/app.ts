@@ -64,6 +64,7 @@ import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
 import { liveArtifactsRouter } from './routes/live_artifacts_routes';
+import { goalsRouter } from './routes/goals_routes';
 import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
@@ -122,6 +123,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   app.use('/integrations/planning-center/api', pcoBrokerRouter);
   app.use('/integrations', integrationsRouter);
   app.use('/tasks', tasksRouter);
+  app.use('/goals', goalsRouter);
   app.use('/project-templates', projectTemplatesRouter);
   app.use('/recurring-rules', recurringRulesRouter);
   app.use('/project-instances', projectInstancesRouter);

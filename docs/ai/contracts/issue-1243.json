@@ -1,0 +1,56 @@
+{
+  "issue": 1243,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1243-c1",
+      "text": "Goals as a first-class concept (season objectives)",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1243_contract.test.ts",
+      "test_id": "issue-1243-c1: creates and lists a stable first-class season goal",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1243-c2",
+      "text": "Rhythm should use a small dedicated table with metricType/start/current/end + health + date range instead.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1243_contract.test.ts",
+      "test_id": "issue-1243-c2: round-trips metric, health, and date-range fields",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1243-c3",
+      "text": "nullable goalId on Task/ProjectInstance/RecurringTaskRule",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1243_contract.test.ts",
+      "test_id": "issue-1243-c3: links tasks, project instances, and recurring rules through nullable goal_id columns",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1243-c4",
+      "text": "dashboard progress rollup",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1243_contract.test.ts",
+      "test_id": "issue-1243-c4: dashboard rolls up goal progress from the persisted metric range",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1243-c5",
+      "text": "donut",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1243_goals_dashboard_test.dart",
+      "test_id": "issue-1243-c5: dashboard renders a goal progress donut",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1243-c6",
+      "text": "Additive migration; Postgres parity required.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1243_contract.test.ts",
+      "test_id": "issue-1243-c6: SQLite and Postgres define additive equivalent goal schema",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript,dart",
+  "not_tested": []
+}

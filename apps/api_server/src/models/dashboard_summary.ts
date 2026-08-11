@@ -67,6 +67,23 @@ export interface DashboardProjectSummary {
   items: DashboardProjectItem[];
 }
 
+export interface DashboardGoalItem {
+  id: string;
+  title: string;
+  metricType: string;
+  currentValue: number;
+  endValue: number;
+  health: string;
+  startDate: string;
+  endDate: string;
+  progress: number;
+}
+
+export interface DashboardGoalSummary {
+  activeCount: number;
+  items: DashboardGoalItem[];
+}
+
 export interface DashboardUnreadPreview {
   threadId: number;
   threadTitle: string;
@@ -85,5 +102,6 @@ export interface DashboardSummary {
   tasks: DashboardTaskSummary;
   rhythms: DashboardRhythmSummary;
   projects: DashboardProjectSummary;
+  goals: DashboardGoalSummary;
   messages: DashboardMessageSummary;
 }

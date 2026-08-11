@@ -2,7 +2,7 @@ import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
-import type { CreateTaskDto, Task, TaskCollaborator, UpdateTaskDto } from '../models/task';
+import { normalizeTaskTags, type CreateTaskDto, type Task, type TaskCollaborator, type UpdateTaskDto } from '../models/task';
 import type { TaskFilter } from '../models/task_filter';
 import { scoreDocsBm25 } from '../services/bm25';
 
@@ -19,6 +19,10 @@ interface TaskRow {
   source_id: string | null;
   source_name: string | null;
   owner_id: number | null;
+  goal_id: string | null;
+  priority: number | null;
+  tags: string | string[] | null;
+  energy: string | null;
   workspace_id?: number | null;
   is_shared?: number | null;
   created_at: string;
@@ -29,6 +33,9 @@ interface TaskRow {
 function rowToTask(row: TaskRow): Task {
   const locked =
     typeof row.locked === 'boolean' ? row.locked : row.locked === 1;
+  const storedTags = Array.isArray(row.tags)
+    ? row.tags
+    : JSON.parse(row.tags ?? '[]');
 
   return {
     id: row.id,
@@ -43,6 +50,14 @@ function rowToTask(row: TaskRow): Task {
     sourceId: row.source_id,
     sourceName: row.source_name ?? null,
     ownerId: row.owner_id,
+    goalId: row.goal_id ?? null,
+    priority: row.priority ?? null,
+    tags: normalizeTaskTags(
+      Array.isArray(storedTags)
+        ? storedTags.filter((tag): tag is string => typeof tag === 'string')
+        : [],
+    ),
+    energy: row.energy ?? null,
     workspaceId: row.workspace_id ?? null,
     isShared: Boolean(row.is_shared),
     collaborators: [],
@@ -206,7 +221,7 @@ export class TasksRepository {
 
   async findByFilterAsync(filter: TaskFilter): Promise<Task[]> {
     if (env.dbClient === 'postgres') {
-      const { userId, status, scheduledBefore, dueBefore, overdue, today } = filter;
+      const { userId, status, scheduledBefore, dueBefore, overdue, today, tag, minPriority } = filter;
       const search = filter.search?.trim();
       const todayForSort = today ?? new Date().toISOString().slice(0, 10);
       const clauses = [
@@ -234,6 +249,12 @@ export class TasksRepository {
       }
       if (search) {
         clauses.push(`tasks.search_vector @@ plainto_tsquery('english', ${bind(search)})`);
+      }
+      if (tag !== undefined) {
+        clauses.push(`tasks.tags ? ${bind(tag)}`);
+      }
+      if (minPriority !== undefined) {
+        clauses.push(`tasks.priority >= ${bind(minPriority)}`);
       }
       const todayParam = bind(todayForSort);
       const result = await getPostgresPool().query<TaskRow>(
@@ -285,7 +306,7 @@ export class TasksRepository {
    * parameters to prevent SQL injection.
    */
   findByFilter(filter: TaskFilter): Task[] {
-    const { userId, status, scheduledBefore, dueBefore, overdue, today } = filter;
+    const { userId, status, scheduledBefore, dueBefore, overdue, today, tag, minPriority } = filter;
     const search = filter.search?.trim();
 
     const clauses: string[] = [
@@ -330,6 +351,15 @@ export class TasksRepository {
         );
         params.push(today ?? new Date().toISOString().slice(0, 10));
       }
+    }
+
+    if (tag !== undefined) {
+      clauses.push('EXISTS (SELECT 1 FROM json_each(tasks.tags) WHERE json_each.value = ?)');
+      params.push(tag);
+    }
+    if (minPriority !== undefined) {
+      clauses.push('tasks.priority >= ?');
+      params.push(minPriority);
     }
 
     const todayForSort = today ?? new Date().toISOString().slice(0, 10);
@@ -747,9 +777,9 @@ export class TasksRepository {
         `INSERT INTO tasks (
           id, title, notes, due_date, scheduled_date, locked, status,
           scheduled_order, source_type, source_id, owner_id, preferred_agent,
-          created_at, updated_at
+          goal_id, priority, tags, energy, created_at, updated_at
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18)`,
         [
           id,
           data.title,
@@ -763,6 +793,10 @@ export class TasksRepository {
           data.sourceId ?? null,
           data.ownerId ?? null,
           data.preferredAgent ?? null,
+          data.goalId ?? null,
+          data.priority ?? null,
+          JSON.stringify(normalizeTaskTags(data.tags ?? [])),
+          data.energy ?? null,
           now,
           now,
         ],
@@ -781,9 +815,9 @@ export class TasksRepository {
         `INSERT INTO tasks (
           id, title, notes, due_date, scheduled_date, locked, status,
           scheduled_order, source_type, source_id, owner_id, preferred_agent,
-          created_at, updated_at
+          goal_id, priority, tags, energy, created_at, updated_at
         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -798,6 +832,10 @@ export class TasksRepository {
         data.sourceId ?? null,
         data.ownerId ?? null,
         data.preferredAgent ?? null,
+        data.goalId ?? null,
+        data.priority ?? null,
+        JSON.stringify(normalizeTaskTags(data.tags ?? [])),
+        data.energy ?? null,
         now,
         now,
       );
@@ -1031,8 +1069,12 @@ export class TasksRepository {
              locked = $7,
              owner_id = $8,
              preferred_agent = $9,
-             updated_at = $10
-         WHERE id = $11`,
+             goal_id = $10,
+             priority = $11,
+             tags = $12::jsonb,
+             energy = $13,
+             updated_at = $14
+         WHERE id = $15`,
         [
           data.title ?? existing.title,
           nextNotes !== undefined ? nextNotes : existing.notes,
@@ -1047,6 +1089,10 @@ export class TasksRepository {
           data.locked !== undefined ? data.locked : existing.locked,
           data.ownerId !== undefined ? data.ownerId : existing.ownerId,
           nextPreferredAgent,
+          data.goalId !== undefined ? data.goalId : existing.goalId,
+          data.priority !== undefined ? data.priority : existing.priority,
+          JSON.stringify(data.tags !== undefined ? normalizeTaskTags(data.tags) : existing.tags),
+          data.energy !== undefined ? data.energy : existing.energy,
           now,
           id,
         ],
@@ -1081,6 +1127,7 @@ export class TasksRepository {
          SET title = ?, notes = ?, due_date = ?, status = ?,
              scheduled_date = ?, scheduled_order = ?, locked = ?, owner_id = ?,
              preferred_agent = ?, updated_at = ?
+             , goal_id = ?, priority = ?, tags = ?, energy = ?
          WHERE id = ?`,
       )
       .run(
@@ -1098,6 +1145,10 @@ export class TasksRepository {
         data.ownerId !== undefined ? data.ownerId : existing.ownerId,
         nextPreferredAgent,
         now,
+        data.goalId !== undefined ? data.goalId : existing.goalId,
+        data.priority !== undefined ? data.priority : existing.priority,
+        JSON.stringify(data.tags !== undefined ? normalizeTaskTags(data.tags) : existing.tags),
+        data.energy !== undefined ? data.energy : existing.energy,
         id,
       );
     return userId != null

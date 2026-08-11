@@ -34,8 +34,10 @@ class DashboardController extends ChangeNotifier {
   List<Task> _unscheduledTasks = [];
   List<Task> _handoffTasks = [];
   List<DashboardRhythmProgress> _activeRhythms = [];
+  List<DashboardGoalProgress> _goals = [];
   List<DashboardProjectProgress> _activeProjects = [];
   List<DashboardUnreadMessagePreview> _unreadMessages = [];
+  String? _completionAffirmation;
 
   List<Task> _projectStepPastDueTasks = [];
   List<Task> _projectStepTodayTasks = [];
@@ -64,8 +66,15 @@ class DashboardController extends ChangeNotifier {
   List<Task> get unscheduledTasks => _unscheduledTasks;
   List<Task> get handoffTasks => _handoffTasks;
   List<DashboardRhythmProgress> get activeRhythms => _activeRhythms;
+  List<DashboardGoalProgress> get goals => _goals;
   List<DashboardProjectProgress> get activeProjects => _activeProjects;
   List<DashboardUnreadMessagePreview> get unreadMessages => _unreadMessages;
+  String? takeCompletionAffirmation() {
+    final message = _completionAffirmation;
+    _completionAffirmation = null;
+    return message;
+  }
+
   DashboardProjectProgress? get soonestProject =>
       _activeProjects.isEmpty ? null : _activeProjects.first;
 
@@ -103,6 +112,7 @@ class DashboardController extends ChangeNotifier {
 
       _activeRhythms = summary.rhythms;
       _activeRhythmsCount = summary.rhythms.length;
+      _goals = summary.goals;
 
       _handoffTasks = {
         ..._pastDueTasks,
@@ -212,6 +222,9 @@ class DashboardController extends ChangeNotifier {
     if (task == null) return;
     try {
       await _repository.toggleTaskDone(id, task.status.toJson());
+      if (task.status != TaskStatus.done) {
+        _completionAffirmation = 'That moved the week forward. Nicely done.';
+      }
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -230,6 +243,8 @@ class DashboardController extends ChangeNotifier {
     bool includeScheduledDate = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
+    bool includeEnergy = false,
+    String? energy,
   }) async {
     try {
       await _repository.updateTask(
@@ -243,6 +258,8 @@ class DashboardController extends ChangeNotifier {
         includeScheduledDate: includeScheduledDate,
         includePreferredAgent: includePreferredAgent,
         preferredAgent: preferredAgent,
+        includeEnergy: includeEnergy,
+        energy: energy,
       );
       await refresh();
     } catch (e) {

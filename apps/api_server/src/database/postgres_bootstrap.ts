@@ -37,6 +37,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       notes TEXT,
       owner_id INTEGER REFERENCES users(id),
       scheduled_order INTEGER,
+      priority INTEGER,
+      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      energy TEXT,
       search_vector TSVECTOR GENERATED ALWAYS AS (
         setweight(to_tsvector('english', title), 'A') ||
         setweight(to_tsvector('english', COALESCE(notes, '')), 'B')
@@ -302,6 +305,72 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       last_read_at TEXT,
       PRIMARY KEY (thread_id, user_id)
     );
+  `);
+
+  // #1243 — first-class season goals and optional links. Keep this block
+  // idempotent so it is safe on both fresh and already-populated deployments.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      metric_type TEXT NOT NULL,
+      start_value DOUBLE PRECISION NOT NULL,
+      current_value DOUBLE PRECISION NOT NULL,
+      end_value DOUBLE PRECISION NOT NULL,
+      health TEXT NOT NULL DEFAULT 'on_track',
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    );
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL;
+    ALTER TABLE project_instances ADD COLUMN IF NOT EXISTS goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL;
+    ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_goals_owner_dates ON goals(owner_id, start_date, end_date);
+    CREATE INDEX IF NOT EXISTS idx_tasks_goal_id ON tasks(goal_id);
+    CREATE INDEX IF NOT EXISTS idx_project_instances_goal_id ON project_instances(goal_id);
+    CREATE INDEX IF NOT EXISTS idx_recurring_task_rules_goal_id ON recurring_task_rules(goal_id);
+  `);
+
+  // #1244 — task organization fields. JSONB preserves exact array membership.
+  await pool.query(`
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS energy TEXT;
+  `);
+
+  // #1246 — compact, instance-scoped milestones and optional step grouping.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      UNIQUE(instance_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_milestones_instance_order
+      ON project_milestones(instance_id, sort_order);
+    ALTER TABLE project_instance_steps ADD COLUMN IF NOT EXISTS milestone_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_project_instance_steps_milestone
+      ON project_instance_steps(instance_id, milestone_id);
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'project_instance_steps_milestone_instance_fk'
+      ) THEN
+        ALTER TABLE project_instance_steps
+          ADD CONSTRAINT project_instance_steps_milestone_instance_fk
+          FOREIGN KEY (instance_id, milestone_id)
+          REFERENCES project_milestones(instance_id, id);
+      END IF;
+    END $$;
   `);
 
   await pool.query(`

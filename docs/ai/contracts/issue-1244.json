@@ -1,0 +1,56 @@
+{
+  "issue": 1244,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1244-c1",
+      "text": "priority int",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1244_contract.test.ts",
+      "test_id": "issue-1244-c1: priority is an integer that round-trips through task persistence",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1244-c2",
+      "text": "tags as JSON array (NOT Leantime's comma-separated string column).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1244_contract.test.ts",
+      "test_id": "issue-1244-c2: tags round-trip as a JSON string array, not a comma-separated scalar",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1244-c3",
+      "text": "cross-cutting organization (e.g. #worship across projects)",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1244_contract.test.ts",
+      "test_id": "issue-1244-c3: TaskFilter tag uses exact JSON-array membership",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1244-c4",
+      "text": "Extends existing TaskFilter",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1244_contract.test.ts",
+      "test_id": "issue-1244-c4: TaskFilter minPriority returns only tasks at or above the threshold",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1244-c5",
+      "text": "TaskFilter exact tag/minPriority across list/board views.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1244_task_organization_test.dart",
+      "test_id": "issue-1244-c5: list and board share exact tag and minimum-priority filtering",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1244-c6",
+      "text": "SQLite + Postgres parity.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1244_contract.test.ts",
+      "test_id": "issue-1244-c6: SQLite and Postgres add equivalent priority and tags columns without destructive SQL",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript,dart",
+  "not_tested": []
+}

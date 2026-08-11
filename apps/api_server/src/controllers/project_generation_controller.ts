@@ -4,15 +4,62 @@ import { ProjectInstancesRepository } from '../repositories/project_instances_re
 import { ProjectGenerationService } from '../services/project_generation_service';
 import { NotificationsRepository } from '../repositories/notifications_repository';
 import { NotificationService } from '../services/notification_service';
+import { GoalsRepository } from '../repositories/goals_repository';
 
 const service = new ProjectGenerationService();
 const instanceRepo = new ProjectInstancesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
+const goalsRepo = new GoalsRepository();
+
+async function parseGoalId(value: unknown, ownerId: number): Promise<string | null> {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || value.trim() === '') throw AppError.badRequest('goalId must be a goal ID or null');
+  await goalsRepo.findByIdAsync(value, ownerId);
+  return value;
+}
+
+function parseMilestoneTitle(value: unknown, required: boolean): string | undefined {
+  if (value === undefined && !required) return undefined;
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw AppError.badRequest('title is required');
+  }
+  return value.trim();
+}
+
+function parseOptionalDate(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+    Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime())
+  ) {
+    throw AppError.badRequest('dueDate must be YYYY-MM-DD or null');
+  }
+  return value;
+}
+
+function parseMilestoneColor(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+    throw AppError.badRequest('color must be a six-digit hex color or null');
+  }
+  return value.toUpperCase();
+}
+
+function parseSortOrder(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw AppError.badRequest('sortOrder must be an integer');
+  }
+  return value;
+}
 
 export class ProjectGenerationController {
   async generate(req: Request, res: Response, next: NextFunction) {
     try {
-      const { anchorDate, name } = req.body as Record<string, unknown>;
+      const { anchorDate, name, goalId } = req.body as Record<string, unknown>;
       if (!anchorDate || typeof anchorDate !== 'string') {
         throw AppError.badRequest('anchorDate (YYYY-MM-DD) is required');
       }
@@ -25,6 +72,7 @@ export class ProjectGenerationController {
         anchorDate,
         typeof name === 'string' ? name : null,
         req.auth!.user.id,
+        await parseGoalId(goalId, req.auth!.user.id),
       );
       res.status(201).json(instance);
     } catch (err) {
@@ -34,7 +82,7 @@ export class ProjectGenerationController {
 
   async createInstance(req: Request, res: Response, next: NextFunction) {
     try {
-      const { templateId, anchorDate, name } = req.body as Record<string, unknown>;
+      const { templateId, anchorDate, name, goalId } = req.body as Record<string, unknown>;
       if (!templateId || typeof templateId !== 'string') {
         throw AppError.badRequest('templateId is required');
       }
@@ -49,6 +97,7 @@ export class ProjectGenerationController {
         anchorDate,
         typeof name === 'string' ? name : null,
         req.auth!.user.id,
+        await parseGoalId(goalId, req.auth!.user.id),
       );
       res.status(201).json(instance);
     } catch (err) {
@@ -74,11 +123,23 @@ export class ProjectGenerationController {
     }
   }
 
+  async updateInstance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.auth!.user.id;
+      const body = req.body as Record<string, unknown>;
+      if (!('goalId' in body)) throw AppError.badRequest('goalId is required');
+      res.json(await instanceRepo.updateGoalAsync(req.params.id, await parseGoalId(body.goalId, userId), userId));
+    } catch (err) { next(err); }
+  }
+
   async updateInstanceStep(req: Request, res: Response, next: NextFunction) {
     try {
       const actorId = req.auth!.user.id;
       const { stepId } = req.params;
-      const { title, dueDate, scheduledDate, status, notes, assigneeId } = req.body as Record<string, unknown>;
+      const { title, dueDate, scheduledDate, status, notes, assigneeId, milestoneId } = req.body as Record<string, unknown>;
+      if (milestoneId !== undefined && milestoneId !== null && typeof milestoneId !== 'string') {
+        throw AppError.badRequest('milestoneId must be a milestone ID or null');
+      }
       const step = await instanceRepo.updateStepAsync(
         stepId,
         {
@@ -102,6 +163,12 @@ export class ProjectGenerationController {
               ? null
               : typeof assigneeId === 'number'
                 ? assigneeId
+                : undefined,
+          milestoneId:
+            milestoneId === null
+              ? null
+              : typeof milestoneId === 'string'
+                ? milestoneId
                 : undefined,
         },
         actorId,
@@ -129,6 +196,72 @@ export class ProjectGenerationController {
       }
 
       res.json(step);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getMilestones(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(
+        await instanceRepo.listMilestonesAsync(
+          req.params.id,
+          req.auth!.user.id,
+        ),
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async createMilestone(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const milestone = await instanceRepo.createMilestoneAsync(
+        req.params.id,
+        {
+          title: parseMilestoneTitle(body.title, true)!,
+          dueDate: parseOptionalDate(body.dueDate),
+          color: parseMilestoneColor(body.color),
+          sortOrder: parseSortOrder(body.sortOrder),
+        },
+        req.auth!.user.id,
+      );
+      res.status(201).json(milestone);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateMilestone(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = req.body as Record<string, unknown>;
+      res.json(
+        await instanceRepo.updateMilestoneAsync(
+          req.params.id,
+          req.params.milestoneId,
+          {
+            title: parseMilestoneTitle(body.title, false),
+            dueDate: parseOptionalDate(body.dueDate),
+            color: parseMilestoneColor(body.color),
+            sortOrder: parseSortOrder(body.sortOrder),
+          },
+          req.auth!.user.id,
+        ),
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteMilestone(req: Request, res: Response, next: NextFunction) {
+    try {
+      await instanceRepo.deleteMilestoneAsync(
+        req.params.id,
+        req.params.milestoneId,
+        req.auth!.user.id,
+      );
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

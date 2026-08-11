@@ -30,6 +30,10 @@ class TasksLocalDataSource {
     String? scheduledDate,
     int? ownerId,
     String? preferredAgent,
+    String? goalId,
+    int? priority,
+    List<String> tags = const [],
+    String? energy,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
@@ -41,6 +45,10 @@ class TasksLocalDataSource {
         if (scheduledDate != null) 'scheduledDate': scheduledDate,
         if (ownerId != null) 'ownerId': ownerId,
         'preferredAgent': preferredAgent,
+        if (goalId != null) 'goalId': goalId,
+        if (priority != null) 'priority': priority,
+        if (tags.isNotEmpty) 'tags': tags,
+        if (energy != null) 'energy': energy,
       }),
     );
     assertOk(response);
@@ -61,6 +69,14 @@ class TasksLocalDataSource {
     bool includeOwnerId = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
+    bool includeGoalId = false,
+    String? goalId,
+    bool includePriority = false,
+    int? priority,
+    bool includeTags = false,
+    List<String>? tags,
+    bool includeEnergy = false,
+    String? energy,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/tasks/$id'),
@@ -74,6 +90,10 @@ class TasksLocalDataSource {
         if (status != null) 'status': status,
         if (includeOwnerId) 'ownerId': ownerId,
         if (includePreferredAgent) 'preferredAgent': preferredAgent,
+        if (includeGoalId) 'goalId': goalId,
+        if (includePriority) 'priority': priority,
+        if (includeTags) 'tags': tags ?? const [],
+        if (includeEnergy) 'energy': energy,
       }),
     );
     assertOk(response);

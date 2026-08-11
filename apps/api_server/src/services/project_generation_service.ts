@@ -16,6 +16,7 @@ export class ProjectGenerationService {
     anchorDate: string,
     name: string | null,
     userId: number,
+    goalId: string | null = null,
   ): ProjectInstance {
     const normalizedName = name?.trim() || null;
     const existing = this.instanceRepo.findByTemplateAndAnchor(
@@ -46,6 +47,7 @@ export class ProjectGenerationService {
       normalizedName,
       template.ownerId ?? userId ?? null,
       steps,
+      goalId,
     );
   }
 
@@ -54,6 +56,7 @@ export class ProjectGenerationService {
     anchorDate: string,
     name: string | null,
     userId: number,
+    goalId: string | null = null,
   ): Promise<ProjectInstance> {
     const normalizedName = name?.trim() || null;
     const existing = await this.instanceRepo.findByTemplateAndAnchorAsync(
@@ -84,6 +87,7 @@ export class ProjectGenerationService {
       normalizedName,
       template.ownerId ?? userId ?? null,
       steps,
+      goalId,
     );
   }
 }

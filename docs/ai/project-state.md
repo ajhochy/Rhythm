@@ -2,37 +2,34 @@
 
 ## Current focus
 
-Live-artifact automated verification passed, but the human visual smoke **failed**: the tested native surface was a security/integration harness rather than a usable end-to-end shipping-app workflow. Existing backend, security, runtime, Dashboard tab, and same-ID agent-to-human work remains present, but it does not constitute usable completion. See `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.
+Issues #1243–#1246 are implemented together on the tasks workstream: first-class goals, task priority/tags, rhythm/task dopamine cues with energy ordering, and project-instance milestones.
 
 ## Active branch / PR
 
-- Branch: `feat/artifact-viewer`, pushed and tracking its remote, with `origin/main` `8a3561d9` merged.
-- Draft PR: [#1338](https://github.com/ajhochy/Rhythm/pull/1338) remains **NOT READY** after failed manual smoke.
-- Sharing follow-up: [#1339](https://github.com/ajhochy/Rhythm/issues/1339). Import has no issue and requires AJ approval before filing.
+- Branch: `mega-ws/tasks` at starting commit `c588f15a9bcac9af9224c3285e9d6ed3acd57221`.
+- PR: none. The mandate explicitly forbids pushing.
+- Commits are blocked in this managed sandbox because the worktree gitdir is under the read-only main checkout (`.git/worktrees/ws-tasks`).
 
 ## In progress
 
-- Product scope must be decided for importing existing HTML/Claude artifacts and for #1339 before implementation resumes.
-- Existing unrelated follow-ups remain: on-device confirmation of #1327 subagent approvals; #1319 parent taint propagation and `rhythm_delegation_transcript`; transcript fencing for the remaining half of #1331.
+- A socket-capable orchestrator must run the env-gated live HTTP tests and native Flutter visual smoke.
+- The intentional worktree changes must be committed once git metadata is writable.
 
 ## Risks / known issues
 
-- The shipping app has no user-facing import for existing HTML/Claude artifacts, no Share dialog or collaborator management for existing artifacts, and no agent tool to update sharing after creation.
-- The CI server check failed and remains separately untriaged; it is not the explanation for the product-smoke failure.
-- GitNexus CLI conservatively reports **HIGH** across eight flows; all eight map to tested PCO-read or artifact-create entry points and are covered. Manager MCP reports LOW. The guarded DEBUG-only `MainFlutterWindow` registration retained its pre-impact startup-risk review and is absent from the Release binary.
-- Unrelated nonblocking residual: VoiceOver traversal through offscreen dashboard rows.
-- #1322 remains partial: plan mode does not make arbitrary `bash` read-only.
-- Never start a bare manual `api_server` for smoke; use `tools/dev/sandbox.sh` to avoid the live engine/DB collision paths.
-- The rejected demo process remains running by AJ's direction; do not manipulate it.
-- `apps/api_server` still has no effective lint gate; TypeScript compilation is its static check.
+- Normal API/Flutter suites include socket-bound tests that cannot bind loopback in this sandbox (`EPERM`).
+- The Flutter wrapper cannot update its external SDK cache; direct Dart format/analyze succeeds with a temporary writable HOME.
+- Native screenshots and real sandbox behavior remain unverified here, so verification-gate cannot issue a PASS.
+- Never start a bare `api_server`; use `tools/dev/sandbox.sh` in a suitable environment.
 
 ## Test status
 
-- Automated verification: **PASS** after merging `origin/main`; sanitized `ai-workflow checks --level pr` passed.
-- Post-merge totals: API **4,127**, Flutter **1,129** (including **48** live-artifact), and MCP **169**; focused MCP/security **21**, AV-03 contract **11**, and real Postgres bootstrap/parity **2** passed.
-- Native AV-06 A1–A10/C3–C5, secure bridge/runtime checks, Release package verification, deterministic screenshots, and the real engine/MCP → hosted API → human same-ID flow passed.
-- Human visual smoke: **FAILED**; PR #1338 is not ready.
+- Focused API contracts: 17 passed, 5 env-gated live tests skipped.
+- API TypeScript compilation: passed.
+- Full direct Dart analysis: no errors or warnings; 209 pre-existing infos.
+- SQLite/Postgres parity audit found goals, goal links, priority, JSON tags, energy, milestones, and milestone links in both migration paths.
+- Full API and Flutter gates are blocked by sandbox socket/cache restrictions; see `docs/ai/runs/2026-08-10-task-goals-tags-dopamine-milestones.md`.
 
 ## Next step
 
-Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+Run the exact gates and live/native smoke in a socket-capable environment, then commit the four logical units on `mega-ws/tasks` without pushing.
