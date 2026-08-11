@@ -76,6 +76,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   final List<Map<String, dynamic>> sentMessages = [];
   List<AgentSession> sessionsToReturn = [];
   List<AgentInfo> availableAgentsToReturn = const [];
+  List<PendingPermission> pendingPermissionsToReturn = const [];
+  final List<({String sessionId, String permissionId, String response})>
+      permissionResponses = [];
 
   /// Push a synthetic WS message from the test.
   void emit(AgentWsMessage msg) => _msgController.add(msg);
@@ -215,7 +218,17 @@ class _FakeAgentsRepository implements AgentsRepository {
     String permissionId,
     String decision, {
     String? message,
-  }) async {}
+  }) async {
+    permissionResponses.add((
+      sessionId: sessionId,
+      permissionId: permissionId,
+      response: decision,
+    ));
+  }
+
+  Future<List<PendingPermission>> fetchPendingPermissions(
+          String sessionId) async =>
+      pendingPermissionsToReturn;
 
   @override
   Future<void> replyQuestion(
@@ -351,6 +364,7 @@ AgentSession _makeScopedSession(
   AgentSessionStatus status, {
   bool isSystem = false,
   String category = 'chat',
+  String? parentId,
 }) {
   final now = DateTime.now();
   return AgentSession(
@@ -363,6 +377,7 @@ AgentSession _makeScopedSession(
     updatedAt: now,
     isSystem: isSystem,
     category: category,
+    parentId: parentId,
   );
 }
 
@@ -638,6 +653,23 @@ void main() {
       expect(controller.sessions.map((s) => s.id), contains('chat-updated'));
     });
 
+    test('issue-1348-c3: child chat sessions never enter the Chats root list',
+        () async {
+      expect(controller.scope, AgentSessionScope.chats);
+
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession(
+          'delegated-child',
+          AgentSessionStatus.working,
+          parentId: 'parent-chat',
+        ),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessions.map((s) => s.id),
+          isNot(contains('delegated-child')));
+    });
+
     test(
       '#1090 a scheduled session enters the list when scope is scheduled '
       '(the predicate admits matching-scope sessions, not just chats)',
@@ -896,6 +928,48 @@ void main() {
         );
       },
     );
+  });
+
+  group('#1340 permission lifecycle', () {
+    test(
+        'issue-1340-c4: selecting a session hydrates pre-existing pending permissions',
+        () async {
+      // Regression caught: an ask created before the desktop subscribed was
+      // invisible forever because session selection only fetched transcript.
+      fakeRepo.pendingPermissionsToReturn = const [
+        PendingPermission(
+          sessionId: 'session-with-ask',
+          permissionId: 'permission-before-open',
+          toolName: 'bash',
+          args: {
+            'directory': '/tmp/project',
+            'patterns': ['git push origin feature/chat-ui'],
+          },
+          summary: 'Push the feature branch',
+        ),
+      ];
+
+      await controller.selectSession('session-with-ask');
+
+      expect(
+        controller
+            .pendingPermissionsFor('session-with-ask')
+            .map((permission) => permission.permissionId),
+        ['permission-before-open'],
+      );
+    });
+
+    test('approval and denial use once/always/reject response vocabulary',
+        () async {
+      await controller.acceptPermission('session-1', 'permission-once');
+      await controller.alwaysAllowPermission('session-1', 'permission-always');
+      await controller.denyPermission('session-1', 'permission-reject');
+
+      expect(
+        fakeRepo.permissionResponses.map((reply) => reply.response),
+        ['once', 'always', 'reject'],
+      );
+    });
   });
 
   // --------------------------------------------------------------------------

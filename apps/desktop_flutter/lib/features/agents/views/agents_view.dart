@@ -4163,6 +4163,29 @@ class UserBubbleTestHarness extends StatelessWidget {
   }
 }
 
+/// Public wrapper around [_ChatBubble] for contract tests that must verify
+/// role-based routing through the production transcript renderer.
+@visibleForTesting
+class ChatBubbleTestHarness extends StatelessWidget {
+  const ChatBubbleTestHarness({
+    super.key,
+    required this.message,
+    required this.parts,
+    required this.sessionId,
+  });
+
+  final ChatMessage message;
+  final List<ChatPart> parts;
+  final String sessionId;
+
+  @override
+  Widget build(BuildContext context) => _ChatBubble(
+        message: message,
+        parts: parts,
+        sessionId: sessionId,
+      );
+}
+
 /// Public wrapper around [_TranscriptHeader] for use in widget tests.
 ///
 /// Requires [AgentConfigsController] and [AgentsController] in the Provider

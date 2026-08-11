@@ -1,0 +1,32 @@
+{
+  "issue": 1348,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1348-c1",
+      "text": "The chats branch of listAll excludes delegated child sessions.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/repositories/agent_sessions_repository.test.ts",
+      "test_id": "issue-1348-c1: chats scope returns roots and excludes delegated children",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1348-c2",
+      "text": "Synchronous delegateToAgent records parentSessionId and the derived delegation depth on the child session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_738_agent_runner.test.ts",
+      "test_id": "issue-1348-c2: synchronous delegated runs persist their parent link and depth",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1348-c3",
+      "text": "The desktop chats scope excludes child sessions received over the shared WebSocket.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/agents_controller_test.dart",
+      "test_id": "issue-1348-c3: child chat sessions never enter the Chats root list",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

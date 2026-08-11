@@ -1,0 +1,48 @@
+{
+  "issue": 1340,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1340-c1",
+      "text": "permission.asked renders an approve/deny prompt in the session view.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1340_permission_surface_test.dart",
+      "test_id": "issue-1340-c1: exact permission.asked contract renders an actionable prompt",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1340-c2",
+      "text": "A session blocked on a permission shows a waiting on you badge/state clearly distinct from working.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "test_id": "issue-1340-c2: permission-blocked session row says Waiting on you instead of working",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1340-c3",
+      "text": "Approve replies with response once or always and deny replies with response reject through POST /agent-sessions/:id/permissions/:permissionID/reply.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1340_permission_surface_test.dart",
+      "test_id": "issue-1340-c3: permission replies use the exact REST fallback contract",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1340-c4",
+      "text": "Opening a session hydrates pre-existing asks from GET /agent-sessions/:id/pending-permissions.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agents/agents_controller_test.dart",
+      "test_id": "issue-1340-c4: selecting a session hydrates pre-existing pending permissions",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1340-c5",
+      "text": "permission.replied removes the matching prompt from desktop state.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1340_permission_surface_test.dart",
+      "test_id": "issue-1340-c5: exact permission.replied contract resolves the matching ask",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}
