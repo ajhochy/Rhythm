@@ -587,6 +587,14 @@ class _MarkdownEvidence extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       ListView(padding: const EdgeInsets.all(22), children: [
+        // Synthesis body first: it is the primary content and must stay above
+        // the ListView fold so it renders (and is discoverable) even when the
+        // artifact references below it would otherwise push it out of view.
+        if (text?.trim().isNotEmpty == true)
+          MarkdownMessageBody(text: text!)
+        else
+          Text(empty, style: TextStyle(color: context.rhythm.textMuted)),
+        if (artifact?['vault_path'] != null) const SizedBox(height: 16),
         if (artifact?['vault_path'] != null)
           Row(children: [
             Icon(Icons.description_outlined,
@@ -597,8 +605,8 @@ class _MarkdownEvidence extends StatelessWidget {
                     style: TextStyle(
                         color: context.rhythm.textSecondary, fontSize: 12)))
           ]),
-        if (artifact?['vault_path'] != null) const SizedBox(height: 16),
         if (artifacts.isNotEmpty) ...[
+          const SizedBox(height: 16),
           Text('Artifacts',
               style: TextStyle(
                   color: context.rhythm.textPrimary,
@@ -620,10 +628,6 @@ class _MarkdownEvidence extends StatelessWidget {
                         color: context.rhythm.textMuted, fontSize: 10))),
           const SizedBox(height: 12),
         ],
-        if (text?.trim().isNotEmpty == true)
-          MarkdownMessageBody(text: text!)
-        else
-          Text(empty, style: TextStyle(color: context.rhythm.textMuted))
       ]);
 }
 
