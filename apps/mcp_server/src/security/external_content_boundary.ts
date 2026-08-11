@@ -31,6 +31,7 @@ export const SECURITY_ACTIONS = [
   "research.project.update",
   "research.project.archive",
   "research.project.run.start",
+  "research.project.discussion.start",
   "org-optimizer.run",
   "delegation.start",
   "delegation.start-async",

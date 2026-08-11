@@ -17,6 +17,7 @@ router.get('/projects/:projectId/runs', (req, res, next) => controller.listProje
 router.post('/projects/:projectId/runs', (req, res, next) => controller.createProjectRun(req, res, next));
 router.get('/projects/:projectId/runs/:runId/magazine', (req, res, next) => controller.getProjectMagazine(req, res, next));
 router.get('/projects/:projectId/runs/:runId/export', (req, res, next) => controller.exportProjectMagazine(req, res, next));
+router.post('/projects/:projectId/runs/:runId/discussions', (req, res, next) => controller.createProjectDiscussion(req, res, next));
 router.get('/projects/:projectId/runs/:runId', (req, res, next) => controller.getProjectRun(req, res, next));
 router.post('/projects/:projectId/runs/:runId/cancel', (req, res, next) => controller.cancelProjectRun(req, res, next));
 router.post('/projects/:projectId/runs/:runId/resume', (req, res, next) => controller.resumeProjectRun(req, res, next));

@@ -187,6 +187,42 @@ export function registerAgentResearchTools(
 
   registerTool(
     server,
+    "rhythm_discuss_research_report",
+    "Create a normal resumable agent session grounded in one owned research run's frozen synthesis, critic, curated sources, and selected full-text artifacts.",
+    {
+      project_id: z.string().uuid(),
+      run_id: z.string().uuid(),
+      selected_artifact_ids: z.array(z.string().min(1)).max(3).default([]),
+      approval_id: z.string().optional(),
+    },
+    async ({ project_id, run_id, selected_artifact_ids, approval_id }, extra) => {
+      const payload = { project_id, run_id, selectedArtifactIds: selected_artifact_ids };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "research.project.discussion.start",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [{ type: "text" as const, text: gate.refusalMessage as string }],
+          isError: true as const,
+        };
+      }
+      try {
+        return toolResult(JSON.stringify(await apiPost(
+          apiUrl,
+          apiToken,
+          `/agent-research/projects/${project_id}/runs/${run_id}/discussions`,
+          { selectedArtifactIds: selected_artifact_ids },
+        ), null, 2));
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
     "rhythm_complete_research_pass",
     "Register the versioned canonical artifacts and curated provenance for one persisted research pass. Paths must be vault-relative Markdown files; the API indexes this completed tool call idempotently from the persisted session transcript.",
     {

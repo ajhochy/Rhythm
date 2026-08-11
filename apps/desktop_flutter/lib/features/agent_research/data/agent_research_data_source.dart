@@ -148,6 +148,18 @@ class AgentResearchDataSource {
           '$_baseUrl/agent-research/projects/${Uri.encodeComponent(projectId)}/runs/${Uri.encodeComponent(runId)}/export')
       .replace(queryParameters: {'format': format});
 
+  Future<String> startDiscussion(
+      String projectId, String runId, List<String> artifactIds) async {
+    final response = await http.post(
+        Uri.parse(
+            '$_baseUrl/agent-research/projects/${Uri.encodeComponent(projectId)}/runs/${Uri.encodeComponent(runId)}/discussions'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'selectedArtifactIds': artifactIds}));
+    assertOk(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return body['sessionId'] as String;
+  }
+
   Future<List<ResearchCapabilityWarning>> researchCapabilities() async {
     final response =
         await http.get(Uri.parse('$_baseUrl/agent-configs/skill-wiring'));

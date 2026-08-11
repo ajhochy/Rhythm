@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agents/views/_markdown_message_body.dart';
+import '../../agents/controllers/agents_controller.dart';
 import '../controllers/agent_research_controller.dart';
 import '../models/agent_research_job.dart';
 import '../models/research_project.dart';
@@ -425,6 +427,10 @@ class _RunSummary extends StatelessWidget {
                       onPressed: () => _open(controller.magazineUri()),
                       icon: const Icon(Icons.print_outlined, size: 16),
                       label: const Text('Print / Save PDF')),
+                  FilledButton.tonalIcon(
+                      onPressed: () => _discuss(context),
+                      icon: const Icon(Icons.forum_outlined, size: 16),
+                      label: const Text('Discuss report')),
                   PopupMenuButton<String>(
                       tooltip: 'Export report',
                       onSelected: (format) =>
@@ -447,6 +453,59 @@ class _RunSummary extends StatelessWidget {
     if (uri != null) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
+  }
+
+  Future<void> _discuss(BuildContext context) async {
+    final eligible = run.artifacts.where((artifact) {
+      final metadata = artifact['metadata_json'];
+      return metadata is String && metadata.contains('full-text');
+    }).toList();
+    final selected = <String>{};
+    final choice = eligible.isEmpty
+        ? <String>[]
+        : await showDialog<List<String>>(
+            context: context,
+            builder: (dialogContext) => StatefulBuilder(
+                builder: (context, setDialogState) => AlertDialog(
+                        title: const Text('Choose supporting full text'),
+                        content: SizedBox(
+                            width: 480,
+                            child: ListView(
+                                shrinkWrap: true,
+                                children: eligible.map((artifact) {
+                                  final id = artifact['id']?.toString() ?? '';
+                                  return CheckboxListTile(
+                                      value: selected.contains(id),
+                                      title: Text(
+                                          artifact['vault_path']?.toString() ??
+                                              'Full-text artifact'),
+                                      subtitle: const Text(
+                                          'Frozen into this discussion'),
+                                      onChanged: (checked) {
+                                        setDialogState(() {
+                                          if (checked == true &&
+                                              selected.length < 3) {
+                                            selected.add(id);
+                                          } else if (checked != true) {
+                                            selected.remove(id);
+                                          }
+                                        });
+                                      });
+                                }).toList())),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              child: const Text('Cancel')),
+                          FilledButton(
+                              onPressed: () => Navigator.pop(
+                                  dialogContext, selected.toList()),
+                              child: const Text('Start discussion'))
+                        ])));
+    if (choice == null || !context.mounted) return;
+    final sessionId = await controller.startDiscussion(choice);
+    if (sessionId == null || !context.mounted) return;
+    await context.read<AgentsController>().selectSession(sessionId);
+    if (context.mounted) Navigator.of(context).maybePop();
   }
 }
 

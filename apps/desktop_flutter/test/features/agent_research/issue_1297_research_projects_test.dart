@@ -154,6 +154,7 @@ void main() {
       await value.runAction('cancel');
       await value.runAction('resume');
       await value.passAction(value.selectedRun!.stages[1], 'retry');
+      expect(await value.startDiscussion(const []), 'discussion-1');
       await value.archiveProject('project-1');
       expect(
           requests.any((r) =>
@@ -174,6 +175,11 @@ void main() {
       expect(
           requests
               .any((r) => r.url.path.endsWith('/projects/project-1/archive')),
+          isTrue);
+      expect(
+          requests.any((r) =>
+              r.method == 'POST' &&
+              r.url.path.endsWith('/runs/run-1/discussions')),
           isTrue);
     },
         () => MockClient((request) async {
@@ -206,6 +212,10 @@ void main() {
                   request.method == 'POST')
                 return http.Response(jsonEncode(runJson), 201);
               if (p.contains('/passes/')) return http.Response('{}', 200);
+              if (p.endsWith('/runs/run-1/discussions')) {
+                return http.Response(
+                    jsonEncode({'sessionId': 'discussion-1'}), 202);
+              }
               if (p.endsWith('/cancel') || p.endsWith('/resume')) {
                 return http.Response(jsonEncode(runJson), 200);
               }
@@ -227,6 +237,7 @@ void main() {
       expect(find.text('Synthesis'), findsWidgets);
       expect(find.textContaining('Canonical synthesis'), findsOneWidget);
       expect(find.text('Resume'), findsOneWidget);
+      expect(find.text('Discuss report'), findsOneWidget);
       expect(find.text('Cancel'), findsNothing);
       expect(find.text('error'), findsOneWidget);
       await tester.tap(find.text('Sources'));

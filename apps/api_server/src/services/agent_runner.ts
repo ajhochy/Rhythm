@@ -277,6 +277,8 @@ function _isSessionNamePlaceholder(name: string): boolean {
 
 export interface AgentRunOptions {
   prompt: string;
+  /** Called as soon as the durable Rhythm session exists, before engine work starts. */
+  onSessionCreated?: (sessionId: string) => void | Promise<void>;
   /** Raw JSON string of allowed MCP tools (same shape as agent_sessions.allowed_mcps_json) */
   allowedMcpsJson?: string | null;
   /**
@@ -292,6 +294,8 @@ export interface AgentRunOptions {
   cwd?: string;
   /** Rhythm task ID for 'task_notes' delivery */
   taskId?: string | null;
+  /** Durable context linkage for a session that has no task foreign key. */
+  taskTitle?: string | null;
   /** Where to deliver the agent result (default: 'session') */
   outputTarget?: 'session' | 'notification' | 'task_notes';
   /**
@@ -518,6 +522,7 @@ function _recordSession(opts: {
   name: string;
   agentKind: string;
   cwd: string;
+  taskTitle?: string | null;
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
   mcpAllowedToolsJson?: string | null;
@@ -533,7 +538,7 @@ function _recordSession(opts: {
     const session = repo.insert({
       agentKind: opts.agentKind as import('../models/agent_session').AgentKind,
       taskId: null,
-      taskTitle: null,
+      taskTitle: opts.taskTitle ?? null,
       cwd: opts.cwd,
       name: opts.name,
       projectId: null,
@@ -742,6 +747,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     mcpRole,
     cwd,
     taskId,
+    taskTitle,
     outputTarget = 'session',
     agentConfigId,
     agentKind,
@@ -922,6 +928,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     name: effectiveName,
     agentKind: effectiveAgentKind,
     cwd: effectiveCwd,
+    taskTitle: taskTitle ?? null,
     scheduledTaskId: scheduledTaskId ?? null,
     mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
     mcpAllowedToolsJson: allowedMcpsJson ?? profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
@@ -929,6 +936,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     delegationDepth: delegationDepth ?? 0,
     category: category ?? null,
   });
+  if (rhythmSessionId && opts.onSessionCreated) {
+    await opts.onSessionCreated(rhythmSessionId);
+  }
 
   // #862 — record "Memories used in this reply" now that the local session
   // row exists. Non-fatal: a recording failure must never block the run.

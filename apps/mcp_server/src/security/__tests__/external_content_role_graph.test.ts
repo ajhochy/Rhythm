@@ -175,6 +175,7 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
     ["rhythm_update_research_project", { action: "research.project.update", sourceFile: "agentResearch.ts" }],
     ["rhythm_archive_research_project", { action: "research.project.archive", sourceFile: "agentResearch.ts" }],
     ["rhythm_start_research_project_run", { action: "research.project.run.start", sourceFile: "agentResearch.ts" }],
+    ["rhythm_discuss_research_report", { action: "research.project.discussion.start", sourceFile: "agentResearch.ts" }],
     [
       "rhythm_run_org_optimizer",
       { action: "org-optimizer.run", sourceFile: "orgOptimizer.ts" },

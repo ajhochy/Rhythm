@@ -215,6 +215,23 @@ class AgentResearchController extends ChangeNotifier {
         : _repository.exportUri(project.id, run.id, format);
   }
 
+  Future<String?> startDiscussion(List<String> artifactIds) async {
+    final project = _selectedProject;
+    final run = _selectedRun;
+    if (project == null || run == null) return null;
+    try {
+      final sessionId =
+          await _repository.startDiscussion(project.id, run.id, artifactIds);
+      _error = null;
+      notifyListeners();
+      return sessionId;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Create
   // --------------------------------------------------------------------------

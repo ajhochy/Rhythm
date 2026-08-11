@@ -39,9 +39,11 @@ import {
   researchMagazineHeaders,
   type ResearchMagazineInput,
 } from '../services/research_magazine_renderer';
+import { ResearchDiscussionService } from '../services/research_discussion_service';
 
 const researchJobs = new AgentResearchRepository();
 const projectOrchestrator = new ResearchProjectOrchestrator(researchJobs);
+const researchDiscussions = new ResearchDiscussionService(researchJobs);
 
 async function abortResearchSession(localSessionId: string): Promise<boolean> {
   const session = new AgentSessionsRepository().findById(localSessionId);
@@ -396,6 +398,23 @@ export class AgentResearchController {
       });
       if (format === 'html') res.type('html').send(renderResearchMagazine(input));
       else res.type('text/markdown').send(renderResearchMarkdownExport(input));
+    } catch (err) { next(err); }
+  }
+
+  async createProjectDiscussion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const rawIds = body.selectedArtifactIds ?? [];
+      if (!Array.isArray(rawIds) || rawIds.some((id) => typeof id !== 'string')) {
+        throw AppError.badRequest('selectedArtifactIds must be an array of artifact IDs');
+      }
+      const discussion = await researchDiscussions.start(
+        req.params.projectId,
+        req.params.runId,
+        projectOwner(req),
+        rawIds as string[],
+      );
+      res.status(202).json(discussion);
     } catch (err) { next(err); }
   }
 

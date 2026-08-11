@@ -973,6 +973,11 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
       ON agent_research_qa_links(project_id, created_at)
   `);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_snapshot_json TEXT NOT NULL DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_hash TEXT`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS model_usage_json TEXT NOT NULL DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS diagnostics_json TEXT NOT NULL DEFAULT '{}'`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_research_pass_relationships (
       id TEXT PRIMARY KEY,

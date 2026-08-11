@@ -1850,6 +1850,14 @@ export function runMigrations(db: Database.Database): void {
       ON agent_research_pass_relationships(child_job_id, relationship_type);
   `);
 
+  const researchQaCols = (db.pragma('table_info(agent_research_qa_links)') as { name: string }[])
+    .map((column) => column.name);
+  if (!researchQaCols.includes('agent_session_id')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  if (!researchQaCols.includes('context_snapshot_json')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN context_snapshot_json TEXT NOT NULL DEFAULT '{}'`);
+  if (!researchQaCols.includes('context_hash')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN context_hash TEXT`);
+  if (!researchQaCols.includes('model_usage_json')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN model_usage_json TEXT NOT NULL DEFAULT '{}'`);
+  if (!researchQaCols.includes('diagnostics_json')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN diagnostics_json TEXT NOT NULL DEFAULT '{}'`);
+
   // Extend pending_claude_triggers with scheduler context columns (additive).
   // These are all nullable — existing human-triggered rows have NULL here.
   const pctColsExt = (db.pragma('table_info(pending_claude_triggers)') as { name: string }[]).map((c) => c.name);

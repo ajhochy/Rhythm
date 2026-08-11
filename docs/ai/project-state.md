@@ -20,6 +20,11 @@
 - Added owner-scoped safe magazine rendering, deterministic HTML/Markdown exports, strict CSP, print CSS, curated provenance, and Flutter report actions.
 - Checks: focused API contracts 17/17, API build, Dart formatting, and full Flutter analyze passed. Flutter widget/browser print execution is deferred to #1300 for the known socket EPERM.
 
+## Recent coding-agent run — issue #1299
+
+- Added frozen, cited report discussions backed by normal agent sessions, an approval-gated MCP entry, additive SQLite/Postgres Q&A linkage, and Flutter Discuss Report flow.
+- Checks: API/migration 18/18, API build, MCP typecheck/security 4/4, formatting, and Flutter analyze passed. Live conversation and widget execution are deferred to #1300.
+
 ## Current focus
 
 Live-artifact automated verification passed, but the human visual smoke **failed**: the tested native surface was a security/integration harness rather than a usable end-to-end shipping-app workflow. Existing backend, security, runtime, Dashboard tab, and same-ID agent-to-human work remains present, but it does not constitute usable completion. See `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.

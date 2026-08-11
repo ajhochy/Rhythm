@@ -40,6 +40,9 @@ class AgentResearchRepository {
       _dataSource.magazineUri(projectId, runId);
   Uri exportUri(String projectId, String runId, String format) =>
       _dataSource.exportUri(projectId, runId, format);
+  Future<String> startDiscussion(
+          String projectId, String runId, List<String> artifactIds) =>
+      _dataSource.startDiscussion(projectId, runId, artifactIds);
   Future<List<ResearchCapabilityWarning>> researchCapabilities() =>
       _dataSource.researchCapabilities();
 }
