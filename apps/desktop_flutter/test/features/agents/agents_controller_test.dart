@@ -76,7 +76,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   final List<Map<String, dynamic>> sentMessages = [];
   List<AgentSession> sessionsToReturn = [];
   List<AgentInfo> availableAgentsToReturn = const [];
-  List<PendingPermission> pendingPermissionsToReturn = const [];
+  List<PermissionAskedMessage> pendingPermissionsToReturn = const [];
   final List<({String sessionId, String permissionId, String response})>
       permissionResponses = [];
 
@@ -226,7 +226,8 @@ class _FakeAgentsRepository implements AgentsRepository {
     ));
   }
 
-  Future<List<PendingPermission>> fetchPendingPermissions(
+  @override
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
           String sessionId) async =>
       pendingPermissionsToReturn;
 
@@ -937,7 +938,7 @@ void main() {
       // Regression caught: an ask created before the desktop subscribed was
       // invisible forever because session selection only fetched transcript.
       fakeRepo.pendingPermissionsToReturn = const [
-        PendingPermission(
+        PermissionAskedMessage(
           sessionId: 'session-with-ask',
           permissionId: 'permission-before-open',
           toolName: 'bash',

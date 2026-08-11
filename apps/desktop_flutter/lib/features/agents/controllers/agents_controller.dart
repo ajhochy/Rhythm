@@ -2154,7 +2154,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
-      await _repository.respondPermission(sessionId, permissionId, 'accept');
+      await _repository.respondPermission(sessionId, permissionId, 'once');
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
@@ -2176,7 +2176,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       await _repository.respondPermission(
         sessionId,
         permissionId,
-        'deny',
+        'reject',
         message: reason,
       );
     } catch (e) {
@@ -2790,6 +2790,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _pendingTurnOverride = null;
     notifyListeners();
     await _refreshSessionDetail(id, subscribe: true);
+    await _hydratePendingPermissions(id);
     // Load model routes for the newly selected session in the background.
     _loadModelRoutes(id);
     // Load slash commands for this session (Issue #610).
@@ -2807,6 +2808,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // OpenRouter model) are reflected in the new session's model picker without
     // requiring the user to re-toggle the model in the curator.
     unawaited(refreshCatalog());
+  }
+
+  Future<void> _hydratePendingPermissions(String sessionId) async {
+    try {
+      final pending = await _repository.fetchPendingPermissions(sessionId);
+      if (_disposed || _selectedSessionId != sessionId) return;
+      for (final permission in pending) {
+        _storePendingPermission(permission);
+      }
+      notifyListeners();
+    } catch (_) {
+      // Non-fatal fallback: live permission.asked frames still surface asks.
+    }
   }
 
   /// Refresh the open session row and transcript without changing selection.
@@ -3243,19 +3257,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         unawaited(fetchAvailableAgents(activeSessionId));
       }
     } else if (msg is PermissionAskedMessage) {
-      final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
-      // Deduplicate by permissionId.
-      if (!list.any((p) => p.permissionId == msg.permissionId)) {
-        list.add(
-          PendingPermission(
-            sessionId: msg.sessionId,
-            permissionId: msg.permissionId,
-            toolName: msg.toolName,
-            args: msg.args,
-            summary: msg.summary,
-          ),
-        );
-      }
+      _storePendingPermission(msg);
       // #815: native notification when the user is not looking at this ask.
       final detail = msg.summary.trim().isNotEmpty
           ? msg.summary.trim()
@@ -3391,6 +3393,22 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       ];
     }
     notifyListeners();
+  }
+
+  void _storePendingPermission(PermissionAskedMessage msg) {
+    final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
+    if (list.any((permission) => permission.permissionId == msg.permissionId)) {
+      return;
+    }
+    list.add(
+      PendingPermission(
+        sessionId: msg.sessionId,
+        permissionId: msg.permissionId,
+        toolName: msg.toolName,
+        args: msg.args,
+        summary: msg.summary,
+      ),
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -3746,7 +3764,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 bool _belongsToScope(AgentSession session, AgentSessionScope scope) {
   switch (scope) {
     case AgentSessionScope.chats:
-      return !session.isSystem && session.category == 'chat';
+      return !session.isSystem &&
+          !session.isChildSession &&
+          session.category == 'chat';
     case AgentSessionScope.scheduled:
       return session.category == 'scheduled';
     case AgentSessionScope.selfImprovement:

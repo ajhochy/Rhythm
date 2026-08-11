@@ -134,6 +134,11 @@ class AgentsRepository {
       _dataSource.respondPermission(sessionId, permissionId, decision,
           message: message);
 
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) =>
+      _dataSource.fetchPendingPermissions(sessionId);
+
   Future<void> replyQuestion(
     String sessionId,
     String callId,

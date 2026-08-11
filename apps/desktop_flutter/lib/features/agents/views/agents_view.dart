@@ -4262,9 +4262,14 @@ class SessionListHeaderTestHarness extends StatelessWidget {
 /// correctly when [session.name] is empty.
 @visibleForTesting
 class SessionRowTestHarness extends StatelessWidget {
-  const SessionRowTestHarness({super.key, required this.session});
+  const SessionRowTestHarness({
+    super.key,
+    required this.session,
+    this.isWaitingForPermission = false,
+  });
 
   final AgentSession session;
+  final bool isWaitingForPermission;
 
   @override
   Widget build(BuildContext context) {
@@ -4273,6 +4278,7 @@ class SessionRowTestHarness extends StatelessWidget {
       isSelected: false,
       isWorking: false,
       isStuck: false,
+      isWaitingForPermission: isWaitingForPermission,
       onTap: () {},
     );
   }

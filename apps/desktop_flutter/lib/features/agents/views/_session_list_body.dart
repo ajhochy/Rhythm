@@ -268,6 +268,8 @@ List<Widget> _buildSessionTree(
       isMultiSelected: multiSelected.contains(session.id),
       isWorking: controller.isWorking(session.id),
       isStuck: controller.connectivity.isStuck(session.id),
+      isWaitingForPermission:
+          controller.pendingPermissionsFor(session.id).isNotEmpty,
       onTap: () => onRowTap(session.id),
     ));
     widgets.add(const SizedBox(height: 4));
@@ -378,6 +380,7 @@ class SessionRow extends StatelessWidget {
     required this.isSelected,
     required this.isWorking,
     required this.isStuck,
+    required this.isWaitingForPermission,
     required this.onTap,
     this.isMultiSelected = false,
   });
@@ -387,6 +390,7 @@ class SessionRow extends StatelessWidget {
   final bool isMultiSelected;
   final bool isWorking;
   final bool isStuck;
+  final bool isWaitingForPermission;
   final VoidCallback onTap;
 
   @override
@@ -400,7 +404,7 @@ class SessionRow extends StatelessWidget {
         button: true,
         selected: highlighted,
         label: '${session.name.isNotEmpty ? session.name : 'New session'}, '
-            '${session.status.name}',
+            '${isWaitingForPermission ? 'Waiting on you' : session.status.name}',
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOut,
@@ -438,7 +442,26 @@ class SessionRow extends StatelessWidget {
                 WorktreeBadge(session: session),
               ],
               const SizedBox(width: 6),
-              SessionStatusDot(status: session.status, isWorking: isWorking),
+              if (isWaitingForPermission)
+                Container(
+                  key: ValueKey('session-waiting-${session.id}'),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: context.rhythm.warning.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                  ),
+                  child: Text(
+                    'Waiting on you',
+                    style: TextStyle(
+                      color: context.rhythm.warning,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              else
+                SessionStatusDot(status: session.status, isWorking: isWorking),
               SessionRowMenu(session: session),
             ],
           ),

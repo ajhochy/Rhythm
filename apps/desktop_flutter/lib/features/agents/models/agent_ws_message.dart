@@ -41,6 +41,7 @@ abstract class AgentWsMessage {
         return NotificationPushMessage.fromJson(json);
       case 'permission.asked':
         return PermissionAskedMessage.fromJson(json);
+      case 'permission.replied':
       case 'permission.resolved':
         return PermissionResolvedMessage.fromJson(json);
       case 'question.asked':
@@ -411,12 +412,25 @@ class PermissionAskedMessage extends AgentWsMessage {
   final String summary;
 
   factory PermissionAskedMessage.fromJson(Map<String, dynamic> json) {
+    final patterns = (json['patterns'] as List<dynamic>?)
+            ?.whereType<String>()
+            .toList(growable: false) ??
+        const <String>[];
+    final directory = asString(json['directory']);
+    final canonicalArgs = <String, dynamic>{
+      if (directory != null) 'directory': directory,
+      if (patterns.isNotEmpty) 'patterns': patterns,
+    };
     return PermissionAskedMessage(
       sessionId: asString(json['sessionId']) ?? '',
-      permissionId: asString(json['permissionId']) ?? '',
-      toolName: asString(json['toolName']) ?? '',
-      args: (json['args'] as Map<String, dynamic>?) ?? const {},
-      summary: asString(json['summary']) ?? '',
+      permissionId: asString(json['permissionID']) ??
+          asString(json['permissionId']) ??
+          '',
+      toolName: asString(json['tool']) ?? asString(json['toolName']) ?? '',
+      args: canonicalArgs.isNotEmpty
+          ? canonicalArgs
+          : (json['args'] as Map<String, dynamic>?) ?? const {},
+      summary: asString(json['title']) ?? asString(json['summary']) ?? '',
     );
   }
 }
@@ -439,8 +453,11 @@ class PermissionResolvedMessage extends AgentWsMessage {
   factory PermissionResolvedMessage.fromJson(Map<String, dynamic> json) {
     return PermissionResolvedMessage(
       sessionId: asString(json['sessionId']) ?? '',
-      permissionId: asString(json['permissionId']) ?? '',
-      decision: asString(json['decision']) ?? 'deny',
+      permissionId: asString(json['permissionID']) ??
+          asString(json['permissionId']) ??
+          '',
+      decision:
+          asString(json['response']) ?? asString(json['decision']) ?? 'reject',
     );
   }
 }
