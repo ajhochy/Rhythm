@@ -18,85 +18,140 @@ import { randomUUID } from 'node:crypto';
 import { AppError } from '../errors/app_error';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
+import {
+  AgentResearchRepository,
+  type ResearchJob,
+  type ResearchProjectInput,
+  type ResearchProjectPatch,
+  type ResearchProject,
+  type ResearchProjectRun,
+} from '../repositories/agent_research_repository';
 import { logger } from '../utils/logger';
 import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
+import { ResearchProjectOrchestrator } from '../services/research_project_orchestrator';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { emitAppEvent } from '../utils/app_events';
+import {
+  renderResearchMagazine,
+  renderResearchMarkdownExport,
+  researchMagazineHeaders,
+  type ResearchMagazineInput,
+} from '../services/research_magazine_renderer';
+import { ResearchDiscussionService } from '../services/research_discussion_service';
 
-interface ResearchJob {
-  id: string;
-  query: string;
-  status: string;
-  sourcesJson: string;
-  report: string | null;
-  error: string | null;
-  agentSessionId: string | null;
-  researchType: 'generic' | 'ai-trends' | 'theological';
-  title: string;
-  agentProfileId: string | null;
-  origin: 'page' | 'specialist-run';
-  vaultPath: string | null;
-  canRetry: boolean;
-  requestedByUserId: number | null;
-  createdAt: string;
-  updatedAt: string;
+const researchJobs = new AgentResearchRepository();
+const projectOrchestrator = new ResearchProjectOrchestrator(researchJobs);
+const researchDiscussions = new ResearchDiscussionService(researchJobs);
+
+async function abortResearchSession(localSessionId: string): Promise<boolean> {
+  const session = new AgentSessionsRepository().findById(localSessionId);
+  if (!session) return false;
+  const sdkSessionId = opencodeSessionMap.get(localSessionId) ?? session.sdkSessionId;
+  return sdkSessionId ? opencodeClient.abortSession(sdkSessionId, session.cwd) : false;
 }
 
-function rowToModel(row: Record<string, unknown>): ResearchJob {
+function emitProjectUpdate(run: ResearchProjectRun): void {
+  emitAppEvent({ event: 'research.project_update', projectId: run.projectId, runId: run.id, ownerUserId: run.ownerUserId, status: run.status });
+}
+
+function projectOwner(req: Request): number {
+  const owner = req.auth?.user.id;
+  if (owner === undefined) throw AppError.unauthorized('Research projects require an authenticated owner');
+  return owner;
+}
+
+function optionalObject(value: unknown, field: string): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw AppError.badRequest(`${field} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function optionalArray(value: unknown, field: string): unknown[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw AppError.badRequest(`${field} must be an array`);
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw AppError.badRequest(`${field} must be a string or null`);
+  return value.trim();
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw AppError.badRequest(`${field} is required`);
+  }
+  return value.trim();
+}
+
+function projectInput(body: Record<string, unknown>): ResearchProjectInput {
   return {
-    id: row.id as string,
-    query: row.query as string,
-    status: row.status as string,
-    sourcesJson: (row.sources_json as string) ?? '[]',
-    report: (row.report as string | null) ?? null,
-    error: (row.error as string | null) ?? null,
-    agentSessionId: (row.agent_session_id as string | null) ?? null,
-    researchType: ((row.research_type as ResearchJob['researchType']) ?? 'generic'),
-    title: (row.title as string | null) ?? (row.query as string),
-    agentProfileId: (row.agent_profile_id as string | null) ?? null,
-    origin: ((row.origin as ResearchJob['origin']) ?? 'page'),
-    vaultPath: (row.vault_path as string | null) ?? null,
-    canRetry: row.status === 'error' && (row.origin ?? 'page') === 'page' && (row.research_type ?? 'generic') === 'generic',
-    requestedByUserId: (row.requested_by_user_id as number | null) ?? null,
-    createdAt:
-      typeof row.created_at === 'string' ? row.created_at : (row.created_at as Date).toISOString(),
-    updatedAt:
-      typeof row.updated_at === 'string' ? row.updated_at : (row.updated_at as Date).toISOString(),
+    name: requiredString(body.name, 'name'),
+    question: requiredString(body.question, 'question'),
+    goals: optionalArray(body.goals, 'goals'),
+    domain: optionalString(body.domain, 'domain'),
+    profileId: optionalString(body.profileId, 'profileId'),
+    passConfig: optionalArray(body.passConfig, 'passConfig'),
+    modelPolicy: optionalObject(body.modelPolicy, 'modelPolicy'),
+    criticConfig: optionalObject(body.criticConfig, 'criticConfig'),
+    synthesisConfig: optionalObject(body.synthesisConfig, 'synthesisConfig'),
+    scheduleRef: optionalString(body.scheduleRef, 'scheduleRef'),
+    budget: optionalObject(body.budget, 'budget'),
   };
 }
 
-async function insertJob(job: Omit<ResearchJob, 'createdAt' | 'updatedAt'>): Promise<ResearchJob> {
-  const now = new Date().toISOString();
-  if (env.dbClient === 'postgres') {
-    const r = await getPostgresPool().query(
-       `INSERT INTO agent_research_jobs (id, query, status, sources_json, report, error, agent_session_id, research_type, title, agent_profile_id, origin, vault_path, requested_by_user_id, created_at, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-       [job.id, job.query, job.status, job.sourcesJson, job.report, job.error, job.agentSessionId, job.researchType, job.title, job.agentProfileId, job.origin, job.vaultPath, job.requestedByUserId, now, now],
-    );
-    return rowToModel(r.rows[0]);
-  }
-  getDb().prepare(
-    `INSERT INTO agent_research_jobs (id, query, status, sources_json, report, error, agent_session_id, research_type, title, agent_profile_id, origin, vault_path, requested_by_user_id, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).run(job.id, job.query, job.status, job.sourcesJson, job.report, job.error, job.agentSessionId, job.researchType, job.title, job.agentProfileId, job.origin, job.vaultPath, job.requestedByUserId, now, now);
-  return { ...job, createdAt: now, updatedAt: now };
+function projectPatch(body: Record<string, unknown>): ResearchProjectPatch {
+  const patch: ResearchProjectPatch = {};
+  if ('name' in body) patch.name = requiredString(body.name, 'name');
+  if ('question' in body) patch.question = requiredString(body.question, 'question');
+  if ('goals' in body) patch.goals = optionalArray(body.goals, 'goals');
+  if ('domain' in body) patch.domain = optionalString(body.domain, 'domain');
+  if ('profileId' in body) patch.profileId = optionalString(body.profileId, 'profileId');
+  if ('passConfig' in body) patch.passConfig = optionalArray(body.passConfig, 'passConfig');
+  if ('modelPolicy' in body) patch.modelPolicy = optionalObject(body.modelPolicy, 'modelPolicy');
+  if ('criticConfig' in body) patch.criticConfig = optionalObject(body.criticConfig, 'criticConfig');
+  if ('synthesisConfig' in body) patch.synthesisConfig = optionalObject(body.synthesisConfig, 'synthesisConfig');
+  if ('scheduleRef' in body) patch.scheduleRef = optionalString(body.scheduleRef, 'scheduleRef');
+  if ('budget' in body) patch.budget = optionalObject(body.budget, 'budget');
+  return patch;
 }
 
-async function updateJob(id: string, patch: Partial<Pick<ResearchJob, 'status' | 'sourcesJson' | 'report' | 'error' | 'agentSessionId' | 'vaultPath'>>): Promise<ResearchJob | null> {
-  const current = await findJobById(id);
-  if (!current) return null;
-  const next = { ...current, ...patch };
-  const now = new Date().toISOString();
-  if (env.dbClient === 'postgres') {
-    await getPostgresPool().query(
-      `UPDATE agent_research_jobs SET status=$1, sources_json=$2, report=$3, error=$4, agent_session_id=$5, vault_path=$6, updated_at=$7 WHERE id=$8`,
-      [next.status, next.sourcesJson, next.report, next.error, next.agentSessionId, next.vaultPath, now, id],
-    );
-  } else {
-    getDb().prepare(
-      `UPDATE agent_research_jobs SET status=?, sources_json=?, report=?, error=?, agent_session_id=?, vault_path=?, updated_at=? WHERE id=?`,
-    ).run(next.status, next.sourcesJson, next.report, next.error, next.agentSessionId, next.vaultPath, now, id);
-  }
-  return findJobById(id);
+function triggerType(value: unknown): ResearchProjectRun['triggerType'] {
+  if (value === undefined) return 'manual';
+  if (value === 'manual' || value === 'scheduled' || value === 'follow-up') return value;
+  throw AppError.badRequest('triggerType must be manual, scheduled, or follow-up');
+}
+
+function magazineInput(project: ResearchProject, run: ResearchProjectRun): ResearchMagazineInput {
+  const stages = Array.isArray(run.progress.stages)
+    ? run.progress.stages.filter((stage): stage is Record<string, unknown> => !!stage && typeof stage === 'object')
+    : [];
+  const reportFor = (role: string): string | null => {
+    const stage = stages.find((candidate) => candidate.role === role && candidate.status === 'done');
+    return typeof stage?.report === 'string' && stage.report.trim() ? stage.report : null;
+  };
+  const synthesis = reportFor('synthesis');
+  if (!synthesis) throw AppError.conflict('The canonical synthesis is not available for this run');
+  return {
+    project: { id: project.id, name: project.name, question: project.question },
+    run: {
+      id: run.id,
+      status: run.status,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      usage: run.usage,
+      progress: run.progress,
+      diagnostics: run.diagnostics,
+    },
+    synthesis,
+    critic: reportFor('critic'),
+    sources: run.sources,
+  };
 }
 
 function researchPrompt(job: ResearchJob): string {
@@ -109,15 +164,15 @@ Research 3-5 authoritative sources using your available research tools. Read and
 
 /** Run asynchronously after the API has returned the durable pending job. */
 export async function executeResearchJob(id: string): Promise<void> {
-  const job = await findJobById(id);
+  const job = await researchJobs.findById(id);
   if (!job) return;
   if (!env.agentExecutionEnabled) {
-    await updateJob(id, { status: 'error', error: 'Research execution is unavailable on this server. Retry from a local desktop agent server.' });
+    await researchJobs.update(id, { status: 'error', error: 'Research execution is unavailable on this server. Retry from a local desktop agent server.' });
     return;
   }
 
-  await updateJob(id, { status: 'gathering', error: null });
-  await updateJob(id, { status: 'reading' });
+  await researchJobs.update(id, { status: 'gathering', error: null });
+  await researchJobs.update(id, { status: 'reading' });
   try {
     const result = await AgentRunner.run({
       prompt: researchPrompt(job),
@@ -130,36 +185,36 @@ export async function executeResearchJob(id: string): Promise<void> {
       sessionName: `Research: ${job.query}`,
       taskKind: 'research',
     });
-    await updateJob(id, { agentSessionId: result.sessionId || null });
+    await researchJobs.update(id, { agentSessionId: result.sessionId || null });
     if (result.status !== 'done' || !result.result.trim()) {
-      await updateJob(id, {
+      await researchJobs.update(id, {
         status: 'error',
         error: result.error ?? 'Research agent returned no report. Check the research profile model and provider connection, then retry.',
       });
       return;
     }
-    await updateJob(id, { status: 'synthesizing' });
+    await researchJobs.update(id, { status: 'synthesizing' });
     const vaultPath = await writeCompletedResearchNote({ ...job, report: result.result });
-    await updateJob(id, { status: 'done', report: result.result, error: null, vaultPath });
+    await researchJobs.update(id, { status: 'done', report: result.result, error: null, vaultPath });
   } catch (err) {
-    await updateJob(id, { status: 'error', error: `Research runner failed: ${String(err)}` });
+    await researchJobs.update(id, { status: 'error', error: `Research runner failed: ${String(err)}` });
   }
 }
 
 /** Mark jobs interrupted by a prior process as retryable instead of spinning. */
 export async function recoverStaleResearchJobs(): Promise<number> {
-  const active = ['pending', 'gathering', 'reading', 'synthesizing'];
   const error = 'Research interrupted by server restart. Retry this job to run it again.';
-  if (env.dbClient === 'postgres') {
-    const result = await getPostgresPool().query(
-      `UPDATE agent_research_jobs SET status='error', error=$1, updated_at=$2 WHERE status = ANY($3)`,
-      [error, new Date().toISOString(), active],
-    );
-    return result.rowCount ?? 0;
-  }
-  return getDb().prepare(
-    `UPDATE agent_research_jobs SET status='error', error=?, updated_at=? WHERE status IN ('pending','gathering','reading','synthesizing')`,
-  ).run(error, new Date().toISOString()).changes;
+  return researchJobs.recoverActive(error);
+}
+
+export async function recoverInterruptedResearchProjectRuns(): Promise<number> {
+  if (!env.researchProjectsEnabled) return 0;
+  await researchJobs.markActiveProjectWorkInterrupted();
+  const owners = await researchJobs.listInterruptedProjectRunOwners();
+  const recovered = await Promise.all(
+    owners.map((ownerUserId) => projectOrchestrator.reconcileInterruptedStarts(ownerUserId)),
+  );
+  return recovered.reduce((count, runs) => count + runs.length, 0);
 }
 
 async function writeCompletedResearchNote(job: ResearchJob): Promise<string | null> {
@@ -172,30 +227,6 @@ async function writeCompletedResearchNote(job: ResearchJob): Promise<string | nu
   } catch (vaultErr) {
     logger.warn(`[Research] vault note write failed for job ${job.id}: ${String(vaultErr)}`);
     return null;
-  }
-}
-
-async function findJobById(id: string): Promise<ResearchJob | null> {
-  if (env.dbClient === 'postgres') {
-    const r = await getPostgresPool().query(`SELECT * FROM agent_research_jobs WHERE id = $1`, [id]);
-    return r.rows.length > 0 ? rowToModel(r.rows[0]) : null;
-  }
-  const row = getDb().prepare(`SELECT * FROM agent_research_jobs WHERE id = ?`).get(id);
-  return row ? rowToModel(row as Record<string, unknown>) : null;
-}
-
-function requireOwnedJob(job: ResearchJob, req: Request): void {
-  const userId = req.auth?.user.id;
-  // Unowned rows (requestedByUserId null) predate ownership stamping and are
-  // shared Mac-wide — same visibility rule as agent memory (P0 decision).
-  // Exact-match-only here made every legacy job invisible to authenticated
-  // clients (the mobile gateway) while the tokenless desktop saw them all.
-  if (
-    userId !== undefined &&
-    job.requestedByUserId !== null &&
-    job.requestedByUserId !== userId
-  ) {
-    throw AppError.notFound('ResearchJob');
   }
 }
 
@@ -256,64 +287,201 @@ async function resetResearchJob(job: ResearchJob): Promise<ResearchJob> {
        WHERE id = ?`,
     ).run(now, job.id);
   }
-  return (await findJobById(job.id))!;
-}
-
-async function removeResearchJob(job: ResearchJob): Promise<void> {
-  const triggerPattern = `%Job ID: ${job.id}%`;
-  if (env.dbClient === 'postgres') {
-    await getPostgresPool().query(
-      `DELETE FROM pending_claude_triggers
-       WHERE task_id IS NULL AND prompt LIKE $1`,
-      [triggerPattern],
-    );
-    await getPostgresPool().query(
-      'DELETE FROM agent_research_jobs WHERE id = $1',
-      [job.id],
-    );
-    return;
-  }
-  getDb().transaction(() => {
-    getDb().prepare(
-      `DELETE FROM pending_claude_triggers
-       WHERE task_id IS NULL AND prompt LIKE ?`,
-    ).run(triggerPattern);
-    getDb().prepare(
-      'DELETE FROM agent_research_jobs WHERE id = ?',
-    ).run(job.id);
-  })();
+  return (await researchJobs.findById(job.id))!;
 }
 
 export class AgentResearchController {
+  async listProjects(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await researchJobs.listProjects(projectOwner(req), req.query.includeArchived === 'true'));
+    } catch (err) { next(err); }
+  }
+
+  async createProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const created = await researchJobs.createProject(
+        projectOwner(req),
+        projectInput(req.body as Record<string, unknown>),
+      );
+      res.status(201).json(created);
+    } catch (err) { next(err); }
+  }
+
+  async getProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await researchJobs.getProject(req.params.projectId, projectOwner(req));
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async updateProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await researchJobs.updateProject(
+        req.params.projectId,
+        projectOwner(req),
+        projectPatch(req.body as Record<string, unknown>),
+      );
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async archiveProject(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await researchJobs.archiveProject(req.params.projectId, projectOwner(req));
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(project);
+    } catch (err) { next(err); }
+  }
+
+  async listProjectRuns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const project = await researchJobs.getProject(req.params.projectId, owner);
+      if (!project) throw AppError.notFound('ResearchProject');
+      res.json(await researchJobs.listProjectRuns(project.id, owner));
+    } catch (err) { next(err); }
+  }
+
+  async createProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const ownerUserId = projectOwner(req);
+      const run = await researchJobs.createProjectRun(
+        req.params.projectId,
+        ownerUserId,
+        triggerType((req.body as Record<string, unknown>).triggerType),
+      );
+      if (!run) throw AppError.notFound('ResearchProject');
+      res.status(201).json(run);
+      void projectOrchestrator.start(run.id, ownerUserId).catch((error) => {
+        logger.error(`[ResearchProject] run ${run.id} failed outside request lifecycle: ${String(error)}`);
+      });
+    } catch (err) { next(err); }
+  }
+
+  async getProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const run = await researchJobs.getProjectRun(req.params.runId, projectOwner(req));
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      res.json(run);
+    } catch (err) { next(err); }
+  }
+
+  async getProjectMagazine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const [project, run] = await Promise.all([
+        researchJobs.getProject(req.params.projectId, owner),
+        researchJobs.getProjectRun(req.params.runId, owner),
+      ]);
+      if (!project || !run || run.projectId !== project.id) throw AppError.notFound('ResearchProjectRun');
+      res.set(researchMagazineHeaders()).type('html').send(renderResearchMagazine(magazineInput(project, run)));
+    } catch (err) { next(err); }
+  }
+
+  async exportProjectMagazine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const format = req.query.format;
+      if (format !== 'html' && format !== 'markdown') throw AppError.badRequest('format must be html or markdown');
+      const owner = projectOwner(req);
+      const [project, run] = await Promise.all([
+        researchJobs.getProject(req.params.projectId, owner),
+        researchJobs.getProjectRun(req.params.runId, owner),
+      ]);
+      if (!project || !run || run.projectId !== project.id) throw AppError.notFound('ResearchProjectRun');
+      const input = magazineInput(project, run);
+      const extension = format === 'html' ? 'html' : 'md';
+      res.set({
+        ...researchMagazineHeaders(),
+        'Content-Disposition': `attachment; filename="research-${project.id}-${run.id}.${extension}"`,
+      });
+      if (format === 'html') res.type('html').send(renderResearchMagazine(input));
+      else res.type('text/markdown').send(renderResearchMarkdownExport(input));
+    } catch (err) { next(err); }
+  }
+
+  async createProjectDiscussion(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const rawIds = body.selectedArtifactIds ?? [];
+      if (!Array.isArray(rawIds) || rawIds.some((id) => typeof id !== 'string')) {
+        throw AppError.badRequest('selectedArtifactIds must be an array of artifact IDs');
+      }
+      const discussion = await researchDiscussions.start(
+        req.params.projectId,
+        req.params.runId,
+        projectOwner(req),
+        rawIds as string[],
+      );
+      res.status(202).json(discussion);
+    } catch (err) { next(err); }
+  }
+
+  async cancelProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const run = await researchJobs.cancelProjectRun(req.params.runId, projectOwner(req), abortResearchSession);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      emitProjectUpdate(run); res.json(run);
+    } catch (err) { next(err); }
+  }
+
+  async resumeProjectRun(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const run = await researchJobs.getProjectRun(req.params.runId, owner);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      const resumed = await researchJobs.updateProjectRunState(run.id, owner, { status: 'resumable', diagnostics: { ...run.diagnostics, resumable: true } });
+      if (!resumed) throw AppError.notFound('ResearchProjectRun');
+      emitProjectUpdate(resumed); res.status(202).json(resumed);
+      void projectOrchestrator.start(run.id, owner).then(emitProjectUpdate).catch((error) => logger.error(String(error)));
+    } catch (err) { next(err); }
+  }
+
+  async cancelProjectPass(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const run = await researchJobs.getProjectRun(req.params.runId, owner);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      const pass = await researchJobs.cancelProjectPass(req.params.passId, owner, abortResearchSession);
+      if (!pass || pass.projectRunId !== run.id) throw AppError.notFound('ResearchProjectPass');
+      emitProjectUpdate((await researchJobs.getProjectRun(run.id, owner))!); res.json(pass);
+    } catch (err) { next(err); }
+  }
+
+  async retryProjectPass(req: Request, res: Response, next: NextFunction) {
+    try {
+      const owner = projectOwner(req);
+      const run = await researchJobs.getProjectRun(req.params.runId, owner);
+      if (!run || run.projectId !== req.params.projectId) throw AppError.notFound('ResearchProjectRun');
+      const pass = await researchJobs.retryProjectPassJob(req.params.passId, owner);
+      if (!pass || pass.projectRunId !== run.id) throw AppError.notFound('ResearchProjectPass');
+      res.status(202).json(pass);
+      void projectOrchestrator.start(run.id, owner).then(emitProjectUpdate).catch((error) => logger.error(String(error)));
+    } catch (err) { next(err); }
+  }
+
+  async getProjectArtifact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const artifact = await researchJobs.getArtifact(req.params.artifactId, projectOwner(req));
+      if (!artifact || artifact.project_id !== req.params.projectId) throw AppError.notFound('ResearchArtifact');
+      res.json(artifact);
+    } catch (err) { next(err); }
+  }
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.auth?.user.id ?? null;
-      // Owner visibility (matches requireOwnedJob): unowned legacy rows are
-      // shared; authenticated callers additionally see their own rows.
-      if (env.dbClient === 'postgres') {
-        const r = await getPostgresPool().query(
-          `SELECT * FROM agent_research_jobs
-           WHERE requested_by_user_id IS NULL OR requested_by_user_id = $1
-           ORDER BY created_at DESC LIMIT 50`,
-          [userId],
-        );
-        res.json(r.rows.map(rowToModel));
-        return;
-      }
-      const rows = getDb().prepare(
-        `SELECT * FROM agent_research_jobs
-         WHERE requested_by_user_id IS NULL OR requested_by_user_id = ?
-         ORDER BY created_at DESC LIMIT 50`,
-      ).all(userId);
-      res.json((rows as Record<string, unknown>[]).map(rowToModel));
+      res.json(await researchJobs.listVisible(req.auth?.user.id));
     } catch (err) { next(err); }
   }
 
   async get(req: Request, res: Response, next: NextFunction) {
     try {
-      const job = await findJobById(req.params.id);
+      const job = await researchJobs.findVisibleById(
+        req.params.id,
+        req.auth?.user.id,
+      );
       if (!job) throw AppError.notFound('ResearchJob');
-      requireOwnedJob(job, req);
       res.json(job);
     } catch (err) { next(err); }
   }
@@ -326,7 +494,7 @@ export class AgentResearchController {
       const id = randomUUID();
       const userId = req.auth?.user.id ?? null;
 
-      const job = await insertJob({
+      const job = await researchJobs.insert({
         id, query, status: 'pending', sourcesJson: '[]',
         report: null, error: null, agentSessionId: null, researchType: 'generic', title: query,
         agentProfileId: 'research', origin: 'page', vaultPath: null, canRetry: false, requestedByUserId: userId,
@@ -339,13 +507,15 @@ export class AgentResearchController {
 
   async retry(req: Request, res: Response, next: NextFunction) {
     try {
-      const job = await findJobById(req.params.id);
+      const job = await researchJobs.findVisibleById(
+        req.params.id,
+        req.auth?.user.id,
+      );
       if (!job) throw AppError.notFound('ResearchJob');
-      requireOwnedJob(job, req);
       if (!job.canRetry) {
         throw AppError.badRequest('Only failed page research jobs can be retried');
       }
-      const reset = await updateJob(job.id, {
+      const reset = await researchJobs.update(job.id, {
         status: 'pending',
         error: null,
         report: null,
@@ -359,10 +529,12 @@ export class AgentResearchController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const job = await findJobById(req.params.id);
+      const job = await researchJobs.findVisibleById(
+        req.params.id,
+        req.auth?.user.id,
+      );
       if (!job) throw AppError.notFound('ResearchJob');
-      requireOwnedJob(job, req);
-      await removeResearchJob(job);
+      await researchJobs.remove(job);
       res.status(204).end();
     } catch (err) { next(err); }
   }
@@ -373,7 +545,7 @@ export class AgentResearchController {
       const { id } = req.params;
       const { status, sources, report, error } = req.body as Record<string, unknown>;
 
-      const job = await findJobById(id);
+      const job = await researchJobs.findVisibleById(id, req.auth?.user.id);
       if (!job) throw AppError.notFound('ResearchJob');
 
       const validStatuses = ['pending', 'gathering', 'reading', 'synthesizing', 'done', 'error'];
@@ -386,7 +558,7 @@ export class AgentResearchController {
       const newReport = typeof report === 'string' ? report : job.report;
       const newError = typeof error === 'string' ? error : job.error;
 
-      const updated = await updateJob(id, { status: newStatus, sourcesJson: newSources, report: newReport, error: newError });
+      const updated = await researchJobs.update(id, { status: newStatus, sourcesJson: newSources, report: newReport, error: newError });
 
       // Issue #847: on completion, land the findings as Research Database
       // entries (maintainer intake format — see researchVaultConfig.ts).

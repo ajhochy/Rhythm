@@ -461,3 +461,34 @@ must not already exist.
   production EAS build and TestFlight submission.
 - [ ] Verify the submitted TestFlight artifact hash matches the recorded
   production artifact, then leave PR #1165 draft for AJ's final approval.
+
+---
+
+## Research Projects rollout gate (#1300)
+
+Run only against the disposable sandbox described in
+`docs/ai/testing-guide.md`; keep the feature default-off outside the gate.
+
+- [ ] Create a named project with three passes. Verify distinct session IDs,
+  curated sources, critic, one canonical synthesis, factual progress, tokens,
+  cost, and visible degradation/fallback diagnostics.
+- [ ] Exercise cancel twice, selective retry, state-preserving sandbox restart,
+  budget exhaustion, and two same-local-day schedule ticks. Completed evidence
+  must survive and only unfinished/stale stages may rerun.
+- [ ] From another authenticated test owner, verify every project, run,
+  artifact, magazine, export, and discussion lookup is a concealed 404.
+- [ ] Open the magazine in Flutter. Inspect source links and uncertainty, then
+  use browser **Print** and **Save as PDF**. Open HTML and Markdown exports;
+  hostile HTML/URLs must not execute or leak prompts, paths, or credentials.
+- [ ] Start Discuss Report, ask an unsupported question, and verify the normal
+  Chats session cites frozen eligible evidence or explicitly says evidence is
+  absent and offers a follow-up research run.
+- [ ] Run reconciliation dry-run/apply/apply on the copied representative DB;
+  verify exact counts, no agent reruns, idempotence, and an unchanged vault
+  file list plus SHA-256 digest.
+- [ ] Tear down and confirm no sandbox directory, tagged process, or listener
+  remains on API 4098, engine 4097, or gateway 4099.
+- [ ] Start a fresh default-off sandbox: diagnostics say false, project routes
+  are 404, and legacy research still completes and writes its vault note.
+- [ ] Review `docs/release/research-projects-rollout.md`. Rollout requires AJ's
+  explicit approval; any abort condition keeps the flag off.

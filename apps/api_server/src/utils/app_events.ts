@@ -8,7 +8,8 @@ export type AppEvent =
   | { event: 'agent.session_output'; sessionId: string; data: string }
   | { event: 'agent.session_status'; sessionId: string; working: boolean; source: string }
   | { event: 'agent.session_closed'; sessionId: string; resumable: boolean }
-  | { event: 'agent.session_token_captured'; sessionId: string; token: string };
+  | { event: 'agent.session_token_captured'; sessionId: string; token: string }
+  | { event: 'research.project_update'; projectId: string; runId: string; ownerUserId: number; status: string };
 
 export function emitAppEvent(payload: AppEvent): void {
   appEvents.emit(payload.event, payload);

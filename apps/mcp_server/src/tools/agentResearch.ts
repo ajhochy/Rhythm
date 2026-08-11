@@ -27,6 +27,255 @@ export function registerAgentResearchTools(
   apiToken: string,
   agentUrl = process.env.RHYTHM_AGENT_URL ?? "http://127.0.0.1:4001",
 ) {
+  const projectFields = {
+    name: z.string().min(1),
+    question: z.string().min(1),
+    goals: z.array(z.string()).default([]),
+    domain: z.string().nullable().optional(),
+    profileId: z.string().nullable().optional(),
+    passConfig: z.array(z.record(z.string(), z.unknown())).default([]),
+    modelPolicy: z.record(z.string(), z.unknown()).default({}),
+    criticConfig: z.record(z.string(), z.unknown()).default({}),
+    synthesisConfig: z.record(z.string(), z.unknown()).default({}),
+    scheduleRef: z.string().nullable().optional(),
+    budget: z.record(z.string(), z.unknown()).default({}),
+  };
+
+  registerTool(
+    server,
+    "rhythm_list_research_projects",
+    "List the current user's named research projects.",
+    { include_archived: z.boolean().optional() },
+    async ({ include_archived }, extra) => {
+      try {
+        const query = include_archived ? "?includeArchived=true" : "";
+        const value = await apiGet(apiUrl, apiToken, `/agent-research/projects${query}`);
+        const externalResult = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl, context: trustedSecurityContext(extra), source: "research.project.list",
+          label: "research project list", rawContent: JSON.stringify(value, null, 2),
+        });
+        return externalResult.blocked
+          ? { content: [{ type: "text" as const, text: externalResult.text }], isError: true as const }
+          : toolResult(externalResult.text);
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_get_research_project",
+    "Get one owned research project and its current configuration.",
+    { project_id: z.string().uuid() },
+    async ({ project_id }, extra) => {
+      try {
+        const value = await apiGet(apiUrl, apiToken, `/agent-research/projects/${project_id}`);
+        const externalResult = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl, context: trustedSecurityContext(extra), source: "research.project.get",
+          label: "research project", rawContent: JSON.stringify(value, null, 2),
+        });
+        return externalResult.blocked
+          ? { content: [{ type: "text" as const, text: externalResult.text }], isError: true as const }
+          : toolResult(externalResult.text);
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_create_research_project",
+    "Create an owner-scoped named research project. Research Projects must be enabled.",
+    { ...projectFields, approval_id: z.string().optional() },
+    async (input, extra) => {
+      const { approval_id, ...payload } = input;
+      const gate = await authorizeOutboundAction({
+        agentUrl, context: trustedSecurityContext(extra), approvalId: approval_id,
+        action: "research.project.create", payload,
+      });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusalMessage as string }], isError: true as const };
+      try { return toolResult(JSON.stringify(await apiPost(apiUrl, apiToken, "/agent-research/projects", payload), null, 2)); }
+      catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_update_research_project",
+    "Update the mutable configuration of an owned research project. Existing run snapshots are unchanged.",
+    {
+      project_id: z.string().uuid(),
+      name: z.string().min(1).optional(),
+      question: z.string().min(1).optional(),
+      goals: z.array(z.string()).optional(),
+      domain: z.string().nullable().optional(),
+      profileId: z.string().nullable().optional(),
+      passConfig: z.array(z.record(z.string(), z.unknown())).optional(),
+      modelPolicy: z.record(z.string(), z.unknown()).optional(),
+      criticConfig: z.record(z.string(), z.unknown()).optional(),
+      synthesisConfig: z.record(z.string(), z.unknown()).optional(),
+      scheduleRef: z.string().nullable().optional(),
+      budget: z.record(z.string(), z.unknown()).optional(),
+      approval_id: z.string().optional(),
+    },
+    async (input, extra) => {
+      const { project_id, approval_id, ...payload } = input;
+      const gate = await authorizeOutboundAction({
+        agentUrl, context: trustedSecurityContext(extra), approvalId: approval_id,
+        action: "research.project.update", payload: { project_id, ...payload },
+      });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusalMessage as string }], isError: true as const };
+      try { return toolResult(JSON.stringify(await apiPatch(apiUrl, apiToken, `/agent-research/projects/${project_id}`, payload), null, 2)); }
+      catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_archive_research_project",
+    "Archive an owned research project without deleting its immutable run history.",
+    { project_id: z.string().uuid(), approval_id: z.string().optional() },
+    async ({ project_id, approval_id }, extra) => {
+      const payload = { project_id };
+      const gate = await authorizeOutboundAction({
+        agentUrl, context: trustedSecurityContext(extra), approvalId: approval_id,
+        action: "research.project.archive", payload,
+      });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusalMessage as string }], isError: true as const };
+      try { return toolResult(JSON.stringify(await apiPost(apiUrl, apiToken, `/agent-research/projects/${project_id}/archive`, {}), null, 2)); }
+      catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_start_research_project_run",
+    "Create an immutable run snapshot for an owned research project.",
+    {
+      project_id: z.string().uuid(),
+      trigger_type: z.enum(["manual", "scheduled", "follow-up"]).default("manual"),
+      approval_id: z.string().optional(),
+    },
+    async ({ project_id, trigger_type, approval_id }, extra) => {
+      const payload = { project_id, triggerType: trigger_type };
+      const gate = await authorizeOutboundAction({
+        agentUrl, context: trustedSecurityContext(extra), approvalId: approval_id,
+        action: "research.project.run.start", payload,
+      });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusalMessage as string }], isError: true as const };
+      try { return toolResult(JSON.stringify(await apiPost(apiUrl, apiToken, `/agent-research/projects/${project_id}/runs`, { triggerType: trigger_type }), null, 2)); }
+      catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_get_research_project_run",
+    "Get factual progress, diagnostics, artifacts, sources, and usage for one owned project run.",
+    { project_id: z.string().uuid(), run_id: z.string().uuid() },
+    async ({ project_id, run_id }, extra) => {
+      try {
+        const value = await apiGet(apiUrl, apiToken, `/agent-research/projects/${project_id}/runs/${run_id}`);
+        const externalResult = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl, context: trustedSecurityContext(extra), source: "research.project.run",
+          label: "research project run", rawContent: JSON.stringify(value, null, 2),
+        });
+        return externalResult.blocked
+          ? { content: [{ type: "text" as const, text: externalResult.text }], isError: true as const }
+          : toolResult(externalResult.text);
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_discuss_research_report",
+    "Create a normal resumable agent session grounded in one owned research run's frozen synthesis, critic, curated sources, and selected full-text artifacts.",
+    {
+      project_id: z.string().uuid(),
+      run_id: z.string().uuid(),
+      selected_artifact_ids: z.array(z.string().min(1)).max(3).default([]),
+      approval_id: z.string().optional(),
+    },
+    async ({ project_id, run_id, selected_artifact_ids, approval_id }, extra) => {
+      const payload = { project_id, run_id, selectedArtifactIds: selected_artifact_ids };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "research.project.discussion.start",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [{ type: "text" as const, text: gate.refusalMessage as string }],
+          isError: true as const,
+        };
+      }
+      try {
+        return toolResult(JSON.stringify(await apiPost(
+          apiUrl,
+          apiToken,
+          `/agent-research/projects/${project_id}/runs/${run_id}/discussions`,
+          { selectedArtifactIds: selected_artifact_ids },
+        ), null, 2));
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(
+    server,
+    "rhythm_complete_research_pass",
+    "Register the versioned canonical artifacts and curated provenance for one persisted research pass. Paths must be vault-relative Markdown files; the API indexes this completed tool call idempotently from the persisted session transcript.",
+    {
+      version: z.literal(1),
+      job_id: z.string().min(1),
+      run_id: z.string().min(1),
+      pass_id: z.string().min(1),
+      artifacts: z.array(z.object({
+        role: z.enum(["canonical", "supporting"]),
+        kind: z.enum(["structured", "full-text"]),
+        vault_path: z.string().min(1),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+      })),
+      sources: z.array(z.object({
+        url: z.string().url(),
+        canonical_url: z.string().url(),
+        capture_status: z.enum(["complete", "partial", "failed"]),
+        structured_vault_path: z.string().min(1).optional(),
+        full_text_vault_path: z.string().min(1).optional(),
+        structured_sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+        full_text_sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+        failure: z.object({ code: z.string().min(1), message: z.string().min(1) }).optional(),
+      })),
+      approval_id: z.string().optional().describe(
+        "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+      ),
+    },
+    async (input, extra) => {
+      const { approval_id, ...completion } = input;
+      const payload = completion;
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "research.complete-pass",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [{ type: "text" as const, text: gate.refusalMessage as string }],
+          isError: true as const,
+        };
+      }
+      return toolResult(JSON.stringify({
+        accepted: true,
+        version: completion.version,
+        job_id: completion.job_id,
+        run_id: completion.run_id,
+        pass_id: completion.pass_id,
+      }));
+    },
+  );
+
   registerTool(
     server,
     "rhythm_start_research",

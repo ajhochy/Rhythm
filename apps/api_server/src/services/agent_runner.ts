@@ -41,6 +41,7 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
+import { partitionResearchMcpPreflight } from './agent_skill_wiring';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -276,6 +277,8 @@ function _isSessionNamePlaceholder(name: string): boolean {
 
 export interface AgentRunOptions {
   prompt: string;
+  /** Called as soon as the durable Rhythm session exists, before engine work starts. */
+  onSessionCreated?: (sessionId: string) => void | Promise<void>;
   /** Raw JSON string of allowed MCP tools (same shape as agent_sessions.allowed_mcps_json) */
   allowedMcpsJson?: string | null;
   /**
@@ -291,6 +294,8 @@ export interface AgentRunOptions {
   cwd?: string;
   /** Rhythm task ID for 'task_notes' delivery */
   taskId?: string | null;
+  /** Durable context linkage for a session that has no task foreign key. */
+  taskTitle?: string | null;
   /** Where to deliver the agent result (default: 'session') */
   outputTarget?: 'session' | 'notification' | 'task_notes';
   /**
@@ -519,6 +524,7 @@ function _recordSession(opts: {
   name: string;
   agentKind: string;
   cwd: string;
+  taskTitle?: string | null;
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
   mcpAllowedToolsJson?: string | null;
@@ -535,7 +541,7 @@ function _recordSession(opts: {
     const session = repo.insert({
       agentKind: opts.agentKind as import('../models/agent_session').AgentKind,
       taskId: null,
-      taskTitle: null,
+      taskTitle: opts.taskTitle ?? null,
       cwd: opts.cwd,
       name: opts.name,
       projectId: null,
@@ -745,6 +751,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     mcpRole,
     cwd,
     taskId,
+    taskTitle,
     outputTarget = 'session',
     agentConfigId,
     agentKind,
@@ -926,6 +933,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     name: effectiveName,
     agentKind: effectiveAgentKind,
     cwd: effectiveCwd,
+    taskTitle: taskTitle ?? null,
     scheduledTaskId: scheduledTaskId ?? null,
     mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
     mcpAllowedToolsJson: allowedMcpsJson ?? profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
@@ -934,6 +942,9 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     delegationDepth: delegationDepth ?? 0,
     category: category ?? null,
   });
+  if (rhythmSessionId && opts.onSessionCreated) {
+    await opts.onSessionCreated(rhythmSessionId);
+  }
 
   // #862 — record "Memories used in this reply" now that the local session
   // row exists. Non-fatal: a recording failure must never block the run.
@@ -1015,9 +1026,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
             deadlinePolicy,
             'MCP readiness preflight',
           );
-          const unavailable = requiredServers.flatMap((name) => {
+          const unavailableByServer = new Map<string, string>();
+          for (const name of requiredServers) {
             const status = statusMap[name]?.status;
-            if (status === 'connected') return [];
+            if (status === 'connected') continue;
 
             const remediation =
               status === 'needs_auth'
@@ -1027,8 +1039,26 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
                   : status === 'failed'
                     ? 'check the server configuration and restart it'
                     : 'add or configure it in MCP settings';
-            return [`${name} (${status ?? 'missing'} — ${remediation})`];
-          });
+            unavailableByServer.set(
+              name,
+              `${name} (${status ?? 'missing'} — ${remediation})`,
+            );
+          }
+          const partition = partitionResearchMcpPreflight(
+            effectiveConfigId,
+            [...unavailableByServer.keys()],
+            env.researchProjectsEnabled,
+          );
+          if (partition.degraded.length > 0) {
+            logger.warn(
+              `[AgentRunner] research channels degraded; safe fallback/skip required: ${partition.degraded
+                .map((name) => unavailableByServer.get(name))
+                .join(', ')}`,
+            );
+          }
+          const unavailable = partition.blocking.map(
+            (name) => unavailableByServer.get(name)!,
+          );
           if (unavailable.length > 0) {
             const msg = `AgentRunner: required MCP unavailable: ${unavailable.join(', ')} before delegating to this specialist`;
             logger.warn(`[AgentRunner] ${msg}`);

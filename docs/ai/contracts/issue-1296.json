@@ -1,0 +1,13 @@
+{
+  "issue": 1296,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1296-c1", "text": "The known 28-job baseline receives verified, excluded, or unresolved outcomes.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1296.test.ts", "test_id": "issue-1296-c1: classifies the known 28-job baseline without reruns", "status": "pass" },
+    { "criterion_id": "issue-1296-c2", "text": "Repeated apply creates no duplicate projects, runs, artifacts, or sources.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1296.test.ts", "test_id": "issue-1296-c2: repeated apply is idempotent", "status": "pass" },
+    { "criterion_id": "issue-1296-c3", "text": "Dry-run reports exact planned changes without mutating the database.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1296.test.ts", "test_id": "issue-1296-c3: dry-run reports exact changes and writes nothing", "status": "pass" },
+    { "criterion_id": "issue-1296-c4", "text": "Reconciliation cannot write, move, or delete vault files.", "mode": "static", "test_file": "apps/api_server/src/__tests__/contract/issue_1296.test.ts", "test_id": "issue-1296-c4: has no vault filesystem write surface", "status": "pass" },
+    { "criterion_id": "issue-1296-c5", "text": "Existing paths, timestamps, hashes, and capture status remain unchanged.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1296.test.ts", "test_id": "issue-1296-c5: preserves existing artifact and source evidence", "status": "pass" }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -1,0 +1,18 @@
+{
+  "issue": 1300,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1300-c1", "text": "A fail-closed live sandbox matrix covers project creation, three sessions, synthesis, lifecycle, scheduling, exports, Q&A, ownership, and backfill.", "mode": "live_e2e", "test_file": "apps/api_server/src/__tests__/research_projects_live_e2e.test.ts", "status": "not_tested", "reason": "Written and typechecked; this worker cannot bind sandbox sockets." },
+    { "criterion_id": "issue-1300-c2", "text": "Sandbox restart preserves copied state and teardown accounts for API, engine, and gateway listeners.", "mode": "shell_integration", "test_file": "tools/dev/sandbox.sh", "status": "not_tested", "reason": "bash -n and source contract pass; live listener lifecycle requires the orchestrator." },
+    { "criterion_id": "issue-1300-c3", "text": "Default-off startup conceals project routes while legacy research still works.", "mode": "live_e2e", "test_file": "apps/api_server/src/__tests__/research_projects_flag_off_live_e2e.test.ts", "status": "not_tested", "reason": "Written and typechecked; requires a separate fresh flag-off sandbox." },
+    { "criterion_id": "issue-1300-c4", "text": "Rollout is observable, abortable, recoverable, default-off, and requires AJ approval.", "mode": "contract", "test_file": "apps/api_server/src/__tests__/contract/issue_1300.test.ts", "test_id": "issue-1300-c3", "status": "pass" },
+    { "criterion_id": "issue-1300-c5", "text": "Manual Flutter magazine print/PDF/export and discussion flow are documented.", "mode": "manual", "test_file": "docs/testing/manual-smoke.md", "status": "not_tested", "reason": "Native visual and flutter_tester socket execution are unavailable in this sandbox." }
+  ],
+  "stack": "typescript/dart/bash",
+  "not_tested": [
+    "Full API 4098 / engine 4097 / gateway 4099 project live matrix",
+    "Fresh-process flag-off legacy regression",
+    "Flutter widget and browser Print / Save as PDF smoke",
+    "Ephemeral Postgres runtime; schema parity remains contract-covered"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "issue": 1293,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1293-c1", "text": "Critic and synthesis are distinct persisted sessions/artifacts.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1293.test.ts", "test_id": "issue-1293-c1: persists separate critic and synthesis stage sessions", "status": "pass" },
+    { "criterion_id": "issue-1293-c2", "text": "Inputs are confined to the owned project run.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1293.test.ts", "test_id": "issue-1293-c2: stage prompts include only owned-run artifacts and curated sources", "status": "pass" },
+    { "criterion_id": "issue-1293-c3", "text": "Failed/missing passes produce an explicit degraded synthesis rather than fabricated consensus.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1293.test.ts", "test_id": "issue-1293-c3: labels partial evidence as degraded in synthesis", "status": "pass" },
+    { "criterion_id": "issue-1293-c4", "text": "Retrying a pass marks downstream critic/synthesis stale.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1293.test.ts", "test_id": "issue-1293-c4: invalidates downstream stages while preserving pass rows", "status": "pass" },
+    { "criterion_id": "issue-1293-c5", "text": "Tests cover agreement, conflicting evidence, missing sources, malformed output, and degraded synthesis.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1293.test.ts", "test_id": "issue-1293-c5: records malformed critic output and synthesizes with an evidence-absent warning", "status": "pass" }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

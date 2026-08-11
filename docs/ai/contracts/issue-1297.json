@@ -1,0 +1,13 @@
+{
+  "issue": 1297,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1297-c1", "text": "Owned project CRUD and run controls are available through Flutter.", "mode": "widget", "test_file": "apps/desktop_flutter/test/features/agent_research/issue_1297_research_projects_test.dart", "test_id": "issue-1297-c1: project CRUD and run controls call owned APIs", "status": "red" },
+    { "criterion_id": "issue-1297-c2", "text": "Persisted timeline states survive refresh and represent partial/failed/cancelled states.", "mode": "unit", "test_file": "apps/desktop_flutter/test/features/agent_research/issue_1297_research_projects_test.dart", "test_id": "issue-1297-c2: parses factual persisted timeline states", "status": "red" },
+    { "criterion_id": "issue-1297-c3", "text": "Canonical synthesis and curated sources are readable.", "mode": "widget", "test_file": "apps/desktop_flutter/test/features/agent_research/issue_1297_research_projects_test.dart", "test_id": "issue-1297-c3: renders synthesis markdown and source tabs", "status": "red" },
+    { "criterion_id": "issue-1297-c4", "text": "Preflight capabilities and live budget usage are visible.", "mode": "widget", "test_file": "apps/desktop_flutter/test/features/agent_research/issue_1297_research_projects_test.dart", "test_id": "issue-1297-c4: shows capability warnings and budget usage", "status": "red" },
+    { "criterion_id": "issue-1297-c5", "text": "Flag-off keeps Legacy Research functional and all lifecycle states have coverage.", "mode": "widget", "test_file": "apps/desktop_flutter/test/features/agent_research/issue_1297_research_projects_test.dart", "test_id": "issue-1297-c5: falls back to Legacy Research when projects return 404", "status": "red" }
+  ],
+  "stack": "dart-flutter",
+"not_tested": ["Widget contract is written but Flutter test execution is deferred: the sandbox rejects flutter_tester's 127.0.0.1:0 socket bind with EPERM."]
+}

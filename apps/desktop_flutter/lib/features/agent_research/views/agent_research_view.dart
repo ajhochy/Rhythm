@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agent_research_controller.dart';
 import '../models/agent_research_job.dart';
+import 'research_projects_panel.dart';
 
 class AgentResearchView extends StatefulWidget {
   const AgentResearchView({super.key});
@@ -73,19 +74,23 @@ class _AgentResearchViewState extends State<AgentResearchView> {
           appBar: AppBar(
             backgroundColor: context.rhythm.surface,
             title: Text(
-              'Deep Research',
+              controller.projectsAvailable
+                  ? 'Research Projects'
+                  : 'Legacy Research',
               style: TextStyle(color: context.rhythm.textPrimary),
             ),
           ),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _showNewResearchDialog(context),
-            backgroundColor: context.rhythm.accent,
-            icon: const Icon(Icons.add, color: Colors.white),
-            label: const Text(
-              'New Research',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
+          floatingActionButton: controller.projectsAvailable
+              ? null
+              : FloatingActionButton.extended(
+                  onPressed: () => _showNewResearchDialog(context),
+                  backgroundColor: context.rhythm.accent,
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text(
+                    'New Research',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
           body: _buildBody(context, controller),
         );
       },
@@ -98,6 +103,10 @@ class _AgentResearchViewState extends State<AgentResearchView> {
       return Center(
         child: CircularProgressIndicator(color: context.rhythm.accent),
       );
+    }
+
+    if (controller.projectsAvailable) {
+      return ResearchProjectsPanel(controller: controller);
     }
 
     if (controller.jobs.isEmpty) {

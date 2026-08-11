@@ -1,0 +1,13 @@
+{
+  "issue": 1299,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1299-c1", "text": "Discussion sessions persist and resume through existing agent session infrastructure.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1299.test.ts", "test_id": "issue-1299-c1", "status": "pass" },
+    { "criterion_id": "issue-1299-c2", "text": "Grounding requires eligible citations or an explicit no-evidence answer and follow-up offer.", "mode": "unit", "test_file": "apps/api_server/src/__tests__/contract/issue_1299.test.ts", "test_id": "issue-1299-c2", "status": "pass" },
+    { "criterion_id": "issue-1299-c3", "text": "The frozen snapshot remains owner/project/run scoped after later evidence changes.", "mode": "security", "test_file": "apps/api_server/src/__tests__/contract/issue_1299.test.ts", "test_id": "issue-1299-c3", "status": "pass" },
+    { "criterion_id": "issue-1299-c4", "text": "Flutter creates and opens the linked normal discussion session.", "mode": "widget", "test_file": "apps/desktop_flutter/test/features/agent_research/issue_1297_research_projects_test.dart", "test_id": "issue-1299-c4", "status": "not_tested", "reason": "Written and statically analyzed; flutter_tester socket bind is denied by this sandbox." },
+    { "criterion_id": "issue-1299-c5", "text": "Authorization, budget and capability diagnostics are enforced.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1299.test.ts", "test_id": "issue-1299-c5", "status": "pass" }
+  ],
+  "stack": "typescript/dart",
+  "not_tested": ["Real engine follow-up and Flutter widget execution require #1300 isolated sandbox validation."]
+}

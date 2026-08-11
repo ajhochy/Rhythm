@@ -5,7 +5,7 @@ import { writeAgentProfileFile } from './opencode_agent_writer';
 import { recordSeedMarker, seedMarkerExists } from './seed_once';
 
 export const RESEARCH_AGENT_ID = 'research';
-export const RESEARCH_PROFILE_MARKER = 'research_profile_seed_v1';
+export const RESEARCH_PROFILE_MARKER = 'research_profile_seed_v2';
 
 export const RESEARCH_MCPS = [
   'obsidian', 'rhythm', 'pdf-tools', 'scrapling', 'minutes', 'youtube-transcript', 'playwright', 'exa',
@@ -30,6 +30,54 @@ export interface ResearchProfileSeedResult {
 
 function isDisabledLegacyResearchProfile(config: AgentConfig): boolean {
   return !config.enabled && config.label === 'Research';
+}
+
+const REQUIRED_RESEARCH_SKILLS = [
+  'agent-reach',
+  'deep-research',
+  'archive-research-sources',
+] as const;
+
+function parseStringArray(value: string | null): string[] | null {
+  try {
+    const parsed = JSON.parse(value ?? 'null');
+    return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Match only the shipped generic profile whose skill grant predates the three
+ * required research workflow skills. Any user-owned field change makes the
+ * row custom and therefore ineligible for automatic repair.
+ */
+function isKnownStaleResearchProfile(config: AgentConfig): boolean {
+  const expected = defaults();
+  const staleSkills = RESEARCH_SKILLS.filter(
+    (skill) => !REQUIRED_RESEARCH_SKILLS.includes(skill as typeof REQUIRED_RESEARCH_SKILLS[number]),
+  );
+  const actualSkills = parseStringArray(config.allowedSkillsJson);
+  return (
+    config.id === RESEARCH_AGENT_ID &&
+    config.label === expected.label &&
+    config.icon === expected.icon &&
+    config.enabled === expected.enabled &&
+    config.isAgent === expected.isAgent &&
+    config.isManager === expected.isManager &&
+    config.systemPrompt === expected.systemPrompt &&
+    config.allowedMcpsJson === expected.allowedMcpsJson &&
+    JSON.stringify(actualSkills) === JSON.stringify(staleSkills) &&
+    config.allowedDelegatesJson === expected.allowedDelegatesJson &&
+    config.modelProvider === expected.modelProvider &&
+    config.modelId === expected.modelId &&
+    config.ocAgent === expected.ocAgent &&
+    config.sessionSelectable === expected.sessionSelectable &&
+    config.schedulable === expected.schedulable &&
+    config.reasoningEffort === expected.reasoningEffort
+  );
 }
 
 function defaults() {
@@ -77,6 +125,11 @@ export function seedResearchProfile(): ResearchProfileSeedResult {
     created = true;
   } else if (isDisabledLegacyResearchProfile(existing)) {
     config = repo.update(RESEARCH_AGENT_ID, defaults())!;
+    repaired = true;
+  } else if (isKnownStaleResearchProfile(existing)) {
+    config = repo.update(RESEARCH_AGENT_ID, {
+      allowedSkillsJson: JSON.stringify([...RESEARCH_SKILLS]),
+    })!;
     repaired = true;
   } else {
     config = existing;

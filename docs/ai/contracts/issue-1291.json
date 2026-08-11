@@ -1,0 +1,48 @@
+{
+  "issue": 1291,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1291-c1",
+      "text": "Project CRUD and run creation validate input and ownership.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1291.test.ts",
+      "test_id": "issue-1291-c1: creates updates lists and archives an owner-scoped project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1291-c2",
+      "text": "A started run's configuration snapshot cannot be silently mutated.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1291.test.ts",
+      "test_id": "issue-1291-c2: freezes the complete project configuration in each run",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1291-c3",
+      "text": "Legacy endpoints remain compatible while the flag is off.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1291.test.ts",
+      "test_id": "issue-1291-c3: keeps legacy jobs available and project methods unavailable with the flag off",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1291-c4",
+      "text": "Cross-owner project/run/artifact access returns 404.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1291.test.ts",
+      "test_id": "issue-1291-c4: owner-scoped lookups conceal project run and artifact rows",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1291-c5",
+      "text": "API contract, repository, authorization, and MCP registration tests pass.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1291.test.ts",
+      "test_id": "issue-1291-c5: exposes stable progress diagnostics artifact source and usage references",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

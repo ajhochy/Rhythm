@@ -332,6 +332,11 @@ export const env = {
    * on the same condition.
    */
   agentExecutionEnabled: deploymentRole !== 'cloud',
+  /** #1288 — additive Research Projects surfaces remain opt-in until launched. */
+  researchProjectsEnabled:
+    (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')
+      .trim()
+      .toLowerCase() === 'true',
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
