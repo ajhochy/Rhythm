@@ -1,0 +1,18 @@
+{
+  "issue": 1309,
+  "generated": "2026-08-11",
+  "criteria": [
+    {"criterion_id":"issue-1309-c1","text":"api_server artifact metadata table (id, project, session, mime, size, checksum, created_at, storage_key) with bytes on the filesystem store (configurable root, default under the app data dir)","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c1: SQLite metadata and configurable filesystem root","status":"pending"},
+    {"criterion_id":"issue-1309-c2","text":"checksum-addressed to dedupe","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c2: checksum-addressed writes deduplicate bytes","status":"pending"},
+    {"criterion_id":"issue-1309-c3","text":"automatic registration of generated images/videos (hook where image-generation output lands)","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c3: completed generated media is automatically registered","status":"pending"},
+    {"criterion_id":"issue-1309-c4","text":"authenticated, project-scoped serving route WITH Range support","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store_live.test.ts","test_id":"issue-1309-c4: live authenticated route enforces project scope and byte ranges","status":"pending"},
+    {"criterion_id":"issue-1309-c5","text":"TTL retention sweep (configurable, default 30d) + pinning flag","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c5: retention removes expired unpinned artifacts and preserves pinned artifacts","status":"pending"},
+    {"criterion_id":"issue-1309-c6","text":"Postgres + SQLite parity for the table","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c6: SQLite and Postgres artifact schemas stay equivalent","status":"pending"},
+    {"criterion_id":"issue-1309-c7","text":"Traversal-safe path handling — refuse anything outside the registered root","mode":"unit","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c7: storage keys cannot traverse outside the configured root","status":"pending"},
+    {"criterion_id":"issue-1309-c8","text":"mobile consumes the same route via the gateway","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store_live.test.ts","test_id":"issue-1309-c8: paired mobile gateway serves the same project-scoped artifact","status":"pending"},
+    {"criterion_id":"issue-1309-c9","text":"pinning flag","mode":"integration","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c9: authenticated pin updates retention state","status":"pending"},
+    {"criterion_id":"issue-1309-c10","text":"Mark docs/ai/decisions/2026-07-30-gallery-source-of-truth-is-the-local-mac.md superseded (add a header note referencing #1309)","mode":"unit","test_file":"apps/api_server/src/contract/issue_1309_artifact_store.test.ts","test_id":"issue-1309-c10: prior gallery decision is marked superseded by issue 1309","status":"pending"}
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
