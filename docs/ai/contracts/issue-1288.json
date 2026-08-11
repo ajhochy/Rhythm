@@ -1,0 +1,48 @@
+{
+  "issue": 1288,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1288-c1",
+      "text": "Flag-off behavior is regression-tested.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1288.test.ts",
+      "test_id": "issue-1288-c1: flag-off behavior is regression-tested",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1288-c2",
+      "text": "SQLite and Postgres schemas, indexes, and foreign keys are equivalent.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1288.test.ts",
+      "test_id": "issue-1288-c2: SQLite and Postgres schemas, indexes, and foreign keys are equivalent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1288-c3",
+      "text": "Migration succeeds on empty and populated databases without rewriting legacy rows.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1288.test.ts",
+      "test_id": "issue-1288-c3: migration succeeds on empty and populated databases without rewriting legacy rows",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1288-c4",
+      "text": "All item-level research operations enforce ownership.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1288.test.ts",
+      "test_id": "issue-1288-c4: all item-level research operations enforce ownership",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1288-c5",
+      "text": "Repository and route tests cover owner, cross-owner, ownerless legacy, and local-agent modes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/contract/issue_1288.test.ts",
+      "test_id": "issue-1288-c5: repository and route tests cover owner, cross-owner, ownerless legacy, and local-agent modes",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { env } from '../config/env';
 import { AuthService } from '../services/auth_service';
 
 const authService = new AuthService();
@@ -28,6 +29,9 @@ export class HealthController {
       status: 'ok',
       service: 'rhythm-api-server',
       commit,
+      features: {
+        researchProjectsEnabled: env.researchProjectsEnabled,
+      },
       ...(builtAt ? { builtAt } : {}),
       ...(authenticatedAs !== null ? { authenticatedAs } : {}),
     });
