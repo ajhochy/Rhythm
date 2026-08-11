@@ -513,6 +513,12 @@ class _ThrowingStubRepo implements AgentsRepository {
           message: message);
 
   @override
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) =>
+      inner.fetchPendingPermissions(sessionId);
+
+  @override
   Future<void> replyQuestion(
     String sessionId,
     String callId,

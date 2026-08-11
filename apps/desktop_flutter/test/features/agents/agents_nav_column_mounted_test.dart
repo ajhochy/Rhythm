@@ -503,6 +503,43 @@ void main() {
       controller.dispose();
     });
 
+    testWidgets(
+        'issue-1340-c2: permission-blocked session row says Waiting on you instead of working',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1024, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _makeControllerWithSessions([
+        _makeSession('permission-blocked', 'Approval needed'),
+      ]);
+      controller.handleWsMessageForTest(
+        const PermissionAskedMessage(
+          sessionId: 'permission-blocked',
+          permissionId: 'permission-1',
+          toolName: 'bash',
+          args: {
+            'patterns': ['git push origin feature/chat-ui']
+          },
+          summary: 'Push the feature branch',
+        ),
+      );
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final row = find.byKey(const ValueKey('session-row-permission-blocked'));
+      expect(
+        find.descendant(of: row, matching: find.text('Waiting on you')),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSemantics(row),
+        containsSemantics(label: 'Approval needed, Waiting on you'),
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
     testWidgets('session action menu keeps a compact desktop target',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1024, 700));

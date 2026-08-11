@@ -120,6 +120,7 @@ describe('manager delegation authorization contracts', () => {
         prompt: 'Implement the focused task.',
         outputTarget: 'session',
         ownerUserId: 42,
+        parentSessionId: expect.any(String),
         delegationDepth: 1,
       }),
     );

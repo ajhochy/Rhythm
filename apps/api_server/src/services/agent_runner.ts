@@ -325,6 +325,8 @@ export interface AgentRunOptions {
   ownerUserId?: number | null;
   /** Delegation nesting depth stored on agent_sessions for server-side delegation caps. */
   delegationDepth?: number;
+  /** Local parent session id for delegated runs. Omitted for root runs. */
+  parentSessionId?: string | null;
   /**
    * USO B1 (#1028) — session category stamped on the recorded agent_sessions row.
    * Omit for the default derivation ('scheduled' when scheduledTaskId is set,
@@ -522,6 +524,7 @@ function _recordSession(opts: {
   mcpAllowedToolsJson?: string | null;
   ownerUserId?: number | null;
   delegationDepth?: number;
+  parentSessionId?: string | null;
   /** #747: mark as a background/system session excluded from the normal session list. */
   isSystem?: boolean;
   /** USO B1 (#1028): explicit session category; omit to derive from scheduledTaskId. */
@@ -540,6 +543,7 @@ function _recordSession(opts: {
       mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
       scheduledTaskId: opts.scheduledTaskId ?? null,
       ownerUserId: opts.ownerUserId ?? null,
+      parentSessionId: opts.parentSessionId ?? null,
       delegationDepth: opts.delegationDepth ?? 0,
       // #747: scheduler-spawned and memory runs are background system sessions.
       // isSystem defaults to true when scheduledTaskId is set (all scheduler runs
@@ -747,6 +751,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     sessionName,
     scheduledTaskId,
     ownerUserId,
+    parentSessionId,
     delegationDepth,
     modelOverride,
     taskKind,
@@ -925,6 +930,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
     mcpAllowedToolsJson: allowedMcpsJson ?? profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
     ownerUserId: ownerUserId ?? null,
+    parentSessionId: parentSessionId ?? null,
     delegationDepth: delegationDepth ?? 0,
     category: category ?? null,
   });

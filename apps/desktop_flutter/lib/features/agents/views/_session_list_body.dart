@@ -268,6 +268,8 @@ List<Widget> _buildSessionTree(
       isMultiSelected: multiSelected.contains(session.id),
       isWorking: controller.isWorking(session.id),
       isStuck: controller.connectivity.isStuck(session.id),
+      isWaitingForPermission:
+          controller.pendingPermissionsFor(session.id).isNotEmpty,
       onTap: () => onRowTap(session.id),
     ));
     widgets.add(const SizedBox(height: 4));
@@ -378,6 +380,7 @@ class SessionRow extends StatelessWidget {
     required this.isSelected,
     required this.isWorking,
     required this.isStuck,
+    required this.isWaitingForPermission,
     required this.onTap,
     this.isMultiSelected = false,
   });
@@ -387,60 +390,90 @@ class SessionRow extends StatelessWidget {
   final bool isMultiSelected;
   final bool isWorking;
   final bool isStuck;
+  final bool isWaitingForPermission;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final highlighted = isSelected || isMultiSelected;
-    return InkWell(
+    return Semantics(
       key: ValueKey('session-row-${session.id}'),
+      button: true,
+      selected: highlighted,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(RhythmRadius.lg),
-      child: Semantics(
-        button: true,
-        selected: highlighted,
-        label: '${session.name.isNotEmpty ? session.name : 'New session'}, '
-            '${session.status.name}',
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          // One compact text row; selection is the only persistent highlight.
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-          decoration: BoxDecoration(
-            color:
-                highlighted ? context.rhythm.accentMuted : Colors.transparent,
-            borderRadius: BorderRadius.circular(RhythmRadius.md),
-          ),
-          child: Row(
-            children: [
-              AgentKindIcon(
-                agentId: session.agentId,
-                providerId: session.providerId,
-                modelId: session.modelId,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  session.name.isNotEmpty ? session.name : 'New session',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: session.name.isNotEmpty
-                        ? context.rhythm.textPrimary
-                        : context.rhythm.textMuted,
+      label: '${session.name.isNotEmpty ? session.name : 'New session'}, '
+          '${isWaitingForPermission ? 'Waiting on you' : session.status.name}',
+      // The visual subtree's own semantics are excluded so this node's label is
+      // exactly the title + state (the badge/menu/icon do not pollute it). The
+      // key lives here (not on the InkWell) so getSemantics(row) resolves to
+      // this labeled node rather than the InkWell's bare tap boundary.
+      child: ExcludeSemantics(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(RhythmRadius.lg),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            // One compact text row; selection is the only persistent highlight.
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color:
+                  highlighted ? context.rhythm.accentMuted : Colors.transparent,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+            ),
+            child: Row(
+              children: [
+                AgentKindIcon(
+                  agentId: session.agentId,
+                  providerId: session.providerId,
+                  modelId: session.modelId,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    session.name.isNotEmpty ? session.name : 'New session',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: session.name.isNotEmpty
+                          ? context.rhythm.textPrimary
+                          : context.rhythm.textMuted,
+                    ),
                   ),
                 ),
-              ),
-              if (session.isIsolatedWorktree) ...[
-                const SizedBox(width: 4),
-                WorktreeBadge(session: session),
+                if (session.isIsolatedWorktree) ...[
+                  const SizedBox(width: 4),
+                  WorktreeBadge(session: session),
+                ],
+                const SizedBox(width: 6),
+                if (isWaitingForPermission)
+                  ExcludeSemantics(
+                    child: Container(
+                      key: ValueKey('session-waiting-${session.id}'),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: context.rhythm.warning.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                      ),
+                      child: Text(
+                        'Waiting on you',
+                        style: TextStyle(
+                          color: context.rhythm.warning,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  SessionStatusDot(
+                      status: session.status, isWorking: isWorking),
+                SessionRowMenu(session: session),
               ],
-              const SizedBox(width: 6),
-              SessionStatusDot(status: session.status, isWorking: isWorking),
-              SessionRowMenu(session: session),
-            ],
+            ),
           ),
         ),
       ),

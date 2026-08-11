@@ -27,11 +27,13 @@
  */
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
+import Database from 'better-sqlite3';
 import { WebSocket } from 'ws';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4098';
+const DB_PATH = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const describeLive = LIVE ? describe : describe.skip;
 
 const createdAgentIds: string[] = [];
@@ -95,6 +97,9 @@ describeLive('live E2E — #1156 delegated subagent permission gate', () => {
       throw new Error(
         'refusing to run #1156 live E2E against the live app ports (4001/4096) — use the sandbox (:4098) per AGENTS.md',
       );
+    }
+    if (!DB_PATH.startsWith('/private/tmp/') && !DB_PATH.startsWith('/tmp/')) {
+      throw new Error('RHYTHM_LIVE_DB_PATH must point at the isolated sandbox database');
     }
     const health = await api('/health');
     if (!health.ok) throw new Error(`sandbox server is not reachable at ${BASE}`);
@@ -208,20 +213,33 @@ describeLive('live E2E — #1156 delegated subagent permission gate', () => {
         // that `upsertChildSession` creates (opencode_stream_bridge.ts
         // ~L1441-1461), which is exactly the row this discovery now finds.
         //
-        // The child row IS a normal local `agent_sessions` row (category
-        // defaults to 'chat', is_system defaults to 0 — migrations.ts
-        // #747/#1028), so it shows up in the default GET /agent-sessions
-        // listing. Find it by `parentSessionId === session.id` — the same
-        // discriminator the gate fix itself keys on — which also gives an id
-        // addressable by every normal per-session route (getOne, messages)
-        // and matches the WS frame `sessionId` the bridge broadcasts for it.
+        // #1348 intentionally hides child rows from scope=chats. Discover the
+        // local row from the isolated sandbox DB instead, then continue to
+        // drive its normal API routes and WS frames by local session id.
         const childSession = await poll(
           async () => {
-            const { sessions } = await apiJson<{
-              sessions: Array<{ id: string; parentSessionId: string | null; status: string }>;
-            }>('/agent-sessions?scope=chats');
-            const child = sessions.find((s) => s.parentSessionId === session.id);
+            const db = new Database(DB_PATH, { readonly: true });
+            const child = db
+              .prepare(
+                `SELECT id, parent_session_id AS parentSessionId,
+                        delegation_depth AS delegationDepth, status
+                   FROM agent_sessions
+                  WHERE parent_session_id = ?
+                  ORDER BY created_at DESC
+                  LIMIT 1`,
+              )
+              .get(session.id) as
+              | {
+                  id: string;
+                  parentSessionId: string;
+                  delegationDepth: number;
+                  status: string;
+                }
+              | undefined;
+            db.close();
             if (!child) throw new Error('no local child row yet (upsertChildSession race)');
+            expect(child.parentSessionId).toBe(session.id);
+            expect(child.delegationDepth).toBeGreaterThan(0);
             return child;
           },
           30_000,

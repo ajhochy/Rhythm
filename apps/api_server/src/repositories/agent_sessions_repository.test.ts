@@ -186,6 +186,27 @@ describe('AgentSessionsRepository', () => {
       expect(chats.map((s) => s.id)).toEqual([chat.id]);
     });
 
+    it('issue-1348-c1: chats scope returns roots and excludes delegated children', () => {
+      // Regression caught: delegated rows inherit category=chat and
+      // is_system=0, so filtering on only those columns floods Chats with
+      // subagent runs.
+      const parent = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Real chat',
+      });
+      repo.setSdkSessionId(parent.id, 'sdk-parent-1348');
+      const child = repo.upsertChildSession(
+        'sdk-child-1348',
+        'sdk-parent-1348',
+        'Delegated: Specialist',
+        '/a',
+      );
+
+      expect(child?.parentSessionId).toBe(parent.id);
+      expect(repo.listAll(100, { scope: 'chats' }).map((s) => s.id)).toEqual([
+        parent.id,
+      ]);
+    });
+
     it('the three scopes return disjoint row sets', () => {
       const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
       const scheduled = repo.insert({

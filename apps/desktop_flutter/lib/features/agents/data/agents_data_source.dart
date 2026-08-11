@@ -486,13 +486,42 @@ class AgentsDataSource {
   }) async {
     final response = await _client.post(
       Uri.parse(
-          '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
-      headers: AuthSessionStore.localHeaders(json: message != null),
-      body: message != null ? jsonEncode({'message': message}) : null,
+        '$_baseUrl/agent-sessions/$sessionId/permissions/$permissionId/reply',
+      ),
+      // #1340 reply endpoint + #1358 loopback headers (no cloud bearer to 4001).
+      headers: AuthSessionStore.localHeaders(json: true),
+      body: jsonEncode({
+        'response': decision,
+        if (message != null) 'message': message,
+      }),
     );
     if (response.statusCode != 204) {
       assertOk(response);
     }
+  }
+
+  /// Fetch permission asks that predate the current WebSocket subscription.
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/$sessionId/pending-permissions',
+      ),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is List<dynamic>
+        ? decoded
+        : decoded is Map<String, dynamic> &&
+                decoded['permissions'] is List<dynamic>
+            ? decoded['permissions'] as List<dynamic>
+            : const <dynamic>[];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(PermissionAskedMessage.fromJson)
+        .toList(growable: false);
   }
 
   /// Answer a pending `question` (AskUserQuestion) tool call.

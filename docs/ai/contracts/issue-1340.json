@@ -1,7 +1,8 @@
 {
   "issue": 1340,
   "generated": "2026-08-10",
-  "criteria": [
+  "note": "Split across server (api_server bridge + REST fallback) and client (desktop UI). Both halves landed in the mega PR.",
+  "server_criteria": [
     {
       "criterion_id": "issue-1340-c1",
       "text": "The bridge forwards permission.asked and permission.replied with the exact shared WebSocket payload.",
@@ -35,6 +36,47 @@
       "status": "pass"
     }
   ],
-  "stack": "typescript",
-  "not_tested": []
+  "client_criteria": [
+    {
+      "criterion_id": "issue-1340-client-c1",
+      "text": "permission.asked renders an approve/deny prompt in the session view.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1340_permission_surface_test.dart",
+      "test_id": "issue-1340-c1: exact permission.asked contract renders an actionable prompt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-client-c2",
+      "text": "A session blocked on a permission shows a waiting on you badge/state clearly distinct from working.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "test_id": "issue-1340-c2: permission-blocked session row says Waiting on you instead of working",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-client-c3",
+      "text": "Approve replies with response once or always and deny replies with response reject through POST /agent-sessions/:id/permissions/:permissionID/reply.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1340_permission_surface_test.dart",
+      "test_id": "issue-1340-c3: permission replies use the exact REST fallback contract",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-client-c4",
+      "text": "Opening a session hydrates pre-existing asks from GET /agent-sessions/:id/pending-permissions.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agents/agents_controller_test.dart",
+      "test_id": "issue-1340-c4: selecting a session hydrates pre-existing pending permissions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-client-c5",
+      "text": "permission.replied removes the matching prompt from desktop state.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1340_permission_surface_test.dart",
+      "test_id": "issue-1340-c5: exact permission.replied contract resolves the matching ask",
+      "status": "pass"
+    }
+  ],
+  "stack": ["typescript", "dart"]
 }
