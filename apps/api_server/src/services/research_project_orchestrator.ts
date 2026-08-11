@@ -3,6 +3,7 @@ import type {
   ResearchProjectRun,
 } from '../repositories/agent_research_repository';
 import * as AgentRunner from './agent_runner';
+import { createHash } from 'node:crypto';
 
 type Runner = Pick<typeof AgentRunner, 'run'>;
 type PassConfig = {
@@ -11,6 +12,13 @@ type PassConfig = {
   model?: unknown;
   acceptanceBar?: unknown;
 };
+
+const CRITIC_PROMPT_VERSION = 'research-critic-v1';
+const SYNTHESIS_PROMPT_VERSION = 'research-synthesis-v1';
+
+function hashInput(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
 
 function modelOverride(value: unknown): { providerID: string; modelID: string } | undefined {
   if (typeof value !== 'string') return undefined;
@@ -62,13 +70,8 @@ export class ResearchProjectOrchestrator {
     const passConfigs = Array.isArray(run.configSnapshot.passConfig)
       ? run.configSnapshot.passConfig as PassConfig[]
       : [];
-    let jobs = await this.repository.listProjectPassJobs(runId, ownerUserId);
-    if (
-      jobs.length === passConfigs.length &&
-      jobs.every((job) => job.status === 'done' || job.status === 'error')
-    ) {
-      return run;
-    }
+    let allJobs = await this.repository.listProjectPassJobs(runId, ownerUserId);
+    let jobs = allJobs.filter((job) => job.passOrdinal < passConfigs.length);
 
     await this.repository.updateProjectRunState(runId, ownerUserId, {
       status: 'running',
@@ -126,13 +129,134 @@ export class ResearchProjectOrchestrator {
       });
     }
 
-    jobs = await this.repository.listProjectPassJobs(runId, ownerUserId);
+    allJobs = await this.repository.listProjectPassJobs(runId, ownerUserId);
+    jobs = allJobs.filter((job) => job.passOrdinal < passConfigs.length);
     const failed = jobs.filter((job) => job.status === 'error').length;
     const completed = jobs.filter((job) => job.status === 'done').length;
+    const refreshedRun = (await this.repository.getProjectRun(runId, ownerUserId))!;
+    const criticConfig = refreshedRun.configSnapshot.criticConfig as Record<string, unknown> | undefined;
+    const synthesisConfig = refreshedRun.configSnapshot.synthesisConfig as Record<string, unknown> | undefined;
+    let critic = allJobs.find((job) => job.passRole === 'critic');
+    if (criticConfig?.enabled === true && completed > 0 && critic?.status !== 'done') {
+      critic = await this.runStage({
+        run: refreshedRun,
+        ownerUserId,
+        role: 'critic',
+        ordinal: 1000,
+        profileId: typeof criticConfig.profileId === 'string' ? criticConfig.profileId : 'research',
+        version: CRITIC_PROMPT_VERSION,
+        existing: critic,
+        prompt: this.criticPrompt(refreshedRun, jobs),
+      });
+    }
+    allJobs = await this.repository.listProjectPassJobs(runId, ownerUserId);
+    let synthesis = allJobs.find((job) => job.passRole === 'synthesis');
+    if (synthesisConfig?.enabled === true && completed > 0 && synthesis?.status !== 'done') {
+      const missingPasses = passConfigs.length - completed;
+      const criticText = critic?.status === 'done' && critic.report
+        ? critic.report
+        : 'Critic evidence is absent or malformed; do not invent a review.';
+      synthesis = await this.runStage({
+        run: refreshedRun,
+        ownerUserId,
+        role: 'synthesis',
+        ordinal: 1001,
+        profileId: typeof synthesisConfig.profileId === 'string' ? synthesisConfig.profileId : 'research',
+        version: SYNTHESIS_PROMPT_VERSION,
+        existing: synthesis,
+        prompt: this.synthesisPrompt(refreshedRun, missingPasses, criticText),
+      });
+    }
+    const stageFailed =
+      (criticConfig?.enabled === true && critic?.status !== 'done') ||
+      (synthesisConfig?.enabled === true && synthesis?.status !== 'done');
     return (await this.repository.updateProjectRunState(runId, ownerUserId, {
-      status: failed > 0 ? 'degraded' : 'passes_complete',
+      status: failed > 0 || stageFailed ? 'degraded' : synthesis?.status === 'done' ? 'complete' : 'passes_complete',
       progress: { totalPasses: passConfigs.length, completedPasses: completed, failedPasses: failed },
-      diagnostics: failed > 0 ? { degraded: true, failedPassIds: jobs.filter((job) => job.status === 'error').map((job) => job.id) } : {},
+      diagnostics: failed > 0 || stageFailed
+        ? { degraded: true, failedPassIds: jobs.filter((job) => job.status === 'error').map((job) => job.id), criticAvailable: critic?.status === 'done' }
+        : {},
+    }))!;
+  }
+
+  private stageEvidence(run: ResearchProjectRun) {
+    return {
+      question: run.configSnapshot.question,
+      artifacts: run.artifacts,
+      sources: run.sources,
+    };
+  }
+
+  private criticPrompt(run: ResearchProjectRun, jobs: Array<{ status: string; passRole: string }>): string {
+    const evidence = this.stageEvidence(run);
+    const missing = jobs.filter((job) => job.status !== 'done').map((job) => job.passRole);
+    return [
+      `Code-owned critic stage (${CRITIC_PROMPT_VERSION}).`,
+      `Question: ${String(run.configSnapshot.question ?? '')}`,
+      `Owned-run artifact registry: ${JSON.stringify(evidence.artifacts)}`,
+      `Owned-run curated source ledger: ${JSON.stringify(evidence.sources)}`,
+      missing.length > 0 ? `DEGRADED INPUT: missing pass artifacts for ${missing.join(', ')}.` : 'All configured pass rows completed.',
+      'Identify disagreement, correlated-source dependence, unsupported claims, missing stakeholders/evidence, counterarguments, and confidence changes. Do not fabricate evidence or consensus.',
+    ].join('\n\n');
+  }
+
+  private synthesisPrompt(run: ResearchProjectRun, missingPasses: number, criticText: string): string {
+    const evidence = this.stageEvidence(run);
+    return [
+      `Code-owned synthesis stage (${SYNTHESIS_PROMPT_VERSION}).`,
+      `Question: ${String(run.configSnapshot.question ?? '')}`,
+      `Owned-run pass artifacts: ${JSON.stringify(evidence.artifacts)}`,
+      `Owned-run curated sources: ${JSON.stringify(evidence.sources)}`,
+      `Contrarian review: ${criticText}`,
+      missingPasses > 0
+        ? `DEGRADED SYNTHESIS: ${missingPasses} missing pass result(s). State the gap explicitly and never fabricate consensus.`
+        : 'All configured passes completed.',
+      'Reconcile disagreements, preserve uncertainty, cite only curated sources, describe changes from a prior run when supplied, and produce the canonical vault report.',
+    ].join('\n\n');
+  }
+
+  private async runStage(input: {
+    run: ResearchProjectRun;
+    ownerUserId: number;
+    role: 'critic' | 'synthesis';
+    ordinal: number;
+    profileId: string;
+    version: string;
+    prompt: string;
+    existing?: { id: string };
+  }) {
+    const evidence = this.stageEvidence(input.run);
+    const job = input.existing ?? await this.repository.createProjectPassJob({
+      projectId: input.run.projectId,
+      projectRunId: input.run.id,
+      ownerUserId: input.ownerUserId,
+      question: String(input.run.configSnapshot.question ?? ''),
+      role: input.role,
+      ordinal: input.ordinal,
+      profileId: input.profileId,
+      config: { promptVersion: input.version, inputHash: hashInput(evidence), inputArtifactHashes: input.run.artifacts.map((artifact) => artifact.content_hash).filter(Boolean) },
+    });
+    await this.repository.updateProjectPassJob(job.id, input.ownerUserId, { status: 'synthesizing', error: null });
+    let result: Awaited<ReturnType<Runner['run']>>;
+    try {
+      result = await this.runner.run({
+        prompt: input.prompt,
+        cwd: process.cwd(),
+        outputTarget: 'session',
+        agentConfigId: input.profileId,
+        agentKind: input.profileId,
+        ownerUserId: input.ownerUserId,
+        sessionName: `Research ${input.run.id} · ${input.role}`,
+        taskKind: 'research',
+      });
+    } catch (error) {
+      result = { sessionId: '', result: '', status: 'error', error: String(error) };
+    }
+    return (await this.repository.updateProjectPassJob(job.id, input.ownerUserId, {
+      status: result.status === 'done' && result.result.trim() ? 'done' : 'error',
+      agentSessionId: result.sessionId || null,
+      report: result.status === 'done' && result.result.trim() ? result.result : null,
+      error: result.status === 'done' && result.result.trim() ? null : result.error ?? `${input.role} returned malformed empty output`,
     }))!;
   }
 

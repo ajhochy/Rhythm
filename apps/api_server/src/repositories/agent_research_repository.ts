@@ -549,6 +549,23 @@ export class AgentResearchRepository {
     return this.getProjectRun(id, ownerUserId);
   }
 
+  async markDownstreamStagesStale(runId: string, ownerUserId: number): Promise<number> {
+    this.requireProjectsEnabled();
+    if (!(await this.getProjectRun(runId, ownerUserId))) return 0;
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_research_jobs SET status='stale', updated_at=$1
+          WHERE project_run_id=$2 AND pass_role IN ('critic','synthesis')`,
+        [new Date().toISOString(), runId],
+      );
+      return result.rowCount ?? 0;
+    }
+    return getDb().prepare(
+      `UPDATE agent_research_jobs SET status='stale', updated_at=?
+        WHERE project_run_id=? AND pass_role IN ('critic','synthesis')`,
+    ).run(new Date().toISOString(), runId).changes;
+  }
+
   async listInterruptedProjectRuns(ownerUserId: number): Promise<ResearchProjectRun[]> {
     this.requireProjectsEnabled();
     const rows = env.dbClient === 'postgres'

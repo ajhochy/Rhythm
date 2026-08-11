@@ -59,3 +59,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: persist pass rows before runner invocation; coalesce in-process starts and use persisted ordinals for restart idempotency; keep pass prompts confined to the shared immutable snapshot.
 - Deviations from spec: live two-pass sandbox execution is assigned to the final #1300 validation run because this worker cannot bind sockets.
 - Concerns: AgentRunner exposes its session ID only on return, so the project pass link is persisted at the earliest existing engine boundary; no parallel engine/session abstraction was introduced.
+
+### 2026-08-11 — issue #1293 contrarian review and synthesis
+- Files modified: orchestrator stage prompts/lifecycle, downstream stale repository operation, acceptance contract/tests.
+- Checks run: #1293 and #1292 contracts pass (10 tests); API typecheck passes.
+- Decisions made: use versioned code-owned prompts; feed stages only owned-run artifact/source rows; run synthesis with explicit degraded language when pass or critic evidence is missing.
+- Deviations from spec: live disagreement scenario remains in the env-gated #1300 sandbox run.
+- Concerns: canonical vault artifacts are registered through the existing `rhythm_complete_research_pass` transcript/indexer contract; the short stage report remains a preview, not canonical.
