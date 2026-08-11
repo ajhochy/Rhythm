@@ -38,20 +38,35 @@ void main() {
   testWidgets(
     'issue-1306-c1: completed image_generation tool part renders the local metadata.path image',
     (tester) async {
-      final temp = await Directory.systemTemp.createTemp('rhythm-1306-');
-      addTearDown(() => temp.delete(recursive: true));
+      // Synchronous IO: awaiting real file IO inside the fake-async testWidgets
+      // zone never completes and hangs the test to its timeout.
+      final temp = Directory.systemTemp.createTempSync('rhythm-1306-');
+      addTearDown(() => temp.deleteSync(recursive: true));
       final imagePath = '${temp.path}/generated.png';
-      await File(imagePath).writeAsBytes(base64Decode(_onePixelPng));
+      File(imagePath).writeAsBytesSync(base64Decode(_onePixelPng));
       final part = ChatPart.fromJson('msg_1306', _imageToolPart(imagePath));
 
       await tester.pumpWidget(_wrap(part));
-      await tester.pumpAndSettle();
+
+      final image = tester.widget<Image>(find.byType(Image));
+      final provider = image.image as FileImage;
+      expect(provider.file.path, imagePath);
+
+      await tester.runAsync(() async {
+        await precacheImage(provider, tester.element(find.byType(Image)));
+      });
+      await tester.pump();
 
       expect(
         find.byType(Image),
         findsOneWidget,
         reason:
             'Regression: metadata.path was discarded and chat stayed blank.',
+      );
+      expect(
+        tester.widget<RawImage>(find.byType(RawImage)).image,
+        isNotNull,
+        reason: 'The file image must finish decoding and render pixels.',
       );
     },
   );
