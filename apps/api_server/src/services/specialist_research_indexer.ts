@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { resolveMemoryVaultPath } from '../config/env';
+import { env, resolveMemoryVaultPath } from '../config/env';
 import { getDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -320,14 +320,19 @@ function persistCompletion(
 /** Index actual scheduled/project research runs; safe to replay after idle/error events. */
 export async function indexResearchSession(sessionId: string): Promise<void> {
   const session = new AgentSessionsRepository().findById(sessionId);
-  const researchType = PROFILE_TYPES[session?.agentKind as keyof typeof PROFILE_TYPES];
-  if (!session || !researchType) return;
+  if (!session) return;
 
   const messages = new AgentSessionMessagesRepository().listBySessionStructured(sessionId);
   const outputs = messages.filter((message) => message.role === 'output');
   const final = [...outputs].reverse().map((message) => message.rawText.trim()).find(Boolean) ?? '';
   const parts = outputs.flatMap((message) => message.parts ?? []);
   const rawCompletions = completionInputs(parts);
+  const specialistType = PROFILE_TYPES[session.agentKind as keyof typeof PROFILE_TYPES];
+  const projectCompletion = env.researchProjectsEnabled
+    && String(session.agentKind) === 'research'
+    && rawCompletions.length > 0;
+  if (!specialistType && !projectCompletion) return;
+  const researchType = specialistType ?? 'general';
   const isScheduled = session.category === 'scheduled' || session.scheduledTaskId !== null;
 
   if (rawCompletions.length === 0 && !isScheduled && session.status !== 'error') return;

@@ -26,6 +26,8 @@ import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
 import { resolveProfileScope } from './agent_profile_scope';
 import { opencodeClient } from './opencode_engine';
+import { AgentResearchRepository, type ResearchProjectRun } from '../repositories/agent_research_repository';
+import { ResearchProjectOrchestrator } from './research_project_orchestrator';
 import {
   classifyAgentRunFailure,
   formatAgentRunFailure,
@@ -388,6 +390,35 @@ async function insertScheduledTrigger(task: {
 const repo = new AgentScheduledTasksRepository();
 const runsRepo = new AgentScheduledTaskRunsRepository();
 const CAPACITY_RETRY_MS = 60_000; // scheduler ticks once per minute
+const researchRepository = new AgentResearchRepository();
+const researchOrchestrator = new ResearchProjectOrchestrator(researchRepository);
+
+export function researchLocalDate(at: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+export async function dispatchScheduledResearchProject(
+  task: { id: string; timezone: string; createdByUserId: number | null },
+  at: Date,
+  repository: Pick<AgentResearchRepository, 'findProjectByScheduleRef' | 'createOrGetScheduledProjectRun'> = researchRepository,
+  orchestrator: Pick<ResearchProjectOrchestrator, 'start'> = researchOrchestrator,
+): Promise<ResearchProjectRun | null> {
+  if (!env.researchProjectsEnabled || task.createdByUserId === null) return null;
+  const project = await repository.findProjectByScheduleRef(task.id, task.createdByUserId);
+  if (!project) return null;
+  const run = await repository.createOrGetScheduledProjectRun(
+    project.id, task.createdByUserId, researchLocalDate(at, task.timezone),
+  );
+  if (!run || ['cancelled', 'complete', 'passes_complete'].includes(run.status)) return run;
+  void orchestrator.start(run.id, task.createdByUserId).catch((error) => {
+    logger.error(`[AgentScheduler] Research project run ${run.id} failed: ${String(error)}`);
+  });
+  return run;
+}
 
 // ── D2: honest terminal status for a "done" run ────────────────────────────
 //
@@ -586,6 +617,13 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
           after: new Date(),
         });
         await repo.updateNextRunAsync(task.id, nextRun, runStart, 'running');
+
+        const projectRun = await dispatchScheduledResearchProject(task, new Date(runStart));
+        if (projectRun) {
+          await repo.updateNextRunAsync(task.id, nextRun, runStart, projectRun.status === 'cancelled' ? 'cancelled' : 'running');
+          logger.info(`[AgentScheduler] Task "${task.name}" joined research project run ${projectRun.id}. Next run: ${nextRun ?? 'none'}`);
+          continue;
+        }
 
         // Run async — one failure must not block the rest of the loop.
         // #738-fix: pass agentKind + scheduledTaskId so the runner can

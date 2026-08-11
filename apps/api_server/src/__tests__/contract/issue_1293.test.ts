@@ -42,6 +42,12 @@ describe('issue #1293 acceptance contract', () => {
     const jobs = await repo.listProjectPassJobs(run.id, owner.id);
     expect(jobs.map((job) => job.passRole)).toEqual(['one', 'two', 'critic', 'synthesis']);
     expect(jobs.slice(2).map((job) => job.agentSessionId)).toEqual(['critic', 'synthesis']);
+    const synthesis = jobs.find((job) => job.passRole === 'synthesis')!;
+    const synthesisPrompt = runner.run.mock.calls[3][0].prompt;
+    expect(synthesisPrompt).toContain(`Run ID: ${run.id}`);
+    expect(synthesisPrompt).toContain(`Job ID: ${synthesis.id}`);
+    expect(synthesisPrompt).toContain(`Pass ID: ${synthesis.id}`);
+    expect(synthesisPrompt).toContain('rhythm_complete_research_pass');
   });
 
   it('issue-1293-c2: stage prompts include only owned-run artifacts and curated sources', async () => {

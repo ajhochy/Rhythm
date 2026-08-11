@@ -16,6 +16,17 @@ type PassConfig = {
 const CRITIC_PROMPT_VERSION = 'research-critic-v1';
 const SYNTHESIS_PROMPT_VERSION = 'research-synthesis-v1';
 
+function exhausted(run: ResearchProjectRun, passCount: number): string[] {
+  const budget = run.configSnapshot.budget && typeof run.configSnapshot.budget === 'object'
+    ? run.configSnapshot.budget as Record<string, unknown> : {};
+  const reasons: string[] = [];
+  if (typeof budget.maxPasses === 'number' && passCount > budget.maxPasses) reasons.push('pass_count');
+  if (typeof budget.maxTokens === 'number' && run.usage.tokens >= budget.maxTokens) reasons.push('tokens');
+  if (typeof budget.maxCostUsd === 'number' && run.usage.costUsd >= budget.maxCostUsd) reasons.push('cost');
+  if (typeof budget.maxWallClockMs === 'number' && run.startedAt && Date.now() - Date.parse(run.startedAt) >= budget.maxWallClockMs) reasons.push('wall_clock');
+  return reasons;
+}
+
 function hashInput(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -27,7 +38,7 @@ function modelOverride(value: unknown): { providerID: string; modelID: string } 
   return { providerID: value.slice(0, separator), modelID: value.slice(separator + 1) };
 }
 
-function passPrompt(run: ResearchProjectRun, pass: PassConfig, ordinal: number): string {
+function passPrompt(run: ResearchProjectRun, pass: PassConfig, ordinal: number, jobId: string): string {
   const snapshot = run.configSnapshot;
   const question = String(snapshot.question ?? '');
   const goals = Array.isArray(snapshot.goals) ? snapshot.goals.map(String) : [];
@@ -37,10 +48,14 @@ function passPrompt(run: ResearchProjectRun, pass: PassConfig, ordinal: number):
     : 'Use authoritative evidence, cite material claims, preserve uncertainty, and register canonical/supporting artifacts and curated sources.';
   return [
     `Research project pass ${ordinal + 1}: ${role}`,
+    `Run ID: ${run.id}`,
+    `Job ID: ${jobId}`,
+    `Pass ID: ${jobId}`,
     `Question: ${question}`,
     `Goals:\n${goals.map((goal) => `- ${goal}`).join('\n')}`,
     `Acceptance bar: ${acceptance}`,
     'Work independently. Do not assume or request prose from sibling passes. Use only this shared immutable run configuration and your own source investigation.',
+    `When the evidence artifacts and curated sources are actually written, call rhythm_complete_research_pass with version=1, job_id=${jobId}, run_id=${run.id}, and pass_id=${jobId}. Do not report completion before that tool succeeds.`,
   ].join('\n\n');
 }
 
@@ -70,6 +85,13 @@ export class ResearchProjectOrchestrator {
     const passConfigs = Array.isArray(run.configSnapshot.passConfig)
       ? run.configSnapshot.passConfig as PassConfig[]
       : [];
+    const initialBudgetReasons = exhausted(run, passConfigs.length);
+    if (initialBudgetReasons.length > 0) {
+      return (await this.repository.updateProjectRunState(runId, ownerUserId, {
+        status: 'budget_exhausted', completedAt: new Date().toISOString(),
+        diagnostics: { budgetExhausted: true, reasons: initialBudgetReasons },
+      }))!;
+    }
     let allJobs = await this.repository.listProjectPassJobs(runId, ownerUserId);
     let jobs = allJobs.filter((job) => job.passOrdinal < passConfigs.length);
 
@@ -106,7 +128,7 @@ export class ResearchProjectOrchestrator {
       let result: Awaited<ReturnType<Runner['run']>>;
       try {
         result = await this.runner.run({
-          prompt: passPrompt(run, pass, ordinal),
+          prompt: passPrompt(run, pass, ordinal, job.id),
           cwd: process.cwd(),
           outputTarget: 'session',
           agentConfigId: profileId,
@@ -114,11 +136,17 @@ export class ResearchProjectOrchestrator {
           ownerUserId,
           sessionName: `Research ${run.id} · ${role}`,
           taskKind: 'research',
+          onSessionCreated: async (sessionId) => {
+            await this.repository.updateProjectPassJob(job!.id, ownerUserId, { agentSessionId: sessionId });
+          },
           ...(modelOverride(pass.model) ? { modelOverride: modelOverride(pass.model) } : {}),
         });
       } catch (error) {
         result = { sessionId: '', result: '', status: 'error', error: String(error) };
       }
+      const current = await this.repository.getProjectPassJob(job.id, ownerUserId);
+      const currentRun = await this.repository.getProjectRun(runId, ownerUserId);
+      if (current?.status === 'cancelled' || currentRun?.status === 'cancelled') continue;
       await this.repository.updateProjectPassJob(job.id, ownerUserId, {
         status: result.status === 'done' && result.result.trim() ? 'done' : 'error',
         agentSessionId: result.sessionId || null,
@@ -134,6 +162,13 @@ export class ResearchProjectOrchestrator {
     const failed = jobs.filter((job) => job.status === 'error').length;
     const completed = jobs.filter((job) => job.status === 'done').length;
     const refreshedRun = (await this.repository.getProjectRun(runId, ownerUserId))!;
+    const budgetReasons = exhausted(refreshedRun, passConfigs.length);
+    if (budgetReasons.length > 0) {
+      return (await this.repository.updateProjectRunState(runId, ownerUserId, {
+        status: 'budget_exhausted', completedAt: new Date().toISOString(),
+        diagnostics: { budgetExhausted: true, reasons: budgetReasons },
+      }))!;
+    }
     const criticConfig = refreshedRun.configSnapshot.criticConfig as Record<string, unknown> | undefined;
     const synthesisConfig = refreshedRun.configSnapshot.synthesisConfig as Record<string, unknown> | undefined;
     let critic = allJobs.find((job) => job.passRole === 'critic');
@@ -239,8 +274,17 @@ export class ResearchProjectOrchestrator {
     await this.repository.updateProjectPassJob(job.id, input.ownerUserId, { status: 'synthesizing', error: null });
     let result: Awaited<ReturnType<Runner['run']>>;
     try {
+      const prompt = input.role === 'synthesis'
+        ? [
+            input.prompt,
+            `Run ID: ${input.run.id}`,
+            `Job ID: ${job.id}`,
+            `Pass ID: ${job.id}`,
+            `After writing the one canonical synthesis artifact and registering its curated sources, call rhythm_complete_research_pass with version=1, job_id=${job.id}, run_id=${input.run.id}, and pass_id=${job.id}. Do not report completion before that tool succeeds.`,
+          ].join('\n\n')
+        : input.prompt;
       result = await this.runner.run({
-        prompt: input.prompt,
+        prompt,
         cwd: process.cwd(),
         outputTarget: 'session',
         agentConfigId: input.profileId,
@@ -248,10 +292,16 @@ export class ResearchProjectOrchestrator {
         ownerUserId: input.ownerUserId,
         sessionName: `Research ${input.run.id} · ${input.role}`,
         taskKind: 'research',
+        onSessionCreated: async (sessionId) => {
+          await this.repository.updateProjectPassJob(job.id, input.ownerUserId, { agentSessionId: sessionId });
+        },
       });
     } catch (error) {
       result = { sessionId: '', result: '', status: 'error', error: String(error) };
     }
+    const current = await this.repository.getProjectPassJob(job.id, input.ownerUserId);
+    const currentRun = await this.repository.getProjectRun(input.run.id, input.ownerUserId);
+    if (current?.status === 'cancelled' || currentRun?.status === 'cancelled') return current!;
     return (await this.repository.updateProjectPassJob(job.id, input.ownerUserId, {
       status: result.status === 'done' && result.result.trim() ? 'done' : 'error',
       agentSessionId: result.sessionId || null,

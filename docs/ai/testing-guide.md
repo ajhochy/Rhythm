@@ -134,6 +134,57 @@ RHYTHM_LIVE_VAULT_PATH="$TMPDIR/rhythm-dev-sandbox/vault" \
 npx vitest run src/__tests__/agent_research_live_e2e.test.ts
 ```
 
+### Research Projects full live gate (#1300)
+
+The project gate is deliberately separate from the legacy one-job test. It
+requires a disposable copied database, vault, managed skills, API `4098`, engine
+`4097`, and mobile gateway `4099`. Never hand-start a second api_server.
+
+```bash
+export RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-research-1300
+export RHYTHM_LIVE_DB_PATH="$HOME/Library/Application Support/Rhythm/rhythm.db"
+export RHYTHM_RESEARCH_PROJECTS_ENABLED=true
+tools/dev/sandbox.sh up
+
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 \
+RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 \
+DB_PATH=/private/tmp/rhythm-research-1300/rhythm.db \
+RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-research-1300/rhythm.db \
+RHYTHM_LIVE_VAULT_PATH=/private/tmp/rhythm-research-1300/vault \
+RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-research-1300 \
+npx vitest run src/__tests__/research_projects_live_e2e.test.ts --no-file-parallelism
+cd ../..
+```
+
+The live suite invokes `tools/dev/sandbox.sh restart` for the restart/resume
+phase. Restart preserves the copied DB and vault; it never recopies production
+data. Feature-off validation requires a separate fresh sandbox start because
+the flag is parsed at process startup:
+
+```bash
+tools/dev/sandbox.sh down
+unset RHYTHM_RESEARCH_PROJECTS_ENABLED
+tools/dev/sandbox.sh up
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 \
+DB_PATH=/private/tmp/rhythm-research-1300/rhythm.db \
+RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-research-1300/rhythm.db \
+npx vitest run src/__tests__/research_projects_flag_off_live_e2e.test.ts --no-file-parallelism
+cd ../..
+tools/dev/sandbox.sh down
+test ! -e /private/tmp/rhythm-research-1300
+for port in 4098 4097 4099; do test -z "$(lsof -tiTCP:$port -sTCP:LISTEN)"; done
+```
+
+Use a shell trap in orchestration so `down` and all three listener assertions
+run even when a test fails. Record Flutter Print / Save as PDF separately in
+the manual smoke checklist; backend HTML checks cannot prove the native dialog.
+
 Unset `RHYTHM_RESEARCH_MODEL` and restart to restore the normal `research`
 profile model. Invalid values fail startup with the required `provider/modelId`
 format and never print the configured value.

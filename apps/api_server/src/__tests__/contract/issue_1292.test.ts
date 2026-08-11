@@ -67,9 +67,14 @@ describe('issue #1292 acceptance contract', () => {
       .mockResolvedValueOnce({ status: 'done', sessionId: 'b', result: 'SIBLING SECRET B' })
       .mockResolvedValueOnce({ status: 'done', sessionId: 'c', result: 'C' }) };
     await new Agent(repo, runner).start(run.id, owner.id);
+    const jobs = await (repo as any).listProjectPassJobs(run.id, owner.id);
     for (const [index, call] of runner.run.mock.calls.entries()) {
       expect(call[0].prompt).toContain('What should we expect next?');
       expect(call[0].prompt).toContain('Evidence');
+      expect(call[0].prompt).toContain(`Run ID: ${run.id}`);
+      expect(call[0].prompt).toContain(`Job ID: ${jobs[index].id}`);
+      expect(call[0].prompt).toContain(`Pass ID: ${jobs[index].id}`);
+      expect(call[0].prompt).toContain('rhythm_complete_research_pass');
       if (index > 0) expect(call[0].prompt).not.toContain('SIBLING SECRET A');
       if (index > 1) expect(call[0].prompt).not.toContain('SIBLING SECRET B');
     }

@@ -1,6 +1,6 @@
 import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../errors/app_error';
 
 export interface ResearchJob {
@@ -82,11 +82,22 @@ export interface ResearchProjectPass {
   projectRunId: string;
   passRole: string;
   passOrdinal: number;
+  agentProfileId: string | null;
   runConfig: Record<string, unknown>;
   status: string;
   agentSessionId: string | null;
   report: string | null;
   error: string | null;
+}
+
+export interface HistoricalResearchJob {
+  id: string;
+  status: string;
+  researchType: string;
+  vaultPath: string | null;
+  ownerUserId: number | null;
+  createdAt: string;
+  hasArtifact: boolean;
 }
 
 function passRow(row: Record<string, unknown>): ResearchProjectPass {
@@ -96,6 +107,7 @@ function passRow(row: Record<string, unknown>): ResearchProjectPass {
     projectRunId: row.project_run_id as string,
     passRole: row.pass_role as string,
     passOrdinal: Number(row.pass_ordinal),
+    agentProfileId: (row.agent_profile_id as string | null) ?? null,
     runConfig: parsedJson(row.run_config_json, {}),
     status: row.status as string,
     agentSessionId: (row.agent_session_id as string | null) ?? null,
@@ -111,6 +123,10 @@ function parsedJson<T>(value: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function stableHistoricalId(kind: string, ...values: string[]): string {
+  return createHash('sha256').update([kind, ...values].join('\0')).digest('hex');
 }
 
 function projectRow(row: Record<string, unknown>): ResearchProject {
@@ -255,6 +271,19 @@ export class AgentResearchRepository {
     return row ? projectRow(row) : null;
   }
 
+  async findProjectByScheduleRef(scheduleRef: string, ownerUserId: number): Promise<ResearchProject | null> {
+    this.requireProjectsEnabled();
+    const row = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          'SELECT * FROM agent_research_projects WHERE schedule_ref=$1 AND owner_user_id=$2 AND archived_at IS NULL LIMIT 1',
+          [scheduleRef, ownerUserId],
+        )).rows[0]
+      : getDb().prepare(
+          'SELECT * FROM agent_research_projects WHERE schedule_ref=? AND owner_user_id=? AND archived_at IS NULL LIMIT 1',
+        ).get(scheduleRef, ownerUserId) as Record<string, unknown> | undefined;
+    return row ? projectRow(row) : null;
+  }
+
   async updateProject(
     id: string,
     ownerUserId: number,
@@ -349,6 +378,41 @@ export class AgentResearchRepository {
     return this.getProjectRun(id, ownerUserId);
   }
 
+  async createOrGetScheduledProjectRun(
+    projectId: string,
+    ownerUserId: number,
+    localDate: string,
+  ): Promise<ResearchProjectRun | null> {
+    this.requireProjectsEnabled();
+    const project = await this.getProject(projectId, ownerUserId);
+    if (!project || project.archivedAt) return null;
+    const digest = createHash('sha256').update(`research-project-day\0${projectId}\0${localDate}`).digest('hex');
+    const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+    const now = new Date().toISOString();
+    const snapshot = {
+      projectId: project.id, name: project.name, question: project.question, goals: project.goals,
+      domain: project.domain, profileId: project.profileId, passConfig: project.passConfig,
+      modelPolicy: project.modelPolicy, criticConfig: project.criticConfig,
+      synthesisConfig: project.synthesisConfig, scheduleRef: project.scheduleRef,
+      budget: project.budget, triggerType: 'scheduled', aggregationDate: localDate, createdAt: now,
+    };
+    const values = [id, projectId, ownerUserId, 'scheduled', JSON.stringify(snapshot), now];
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO agent_research_project_runs
+          (id,project_id,owner_user_id,trigger_type,config_snapshot_json,created_at)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO NOTHING`, values,
+      );
+    } else {
+      getDb().prepare(
+        `INSERT OR IGNORE INTO agent_research_project_runs
+          (id,project_id,owner_user_id,trigger_type,config_snapshot_json,created_at)
+         VALUES (?,?,?,?,?,?)`,
+      ).run(...values);
+    }
+    return this.getProjectRun(id, ownerUserId);
+  }
+
   async listProjectRuns(projectId: string, ownerUserId: number): Promise<ResearchProjectRun[]> {
     this.requireProjectsEnabled();
     const project = await this.getProject(projectId, ownerUserId);
@@ -381,14 +445,60 @@ export class AgentResearchRepository {
     const base = baseRunRow(row);
     const artifacts = await this.listRunRows('agent_research_artifacts', base.id);
     const sources = await this.listRunRows('agent_research_curated_sources', base.id);
+    const jobs = await this.listProjectPassJobs(base.id, base.ownerUserId);
+    const messageRows = await this.listRunUsageRows(base.id);
+    const usage = messageRows.reduce((total, message) => {
+      const tokens = parsedJson<Record<string, unknown>>(message.tokens_json, {});
+      const cache = tokens.cache && typeof tokens.cache === 'object'
+        ? tokens.cache as Record<string, unknown> : {};
+      const count = ['input', 'output', 'reasoning'].reduce(
+        (sum, key) => sum + (typeof tokens[key] === 'number' ? Number(tokens[key]) : 0), 0,
+      ) + ['read', 'write'].reduce(
+        (sum, key) => sum + (typeof cache[key] === 'number' ? Number(cache[key]) : 0), 0,
+      );
+      return { tokens: total.tokens + count, costUsd: total.costUsd + Number(message.cost ?? 0) };
+    }, { tokens: 0, costUsd: 0 });
+    const started = base.startedAt ?? base.createdAt;
+    const ended = base.completedAt ?? new Date().toISOString();
+    const derivedProgress = {
+      ...base.progress,
+      totalJobs: jobs.length,
+      completedJobs: jobs.filter((job) => job.status === 'done').length,
+      failedJobs: jobs.filter((job) => job.status === 'error').length,
+      activeJobs: jobs.filter((job) => ['gathering', 'reading', 'synthesizing'].includes(job.status)).length,
+      artifactCount: artifacts.length,
+      sourceCount: sources.length,
+      elapsedMs: Math.max(0, Date.parse(ended) - Date.parse(started)),
+      stages: jobs.map((job) => ({
+        id: job.id, role: job.passRole, ordinal: job.passOrdinal, status: job.status,
+        profileId: job.agentProfileId, model: job.runConfig.model ?? null,
+        report: job.report,
+      })),
+    };
     const canonicalArtifact = artifacts.find((artifact) => artifact.artifact_role === 'canonical') ?? null;
     return {
       ...base,
+      progress: derivedProgress,
       canonicalArtifact,
       artifacts,
       sources,
-      usage: { tokens: 0, costUsd: 0 },
+      usage,
     };
+  }
+
+  private async listRunUsageRows(runId: string): Promise<Array<{ tokens_json: unknown; cost: unknown }>> {
+    if (env.dbClient === 'postgres') {
+      return (await getPostgresPool().query(
+        `SELECT m.tokens_json, m.cost FROM agent_session_messages m
+          JOIN agent_research_jobs j ON j.agent_session_id=m.session_id
+         WHERE j.project_run_id=$1`, [runId],
+      )).rows;
+    }
+    return getDb().prepare(
+      `SELECT m.tokens_json, m.cost FROM agent_session_messages m
+        JOIN agent_research_jobs j ON j.agent_session_id=m.session_id
+       WHERE j.project_run_id=?`,
+    ).all(runId) as Array<{ tokens_json: unknown; cost: unknown }>;
   }
 
   private async listRunRows(table: 'agent_research_artifacts' | 'agent_research_curated_sources', runId: string): Promise<Record<string, unknown>[]> {
@@ -566,15 +676,155 @@ export class AgentResearchRepository {
     ).run(new Date().toISOString(), runId).changes;
   }
 
+  async retryProjectPassJob(id: string, ownerUserId: number): Promise<ResearchProjectPass | null> {
+    this.requireProjectsEnabled();
+    const job = await this.getProjectPassJob(id, ownerUserId);
+    if (!job) return null;
+    if (job.passRole === 'critic' || job.passRole === 'synthesis') {
+      throw AppError.badRequest('Retry a primary pass; downstream stages regenerate automatically');
+    }
+    const reset = await this.updateProjectPassJob(id, ownerUserId, {
+      status: 'pending', agentSessionId: null, report: null, error: null,
+    });
+    await this.markDownstreamStagesStale(job.projectRunId, ownerUserId);
+    await this.updateProjectRunState(job.projectRunId, ownerUserId, {
+      status: 'resumable', diagnostics: { retryPassId: id },
+    });
+    return reset;
+  }
+
+  async cancelProjectPass(
+    id: string,
+    ownerUserId: number,
+    abort: (sessionId: string) => Promise<boolean>,
+  ): Promise<ResearchProjectPass | null> {
+    this.requireProjectsEnabled();
+    const job = await this.getProjectPassJob(id, ownerUserId);
+    if (!job) return null;
+    if (['done', 'error', 'cancelled'].includes(job.status)) return job;
+    if (job.agentSessionId) await abort(job.agentSessionId);
+    return this.updateProjectPassJob(id, ownerUserId, { status: 'cancelled', error: 'Cancelled by user' });
+  }
+
+  async cancelProjectRun(
+    id: string,
+    ownerUserId: number,
+    abort: (sessionId: string) => Promise<boolean>,
+  ): Promise<ResearchProjectRun | null> {
+    this.requireProjectsEnabled();
+    const run = await this.getProjectRun(id, ownerUserId);
+    if (!run) return null;
+    if (run.status === 'cancelled') return run;
+    const jobs = await this.listProjectPassJobs(id, ownerUserId);
+    for (const job of jobs) await this.cancelProjectPass(job.id, ownerUserId, abort);
+    return this.updateProjectRunState(id, ownerUserId, {
+      status: 'cancelled', completedAt: new Date().toISOString(),
+      diagnostics: { ...run.diagnostics, cancelled: true },
+    });
+  }
+
+  async markActiveProjectWorkInterrupted(): Promise<number> {
+    this.requireProjectsEnabled();
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const jobs = await getPostgresPool().query(
+        `UPDATE agent_research_jobs SET status='interrupted', error='Interrupted by server restart', updated_at=$1
+          WHERE project_run_id IS NOT NULL AND status IN ('gathering','reading','synthesizing')`, [now],
+      );
+      await getPostgresPool().query(
+        `UPDATE agent_research_project_runs SET status='interrupted', diagnostics_json=$1 WHERE status='running'`,
+        [JSON.stringify({ resumable: true, interrupted: true })],
+      );
+      return jobs.rowCount ?? 0;
+    }
+    const jobs = getDb().prepare(
+      `UPDATE agent_research_jobs SET status='interrupted', error='Interrupted by server restart', updated_at=?
+        WHERE project_run_id IS NOT NULL AND status IN ('gathering','reading','synthesizing')`,
+    ).run(now).changes;
+    getDb().prepare(
+      `UPDATE agent_research_project_runs SET status='interrupted', diagnostics_json=? WHERE status='running'`,
+    ).run(JSON.stringify({ resumable: true, interrupted: true }));
+    return jobs;
+  }
+
+  async listHistoricalResearchJobs(): Promise<HistoricalResearchJob[]> {
+    this.requireProjectsEnabled();
+    const sql = `SELECT j.id,j.status,j.research_type,j.vault_path,j.requested_by_user_id,j.created_at,
+      CASE WHEN EXISTS (SELECT 1 FROM agent_research_artifacts a WHERE a.job_id=j.id) THEN 1 ELSE 0 END has_artifact
+      FROM agent_research_jobs j ORDER BY j.created_at,j.id`;
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(sql)).rows
+      : getDb().prepare(sql).all() as Record<string, unknown>[];
+    return rows.map((row: Record<string, unknown>) => ({
+      id: String(row.id), status: String(row.status), researchType: String(row.research_type ?? 'generic'),
+      vaultPath: (row.vault_path as string | null) ?? null,
+      ownerUserId: row.requested_by_user_id == null ? null : Number(row.requested_by_user_id),
+      createdAt: timestamp(row.created_at), hasArtifact: Boolean(row.has_artifact),
+    }));
+  }
+
+  async applyHistoricalReconciliation(input: {
+    job: HistoricalResearchJob;
+    outcome: 'verified' | 'excluded' | 'unresolved';
+    reason: string;
+    projectId?: string;
+    runId?: string;
+    domain?: string;
+    localDate?: string;
+  }): Promise<void> {
+    this.requireProjectsEnabled();
+    const classification = JSON.stringify({ status: input.outcome, reason: input.reason, reconcilerVersion: 1 });
+    if (input.outcome !== 'verified' || input.job.ownerUserId === null || !input.projectId || !input.runId) {
+      if (env.dbClient === 'postgres') {
+        await getPostgresPool().query('UPDATE agent_research_jobs SET classification_json=$1 WHERE id=$2', [classification, input.job.id]);
+      } else {
+        getDb().prepare('UPDATE agent_research_jobs SET classification_json=? WHERE id=?').run(classification, input.job.id);
+      }
+      return;
+    }
+    const owner = input.job.ownerUserId;
+    const domain = input.domain ?? input.job.researchType;
+    const date = input.localDate ?? input.job.createdAt.slice(0, 10);
+    const projectValues = [input.projectId, owner, `${domain} research archive`, `Historical ${domain} research`, '[]', domain, '[]', '{}', '{}', '{}', '{}', input.job.createdAt, input.job.createdAt];
+    const snapshot = JSON.stringify({ historical: true, domain, aggregationDate: date, triggerType: 'follow-up' });
+    if (env.dbClient === 'postgres') {
+      const pool = getPostgresPool();
+      await pool.query(`INSERT INTO agent_research_projects
+        (id,owner_user_id,name,question,goals_json,domain,pass_config_json,model_policy_json,critic_config_json,synthesis_config_json,budget_json,created_at,updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO NOTHING`, projectValues);
+      await pool.query(`INSERT INTO agent_research_project_runs
+        (id,project_id,owner_user_id,trigger_type,config_snapshot_json,status,created_at,completed_at)
+        VALUES ($1,$2,$3,'follow-up',$4,'complete',$5,$5) ON CONFLICT(id) DO NOTHING`, [input.runId,input.projectId,owner,snapshot,input.job.createdAt]);
+      await pool.query(`UPDATE agent_research_jobs SET project_id=$1,project_run_id=$2,classification_json=$3 WHERE id=$4`, [input.projectId,input.runId,classification,input.job.id]);
+      await pool.query(`UPDATE agent_research_artifacts SET project_id=COALESCE(project_id,$1),project_run_id=COALESCE(project_run_id,$2) WHERE job_id=$3`, [input.projectId,input.runId,input.job.id]);
+      await pool.query(`UPDATE agent_research_curated_sources SET project_id=COALESCE(project_id,$1),project_run_id=COALESCE(project_run_id,$2) WHERE job_id=$3`, [input.projectId,input.runId,input.job.id]);
+      if (input.job.vaultPath) await pool.query(`INSERT INTO agent_research_artifacts (id,project_id,project_run_id,job_id,artifact_role,vault_path,metadata_json,created_at)
+        VALUES ($1,$2,$3,$4,'canonical',$5,$6,$7) ON CONFLICT(id) DO NOTHING`, [stableHistoricalId('artifact', input.job.id, input.job.vaultPath),input.projectId,input.runId,input.job.id,input.job.vaultPath,JSON.stringify({ historical: true }),input.job.createdAt]);
+    } else {
+      const db = getDb();
+      db.prepare(`INSERT OR IGNORE INTO agent_research_projects
+        (id,owner_user_id,name,question,goals_json,domain,pass_config_json,model_policy_json,critic_config_json,synthesis_config_json,budget_json,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...projectValues);
+      db.prepare(`INSERT OR IGNORE INTO agent_research_project_runs
+        (id,project_id,owner_user_id,trigger_type,config_snapshot_json,status,created_at,completed_at)
+        VALUES (?,?,?,'follow-up',?,'complete',?,?)`).run(input.runId,input.projectId,owner,snapshot,input.job.createdAt,input.job.createdAt);
+      db.prepare(`UPDATE agent_research_jobs SET project_id=?,project_run_id=?,classification_json=? WHERE id=?`).run(input.projectId,input.runId,classification,input.job.id);
+      db.prepare(`UPDATE agent_research_artifacts SET project_id=COALESCE(project_id,?),project_run_id=COALESCE(project_run_id,?) WHERE job_id=?`).run(input.projectId,input.runId,input.job.id);
+      db.prepare(`UPDATE agent_research_curated_sources SET project_id=COALESCE(project_id,?),project_run_id=COALESCE(project_run_id,?) WHERE job_id=?`).run(input.projectId,input.runId,input.job.id);
+      if (input.job.vaultPath) db.prepare(`INSERT OR IGNORE INTO agent_research_artifacts (id,project_id,project_run_id,job_id,artifact_role,vault_path,metadata_json,created_at)
+        VALUES (?,?,?,?,'canonical',?,?,?)`).run(stableHistoricalId('artifact', input.job.id, input.job.vaultPath),input.projectId,input.runId,input.job.id,input.job.vaultPath,JSON.stringify({ historical: true }),input.job.createdAt);
+    }
+  }
+
   async listInterruptedProjectRuns(ownerUserId: number): Promise<ResearchProjectRun[]> {
     this.requireProjectsEnabled();
     const rows = env.dbClient === 'postgres'
       ? (await getPostgresPool().query(
-          `SELECT * FROM agent_research_project_runs WHERE owner_user_id=$1 AND status='running'`,
+          `SELECT * FROM agent_research_project_runs WHERE owner_user_id=$1 AND status IN ('running','interrupted','resumable')`,
           [ownerUserId],
         )).rows
       : getDb().prepare(
-          `SELECT * FROM agent_research_project_runs WHERE owner_user_id=? AND status='running'`,
+          `SELECT * FROM agent_research_project_runs WHERE owner_user_id=? AND status IN ('running','interrupted','resumable')`,
         ).all(ownerUserId) as Record<string, unknown>[];
     return Promise.all(rows.map((row: Record<string, unknown>) => this.hydrateRun(row)));
   }
@@ -583,10 +833,10 @@ export class AgentResearchRepository {
     this.requireProjectsEnabled();
     const rows = env.dbClient === 'postgres'
       ? (await getPostgresPool().query(
-          `SELECT DISTINCT owner_user_id FROM agent_research_project_runs WHERE status='running'`,
+          `SELECT DISTINCT owner_user_id FROM agent_research_project_runs WHERE status IN ('running','interrupted','resumable')`,
         )).rows
       : getDb().prepare(
-          `SELECT DISTINCT owner_user_id FROM agent_research_project_runs WHERE status='running'`,
+          `SELECT DISTINCT owner_user_id FROM agent_research_project_runs WHERE status IN ('running','interrupted','resumable')`,
         ).all() as Array<{ owner_user_id: number }>;
     return rows.map((row: { owner_user_id: number }) => Number(row.owner_user_id));
   }

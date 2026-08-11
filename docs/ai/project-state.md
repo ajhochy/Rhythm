@@ -1,5 +1,11 @@
 # Project State
 
+## Recent coding-agent run — issue #1300
+
+- Authored the disposable flag-on/flag-off live matrix, state-preserving sandbox restart, three-listener cleanup, rollout runbook, and manual shipping-client gate.
+- Live-gate preparation exposed and repaired two engine wiring gaps: project prompts now carry completion IDs, and generic research synthesis can index a versioned owned project completion while ordinary generic sessions remain ignored.
+- Checks: API contracts/build/typecheck, focused MCP, sandbox syntax, and Flutter analysis pass. Required live engine, socket-backed, widget, and visual checks remain blocked in this worker; `smoke-test.md` is FAIL/BLOCKED and rollout remains default-off pending AJ approval.
+
 ## Recent coding-agent run — issue #1295
 
 - Existing schedules can target a research project; duplicate local-day ticks coalesce without altering ordinary schedule dispatch.

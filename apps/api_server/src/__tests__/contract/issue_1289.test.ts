@@ -286,6 +286,41 @@ describe('issue #1289 acceptance contract', () => {
     expect(sourceJson.match(/https:\/\/example\.test\/source/g) ?? []).toHaveLength(1);
   });
 
+  it('indexes a generic research session only when it completes an existing owned project pass', async () => {
+    const owner = Number(db.prepare("INSERT INTO users (name,email) VALUES ('Owner',?)").run(`${randomUUID()}@example.test`).lastInsertRowid);
+    const now = '2026-08-11T00:00:00.000Z';
+    db.prepare(`INSERT INTO agent_research_projects
+      (id,owner_user_id,name,question,created_at,updated_at) VALUES ('project-generic',?,'P','Q',?,?)`).run(owner, now, now);
+    db.prepare(`INSERT INTO agent_research_project_runs
+      (id,project_id,owner_user_id,trigger_type,config_snapshot_json,created_at)
+      VALUES ('run-generic','project-generic',?,'manual','{}',?)`).run(owner, now);
+    db.prepare(`INSERT INTO agent_research_jobs
+      (id,query,status,requested_by_user_id,project_id,project_run_id,pass_role,pass_ordinal,created_at,updated_at)
+      VALUES ('pass-generic','Q','gathering',?,'project-generic','run-generic','synthesis',1001,?,?)`).run(owner, now, now);
+    const artifact = writeVault('Areas/Research/Generic/canonical.md', '# Canonical synthesis');
+    session('generic-project-session', { profile: 'research', ownerUserId: owner });
+    output('generic-project-session', 'Canonical synthesis', [completionPart({
+      jobId: 'pass-generic', runId: 'run-generic', passId: 'pass-generic',
+      artifacts: [{ ...artifact, role: 'canonical' }],
+    })]);
+
+    env.researchProjectsEnabled = true;
+    await indexResearchSession('generic-project-session');
+
+    expect(indexedJob('generic-project-session')).toMatchObject({
+      id: 'pass-generic', project_run_id: 'run-generic', research_type: 'general',
+    });
+    expect(rows(db, 'agent_research_artifacts')).toEqual([
+      expect.objectContaining({ job_id: 'pass-generic', artifact_role: 'canonical' }),
+    ]);
+
+    session('generic-ordinary-session', { profile: 'research', ownerUserId: owner });
+    output('generic-ordinary-session', 'Ordinary chat', [{ type: 'text', text: 'no completion contract' }]);
+    await indexResearchSession('generic-ordinary-session');
+    expect(indexedJob('generic-ordinary-session')).toBeUndefined();
+    env.researchProjectsEnabled = false;
+  });
+
   it('issue-1289-c5: malformed payloads, duplicate completion, traversal, symlink escape, missing files, and legacy sessions are covered', async () => {
     // Regression caught: invalid modern evidence is silently treated as legacy,
     // while genuinely old sessions are dropped. The classification markers and
