@@ -771,6 +771,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     );
   `);
 
+  // #1309 — production metadata parity for checksum-addressed media bytes.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_artifacts (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      session TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size BIGINT NOT NULL CHECK (size >= 0),
+      checksum TEXT NOT NULL CHECK (length(checksum) = 64),
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      storage_key TEXT NOT NULL,
+      pinned BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_project_created
+      ON media_artifacts(project, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_storage_key
+      ON media_artifacts(storage_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_media_artifacts_session_checksum
+      ON media_artifacts(project, session, checksum);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_retention
+      ON media_artifacts(pinned, created_at);
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The

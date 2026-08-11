@@ -68,6 +68,7 @@ import { setupReadinessRouter } from './routes/setup_readiness_routes';
 import { liveArtifactsRouter } from './routes/live_artifacts_routes';
 import { devLogsRouter } from './routes/dev_logs_routes';
 import { goalsRouter } from './routes/goals_routes';
+import { mediaArtifactsRouter } from './routes/media_artifacts_routes';
 import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
@@ -108,7 +109,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
-      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID'],
     }),
   );
   // Allow larger bodies for OAuth token exchange and session creation.
@@ -136,6 +137,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   app.use('/facilities', facilitiesRouter);
   app.use('/workspaces', workspaceRouter);
   app.use('/live-artifacts', liveArtifactsRouter);
+  app.use('/artifacts', mediaArtifactsRouter);
   // #755 — the agent-execution notifications surface must be mounted BEFORE the
   // always-on `/notifications` prefix (Express matches `/notifications` against
   // `/notifications/agent` otherwise). Gated like the rest of the agent

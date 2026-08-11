@@ -2,6 +2,10 @@ import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
+import {
+  registerGeneratedMediaPart,
+  withHostedArtifactMetadata,
+} from './media_artifact_store';
 import { indexResearchSession } from './specialist_research_indexer';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -1210,6 +1214,35 @@ export class OpencodeStreamBridge {
             if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
               this.broadcastToolDenied(eventId, localSessionId, toolName);
               break;
+            }
+          }
+          if (localSessionId) {
+            try {
+              const session = this.sessionsRepo.findById(localSessionId);
+              void registerGeneratedMediaPart(part, session).then((artifact) => {
+                if (!artifact) return;
+                const hostedPart = withHostedArtifactMetadata(part, artifact);
+                broadcast({
+                  v: 1,
+                  type: 'message.part.updated',
+                  id: eventId,
+                  part: hostedPart,
+                });
+                const sdkMessageId = hostedPart.messageID as string | undefined;
+                if (sdkMessageId) {
+                  this.messagesRepo.upsertPart(localSessionId, sdkMessageId, hostedPart);
+                }
+              }).catch((error) => {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to register generated media:',
+                  error,
+                );
+              });
+            } catch (error) {
+              logger.error(
+                '[OpencodeStreamBridge] Failed to register generated media:',
+                error,
+              );
             }
           }
           broadcast({

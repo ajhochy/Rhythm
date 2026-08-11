@@ -41,6 +41,7 @@ import {
   safeMobileSessionProfileState,
 } from '../services/mobile_profile_catalog';
 import { createMobileToolsRouter } from './mobile_tools_routes';
+import { MediaArtifactsController } from '../controllers/media_artifacts_controller';
 
 export { buildSafeMobileProfileCatalog };
 export { canUpdateMobileSessionState };
@@ -54,6 +55,8 @@ export function createMobileGatewayRouter(): Router {
   const activityController = new AgentActivityController();
   const sseProxy = new MobileSseProxy();
   const tailscaleServe = new TailscaleServeService();
+  const mediaArtifacts = new MediaArtifactsController();
+  const requireArtifactProjectScope = requireMobileProjectScope();
   const getPairingService = (): MobilePairingService =>
     getMobilePairingService();
 
@@ -179,6 +182,18 @@ export function createMobileGatewayRouter(): Router {
         next(error instanceof AppError ? error : AppError.internal());
       }
     },
+  );
+  router.get(
+    '/artifacts/:id',
+    requireMobileDevice(getPairingService),
+    (req, res, next) => {
+      const projectAlias = req.header('X-Rhythm-Project');
+      if (!req.header('X-Rhythm-Project-ID') && projectAlias) {
+        req.headers['x-rhythm-project-id'] = projectAlias;
+      }
+      requireArtifactProjectScope(req, res, next);
+    },
+    (req, res, next) => void mediaArtifacts.serve(req, res, next),
   );
   router.patch(
     '/sessions/:id/state',

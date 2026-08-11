@@ -1263,6 +1263,30 @@ export function runMigrations(db: Database.Database): void {
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`);
 
+  // #1309 — generated-media metadata. Bytes remain in the app-managed,
+  // checksum-addressed filesystem store rather than bloating SQLite.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS media_artifacts (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      session TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL CHECK (size >= 0),
+      checksum TEXT NOT NULL CHECK (length(checksum) = 64),
+      created_at TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_project_created
+      ON media_artifacts(project, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_storage_key
+      ON media_artifacts(storage_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_media_artifacts_session_checksum
+      ON media_artifacts(project, session, checksum);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_retention
+      ON media_artifacts(pinned, created_at);
+  `);
+
   // Issue #601 — agent_sessions.archived_at (soft-archive, distinct from hard-delete)
   // Additive, nullable, no default. Idempotent via pragma check.
   const agentSessionColsArchive = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);

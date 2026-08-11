@@ -12,6 +12,9 @@ function isPhoneGatewayRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/mobile-gateway/profile-catalog') {
     return true;
   }
+  if (method === 'GET' && /^\/mobile-gateway\/artifacts\/[^/]+$/.test(path)) {
+    return true;
+  }
   if (
     method === 'PATCH' &&
     /^\/mobile-gateway\/sessions\/[^/]+\/state$/.test(path)

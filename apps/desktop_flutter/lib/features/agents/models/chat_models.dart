@@ -137,6 +137,7 @@ class ChatPart {
     Map<String, dynamic>? toolArgs,
     String? toolOutput,
     String? toolStatus,
+    Map<String, dynamic>? toolMetadata,
     this.durationMs,
     this.fileMime,
     this.fileFilename,
@@ -145,7 +146,8 @@ class ChatPart {
   })  : _text = text,
         _toolArgs = toolArgs,
         _toolOutput = toolOutput,
-        _toolStatus = toolStatus;
+        _toolStatus = toolStatus,
+        _toolMetadata = toolMetadata;
 
   final String id;
   final String messageId;
@@ -169,6 +171,7 @@ class ChatPart {
   Map<String, dynamic>? _toolArgs;
   String? _toolOutput;
   String? _toolStatus;
+  Map<String, dynamic>? _toolMetadata;
 
   /// OPC-M4-1: File-part fields. Non-null when [type] == 'file'.
   /// [fileMime] — MIME type, e.g. 'image/png', 'application/pdf'.
@@ -194,6 +197,11 @@ class ChatPart {
 
   String? get toolStatus => _toolStatus;
   set toolStatus(String? v) => _toolStatus = v;
+
+  /// Provider-owned metadata emitted with a tool state. This stays structured
+  /// and path-only; binary output is never copied into the transcript.
+  Map<String, dynamic>? get toolMetadata => _toolMetadata;
+  set toolMetadata(Map<String, dynamic>? v) => _toolMetadata = v;
 
   /// OPC-M1-3: construct a [ChatPart] from a structured REST part object.
   ///
@@ -235,6 +243,8 @@ class ChatPart {
         final out = state['output'];
         if (out is String) toolOutput = out;
         toolStatus = state['status'] as String?;
+        final metadata = state['metadata'];
+        if (metadata is Map<String, dynamic>) toolMetadata = metadata;
       }
     } else if (raw['type'] == 'reasoning') {
       final t = raw['text'];
