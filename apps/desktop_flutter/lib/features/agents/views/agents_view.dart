@@ -1670,6 +1670,13 @@ class _ChatBubble extends StatelessWidget {
     final isUser = message.role == 'user';
 
     if (isUser) {
+      final delegationUpdate = _parseAsyncDelegationUpdate(parts);
+      if (delegationUpdate != null) {
+        return _AsyncDelegationEvent(text: delegationUpdate);
+      }
+    }
+
+    if (isUser) {
       return _UserBubble(parts: parts, isQueued: isQueued);
     }
 
@@ -1817,6 +1824,84 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
+final RegExp _asyncDelegationMarker = RegExp(
+  r'\s*<!--\s*rhythm-async-delegation:msg_rhythm_async_[^>]+-->\s*',
+);
+
+String? _parseAsyncDelegationUpdate(List<ChatPart> parts) {
+  final text = parts
+      .where((part) => part.type == 'text')
+      .map((part) => part.text)
+      .join('')
+      .trim();
+  if (!text.startsWith('[Async delegation update]') ||
+      !_asyncDelegationMarker.hasMatch(text)) {
+    return null;
+  }
+
+  return text
+      .replaceFirst('[Async delegation update]', '')
+      .replaceAll(_asyncDelegationMarker, '')
+      .trim();
+}
+
+class _AsyncDelegationEvent extends StatelessWidget {
+  const _AsyncDelegationEvent({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('async-delegation-event'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.account_tree_outlined,
+            size: 16,
+            color: context.rhythm.textMuted,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Delegation update',
+                  style: TextStyle(
+                    color: context.rhythm.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (text.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    text,
+                    style: TextStyle(
+                      color: context.rhythm.textSecondary,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// OPC-M4-1: User bubble renders text, image thumbnails, and file chips.
 ///
 /// Parts are rendered in order:
@@ -1843,6 +1928,7 @@ class _UserBubble extends StatelessWidget {
     if (text.isEmpty && fileParts.isEmpty) return const SizedBox.shrink();
 
     return Align(
+      key: const ValueKey('user-message-bubble'),
       alignment: Alignment.centerRight,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
