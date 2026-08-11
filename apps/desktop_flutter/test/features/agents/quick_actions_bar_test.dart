@@ -237,6 +237,10 @@ class _FakeTasksLocalDataSource extends TasksLocalDataSource {
     String? scheduledDate,
     int? ownerId,
     String? preferredAgent,
+    String? goalId,
+    int? priority,
+    List<String> tags = const [],
+    String? energy,
   }) async {
     if (shouldFail) {
       throw Exception('task creation failed');
