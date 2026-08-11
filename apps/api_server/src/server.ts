@@ -293,7 +293,7 @@ async function main() {
       const { writeAgentProfileFile } = await import(
         './services/opencode_agent_writer'
       );
-      for (const id of ['config-doctor', 'Theological-Researcher']) {
+      for (const id of ['config-doctor', 'rhythm-setup', 'Theological-Researcher']) {
         const config = new AgentConfigsRepository().getById(id);
         if (config) writeAgentProfileFile(config);
       }

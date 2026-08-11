@@ -68,7 +68,7 @@ type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
  * flagged, but once its opencode.json entry exists it needs no OAuth/API-key
  * credential either, exactly like `ollama`.
  */
-const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama', 'omlx']);
+const KEYLESS_PROVIDER_IDS = new Set(['ollama', 'omlx', 'opencode']);
 
 /** Resolve the engine port once so the SDK, stale-port reclaim, and PTY proxy agree. */
 export function resolveOpencodeEnginePort(): number {
@@ -975,7 +975,7 @@ export class OpencodeClientService {
     try {
       const raw = await this.client.config.providers();
       for (const provider of raw.data?.providers ?? []) {
-        if (KEYLESS_LOCAL_PROVIDER_IDS.has(provider.id)) {
+        if (KEYLESS_PROVIDER_IDS.has(provider.id)) {
           connected.add(provider.id);
         }
       }
@@ -986,6 +986,11 @@ export class OpencodeClientService {
       );
     }
     return [...connected];
+  }
+
+  /** True only for a credential recorded by the auth store, never a keyless provider. */
+  isProviderInAuthStore(providerId: string): boolean {
+    return this.authStore.listAuthedProviders().includes(providerId);
   }
 
   /** Get available models for a provider */

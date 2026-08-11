@@ -177,7 +177,9 @@ up() {
   mkdir -p "$SB"
   copy_runtime_files
   sqlite3 "$LIVE_DB" ".backup '$SB/rhythm.db'"
-  sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
+  if [[ "$(sqlite3 "$SB/rhythm.db" "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_scheduled_tasks';")" == "1" ]]; then
+    sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
+  fi
 
   (cd "$ENGINE_DIR" && bun run build --single)
   (cd "$API_DIR" && npm run build)
