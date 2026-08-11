@@ -6,7 +6,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../data/agents_data_source.dart';
+import 'mcp_app_host_policy.dart';
 import 'mcp_app_readonly_host.dart';
+import 'mcp_app_transport.dart';
 
 /// Generic descriptor-driven read-only MCP App surface.
 ///
@@ -41,6 +43,7 @@ class McpAppReadOnlyView extends StatefulWidget {
 class _McpAppReadOnlyViewState extends State<McpAppReadOnlyView> {
   AgentsDataSource? _ownedSource;
   WebViewController? _webView;
+  McpAppTransport? _transport;
   late McpAppReadOnlyHost _host;
   int _generation = 0;
 
@@ -57,6 +60,7 @@ class _McpAppReadOnlyViewState extends State<McpAppReadOnlyView> {
         oldWidget.descriptor.callId != widget.descriptor.callId ||
         oldWidget.mode != widget.mode) {
       _host.teardown();
+      _transport?.teardown();
       _start();
     }
   }
@@ -95,6 +99,9 @@ class _McpAppReadOnlyViewState extends State<McpAppReadOnlyView> {
       final theme =
           Theme.of(context).brightness == Brightness.dark ? 'dark' : 'light';
       try {
+        if (_host.mode == McpAppHostMode.interactive) {
+          await _connectInteractiveTransport();
+        }
         final controller = await _createWebView(generation);
         if (!mounted || generation != _generation) return;
         _webView = controller;
@@ -154,7 +161,7 @@ class _McpAppReadOnlyViewState extends State<McpAppReadOnlyView> {
       'RhythmMcpAppHost',
       onMessageReceived: (message) async {
         if (!mounted || generation != _generation) return;
-        await _host.handleAppMessage(message.message);
+        await _handleAppMessage(message.message);
       },
     );
     return controller;
@@ -169,9 +176,78 @@ class _McpAppReadOnlyViewState extends State<McpAppReadOnlyView> {
     );
   }
 
+  Future<void> _connectInteractiveTransport() async {
+    final source = _ownedSource ??= AgentsDataSource();
+    final issued = await source.issueMcpAppCapability(
+      sessionId: widget.descriptor.sessionId,
+      toolCallId: widget.descriptor.callId,
+    );
+    final capability = issued['capability'];
+    final expiresAt = issued['expiresAt'];
+    if (capability is! String ||
+        capability.isEmpty ||
+        expiresAt is! String ||
+        DateTime.tryParse(expiresAt)?.toUtc().isAfter(DateTime.now().toUtc()) !=
+            true) {
+      throw const McpAppHostDenied('capability_unavailable');
+    }
+    late final McpAppTransport transport;
+    transport = McpAppTransport(
+      viewCapability: capability,
+      send: (encodedRequest) async {
+        final response = await source.brokerMcpAppCapability(
+          sessionId: widget.descriptor.sessionId,
+          toolCallId: widget.descriptor.callId,
+          encodedRequest: encodedRequest,
+        );
+        transport.receive(response);
+      },
+      onEvent: (event) => _sendToApp(
+        jsonEncode({'kind': 'event', 'event': event}),
+      ),
+    );
+    _transport?.teardown();
+    _transport = transport;
+  }
+
+  Future<void> _handleAppMessage(String encodedMessage) async {
+    final decision = await _host.handleAppMessage(encodedMessage);
+    if (!decision.isAllowed || decision.method == 'host.ping') return;
+    final transport = _transport;
+    if (transport == null || decision.requestId == null) return;
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(encodedMessage);
+    } on FormatException {
+      return;
+    }
+    if (decoded is! Map<String, dynamic>) return;
+    final params = decoded['params'];
+    if (params is! Map<String, dynamic>) return;
+    try {
+      final result = await transport.request(
+        decision.method!,
+        Map<String, Object?>.from(params),
+      );
+      await _sendToApp(jsonEncode({
+        'kind': 'response',
+        'id': decision.requestId,
+        'result': result,
+      }));
+    } on Object {
+      await _sendToApp(jsonEncode({
+        'kind': 'response',
+        'id': decision.requestId,
+        'error': 'capability_denied',
+      }));
+    }
+  }
+
   @override
   void dispose() {
     _generation++;
+    _transport?.teardown();
     _host.teardown();
     _ownedSource?.dispose();
     super.dispose();

@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1353 MCP App capability broker and transport
+- Files modified: additive API capability broker/authority and owned session routes; bounded Flutter transport and interactive trusted-shell integration; focused contract/live tests and run log.
+- Checks run: API broker 2/2 PASS with live env-gated/skipped; API typecheck PASS; Dart transport/policy contract PASS; Flutter analyze PASS with 296 pre-existing infos.
+- Decisions made: retain all seven authority fields only in the API process; preflight opaque capability/session/call/replay before engine reads; consume correlations before the next gate; stop valid requests at a deterministic 403 until #1357.
+- Deviations from spec: live sandbox could not run because this worker cannot bind sockets.
+- Concerns: orchestrator must run the env-gated real-stack denial and final native packaged smoke before activation.
+
 ### 2026-08-10 — issue #1351 read-only MCP App pilot
 - Files modified: generic read-only host/WebView, additive completed-call descriptor parsing, generic tool-card integration, focused contract/widget/live tests, contract status, and run log.
 - Checks run: pure-Dart contract PASS; fork resource/descriptor contracts 9/9 PASS; API live test env-gated/skipped and API typecheck PASS; Flutter analyze PASS; focused Flutter test BLOCKED before assertions by sandbox socket EPERM.

@@ -68,11 +68,13 @@ final class McpAppHostViewState {
     required this.viewId,
     required this.bootNonce,
     required this.openedAt,
+    required this.mode,
   });
 
   final String viewId;
   final String bootNonce;
   final DateTime openedAt;
+  final McpAppHostMode mode;
   bool isOpen = true;
 }
 
@@ -84,7 +86,8 @@ final class McpAppHostViewState {
 final class McpAppHostPolicy {
   McpAppHostPolicy({required DateTime Function() now}) : _now = now;
 
-  static const _supportedMethods = {'host.ping'};
+  static const _readOnlyMethods = {'host.ping'};
+  static const _interactiveMethods = {'host.ping', 'host.next-gate'};
 
   final DateTime Function() _now;
   final Map<String, McpAppHostViewState> _views = {};
@@ -99,6 +102,7 @@ final class McpAppHostPolicy {
     required int contentBytes,
     required int width,
     required int height,
+    McpAppHostMode mode = McpAppHostMode.readonly,
   }) {
     _expireViews();
     if (viewId.isEmpty ||
@@ -129,6 +133,7 @@ final class McpAppHostPolicy {
       viewId: viewId,
       bootNonce: bootNonce,
       openedAt: _now().toUtc(),
+      mode: mode,
     );
     _views[viewId] = state;
     return state;
@@ -168,6 +173,7 @@ final class McpAppHostPolicy {
     final id = decoded['id'];
     final method = decoded['method'];
     final nonce = decoded['nonce'];
+    final params = decoded['params'];
     if (id is! String ||
         id.isEmpty ||
         _utf8Length(id) > McpAppHostLimits.maxRequestIdBytes ||
@@ -179,8 +185,14 @@ final class McpAppHostPolicy {
     if (nonce != state.bootNonce) {
       return const McpAppHostDecision.deny('invalid_nonce');
     }
-    if (!_supportedMethods.contains(method)) {
+    final supported = state.mode == McpAppHostMode.interactive
+        ? _interactiveMethods
+        : _readOnlyMethods;
+    if (!supported.contains(method)) {
       return const McpAppHostDecision.deny('unsupported_method');
+    }
+    if (method == 'host.next-gate' && params is! Map<String, dynamic>) {
+      return const McpAppHostDecision.deny('malformed_message');
     }
     return McpAppHostDecision.allow(id, method);
   }

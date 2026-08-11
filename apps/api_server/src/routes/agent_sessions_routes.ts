@@ -72,6 +72,14 @@ agentSessionsRouter.get(
   '/:id/mcp-app-resource/:callId',
   controller.getMcpAppResource.bind(controller),
 );
+agentSessionsRouter.post(
+  '/:id/mcp-app-capability/:callId',
+  controller.issueMcpAppCapability.bind(controller),
+);
+agentSessionsRouter.post(
+  '/:id/mcp-app-capability/:callId/request',
+  controller.brokerMcpAppCapability.bind(controller),
+);
 // OCU-19 (#1060) — file/find proxy scoped to the session directory
 // (worktree dir when isolated). Path-traversal guarded; content capped ~2MB.
 agentSessionsRouter.get('/:id/files/find-text', controller.findText.bind(controller));

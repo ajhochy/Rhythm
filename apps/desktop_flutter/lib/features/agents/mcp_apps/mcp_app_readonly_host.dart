@@ -154,7 +154,7 @@ final class McpAppReadOnlyHost {
   );
 
   Future<void> load() async {
-    if (mode != McpAppHostMode.readonly) {
+    if (mode != McpAppHostMode.readonly && mode != McpAppHostMode.interactive) {
       snapshot = const McpAppReadOnlySnapshot(
         fallbackVisible: true,
         htmlVisible: false,
@@ -178,6 +178,7 @@ final class McpAppReadOnlyHost {
         contentBytes: utf8.encode(resource.text).length,
         width: 800,
         height: 360,
+        mode: mode,
       );
       snapshot = McpAppReadOnlySnapshot(
         fallbackVisible: true,
@@ -212,7 +213,7 @@ final class McpAppReadOnlyHost {
 
   Future<void> initialize({required String theme}) => _sendLifecycle(
         'ui/initialize',
-        {'mode': 'readonly', 'theme': theme},
+        {'mode': mode.name, 'theme': theme},
       );
 
   Future<void> deliverInput(Object? input) =>
@@ -257,7 +258,7 @@ final class McpAppReadOnlyHost {
     snapshot = McpAppReadOnlySnapshot(
       fallbackVisible: true,
       htmlVisible: false,
-      isGenericToolCard: mode != McpAppHostMode.readonly,
+      isGenericToolCard: mode == McpAppHostMode.off,
     );
     _log?.call('teardown');
   }

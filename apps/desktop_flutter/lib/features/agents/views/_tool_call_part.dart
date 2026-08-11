@@ -56,7 +56,8 @@ class _ToolCallPartState extends State<ToolCallPart> {
     final mode = widget.mcpAppsMode ??
         Platform.environment['RHYTHM_MCP_APPS_MODE'] ??
         'off';
-    final appDescriptor = mode == 'readonly' && part.toolStatus == 'completed'
+    final appDescriptor = (mode == 'readonly' || mode == 'interactive') &&
+            part.toolStatus == 'completed'
         ? part.mcpAppResource
         : null;
     return Container(
