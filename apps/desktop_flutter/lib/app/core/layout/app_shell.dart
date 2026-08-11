@@ -12,6 +12,8 @@ import '../../../features/notifications/controllers/notifications_controller.dar
 import '../../../features/notifications/views/notification_panel.dart';
 import 'background_activity_indicator.dart';
 import '../../../features/dashboard/views/dashboard_view.dart';
+import '../../../features/live_artifacts/widgets/dashboard_artifact_tabs.dart';
+// DashboardArtifactTabs and LiveArtifactsController are mounted by the Dashboard workspace only.
 import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/models/integration_account.dart';
 import '../../../features/integrations/views/integrations_view.dart';
@@ -28,6 +30,7 @@ import '../../../features/messages/views/messages_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
 import '../../../features/weekly_planner/views/weekly_planner_view.dart';
 import '../server/api_server_controller.dart';
+import '../services/server_config_service.dart';
 import '../auth/auth_session_service.dart';
 import '../workspace/workspace_onboarding_view.dart';
 import '../updates/update_controller.dart';
@@ -267,12 +270,19 @@ class _AppContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final updateController = context.watch<UpdateController>();
     final authSessionService = context.watch<AuthSessionService>();
+    final baseUrl = context.watch<ServerConfigService>().url;
     final views = <Widget>[
-      DashboardView(
-        openWeeklyPlanner: () => onItemSelected(AppConstants.navWeeklyPlanner),
-        openRhythms: () => onItemSelected(AppConstants.navRhythms),
-        openProjects: () => onItemSelected(AppConstants.navProjects),
-        openMessages: () => onItemSelected(AppConstants.navMessages),
+      DashboardArtifactWorkspace(
+        baseUrl: baseUrl,
+        workspaceId: authSessionService.currentWorkspace!.id,
+        dashboard: DashboardView(
+          showPlanningBadge: false,
+          openWeeklyPlanner: () =>
+              onItemSelected(AppConstants.navWeeklyPlanner),
+          openRhythms: () => onItemSelected(AppConstants.navRhythms),
+          openProjects: () => onItemSelected(AppConstants.navProjects),
+          openMessages: () => onItemSelected(AppConstants.navMessages),
+        ),
       ),
       const WeeklyPlannerView(),
       const TasksView(),

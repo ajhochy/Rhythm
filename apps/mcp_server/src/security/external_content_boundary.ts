@@ -52,6 +52,10 @@ export const SECURITY_ACTIONS = [
   "creative-capability.install",
   "creative-artifact.record",
   "org-optimizer.external-discovery",
+  "live-artifact.create",
+  "live-artifact.state.update",
+  "live-artifact.bundle.update",
+  "live-artifact.sharing.update",
 ] as const;
 
 export type SecurityAction = (typeof SECURITY_ACTIONS)[number];
@@ -88,7 +92,9 @@ export type ExternalContentSource =
   | "pco.service-types"
   | "pco.plans"
   | "pco.plan-items"
-  | "pco.needed-positions";
+  | "pco.needed-positions"
+  | "live-artifact.list"
+  | "live-artifact.get";
 
 interface BoundaryResult {
   allowed: boolean;

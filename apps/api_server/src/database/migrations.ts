@@ -734,7 +734,66 @@ export function runMigrations(db: Database.Database): void {
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (project_instance_id, user_id)
     );
+
+    CREATE TABLE IF NOT EXISTS live_artifacts (
+      -- Explicit NOT NULL: SQLite lets a TEXT PRIMARY KEY hold NULL, Postgres
+      -- does not. Without it the two databases disagree on artifact identity.
+      id TEXT PRIMARY KEY NOT NULL,
+      type TEXT NOT NULL CHECK (type = 'html'),
+      title TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id),
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id),
+      visibility TEXT NOT NULL DEFAULT 'private'
+        CHECK (visibility IN ('private', 'shared', 'organization')),
+      current_bundle_revision INTEGER NOT NULL CHECK (current_bundle_revision > 0),
+      current_bundle_hash TEXT NOT NULL CHECK (length(current_bundle_hash) = 64),
+      current_state_revision INTEGER NOT NULL CHECK (current_state_revision > 0),
+      current_state_hash TEXT NOT NULL CHECK (length(current_state_hash) = 64),
+      declared_capabilities_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_by_user_id INTEGER NOT NULL REFERENCES users(id),
+      deleted_at TEXT,
+      deleted_by_user_id INTEGER REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_live_artifacts_workspace_visibility
+      ON live_artifacts(workspace_id, visibility, deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_live_artifacts_owner_updated
+      ON live_artifacts(owner_user_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS live_artifact_collaborators (
+      artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_by_user_id INTEGER NOT NULL REFERENCES users(id),
+      PRIMARY KEY (artifact_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_live_artifact_collaborators_user
+      ON live_artifact_collaborators(user_id, artifact_id);
+
+    CREATE TABLE IF NOT EXISTS live_artifact_bundle_revisions (
+      artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (artifact_id, revision)
+    );
+
+    CREATE TABLE IF NOT EXISTS live_artifact_state_revisions (
+      artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (artifact_id, revision)
+    );
   `);
+
+  const userColsLiveArtifacts = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
+  if (!userColsLiveArtifacts.includes('artifact_tab_ids_json')) {
+    db.exec(`ALTER TABLE users ADD COLUMN artifact_tab_ids_json TEXT NOT NULL DEFAULT '[]'`);
+  }
 
   const taskColsP7 = (db.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name);
   if (!taskColsP7.includes('workspace_id')) {

@@ -28,8 +28,9 @@ or acceptance criteria for this deployment.
 
 ### Synology Docker runtime
 
-Deployment is manual — GitHub Actions builds and publishes the image to GHCR,
-then you SSH into the Synology and pull + restart the container.
+Deployment is automatic through the host-wide Watchtower after GitHub Actions
+publishes the image to GHCR. The SSH procedure below is legacy/manual fallback
+for an immediate deploy or a Watchtower outage.
 
 ### First-time setup
 
@@ -85,7 +86,10 @@ sudo docker compose -f docker-compose.synology.yml --env-file .env.production up
 ```
 
 The `up -d` command recreates any container whose image changed and leaves
-the rest running. The SQLite data volume is preserved across restarts.
+the rest running. The `/data` volume is preserved across restarts. Relational
+data lives in Postgres (`DB_CLIENT=postgres`, see "Production API environment"),
+so `/data` holds the container's file-backed state — live-artifact bytes under
+`/data/live-artifacts`, plus the legacy SQLite file on pre-Postgres deploys.
 
 Finally, **verify the new code is actually live** (issue #677 — the running
 container is otherwise indistinguishable from a stale one):
@@ -111,7 +115,8 @@ SHA, the container did not restart on the new image.
 
 The compose file expects:
 
-- persistent SQLite volume mounted at `/data`
+- persistent data volume mounted at `/data`, holding live-artifact bytes at
+  `/data/live-artifacts` (relational data is in Postgres, not on this volume)
 - API exposed internally on port `4000`
 - Cloudflare tunnel token in `.env.production`
 - API image available in GHCR
@@ -139,6 +144,7 @@ Minimum required variables:
 - `PCO_SECRET`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`
 - `TUNNEL_TOKEN`
+- `LIVE_ARTIFACT_STORAGE_DIR=/data/live-artifacts` (server-managed artifact storage; never expose this path to clients)
 
 ## Scheduler quarantine (#1214)
 
@@ -211,7 +217,10 @@ Planning Center OAuth redirect URI:
 
 - `https://api.vcrcapps.com/health` returns success
 - the API container stays healthy after restart
-- the SQLite file persists across container restarts
+- the `/data` volume persists across container restarts, so previously stored
+  live-artifact bytes under `/data/live-artifacts` are still readable
+- the Postgres database reconnects after restart and `runPostgresBootstrap()`
+  re-runs cleanly (it is idempotent — see "Schema migrations" below)
 
 ### Desktop
 
@@ -232,8 +241,8 @@ Local development builds should keep:
 ## GitHub Actions and credentials
 
 The GitHub workflow verifies the API, builds the container image, and publishes
-it to GHCR. It does not SSH into the Synology or perform any remote deploy —
-that step is always done manually as described above.
+it to GHCR. It does not SSH into the Synology; host-wide Watchtower performs the
+normal remote update, with the SSH procedure retained as the manual fallback.
 
 GitHub-side requirement:
 
@@ -255,6 +264,19 @@ automatically the next time the container starts.
 
 No manual `psql` intervention is required for columns added via `postgres_bootstrap.ts`.
 Simply deploy the new image (follow **Routine update summary** above) and restart.
+
+### Live-artifact backup and rollback
+
+Before a live-artifact rollout, back up both production Postgres metadata and the
+persistent `/data/live-artifacts` volume. Artifact bundle/state bytes are immutable
+content-addressed files; Postgres stores their IDs, revisions, hashes, sharing, and
+audit metadata. The migration is additive and bootstrap is idempotent: do not drop
+tables, truncate rows, or rewrite artifact bytes during rollout.
+
+To roll back an image, redeploy the prior image while preserving the `/data` volume
+and all Postgres rows. Do not delete artifact directories or revision rows; a later
+compatible image can recover the stable IDs and immutable bytes from those retained
+stores.
 
 ### Columns added by milestone
 
@@ -296,8 +318,13 @@ should return 200 and persist the value.
 
 ## Notes
 
-- The current production-ready deployment path still assumes SQLite.
-- `#64` is the follow-up issue for moving to a hosted production database.
+- The current production deployment is Postgres-backed (`DB_CLIENT=postgres`);
+  `#64`'s move to a hosted production database has landed. SQLite remains the
+  local development default and the source side of the one-time
+  `migrate_sqlite_to_postgres` transfer (`SQLITE_MIGRATION_PATH`).
+- File-backed state still needs the persistent `/data` volume: live-artifact
+  bytes are written to `LIVE_ARTIFACT_STORAGE_DIR=/data/live-artifacts` and are
+  not stored in Postgres.
 - The GitHub workflow publishes the API image to GHCR automatically on every push
-  to `main`. Synology deployment is always a manual SSH + `docker compose pull &&
-  up -d` step — there is no automated remote deploy.
+  to `main`. Host-wide Watchtower performs the normal Synology update; use the
+  documented manual SSH fallback only for an immediate deployment or outage.

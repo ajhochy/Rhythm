@@ -17,7 +17,8 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### Isolated dev sandbox
 
 Use `tools/dev/sandbox.sh` to run a second local api_server without touching
-the live app's ports, database, HOME-relative Opencode files, or run slots.
+the live app's ports, database, HOME-relative Opencode files, live-artifact
+storage, or run slots.
 It uses API port `4098`, engine port `4097`, a SQLite `.backup` copy, and a
 temporary HOME. It disables every copied scheduled task before launch.
 
@@ -47,6 +48,11 @@ Vitest invocations, or with `--no-file-parallelism`. Do not pass multiple
 pairing/device live-test files to one default Vitest invocation: file workers
 can create temporary rows concurrently and invalidate isolation assertions
 even though each suite cleans up its own records.
+
+The verified live-artifact gate drives the real fork engine → MCP → hosted API
+→ human collaborator flow under one stable ID. Keep it env-gated and serial;
+use the exact command and expected evidence recorded in
+`docs/ai/runs/2026-08-09-live-artifacts-av07.md`.
 
 Mobile-gateway live suites also need a distinct
 `RHYTHM_MOBILE_GATEWAY_PORT` exported when `sandbox.sh up` starts (for example,

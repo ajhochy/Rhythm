@@ -12,6 +12,10 @@ macOS desktop productivity app for church staff. Flutter desktop client with a l
 
 Flutter's `serverConfigService.url` controls the production API only. The agent server is always `http://localhost:4001` (`AppConstants.agentLocalBaseUrl`) — never coupled to the user-configurable URL.
 
+## Cloud live artifacts
+
+The hosted production API owns authenticated live-artifact metadata and authorization in Postgres; immutable bundle/state bytes persist under `/data/live-artifacts`. Stable artifact IDs support private, selected-collaborator, and organization access with revision-checked writes. The local Rhythm MCP surface exposes five hosted API tools, while the shipping Dashboard renders artifacts in a WKWebView with a closed bridge limited to state get/update and declared current-user `pco.services.read`. The authoritative V1 contract and verified flow are `docs/ai/contracts/live-artifacts-av07.json` and `docs/ai/runs/2026-08-09-live-artifacts-av07.md`.
+
 ## Scheduler ownership (#1214)
 
 `agent_scheduled_tasks` is agent-EXECUTION state, owned solely by the local

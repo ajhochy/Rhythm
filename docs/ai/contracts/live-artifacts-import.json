@@ -1,0 +1,17 @@
+{
+  "issue": "live-artifacts-import",
+  "date": "2026-08-10",
+  "test_command": "cd apps/desktop_flutter && /Users/ajhochhalter/development/flutter/bin/flutter test test/features/live_artifacts/import_share_contract_test.dart",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"live-artifacts-import-c1","text":"Dashboard → `+` (the existing artifact picker in dashboard_artifact_tabs.dart) gains an \"Import HTML\" action.","mode":"ui","test":"apps/desktop_flutter/test/features/live_artifacts/import_share_contract_test.dart","status":"pass"},
+    {"criterion_id":"live-artifacts-import-c2","text":"Native macOS file picker via the already-present `file_picker` package (pubspec has file_picker ^11.0.2), filtered to .html/.htm.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Native picker platform configuration requires the shipping-app smoke; widget tests cover the import entry action."},
+    {"criterion_id":"live-artifacts-import-c3","text":"Validate type and size client-side; the size cap must match the backend bundle cap (check apps/api_server/src/controllers/live_artifacts_controller.ts / services/live_artifact_storage.ts — do not invent a number). Oversized/wrong-type → clear error, no upload.","mode":"ui","test":"apps/desktop_flutter/test/features/live_artifacts/import_share_contract_test.dart","status":"pass"},
+    {"criterion_id":"live-artifacts-import-c4","text":"Pre-import preview: parsed <title> (fallback: filename without extension), editable title field, confirm/cancel.","mode":"ui","test":"apps/desktop_flutter/test/features/live_artifacts/import_share_contract_test.dart","status":"pass"},
+    {"criterion_id":"live-artifacts-import-c5","text":"Import preserves a standalone UTF-8 HTML document byte-for-byte as `bundle.html`, with empty `bundle.css` and `bundle.js`; head structure, inline style/scripts, data scripts, curated external resources, and HTML fragments remain intact.","mode":"unit","test":"apps/desktop_flutter/test/features/live_artifacts/import_share_contract_test.dart","status":"pass"},
+    {"criterion_id":"live-artifacts-import-c6","text":"Preview diagnostics are non-mutating: they report resources outside curated runtime hosts and blocked network calls, but do not warn for Google Fonts or allowlisted CDN links. Module scripts are not warned unless runtime support is shown absent.","mode":"unit","test":"apps/desktop_flutter/test/features/live_artifacts/import_share_contract_test.dart","status":"pass"},
+    {"criterion_id":"live-artifacts-import-c7","text":"The imported artifact is automatically pinned as a Dashboard tab and opened.","mode":"ui","test":"apps/desktop_flutter/test/features/live_artifacts/import_share_contract_test.dart","status":"pass"},
+    {"criterion_id":"live-artifacts-import-c8","text":"No local filesystem path is persisted or displayed after import.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Native file-picker and shipping-app smoke remain for the orchestrator."}
+  ],
+  "not_tested":["live-artifacts-import-c2","live-artifacts-import-c8"]
+}

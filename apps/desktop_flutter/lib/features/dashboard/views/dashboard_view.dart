@@ -22,11 +22,14 @@ import '../models/dashboard_overview_models.dart';
 class DashboardView extends StatefulWidget {
   const DashboardView({
     super.key,
+    this.showPlanningBadge = true,
     required this.openWeeklyPlanner,
     required this.openRhythms,
     required this.openProjects,
     required this.openMessages,
   });
+
+  final bool showPlanningBadge;
 
   final VoidCallback openWeeklyPlanner;
   final VoidCallback openRhythms;
@@ -73,6 +76,7 @@ class _DashboardViewState extends State<DashboardView> {
               ),
             DashboardStatus.ready => _DashboardBody(
                 controller: controller,
+                showPlanningBadge: widget.showPlanningBadge,
                 openWeeklyPlanner: widget.openWeeklyPlanner,
                 openRhythms: widget.openRhythms,
                 openProjects: widget.openProjects,
@@ -118,6 +122,7 @@ class _ErrorView extends StatelessWidget {
 class _DashboardBody extends StatefulWidget {
   const _DashboardBody({
     required this.controller,
+    required this.showPlanningBadge,
     required this.openWeeklyPlanner,
     required this.openRhythms,
     required this.openProjects,
@@ -125,6 +130,7 @@ class _DashboardBody extends StatefulWidget {
   });
 
   final DashboardController controller;
+  final bool showPlanningBadge;
   final VoidCallback openWeeklyPlanner;
   final VoidCallback openRhythms;
   final VoidCallback openProjects;
@@ -236,11 +242,13 @@ class _DashboardBodyState extends State<_DashboardBody> {
     return RhythmToolbar(
       title: 'Dashboard',
       subtitle: 'A calm view of the week ahead.',
-      leading: const RhythmBadge(
-        label: 'Planning',
-        icon: Icons.dashboard_outlined,
-        tone: RhythmBadgeTone.accent,
-      ),
+      leading: widget.showPlanningBadge
+          ? const RhythmBadge(
+              label: 'Planning',
+              icon: Icons.dashboard_outlined,
+              tone: RhythmBadgeTone.accent,
+            )
+          : null,
       padding: const EdgeInsets.fromLTRB(
         RhythmSpacing.md,
         RhythmSpacing.sm,

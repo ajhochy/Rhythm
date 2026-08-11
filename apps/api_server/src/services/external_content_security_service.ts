@@ -62,6 +62,10 @@ export const SECURITY_ACTIONS = [
   'creative-capability.install',
   'creative-artifact.record',
   'org-optimizer.external-discovery',
+  'live-artifact.create',
+  'live-artifact.state.update',
+  'live-artifact.bundle.update',
+  'live-artifact.sharing.update',
 ] as const;
 export type SecurityAction = (typeof SECURITY_ACTIONS)[number];
 
@@ -135,6 +139,7 @@ const SECURITY_PAYLOAD_CONSTANTS: Partial<
   'calendar.update': { calendarId: 'primary' },
   'scheduled-task.cancel': { enabled: false },
   'agent-profile.create': { isAgent: true, enabled: true },
+  'live-artifact.create': { type: 'html' },
 };
 
 function snakeCase(name: string): string {

@@ -13,6 +13,7 @@ interface UserRow {
   role: string;
   is_facilities_manager: number;
   email_notifications_enabled: number | boolean;
+  artifact_tab_ids_json: string | string[] | null;
   timezone: string;
   created_at: string;
   updated_at: string;
@@ -28,6 +29,17 @@ function rowToUser(row: UserRow): User {
     typeof row.email_notifications_enabled === 'boolean'
       ? row.email_notifications_enabled
       : row.email_notifications_enabled === 1;
+  let artifactTabIds: string[] = [];
+  try {
+    const value = typeof row.artifact_tab_ids_json === 'string'
+      ? JSON.parse(row.artifact_tab_ids_json)
+      : row.artifact_tab_ids_json;
+    if (Array.isArray(value) && value.every((id) => typeof id === 'string')) {
+      artifactTabIds = value;
+    }
+  } catch {
+    // Legacy/corrupt values are treated as no restored tabs, never a server error.
+  }
 
   return {
     id: row.id,
@@ -38,6 +50,7 @@ function rowToUser(row: UserRow): User {
     role: row.role,
     isFacilitiesManager,
     emailNotificationsEnabled,
+    artifactTabIds,
     timezone: row.timezone ?? 'America/Los_Angeles',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -240,10 +253,11 @@ export class UsersRepository {
                 photo_url = $4,
                 role = $5,
                 is_facilities_manager = $6,
-                email_notifications_enabled = $7,
-                timezone = $8,
-                updated_at = $9
-          WHERE id = $10
+                 email_notifications_enabled = $7,
+                 artifact_tab_ids_json = $8,
+                 timezone = $9,
+                 updated_at = $10
+           WHERE id = $11
           RETURNING *`,
         [
           data.name ?? existing.name,
@@ -257,6 +271,7 @@ export class UsersRepository {
           data.emailNotificationsEnabled !== undefined
             ? data.emailNotificationsEnabled
             : existing.emailNotificationsEnabled,
+          JSON.stringify(data.artifactTabIds ?? existing.artifactTabIds),
           data.timezone ?? existing.timezone,
           now,
           id,
@@ -273,7 +288,7 @@ export class UsersRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, email_notifications_enabled = ?, timezone = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, email_notifications_enabled = ?, artifact_tab_ids_json = ?, timezone = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         data.name ?? existing.name,
@@ -287,6 +302,7 @@ export class UsersRepository {
         data.emailNotificationsEnabled !== undefined
             ? (data.emailNotificationsEnabled ? 1 : 0)
             : (existing.emailNotificationsEnabled ? 1 : 0),
+        JSON.stringify(data.artifactTabIds ?? existing.artifactTabIds),
         data.timezone ?? existing.timezone,
         now,
         id,

@@ -81,6 +81,11 @@ export function resolveMemoryDirPath(): string {
   return sub ? path.join(resolveMemoryVaultPath(), sub) : resolveMemoryVaultPath();
 }
 
+/** App-managed root for immutable live-artifact bundle and state bytes. */
+export function resolveLiveArtifactStorageDir(): string {
+  return expandHome(process.env.LIVE_ARTIFACT_STORAGE_DIR ?? path.join(process.cwd(), 'live-artifacts'));
+}
+
 /**
  * #1093 prompt-retrieval augmentation, promoted to the DEFAULT lane (step 2 of
  * the semantic-memory rollout). `hybrid` is now what unset AND unrecognized
@@ -475,6 +480,7 @@ export const env = {
   memoryVaultPath: expandHome(
     process.env.MEMORY_VAULT_PATH ?? '~/Documents/Memory-Vault',
   ),
+  liveArtifactStorageDir: resolveLiveArtifactStorageDir(),
   /**
    * Issue #770 WI6: cron expression for the Memory-Vault mirror-sync job.
    * Defaults to every 10 minutes. Overridable via MEMORY_VAULT_SYNC_CRON.

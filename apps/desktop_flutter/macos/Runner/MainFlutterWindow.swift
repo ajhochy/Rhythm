@@ -10,6 +10,9 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     HumanApprovalSigner.register(with: flutterViewController)
+    #if DEBUG
+    ArtifactSnapshotter.register(with: flutterViewController)
+    #endif
 
     super.awakeFromNib()
 
