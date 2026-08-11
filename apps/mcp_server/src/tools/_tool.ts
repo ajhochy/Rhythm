@@ -20,6 +20,23 @@ type AnyHandler = (
   extra: ToolRequestExtra,
 ) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: true }>;
 
+type AppHandler = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args: any,
+  extra: ToolRequestExtra,
+) => Promise<{
+  content: Array<{ type: 'text'; text: string }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: true;
+}>;
+
+interface AppToolMetadata {
+  ui: {
+    resourceUri: string;
+    visibility: Array<'model' | 'app'>;
+  };
+}
+
 export function registerTool(
   server: McpServer,
   name: string,
@@ -32,6 +49,24 @@ export function registerTool(
     name,
     description,
     shape,
+    (args: Record<string, unknown>, extra: ToolRequestExtra) =>
+      runWithTrustedSecurityCall(extra, args, () => handler(args, extra)),
+  );
+}
+
+/** Register an MCP App tool while preserving the signed trusted-call scope. */
+export function registerAppTool(
+  server: McpServer,
+  name: string,
+  description: string,
+  shape: ToolShape,
+  metadata: AppToolMetadata,
+  handler: AppHandler,
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).registerTool(
+    name,
+    { description, inputSchema: shape, _meta: metadata },
     (args: Record<string, unknown>, extra: ToolRequestExtra) =>
       runWithTrustedSecurityCall(extra, args, () => handler(args, extra)),
   );

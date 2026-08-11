@@ -1547,6 +1547,11 @@ export type McpStatusNeedsClientRegistration = {
   error: string
 }
 
+export type McpAppResourceContent = {
+  mimeType: "text/html;profile=mcp-app"
+  text: string
+}
+
 export type McpLocalConfig = {
   /**
    * Type of MCP server connection
@@ -3409,6 +3414,22 @@ export type ToolStateCompleted = {
   title: string
   metadata: {
     [key: string]: unknown
+  }
+  mcpResult?: {
+    structuredContent?: unknown
+    _meta?: {
+      [key: string]: unknown
+    }
+    isError?: boolean
+  }
+  mcpAppResource?: {
+    sessionID: string
+    callID: string
+    serverName: string
+    cwd: string
+    resourceUri: string
+    advertisedAt: string
+    expiresAt: string
   }
   time: {
     start: number
@@ -6481,6 +6502,129 @@ export type PartUpdateResponses = {
 }
 
 export type PartUpdateResponse = PartUpdateResponses[keyof PartUpdateResponses]
+
+export type SessionMcpAppResourceData = {
+  body?: never
+  path: {
+    sessionID: string
+    callID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/mcp-app-resource/{callID}"
+}
+
+export type SessionMcpAppResourceErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionMcpAppResourceError = SessionMcpAppResourceErrors[keyof SessionMcpAppResourceErrors]
+
+export type SessionMcpAppResourceResponses = {
+  /**
+   * Bound MCP App HTML resource
+   */
+  200: McpAppResourceContent
+}
+
+export type SessionMcpAppResourceResponse = SessionMcpAppResourceResponses[keyof SessionMcpAppResourceResponses]
+
+export type SessionMcpAppExecutionProofData = {
+  body?: {
+    [key: string]: unknown
+  }
+  path: {
+    sessionID: string
+    callID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/mcp-app-execution/{callID}/proof"
+}
+
+export type SessionMcpAppExecutionProofErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionMcpAppExecutionProofError =
+  SessionMcpAppExecutionProofErrors[keyof SessionMcpAppExecutionProofErrors]
+
+export type SessionMcpAppExecutionProofResponses = {
+  /**
+   * Engine-signed MCP App execution proof
+   */
+  200: {
+    proof: string
+    expiresAt: string
+  }
+}
+
+export type SessionMcpAppExecutionProofResponse =
+  SessionMcpAppExecutionProofResponses[keyof SessionMcpAppExecutionProofResponses]
+
+export type SessionMcpAppExecutionData = {
+  body?: {
+    proof: string
+    toolKey: string
+    input: {
+      [key: string]: unknown
+    }
+    requestID: string
+  }
+  path: {
+    sessionID: string
+    callID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/mcp-app-execution/{callID}"
+}
+
+export type SessionMcpAppExecutionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionMcpAppExecutionError = SessionMcpAppExecutionErrors[keyof SessionMcpAppExecutionErrors]
+
+export type SessionMcpAppExecutionResponses = {
+  /**
+   * Origin-bound MCP App tool result
+   */
+  200: {
+    content?: Array<unknown>
+    structuredContent?: unknown
+    isError?: boolean
+  }
+}
+
+export type SessionMcpAppExecutionResponse = SessionMcpAppExecutionResponses[keyof SessionMcpAppExecutionResponses]
 
 export type SyncStartData = {
   body?: never

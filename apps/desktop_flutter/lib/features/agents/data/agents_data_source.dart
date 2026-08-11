@@ -98,6 +98,72 @@ class AgentsDataSource {
   /// How many frames are waiting for the socket to come back.
   int get pendingSendCount => _pendingSends.length;
 
+  Future<Map<String, dynamic>> fetchMcpAppResource({
+    required String sessionId,
+    required String toolCallId,
+  }) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-resource/${Uri.encodeComponent(toolCallId)}',
+      ),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return _decodeResponseMap(response);
+  }
+
+  Future<Map<String, dynamic>> issueMcpAppCapability({
+    required String sessionId,
+    required String toolCallId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-capability/${Uri.encodeComponent(toolCallId)}',
+      ),
+      headers: {
+        ...AuthSessionStore.headers(),
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    );
+    assertOk(response);
+    return _decodeResponseMap(response);
+  }
+
+  Future<String> brokerMcpAppCapability({
+    required String sessionId,
+    required String toolCallId,
+    required String encodedRequest,
+  }) async {
+    final request = jsonDecode(encodedRequest);
+    if (request is! Map<String, dynamic> || request['id'] is! String) {
+      throw const FormatException('invalid MCP App request');
+    }
+    final response = await _client.post(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-capability/${Uri.encodeComponent(toolCallId)}/request',
+      ),
+      headers: {
+        ...AuthSessionStore.headers(),
+        'content-type': 'application/json',
+      },
+      body: encodedRequest,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return jsonEncode({
+        'kind': 'response',
+        'id': request['id'],
+        'error': 'capability_denied',
+      });
+    }
+    final payload = await _decodeResponseMap(response);
+    return jsonEncode({
+      'kind': 'response',
+      'id': request['id'],
+      'result': payload,
+    });
+  }
+
   /// True only once the socket is actually live.
   ///
   /// Deliberately NOT `_channel != null`. `WebSocketChannel.connect` is lazy: it

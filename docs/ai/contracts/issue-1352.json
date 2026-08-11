@@ -1,0 +1,48 @@
+{
+  "issue": 1352,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1352-c1",
+      "text": "UI descriptors survive normal and tolerant tool discovery.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/mcp/issue_1352_mcp_apps_contract.test.ts",
+      "test_id": "issue-1352-c1: validated UI descriptors survive normal and tolerant tool discovery",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1352-c2",
+      "text": "Capability is advertised only when enabled.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/mcp/issue_1352_mcp_apps_contract.test.ts",
+      "test_id": "issue-1352-c2: io.modelcontextprotocol/ui is advertised only when MCP Apps mode is enabled",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1352-c3",
+      "text": "App-only tools never enter model schemas.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/mcp/issue_1352_mcp_apps_contract.test.ts",
+      "test_id": "issue-1352-c3: app-only tools stay in the app registry and never enter model schemas",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1352-c4",
+      "text": "Unsupported peers retain legacy behavior.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/mcp/issue_1352_mcp_apps_contract.test.ts",
+      "test_id": "issue-1352-c4: unsupported MCP peers retain legacy model-tool behavior",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1352-c5",
+      "text": "Ambiguous visibility fails closed.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/mcp/issue_1352_mcp_apps_contract.test.ts",
+      "test_id": "issue-1352-c5: malformed or unknown UI visibility is excluded from every grant surface",
+      "status": "passing"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

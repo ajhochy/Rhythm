@@ -1,0 +1,48 @@
+{
+  "issue": 1342,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1342-c1",
+      "text": "Structured content, metadata, and error state survive fork → API → Flutter.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1342_mcp_result_envelope_live.test.ts",
+      "test_id": "issue-1342-c1: a real MCP result remains Flutter-consumable from fork through HTTP persistence",
+      "status": "environment_blocked"
+    },
+    {
+      "criterion_id": "issue-1342-c2",
+      "text": "Existing text output remains backward-compatible.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1342_mcp_result_envelope.test.ts",
+      "test_id": "issue-1342-c2: adding an MCP envelope never replaces the existing text output",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1342-c3",
+      "text": "Unknown structured results render safely in Flutter.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1342_mcp_result_envelope_test.dart",
+      "test_id": "issue-1342-c3: unknown structured results render as inert, collapsed JSON",
+      "status": "environment_blocked"
+    },
+    {
+      "criterion_id": "issue-1342-c4",
+      "text": "Malformed or oversized data degrades to text without crashing.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1342_mcp_result_envelope_test.dart",
+      "test_id": "issue-1342-c4: malformed or oversized structured data degrades to text without crashing",
+      "status": "environment_blocked"
+    },
+    {
+      "criterion_id": "issue-1342-c5",
+      "text": "No database migration is required.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1342_mcp_result_envelope.test.ts",
+      "test_id": "issue-1342-c5: the result envelope persists inside parts_json without schema changes",
+      "status": "passing"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

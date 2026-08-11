@@ -272,6 +272,24 @@ export const ToolStateCompleted = Schema.Struct({
   output: Schema.String,
   title: Schema.String,
   metadata: Schema.Record(Schema.String, Schema.Any),
+  mcpResult: Schema.optional(
+    Schema.Struct({
+      structuredContent: Schema.optional(Schema.Any),
+      _meta: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
+      isError: Schema.optional(Schema.Boolean),
+    }),
+  ),
+  mcpAppResource: Schema.optional(
+    Schema.Struct({
+      sessionID: Schema.String,
+      callID: Schema.String,
+      serverName: Schema.String,
+      cwd: Schema.String,
+      resourceUri: Schema.String,
+      advertisedAt: Schema.String,
+      expiresAt: Schema.String,
+    }),
+  ),
   time: Schema.Struct({
     start: NonNegativeInt,
     end: NonNegativeInt,

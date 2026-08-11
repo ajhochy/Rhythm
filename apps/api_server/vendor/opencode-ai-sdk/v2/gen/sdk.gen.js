@@ -2492,6 +2492,83 @@ export class Session2 extends HeyApiClient {
             ...params,
         });
     }
+    /**
+     * Read a session-bound MCP App resource
+     *
+     * Read bounded MCP App HTML using provenance persisted on an originating tool call.
+     */
+    mcpAppResource(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "path", key: "callID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).get({
+            url: "/session/{sessionID}/mcp-app-resource/{callID}",
+            ...options,
+            ...params,
+        });
+    }
+    /**
+     * Issue a session-bound MCP App execution proof
+     */
+    mcpAppExecutionProof(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "path", key: "callID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                    { key: "body", map: "body" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).post({
+            url: "/session/{sessionID}/mcp-app-execution/{callID}/proof",
+            ...options,
+            ...params,
+            headers: {
+                "Content-Type": "application/json",
+                ...options?.headers,
+                ...params.headers,
+            },
+        });
+    }
+    /**
+     * Execute an authorized same-server MCP App tool call
+     */
+    mcpAppExecution(parameters, options) {
+        const params = buildClientParams([parameters], [
+            {
+                args: [
+                    { in: "path", key: "sessionID" },
+                    { in: "path", key: "callID" },
+                    { in: "query", key: "directory" },
+                    { in: "query", key: "workspace" },
+                    { in: "body", key: "proof" },
+                    { in: "body", key: "toolKey" },
+                    { in: "body", key: "input" },
+                    { in: "body", key: "requestID" },
+                ],
+            },
+        ]);
+        return (options?.client ?? this.client).post({
+            url: "/session/{sessionID}/mcp-app-execution/{callID}",
+            ...options,
+            ...params,
+            headers: {
+                "Content-Type": "application/json",
+                ...options?.headers,
+                ...params.headers,
+            },
+        });
+    }
 }
 export class Part extends HeyApiClient {
     /**

@@ -160,6 +160,33 @@ pass. Record failures, observed output, and follow-up ownership in the run note.
 
 ## 10. Full test suite
 
+### MCP Apps GA packaged matrix (#1356)
+
+Run this matrix in a signed/packaged macOS build, not only Debug. Record the
+build SHA, macOS version, pilot call IDs, human approver, exact observed result,
+and sanitized screenshots in `docs/ai/runs/`. Any fail-open result blocks GA.
+
+For each exact `RHYTHM_MCP_APPS_MODE` value below, fully restart the engine,
+API, and packaged desktop app, then exercise both **Open Design** and
+**rhythm_get_dashboard**:
+
+- [ ] `off` (also missing, invalid, padded, and mixed-case): app UI and app-only tools are absent, resource/capability routes fail closed, and meaningful text fallback remains usable. Confirm this is the immediate rollback.
+- [ ] `readonly`: both pilots render through the same generic packaged host; all app-originated actions and context updates are denied; fallback remains usable after view teardown/crash and reopening starts a fresh ephemeral view.
+- [ ] `interactive`: enable only with explicit human smoke approval. Confirm same-server/profile-scoped calls show the existing permission UI; approve once, deny once, then prove cross-server, replayed, expired, malformed, and stale-nonce requests execute zero MCP calls.
+
+For each mode/pilot combination run the malicious fixture matrix:
+
+- [ ] scripts cannot escape the opaque iframe; navigation, external links, downloads, local/private network, and all other network requests are denied.
+- [ ] cookies/local/session storage do not survive teardown/reopen; camera, microphone, geolocation, media capture, and unknown device permissions are denied.
+- [ ] oversized content/messages, more than 20 messages/second, too many views, stale nonces, proof replay, and messages after teardown fail closed without a crash.
+- [ ] create/close/reopen views repeatedly, force a WebContent crash, switch sessions/users, and verify deterministic recovery with no prior content, capability, proof, or storage reused.
+- [ ] verify no token, raw MCP transport, server selector, resource URI authority, capability, or engine proof is visible to iframe JavaScript or logs.
+- [ ] verify context updates remain unsupported/unwired. If a future build exposes them, require explicit confirmation, 16 KiB bound, injection scan, durable `external_untrusted` taint, and an untrusted fence before accepting the build.
+
+Finally set `RHYTHM_MCP_APPS_MODE=off`, restart all three processes, and verify
+both pilot fallbacks. Leave interactive disabled until the named human approver
+accepts this complete packaged matrix.
+
 ```bash
 cd apps/api_server && npm test
 ```

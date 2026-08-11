@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../mcp_apps/mcp_app_readonly_host.dart';
+import '../mcp_apps/mcp_app_readonly_view.dart';
 import '../models/chat_models.dart';
 
 /// Renders a single `ChatPart(type:'tool')` as a collapsible card inside the
@@ -11,8 +13,17 @@ import '../models/chat_models.dart';
 /// Header: tool name + status (pending/completed/error).
 /// Body: input args + output, collapsed by default.
 class ToolCallPart extends StatefulWidget {
-  const ToolCallPart({super.key, required this.part});
+  const ToolCallPart({
+    super.key,
+    required this.part,
+    this.mcpAppsMode,
+    this.mcpAppResourceFetcher,
+    this.enableMcpAppNativeRuntime = true,
+  });
   final ChatPart part;
+  final String? mcpAppsMode;
+  final McpAppResourceFetcher? mcpAppResourceFetcher;
+  final bool enableMcpAppNativeRuntime;
 
   @override
   State<ToolCallPart> createState() => _ToolCallPartState();
@@ -24,6 +35,7 @@ class _ToolCallPartState extends State<ToolCallPart> {
   // expanded, drowning the conversation. The header (tool name + status)
   // stays visible; users expand the calls they care about.
   bool _expanded = false;
+  bool _structuredExpanded = false;
 
   Color _statusColor(BuildContext context) {
     switch (widget.part.toolStatus) {
@@ -45,6 +57,13 @@ class _ToolCallPartState extends State<ToolCallPart> {
       return _GeneratedImageToolPart(part: part);
     }
     final name = part.toolName ?? '(unknown tool)';
+    final mode = widget.mcpAppsMode ??
+        Platform.environment['RHYTHM_MCP_APPS_MODE'] ??
+        'off';
+    final appDescriptor = (mode == 'readonly' || mode == 'interactive') &&
+            part.toolStatus == 'completed'
+        ? part.mcpAppResource
+        : null;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
@@ -100,6 +119,75 @@ class _ToolCallPartState extends State<ToolCallPart> {
               ),
             ),
           ),
+          if (appDescriptor != null) ...[
+            Divider(height: 1, color: context.rhythm.borderSubtle),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: McpAppReadOnlyView(
+                descriptor: appDescriptor,
+                mode: mode,
+                fallbackText: part.toolOutput ?? '',
+                structuredFallback: part.mcpResult?.structuredJson,
+                toolInput: part.toolArgs,
+                toolResult: part.mcpResult?.structuredContent,
+                fetchResource: widget.mcpAppResourceFetcher,
+                enableNativeRuntime: widget.enableMcpAppNativeRuntime,
+              ),
+            ),
+          ],
+          if (part.mcpResult?.structuredJson != null) ...[
+            Divider(height: 1, color: context.rhythm.borderSubtle),
+            InkWell(
+              onTap: () => setState(
+                () => _structuredExpanded = !_structuredExpanded,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 7, 10, 7),
+                child: Row(
+                  children: [
+                    Icon(
+                      _structuredExpanded
+                          ? Icons.expand_more
+                          : Icons.chevron_right,
+                      size: 16,
+                      color: context.rhythm.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Structured result',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_structuredExpanded)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!_expanded &&
+                        part.toolOutput != null &&
+                        part.toolOutput!.isNotEmpty) ...[
+                      SelectableText(part.toolOutput!),
+                      const SizedBox(height: 8),
+                    ],
+                    SelectableText(
+                      part.mcpResult!.structuredJson!,
+                      style: const TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
           if (_expanded) ...[
             Divider(height: 1, color: context.rhythm.borderSubtle),
             Padding(

@@ -1,0 +1,67 @@
+{
+  "issue": 1356,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1356-c1",
+      "text": "Malicious matrix covers scripts, local/private networking, navigation, links, storage, oversized/flooded messages, stale nonces, proof replay, device permissions, and teardown abuse.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs",
+      "test_id": "issue-1356-c1: malicious fixture matrix fails closed for every named attack",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1356-c2",
+      "text": "Context updates are explicitly confirmed, bounded, scanned, taint-recorded, and fenced as untrusted.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs",
+      "test_id": "issue-1356-c2: context updates require confirmation, bounds, scanning, taint records, and untrusted fencing",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1356-c3",
+      "text": "Packaged macOS enforces CSP/network/storage policies.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs",
+      "test_id": "issue-1356-c3: packaged macOS source enforces CSP, network denial, and ephemeral storage",
+      "status": "environment_blocked",
+      "reason": "The native policy compiles and its source contract passes, but a signed packaged macOS run is unavailable in this worker, so packaged enforcement remains unverified."
+    },
+    {
+      "criterion_id": "issue-1356-c4",
+      "text": "Feature flag supports all three modes; `off` remains immediate rollback.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs",
+      "test_id": "issue-1356-c4: exact three modes default off across fork and desktop",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1356-c5",
+      "text": "Architecture, supported methods, operations, troubleshooting, and manual smoke are documented.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs",
+      "test_id": "issue-1356-c5: architecture, methods, operations, troubleshooting, and manual smoke are documented",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1356-c6",
+      "text": "Interactive mode stays opt-in until human smoke approval.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1356_mcp_apps_ga_contract.test.mjs",
+      "test_id": "issue-1356-c6: interactive mode remains human-approved opt-in",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1356-c7",
+      "text": "Full fork/API/Flutter/MCP suites and security fixtures; isolated live behavioral suite; packaged smoke for both pilots in all modes; exact evidence recorded in `docs/ai/runs/`.",
+      "mode": "manual",
+      "status": "environment_blocked",
+      "reason": "UNVERIFIED: socket binding and packaged macOS UI execution are unavailable in this worker; orchestrator must run the documented live and packaged matrix and record exact evidence."
+    }
+  ],
+  "stack": "typescript-dart-swift",
+  "not_tested": [
+    "issue-1356-c3: signed packaged macOS enforcement requires the UI-capable orchestrator",
+    "issue-1356-c7: socket-bound live suite and packaged all-mode/two-pilot smoke require the UI-capable orchestrator"
+  ]
+}

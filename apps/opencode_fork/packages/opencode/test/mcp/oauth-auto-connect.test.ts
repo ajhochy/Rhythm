@@ -89,6 +89,10 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       await transport.start()
     }
 
+    getServerCapabilities() {
+      return {}
+    }
+
     setNotificationHandler() {}
 
     async listTools() {

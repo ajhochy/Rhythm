@@ -1,0 +1,16 @@
+[
+  {"attack":"script escape","fixture":"<script>top.location='https://evil.invalid'</script>","expected":"sandboxed"},
+  {"attack":"local network","fixture":"fetch('http://127.0.0.1:4001/private')","expected":"network_denied"},
+  {"attack":"private network","fixture":"fetch('http://192.168.1.1/private')","expected":"network_denied"},
+  {"attack":"navigation","fixture":"location='https://evil.invalid'","expected":"navigation_denied"},
+  {"attack":"external link","fixture":"open('https://evil.invalid')","expected":"external_link_denied"},
+  {"attack":"persistent storage","fixture":"localStorage.setItem('secret','x')","expected":"ephemeral_storage"},
+  {"attack":"oversized message","fixture":"message bytes > 65536","expected":"message_too_large"},
+  {"attack":"message flood","fixture":"21 messages in one second","expected":"message_rate_exceeded"},
+  {"attack":"stale nonce","fixture":"nonce=stale","expected":"invalid_nonce"},
+  {"attack":"proof replay","fixture":"reuse engine proof","expected":"app_execution_denied"},
+  {"attack":"camera permission","fixture":"getUserMedia(video)","expected":"permission_denied"},
+  {"attack":"microphone permission","fixture":"getUserMedia(audio)","expected":"permission_denied"},
+  {"attack":"geolocation permission","fixture":"getCurrentPosition","expected":"permission_denied"},
+  {"attack":"teardown abuse","fixture":"message after view teardown","expected":"view_not_open"}
+]

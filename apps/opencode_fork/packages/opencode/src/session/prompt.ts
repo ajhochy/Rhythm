@@ -71,6 +71,7 @@ import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { Global } from "@opencode-ai/core/global"
+import { mcpResultEnvelope } from "./mcp-result-envelope"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -637,6 +638,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // Rhythm carried patch (mcp-scope): build keyToServer from MCP metadata (not string-split)
       // then filter by session's mcpAllowlist before injecting tool schemas into model context.
       const mcpToolsAll = yield* mcp.tools()
+      const mcpAppTools = yield* mcp.appTools()
       const keyToServer = yield* mcp.toolClientNames()
       const allowedKeys = new Set(
         filterMcpToolsByAllowlist(Object.keys(mcpToolsAll), keyToServer, input.session.mcpAllowlist),
@@ -721,10 +723,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 ...(truncated.truncated && { outputPath: truncated.outputPath }),
               }
 
+              const appTool = mcpAppTools[key]
+              const advertisedAtMs = Date.now()
               const output = {
                 title: "",
                 metadata,
                 output: truncated.content,
+                mcpResult: mcpResultEnvelope(result),
+                mcpAppResource: appTool
+                  ? {
+                      sessionID: ctx.sessionID,
+                      callID: opts.toolCallId,
+                      serverName: appTool.client,
+                      cwd: input.session.directory,
+                      resourceUri: appTool.ui.resourceUri,
+                      advertisedAt: new Date(advertisedAtMs).toISOString(),
+                      expiresAt: new Date(advertisedAtMs + 10 * 60 * 1000).toISOString(),
+                    }
+                  : undefined,
                 attachments: attachments.map((attachment) => ({
                   ...attachment,
                   id: PartID.ascending(),

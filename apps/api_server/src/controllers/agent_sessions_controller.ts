@@ -38,6 +38,11 @@ import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import {
+  McpAppCapabilityBroker,
+  McpAppCapabilityDenied,
+} from '../services/mcp_app_capability_broker';
+import { deriveMcpAppCapabilityBinding } from '../services/mcp_app_capability_authority';
 
 type SdkAgent = Awaited<ReturnType<typeof opencodeClient.listAgents>>[number];
 
@@ -179,6 +184,7 @@ function parseBeforeCursor(value: unknown): number | undefined {
 
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
+const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { gitCheckout, probeVcs } from '../services/vcs_probe';
 
@@ -326,6 +332,31 @@ function resolveSdkSessionId(session: {
   // streaming. The persisted id is used ONLY as a read-only fallback for this
   // action when the live map has no entry yet.
   return opencodeSessionMap.get(session.id) ?? session.sdkSessionId ?? undefined;
+}
+
+async function resolveCurrentMcpAppBinding(
+  localSessionId: string,
+  callId: string,
+) {
+  const session = repo.findById(localSessionId);
+  if (!session) throw new McpAppCapabilityDenied();
+  const sdkSessionId = resolveSdkSessionId(session);
+  if (!sdkSessionId) throw new McpAppCapabilityDenied();
+  const [messages, resource] = await Promise.all([
+    opencodeClient.listMessages(sdkSessionId, session.cwd),
+    opencodeClient.readSessionMcpAppResource(
+      sdkSessionId,
+      callId,
+      session.cwd,
+    ),
+  ]);
+  return deriveMcpAppCapabilityBinding({
+    messages: messages as unknown[],
+    sdkSessionId,
+    callId,
+    cwd: session.cwd,
+    resourceText: resource.text,
+  });
 }
 
 export class AgentSessionsController {
@@ -1995,6 +2026,172 @@ export class AgentSessionsController {
       res.json(todos);
     } catch (err) {
       next(err);
+    }
+  }
+
+  async getMcpAppResource(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (Object.keys(req.query).length !== 0) {
+        throw AppError.notFound('McpAppResource');
+      }
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('McpAppResource');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.notFound('McpAppResource');
+
+      const resource = await opencodeClient.readSessionMcpAppResource(
+        sdkSessionId,
+        req.params.callId,
+        session.cwd,
+      );
+      res.json(resource);
+    } catch {
+      next(AppError.notFound('McpAppResource'));
+    }
+  }
+
+  async issueMcpAppCapability(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (
+        Object.keys(req.query).length !== 0 ||
+        !req.body ||
+        typeof req.body !== 'object' ||
+        Array.isArray(req.body) ||
+        Object.keys(req.body as Record<string, unknown>).length !== 0
+      ) {
+        throw new McpAppCapabilityDenied();
+      }
+      const current = await resolveCurrentMcpAppBinding(
+        req.params.id,
+        req.params.callId,
+      );
+      const session = repo.findById(req.params.id);
+      const sdkSessionId = session ? resolveSdkSessionId(session) : undefined;
+      if (!session || !sdkSessionId) throw new McpAppCapabilityDenied();
+      const engineProof = await opencodeClient.issueSessionMcpAppExecutionProof(
+        sdkSessionId,
+        req.params.callId,
+        session.cwd,
+      );
+      const engineExpiresAt = Date.parse(engineProof.expiresAt);
+      const expiresAt = Math.min(
+        current.originExpiresAt,
+        engineExpiresAt,
+        Date.now() + 60_000,
+      );
+      if (!Number.isFinite(engineExpiresAt) || expiresAt <= Date.now()) {
+        throw new McpAppCapabilityDenied();
+      }
+      const capability = mcpAppCapabilityBroker.issue({
+        ...current,
+        expiresAt,
+        engineProof: engineProof.proof,
+      });
+      res.json({
+        capability: capability.id,
+        expiresAt: capability.expiresAt,
+      });
+    } catch {
+      next(AppError.notFound('McpAppCapability'));
+    }
+  }
+
+  async brokerMcpAppCapability(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const body = req.body as Record<string, unknown> | undefined;
+      if (
+        Object.keys(req.query).length !== 0 ||
+        !body ||
+        typeof body !== 'object' ||
+        Array.isArray(body) ||
+        Object.keys(body).some(
+          (key) => !['capability', 'id', 'method', 'params'].includes(key),
+        ) ||
+        typeof body.capability !== 'string' ||
+        typeof body.id !== 'string' ||
+        (body.method !== 'host.next-gate' && body.method !== 'tools/call') ||
+        !body.params ||
+        typeof body.params !== 'object' ||
+        Array.isArray(body.params)
+      ) {
+        throw new McpAppCapabilityDenied();
+      }
+      if (body.method === 'tools/call') {
+        const params = body.params as Record<string, unknown>;
+        if (
+          Object.keys(params).some((key) => !['name', 'arguments'].includes(key)) ||
+          typeof params.name !== 'string' ||
+          !params.name ||
+          !params.arguments ||
+          typeof params.arguments !== 'object' ||
+          Array.isArray(params.arguments)
+        ) {
+          throw new McpAppCapabilityDenied();
+        }
+      }
+
+      // Reject malformed/replayed/cross-session requests before touching the
+      // engine. The current persisted binding is read only after this gate.
+      mcpAppCapabilityBroker.preflight(
+        body.capability,
+        body.id,
+        req.params.id,
+        req.params.callId,
+      );
+      const current = await resolveCurrentMcpAppBinding(
+        req.params.id,
+        req.params.callId,
+      );
+      const result = await mcpAppCapabilityBroker.consume(
+        {
+          capabilityId: body.capability,
+          correlationId: body.id,
+          binding: current,
+          payload: { method: body.method, params: body.params },
+        },
+        async (_request, authority) => {
+          if (body.method !== 'tools/call' || !authority.engineProof) {
+            throw AppError.forbidden('MCP App execution requires authorization');
+          }
+          const session = repo.findById(req.params.id);
+          const sdkSessionId = session ? resolveSdkSessionId(session) : undefined;
+          if (!session || !sdkSessionId) throw new McpAppCapabilityDenied();
+          const params = body.params as {
+            name: string;
+            arguments: Record<string, unknown>;
+          };
+          return opencodeClient.executeSessionMcpAppTool(
+            sdkSessionId,
+            req.params.callId,
+            session.cwd,
+            {
+              proof: authority.engineProof,
+              toolKey: params.name,
+              arguments: params.arguments,
+              requestId: body.id as string,
+            },
+          );
+        },
+      );
+      res.json(result);
+    } catch (error) {
+      if (error instanceof AppError) {
+        next(error);
+        return;
+      }
+      next(AppError.notFound('McpAppCapability'));
     }
   }
 

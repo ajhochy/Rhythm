@@ -69,6 +69,7 @@ const mcp = Layer.succeed(
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
     tools: () => Effect.succeed({}),
+    appTools: () => Effect.succeed({}),
     // Rhythm carried patch (mcp-scope): stub for test mock
     toolClientNames: () => Effect.succeed({}),
     prompts: () => Effect.succeed({}),

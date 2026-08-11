@@ -1,0 +1,64 @@
+{
+  "issue": 1343,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1343-c1",
+      "text": "Trusted shell loads on supported macOS versions.",
+      "mode": "manual",
+      "status": "environment_blocked",
+      "reason": "Requires debug and packaged-release WKWebView/AppBridge execution on every supported macOS version; see 1343-M1 in docs/ai/contracts/issue-1343-manual-evidence.md."
+    },
+    {
+      "criterion_id": "issue-1343-c2",
+      "text": "Inner iframe cannot access the outer bridge directly.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1343_mcp_app_isolation_probe_contract.test.mjs",
+      "test_id": "issue-1343-c2: the trusted shell exclusively owns the bridge and isolates the iframe",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1343-c3",
+      "text": "Boot nonce and origin checks reject invalid messages.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1343_mcp_app_isolation_probe_contract.test.mjs",
+      "test_id": "issue-1343-c3: boot nonce and origin rejection fail closed",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1343-c4",
+      "text": "Cookies/local storage do not cross views or app restart.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1343_mcp_app_isolation_probe_contract.test.mjs",
+      "test_id": "issue-1343-c4: every probe view uses isolated ephemeral storage",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1343-c5",
+      "text": "CSP blocks undeclared scripts, navigation, and network access.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1343_mcp_app_isolation_probe_contract.test.mjs",
+      "test_id": "issue-1343-c5: CSP, network, navigation, and download policy deny undeclared access",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1343-c6",
+      "text": "Size/lifecycle limits and teardown are observable.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/macos/RunnerTests/issue_1343_mcp_app_isolation_probe_contract.test.mjs",
+      "test_id": "issue-1343-c6: content, messages, views, dimensions, and lifetime are bounded",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1343-c7",
+      "text": "Go/no-go decision and dependency choice are documented.",
+      "mode": "manual",
+      "status": "passing",
+      "reason": "Requires human review of the completed debug/packaged evidence and an explicit dated GO or NO-GO ADR; see 1343-M7 in docs/ai/contracts/issue-1343-manual-evidence.md."
+    }
+  ],
+  "stack": "dart",
+  "not_tested": [
+    "issue-1343-c1"
+  ]
+}
