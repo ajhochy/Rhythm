@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1356 MCP Apps GA hardening
+- Files modified: native/Dart host limits and denials; intentionally unwired context policy; explicit malicious fixtures; native/Dart/fork/live contracts; GA guide, manual smoke, acceptance contract, and run evidence.
+- Checks run: native/GA source contracts 11 PASS / 2 live skipped; fork proof contracts 3 PASS / 33 expectations; Dart format PASS; Flutter analyze PASS with 296 pre-existing infos; focused Flutter runtime environment-blocked by socket EPERM.
+- Decisions made: cap each view at 20 messages/second and teardown on flood; deny every device permission/link by default; keep context updates unsupported until confirmation, bounds, scan, taint persistence, and fencing exist end to end.
+- Deviations from spec: socket-bound live verification and packaged all-mode/two-pilot smoke could not run in this worker and remain explicitly unclaimed.
+- Concerns: `interactive` must remain opt-in until a named human approves the packaged matrix; any fail-open result blocks GA.
+
 ### 2026-08-10 — issue #1355 dashboard MCP App pilot
 - Files modified: existing dashboard registration/result, additive trusted app-tool helper, self-contained dashboard resource, focused MCP/security contracts, and evidence records.
 - Checks run: focused MCP/security 13/13 PASS; MCP typecheck/build PASS; generic Dart host contract PASS; listener-dependent full-suite cases environment-blocked by socket EPERM.
@@ -73,7 +80,7 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Deviations from spec: interactive packaged-app evidence could not run in this non-UI managed worker; it remains explicit in the manual evidence matrix.
 - Concerns: a UI-capable orchestrator must run the focused Flutter test and malicious Debug/packaged Release fixture before activation.
 
-### 2026-08-11 — issue #1345 session-bound MCP App resource reads
+### 2026-08-10 — issue #1345 session-bound MCP App resource reads
 - Files modified: fork provenance/policy/session route, generated OpenAPI and both SDK surfaces, api_server owned route/controller/wrapper, fixed-localhost Flutter data source, acceptance/live contracts, and run log.
 - Checks run: fork #1345+#1352 9/9 PASS; fork and SDK typechecks PASS; SDK regeneration PASS; API contract 2/2 PASS with live skipped and API typecheck PASS; Flutter format/analyze PASS; Flutter and pre-existing API route tests BLOCKED before assertions by sandbox socket EPERM; GitNexus change detection MEDIUM and scoped to expected session/resource surfaces.
 - Decisions made: persist a 10-minute ISO-Z provenance envelope on completed tool state; revalidate mode, exact session/call/cwd, expiry, and the current same-server app registry before the sole bounded MCP read; return only exact single text HTML content.

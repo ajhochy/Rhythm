@@ -13,6 +13,7 @@ enum McpAppHostPolicy {
   static let maxWidth = 2_560
   static let maxHeight = 1_600
   static let maxLifetimeSeconds = 300
+  static let maxMessagesPerSecond = 20
 
   static let contentSecurityPolicy = [
     "default-src 'none'",
@@ -159,4 +160,38 @@ enum McpAppHostPolicy {
   static func allowsNetworkRequest(to _: URL) -> Bool { false }
 
   static func allowsNavigation(to _: URL) -> Bool { false }
+
+  static func allowsExternalLink(to _: URL) -> Bool { false }
+
+  static func allowsDevicePermission(_ permission: String) -> Bool {
+    // camera, microphone, geolocation, mediaCapture and every unknown future
+    // permission are denied by the same default.
+    _ = permission
+    return false
+  }
+
+  /// Per-view limiter. A flood closes the view so teardown abuse cannot keep
+  /// dispatching messages after the first limit violation.
+  final class MessageRateLimiter {
+    private var windowStartedAt: TimeInterval?
+    private var messageRate = 0
+    private(set) var closedView = false
+
+    func accepts(now: TimeInterval) -> Bool {
+      guard !closedView else { return false }
+      if windowStartedAt == nil || now - windowStartedAt! >= 1 {
+        windowStartedAt = now
+        messageRate = 1
+        return true
+      }
+      messageRate += 1
+      if messageRate > maxMessagesPerSecond {
+        teardown()
+        return false
+      }
+      return true
+    }
+
+    func teardown() { closedView = true }
+  }
 }

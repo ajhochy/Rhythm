@@ -49,3 +49,7 @@ test('issue-1350-c3: every configuration owns nonpersistent storage', () => {
 test('issue-1350-c4: CSP, network, navigation, and downloads deny by default', () => {
   runContract('csp-network-navigation');
 });
+
+test('issue-1356-c1: native flood, device, link, private-network, and teardown attacks deny', () => {
+  runContract('ga-malicious-matrix');
+});

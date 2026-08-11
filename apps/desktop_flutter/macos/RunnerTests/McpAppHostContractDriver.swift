@@ -36,6 +36,21 @@ private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
         require(!McpAppHostPolicy.allowsNavigation(to:url), "navigation allowed")
       }
       require(!McpAppHostPolicy.allowsDownloads, "downloads allowed")
+    case "ga-malicious-matrix":
+      let limiter = McpAppHostPolicy.MessageRateLimiter()
+      for _ in 0..<McpAppHostPolicy.maxMessagesPerSecond {
+        require(limiter.accepts(now: 1), "bounded message denied")
+      }
+      require(!limiter.accepts(now: 1), "message flood allowed")
+      require(limiter.closedView, "flood did not teardown view")
+      require(!limiter.accepts(now: 2), "closed view accepted teardown abuse")
+      for permission in ["camera", "microphone", "geolocation", "mediaCapture", "unknown"] {
+        require(!McpAppHostPolicy.allowsDevicePermission(permission), "device permission allowed")
+      }
+      let link = URL(string: "https://evil.invalid/")!
+      require(!McpAppHostPolicy.allowsExternalLink(to: link), "external link allowed")
+      let privateURL = URL(string: "http://192.168.1.1/")!
+      require(!McpAppHostPolicy.allowsNetworkRequest(to: privateURL), "private network allowed")
     default: exit(2)
     }
   }

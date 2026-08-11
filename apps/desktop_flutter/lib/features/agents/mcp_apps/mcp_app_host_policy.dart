@@ -10,6 +10,7 @@ abstract final class McpAppHostLimits {
   static const maxLifetime = Duration(minutes: 5);
   static const maxRequestIdBytes = 256;
   static const maxBootNonceBytes = 256;
+  static const maxMessagesPerSecond = 20;
 }
 
 enum McpAppHostMode {
@@ -76,6 +77,8 @@ final class McpAppHostViewState {
   final DateTime openedAt;
   final McpAppHostMode mode;
   bool isOpen = true;
+  DateTime? messageWindowStartedAt;
+  int messageRate = 0;
 }
 
 /// Pure-Dart authority for host view/message limits.
@@ -159,6 +162,19 @@ final class McpAppHostPolicy {
     if (origin != 'null') {
       return const McpAppHostDecision.deny('invalid_origin');
     }
+    final now = _now().toUtc();
+    final windowStart = state.messageWindowStartedAt;
+    if (windowStart == null ||
+        now.difference(windowStart) >= const Duration(seconds: 1)) {
+      state.messageWindowStartedAt = now;
+      state.messageRate = 1;
+    } else {
+      state.messageRate++;
+      if (state.messageRate > McpAppHostLimits.maxMessagesPerSecond) {
+        teardown(viewId);
+        return const McpAppHostDecision.deny('message_rate_exceeded');
+      }
+    }
     if (_utf8Length(encodedMessage) > McpAppHostLimits.maxMessageBytes) {
       teardown(viewId);
       return const McpAppHostDecision.deny('message_too_large');
@@ -205,6 +221,11 @@ final class McpAppHostPolicy {
   void teardown(String viewId) {
     _views[viewId]?.isOpen = false;
   }
+
+  /// MCP Apps never receive device access or host-controlled link handling.
+  static bool allowsDevicePermission(String _) => false;
+
+  static bool allowsExternalLink(Uri _) => false;
 
   void teardownAll() {
     for (final view in _views.values) {
