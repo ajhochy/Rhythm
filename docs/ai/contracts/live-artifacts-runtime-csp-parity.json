@@ -1,0 +1,37 @@
+{
+  "issue": "SLICE-RT",
+  "date": "2026-08-10",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/live_artifacts.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-runtime-csp-parity-c1",
+      "text": "Header and meta CSP use the exact Claude-parity allowlist; the header retains sandbox allow-scripts and frame-ancestors 'none', while bridge nonce binding remains intact.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-runtime-csp-parity-c2",
+      "text": "Full HTML documents are injected in place with head/body additions and no second document wrapper; fragment bundles retain the wrapper.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-runtime-csp-parity-c3",
+      "text": "Meta refresh stripping and CSS/JS closing-tag escaping apply in both fragment and full-document render paths, and inline full-document style/script blocks pass through intact.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-runtime-csp-parity-c4",
+      "text": "Live sandbox rendering returns a standalone document with unmodified inline blocks, one doctype, and the new CSP header.",
+      "mode": "live",
+      "test": "live HTTP create/render assertion recorded in docs/ai/runs/2026-08-10-runtime-csp-parity.md",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}
