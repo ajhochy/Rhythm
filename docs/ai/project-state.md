@@ -36,3 +36,12 @@ Live-artifact automated verification passed, but the human visual smoke **failed
 ## Next step
 
 Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+
+## Recent coding-agent runs
+
+### 2026-08-10 — flaky races #1247 and #1310
+- Files modified: mobile fake SSE server + issue #1247 contract; fork runtime flags, session shell cancellation, prompt tests + issue #1310 contract.
+- Checks run: #1247 socket-free handshake contract 5/5; mobile lint (0 errors, 2 pre-existing warnings) and typecheck pass; #1310 two-test shell-cancel scope 10/10; fork typecheck, runner cancel tests (11/11), and cross-spawn escalation test (1/1) pass.
+- Decisions made: replay pending permission only to the newly ready SSE subscriber; preserve the fork's 3000 ms production grace while injecting zero in tests; replace the fixed 50 ms shell-start delay with a process-created readiness marker.
+- Deviations from spec: the exact #1247 Playwright spec executed 0/5 because its web server cannot bind localhost in this managed workspace (`listen EPERM`). The fork's full session suite also cannot bind its test servers (`EADDRINUSE`).
+- Concerns: rerun the exact #1247 Playwright 5x and the blocked listener-backed/full project gates in a listener-capable environment; no remote push was performed.
