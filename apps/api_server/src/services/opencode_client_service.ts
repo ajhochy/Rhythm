@@ -2651,6 +2651,55 @@ export class OpencodeClientService {
     return raw.data;
   }
 
+  async issueSessionMcpAppExecutionProof(
+    sdkId: string,
+    callId: string,
+    directory: string,
+  ): Promise<{ proof: string; expiresAt: string }> {
+    const client = await this.v2Client();
+    const raw = await client.session.mcpAppExecutionProof({
+      sessionID: sdkId,
+      callID: callId,
+      directory,
+      body: {},
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(404, 'NOT_FOUND', 'MCP App execution proof unavailable');
+    }
+    return raw.data;
+  }
+
+  async executeSessionMcpAppTool(
+    sdkId: string,
+    callId: string,
+    directory: string,
+    input: {
+      proof: string;
+      toolKey: string;
+      arguments: Record<string, unknown>;
+      requestId: string;
+    },
+  ): Promise<{
+    content?: unknown[];
+    structuredContent?: unknown;
+    isError?: boolean;
+  }> {
+    const client = await this.v2Client();
+    const raw = await client.session.mcpAppExecution({
+      sessionID: sdkId,
+      callID: callId,
+      directory,
+      proof: input.proof,
+      toolKey: input.toolKey,
+      input: input.arguments,
+      requestID: input.requestId,
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(403, 'MCP_APP_EXECUTION_DENIED', 'MCP App execution denied');
+    }
+    return raw.data;
+  }
+
   /**
    * GET /session/{id}/todo — todo list for the session.
    *

@@ -143,6 +143,10 @@ import type {
   SessionInitErrors,
   SessionInitResponses,
   SessionListResponses,
+  SessionMcpAppExecutionErrors,
+  SessionMcpAppExecutionProofErrors,
+  SessionMcpAppExecutionProofResponses,
+  SessionMcpAppExecutionResponses,
   SessionMcpAppResourceErrors,
   SessionMcpAppResourceResponses,
   SessionMessageErrors,
@@ -4045,6 +4049,102 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/mcp-app-resource/{callID}",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Issue a session-bound MCP App execution proof
+   */
+  public mcpAppExecutionProof<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      callID: string
+      directory?: string
+      workspace?: string
+      body?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "callID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionMcpAppExecutionProofResponses,
+      SessionMcpAppExecutionProofErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/mcp-app-execution/{callID}/proof",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Execute an authorized same-server MCP App tool call
+   */
+  public mcpAppExecution<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      callID: string
+      directory?: string
+      workspace?: string
+      proof?: string
+      toolKey?: string
+      input?: {
+        [key: string]: unknown
+      }
+      requestID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "callID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "proof" },
+            { in: "body", key: "toolKey" },
+            { in: "body", key: "input" },
+            { in: "body", key: "requestID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionMcpAppExecutionResponses,
+      SessionMcpAppExecutionErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/mcp-app-execution/{callID}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }

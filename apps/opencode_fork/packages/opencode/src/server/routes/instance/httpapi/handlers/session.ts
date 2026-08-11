@@ -15,9 +15,15 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MCP } from "@/mcp"
 import { readSessionBoundMcpAppResource } from "@/session/mcp-app-resource"
+import { createMcpAppExecutionGate } from "@/session/mcp-app-execution"
+import { filterMcpToolsByAllowlist } from "@/session/mcp_allowlist"
+import { Plugin } from "@/plugin"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
+import { createHash } from "node:crypto"
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv"
+import type { ToolExecutionOptions } from "ai"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
@@ -38,6 +44,9 @@ import {
 } from "../groups/session"
 import * as SessionError from "./session-errors"
 
+const mcpAppExecutionGate = createMcpAppExecutionGate()
+const mcpAppInputValidator = new AjvJsonSchemaValidator()
+
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
@@ -51,6 +60,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const mcp = yield* MCP.Service
+    const plugin = yield* Plugin.Service
     const summary = yield* SessionSummary.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
@@ -190,6 +200,174 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
             {
               readResource: ({ serverName, resourceUri }) =>
                 Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+            },
+          ),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+    })
+
+    const mcpAppExecutionProof = Effect.fn("SessionHttpApi.mcpAppExecutionProof")(function* (ctx: {
+      params: { sessionID: SessionID; callID: string }
+    }) {
+      if (process.env.RHYTHM_MCP_APPS_MODE !== "interactive") {
+        return yield* new HttpApiError.BadRequest({})
+      }
+      const current = yield* requireSession(ctx.params.sessionID)
+      const found = yield* SessionError.mapStorageNotFound(
+        session.findMessage(ctx.params.sessionID, (entry) =>
+          entry.parts.some((part) => part.type === "tool" && part.callID === ctx.params.callID),
+        ),
+      )
+      const message = Option.getOrUndefined(found)
+      const part = message?.parts.find((item) => item.type === "tool" && item.callID === ctx.params.callID)
+      if (!part || part.type !== "tool" || part.state.status !== "completed" || !part.state.mcpAppResource) {
+        return yield* new HttpApiError.BadRequest({})
+      }
+      const origin = part.state.mcpAppResource
+      const registry = yield* mcp.appTools()
+      if (
+        !Object.values(registry).some(
+          (tool) => tool.client === origin.serverName && tool.ui.resourceUri === origin.resourceUri,
+        )
+      )
+        return yield* new HttpApiError.BadRequest({})
+
+      const resource = yield* Effect.tryPromise({
+        try: () =>
+          readSessionBoundMcpAppResource(
+            {
+              mode: "interactive",
+              sessionID: current.id,
+              callID: ctx.params.callID,
+              cwd: current.directory,
+              now: new Date().toISOString(),
+              persistedOrigin: origin,
+            },
+            {
+              readResource: ({ serverName, resourceUri }) =>
+                Effect.runPromise(mcp.readResource(serverName, resourceUri)),
+            },
+          ),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      const expiresAt = Math.min(Date.parse(origin.expiresAt), Date.now() + 60_000)
+      const proof = mcpAppExecutionGate.issueProof({
+        sessionID: current.id,
+        callID: ctx.params.callID,
+        serverName: origin.serverName,
+        resourceUri: origin.resourceUri,
+        cwd: origin.cwd,
+        contentHash: `sha256:${createHash("sha256").update(resource.text, "utf8").digest("hex")}`,
+        expiresAt,
+      })
+      return { proof, expiresAt: new Date(expiresAt).toISOString() }
+    })
+
+    const mcpAppExecution = Effect.fn("SessionHttpApi.mcpAppExecution")(function* (ctx: {
+      params: { sessionID: SessionID; callID: string }
+      payload: { proof: string; toolKey: string; input: Record<string, unknown>; requestID: string }
+    }) {
+      if (process.env.RHYTHM_MCP_APPS_MODE !== "interactive") {
+        return yield* new HttpApiError.BadRequest({})
+      }
+      const current = yield* requireSession(ctx.params.sessionID)
+      const found = yield* SessionError.mapStorageNotFound(
+        session.findMessage(ctx.params.sessionID, (entry) =>
+          entry.parts.some((part) => part.type === "tool" && part.callID === ctx.params.callID),
+        ),
+      )
+      const message = Option.getOrUndefined(found)
+      const part = message?.parts.find((item) => item.type === "tool" && item.callID === ctx.params.callID)
+      if (
+        !message ||
+        !part ||
+        part.type !== "tool" ||
+        part.state.status !== "completed" ||
+        !part.state.mcpAppResource
+      ) {
+        return yield* new HttpApiError.BadRequest({})
+      }
+      const origin = part.state.mcpAppResource
+      const agentName = current.agent ?? (yield* agentSvc.defaultAgent())
+      const agent = yield* agentSvc.get(agentName)
+      const options = MCP.withRhythmSecurityContext(
+        { toolCallId: ctx.payload.requestID, messages: [] } as ToolExecutionOptions,
+        {
+          sdkSessionId: current.id,
+          turnId: message.info.id,
+          agentName,
+          toolCallId: ctx.payload.requestID,
+        },
+      )
+      return yield* Effect.tryPromise({
+        try: () =>
+          mcpAppExecutionGate.execute(
+            {
+              proof: ctx.payload.proof,
+              sessionID: current.id,
+              callID: ctx.params.callID,
+              toolKey: ctx.payload.toolKey,
+              input: ctx.payload.input,
+              origin,
+            },
+            {
+              appTools: async () => {
+                const registry = await Effect.runPromise(mcp.appTools())
+                return Object.fromEntries(
+                  Object.entries(registry).map(([key, tool]) => [
+                    key,
+                    {
+                      ...tool,
+                      key,
+                      visibility: tool.ui.visibility,
+                    },
+                  ]),
+                )
+              },
+              isAllowed: async (toolKey) =>
+                filterMcpToolsByAllowlist([toolKey], { [toolKey]: origin.serverName }, current.mcpAllowlist).length ===
+                1,
+              validateInput: async (schema, input) => {
+                try {
+                  return mcpAppInputValidator.getValidator(schema as never)(input).valid
+                } catch {
+                  return false
+                }
+              },
+              before: (toolKey, input) =>
+                Effect.runPromise(
+                  plugin.trigger(
+                    "tool.execute.before",
+                    { tool: toolKey, sessionID: current.id, callID: ctx.payload.requestID },
+                    { args: input },
+                  ),
+                ).then(() => undefined),
+              approve: (toolKey) =>
+                Effect.runPromise(
+                  permissionSvc.ask({
+                    permission: toolKey,
+                    metadata: {},
+                    patterns: ["*"],
+                    always: ["*"],
+                    sessionID: current.id,
+                    tool: { messageID: message.info.id, callID: ctx.payload.requestID },
+                    ruleset: Permission.merge(agent.permission, current.permission ?? []),
+                  }),
+                ),
+              execute: (_tool, input) => {
+                if (!mcp.executeAppTool) return Promise.reject(new Error("app execution unavailable"))
+                return Effect.runPromise(
+                  mcp.executeAppTool(ctx.payload.toolKey, input as Record<string, unknown>, options),
+                )
+              },
+              after: (toolKey, input, result) =>
+                Effect.runPromise(
+                  plugin.trigger(
+                    "tool.execute.after",
+                    { tool: toolKey, sessionID: current.id, callID: ctx.payload.requestID, args: input },
+                    result as never,
+                  ),
+                ).then(() => undefined),
             },
           ),
         catch: () => new HttpApiError.BadRequest({}),
@@ -462,6 +640,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("messages", messages)
       .handle("message", message)
       .handle("mcpAppResource", mcpAppResource)
+      .handle("mcpAppExecutionProof", mcpAppExecutionProof)
+      .handle("mcpAppExecution", mcpAppExecution)
       .handleRaw("create", createRaw)
       .handle("remove", remove)
       .handle("update", update)

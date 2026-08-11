@@ -31,10 +31,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import {
-  signRhythmMcpCall,
-  type RhythmMcpCallIdentity,
-} from "@/security/rhythm-mcp-proof"
+import { signRhythmMcpCall, type RhythmMcpCallIdentity } from "@/security/rhythm-mcp-proof"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -142,11 +139,7 @@ export function rhythmSecurityRequestMeta(
   const context = (options as RhythmToolExecutionOptions)[RHYTHM_SECURITY_CONTEXT]
   if (!context) return undefined
   return {
-    [RHYTHM_SECURITY_CONTEXT_META_KEY]: signRhythmMcpCall(
-      context,
-      toolName,
-      args,
-    ),
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: signRhythmMcpCall(context, toolName, args),
   }
 }
 
@@ -252,11 +245,7 @@ function listTools(key: string, client: MCPClient, timeout: number) {
             timeout,
           }),
         catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-      }).pipe(
-        Effect.map((result) =>
-          result.tools.map((tool) => ({ ...tool })),
-        ),
-      )
+      }).pipe(Effect.map((result) => result.tools.map((tool) => ({ ...tool }))))
     }),
   )
 }
@@ -277,11 +266,7 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
     description: mcpTool.description ?? "",
     inputSchema: jsonSchema(schema),
     execute: async (args: unknown, options: ToolExecutionOptions) => {
-      const securityMeta = rhythmSecurityRequestMeta(
-        options,
-        mcpTool.name,
-        args,
-      )
+      const securityMeta = rhythmSecurityRequestMeta(options, mcpTool.name, args)
       return client.callTool(
         {
           name: mcpTool.name,
@@ -359,6 +344,11 @@ export interface Interface {
   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
   readonly tools: () => Effect.Effect<Record<string, Tool>>
   readonly appTools: () => Effect.Effect<Record<string, McpAppTool>>
+  readonly executeAppTool?: (
+    key: string,
+    args: Record<string, unknown>,
+    options: ToolExecutionOptions,
+  ) => Effect.Effect<unknown, Error>
   /** Rhythm carried patch (mcp-scope): returns composedKey → raw clientName for every connected tool. */
   readonly toolClientNames: () => Effect.Effect<Record<string, string>>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
@@ -850,14 +840,40 @@ export const layer = Layer.effect(
       return result
     })
 
+    const executeAppTool = Effect.fn("MCP.executeAppTool")(function* (
+      key: string,
+      args: Record<string, unknown>,
+      options: ToolExecutionOptions,
+    ) {
+      if (mcpAppsMode() !== "interactive") return yield* Effect.fail(new Error("app execution unavailable"))
+      const registry = yield* appTools()
+      const tool = registry[key]
+      if (!tool) return yield* Effect.fail(new Error("app execution unavailable"))
+      const s = yield* InstanceState.get(state)
+      const client = s.clients[tool.client]
+      if (!client || s.status[tool.client]?.status !== "connected") {
+        return yield* Effect.fail(new Error("app execution unavailable"))
+      }
+      const cfg = yield* cfgSvc.get()
+      const configured = cfg.mcp?.[tool.client]
+      const timeout =
+        configured && isMcpConfigured(configured)
+          ? (configured.timeout ?? cfg.experimental?.mcp_timeout)
+          : cfg.experimental?.mcp_timeout
+      const executable = convertMcpTool(tool, client, timeout).execute
+      if (!executable) return yield* Effect.fail(new Error("app execution unavailable"))
+      return yield* Effect.tryPromise({
+        try: () => executable(args, options),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      })
+    })
+
     // Rhythm carried patch (mcp-scope): builds composedKey → raw clientName without
     // splitting on "_" so hyphenated server names (e.g. "gmail-work") are preserved.
     const toolClientNames = Effect.fn("MCP.toolClientNames")(function* () {
       const result: Record<string, string> = {}
       const s = yield* InstanceState.get(state)
-      for (const [clientName] of Object.entries(s.clients).filter(
-        ([name]) => s.status[name]?.status === "connected",
-      )) {
+      for (const [clientName] of Object.entries(s.clients).filter(([name]) => s.status[name]?.status === "connected")) {
         const listed = s.defs[clientName]
         if (!listed) continue
         for (const mcpTool of listed) {
@@ -1110,6 +1126,7 @@ export const layer = Layer.effect(
       clients,
       tools,
       appTools,
+      executeAppTool,
       toolClientNames,
       prompts,
       resources,

@@ -22,6 +22,7 @@ interface StoredCapability {
   binding: McpAppCapabilityBinding;
   expiresAt: number;
   correlations: Set<string>;
+  engineProof?: string;
 }
 
 const MAX_CAPABILITY_LIFETIME_MS = 5 * 60 * 1000;
@@ -52,7 +53,7 @@ export class McpAppCapabilityBroker {
   ) {}
 
   issue(
-    binding: McpAppCapabilityBinding & { expiresAt: number },
+    binding: McpAppCapabilityBinding & { expiresAt: number; engineProof?: string },
   ): { id: string; expiresAt: string } {
     const now = this.now();
     if (
@@ -60,6 +61,8 @@ export class McpAppCapabilityBroker {
       !Number.isFinite(binding.expiresAt) ||
       binding.expiresAt <= now ||
       binding.expiresAt - now > MAX_CAPABILITY_LIFETIME_MS
+      || (binding.engineProof !== undefined &&
+        (!binding.engineProof || Buffer.byteLength(binding.engineProof, 'utf8') > 8192))
     ) {
       throw new McpAppCapabilityDenied();
     }
@@ -71,13 +74,17 @@ export class McpAppCapabilityBroker {
       binding: this.copyBinding(binding),
       expiresAt: binding.expiresAt,
       correlations: new Set(),
+      engineProof: binding.engineProof,
     });
     return { id, expiresAt: new Date(binding.expiresAt).toISOString() };
   }
 
   async consume<T, R>(
     request: McpAppCapabilityRequest<T>,
-    forward: (request: McpAppCapabilityRequest<T>) => Promise<R>,
+    forward: (
+      request: McpAppCapabilityRequest<T>,
+      authority: { engineProof?: string },
+    ) => Promise<R>,
   ): Promise<R> {
     const stored = this.capabilities.get(request.capabilityId);
     if (
@@ -93,7 +100,7 @@ export class McpAppCapabilityBroker {
 
     // Mark before forwarding so concurrent duplicates cannot both pass.
     stored.correlations.add(request.correlationId);
-    return forward(request);
+    return forward(request, { engineProof: stored.engineProof });
   }
 
   /** Validate cheap caller-controlled fields before any engine/resource read. */

@@ -5516,6 +5516,82 @@ export type SessionMcpAppResourceResponses = {
     200: McpAppResourceContent;
 };
 export type SessionMcpAppResourceResponse = SessionMcpAppResourceResponses[keyof SessionMcpAppResourceResponses];
+export type SessionMcpAppExecutionProofData = {
+    body?: {
+        [key: string]: unknown;
+    };
+    path: {
+        sessionID: string;
+        callID: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+    };
+    url: "/session/{sessionID}/mcp-app-execution/{callID}/proof";
+};
+export type SessionMcpAppExecutionProofErrors = {
+    /**
+     * Bad request
+     */
+    400: BadRequestError;
+    /**
+     * NotFoundError
+     */
+    404: NotFoundError;
+};
+export type SessionMcpAppExecutionProofError = SessionMcpAppExecutionProofErrors[keyof SessionMcpAppExecutionProofErrors];
+export type SessionMcpAppExecutionProofResponses = {
+    /**
+     * Engine-signed MCP App execution proof
+     */
+    200: {
+        proof: string;
+        expiresAt: string;
+    };
+};
+export type SessionMcpAppExecutionProofResponse = SessionMcpAppExecutionProofResponses[keyof SessionMcpAppExecutionProofResponses];
+export type SessionMcpAppExecutionData = {
+    body?: {
+        proof: string;
+        toolKey: string;
+        input: {
+            [key: string]: unknown;
+        };
+        requestID: string;
+    };
+    path: {
+        sessionID: string;
+        callID: string;
+    };
+    query?: {
+        directory?: string;
+        workspace?: string;
+    };
+    url: "/session/{sessionID}/mcp-app-execution/{callID}";
+};
+export type SessionMcpAppExecutionErrors = {
+    /**
+     * Bad request
+     */
+    400: BadRequestError;
+    /**
+     * NotFoundError
+     */
+    404: NotFoundError;
+};
+export type SessionMcpAppExecutionError = SessionMcpAppExecutionErrors[keyof SessionMcpAppExecutionErrors];
+export type SessionMcpAppExecutionResponses = {
+    /**
+     * Origin-bound MCP App tool result
+     */
+    200: {
+        content?: Array<unknown>;
+        structuredContent?: unknown;
+        isError?: boolean;
+    };
+};
+export type SessionMcpAppExecutionResponse = SessionMcpAppExecutionResponses[keyof SessionMcpAppExecutionResponses];
 export type SyncStartData = {
     body?: never;
     path?: never;

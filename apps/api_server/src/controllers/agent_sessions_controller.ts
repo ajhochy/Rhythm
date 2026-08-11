@@ -1976,13 +1976,27 @@ export class AgentSessionsController {
         req.params.id,
         req.params.callId,
       );
+      const session = repo.findById(req.params.id);
+      const sdkSessionId = session ? resolveSdkSessionId(session) : undefined;
+      if (!session || !sdkSessionId) throw new McpAppCapabilityDenied();
+      const engineProof = await opencodeClient.issueSessionMcpAppExecutionProof(
+        sdkSessionId,
+        req.params.callId,
+        session.cwd,
+      );
+      const engineExpiresAt = Date.parse(engineProof.expiresAt);
       const expiresAt = Math.min(
         current.originExpiresAt,
+        engineExpiresAt,
         Date.now() + 60_000,
       );
+      if (!Number.isFinite(engineExpiresAt) || expiresAt <= Date.now()) {
+        throw new McpAppCapabilityDenied();
+      }
       const capability = mcpAppCapabilityBroker.issue({
         ...current,
         expiresAt,
+        engineProof: engineProof.proof,
       });
       res.json({
         capability: capability.id,
@@ -2010,12 +2024,25 @@ export class AgentSessionsController {
         ) ||
         typeof body.capability !== 'string' ||
         typeof body.id !== 'string' ||
-        body.method !== 'host.next-gate' ||
+        (body.method !== 'host.next-gate' && body.method !== 'tools/call') ||
         !body.params ||
         typeof body.params !== 'object' ||
         Array.isArray(body.params)
       ) {
         throw new McpAppCapabilityDenied();
+      }
+      if (body.method === 'tools/call') {
+        const params = body.params as Record<string, unknown>;
+        if (
+          Object.keys(params).some((key) => !['name', 'arguments'].includes(key)) ||
+          typeof params.name !== 'string' ||
+          !params.name ||
+          !params.arguments ||
+          typeof params.arguments !== 'object' ||
+          Array.isArray(params.arguments)
+        ) {
+          throw new McpAppCapabilityDenied();
+        }
       }
 
       // Reject malformed/replayed/cross-session requests before touching the
@@ -2030,21 +2057,38 @@ export class AgentSessionsController {
         req.params.id,
         req.params.callId,
       );
-      await mcpAppCapabilityBroker.consume(
+      const result = await mcpAppCapabilityBroker.consume(
         {
           capabilityId: body.capability,
           correlationId: body.id,
           binding: current,
           payload: { method: body.method, params: body.params },
         },
-        async () => {
-          // #1357 owns execution. Reaching this callback proves that the view
-          // capability passed; this issue intentionally stops at the next
-          // authorization gate and executes no MCP request.
-          throw AppError.forbidden('MCP App execution requires authorization');
+        async (_request, authority) => {
+          if (body.method !== 'tools/call' || !authority.engineProof) {
+            throw AppError.forbidden('MCP App execution requires authorization');
+          }
+          const session = repo.findById(req.params.id);
+          const sdkSessionId = session ? resolveSdkSessionId(session) : undefined;
+          if (!session || !sdkSessionId) throw new McpAppCapabilityDenied();
+          const params = body.params as {
+            name: string;
+            arguments: Record<string, unknown>;
+          };
+          return opencodeClient.executeSessionMcpAppTool(
+            sdkSessionId,
+            req.params.callId,
+            session.cwd,
+            {
+              proof: authority.engineProof,
+              toolKey: params.name,
+              arguments: params.arguments,
+              requestId: body.id as string,
+            },
+          );
         },
       );
-      throw AppError.forbidden('MCP App execution requires authorization');
+      res.json(result);
     } catch (error) {
       if (error instanceof AppError) {
         next(error);

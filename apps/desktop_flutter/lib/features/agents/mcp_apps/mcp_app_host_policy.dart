@@ -87,7 +87,11 @@ final class McpAppHostPolicy {
   McpAppHostPolicy({required DateTime Function() now}) : _now = now;
 
   static const _readOnlyMethods = {'host.ping'};
-  static const _interactiveMethods = {'host.ping', 'host.next-gate'};
+  static const _interactiveMethods = {
+    'host.ping',
+    'host.next-gate',
+    'tools/call',
+  };
 
   final DateTime Function() _now;
   final Map<String, McpAppHostViewState> _views = {};
@@ -191,7 +195,8 @@ final class McpAppHostPolicy {
     if (!supported.contains(method)) {
       return const McpAppHostDecision.deny('unsupported_method');
     }
-    if (method == 'host.next-gate' && params is! Map<String, dynamic>) {
+    if ((method == 'host.next-gate' || method == 'tools/call') &&
+        params is! Map<String, dynamic>) {
       return const McpAppHostDecision.deny('malformed_message');
     }
     return McpAppHostDecision.allow(id, method);

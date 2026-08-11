@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1357 same-server MCP App execution
+- Files modified: fork proof/execution gate and endpoints; regenerated v2 SDK; API server-only proof broker and typed wrappers; Flutter `tools/call` transport policy; focused contract/live tests and run log.
+- Checks run: fork focused contracts 11/11 PASS and typecheck PASS; SDK regeneration PASS; API focused contracts 4 PASS / live skipped and typecheck PASS; pure-Dart interactive transport PASS.
+- Decisions made: engine signs the persisted origin/resource hash for at most 60 seconds; API retains proof only in process; proof is consumed before permission/hook/MCP side effects; current app registry, profile allowlist, and AJV input schema are rechecked at execution.
+- Deviations from spec: live sandbox and packaged/debug permission smoke could not run because this worker cannot bind sockets or operate packaged UI.
+- Concerns: orchestrator must run approved, permission-denied, and cross-server live fixtures plus packaged/debug smoke before enabling interactive mode.
+
 ### 2026-08-10 — issue #1353 MCP App capability broker and transport
 - Files modified: additive API capability broker/authority and owned session routes; bounded Flutter transport and interactive trusted-shell integration; focused contract/live tests and run log.
 - Checks run: API broker 2/2 PASS with live env-gated/skipped; API typecheck PASS; Dart transport/policy contract PASS; Flutter analyze PASS with 296 pre-existing infos.
