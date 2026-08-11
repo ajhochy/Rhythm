@@ -1,0 +1,16 @@
+{
+  "issue": 1247,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1247-c1",
+      "text": "Make the fake server's permission event deterministic (emit on subscription/ready handshake rather than racing the client), so the approval roundtrip cannot race under slow CI.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1247.test.mjs",
+      "test_id": "issue-1247-c1: a permission created before SSE subscription is replayed by the ready handshake",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
