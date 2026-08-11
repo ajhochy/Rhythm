@@ -317,8 +317,9 @@ export class AgentSessionsRepository {
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            anthropic_account_id, owner_user_id, parent_session_id,
+            delegation_depth, category, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -335,6 +336,7 @@ export class AgentSessionsRepository {
         dto.isSystem ? 1 : 0,
         dto.anthropicAccountId ?? null,
         dto.ownerUserId ?? null,
+        dto.parentSessionId ?? null,
         dto.delegationDepth ?? 0,
         category,
         now,
@@ -421,7 +423,7 @@ export class AgentSessionsRepository {
         ? "category = 'scheduled'"
         : scope === 'self_improvement'
           ? "category = 'self_improvement'"
-          : "category = 'chat' AND is_system = 0";
+          : "category = 'chat' AND is_system = 0 AND parent_session_id IS NULL";
     const archiveClause = opts.archivedOnly
       ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived

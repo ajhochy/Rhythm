@@ -177,6 +177,7 @@ export async function delegateToAgent(
     outputTarget: 'session',
     cwd: input.cwd ?? undefined,
     ownerUserId: callerSession.ownerUserId,
+    parentSessionId: callerSession.id,
     delegationDepth: childDepth,
     ...(modelOverride ? { modelOverride } : {}),
   });
