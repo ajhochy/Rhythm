@@ -83,8 +83,10 @@ void main() {
           request.url.path,
           '/agent-sessions/session-1/permissions/permission-1/reply',
         );
+        // Body key MUST be `reply` — the replyPermission handler validates
+        // `body.reply`. A `response` key 400s every approve/deny (#1367 f/u).
         expect(jsonDecode(request.body), {
-          'response': ['once', 'always', 'reject'][i]
+          'reply': ['once', 'always', 'reject'][i]
         });
       }
     });

@@ -555,9 +555,13 @@ class AgentsDataSource {
         '$_baseUrl/agent-sessions/$sessionId/permissions/$permissionId/reply',
       ),
       // #1340 reply endpoint + #1358 loopback headers (no cloud bearer to 4001).
+      // Body key MUST be `reply` — the replyPermission handler validates
+      // `body.reply ∈ {once,always,reject}`. Sending `response` made every
+      // approve/deny 400 (BAD_REQUEST), so the engine stayed blocked and the
+      // card re-surfaced forever ("hung waiting for approval", #1367 follow-up).
       headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({
-        'response': decision,
+        'reply': decision,
         if (message != null) 'message': message,
       }),
     );
