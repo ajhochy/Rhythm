@@ -34,4 +34,4 @@ index: "[[Rhythm]]"
 - Explicit weekly ordering remains authoritative; otherwise energy ranks `🔥`, `⚡`, `🌱`, then unset/unknown.
 - Milestones are deliberately compact and instance-scoped. Steps remain valid when ungrouped; deleting a milestone unsets its step links.
 - SQLite legacy databases use additive guard triggers for same-instance milestone integrity because SQLite cannot add a composite foreign key without rebuilding the table. Fresh SQLite and Postgres schemas use the composite relationship.
-- Git commits could not be created: the worktree gitdir resolves into the read-only main checkout, and creating `index.lock` is denied. No push was attempted.
+- The initial commit attempt was denied while the worktree gitdir was read-only. A final retry succeeded; implementation is recorded in `25e069c2`. No push was attempted.

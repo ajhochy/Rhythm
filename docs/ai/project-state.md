@@ -6,14 +6,12 @@ Issues #1243–#1246 are implemented together on the tasks workstream: first-cla
 
 ## Active branch / PR
 
-- Branch: `mega-ws/tasks` at starting commit `c588f15a9bcac9af9224c3285e9d6ed3acd57221`.
+- Branch: `mega-ws/tasks`; implementation commit `25e069c2` is on top of starting commit `c588f15a`.
 - PR: none. The mandate explicitly forbids pushing.
-- Commits are blocked in this managed sandbox because the worktree gitdir is under the read-only main checkout (`.git/worktrees/ws-tasks`).
 
 ## In progress
 
 - A socket-capable orchestrator must run the env-gated live HTTP tests and native Flutter visual smoke.
-- The intentional worktree changes must be committed once git metadata is writable.
 
 ## Risks / known issues
 
@@ -32,4 +30,4 @@ Issues #1243–#1246 are implemented together on the tasks workstream: first-cla
 
 ## Next step
 
-Run the exact gates and live/native smoke in a socket-capable environment, then commit the four logical units on `mega-ws/tasks` without pushing.
+Run the exact gates and live/native smoke in a socket-capable environment. Do not push until requested.
