@@ -11,6 +11,9 @@ const { engineSpies, sessionMap, streamSessionSpy } = vi.hoisted(() => ({
   engineSpies: {
     createSession: vi.fn(),
     listMessages: vi.fn(),
+    listAuthedProviders: vi.fn(),
+    listModels: vi.fn(),
+    listProviders: vi.fn(),
     promptAsync: vi.fn(),
   },
   sessionMap: new Map<string, string>(),
@@ -97,10 +100,15 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     engineSpies.createSession.mockResolvedValue({ id: 'sdk-child-1' });
     engineSpies.listMessages.mockResolvedValue([]);
     engineSpies.promptAsync.mockResolvedValue(true);
+    engineSpies.listAuthedProviders.mockResolvedValue(['anthropic']);
+    engineSpies.listModels.mockImplementation(async (providerId: string) =>
+      providerId === 'anthropic' ? [{ id: 'claude-sonnet-4-5' }] : [],
+    );
+    engineSpies.listProviders.mockResolvedValue([]);
     streamSessionSpy.mockResolvedValue(undefined);
   });
 
-  it('issue-1123-c1: async dispatch persists a parent-linked child, subscribes before promptAsync, and returns immediately', async () => {
+  it('issue-001-c7: omitting the override uses the target profile model for async session creation and prompt', async () => {
     seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
     seedProfile({ id: 'specialist' });
     const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
@@ -144,6 +152,31 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     expect(
       new AgentAsyncDelegationsRepository().findByChildSessionId(result.sessionId),
     ).toMatchObject({ status: 'dispatched', parentSessionId: parent.id });
+  });
+
+  it('issue-001-c4: async uses the supplied override for session creation and prompt', async () => {
+    // Regression caught: async delegation creates the child or enqueues its
+    // prompt with the target profile default after accepting an override.
+    seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
+    seedProfile({ id: 'specialist' });
+    const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
+
+    await delegateToAgentAsync({
+      authenticatedUserId: 42,
+      callerSessionId: parent.id,
+      targetAgentConfigId: 'specialist',
+      prompt: 'Use the selected model.',
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+    });
+
+    expect(engineSpies.createSession).toHaveBeenCalledWith(
+      expect.any(String), '/tmp', undefined, undefined, 'anthropic', 'sdk-parent',
+    );
+    expect(engineSpies.promptAsync).toHaveBeenCalledWith(
+      'sdk-child-1', 'Use the selected model.',
+      { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      '/tmp', expect.any(Object),
+    );
   });
 
   it('issue-1123-c4: async delegation rejects system, scheduled, and non-interactive caller profiles', async () => {

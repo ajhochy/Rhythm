@@ -13,6 +13,16 @@ import { startTestServer } from './helpers/real_server';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 
+// The runtime config is the filesystem boundary for custom-provider usability.
+const { mockReadFileSync } = vi.hoisted(() => ({
+  mockReadFileSync: vi.fn(() => JSON.stringify({ provider: { 'glm-mesh': {} } })),
+}));
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  readFileSync: mockReadFileSync,
+}));
+
 // Provide a controllable authed-providers list.
 const mockAuthedProviders: string[] = [];
 
@@ -544,6 +554,30 @@ describe('GET /agents/models/catalog', () => {
       expect(glm?.route).toBe('direct');
       expect(glm?.authorized).toBe(true);
       expect(glm?.contextLimit).toBe(131072);
+    } finally {
+      mockListProviders.mockImplementation(original);
+    }
+  });
+
+  it('issue-001-c6: marks an engine-advertised provider unauthorized when it is absent from auth and opencode.json', async () => {
+    // CONTRACT TEST — catches the false authorization that let a Zen override
+    // pass validation, create a child, and fail later with provider 401.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListProviders = vi.mocked(opencodeClient.listProviders);
+    const original = mockListProviders.getMockImplementation()!;
+    try {
+      mockListProviders.mockResolvedValue([
+        { id: 'opencode', models: [{ id: 'north-mini-code-free' }] },
+      ]);
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, { headers: authHeaders });
+      expect(res.status).toBe(200);
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+      expect(rows).toContainEqual(expect.objectContaining({
+        provider: 'opencode',
+        modelId: 'north-mini-code-free',
+        authorized: false,
+      }));
     } finally {
       mockListProviders.mockImplementation(original);
     }

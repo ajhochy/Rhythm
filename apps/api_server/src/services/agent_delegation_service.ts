@@ -8,6 +8,7 @@ import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_del
 import { run as runAgent } from './agent_runner';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
+import { listAgentModelCatalog } from '../routes/agents_models_routes';
 
 export interface AgentDelegationInput {
   authenticatedUserId: number;
@@ -17,6 +18,7 @@ export interface AgentDelegationInput {
   callerSessionId: string;
   context?: string | null;
   cwd?: string | null;
+  model?: unknown;
 }
 
 export interface AgentDelegationResult {
@@ -96,6 +98,28 @@ function dispatchFailureMessage(error: unknown): string {
   return 'async delegation dispatch failed';
 }
 
+async function validateModelOverride(input: unknown): Promise<{
+  providerID: string;
+  modelID: string;
+} | undefined> {
+  if (input === undefined || input === null) return undefined;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw AppError.badRequest('model override must include providerID and modelID');
+  }
+  const { providerID, modelID } = input as Record<string, unknown>;
+  if (typeof providerID !== 'string' || typeof modelID !== 'string' || !providerID.trim() || !modelID.trim()) {
+    throw AppError.badRequest('model override must include providerID and modelID');
+  }
+  const model = { providerID: providerID.trim(), modelID: modelID.trim() };
+  const catalog = await listAgentModelCatalog();
+  if (!catalog.some((entry) =>
+    entry.provider === model.providerID && entry.modelId === model.modelID && entry.authorized,
+  )) {
+    throw AppError.badRequest(`model override is unknown or unauthorized: ${model.providerID}/${model.modelID}`);
+  }
+  return model;
+}
+
 export async function delegateToAgent(
   input: AgentDelegationInput,
 ): Promise<AgentDelegationResult> {
@@ -142,6 +166,7 @@ export async function delegateToAgent(
   if (!target.isAgent) {
     throw AppError.badRequest('target profile is not runnable');
   }
+  const modelOverride = await validateModelOverride(input.model);
 
   const scopedPrompt = input.context ? `${input.context.trim()}\n\n${prompt}` : prompt;
   const result = await runAgent({
@@ -153,6 +178,7 @@ export async function delegateToAgent(
     cwd: input.cwd ?? undefined,
     ownerUserId: callerSession.ownerUserId,
     delegationDepth: childDepth,
+    ...(modelOverride ? { modelOverride } : {}),
   });
 
   if (result.status !== 'done') {
@@ -263,6 +289,7 @@ export async function delegateToAgentAsync(
   if (!target.isAgent) {
     throw AppError.badRequest('target profile is not runnable');
   }
+  const modelOverride = await validateModelOverride(input.model);
 
   // Re-read both profiles at the first engine boundary. The caller/target rows
   // can be security-locked after the initial roster checks above; a stale
@@ -270,6 +297,7 @@ export async function delegateToAgentAsync(
   requireExecutableProfile(configRepo, callerId, 'caller');
   requireExecutableProfile(configRepo, targetId, 'target');
   const profileScope = await resolveProfileScope(targetId);
+  const runModel = modelOverride ?? profileScope.model;
   const skillNames = parseSkillNames(profileScope.allowedSkillsJson);
   const scopedPrompt = input.context?.trim()
     ? `${input.context.trim()}\n\n${prompt}`
@@ -280,7 +308,7 @@ export async function delegateToAgentAsync(
     callerSession.cwd,
     profileScope.mcpRoleConfig ?? undefined,
     skillNames,
-    profileScope.model.providerID,
+    runModel.providerID,
     parentSdkSessionId,
   );
   if (!childSession?.id) {
@@ -334,7 +362,7 @@ export async function delegateToAgentAsync(
     const enqueued = await opencodeClient.promptAsync(
       childSession.id,
       scopedPrompt,
-      profileScope.model,
+      runModel,
       callerSession.cwd,
       promptOpts,
     );
