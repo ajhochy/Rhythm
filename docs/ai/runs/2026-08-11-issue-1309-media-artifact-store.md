@@ -24,7 +24,7 @@ tags: [run, Rhythm]
 - `cd apps/api_server && npm run lint` — PASS (repository lint command is currently a TODO echo).
 - `cd apps/api_server && npm run build` — PASS, including the postbuild security-advisory copy.
 - Broad `npm test -- --no-file-parallelism` was attempted. The process-bound `issue_1186_sandbox_foreground.test.ts` had 3 failures because its sandbox teardown reported port 4098 occupied; the non-socket sweep then isolated 5 `engraph_manager.test.ts` failures, all explicit `listen EPERM` errors. No #1309-focused check failed.
-- `src/contract/issue_1309_artifact_store_live.test.ts` remains env-gated and was not run because the worker sandbox cannot bind sockets. The outer orchestrator must run it against the isolated sandbox.
+- `src/contract/issue_1309_artifact_store_live.test.ts` remains env-gated and was not run because the worker sandbox cannot bind sockets. It self-seeds isolated sandbox bytes, metadata, users, sessions, projects, and a Device credential, then verifies unauthenticated denial, owner/project denial, exact Range bytes, and paired-gateway bytes. The outer orchestrator must run it against the isolated sandbox.
 
 ## Notes
 
