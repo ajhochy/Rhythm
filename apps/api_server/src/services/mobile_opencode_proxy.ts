@@ -754,12 +754,9 @@ async function readBoundedBody(
   return body;
 }
 
-function normalizedUpstreamError(status: number): MobileOpenCodeProxyResponse {
-  logger.warn(
-    `[MobileOpenCodeProxy] synthesized 502 for upstream status ${status}`,
-  );
+function sanitizedUpstreamError(status: number): MobileOpenCodeProxyResponse {
   return {
-    status: 502,
+    status,
     contentType: 'application/json',
     body: Buffer.from(JSON.stringify({
       error: {
@@ -1082,7 +1079,7 @@ export class MobileOpenCodeProxy {
           };
         }
         await response.body?.cancel();
-        return normalizedUpstreamError(response.status);
+        return sanitizedUpstreamError(response.status);
       }
       const contentType =
         response.headers.get('content-type') ?? undefined;

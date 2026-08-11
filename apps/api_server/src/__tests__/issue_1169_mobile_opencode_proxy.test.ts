@@ -350,7 +350,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       project: { id: 'project-1169', root: '/sandbox/project' },
       userId: 1,
     });
-    expect(errorResult.status).toBe(502);
+    expect(errorResult.status).toBe(500);
     expect(decodeBody(errorResult.body)).toEqual({
       error: {
         code: 'OPENCODE_UPSTREAM_ERROR',
@@ -432,6 +432,32 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     });
     expect(rejectedResult.status).toBe(413);
     expect(decodeBody(rejectedResult.body)).toEqual(upstreamBody);
+
+    const unavailableResponse = new proxyModule.MobileOpenCodeProxy({
+      baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async () => new Response('unsafe upstream detail', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
+    });
+    const unavailableResult = await unavailableResponse.forward({
+      method: 'GET',
+      path: '/global/health',
+      query: new URLSearchParams(),
+      project: { id: 'project-1311', root: '/sandbox/project' },
+      userId: 1,
+    });
+    expect(unavailableResult.status).toBe(503);
+    expect(decodeBody(unavailableResult.body)).toEqual({
+      error: {
+        code: 'OPENCODE_UPSTREAM_ERROR',
+        message: 'OpenCode request failed',
+        upstreamStatus: 503,
+      },
+    });
+    expect(Buffer.from(unavailableResult.body).toString('utf8'))
+      .not.toContain('unsafe upstream detail');
 
     const unreachable = new proxyModule.MobileOpenCodeProxy({
       ownershipRepository: permissiveOwnershipRepository,
