@@ -1,0 +1,40 @@
+{
+  "issue": 1340,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1340-c1",
+      "text": "The bridge forwards permission.asked and permission.replied with the exact shared WebSocket payload.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_stream_bridge.test.ts",
+      "test_id": "issue-1340-c1: forwards asked and replied with the exact permission WS payload",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-c2",
+      "text": "GET /agent-sessions/:id/pending-permissions proxies the engine using the session directory and returns only that engine session's asks.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/controllers/__tests__/agent_sessions_permissions.test.ts",
+      "test_id": "issue-1340-c2: GET proxies the engine in the session directory and filters by SDK session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-c3",
+      "text": "POST /agent-sessions/:id/permissions/:permissionID/reply proxies the engine with the persisted directory and SDK session.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/controllers/__tests__/agent_sessions_permissions.test.ts",
+      "test_id": "issue-1340-c3: POST replies with the persisted directory and SDK session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1340-c4",
+      "text": "An unmatched reply returns 404 and does not clear the pending client state.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/controllers/__tests__/agent_sessions_permissions.test.ts",
+      "test_id": "issue-1340-c4: POST returns 404 and preserves pending state when the engine matches nothing",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

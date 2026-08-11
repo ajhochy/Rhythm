@@ -258,7 +258,7 @@ describe('POST /agent-sessions -> agentId validation (#653) + client.session.cre
 // PATH 5 — Permission response -> modern POST /permission/:id/reply (OCU-01 #1042)
 // ===========================================================================
 describe('POST /:id/permission/:permissionId/:decision -> replyToPermission (OCU-01 #1042)', () => {
-  it('maps accept→once and returns 204, broadcasting an accept resolution', async () => {
+  it('maps accept→once and returns 204, broadcasting the canonical reply', async () => {
     const s = insertSession('PermSession', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-1');
     const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
@@ -270,9 +270,9 @@ describe('POST /:id/permission/:permissionId/:decision -> replyToPermission (OCU
     expect(
       broadcasts.some(
         (b) =>
-          b.type === 'permission.resolved' &&
-          b.permissionId === 'perm-42' &&
-          b.decision === 'accept',
+          b.type === 'permission.replied' &&
+          b.permissionID === 'perm-42' &&
+          b.directory === '/tmp/proj',
       ),
     ).toBe(true);
   });
@@ -315,11 +315,9 @@ describe('POST /:id/permission/:permissionId/:decision -> replyToPermission (OCU
       '/tmp/proj',
       'sdk-perm-deny',
     );
-    expect(
-      broadcasts.some(
-        (b) => b.type === 'permission.resolved' && b.decision === 'deny',
-      ),
-    ).toBe(true);
+    expect(broadcasts.some(
+      (b) => b.type === 'permission.replied' && b.permissionID === 'perm-c',
+    )).toBe(true);
   });
 
   it('rejects an invalid decision with 400 and never calls the engine', async () => {

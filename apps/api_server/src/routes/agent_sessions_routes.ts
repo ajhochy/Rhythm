@@ -83,6 +83,14 @@ agentSessionsRouter.get('/:id/vcs/diff/raw', controller.getVcsDiffRaw.bind(contr
 // OCU-24 (#1065) — session.shell quick-run. OCU-25 (#1066) — session.init.
 agentSessionsRouter.post('/:id/shell', controller.shell.bind(controller));
 agentSessionsRouter.post('/:id/init', controller.init.bind(controller));
+agentSessionsRouter.get(
+  '/:id/pending-permissions',
+  controller.listPendingPermissions.bind(controller),
+);
+agentSessionsRouter.post(
+  '/:id/permissions/:permissionID/reply',
+  controller.replyPermission.bind(controller),
+);
 agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),

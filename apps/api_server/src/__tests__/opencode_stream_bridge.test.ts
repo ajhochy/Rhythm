@@ -362,12 +362,56 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
     expect(asked).toBeDefined();
-    expect(asked?.permissionId).toBe('perm-1');
-    expect(asked?.toolName).toBe('bash');
+    expect(asked?.permissionID).toBe('perm-1');
+    expect(asked?.tool).toBe('bash');
     expect(replyToPermissionSpy).not.toHaveBeenCalled();
 
     // Pending entry should be registered.
     expect(bridge.getPendingPermission(localId, 'perm-1')).toBeDefined();
+  });
+
+  it('issue-1340-c1: forwards asked and replied with the exact permission WS payload', () => {
+    relay({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-contract-1',
+        sessionID: SDK_ID,
+        permission: 'bash',
+        patterns: ['git push origin feature'],
+        title: 'Allow git push?',
+        metadata: {},
+      },
+    });
+
+    const asked = broadcastSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((frame) => frame.type === 'permission.asked');
+    expect(asked).toEqual({
+      v: 1,
+      type: 'permission.asked',
+      sessionId: localId,
+      permissionID: 'perm-contract-1',
+      directory: '/tmp',
+      tool: 'bash',
+      patterns: ['git push origin feature'],
+      title: 'Allow git push?',
+      createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+    });
+
+    relay({
+      type: 'permission.replied',
+      properties: {
+        sessionID: SDK_ID,
+        requestID: 'perm-contract-1',
+        reply: 'once',
+      },
+    });
+
+    const replied = broadcastSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((frame) => frame.type === 'permission.replied');
+    expect(replied).toEqual({ ...asked, type: 'permission.replied' });
+    expect(bridge.getPendingPermission(localId, 'perm-contract-1')).toBeUndefined();
   });
 
   it('acceptEdits mode: auto-accepts edit tools', async () => {
@@ -1159,9 +1203,9 @@ describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', (
 
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
-      .find((m) => m.type === 'permission.asked' && m.permissionId === 'perm-orphan-1');
+      .find((m) => m.type === 'permission.asked' && m.permissionID === 'perm-orphan-1');
     expect(asked).toBeDefined();
-    expect(asked?.toolName).toBe('bash');
+    expect(asked?.tool).toBe('bash');
     // And it is now tracked so a reply routes correctly.
     expect(bridge.getPendingPermission(localId, 'perm-orphan-1')).toBeDefined();
   });
@@ -1176,7 +1220,7 @@ describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', (
 
     const asks = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
-      .filter((m) => m.type === 'permission.asked' && m.permissionId === 'perm-orphan-2');
+      .filter((m) => m.type === 'permission.asked' && m.permissionID === 'perm-orphan-2');
     expect(asks).toHaveLength(1);
   });
 
@@ -1202,7 +1246,7 @@ describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', (
 
     const asks = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
-      .filter((m) => m.type === 'permission.asked' && m.permissionId === 'perm-dup-1');
+      .filter((m) => m.type === 'permission.asked' && m.permissionID === 'perm-dup-1');
     expect(asks).toHaveLength(1);
   });
 

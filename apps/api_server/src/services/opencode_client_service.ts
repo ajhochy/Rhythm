@@ -2064,9 +2064,9 @@ export class OpencodeClientService {
    * endpoint `POST /permission/{requestID}/reply` (reply=once|always|reject
    * + optional {message}). `always` persists a project-level approval engine-
    * side; a reject message is fed back to the agent's next turn. This is the
-   * default path; the deprecated per-session endpoint
-   * ({@link respondToPermission}) is used ONLY as a fallback when the modern
-   * route 404s (older engine binary that predates it).
+   * default path. A 404 is authoritative: with the bundled fork it means the
+   * scoped request did not match a pending ask. Falling back would turn that
+   * required false result into a false-positive success (#1341).
    *
    * Direct fetch until a typed SDK adopts this route. Never throws — returns
    * true on 2xx, false on any failure (the caller still clears local UI
@@ -2091,21 +2091,6 @@ export class OpencodeClientService {
         body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
       });
       if (res.ok) return true;
-      // Older engine that never shipped /permission/:id/reply → fall back to
-      // the deprecated per-session endpoint (needs the SDK session id).
-      if (res.status === 404 && sdkSessionId) {
-        logger.warn(
-          '[OpencodeClientService] replyToPermission: modern /permission/%s/reply 404 — falling back to deprecated per-session endpoint',
-          requestID,
-        );
-        try {
-          await this.respondToPermission(sdkSessionId, requestID, reply, directory, message);
-          return true;
-        } catch (err) {
-          logger.error('[OpencodeClientService] replyToPermission fallback failed:', err);
-          return false;
-        }
-      }
       logger.error(
         `[OpencodeClientService] replyToPermission failed (${res.status}) for ${requestID}`,
       );
@@ -2253,6 +2238,8 @@ export class OpencodeClientService {
       id: string;
       sessionID: string;
       permission?: string;
+      patterns?: string[];
+      title?: string;
       metadata?: Record<string, unknown>;
       tool?: { callID?: string; messageID?: string };
     }>
@@ -2265,6 +2252,8 @@ export class OpencodeClientService {
         id: string;
         sessionID: string;
         permission?: string;
+        patterns?: string[];
+        title?: string;
         metadata?: Record<string, unknown>;
         tool?: { callID?: string; messageID?: string };
       }>;

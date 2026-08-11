@@ -908,3 +908,20 @@ describe('updateSessionSkillAllowlist — clear sentinel (#923)', () => {
     });
   });
 });
+
+describe('replyToPermission — unmatched modern reply semantics (#1340/#1341)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns false on engine 404 instead of treating it as a legacy-endpoint fallback', async () => {
+    const svc = new OpencodeClientService();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const legacyFallback = vi
+      .spyOn(svc, 'respondToPermission')
+      .mockResolvedValue(undefined);
+
+    await expect(
+      svc.replyToPermission('perm-missing', 'once', undefined, '/correct', 'sdk-1'),
+    ).resolves.toBe(false);
+    expect(legacyFallback).not.toHaveBeenCalled();
+  });
+});

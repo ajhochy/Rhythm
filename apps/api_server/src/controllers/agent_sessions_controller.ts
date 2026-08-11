@@ -1305,26 +1305,66 @@ export class AgentSessionsController {
         opencodeId,
       );
 
-      // Clear the pending permission from the bridge.
-      streamBridge.clearPendingPermission(session.id, permissionId);
-
-      // Broadcast resolution so other connected clients update their UI. Keep
-      // the legacy accept/deny decision word on the WS frame the Flutter card
-      // still expects (OCU-02 handles the always affordance UI-side).
-      const { broadcast } = await import('../services/ws_gateway');
-      broadcast({
-        v: 1,
-        type: 'permission.resolved',
-        sessionId: session.id,
-        permissionId,
-        decision: reply === 'reject' ? 'deny' : 'accept',
-      });
-
       if (!ok) {
-        // Non-fatal: SDK may not support this endpoint yet.
-        console.warn(`[AgentSessionsController] respondPermission: SDK returned false for session ${session.id}`);
+        throw AppError.notFound('Permission request');
       }
 
+      streamBridge.markPermissionReplied(session.id, permissionId);
+
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listPendingPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.badRequest('Session has no SDK mapping for permission.');
+      const pending = await opencodeClient.listPermissions(session.cwd);
+      const createdAt = new Date().toISOString();
+      res.json(
+        pending
+          .filter((permission) => permission.sessionID === sdkSessionId)
+          .map((permission) => ({
+            sessionId: session.id,
+            permissionID: permission.id,
+            directory: session.cwd,
+            tool: permission.permission ?? '',
+            patterns: permission.patterns ?? [],
+            title: permission.title ?? permission.permission ?? '',
+            createdAt,
+          })),
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async replyPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.badRequest('Session has no SDK mapping for permission.');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const reply = body.reply;
+      if (reply !== 'once' && reply !== 'always' && reply !== 'reject') {
+        throw AppError.badRequest('reply must be once, always, or reject');
+      }
+      const message = typeof body.message === 'string' ? body.message : undefined;
+      const permissionID = req.params.permissionID;
+      const ok = await opencodeClient.replyToPermission(
+        permissionID,
+        reply,
+        message,
+        session.cwd,
+        sdkSessionId,
+      );
+      if (!ok) throw AppError.notFound('Permission request');
+      streamBridge.markPermissionReplied(session.id, permissionID);
       res.status(204).end();
     } catch (err) {
       next(err);
