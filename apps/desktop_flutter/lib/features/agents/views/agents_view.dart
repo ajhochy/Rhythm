@@ -766,6 +766,50 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     // deleted. All messages arrive via chatMessagesFor() / chatPartsFor()
     // (rehydrated from REST on selectSession, then updated by WS events).
     final chatMessages = controller.chatMessagesFor(session.id);
+    final loadError = controller.transcriptLoadErrorFor(session.id);
+
+    if (loadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: context.rhythm.textMuted,
+                size: 24,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                "Couldn't load transcript",
+                style: TextStyle(
+                  color: context.rhythm.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'The local agent server did not return this session.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: context.rhythm.textMuted,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                key: const ValueKey('transcript-retry-button'),
+                onPressed: () => controller.retrySessionDetail(session.id),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (chatMessages.isEmpty) {
       return Center(
@@ -3896,11 +3940,15 @@ class _AgentPickerItem {
   const _AgentPickerItem({
     required this.value,
     required this.label,
+    this.profileId,
     this.description,
   });
 
   /// The opencode agent name sent to [AgentsController.setSelectedAgent].
   final String value;
+
+  /// Authoritative Rhythm profile id persisted on the session row.
+  final String? profileId;
 
   /// Display label (profile label, or the agent name in fallback mode).
   final String label;
@@ -3943,6 +3991,7 @@ class AgentSelectorPill extends StatelessWidget {
               _AgentPickerItem(
                 value: p.ocAgent ?? p.id,
                 label: p.displayLabel,
+                profileId: p.id,
                 description: null,
               ),
           ]
@@ -3951,6 +4000,7 @@ class AgentSelectorPill extends StatelessWidget {
               _AgentPickerItem(
                 value: a.executionAgentId,
                 label: a.name,
+                profileId: a.profileId,
                 description: a.description,
               ),
           ];
@@ -4016,7 +4066,18 @@ class AgentSelectorPill extends StatelessWidget {
           ),
       ],
       onSelected: (value) {
-        ctrl.setSelectedAgent(sid, value.isEmpty ? null : value);
+        _AgentPickerItem? item;
+        for (final candidate in items) {
+          if (candidate.value == value) {
+            item = candidate;
+            break;
+          }
+        }
+        ctrl.setSelectedAgent(
+          sid,
+          value.isEmpty ? null : value,
+          profileId: item?.profileId,
+        );
       },
       child: Builder(
         builder: (context) {

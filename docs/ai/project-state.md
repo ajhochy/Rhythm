@@ -1,33 +1,22 @@
-# Project State
+# Rhythm — Project State
 
-## Current focus
+**Focus:** MEGA PR backlog burn-down (2026-08-10/11) — 59 open issues on one branch.
+**Branch:** `mega/2026-08-10-backlog-burndown` (PR pending). Do NOT merge — AJ merges after manual test.
 
-Permission ask/reply pipeline work for #1341, #1367, #1322, and server-side #1340 is implemented and committed. See `docs/ai/runs/2026-08-10-permission-pipeline.md`.
+## Integration progress (Phase 3)
+Merged into mega branch, full gates green after each:
+- ws-permissions (#1341 #1367 #1322 #1340-server)
+- ws-plumbing (#1324 #1325 #1326 #1358 #1365 #1347)
 
-## Active branch / PR
-
-- Branch: `mega-ws/permissions`.
-- No push and no PR, per mega-worker mandate.
-
-## In progress
-
-- No code work remains in this workstream.
-- Orchestrator verification remains: run the env-gated #1322 live sandbox test and the full API suite in a socket-capable environment.
-
-## Risks / known issues
-
-- The managed worker forbids loopback socket binding, so socket-backed API tests fail in setup with `listen EPERM`.
-- `apps/api_server` still has no effective lint gate; its configured lint script is a placeholder.
-- The canonical permission WS payload intentionally replaces the older `permissionId/toolName/summary` ask shape with `permissionID/directory/tool/patterns/title/createdAt` for both asked and replied events.
+Verified, queued to merge: ws-flaky, ws-chat-ui, ws-tasks, ws-media, ws-inspector, ws-mobile.
+Still building: ws-mcp-apps (through #1350), ws-research (through #1293).
 
 ## Test status
+Mega branch after plumbing merge: api_server tsc + full vitest green; desktop flutter format/analyze/test green; fork permission suite green.
 
-- Fork typecheck and permission scope: PASS (80 tests).
-- API local TypeScript compiler: PASS.
-- Focused final permission scope: PASS (130 tests).
-- Full `npm test`: ENVIRONMENT BLOCKED after 367 files / 3,334 tests passed; 126 files / 719 tests hit the sandbox socket restriction.
-- #1322 live sandbox test: authored, not run in this no-socket worker.
+## Risks
+- Codex sandbox cannot write git metadata or run Flutter — orchestrator commits worktree trees and runs all gates itself.
+- Mobile Playwright e2e:web failures under classification (regression vs environmental) before mobile merge.
 
 ## Next step
-
-Run `RHYTHM_LIVE_E2E=1` for `live_e2e_1322_plan_permission.test.ts` through `tools/dev/sandbox.sh`, then rerun `npm test` in a socket-capable worker before merge readiness.
+Continue sequential integration (chat-ui → tasks → media → inspector → mobile → mcp-apps → research), then Phase 4 live smoke, then open the PR.

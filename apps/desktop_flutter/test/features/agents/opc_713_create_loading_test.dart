@@ -110,6 +110,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -138,6 +139,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   @override
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -383,6 +385,7 @@ class _ThrowingStubRepo implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -397,6 +400,7 @@ class _ThrowingStubRepo implements AgentsRepository {
   }) async {
     if (shouldThrow()) throw Exception('stubbed error');
     return inner.createSession(
+      profileId: profileId,
       agentId: agentId,
       taskId: taskId,
       cwd: cwd,
@@ -463,7 +467,8 @@ class _ThrowingStubRepo implements AgentsRepository {
 
   @override
   Future<AgentSession> updateSession(String id,
-          {String? name,
+          {String? profileId,
+          String? name,
           String? providerId,
           String? modelId,
           String? permissionMode,

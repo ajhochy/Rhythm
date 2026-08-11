@@ -131,6 +131,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -163,6 +164,7 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,

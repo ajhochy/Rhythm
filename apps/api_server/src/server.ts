@@ -36,6 +36,12 @@ setGlobalDispatcher(
 );
 
 async function main() {
+  const {
+    apiServerLogPath,
+    installPersistentConsoleLogging,
+  } = await import('./utils/logger');
+  installPersistentConsoleLogging();
+
   const [
     { createApp },
     { initDb },
@@ -65,6 +71,8 @@ async function main() {
     import('./mobile_gateway_surface'),
     import('./mobile_gateway_config'),
   ]);
+
+  logger.info(`[server] durable log: ${apiServerLogPath()}`);
 
   const port = Number(process.env.PORT ?? 4000);
   // #1175 — AGENT_LOCAL bypass is safe only behind an explicit IPv4 loopback
@@ -570,6 +578,8 @@ async function main() {
       // down. Non-fatal: a reconcile failure must never block boot.
       try {
         const { streamBridge } = await import('./services/opencode_stream_bridge');
+        await streamBridge.ensureGlobalStream();
+        await streamBridge.checkEngineHealthNow();
         await streamBridge.reconcileSessionStatuses();
         logger.info('[server] session status resync complete (#1045)');
       } catch (e) {

@@ -17,6 +17,7 @@ DEV_SHADOW_ENGINE="$ROOT/apps/opencode_bin/opencode"
 HEALTH_URL="http://localhost:4001/opencode/health"
 CAPABILITIES_URL="http://localhost:4001/agents/capabilities"
 STALE_SYSTEM_VERSION="1.14.40"
+API_SERVER_LOG="~/Library/Logs/Rhythm/api_server.log"
 
 fail() {
   printf 'Engine smoke launcher failed: %s\n' "$*" >&2
@@ -182,6 +183,7 @@ verify_capabilities() {
 }
 
 main() {
+  printf 'api_server durable log: %s\n' "$API_SERVER_LOG"
   stage_engine
   prepare_runtime
   build_app

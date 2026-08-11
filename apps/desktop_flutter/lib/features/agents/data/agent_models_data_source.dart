@@ -30,7 +30,7 @@ class AgentModelsDataSource {
         '$_baseUrl/agents/models',
       ).replace(queryParameters: {'agentId': agentId});
       final response =
-          await _client.get(uri, headers: AuthSessionStore.headers());
+          await _client.get(uri, headers: AuthSessionStore.localHeaders());
       assertOk(response);
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
@@ -51,7 +51,7 @@ class AgentModelsDataSource {
     try {
       final uri = Uri.parse('$_baseUrl/agents/models/catalog');
       final response =
-          await _client.get(uri, headers: AuthSessionStore.headers());
+          await _client.get(uri, headers: AuthSessionStore.localHeaders());
       assertOk(response);
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
@@ -70,7 +70,7 @@ class AgentModelsDataSource {
   ) async {
     final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'providerId': providerId, 'modelId': modelId}),
     );
     assertOk(response);

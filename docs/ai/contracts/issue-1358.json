@@ -1,0 +1,32 @@
+{
+  "issue": 1358,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1358-c1",
+      "text": "Desktop agent data sources use a localHeaders() that NEVER sends Authorization to AppConstants.agentLocalBaseUrl.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1358_local_agent_auth_test.dart",
+      "test_id": "issue-1358-c1: agent-local data sources never send the cloud bearer",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1358-c2",
+      "text": "Cloud requests unchanged.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1358_local_agent_auth_test.dart",
+      "test_id": "issue-1358-c2: cloud request headers retain bearer authentication",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1358-c3",
+      "text": "A failed transcript fetch in agents_controller._refreshSessionDetail must render as an error state with retry, never as \"Waiting for output…\".",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/agents_nav_column_mounted_test.dart",
+      "test_id": "issue-1358-c3: transcript failure shows an error with retry, not waiting",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

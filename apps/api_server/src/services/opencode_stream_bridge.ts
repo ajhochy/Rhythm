@@ -58,6 +58,8 @@ const QUESTION_RECOVERY_POLL_MS = 1500;
  * tear it down and resubscribe (which re-runs the recover/reconcile path).
  */
 const HEARTBEAT_WATCHDOG_MS = 30_000;
+const ENGINE_HEALTH_POLL_MS = 10_000;
+const DEFAULT_PERSISTENCE_STALE_MS = 5 * 60_000;
 
 /** Parse a positive-integer env override, falling back when absent/invalid. */
 function _positiveTimeoutMs(value: string | undefined, fallback: number): number {
@@ -247,6 +249,9 @@ export class OpencodeStreamBridge {
   private lastGlobalActivity = 0;
   /** Guards against overlapping resubscribes from the watchdog. */
   private globalResubscribing = false;
+  private engineHealthCheckInFlight = false;
+  private engineIdentityKey: string | null = null;
+  private persistenceBaselineAt = Date.now();
   private sessionsRepo = new AgentSessionsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
   // #818 — best-effort deny-path telemetry sink; see isToolAllowedForSession.
@@ -254,6 +259,15 @@ export class OpencodeStreamBridge {
   // #818 follow-up — used only to validate profile-attribution candidates on
   // the deny branch (never on the allow path).
   private agentConfigsRepo = new AgentConfigsRepository();
+
+  /** True only while the bridge has a current subscription receiving frames. */
+  get isLive(): boolean {
+    if (useGlobalStream()) {
+      return this.globalStream !== null &&
+        Date.now() - this.lastGlobalActivity <= HEARTBEAT_WATCHDOG_MS;
+    }
+    return this.streamsByDirectory.size > 0;
+  }
 
   // Accumulate assistant text deltas keyed by local session id. The SDK
   // streams text via `message.part.delta` events; the message body itself
@@ -719,6 +733,7 @@ export class OpencodeStreamBridge {
    * every session start; a no-op once the stream is live.
    */
   async ensureGlobalStream(): Promise<void> {
+    if (!useGlobalStream()) return;
     if (this.globalStream) return;
     let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
     try {
@@ -743,7 +758,8 @@ export class OpencodeStreamBridge {
         );
         void this.resubscribeGlobalStream();
       }
-    }, HEARTBEAT_WATCHDOG_MS / 3);
+      void this.checkEngineHealthNow();
+    }, ENGINE_HEALTH_POLL_MS);
     if (typeof watchdog.unref === 'function') watchdog.unref();
     this.globalStream = { abort: sub.abort, watchdog };
     this._listenGlobal(sub.stream).catch((err) =>
@@ -805,6 +821,75 @@ export class OpencodeStreamBridge {
       }
     } finally {
       this.globalResubscribing = false;
+    }
+  }
+
+  /**
+   * Poll engine identity and persistence progress.
+   *
+   * Public so deterministic tests and diagnostics can run the same watchdog
+   * check without waiting for the interval. Calls are overlap-guarded because
+   * `/global/health`, status reconciliation, and recovery all share one local
+   * engine process.
+   */
+  async checkEngineHealthNow(): Promise<void> {
+    if (this.engineHealthCheckInFlight) return;
+    this.engineHealthCheckInFlight = true;
+    try {
+      if (typeof opencodeClient.getEngineIdentity === 'function') {
+        const identity = await opencodeClient.getEngineIdentity();
+        if (identity) {
+          const nextKey = `${identity.pid}:${identity.bootId}`;
+          const previousKey = this.engineIdentityKey;
+          this.engineIdentityKey = nextKey;
+          if (previousKey && previousKey !== nextKey) {
+            logger.error(
+              `[OpencodeStreamBridge] ENGINE IDENTITY CHANGED (${previousKey} -> ${nextKey}) — reattaching bridge and rerunning recovery`,
+            );
+            await this.reattachAndRecover();
+            return;
+          }
+        }
+      }
+
+      const statuses = await opencodeClient.getSessionStatuses();
+      const engineHasActiveSessions = Object.values(statuses).some(
+        (status) => status.type === 'busy' || status.type === 'working' || status.type === 'starting',
+      );
+      if (!engineHasActiveSessions) {
+        this.persistenceBaselineAt = Date.now();
+        return;
+      }
+
+      const latestPersistedAt = this.messagesRepo.latestPersistedAt();
+      const lastProgressAt = Math.max(
+        latestPersistedAt ?? 0,
+        this.persistenceBaselineAt,
+      );
+      const staleMs = _positiveTimeoutMs(
+        process.env.RHYTHM_BRIDGE_PERSISTENCE_STALE_MS,
+        DEFAULT_PERSISTENCE_STALE_MS,
+      );
+      if (Date.now() - lastProgressAt > staleMs) {
+        logger.error(
+          `[OpencodeStreamBridge] STALE BRIDGE: engine has active sessions but api_server persisted no messages for > ${staleMs}ms — reattaching`,
+        );
+        this.persistenceBaselineAt = Date.now();
+        await this.reattachAndRecover();
+      }
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] engine health watchdog failed:', err);
+    } finally {
+      this.engineHealthCheckInFlight = false;
+    }
+  }
+
+  private async reattachAndRecover(): Promise<void> {
+    await this.resubscribeGlobalStream();
+    try {
+      await asyncDelegationCompletionService.recoverAfterRestart();
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] post-reattach async recovery failed:', err);
     }
   }
 
@@ -2243,6 +2328,7 @@ export class OpencodeStreamBridge {
       clearInterval(this.globalStream.watchdog);
       this.globalStream = null;
     }
+    this.engineIdentityKey = null;
     this.stoppedSessions.clear();
     this.pendingText.clear();
     this.pendingPermissions.clear();
