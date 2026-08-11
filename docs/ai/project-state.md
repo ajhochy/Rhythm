@@ -39,6 +39,13 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 
 ## Recent coding-agent runs
 
+### 2026-08-10 — issue #1343 MCP App isolation feasibility probe
+- Files modified: disposable WebKit policy and standalone DEBUG/env-gated launcher under `apps/desktop_flutter/macos`; five-case native contract; manual evidence contract; NO-GO ADR and run log.
+- Checks run: native contract 5/5 PASS; standalone Swift launcher compile PASS; disabled-by-default exit-64 guard PASS; Flutter offline pub resolution, Dart format (463 files, 0 changed), and analyze PASS.
+- Decisions made: do not touch `MainFlutterWindow` or add a permanent dependency; record NO-GO because official AppBridge and interactive DEBUG/packaged Release evidence are unavailable in this worker. See `docs/ai/decisions/2026-08-10-mcp-app-isolation-probe-no-go.md`.
+- Deviations from spec: interactive DEBUG and packaged Release evidence M1–M6 remains unrun; no false GO claimed.
+- Concerns: a UI-capable orchestrator must resolve the official AppBridge and complete both evidence matrices before production host work can proceed.
+
 ### 2026-08-10 — issue #1352 MCP Apps negotiation and UI descriptors
 - Files modified: fork MCP discovery/registry (`apps/opencode_fork/packages/opencode/src/mcp/index.ts`), three typed MCP test doubles, issue contract/live tests and contract JSON supplied by acceptance-contract.
 - Checks run: focused #1352 contract plus MCP lifecycle suite 26/26 PASS (75 assertions); fork `bun run typecheck` PASS; `git diff --check` PASS; prompt/snapshot and OAuth/browser suites BLOCKED before assertions because the managed sandbox denies their HTTP server binds.
