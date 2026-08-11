@@ -41,13 +41,18 @@ const CHROME_CDP_URL_ENV = 'CHROME_CDP_URL';
 
 /** Known macOS/Linux Chrome binary paths, in discovery order. */
 const KNOWN_CHROME_PATHS = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing',
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  '/opt/homebrew/bin/chromium',
+  '/usr/local/bin/chromium',
   '/usr/bin/google-chrome-stable',
   '/usr/bin/google-chrome',
   '/usr/bin/chromium-browser',
   '/usr/bin/chromium',
 ];
+
+const DEFAULT_MAC_CHROME_BUNDLE =
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 /** Login-shell command to resolve Chrome via PATH (Homebrew etc.). */
 const SHELL_CHROME_CMD =
@@ -146,7 +151,17 @@ export function findChromeBinary(
 
   // 3. Login-shell PATH resolution
   const resolved = shellResolve();
-  if (resolved) return resolved;
+  if (resolved && resolved !== DEFAULT_MAC_CHROME_BUNDLE) return resolved;
+
+  // Never auto-launch the user's GUI Chrome bundle headlessly. Even with an
+  // isolated user-data-dir, macOS treats that process as the running Chrome
+  // app and routes Dock/LaunchServices opens to the invisible instance.
+  if (resolved === DEFAULT_MAC_CHROME_BUNDLE || fsExists(DEFAULT_MAC_CHROME_BUNDLE)) {
+    logger.warn(
+      '[ManagedChrome] Refusing to launch the default Google Chrome GUI bundle headlessly. ' +
+        'Install Chrome for Testing or Chromium, or explicitly set RHYTHM_CHROME_BIN.',
+    );
+  }
 
   return null;
 }

@@ -2,60 +2,43 @@
 
 ## Current focus
 
-Live-artifact automated verification passed, but the human visual smoke **failed**: the tested native surface was a security/integration harness rather than a usable end-to-end shipping-app workflow. Existing backend, security, runtime, Dashboard tab, and same-ID agent-to-human work remains present, but it does not constitute usable completion. See `docs/ai/runs/2026-08-10-retro-live-artifact-workflow-failure.md`.
+The `mega-ws/plumbing` worktree contains the complete implementation for issues #1324, #1325, #1326, #1358, #1365, and #1347. Verification is blocked by this managed sandbox's socket and dependency restrictions, so the branch is not ready for handoff as passing.
 
 ## Active branch / PR
 
-- Branch: `feat/artifact-viewer`, pushed and tracking its remote, with `origin/main` `8a3561d9` merged.
-- Draft PR: [#1338](https://github.com/ajhochy/Rhythm/pull/1338) remains **NOT READY** after failed manual smoke.
-- Sharing follow-up: [#1339](https://github.com/ajhochy/Rhythm/issues/1339). Import has no issue and requires AJ approval before filing.
+- Worktree: `.mega-wt/ws-plumbing` only; the main checkout was not used.
+- Branch: `mega-ws/plumbing`.
+- PR: none; nothing was pushed.
+- Committed: `32845d44` (#1324), `5c0183a5` (#1325), `9c3231e0` (#1326).
+- Uncommitted: #1358, #1365, #1347, their tests/contracts, and this run documentation. Git cannot create the worktree index lock because `.git/worktrees/ws-plumbing` is outside the writable sandbox.
 
 ## In progress
 
-- Product scope must be decided for importing existing HTML/Claude artifacts and for #1339 before implementation resumes.
-- Existing unrelated follow-ups remain: on-device confirmation of #1327 subagent approvals; #1319 parent taint propagation and `rhythm_delegation_transcript`; transcript fencing for the remaining half of #1331.
+- Re-run Flutter tests and the isolated live behavioral tests in an environment that permits loopback sockets.
+- Install/restore the vendored engine dependencies so `bun run build --single` resolves `@opentui/solid/preload`.
+- Capture the #1358 transcript error/retry visual checkpoint.
+- Commit #1358, #1365, and #1347 incrementally after Git worktree metadata is writable.
 
 ## Risks / known issues
 
-- The shipping app has no user-facing import for existing HTML/Claude artifacts, no Share dialog or collaborator management for existing artifacts, and no agent tool to update sharing after creation.
-- The CI server check failed and remains separately untriaged; it is not the explanation for the product-smoke failure.
-- GitNexus CLI conservatively reports **HIGH** across eight flows; all eight map to tested PCO-read or artifact-create entry points and are covered. Manager MCP reports LOW. The guarded DEBUG-only `MainFlutterWindow` registration retained its pre-impact startup-risk review and is absent from the Release binary.
-- Unrelated nonblocking residual: VoiceOver traversal through offscreen dashboard rows.
-- #1322 remains partial: plan mode does not make arbitrary `bash` read-only.
-- Never start a bare manual `api_server` for smoke; use `tools/dev/sandbox.sh` to avoid the live engine/DB collision paths.
-- The rejected demo process remains running by AJ's direction; do not manipulate it.
-- `apps/api_server` still has no effective lint gate; TypeScript compilation is its static check.
+- Live backend behavior has not been exercised because `tools/dev/sandbox.sh up` stops at the missing engine preload dependency.
+- Flutter's test runner cannot bind `127.0.0.1:0`; all 165 discovered test files fail to load before executing assertions.
+- The canonical workflow wrapper also uses unwritable Flutter cache paths and network-dependent `npx` resolution in this sandbox.
+- #1358 and #1365 contract criteria that depend on Flutter/live execution remain `pending`; no passing claim should be made from static checks alone.
+- Automatic managed-browser discovery now intentionally refuses the default macOS Google Chrome GUI bundle; operators need Chrome for Testing, Chromium, or an explicit `RHYTHM_CHROME_BIN`.
+- Never start a bare api_server; use `tools/dev/sandbox.sh` so ports 4098/4097 remain isolated from the shipping client.
 
 ## Test status
 
-- Automated verification: **PASS** after merging `origin/main`; sanitized `ai-workflow checks --level pr` passed.
-- Post-merge totals: API **4,127**, Flutter **1,129** (including **48** live-artifact), and MCP **169**; focused MCP/security **21**, AV-03 contract **11**, and real Postgres bootstrap/parity **2** passed.
-- Native AV-06 A1–A10/C3–C5, secure bridge/runtime checks, Release package verification, deterministic screenshots, and the real engine/MCP → hosted API → human same-ID flow passed.
-- Human visual smoke: **FAILED**; PR #1338 is not ready.
+- PASS: API TypeScript build/no-emit and focused contracts (6 files, 35 passed, 2 env-gated live tests skipped).
+- PASS: full Flutter format and analyze (`296` pre-existing infos, exit 0).
+- PASS: focused fork engine identity test (1 test).
+- PASS: managed Chrome focused suites (26 tests) and Impeccable UI detector.
+- BLOCKED: full Flutter tests (`0` passed, `165` files failed to load; socket `EPERM`).
+- BLOCKED: live sandbox build (`@opentui/solid/preload` missing); no listeners were started and the temporary sandbox was removed.
+- BLOCKED: MCP TypeScript check because the package dependency tree is absent.
+- Full API suite: HTTP-listener tests consistently time out under socket `EPERM` while non-listener tests run; the long diagnostic run is retained as environmental failure evidence rather than a passing gate.
 
 ## Next step
 
-Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
-
-## Recent coding-agent runs
-
-### 2026-08-10 — issue #1324 newest transcript window
-- Files modified: `agent_sessions_controller.ts` (non-paged detail now selects the newest bounded page), `issue_1324_transcript_window.test.ts` and contract JSON (205-message regression coverage).
-- Checks run: focused Vitest contract + existing transcript pagination suite PASS (8 tests); API TypeScript `--noEmit` PASS.
-- Decisions made: preserve the legacy non-paged response shape while reusing the repository's stable newest-first selection/reverse implementation.
-- Deviations from spec: none.
-- Concerns: full baseline `npm test` contains pre-existing loopback-socket failures under this restricted sandbox; focused tests avoid sockets.
-
-### 2026-08-10 — issue #1325 engine respawn recovery
-- Files modified: fork global-health schema/handler plus engine identity helper; API client identity reader; stream bridge identity/staleness watchdog and recovery; bridge-aware health payload; startup bridge subscription; focused API/fork/live tests and contract JSON.
-- Checks run: focused API Vitest PASS (76 tests, 1 env-gated live probe skipped); API TypeScript `--noEmit` PASS; focused fork Bun test PASS (1 test). Fork `tsgo --noEmit` could not start because the pre-cloned dependency tree lacks `tsgo`.
-- Decisions made: use fork-issued pid + random per-boot UUID; reattach through the existing global-stream resubscribe path and rerun durable async-delegation recovery; normalize bare SQLite UTC timestamps before staleness comparison.
-- Deviations from spec: live respawn evidence is env-gated for the orchestrator because this worker cannot bind sockets.
-- Concerns: the global GitNexus index is stale, though all affected class/function reports were LOW risk.
-
-### 2026-08-10 — issue #1326 durable api_server logging
-- Files modified: logger rotation/console tee utilities; loopback-only dev log router; early server logger install; app route mount; launcher path banner; focused and env-gated live tests plus contract JSON.
-- Checks run: focused Vitest PASS (3 tests, 1 env-gated live probe skipped); API TypeScript `--noEmit` PASS; launcher `bash -n` PASS.
-- Decisions made: synchronous 5 MiB rotation with four backups keeps crash-adjacent lines durable without a dependency; route clamps tails to 1–1000 non-empty lines and is mounted only with local agent-execution surfaces.
-- Deviations from spec: live endpoint evidence is deferred to the sandbox orchestrator because this worker cannot bind sockets.
-- Concerns: logger impact is UNKNOWN in the stale GitNexus index; app/server impacts are LOW.
+Restore Git metadata write access and vendored/MCP dependencies, then run the canonical PR gate, Flutter tests, isolated live behavioral tests, and #1358 visual smoke. If they pass, update pending contracts and commit #1358, #1365, and #1347 separately. Do not push.

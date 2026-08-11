@@ -48,6 +48,7 @@ import 'package:rhythm_desktop/features/agents/repositories/agents_repository.da
 import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
 import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
+import 'package:rhythm_desktop/features/agent_configs/models/agent_config.dart';
 import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
 import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
@@ -91,6 +92,7 @@ class _StubAgentsRepository implements AgentsRepository {
   final StreamController<bool> _connectivityController;
 
   final List<Map<String, dynamic>> sentFrames = [];
+  String? persistedProfileId;
 
   @override
   Stream<AgentWsMessage> get messages => _msgController.stream;
@@ -132,6 +134,24 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
       const [];
+
+  @override
+  Future<AgentSession> updateSession(
+    String id, {
+    String? profileId,
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+    String? permissionMode,
+    bool? fastMode,
+    String? anthropicAccountId,
+    String? agentId,
+  }) async {
+    persistedProfileId = profileId;
+    return _makeSession(id);
+  }
 
   @override
   Future<void> revertSession(String sessionId, String messageId) async {}
@@ -198,10 +218,20 @@ AgentConfigsController _buildConfigsController() => AgentConfigsController(
       AgentConfigsRepository(AgentConfigsDataSource()),
     );
 
+class _StaticAgentConfigsDataSource extends AgentConfigsDataSource {
+  _StaticAgentConfigsDataSource(this.configs);
+
+  final List<AgentConfig> configs;
+
+  @override
+  Future<List<AgentConfig>> list() async => configs;
+}
+
 /// Wrap a widget under test with the theme and providers it needs.
 Widget _withProviders({
   required AgentsController controller,
   required Widget child,
+  AgentConfigsController? configsController,
 }) {
   return MaterialApp(
     theme: AppTheme.light(),
@@ -209,7 +239,7 @@ Widget _withProviders({
       providers: [
         ChangeNotifierProvider<AgentsController>.value(value: controller),
         ChangeNotifierProvider<AgentConfigsController>.value(
-          value: _buildConfigsController(),
+          value: configsController ?? _buildConfigsController(),
         ),
       ],
       child: Scaffold(body: child),
@@ -254,6 +284,50 @@ void main() {
       expect(ctrl.selectedAgentFor(sessionId), equals('plan'));
 
       ctrl.dispose();
+    },
+  );
+
+  testWidgets(
+    'issue-1365-c1-view: profile picker persists the Rhythm profile id',
+    (tester) async {
+      // Regression: picker values are OpenCode agent names, so forwarding the
+      // visible value as legacy agentId leaves profile_id unassigned.
+      final repo = _StubAgentsRepository();
+      final ctrl = _buildController(repo);
+      const sessionId = 'profile-binding-session';
+      ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
+      final configs = AgentConfigsController(
+        AgentConfigsRepository(
+          _StaticAgentConfigsDataSource([
+            AgentConfig(
+              id: 'profile-uuid-1365',
+              label: 'Coding profile',
+              icon: 'terminal',
+              enabled: true,
+              isAgent: true,
+              sortOrder: 0,
+              ocAgent: 'build',
+            ),
+          ]),
+        ),
+      );
+      await configs.refresh();
+
+      await tester.pumpWidget(
+        _withProviders(
+          controller: ctrl,
+          configsController: configs,
+          child: const AgentSelectorPill(sessionId: sessionId),
+        ),
+      );
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Coding profile'));
+      await tester.pumpAndSettle();
+
+      expect(repo.persistedProfileId, 'profile-uuid-1365');
+      ctrl.dispose();
+      configs.dispose();
     },
   );
 

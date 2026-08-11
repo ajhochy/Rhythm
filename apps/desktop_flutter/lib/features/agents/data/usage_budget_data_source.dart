@@ -26,7 +26,7 @@ class UsageBudgetDataSource {
     final uri = Uri.parse('$_baseUrl/agents/usage-budget')
         .replace(queryParameters: force ? {'force': 'true'} : null);
     final response =
-        await _client.get(uri, headers: AuthSessionStore.headers());
+        await _client.get(uri, headers: AuthSessionStore.localHeaders());
     assertOk(response);
     return UsageBudgetSnapshot.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,

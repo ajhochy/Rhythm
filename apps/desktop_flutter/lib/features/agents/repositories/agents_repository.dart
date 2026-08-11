@@ -54,6 +54,7 @@ class AgentsRepository {
       _dataSource.fetchTranscriptPage(id, limit: limit, before: before);
 
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId, // #602: null → agent-less session
     String? taskId,
     required String cwd,
@@ -68,6 +69,7 @@ class AgentsRepository {
     String? worktreeName,
   }) =>
       _dataSource.createSession(
+        profileId: profileId,
         agentId: agentId,
         taskId: taskId,
         cwd: cwd,
@@ -94,6 +96,7 @@ class AgentsRepository {
 
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -106,6 +109,7 @@ class AgentsRepository {
   }) =>
       _dataSource.updateSession(
         id,
+        profileId: profileId,
         name: name,
         providerId: providerId,
         modelId: modelId,

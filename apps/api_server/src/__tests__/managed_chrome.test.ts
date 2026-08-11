@@ -73,15 +73,16 @@ describe('findChromeBinary', () => {
     expect(result).toBeNull();
   });
 
-  it('falls through to known fixed paths when env override is absent', () => {
-    // Simulate the first known fixed path existing.
-    const knownPath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  it('refuses the default macOS Chrome bundle when no isolated binary exists', () => {
+    const defaultChrome =
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const result = findChromeBinary({
       envGet: () => undefined,
-      fsExists: (p) => p === knownPath,
+      fsExists: (p) => p === defaultChrome,
       shellResolve: () => null,
     });
-    expect(result).toBe(knownPath);
+    expect(result).toBeNull();
   });
 
   it('tries alternative known paths when the first does not exist', () => {

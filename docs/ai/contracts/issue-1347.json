@@ -1,0 +1,32 @@
+{
+  "issue": 1347,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1347-c1",
+      "text": "Keep RHYTHM_CHROME_BIN override first.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1347_managed_chrome.test.ts",
+      "test_id": "issue-1347-c1: explicit RHYTHM_CHROME_BIN remains highest priority",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1347-c2",
+      "text": "Reorder KNOWN_CHROME_PATHS so the user's default Google Chrome bundle is NEVER preferred — Chrome for Testing / Chromium paths first.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1347_managed_chrome.test.ts",
+      "test_id": "issue-1347-c2: Chrome for Testing and Chromium beat the default app bundle",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1347-c3",
+      "text": "If only the default bundle exists, log a loud warning and use an isolated approach that cannot hijack the user's GUI Chrome.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1347_managed_chrome.test.ts",
+      "test_id": "issue-1347-c3: default-bundle-only discovery refuses to launch and warns loudly",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
