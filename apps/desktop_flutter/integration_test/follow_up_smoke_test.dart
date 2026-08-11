@@ -241,6 +241,12 @@ class _FakeAgentsRepository implements AgentsRepository {
   }) async {}
 
   @override
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) async =>
+      const [];
+
+  @override
   Future<void> replyQuestion(
     String sessionId,
     String callId,
