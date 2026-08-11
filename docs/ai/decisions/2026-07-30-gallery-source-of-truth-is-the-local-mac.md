@@ -3,6 +3,9 @@ date: 2026-07-30
 tags: [decision, Rhythm]
 ---
 
+> **Superseded by #1309:** generated image and video bytes now have a durable,
+> checksum-addressed media artifact store for authenticated desktop and mobile access.
+
 # Gallery source of truth is the local Mac, not Rhythm Cloud
 
 ## Context

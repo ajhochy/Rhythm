@@ -36,3 +36,12 @@ Live-artifact automated verification passed, but the human visual smoke **failed
 ## Next step
 
 Decide the import product scope and #1339 scope before implementation resumes. Then run an early shipping-app user-journey smoke before further hardening or any PR-readiness claim. Do not merge or deploy PR #1338.
+
+## Recent coding-agent runs
+
+### 2026-08-11 — issue #1309 media artifact hosting
+- Files modified: API media-artifact schema/store/controller/routes; generated-image and finished-design registration hooks; mobile gateway allowlist/pass-through; retention startup; focused tests; superseded gallery decision.
+- Checks run: final focused store/contract/bridge/gallery suite passed (62 passed, 3 env-gated skipped); `tsc --noEmit`, repo lint command, and API build passed; broader runs isolated only known process/socket sandbox failures; live socket suite remains for the outer orchestrator.
+- Decisions made: checksum-addressed bytes dedupe independently from metadata; replayed same-session/checksum registration is idempotent; enriched tool metadata preserves the local path while adding the hosted artifact ID/route; local session ownership is enforced when available.
+- Deviations from spec: none in implementation; commits and socket-bound live verification remain for the outer orchestrator because the sandbox denies the shared worktree git lock and socket binds.
+- Concerns: hosted Postgres cannot apply local session-owner checks when the cloud role intentionally omits agent session tables, so that deployment retains authenticated exact-project scoping.
