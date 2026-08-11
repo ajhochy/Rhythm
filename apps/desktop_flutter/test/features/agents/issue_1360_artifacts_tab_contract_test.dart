@@ -480,7 +480,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('artifact-selector')));
       await tester.pumpAndSettle();
       for (final id in unavailableIds) {
-        expect(find.byKey(ValueKey('artifact-row-$id')), findsOneWidget);
+        // The selected id also renders in the closed dropdown button, so the
+        // currently-selected row appears twice once the menu is open. Assert
+        // the row is present (>=1) rather than exactly once.
+        expect(
+          find.byKey(ValueKey('artifact-row-$id')),
+          findsAtLeastNWidgets(1),
+        );
       }
       expect(find.textContaining('secret'), findsNothing);
       expect(find.textContaining('token'), findsNothing);

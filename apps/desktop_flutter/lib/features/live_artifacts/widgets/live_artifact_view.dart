@@ -362,8 +362,7 @@ class _ViewerToolbar extends StatelessWidget {
               Semantics(
                 label: 'Reload ${artifact.title}',
                 button: true,
-                excludeSemantics: true,
-                onTap: onReload,
+                container: true,
                 child: IconButton(
                   key: const ValueKey('artifact-reload-button'),
                   tooltip: 'Reload artifact',

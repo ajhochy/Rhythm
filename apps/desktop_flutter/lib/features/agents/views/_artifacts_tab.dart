@@ -412,8 +412,7 @@ class _ArtifactsTabState extends State<ArtifactsTab> {
           child: Semantics(
             label: 'Open ${artifact.title} in Dashboard',
             button: true,
-            excludeSemantics: true,
-            onTap: () => _openInDashboard(artifact),
+            container: true,
             child: TextButton.icon(
               key: const ValueKey('artifact-open-dashboard-button'),
               onPressed: () => _openInDashboard(artifact),

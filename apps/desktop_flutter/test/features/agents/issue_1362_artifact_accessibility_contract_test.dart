@@ -124,7 +124,6 @@ void main() {
     'issue-1362-c2: selected artifact, status, and actions have VoiceOver labels',
     (tester) async {
       final semantics = tester.ensureSemantics();
-      addTearDown(semantics.dispose);
       final controller = await _pump(tester);
       addTearDown(controller.dispose);
 
@@ -138,6 +137,9 @@ void main() {
       expect(find.bySemanticsLabel('Reload Beta'), findsOneWidget);
       expect(find.byTooltip('Reload artifact'), findsOneWidget);
       expect(find.byTooltip('Share artifact'), findsNothing);
+      // Dispose within the test body: Flutter's end-of-test semantics-handle
+      // check runs before addTearDown callbacks.
+      semantics.dispose();
     },
   );
 
@@ -162,7 +164,6 @@ void main() {
       const title =
           'A very long worship planning artifact title that cannot fit the inspector';
       final semantics = tester.ensureSemantics();
-      addTearDown(semantics.dispose);
       final controller = await _pump(tester, title: title, width: 300);
       addTearDown(controller.dispose);
 
@@ -176,6 +177,9 @@ void main() {
       final titleWidgets = tester.widgetList<Text>(find.text(title));
       expect(titleWidgets.any((text) => text.overflow == TextOverflow.ellipsis),
           isTrue);
+      // Dispose within the test body: Flutter's end-of-test semantics-handle
+      // check runs before addTearDown callbacks.
+      semantics.dispose();
     },
   );
 
