@@ -374,6 +374,30 @@ credential, or webhook secret.
   exercise native timer suspension and UIKit/network lifecycle behavior that
   Jest cannot reproduce.
 
+#### Reviewed session-binding cleanup (#1363 — human-gated)
+
+Run this only against the local-agent SQLite database on the paired Mac. The
+command is dry-run-only unless `--apply` is explicitly present, and output paths
+must not already exist.
+
+- [ ] Build the API CLI: `cd apps/api_server && npm run build`.
+- [ ] Generate the candidate report without mutation:
+  `node dist/cli/index.js session-binding-cleanup --db <rhythm.db> --output <review.json>`.
+- [ ] Match every candidate to the corresponding desktop and mobile chat. Set
+  every `reviewDecision` to either `approve` or `preserve`; leave intentional
+  `Theological-Researcher` bindings as `preserve`. For an approved row, set the
+  reviewed `proposed.profileId` and matching `proposed.agentKind`, or use a null
+  profile only when the chat should be Unassigned.
+- [ ] Stop unless a human has approved the complete reviewed JSON. Applying is
+  intentionally not part of automated verification.
+- [ ] After approval only, apply once and reserve a new audit path:
+  `node dist/cli/index.js session-binding-cleanup --db <rhythm.db> --apply --approval-file <review.json> --audit-output <audit.json>`.
+- [ ] Confirm the audit is `applied`, lists only explicitly approved session
+  IDs under `appliedSessionIds`, and lists legitimate bindings under
+  `preservedSessionIds`.
+- [ ] Fully quit and relaunch both desktop and mobile, then verify each approved
+  chat shows the reviewed profile and each preserved chat is unchanged.
+
 ### Every Tool and destructive confirmations (#1173)
 
 - [ ] Open every Tool: Brain, Research, Scheduled Jobs, Webhooks, Profiles,

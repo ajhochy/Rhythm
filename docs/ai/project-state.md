@@ -59,3 +59,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: exact lookup is authoritative when it returns normally; only lookup errors retain the legacy catalog fallback. Transcript commit precedes background scoped discovery, whose generation/result is fenced and deduplicated around the current explicit pin.
 - Deviations from spec: representative remote-gateway latency and physical device evidence remain human-gated and are listed in `docs/testing/manual-smoke.md`.
 - Concerns: native timer suspension, UIKit delivery, and Tailscale behavior cannot be proven in this socket/device-restricted worker.
+
+### 2026-08-10 — issue #1363 reviewed session-binding cleanup
+- Files modified: standalone cleanup CLI, focused dry-run/apply/audit tests, CLI dispatch, and human-run manual-smoke protocol.
+- Checks run: cleanup plus existing CLI tests 11/11 PASS; API TypeScript and build PASS. The apply command was deliberately not run.
+- Decisions made: candidate selection is exact `Theological-Researcher` binding only; every candidate must be explicitly approved or preserved; approved replacement mappings must exist; stale rows abort the transaction; audit output is reserved before mutation.
+- Deviations from spec: the actual apply and desktop/mobile relaunch checks remain human-gated by mandate.
+- Concerns: the apply command and cross-client relaunch verification remain intentionally human-owned; no automated apply was attempted.
