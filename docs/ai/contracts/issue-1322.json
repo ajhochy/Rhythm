@@ -1,0 +1,47 @@
+{
+  "issue": 1322,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1322-c1",
+      "text": "Plan-mode sessions receive a per-session permission policy that prevents bash execution rather than relying on per-agent projection.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "test_id": "issue-1322-c1: plan mode adds a session-level bash deny rule to session.create",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1322-c2",
+      "text": "Interactive and unattended non-plan sessions retain their existing behavior.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "test_id": "issue-1322-c2: non-plan modes do not add a session permission override",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1322-c3",
+      "text": "Hardline escalation remains enforced.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_stream_bridge.test.ts",
+      "test_id": "denies a hardline-blocklisted command even under bypassPermissions mode",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1322-c4",
+      "text": "A live sandbox test proves an ordinary command such as `echo` is denied in plan mode and still behaves normally outside plan mode.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1322_plan_permission.test.ts",
+      "test_id": "issue-1322-c4: echo is denied in plan mode and completes in default mode",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1322-c5",
+      "text": "Update the E4 smoke wording to describe the implemented policy precisely.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "E4 now states the session-level bash wildcard deny and the non-plan control precisely."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-1322-c4"]
+}

@@ -12,6 +12,19 @@ function makeDb() {
 }
 
 describe('AgentSessionsRepository', () => {
+  it('persists an explicit plan permission mode at session creation', () => {
+    const session = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'Plan at creation',
+      permissionMode: 'plan',
+    } as Parameters<AgentSessionsRepository['insert']>[0] & { permissionMode: 'plan' });
+
+    expect(session.permissionMode).toBe('plan');
+    expect(repo.findById(session.id)?.permissionMode).toBe('plan');
+  });
+
   let repo: AgentSessionsRepository;
 
   beforeEach(() => {

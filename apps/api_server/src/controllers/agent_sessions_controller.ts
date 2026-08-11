@@ -607,6 +607,16 @@ export class AgentSessionsController {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
 
+      const permissionMode = body.permissionMode === undefined
+        ? 'default'
+        : body.permissionMode;
+      if (
+        typeof permissionMode !== 'string' ||
+        !PERMISSION_MODES.includes(permissionMode as PermissionMode)
+      ) {
+        throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
+      }
+
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
       if (
@@ -888,6 +898,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        permissionMode: permissionMode as PermissionMode,
         // C1 — MCP role (null when no role was requested).
         mcpRole: resolvedMcpRole,
         mcpAllowedToolsJson,
@@ -965,6 +976,10 @@ export class AgentSessionsController {
         typeof name === 'string' ? name.trim() : '',
         dto.cwd,
         mcpRoleConfig,
+        undefined,
+        undefined,
+        undefined,
+        permissionMode as PermissionMode,
       );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
@@ -1193,6 +1208,20 @@ export class AgentSessionsController {
           502,
           'SESSION_CATALOG_SYNC_FAILED',
           'OpenCode rejected the session rename',
+        );
+      }
+      if (
+        fields.permissionMode !== undefined &&
+        session.sdkSessionId &&
+        !(await opencodeClient.updateSessionPermissionMode(
+          session.sdkSessionId,
+          fields.permissionMode,
+        ))
+      ) {
+        throw new AppError(
+          502,
+          'SESSION_PERMISSION_SYNC_FAILED',
+          'OpenCode rejected the session permission-mode update',
         );
       }
       repo.updateFields(session.id, fields);
@@ -1654,7 +1683,15 @@ export class AgentSessionsController {
         logger.info(
           `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
         );
-        const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+        const opencodeSession = await opencodeClient.createSession(
+          session.name,
+          session.cwd,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          session.permissionMode,
+        );
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
           throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');

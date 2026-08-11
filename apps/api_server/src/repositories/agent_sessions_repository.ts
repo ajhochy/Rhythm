@@ -316,9 +316,9 @@ export class AgentSessionsRepository {
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
-            mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
+            permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -329,6 +329,7 @@ export class AgentSessionsRepository {
         dto.cwd,
         dto.name,
         dto.projectId ?? null,
+        dto.permissionMode ?? 'default',
         dto.mcpRole ?? null,
         dto.mcpAllowedToolsJson ?? null,
         dto.scheduledTaskId ?? null,
