@@ -1,0 +1,45 @@
+{
+  "issue": "AV-03-prereqs",
+  "date": "2026-08-08",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/live_artifacts.test.ts src/__tests__/opc_rhythm_mcp_ensure.test.ts --no-file-parallelism",
+  "live_command": "tools/dev/sandbox.sh up && tools/dev/sandbox.sh status && tools/dev/sandbox.sh down",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "P1",
+      "text": "POST /live-artifacts honors requested collaborator IDs using existing workspace validation and stores them so the collaborator can list/get under shared visibility.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P2",
+      "text": "Invalid/cross-workspace collaborator rejects create atomically: no artifact row, revision rows, collaborator row, or stored bundle/state bytes remain.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P3",
+      "text": "Owner-only/default create behavior and verified AV-02 auth/storage/CAS behavior remain unchanged.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P4",
+      "text": "Sandbox-generated Rhythm MCP config passes RHYTHM_API_URL=http://127.0.0.1:4098 and the sandbox user-bound token to the MCP server, never production; logs/status redact token.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/opc_rhythm_mcp_ensure.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "P5",
+      "text": "Sandbox up/status/down succeeds and live :4096 engine remains untouched.",
+      "mode": "live",
+      "test": "tools/dev/sandbox.sh",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

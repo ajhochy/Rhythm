@@ -61,6 +61,7 @@ export class AgentDelegationController {
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
         callerSessionId,
         context: typeof body.context === 'string' ? body.context : null,
+        model: body.model,
       });
       res.json(result);
     } catch (err) {
@@ -91,6 +92,7 @@ export class AgentDelegationController {
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
         callerSessionId,
         context: typeof body.context === 'string' ? body.context : null,
+        model: body.model,
       });
       res.status(202).json(result);
     } catch (err) {

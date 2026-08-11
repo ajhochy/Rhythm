@@ -12,6 +12,8 @@ import '../../../features/notifications/controllers/notifications_controller.dar
 import '../../../features/notifications/views/notification_panel.dart';
 import 'background_activity_indicator.dart';
 import '../../../features/dashboard/views/dashboard_view.dart';
+import '../../../features/live_artifacts/widgets/dashboard_artifact_tabs.dart';
+// DashboardArtifactTabs and LiveArtifactsController are mounted by the Dashboard workspace only.
 import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/models/integration_account.dart';
 import '../../../features/integrations/views/integrations_view.dart';
@@ -28,6 +30,7 @@ import '../../../features/messages/views/messages_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
 import '../../../features/weekly_planner/views/weekly_planner_view.dart';
 import '../server/api_server_controller.dart';
+import '../services/server_config_service.dart';
 import '../auth/auth_session_service.dart';
 import '../workspace/workspace_onboarding_view.dart';
 import '../updates/update_controller.dart';
@@ -68,7 +71,6 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> with WindowListener {
   int _selectedIndex = 0;
-  bool _sidebarCollapsed = false;
 
   @override
   void initState() {
@@ -158,10 +160,6 @@ class _AppShellState extends State<AppShell> with WindowListener {
       ServerStatus.ready => _AuthGate(
           child: _AppContent(
             selectedIndex: _selectedIndex,
-            sidebarCollapsed: _sidebarCollapsed,
-            onToggleSidebarCollapsed: () {
-              setState(() => _sidebarCollapsed = !_sidebarCollapsed);
-            },
             onItemSelected: (i) {
               setState(() => _selectedIndex = i);
               if (i == 0) {
@@ -262,26 +260,29 @@ class _ServerFailedView extends StatelessWidget {
 class _AppContent extends StatelessWidget {
   const _AppContent({
     required this.selectedIndex,
-    required this.sidebarCollapsed,
-    required this.onToggleSidebarCollapsed,
     required this.onItemSelected,
   });
 
   final int selectedIndex;
-  final bool sidebarCollapsed;
-  final VoidCallback onToggleSidebarCollapsed;
   final ValueChanged<int> onItemSelected;
 
   @override
   Widget build(BuildContext context) {
     final updateController = context.watch<UpdateController>();
     final authSessionService = context.watch<AuthSessionService>();
+    final baseUrl = context.watch<ServerConfigService>().url;
     final views = <Widget>[
-      DashboardView(
-        openWeeklyPlanner: () => onItemSelected(AppConstants.navWeeklyPlanner),
-        openRhythms: () => onItemSelected(AppConstants.navRhythms),
-        openProjects: () => onItemSelected(AppConstants.navProjects),
-        openMessages: () => onItemSelected(AppConstants.navMessages),
+      DashboardArtifactWorkspace(
+        baseUrl: baseUrl,
+        workspaceId: authSessionService.currentWorkspace!.id,
+        dashboard: DashboardView(
+          showPlanningBadge: false,
+          openWeeklyPlanner: () =>
+              onItemSelected(AppConstants.navWeeklyPlanner),
+          openRhythms: () => onItemSelected(AppConstants.navRhythms),
+          openProjects: () => onItemSelected(AppConstants.navProjects),
+          openMessages: () => onItemSelected(AppConstants.navMessages),
+        ),
       ),
       const WeeklyPlannerView(),
       const TasksView(),
@@ -298,76 +299,47 @@ class _AppContent extends StatelessWidget {
       body: Stack(
         children: [
           const _ShellBackdrop(),
-          Row(
-            children: [
-              NavigationSidebar(
-                selectedIndex: selectedIndex,
-                collapsed: sidebarCollapsed,
-                onItemSelected: onItemSelected,
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                  child: Column(
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 52),
+                  child: Row(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              onPressed: onToggleSidebarCollapsed,
-                              tooltip: sidebarCollapsed
-                                  ? 'Expand sidebar'
-                                  : 'Collapse sidebar',
-                              style: IconButton.styleFrom(
-                                backgroundColor: context.rhythm.surfaceRaised,
-                                foregroundColor: context.rhythm.textPrimary,
-                                side: BorderSide(
-                                  color: context.rhythm.borderSubtle,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    RhythmRadius.lg,
-                                  ),
-                                ),
-                              ),
-                              icon: Icon(
-                                sidebarCollapsed ? Icons.menu_open : Icons.menu,
-                                size: 18,
-                              ),
-                            ),
-                            const Spacer(),
-                            // #747 — Background activity indicator sits in the
-                            // empty header space between the Spacer and the
-                            // account cluster. Shows idle dot when quiet;
-                            // pulsing accent dot + count when active.
-                            const Padding(
-                              padding: EdgeInsets.only(right: 10),
-                              child: BackgroundActivityIndicator(),
-                            ),
-                            _TopRightAccountCluster(
-                              authSessionService: authSessionService,
-                              updateController: updateController,
-                            ),
-                          ],
+                      Expanded(
+                        child: NavigationSidebar(
+                          selectedIndex: selectedIndex,
+                          collapsed: false,
+                          onItemSelected: onItemSelected,
                         ),
                       ),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(
-                            RhythmRadius.xl,
-                          ),
-                          child: Material(
-                            color: context.rhythm.surface,
-                            child: views[selectedIndex],
-                          ),
-                        ),
+                      // #747 — Background activity indicator sits in the
+                      // header space between navigation and the account
+                      // cluster. Shows idle dot when quiet;
+                      // pulsing accent dot + count when active.
+                      const Padding(
+                        padding: EdgeInsets.only(right: 10),
+                        child: BackgroundActivityIndicator(),
+                      ),
+                      _TopRightAccountCluster(
+                        authSessionService: authSessionService,
+                        updateController: updateController,
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(RhythmRadius.xl),
+                    child: Material(
+                      color: context.rhythm.surface,
+                      child: views[selectedIndex],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           // OPC-M1-3: mini-bubble overlay removed.
         ],

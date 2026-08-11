@@ -121,3 +121,63 @@ describe('PlanningCenterService.updatePlanItem', () => {
     ).rejects.toBeInstanceOf(PcoPermissionError);
   });
 });
+
+describe('PlanningCenterService broker reads', () => {
+  it('maps upstream 403 to PcoPermissionError for every brokered read', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('forbidden', { status: 403 })));
+    const service = new PlanningCenterService();
+    await expect(service.listServiceTypes(acct())).rejects.toBeInstanceOf(PcoPermissionError);
+    await expect(service.listPlans(acct(), 'st1')).rejects.toBeInstanceOf(PcoPermissionError);
+    await expect(service.listPlanItems(acct(), 'st1', 'p1')).rejects.toBeInstanceOf(PcoPermissionError);
+    await expect(service.listNeededPositions(acct(), 'st1', 'p1')).rejects.toBeInstanceOf(PcoPermissionError);
+  });
+});
+
+const OFFICIAL = 'https://api.planningcenteronline.com';
+
+describe('PlanningCenterService read base URL safety', () => {
+  const original = { live: process.env.RHYTHM_LIVE_E2E, base: process.env.RHYTHM_PCO_LIVE_BASE_URL };
+  function setEnv(live: string | undefined, base: string | undefined) {
+    if (live === undefined) delete process.env.RHYTHM_LIVE_E2E; else process.env.RHYTHM_LIVE_E2E = live;
+    if (base === undefined) delete process.env.RHYTHM_PCO_LIVE_BASE_URL; else process.env.RHYTHM_PCO_LIVE_BASE_URL = base;
+  }
+  afterEach(() => setEnv(original.live, original.base));
+
+  async function readUrl(live: string | undefined, base: string | undefined): Promise<string> {
+    setEnv(live, base);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await new PlanningCenterService().listServiceTypes(acct());
+    return String(fetchMock.mock.calls[0][0]);
+  }
+
+  // Only a live-flagged loopback override may redirect reads. Everything else must reach production PCO,
+  // so a stray/hostile env value can never silently point brokered reads at an attacker-controlled host.
+  const cases: Array<[string, string | undefined, string | undefined, string]> = [
+    ['no override at all', undefined, undefined, OFFICIAL],
+    ['override without the live flag', undefined, 'http://127.0.0.1:4199', OFFICIAL],
+    ['live flag with a non-loopback host', '1', 'https://attacker.test', OFFICIAL],
+    ['live flag with a loopback-looking hostile host', '1', 'https://127.0.0.1.attacker.test', OFFICIAL],
+    ['live flag with embedded credentials', '1', 'http://user:pass@127.0.0.1:4199', OFFICIAL],
+    ['live flag with a non-http scheme', '1', 'file:///etc/passwd', OFFICIAL],
+    ['live flag with an unparseable value', '1', 'not a url', OFFICIAL],
+    // Deliberate fail-closed seam: URL.hostname normalizes IPv6 loopback to `[::1]`, while the
+    // explicit allowlist is `::1`; retain rejection until a live fixture needs IPv6 support.
+    ['live flag with IPv6 loopback (deliberate fail-closed seam)', '1', 'http://[::1]:4199', OFFICIAL],
+    ['live flag off by value', '0', 'http://127.0.0.1:4199', OFFICIAL],
+    ['live flag with loopback ip', '1', 'http://127.0.0.1:4199', 'http://127.0.0.1:4199'],
+    ['live flag with localhost', '1', 'http://localhost:4199/ignored/path', 'http://localhost:4199'],
+  ];
+  it.each(cases)('resolves %s to the expected origin', async (_label, live, base, expected) => {
+    expect(await readUrl(live, base)).toBe(`${expected}/services/v2/service_types?per_page=100`);
+  });
+
+  it('never redirects writes, even under a live loopback override', async () => {
+    setEnv('1', 'http://127.0.0.1:4199');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { id: 'i1' } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await new PlanningCenterService().updatePlanItem(acct(), 'st1', 'p1', 'i1', { title: 'X' });
+    expect(String(fetchMock.mock.calls[0][0]).startsWith(OFFICIAL)).toBe(true);
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('127.0.0.1');
+  });
+});

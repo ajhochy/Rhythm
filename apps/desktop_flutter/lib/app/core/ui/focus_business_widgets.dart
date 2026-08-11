@@ -408,6 +408,9 @@ class FocusBusinessProjectProgress extends StatelessWidget {
     this.onTap,
     this.icon = Icons.grid_view_rounded,
     this.showPeople = true,
+    this.compact = false,
+    this.showDescriptionTitle = true,
+    this.compactListHeight,
   });
 
   final String panelTitle;
@@ -423,6 +426,9 @@ class FocusBusinessProjectProgress extends StatelessWidget {
   final VoidCallback? onTap;
   final IconData icon;
   final bool showPeople;
+  final bool compact;
+  final bool showDescriptionTitle;
+  final double? compactListHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -431,8 +437,10 @@ class FocusBusinessProjectProgress extends StatelessWidget {
         pills.isEmpty ? colors.accent : _toneColor(colors, pills[0].tone);
     final content = _FocusPanel(
       header: panelTitle,
+      compact: compact,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          if (compact) return _buildCompactContent(context);
           final stacked = constraints.maxWidth < 560;
           final left = _buildContent01(context, accent);
           final right = _buildContent02(context);
@@ -475,35 +483,160 @@ class FocusBusinessProjectProgress extends StatelessWidget {
     );
   }
 
-  Widget _buildContent01(BuildContext context, Color accent) {
-    final metricRows = <Widget>[];
-    for (var i = 0; i < metrics.length; i += 2) {
-      metricRows.add(
-        Row(
+  Widget _buildCompactContent(BuildContext context) {
+    final colors = context.rhythm;
+    final accent =
+        pills.isEmpty ? colors.accent : _toneColor(colors, pills[0].tone);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Keep the left column fixed so every extra card pixel goes to the list.
+        const leftColumnWidth = 166.0;
+        const metricsWidth = 166.0;
+        const bodyGap = 8.0;
+        return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: _FocusMetricBlock(metric: metrics[i])),
-            const SizedBox(width: RhythmSpacing.md),
-            if (i + 1 < metrics.length)
-              Expanded(child: _FocusMetricBlock(metric: metrics[i + 1]))
-            else
-              const Spacer(),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Icon(icon, size: 24, color: colors.textPrimary),
+                ),
+                const SizedBox(width: RhythmSpacing.xs),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: _FocusType.h4(context),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: RhythmSpacing.xs),
+            Wrap(
+              spacing: RhythmSpacing.xs,
+              runSpacing: 5,
+              children: [
+                for (final pill in pills)
+                  _FocusTextPill(pill: pill, square: true),
+              ],
+            ),
+            const SizedBox(height: RhythmSpacing.sm),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: leftColumnWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _FocusStepProgress(
+                        progress: progress,
+                        accent: accent,
+                        compact: true,
+                        compactSize: leftColumnWidth,
+                      ),
+                      const SizedBox(height: bodyGap),
+                      SizedBox(
+                        width: metricsWidth,
+                        child: _buildCompactMetrics(context),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: bodyGap),
+                Expanded(child: _buildCompactDescription(context, accent)),
+              ],
+            ),
           ],
-        ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCompactMetrics(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < metrics.length; index += 2) ...[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 12,
+                child: _FocusMetricBlock(metric: metrics[index]),
+              ),
+              const SizedBox(width: 8),
+              if (index + 1 < metrics.length)
+                Expanded(
+                  flex: 9,
+                  child: _FocusMetricBlock(metric: metrics[index + 1]),
+                ),
+            ],
+          ),
+          if (index + 2 < metrics.length)
+            const SizedBox(height: RhythmSpacing.sm),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildContent01(
+    BuildContext context,
+    Color accent, {
+    bool compact = false,
+    bool stackedMetrics = false,
+  }) {
+    final metricRows = <Widget>[];
+    for (var i = 0; i < metrics.length; i += stackedMetrics ? 1 : 2) {
+      metricRows.add(
+        stackedMetrics
+            ? _FocusMetricBlock(metric: metrics[i])
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _FocusMetricBlock(metric: metrics[i])),
+                  const SizedBox(width: RhythmSpacing.md),
+                  if (i + 1 < metrics.length)
+                    Expanded(child: _FocusMetricBlock(metric: metrics[i + 1]))
+                  else
+                    const Spacer(),
+                ],
+              ),
       );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _FocusStepProgress(progress: progress, accent: accent),
-        const SizedBox(height: RhythmSpacing.md),
+        _FocusStepProgress(
+            progress: progress, accent: accent, compact: compact),
+        SizedBox(height: compact ? RhythmSpacing.sm : RhythmSpacing.md),
         for (final row in metricRows) ...[
           row,
-          const SizedBox(height: RhythmSpacing.md),
+          SizedBox(height: compact ? RhythmSpacing.sm : RhythmSpacing.md),
         ],
       ],
     );
+  }
+
+  Widget _buildCompactDescription(BuildContext context, Color accent) {
+    return descriptionItems.isEmpty
+        ? Text(
+            description,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: _FocusType.regular(context),
+          )
+        : _FocusOnDeckTable(
+            title: descriptionTitle,
+            items: descriptionItems,
+            accent: accent,
+            showTitle: showDescriptionTitle,
+            listHeight: compactListHeight,
+          );
   }
 
   Widget _buildContent02(BuildContext context) {
@@ -578,6 +711,8 @@ class FocusBusinessProjectProgress extends StatelessWidget {
               title: descriptionTitle,
               items: descriptionItems,
               accent: accent,
+              showTitle: showDescriptionTitle,
+              listHeight: compactListHeight,
             ),
           if (showPeople) ...[
             const SizedBox(height: RhythmSpacing.lg),
@@ -622,11 +757,15 @@ class _FocusOnDeckTable extends StatelessWidget {
     required this.title,
     required this.items,
     required this.accent,
+    this.showTitle = true,
+    this.listHeight,
   });
 
   final String title;
   final List<FocusOnDeckItem> items;
   final Color accent;
+  final bool showTitle;
+  final double? listHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -640,107 +779,126 @@ class _FocusOnDeckTable extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          Container(
-            color: accent.withValues(alpha: 0.16),
-            padding: const EdgeInsets.symmetric(
-              horizontal: RhythmSpacing.sm,
-              vertical: 7,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: _FocusType.small(context).copyWith(
-                      color: accent,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          for (var index = 0; index < items.length; index++)
+          if (showTitle)
             Container(
+              color: accent.withValues(alpha: 0.16),
               padding: const EdgeInsets.symmetric(
                 horizontal: RhythmSpacing.sm,
-                vertical: 8,
-              ),
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: colors.borderSubtle),
-                ),
+                vertical: 7,
               ),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 42,
-                    child: Transform.scale(
-                      scale: 0.85,
-                      alignment: Alignment.centerLeft,
-                      child: Checkbox(
-                        value: items[index].checked,
-                        onChanged: items[index].onChanged == null
-                            ? null
-                            : (value) =>
-                                items[index].onChanged!(value ?? false),
-                        side: BorderSide(
-                          color: colors.textMuted.withValues(alpha: 0.75),
-                          width: 1.6,
-                        ),
-                        activeColor: accent,
-                        checkColor: colors.canvas,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-                  ),
                   Expanded(
-                    child: InkWell(
-                      onTap: items[index].onTap,
-                      borderRadius: BorderRadius.circular(RhythmRadius.xs),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Text(
-                          items[index].title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: _FocusType.regular(context).copyWith(
-                            color: items[index].checked
-                                ? colors.textMuted
-                                : colors.textPrimary,
-                            decoration: items[index].checked
-                                ? TextDecoration.lineThrough
-                                : TextDecoration.none,
-                          ),
-                        ),
+                    child: Text(
+                      title,
+                      style: _FocusType.small(context).copyWith(
+                        color: accent,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
-                  if (items[index].avatarLabel?.trim().isNotEmpty == true) ...[
-                    const SizedBox(width: RhythmSpacing.sm),
-                    _FocusAvatar(
-                      avatar: FocusBusinessAvatar(
-                        label: items[index].avatarLabel!.trim(),
-                        tone: items[index].avatarTone,
-                      ),
-                      size: 24,
-                    ),
-                  ],
                 ],
+              ),
+            ),
+          if (listHeight == null)
+            _buildItems(context, colors)
+          else
+            SizedBox(
+              height: listHeight,
+              child: SingleChildScrollView(
+                child: _buildItems(context, colors),
               ),
             ),
         ],
       ),
     );
   }
+
+  Widget _buildItems(BuildContext context, RhythmColorRoles colors) {
+    return Column(
+      children: [
+        for (var index = 0; index < items.length; index++)
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: RhythmSpacing.sm,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: colors.borderSubtle)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 42,
+                  child: Transform.scale(
+                    scale: 0.85,
+                    alignment: Alignment.centerLeft,
+                    child: Checkbox(
+                      value: items[index].checked,
+                      onChanged: items[index].onChanged == null
+                          ? null
+                          : (value) => items[index].onChanged!(value ?? false),
+                      side: BorderSide(
+                        color: colors.textMuted.withValues(alpha: 0.75),
+                        width: 1.6,
+                      ),
+                      activeColor: accent,
+                      checkColor: colors.canvas,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: InkWell(
+                    onTap: items[index].onTap,
+                    borderRadius: BorderRadius.circular(RhythmRadius.xs),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        items[index].title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: _FocusType.regular(context).copyWith(
+                          color: items[index].checked
+                              ? colors.textMuted
+                              : colors.textPrimary,
+                          decoration: items[index].checked
+                              ? TextDecoration.lineThrough
+                              : TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (items[index].avatarLabel?.trim().isNotEmpty == true) ...[
+                  const SizedBox(width: RhythmSpacing.sm),
+                  _FocusAvatar(
+                    avatar: FocusBusinessAvatar(
+                      label: items[index].avatarLabel!.trim(),
+                      tone: items[index].avatarTone,
+                    ),
+                    size: 24,
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _FocusPanel extends StatelessWidget {
-  const _FocusPanel({required this.header, required this.child});
+  const _FocusPanel({
+    required this.header,
+    required this.child,
+    this.compact = false,
+  });
 
   final String header;
   final Widget child;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -756,20 +914,20 @@ class _FocusPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              RhythmSpacing.md,
-              RhythmSpacing.md,
-              RhythmSpacing.md,
+            padding: EdgeInsets.fromLTRB(
+              compact ? 10 : RhythmSpacing.md,
+              compact ? 10 : RhythmSpacing.md,
+              compact ? 10 : RhythmSpacing.md,
               RhythmSpacing.sm,
             ),
             child: Text(header, style: _FocusType.preH(context)),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              RhythmSpacing.md,
+            padding: EdgeInsets.fromLTRB(
+              compact ? 10 : RhythmSpacing.md,
               RhythmSpacing.sm,
-              RhythmSpacing.md,
-              RhythmSpacing.md,
+              compact ? 10 : RhythmSpacing.md,
+              compact ? 10 : RhythmSpacing.md,
             ),
             child: child,
           ),
@@ -783,17 +941,21 @@ class _FocusStepProgress extends StatelessWidget {
   const _FocusStepProgress({
     required this.progress,
     required this.accent,
+    this.compact = false,
+    this.compactSize,
   });
 
   final double progress;
   final Color accent;
+  final bool compact;
+  final double? compactSize;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
     final percent = (progress.clamp(0, 1) * 100).round();
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: compact ? EdgeInsets.zero : const EdgeInsets.all(20),
       child: Center(
         child: CircularStepProgressIndicator(
           totalSteps: 100,
@@ -802,8 +964,8 @@ class _FocusStepProgress extends StatelessWidget {
           selectedColor: accent,
           unselectedColor: accent.withValues(alpha: 0.18),
           padding: 0,
-          width: 150,
-          height: 150,
+          width: compact ? (compactSize ?? 104) : 150,
+          height: compact ? (compactSize ?? 104) : 150,
           selectedStepSize: 5,
           roundedCap: (_, __) => true,
           child: Center(
@@ -835,7 +997,11 @@ class _FocusMetricBlock extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(metric.label, style: _FocusType.regularB(context)),
+          Text(
+            metric.label,
+            softWrap: false,
+            style: _FocusType.regularB(context),
+          ),
           const SizedBox(height: 3),
           Text(
             metric.value,

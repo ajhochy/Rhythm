@@ -277,6 +277,33 @@ async function resolveModelFromAgentConfigs(agentId: string): Promise<ModelRoute
       return undefined;
     }
 
+    // Zen's keyless catalog contains only free models. An expiring bootstrap
+    // id therefore heals locally, but credentialed accounts retain their exact
+    // selection so a paid-model typo remains visible to the user.
+    if (
+      config.modelProvider === 'opencode' &&
+      config.modelId &&
+      !opencodeClient.isProviderInAuthStore('opencode')
+    ) {
+      const models = await opencodeClient.listModels('opencode');
+      if (models.length === 0) return undefined;
+      if (!models.some((model) => model.id === config.modelId)) {
+        const preferred = [
+          'deepseek-v4-flash-free',
+          'big-pickle',
+          'laguna-s-2.1-free',
+          'longcat-2.0-free',
+          'nemotron-3-ultra-free',
+          'mimo-v2.5-free',
+        ].find((id) => models.some((model) => model.id === id));
+        const substitute = preferred ?? models[0].id;
+        logger.warn(
+          `[ModelResolver] keyless opencode model '${config.modelId}' is stale; using '${substitute}'`,
+        );
+        return { providerID: 'opencode', modelID: substitute };
+      }
+    }
+
     // #949-live: a provider-only config (model_id null — e.g. the 'opencode'
     // preset) previously fell through to the static table, which doesn't know
     // custom agent ids, so the turn stalled forever on ws_gateway's

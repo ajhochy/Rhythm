@@ -301,6 +301,34 @@ describe("#1134 external-content security boundary", () => {
     expect(sessionTwoId).not.toBe(sessionOneId);
   });
 
+  it("#1339 c9: sharing approvals bind only the sharing action and MCP tool", async () => {
+    // Regression: a state-update approval or signed state tool could authorize collaborator changes.
+    const action: SecurityAction = "live-artifact.sharing.update";
+    const payload = {
+      id: "artifact-sharing-1",
+      visibility: "shared",
+      collaborators: ["bea@example.test"],
+    };
+    expect(SECURITY_ACTION_TOOLS.get(action)).toBe("rhythm_update_live_artifact_sharing");
+
+    const mismatch = await fetch(`${baseUrl}/agent-approvals/consume`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        trustedCall: trustedSigner.signCall(
+          actionContext,
+          "rhythm_update_live_artifact_state",
+          payload,
+        ),
+        approvalId: "unused-approval",
+        action,
+        payload,
+      }),
+    });
+    expect(mismatch.status).toBe(403);
+    expect(await mismatch.text()).toContain("rhythm_update_live_artifact_sharing");
+  });
+
   it("#1134 c3: cross-action payload agent expiry and stale-taint substitutions fail closed", async () => {
     expect((await taint()).status).toBe(201);
 

@@ -1,0 +1,73 @@
+{
+  "issue": 1337,
+  "date": "2026-08-08",
+  "test_command": "PATH=/Users/ajhochhalter/development/flutter/bin:$PATH flutter test test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "ui-dashboard-glance-c1",
+      "text": "Compact body remains one horizontal Row: LEFT fixed column approximately 166px, RIGHT Expanded task list.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c2",
+      "text": "LEFT column stacks a centered progress dial above an 8–10px gap and full 166px-wide 2x2 metrics grid. Ring is no longer next to metrics.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c3",
+      "text": "Dial uses the left-column layout width and is materially larger than 88px, with a sane 150–166px circular diameter.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c4",
+      "text": "RIGHT task list starts after an 8–10px body gap, is top-aligned with the dial, has all remaining width, remains at least 150px at 1024, is scrollable, and has no On Deck heading.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c5",
+      "text": "Metric labels COMPLETE, OPEN, NEXT|TOMORROW, and PROGRESS remain one line with readable values; no font shrinking, truncation, or FittedBox.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c6",
+      "text": "Cards may grow for the larger ring and grid while paired cards stay equal-height, top-aligned, usable at 1024x700, and avoid massive empty space.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c7",
+      "text": "At 200% text, paired outer cards remain and the internal left column may grow vertically without card-subtree overflow.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c8",
+      "text": "The focused tests assert dial y < metric y, shared left-column x/width, task-list x > left-column right, list width >=150, one-line metric labels, and no overflow while preserving the existing 12 tests.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/dashboard/dashboard_glance_layout_contract_test.dart",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "ui-dashboard-glance-c9",
+      "text": "Run focused tests, format, analyze, and build; update this contract and run note; do not commit or push.",
+      "mode": "manual",
+      "test": null,
+       "status": "pass",
+       "reason": "The run note records PASS for the 12-test focused contract, format, analyze, build, and documentation update; no commit or push was performed."
+    }
+  ],
+  "not_tested": []
+}

@@ -1,7 +1,7 @@
 # Manual Smoke Test — Opencode Engine
 
-**PR:** [#574](https://github.com/ajhochhalter/Rhythm/pull/574)
-**Branch:** `opencode-engine-issue-564`
+**Feature/PR:** `<current feature or PR>`
+**Branch:** `<current branch>`
 
 Run these checks against a running instance of the app before merging.
 
@@ -128,6 +128,16 @@ cd apps/desktop_flutter && RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
 - [ ] Paste a Gemini API key, click Save — status message shows success/failure
 - [ ] Navigate to Agents → Manage agents — "Connect an AI Account" card visible
 - [ ] Create a new agent session — verify it appears in the session list
+
+### Live Artifacts / Worship Calendar (AV-07)
+
+- [ ] Dashboard stays unchanged; open the fixed Dashboard tab after opening an artifact.
+- [ ] Use **+** to find and open a Worship Calendar; pin/close it, restart, and confirm tabs persist only for the signed-in user.
+- [ ] As an authorized collaborator/org member, edit the calendar and confirm the same artifact updates; exercise revision conflict → reload and deleted/unavailable states.
+- [ ] Use **Sync from PCO** under the current viewer's own PCO account; verify disconnected/denied/offline feedback remains in that tab.
+- [ ] Confirm blocked links, downloads, file/media access, and network/navigation attempts show feedback without leaving the viewer.
+- [ ] Log out or switch users and confirm prior artifact tabs/data clear before the next user loads.
+- [ ] Compare Dashboard, overflow/picker, Worship Calendar, conflict, deleted, and error states with the AV-06/AV-07 screenshot evidence in `docs/ai/runs/`.
 
 ---
 

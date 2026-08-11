@@ -102,9 +102,13 @@ function fakeSandboxEnv(): {
     chmodSync(path, 0o755);
   };
 
-  for (const command of ["bun", "npm", "sqlite3"]) {
+  for (const command of ["bun", "npm"]) {
     writeExecutable(command, "exit 0");
   }
+  writeExecutable(
+    "sqlite3",
+    '[[ "$*" == *"SELECT token FROM sessions"* ]] && printf "sandbox-test-token\\n"; exit 0',
+  );
   writeExecutable(
     "curl",
     [
