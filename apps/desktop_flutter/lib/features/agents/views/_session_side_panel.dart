@@ -9,10 +9,14 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/utils/time_format.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../controllers/agents_controller.dart';
+import '../data/agents_data_source.dart';
 import '../data/usage_budget_data_source.dart';
 import '../models/agent_session.dart';
 import '../models/usage_budget.dart';
+import '../../live_artifacts/data/live_artifacts_data_source.dart';
+import '../../live_artifacts/controllers/live_artifacts_controller.dart';
 import 'agent_badge_identity.dart';
+import '_artifacts_tab.dart';
 import '_changes_tab.dart';
 import '_files_tab.dart';
 import '_terminal_tab.dart';
@@ -29,18 +33,36 @@ import '_todo_panel.dart';
 ///   - Terminal: captured bash output (placeholder; M3 ships an empty state
 ///     until streaming bash output is plumbed end-to-end).
 class SessionSidePanel extends StatefulWidget {
-  const SessionSidePanel({super.key, required this.session});
+  const SessionSidePanel({
+    super.key,
+    required this.session,
+    this.activeUserId,
+    this.artifactsController,
+    this.onNavigateToDashboard,
+  });
 
   final AgentSession session;
+  final int? activeUserId;
+  final LiveArtifactsController? artifactsController;
+  final VoidCallback? onNavigateToDashboard;
 
   @override
   State<SessionSidePanel> createState() => _SessionSidePanelState();
 }
 
-enum _Tab { context, changes, terminal, files }
+enum _Tab { context, changes, terminal, files, artifacts }
 
 class _SessionSidePanelState extends State<SessionSidePanel> {
   _Tab _selected = _Tab.context;
+  final AgentsDataSource _agentsDataSource = AgentsDataSource();
+  final LiveArtifactsDataSource _artifactsDataSource =
+      LiveArtifactsDataSource();
+
+  @override
+  void dispose() {
+    unawaited(_agentsDataSource.dispose());
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(SessionSidePanel old) {
@@ -120,6 +142,33 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
       case _Tab.files:
         // OCU-21 (#1062) — browse + preview the session's project directory.
         return FilesTab(session: widget.session);
+      case _Tab.artifacts:
+        final controller = context.watch<AgentsController>();
+        final messages = controller.transcriptFor(widget.session.id);
+        return ArtifactsTab(
+          key: ValueKey(
+            'artifacts-tab-${widget.session.id}-${widget.activeUserId}',
+          ),
+          sessionId: widget.session.id,
+          initialMessages: messages,
+          userId: widget.activeUserId,
+          dataSource: _artifactsDataSource,
+          initialCursor: messages.isEmpty ? null : messages.first.id.toString(),
+          initialHasMore: controller.hasOlderTranscript(widget.session.id),
+          dashboardController: widget.artifactsController,
+          onNavigateToDashboard: widget.onNavigateToDashboard,
+          loadPage: ({required sessionId, before}) async {
+            final page = await _agentsDataSource.fetchTranscriptPage(
+              sessionId,
+              before: before,
+            );
+            return (
+              messages: page.messages,
+              nextCursor: page.nextCursor,
+              hasMore: page.hasMore,
+            );
+          },
+        );
     }
   }
 }
@@ -149,6 +198,7 @@ class _Tabs extends StatelessWidget {
           ),
           _tab(context, _Tab.terminal, 'Terminal'),
           _tab(context, _Tab.files, 'Files'),
+          _tab(context, _Tab.artifacts, 'Artifacts'),
           IconButton(
             key: const ValueKey('inspector-collapse-button'),
             icon: const Icon(Icons.chevron_right, size: 18),
@@ -156,7 +206,7 @@ class _Tabs extends StatelessWidget {
             onPressed: () =>
                 context.read<AgentsController>().setPanelCollapsed(true),
             style: IconButton.styleFrom(
-              minimumSize: const Size(28, 28),
+              minimumSize: const Size(44, 44),
               padding: EdgeInsets.zero,
               foregroundColor: context.rhythm.textMuted,
             ),
@@ -172,6 +222,7 @@ class _Tabs extends StatelessWidget {
       child: InkWell(
         onTap: () => onSelect(t),
         child: Container(
+          constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             border: Border(

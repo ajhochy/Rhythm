@@ -20,6 +20,9 @@ class LiveArtifactView extends StatefulWidget {
     this.debugOnBridgeMessage,
     this.onRemove,
     this.currentUserId,
+    this.compact = false,
+    this.reloadToken = 0,
+    this.debugOnDisposed,
   });
 
   final LiveArtifact artifact;
@@ -32,6 +35,11 @@ class LiveArtifactView extends StatefulWidget {
   final void Function(String raw)? debugOnBridgeMessage;
   final VoidCallback? onRemove;
   final int? currentUserId;
+  final bool compact;
+  final int reloadToken;
+
+  /// Assert-only lifecycle hook used by the macOS integration contract.
+  final VoidCallback? debugOnDisposed;
 
   @override
   State<LiveArtifactView> createState() => _LiveArtifactViewState();
@@ -56,6 +64,9 @@ class _LiveArtifactViewState extends State<LiveArtifactView> {
   void didUpdateWidget(covariant LiveArtifactView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.artifact.id != widget.artifact.id) {
+      _artifact = widget.artifact;
+      _reload();
+    } else if (oldWidget.reloadToken != widget.reloadToken) {
       _artifact = widget.artifact;
       _reload();
     }
@@ -115,18 +126,29 @@ class _LiveArtifactViewState extends State<LiveArtifactView> {
     await WebViewCookieManager().clearCookies();
     await controller.clearCache();
     await controller.clearLocalStorage();
-    await controller.addJavaScriptChannel('RhythmBridge',
-        onMessageReceived: (message) async {
-      final response = await bridge.handle(message.message);
-      if (response.isNotEmpty && mounted && generation == _generation) {
-        await controller.runJavaScript(response);
-      }
-    });
+    await _installBridge(controller, bridge, generation);
     assert(() {
       widget.debugOnNativeReady?.call(controller, inspectableDisabled);
       return true;
     }());
     return controller;
+  }
+
+  Future<void> _installBridge(
+    WebViewController controller,
+    LiveArtifactBridge bridge,
+    int generation,
+  ) async {
+    await controller.removeJavaScriptChannel('RhythmBridge');
+    await controller.addJavaScriptChannel(
+      'RhythmBridge',
+      onMessageReceived: (message) async {
+        final response = await bridge.handle(message.message);
+        if (response.isNotEmpty && mounted && generation == _generation) {
+          await controller.runJavaScript(response);
+        }
+      },
+    );
   }
 
   void _showBlocked(String _) {
@@ -154,9 +176,25 @@ class _LiveArtifactViewState extends State<LiveArtifactView> {
       if (!mounted || generation != _generation) return;
       _artifact = latest;
       if (widget.enableNativeRuntime && Platform.isMacOS) {
-        final controller = await _createWebView(generation);
+        final existingController = _webView;
+        final controller =
+            existingController ?? await _createWebView(generation);
         if (!mounted || generation != _generation) return;
-        _webView = controller;
+        if (existingController != null) {
+          final bridge = LiveArtifactBridge(
+            artifactId: _artifact.id,
+            userId: 0,
+            generation: generation,
+            source: widget.source,
+            artifact: _artifact,
+            isCurrent: (value) => mounted && value == _generation,
+            onBlocked: _showBlocked,
+            debugOnMessage: widget.debugOnBridgeMessage,
+          );
+          await _installBridge(controller, bridge, generation);
+        } else {
+          _webView = controller;
+        }
         await controller.loadHtmlString(html);
       }
       if (mounted && generation == _generation) {
@@ -175,6 +213,10 @@ class _LiveArtifactViewState extends State<LiveArtifactView> {
   @override
   void dispose() {
     _generation++;
+    assert(() {
+      widget.debugOnDisposed?.call();
+      return true;
+    }());
     super.dispose();
   }
 
@@ -184,6 +226,7 @@ class _LiveArtifactViewState extends State<LiveArtifactView> {
             artifact: _artifact,
             source: widget.source,
             currentUserId: widget.currentUserId,
+            compact: widget.compact,
             onChanged: (artifact) => setState(() => _artifact = artifact),
             onReload: _reload),
         Expanded(
@@ -257,6 +300,7 @@ class _ViewerToolbar extends StatelessWidget {
     required this.currentUserId,
     required this.onChanged,
     required this.onReload,
+    required this.compact,
   });
 
   final LiveArtifact artifact;
@@ -264,10 +308,15 @@ class _ViewerToolbar extends StatelessWidget {
   final int? currentUserId;
   final ValueChanged<LiveArtifact> onChanged;
   final VoidCallback onReload;
+  final bool compact;
 
   bool get _isOwner => artifact.ownerUserId == currentUserId;
 
   String _metadata() {
+    if (compact) {
+      return 'Available · Bundle ${artifact.currentBundleRevision} · '
+          'State ${artifact.currentStateRevision}';
+    }
     final name = artifact.updatedByDisplayName?.trim();
     return [
       'Updated ${DateFormat.yMMMd().format(artifact.updatedAt.toLocal())}${name?.isNotEmpty == true ? ' by $name' : ''}',
@@ -278,26 +327,53 @@ class _ViewerToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-        child: ListTile(
-          title: Text(artifact.title),
-          subtitle: Text(_metadata()),
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (_isOwner)
-              Semantics(
-                  label: 'Share artifact',
-                  button: true,
-                  container: true,
-                  child: IconButton(
-                    tooltip: 'Share artifact',
-                    onPressed: () => _share(context),
-                    icon: const Icon(Icons.share),
-                  )),
-            IconButton(
-              tooltip: 'Reload artifact',
-              onPressed: onReload,
-              icon: const Icon(Icons.refresh),
+        child: Semantics(
+          container: true,
+          label: 'Selected artifact ${artifact.title}. ${_metadata()}',
+          child: ListTile(
+            minTileHeight: 44,
+            title: Semantics(
+              label: artifact.title,
+              child: ExcludeSemantics(
+                child: Text(
+                  artifact.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ),
-          ]),
+            subtitle: Text(
+              _metadata(),
+              maxLines: compact ? 1 : 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (!compact && _isOwner)
+                Semantics(
+                    label: 'Share artifact',
+                    button: true,
+                    container: true,
+                    child: IconButton(
+                      tooltip: 'Share artifact',
+                      onPressed: () => _share(context),
+                      icon: const Icon(Icons.share),
+                    )),
+              Semantics(
+                label: 'Reload ${artifact.title}',
+                button: true,
+                child: IconButton(
+                  key: const ValueKey('artifact-reload-button'),
+                  tooltip: 'Reload artifact',
+                  constraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                  ),
+                  onPressed: onReload,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ),
+            ]),
+          ),
         ),
       );
 
