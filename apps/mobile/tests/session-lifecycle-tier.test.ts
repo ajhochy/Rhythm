@@ -1,5 +1,6 @@
 import { mergeSessionMessages } from '@/lib/opencode/messages';
 import { createOpenProjectSessionController } from '@/providers/open-project-session';
+import { resolveExactSession } from '@/providers/services/session-service';
 import {
   canCommitBootstrappedSession,
   cancelSessionRefreshTimers,
@@ -17,6 +18,41 @@ function deferred<T>() {
 }
 
 describe('issues #1364/#1366 mobile lifecycle tier', () => {
+  test('registered project session reaches ready without waiting for catalog discovery', async () => {
+    const get = jest.fn().mockResolvedValue({
+      data: { id: 'session-created', title: 'New session' },
+    });
+    const ownerList = jest.fn().mockResolvedValue({ data: [] });
+    const client = {
+      experimental: { session: { list: ownerList } },
+      session: { get },
+    } as never;
+    const controller = createOpenProjectSessionController({
+      commit() {},
+      transport: {
+        async confirmProject() {
+          return true;
+        },
+        async resolveSession(_projectId, sessionId) {
+          return resolveExactSession(client, sessionId);
+        },
+        async listSessions() {
+          return new Promise<never>(() => undefined);
+        },
+        async loadSessionState(_projectId, sessionId) {
+          return { sessionId };
+        },
+      },
+    });
+
+    await expect(controller.openProjectSession(
+      'project-a',
+      'session-created',
+    )).resolves.toMatchObject({ kind: 'ready' });
+    expect(get).toHaveBeenCalledWith({ sessionID: 'session-created' });
+    expect(ownerList).not.toHaveBeenCalled();
+  });
+
   test('exact transcript open completes while owner discovery remains in the background', async () => {
     const discovery = deferred<void>();
     const calls: string[] = [];

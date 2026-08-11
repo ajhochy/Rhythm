@@ -158,7 +158,7 @@ import {
   archiveSession as svcArchiveSession,
   listArchivedSessions as svcListArchivedSessions,
   listSessions as svcListSessions,
-  resolveOwnerDiscoveredSession,
+  resolveExactSession,
   getSessionMessages as svcGetSessionMessages,
   getSessionDiff as svcGetSessionDiff,
   getSessionTodos as svcGetSessionTodos,
@@ -974,7 +974,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       };
     },
     async resolveSession(projectId, sessionId) {
-      return resolveOwnerDiscoveredSession(
+      return resolveExactSession(
         buildScopedClient(projectId),
         sessionId,
       ) as Promise<MobileSession | undefined>;
