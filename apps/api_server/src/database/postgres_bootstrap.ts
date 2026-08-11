@@ -36,7 +36,11 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       locked BOOLEAN NOT NULL DEFAULT FALSE,
       notes TEXT,
       owner_id INTEGER REFERENCES users(id),
-      scheduled_order INTEGER
+      scheduled_order INTEGER,
+      search_vector TSVECTOR GENERATED ALWAYS AS (
+        setweight(to_tsvector('english', title), 'A') ||
+        setweight(to_tsvector('english', COALESCE(notes, '')), 'B')
+      ) STORED
     );
 
     CREATE TABLE IF NOT EXISTS recurring_task_rules (
@@ -306,6 +310,10 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes TEXT;
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id);
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scheduled_order INTEGER;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS search_vector TSVECTOR GENERATED ALWAYS AS (
+      setweight(to_tsvector('english', title), 'A') ||
+      setweight(to_tsvector('english', COALESCE(notes, '')), 'B')
+    ) STORED;
 
     ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS steps_json TEXT NOT NULL DEFAULT '[]';
     ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
@@ -370,6 +378,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS expires_at TEXT;
     ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS last_synced_at TEXT;
   `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_search ON tasks USING GIN(search_vector)`);
 
   await pool.query(`
     UPDATE automation_rules

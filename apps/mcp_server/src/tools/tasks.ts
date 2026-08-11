@@ -15,6 +15,26 @@ import {
   scanContextContentAndRecordExternalContentTaint,
 } from "../security/external_content_boundary.js";
 import { trustedSecurityContext } from "../security/security_context.js";
+import { untrustedContext } from "../untrusted_context.js";
+
+function listNotes(notes: unknown): unknown {
+  if (typeof notes !== "string" || notes.length <= 200) return notes;
+  return `${notes.slice(0, 200)}… +${notes.length - 200} chars; fetch task by id for full notes.`;
+}
+
+function listTask(task: unknown) {
+  const value = task as Record<string, unknown>;
+  return {
+    id: value.id,
+    title: value.title,
+    status: value.status,
+    notes: listNotes(value.notes),
+    scheduledDate: value.scheduledDate,
+    dueDate: value.dueDate,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
 
 export function registerTaskTools(
   server: McpServer,
@@ -26,7 +46,7 @@ export function registerTaskTools(
     server,
     "rhythm_list_tasks",
     "List tasks with optional filters. Returns open tasks by default. " +
-      "Each task has two date fields with different semantics: scheduledDate is the intended work date — " +
+      "Each task has two date fields with distinct meanings: scheduledDate is the intended work date — " +
       "when the task should be started or completed in normal workflow; dueDate is the hard external deadline — " +
       'a commitment to someone else or a fixed event. Use scheduled_before to answer "what should I be working ' +
       'on by date X"; use due_before only when you specifically need hard-deadline filtering. ' +
@@ -39,7 +59,7 @@ export function registerTaskTools(
       "Fields returned per task: id, title, status, notes, " +
       "scheduledDate (when the user plans to do it; drives overdue state), " +
       "dueDate (hard external deadline; drives past-deadline state), " +
-      "createdAt, updatedAt.",
+      "createdAt, updatedAt. Search is a ranked full-text match over task title and notes.",
     {
       status: z
         .enum(["open", "done", "all"])
@@ -66,7 +86,14 @@ export function registerTaskTools(
       search: z
         .string()
         .optional()
-        .describe("Case-insensitive substring match against task title."),
+        .describe("Ranked full-text match over task title and notes."),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(200)
+        .default(50)
+        .describe("Maximum number of tasks returned; defaults to 50."),
     },
     async (
       {
@@ -75,12 +102,14 @@ export function registerTaskTools(
         scheduled_before,
         overdue,
         search,
+        limit = 50,
       }: {
         status?: string;
         due_before?: string;
         scheduled_before?: string;
         overdue?: boolean;
         search?: string;
+        limit?: number;
       },
       extra,
     ) => {
@@ -98,19 +127,40 @@ export function registerTaskTools(
           apiToken,
           `/tasks${qs ? `?${qs}` : ""}`,
         );
+        const label = "user-authored Rhythm tasks";
+        const rawContent = JSON.stringify(tasks, null, 2);
         const ingress = await scanContextContentAndRecordExternalContentTaint({
           agentUrl,
           context: trustedSecurityContext(extra),
           source: "task.list",
-          label: "user-authored Rhythm tasks",
-          rawContent: JSON.stringify(tasks, null, 2),
+          label,
+          rawContent,
         });
-        return ingress.blocked
-          ? {
-              content: [{ type: "text" as const, text: ingress.text }],
-              isError: true as const,
-            }
-          : toolResult(ingress.text);
+        if (ingress.blocked) {
+          return {
+            content: [{ type: "text" as const, text: ingress.text }],
+            isError: true as const,
+          };
+        }
+        if (ingress.text !== untrustedContext(rawContent, label)) {
+          return toolResult(ingress.text);
+        }
+        const returned = Math.min(limit, tasks.length);
+        const more = tasks.length - returned;
+        return toolResult(
+          untrustedContext(
+            JSON.stringify({
+              tasks: tasks.slice(0, limit).map(listTask),
+              returned,
+              total: tasks.length,
+              more,
+              ...(more > 0 && {
+                message: `+${more} more; use narrower search/filters or a larger limit.`,
+              }),
+            }),
+            label,
+          ),
+        );
       } catch (err) {
         return toolError(err);
       }

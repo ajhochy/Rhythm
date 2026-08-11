@@ -1,0 +1,59 @@
+{
+  "issue": "task-search-tier12-s1",
+  "date": "2026-08-08",
+  "test_command": "cd apps/api_server && env -u AGENT_LOCAL -u MEMORY_VAULT_SUBDIR npx vitest run src/services/bm25.test.ts src/__tests__/skill_retrieval.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-search-tier12-s1-c1",
+      "text": "A document-agnostic `scoreDocsBm25(query: string, documents: readonly string[]): number[]` exists in `services/bm25.ts`.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/bm25.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-search-tier12-s1-c2",
+      "text": "It preserves the exact existing tokenize semantics, Robertson/Sparck Jones IDF, BM25_K1/B values, document-length normalization, aligned positional output, empty corpus behavior, and empty/no-token query zeros.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/bm25.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-search-tier12-s1-c3",
+      "text": "Existing `scoreSkillsBm25(query, skills)` remains exported from skill_retrieval.ts as a compatibility wrapper; existing callers require no edits.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/bm25.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-search-tier12-s1-c4",
+      "text": "Existing skill score fixtures/behavior remain unchanged byte-for-byte/numerically.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/bm25.test.ts, apps/api_server/src/__tests__/skill_retrieval.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-search-tier12-s1-c5",
+      "text": "No copied second BM25 formula remains in skill_retrieval.ts; one implementation only.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/bm25.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-search-tier12-s1-c6",
+      "text": "No new dependency or abstraction beyond the one genuinely shared scorer module.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Code-review scope check: automated tests cannot prove the absence of every unnecessary abstraction or dependency."
+    },
+    {
+      "criterion_id": "task-search-tier12-s1-c7",
+      "text": "Focused tests and api_server typecheck pass.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/bm25.test.ts, apps/api_server/src/__tests__/skill_retrieval.test.ts",
+      "status": "pass"
+    }
+  ],
+  "not_tested": ["task-search-tier12-s1-c6"]
+}

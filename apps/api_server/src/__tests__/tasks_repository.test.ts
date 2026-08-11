@@ -5,11 +5,13 @@
  * do not touch the filesystem.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
+import * as database from '../database/db';
+import { env } from '../config/env';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import type { TaskFilter } from '../models/task_filter';
@@ -45,12 +47,14 @@ describe('TasksRepository.findByFilter', () => {
 
   async function seed(opts: {
     title: string;
+    notes?: string;
     status?: string;
     dueDate?: string;
     scheduledDate?: string;
   }) {
     return repo.createAsync({
       title: opts.title,
+      notes: opts.notes,
       status: (opts.status ?? 'open') as 'open' | 'done',
       dueDate: opts.dueDate ?? null,
       scheduledDate: opts.scheduledDate ?? null,
@@ -169,16 +173,79 @@ describe('TasksRepository.findByFilter', () => {
 
   // ── search filter ──────────────────────────────────────────────────────────
 
-  it('search matches case-insensitively on title substring', async () => {
+  it('search retrieves title and notes candidates', async () => {
     await seed({ title: 'Weekly Meeting' });
+    await seed({ title: 'Prepare agenda', notes: 'Notes for the weekly meeting' });
     await seed({ title: 'Send Report' });
-    await seed({ title: 'MEETING notes' });
 
     const tasks = repo.findByFilter(baseFilter({ search: 'meeting' }));
     const titles = tasks.map((t) => t.title);
     expect(titles).toContain('Weekly Meeting');
-    expect(titles).toContain('MEETING notes');
+    expect(titles).toContain('Prepare agenda');
     expect(titles).not.toContain('Send Report');
+  });
+
+  it('ranks multi-token stronger matches above canonical date order', async () => {
+    await seed({ title: 'Weekly planning review', dueDate: FUTURE });
+    await seed({ title: 'Weekly planning review with unrelated context', dueDate: PAST });
+
+    const tasks = repo.findByFilter(baseFilter({ search: 'weekly planning' }));
+    expect(tasks.map((task) => task.title)).toEqual([
+      'Weekly planning review',
+      'Weekly planning review with unrelated context',
+    ]);
+  });
+
+  it('uses canonical ordering and id as deterministic BM25 tie breakers', async () => {
+    const laterId = (await seed({ title: 'Matching task' })).id;
+    const earlierId = (await seed({ title: 'Matching task' })).id;
+    getDb().prepare('UPDATE tasks SET created_at = ? WHERE id IN (?, ?)').run(
+      '2026-01-01T00:00:00.000Z',
+      laterId,
+      earlierId,
+    );
+
+    const tasks = repo.findByFilter(baseFilter({ search: 'matching' }));
+    expect(tasks.map((task) => task.id)).toEqual([laterId, earlierId].sort());
+  });
+
+  it('uses a bound Postgres search-vector candidate query', async () => {
+    const originalDbClient = env.dbClient;
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const poolSpy = vi.spyOn(database, 'getPostgresPool').mockReturnValue({ query } as never);
+    (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = 'postgres';
+
+    try {
+      await expect(repo.findByFilterAsync(baseFilter({ search: 'weekly planning' }))).resolves.toEqual([]);
+      const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("tasks.search_vector @@ plainto_tsquery('english', $2)");
+      expect(sql).not.toContain('weekly planning');
+      expect(params).toContain('weekly planning');
+    } finally {
+      (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = originalDbClient;
+      poolSpy.mockRestore();
+    }
+  });
+
+  it('does not treat raw FTS syntax as an operator', async () => {
+    await seed({ title: 'Weekly meeting' });
+    await seed({ title: 'Weekly report' });
+
+    expect(repo.findByFilter(baseFilter({ search: 'weekly OR report' }))).toEqual([]);
+  });
+
+  it('falls back to title and notes LIKE search only when FTS5 is unavailable', async () => {
+    await seed({ title: 'Prepare agenda', notes: 'Notes for the weekly meeting' });
+    getDb().exec('DROP TABLE tasks_fts');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      expect(repo.findByFilter(baseFilter({ search: 'meeting' })).map((task) => task.title))
+        .toEqual(['Prepare agenda']);
+      expect(warn).toHaveBeenCalledWith('tasks FTS5 unavailable; using title+notes LIKE fallback');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('empty search string returns all tasks for user', async () => {
@@ -187,6 +254,27 @@ describe('TasksRepository.findByFilter', () => {
 
     const tasks = repo.findByFilter(baseFilter({ search: '' }));
     expect(tasks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('whitespace-only search preserves no-search canonical order', async () => {
+    await seed({ title: 'Later', dueDate: FUTURE });
+    await seed({ title: 'Earlier', dueDate: PAST });
+
+    expect(repo.findByFilter(baseFilter({ search: '  ' })).map((task) => task.id))
+      .toEqual(repo.findByFilter(baseFilter()).map((task) => task.id));
+  });
+
+  it('search candidates retain visibility before leaving the repository', async () => {
+    const other = new UsersRepository().create({ name: 'Bob', email: 'bob@example.com' });
+    const mine = await seed({ title: 'My weekly planning' });
+    const shared = await repo.createAsync({ title: 'Shared weekly planning', ownerId: other.id });
+    await repo.createAsync({ title: 'Hidden weekly planning', ownerId: other.id });
+    repo.addCollaborator(shared.id, userId);
+
+    expect(repo.findByFilter(baseFilter({ search: 'weekly planning' })).map((task) => task.id))
+      .toEqual(expect.arrayContaining([mine.id, shared.id]));
+    expect(repo.findByFilter(baseFilter({ search: 'weekly planning' })).map((task) => task.title))
+      .not.toContain('Hidden weekly planning');
   });
 
   // ── combined filters ───────────────────────────────────────────────────────

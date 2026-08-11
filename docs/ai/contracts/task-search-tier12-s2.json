@@ -1,0 +1,18 @@
+{
+  "issue": "task-search-tier12-s2",
+  "date": "2026-08-08",
+  "test_command": "cd apps/api_server && env -u AGENT_LOCAL -u MEMORY_VAULT_SUBDIR npx vitest run src/__tests__/task_search_schema.test.ts src/__tests__/migrations_replay_guard.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"task-search-tier12-s2-c1","text":"Fresh Postgres `tasks` schema includes additive generated stored search vector over BOTH weighted title and notes (`title` weight A, `notes` weight B) and a GIN index named clearly (e.g. idx_tasks_search).","mode":"unit","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"},
+    {"criterion_id":"task-search-tier12-s2-c2","text":"Existing Postgres databases receive the column/index idempotently via explicit bootstrap ALTER/CREATE handling before any relevant early return. Existing rows become searchable automatically; no mutable backfill worker.","mode":"unit","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"},
+    {"criterion_id":"task-search-tier12-s2-c3","text":"SQLite receives external-content `tasks_fts` over title and notes, a rebuild for pre-existing rows, and insert/update/delete synchronization triggers.","mode":"integration","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"},
+    {"criterion_id":"task-search-tier12-s2-c4","text":"Replaying SQLite migrations/bootstrap is idempotent and does not alter task content or duplicate index rows/triggers.","mode":"integration","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"},
+    {"criterion_id":"task-search-tier12-s2-c5","text":"Tests prove existing-row indexing and SQLite create/update/delete synchronization; Postgres SQL shape/idempotence is tested using the repo's established posture, with a real isolated Postgres test only when configured. A skipped unavailable external Postgres is not sole evidence—retain deterministic contract coverage.","mode":"integration","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"},
+    {"criterion_id":"task-search-tier12-s2-c6","text":"All DDL is additive: no drops/rewrites of task rows or existing columns. No destructive migration.","mode":"unit","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"},
+    {"criterion_id":"task-search-tier12-s2-c7","text":"User query strings are not involved in this slice; do not add search query logic yet.","mode":"manual","test":null,"status":"not_tested","reason":"Schema-only slice; code review confines changes to bootstrap, migrations, tests, and evidence."},
+    {"criterion_id":"task-search-tier12-s2-c8","text":"No new dependency.","mode":"manual","test":null,"status":"not_tested","reason":"Verified by changed-file scope; package manifests are outside exclusive ownership and unchanged."},
+    {"criterion_id":"task-search-tier12-s2-c9","text":"Focused tests, migration replay guards, and API typecheck pass.","mode":"unit","test":"apps/api_server/src/__tests__/task_search_schema.test.ts","status":"pass"}
+  ],
+  "not_tested": ["task-search-tier12-s2-c7", "task-search-tier12-s2-c8"]
+}

@@ -109,6 +109,17 @@ function applyUserEdits(db: Database.Database): void {
 describe('runMigrations boot-replay stomp guard', () => {
   it('a second run on an already-migrated DB is a total data no-op', () => {
     const db = makeMigratedDb();
+    // Seed indexed rows so an unguarded FTS rebuild is observable on replay.
+    db.prepare(`INSERT INTO tasks (id, title, notes) VALUES (?, ?, ?)`).run(
+      'replay-guard-1',
+      'First replay guard task',
+      'FTS content must not be rebuilt on every boot',
+    );
+    db.prepare(`INSERT INTO tasks (id, title, notes) VALUES (?, ?, ?)`).run(
+      'replay-guard-2',
+      'Second replay guard task',
+      'A second indexed row catches per-row replay writes',
+    );
     const before = snapshotAll(db);
     runMigrations(db);
     expect(snapshotAll(db)).toEqual(before);

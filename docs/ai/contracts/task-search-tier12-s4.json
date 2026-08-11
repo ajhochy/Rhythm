@@ -1,0 +1,19 @@
+{
+  "issue": "task-search-tier12-s4",
+  "date": "2026-08-08",
+  "test_command": "env -u AGENT_LOCAL -u MEMORY_VAULT_SUBDIR npm test -- src/tools/__tests__/tasks.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-search-tier12-s4-c1", "text": "rhythm_list_tasks accepts optional limit: integer min 1, max 200, default 50. Invalid limits are rejected by schema.", "mode": "unit", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c2", "text": "search description accurately says ranked full-text match over task title AND notes; do NOT call it semantic/vector search.", "mode": "unit", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c3", "text": "The API request retains all existing filters/search and ordering; limit is a presentation cap after the ranked API array returns.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c4", "text": "Before slicing, projection, clipping, or minification, the COMPLETE raw API task array is passed to scanContextContentAndRecordExternalContentTaint.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c5", "text": "Clean output contains bounded documented task projections, returned/total/more counts, and exact +N-more guidance.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c6", "text": "List-view notes longer than 200 characters are clipped with explicit +N chars and fetch-by-id guidance; null and short notes are unchanged.", "mode": "unit", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c7", "text": "Bounded projected JSON is wrapped in the existing untrusted-content fence before toolResult.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c8", "text": "Blocked errors and first-party salvage retain boundary-produced behavior; salvage may bypass the presentation cap to preserve security provenance.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c9", "text": "Tests prove default/custom limit, validation, rank, marker/counts, projection, clipping, scan order, blocked/salvage behavior, fencing, and representative compact budget.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null },
+    { "criterion_id": "task-search-tier12-s4-c10", "text": "Existing task tool tests and MCP typecheck/build pass without dependencies.", "mode": "integration", "test": "apps/mcp_server/src/tools/__tests__/tasks.test.ts", "status": "pass", "reason": null }
+  ],
+  "not_tested": []
+}
