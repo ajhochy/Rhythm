@@ -29,7 +29,6 @@ import {
 } from 'react';
 import { Platform } from 'react-native';
 
-import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
 import {
   buildClient,
   defaultConnectionSettings,
@@ -90,7 +89,6 @@ import {
   getInitialProviderId,
   getModelIdForProvider,
   getNewSessionPreferences,
-  NO_SELECTABLE_PROFILE_MESSAGE,
   getProjectLabel,
   getSelectedModelParts,
   getSessionExecutionState,
@@ -113,7 +111,6 @@ import {
 } from '@/providers/open-project-session';
 import {
   canCommitBootstrappedSession,
-  cancelSessionRefreshTimers,
   getConfiguredProviders,
   getConversationStatusLabel,
   getCurrentPendingRequests,
@@ -122,7 +119,6 @@ import {
   getTranscriptActivityLabelForEntries,
   preserveReadySessionDuringRefresh,
   reconcileSessionSelectionAfterRefresh,
-  shouldKeepSessionSafetyPoll,
 } from '@/providers/opencode-provider-selectors';
 import {
   CONVERSATION_FINAL_RESULT_SETTLE_MS,
@@ -158,7 +154,7 @@ import {
   archiveSession as svcArchiveSession,
   listArchivedSessions as svcListArchivedSessions,
   listSessions as svcListSessions,
-  resolveExactSession,
+  resolveOwnerDiscoveredSession,
   getSessionMessages as svcGetSessionMessages,
   getSessionDiff as svcGetSessionDiff,
   getSessionTodos as svcGetSessionTodos,
@@ -293,10 +289,6 @@ type OpenProjectSessionRuntime = {
     projectId: string,
     sessionId: string,
   ): Promise<MobileSession | undefined>;
-  discoverSessions(
-    projectId: string,
-    pinnedSessionId: string,
-  ): Promise<void>;
   loadSessionState(
     projectId: string,
     sessionId: string,
@@ -545,9 +537,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const clearProjectState = useCallback(() => {
-    cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
-    sessionRefreshTimeoutsRef.current = {};
-    sessionRefreshOptionsRef.current = {};
     bootstrapPromiseRef.current = null;
     bootstrapTokenRef.current = undefined;
     pendingNotificationSessionIdsRef.current.clear();
@@ -974,35 +963,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       };
     },
     async resolveSession(projectId, sessionId) {
-      return resolveExactSession(
+      return resolveOwnerDiscoveredSession(
         buildScopedClient(projectId),
         sessionId,
       ) as Promise<MobileSession | undefined>;
-    },
-    async discoverSessions(projectId) {
-      const discoveryGeneration = scopeGenerationRef.current;
-      const fetchSequence = ++sessionsFetchSequenceRef.current;
-      const result = await svcListSessions(buildScopedClient(projectId));
-      if (
-        activeProjectPathRef.current !== projectId ||
-        scopeGenerationRef.current !== discoveryGeneration ||
-        fetchSequence !== sessionsFetchSequenceRef.current
-      ) {
-        return;
-      }
-      setSessions((current) =>
-        preserveReadySessionDuringRefresh({
-          activeProjectId: projectId,
-          currentSessionId: currentSessionIdRef.current,
-          currentSessions: current,
-          openState:
-            openProjectSessionControllerRef.current?.getState() ?? {
-              kind: 'idle',
-            },
-          refreshedSessions: result.sessions as MobileSession[],
-        }),
-      );
-      setSessionStatuses(result.statuses);
     },
     async loadSessionState(
       projectId,
@@ -1155,11 +1119,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             const runtime = openProjectSessionRuntimeRef.current;
             if (!runtime) throw new Error('Session opener is unavailable.');
             return runtime.resolveSession(projectId, sessionId);
-          },
-          discoverSessions(projectId, pinnedSessionId) {
-            const runtime = openProjectSessionRuntimeRef.current;
-            if (!runtime) throw new Error('Session opener is unavailable.');
-            return runtime.discoverSessions(projectId, pinnedSessionId);
           },
           loadSessionState(projectId, sessionId, session, catalog) {
             const runtime = openProjectSessionRuntimeRef.current;
@@ -1464,7 +1423,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           : availableAgents;
         preferences = getNewSessionPreferences(profiles, chatPreferences);
         if (!preferences) {
-          throw new Error(NO_SELECTABLE_PROFILE_MESSAGE);
+          throw new Error(
+            'The Secretary profile is unavailable for new chats.',
+          );
         }
       }
       preferences ??= chatPreferences;
@@ -2771,11 +2732,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             try {
               const FileSystem = await import('expo-file-system/legacy');
               const info = await FileSystem.getInfoAsync(att.uri);
-              if (
-                info.exists &&
-                typeof info.size === 'number' &&
-                info.size > MOBILE_ATTACHMENT_LIMIT_BYTES
-              ) {
+              if (info.exists && typeof info.size === 'number' && info.size > 10 * 1024 * 1024) {
                 throw new Error('File exceeds the 10 MB attachment limit.');
               }
               const base64 = await FileSystem.readAsStringAsync(att.uri, { encoding: 'base64' });
@@ -3552,7 +3509,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   useEffect(
     () => () => {
-      cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
+      Object.values(sessionRefreshTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
       if (conversationResumeTimeoutRef.current) {
@@ -3578,12 +3535,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     const hasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
     const hasConversationActivity = conversationPhase !== 'off';
     const useSafetyPolling = eventStreamStatus !== 'connected';
-    const shouldKeepSafetyPoll = shouldKeepSessionSafetyPoll({
-      eventStreamStatus,
-      hasBusySession,
-      hasConversationActivity,
-      sending: sendingState.active,
-    });
+    const shouldKeepSafetyPoll = useSafetyPolling || hasBusySession || sendingState.active || hasConversationActivity;
 
     if (!shouldKeepSafetyPoll) {
       return;

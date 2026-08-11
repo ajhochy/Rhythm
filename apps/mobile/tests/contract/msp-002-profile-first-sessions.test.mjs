@@ -85,7 +85,6 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
 
   const [
     chatList,
-    chatListController,
     chatView,
     workspace,
     agentChatProvider,
@@ -94,7 +93,6 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
   ] =
     await Promise.all([
       readMobileSource('components/chat/chat-list.tsx'),
-      readMobileSource('components/chat/chat-list-controller.ts'),
       readMobileSource('components/chat/chat-view.tsx'),
       readMobileSource('app/agents/workspace.tsx'),
       readMobileSource('providers/agent-chat-provider.tsx'),
@@ -111,13 +109,13 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
     'the direct web harness agent catalog must expose the Secretary default',
   );
   assert.match(
-    chatListController,
+    chatList,
     /await opencode\.loadSessionProfiles\(targetProject\)/,
     'the direct Create sheet must resolve profiles when capability hydration is still pending',
   );
   assert.match(
     chatList,
-    /visible=\{controller\.createSheetVisible && controller\.isFocused\}/,
+    /visible=\{createSheetVisible && isFocused\}/,
     'the Create sheet must stop covering the chat surface when navigation leaves Chats',
   );
   const createSessionBlock =
@@ -187,39 +185,6 @@ test('issue-2-c2: profile selection applies the profile model and execution defa
       permissionMode: 'plan',
       autoApprove: false,
     },
-  );
-});
-
-test('issue-1270-c1: new chats fall back to the first selectable profile when Secretary is absent', () => {
-  const firstSelectable = {
-    ...secretary,
-    id: 'profile-writer',
-    profileId: 'profile-writer',
-    opencodeAgentId: 'writer',
-    label: 'Writer',
-  };
-  const next = providerUtils.getNewSessionPreferences(
-    [firstSelectable, secretary],
-    basePreferences,
-  );
-  assert.equal(next.profileId, secretary.profileId, 'Secretary remains first choice');
-
-  const fallback = providerUtils.getNewSessionPreferences(
-    [firstSelectable],
-    basePreferences,
-  );
-  assert.equal(fallback.profileId, firstSelectable.profileId);
-  assert.equal(fallback.mode, firstSelectable.opencodeAgentId);
-});
-
-test('issue-1270-c2: an empty selectable catalog keeps creation undefined with an actionable reason', () => {
-  assert.equal(
-    providerUtils.getNewSessionPreferences([], basePreferences),
-    undefined,
-  );
-  assert.equal(
-    providerUtils.NO_SELECTABLE_PROFILE_MESSAGE,
-    'No selectable profile available — enable one in Profiles',
   );
 });
 

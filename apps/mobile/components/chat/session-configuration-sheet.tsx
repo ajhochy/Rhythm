@@ -19,7 +19,6 @@ import {
   applyProfileDefaults,
   getNewSessionPreferences,
   modelMatchesSearch,
-  NO_SELECTABLE_PROFILE_MESSAGE,
   profileMatchesSearch,
   type AgentOption,
   type ChatPreferences,
@@ -360,7 +359,8 @@ export function SessionConfigurationSheet({
                 ) : null}
                 {!draft ? (
                   <Text style={{ color: palette.danger }}>
-                    {NO_SELECTABLE_PROFILE_MESSAGE}
+                    The Secretary profile is unavailable. Refresh the paired
+                    Mac profile catalog before creating a chat.
                   </Text>
                 ) : (
                   <>

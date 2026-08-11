@@ -45,17 +45,12 @@ export function preserveReadySessionDuringRefresh<
   openState: OpenProjectSessionState;
   refreshedSessions: TSession[];
 }): TSession[] {
-  const dedupedSessions = [
-    ...new Map(
-      refreshedSessions.map((session) => [session.id, session]),
-    ).values(),
-  ];
   if (
     openState.kind !== 'ready' ||
     openState.projectId !== activeProjectId ||
-    dedupedSessions.some((session) => session.id === openState.sessionId)
+    refreshedSessions.some((session) => session.id === openState.sessionId)
   ) {
-    return dedupedSessions;
+    return refreshedSessions;
   }
 
   const ownerOpenedSession = currentSessions.find(
@@ -64,41 +59,8 @@ export function preserveReadySessionDuringRefresh<
     (session) => session.id === currentSessionId,
   );
   return ownerOpenedSession
-    ? [ownerOpenedSession, ...dedupedSessions]
-    : dedupedSessions;
-}
-
-export function cancelSessionRefreshTimers(
-  handles: Record<string, unknown>,
-  cancel: (handle: unknown) => void = (handle) =>
-    clearTimeout(handle as ReturnType<typeof setTimeout>),
-): void {
-  Object.values(handles).forEach(cancel);
-}
-
-export function pairedReachabilityAction(
-  wasOnline: boolean,
-  isOnline: boolean,
-): 'mark-offline' | 'refresh' | 'none' {
-  if (!isOnline) return 'mark-offline';
-  return wasOnline ? 'none' : 'refresh';
-}
-
-export function shouldKeepSessionSafetyPoll({
-  eventStreamStatus,
-  hasBusySession,
-  hasConversationActivity,
-  sending,
-}: {
-  eventStreamStatus: 'idle' | 'connecting' | 'connected' | 'error';
-  hasBusySession: boolean;
-  hasConversationActivity: boolean;
-  sending: boolean;
-}): boolean {
-  return eventStreamStatus !== 'connected' ||
-    hasBusySession ||
-    hasConversationActivity ||
-    sending;
+    ? [ownerOpenedSession, ...refreshedSessions]
+    : refreshedSessions;
 }
 
 export function reconcileSessionSelectionAfterRefresh<

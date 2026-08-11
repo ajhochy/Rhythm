@@ -192,35 +192,6 @@ export async function resolveOwnerDiscoveredSession(
     .find((session) => session.id === sessionId);
 }
 
-function requestStatus(reason: unknown): number | undefined {
-  if (!reason || typeof reason !== 'object') return undefined;
-  const cause = (reason as { cause?: unknown }).cause;
-  if (!cause || typeof cause !== 'object') return undefined;
-  const status = Number((cause as { status?: unknown }).status);
-  return Number.isFinite(status) ? status : undefined;
-}
-
-export async function resolveExactSession(
-  client: OpencodeClient,
-  sessionId: string,
-) {
-  let scopedLookupError: unknown;
-  try {
-    const response = await client.session.get({ sessionID: sessionId });
-    const session = requireData(response.data, 'session lookup request');
-    if (session.id === sessionId) return session;
-  } catch (reason) {
-    if (requestStatus(reason) !== 404) {
-      scopedLookupError = reason;
-    }
-  }
-
-  const ownerSession = await resolveOwnerDiscoveredSession(client, sessionId);
-  if (ownerSession) return ownerSession;
-  if (scopedLookupError) throw scopedLookupError;
-  return undefined;
-}
-
 export type SessionMessagePage = {
   records: NonNullable<Awaited<ReturnType<OpencodeClient['session']['messages']>>['data']>;
   nextCursor?: string;
