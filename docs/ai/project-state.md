@@ -52,3 +52,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: keep the ordinary gateway parser at 1 MB and the proxy default at 512 KB, while granting only attachment-carrying prompt operations 15 MB; pass upstream 4xx bytes/status unchanged, synthesize 502 only for unusable transport/response failures, and 504 for timeouts.
 - Deviations from spec: physical-iPhone #1280 verification remains human-gated; socket-based API integration tests cannot bind in this worker sandbox (EPERM), so the orchestrator must run them later.
 - Concerns: the existing intrinsic composer fix is present and deterministic tests pass, but only a real UIKit event stream can close #1280.
+
+### 2026-08-10 — issues #1364 and #1366 mobile lifecycle
+- Files modified: atomic session opener, provider lifecycle/selectors, paired chat reachability transition, lifecycle-tier tests, and physical-device smoke checklist.
+- Checks run: lifecycle/pinning/cache/message Jest 12/12 PASS; atomic open contract 12/12 PASS; mobile TypeScript and targeted ESLint PASS.
+- Decisions made: exact lookup is authoritative when it returns normally; only lookup errors retain the legacy catalog fallback. Transcript commit precedes background scoped discovery, whose generation/result is fenced and deduplicated around the current explicit pin.
+- Deviations from spec: representative remote-gateway latency and physical device evidence remain human-gated and are listed in `docs/testing/manual-smoke.md`.
+- Concerns: native timer suspension, UIKit delivery, and Tailscale behavior cannot be proven in this socket/device-restricted worker.

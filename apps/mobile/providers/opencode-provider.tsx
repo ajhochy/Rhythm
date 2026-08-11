@@ -113,6 +113,7 @@ import {
 } from '@/providers/open-project-session';
 import {
   canCommitBootstrappedSession,
+  cancelSessionRefreshTimers,
   getConfiguredProviders,
   getConversationStatusLabel,
   getCurrentPendingRequests,
@@ -121,6 +122,7 @@ import {
   getTranscriptActivityLabelForEntries,
   preserveReadySessionDuringRefresh,
   reconcileSessionSelectionAfterRefresh,
+  shouldKeepSessionSafetyPoll,
 } from '@/providers/opencode-provider-selectors';
 import {
   CONVERSATION_FINAL_RESULT_SETTLE_MS,
@@ -291,6 +293,10 @@ type OpenProjectSessionRuntime = {
     projectId: string,
     sessionId: string,
   ): Promise<MobileSession | undefined>;
+  discoverSessions(
+    projectId: string,
+    pinnedSessionId: string,
+  ): Promise<void>;
   loadSessionState(
     projectId: string,
     sessionId: string,
@@ -539,6 +545,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const clearProjectState = useCallback(() => {
+    cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
+    sessionRefreshTimeoutsRef.current = {};
+    sessionRefreshOptionsRef.current = {};
     bootstrapPromiseRef.current = null;
     bootstrapTokenRef.current = undefined;
     pendingNotificationSessionIdsRef.current.clear();
@@ -970,6 +979,31 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         sessionId,
       ) as Promise<MobileSession | undefined>;
     },
+    async discoverSessions(projectId) {
+      const discoveryGeneration = scopeGenerationRef.current;
+      const fetchSequence = ++sessionsFetchSequenceRef.current;
+      const result = await svcListSessions(buildScopedClient(projectId));
+      if (
+        activeProjectPathRef.current !== projectId ||
+        scopeGenerationRef.current !== discoveryGeneration ||
+        fetchSequence !== sessionsFetchSequenceRef.current
+      ) {
+        return;
+      }
+      setSessions((current) =>
+        preserveReadySessionDuringRefresh({
+          activeProjectId: projectId,
+          currentSessionId: currentSessionIdRef.current,
+          currentSessions: current,
+          openState:
+            openProjectSessionControllerRef.current?.getState() ?? {
+              kind: 'idle',
+            },
+          refreshedSessions: result.sessions as MobileSession[],
+        }),
+      );
+      setSessionStatuses(result.statuses);
+    },
     async loadSessionState(
       projectId,
       sessionId,
@@ -1121,6 +1155,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             const runtime = openProjectSessionRuntimeRef.current;
             if (!runtime) throw new Error('Session opener is unavailable.');
             return runtime.resolveSession(projectId, sessionId);
+          },
+          discoverSessions(projectId, pinnedSessionId) {
+            const runtime = openProjectSessionRuntimeRef.current;
+            if (!runtime) throw new Error('Session opener is unavailable.');
+            return runtime.discoverSessions(projectId, pinnedSessionId);
           },
           loadSessionState(projectId, sessionId, session, catalog) {
             const runtime = openProjectSessionRuntimeRef.current;
@@ -3513,7 +3552,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   useEffect(
     () => () => {
-      Object.values(sessionRefreshTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
+      cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
       if (conversationResumeTimeoutRef.current) {
@@ -3539,7 +3578,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     const hasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
     const hasConversationActivity = conversationPhase !== 'off';
     const useSafetyPolling = eventStreamStatus !== 'connected';
-    const shouldKeepSafetyPoll = useSafetyPolling || hasBusySession || sendingState.active || hasConversationActivity;
+    const shouldKeepSafetyPoll = shouldKeepSessionSafetyPoll({
+      eventStreamStatus,
+      hasBusySession,
+      hasConversationActivity,
+      sending: sendingState.active,
+    });
 
     if (!shouldKeepSafetyPoll) {
       return;
