@@ -972,15 +972,18 @@ export class AgentSessionsController {
       // C1: pass mcpRoleConfig so callers/tests can spy on the init-time allowlist;
       // the SDK itself doesn't have a per-session tool param (documented in service).
       const tSdkCreate = Date.now();
-      const opencodeSession = await opencodeClient.createSession(
-        typeof name === 'string' ? name.trim() : '',
-        dto.cwd,
-        mcpRoleConfig,
-        undefined,
-        undefined,
-        undefined,
-        permissionMode as PermissionMode,
-      );
+      const sessionTitle = typeof name === 'string' ? name.trim() : '';
+      const opencodeSession = permissionMode === 'plan'
+        ? await opencodeClient.createSession(
+            sessionTitle,
+            dto.cwd,
+            mcpRoleConfig,
+            undefined,
+            undefined,
+            undefined,
+            permissionMode,
+          )
+        : await opencodeClient.createSession(sessionTitle, dto.cwd, mcpRoleConfig);
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
       // `null` on failure, so a truthy `{ error }` object must not pass `!x`.
@@ -1309,7 +1312,22 @@ export class AgentSessionsController {
         throw AppError.notFound('Permission request');
       }
 
-      streamBridge.markPermissionReplied(session.id, permissionId);
+      // Keep the pre-#1340 reply route self-contained: existing Flutter clients
+      // depend on this route's canonical broadcast even when the newer pending-
+      // permission bridge state is unavailable (for example after a restart).
+      streamBridge.clearPendingPermission(session.id, permissionId);
+      const { broadcast } = await import('../services/ws_gateway');
+      broadcast({
+        v: 1,
+        type: 'permission.replied',
+        sessionId: session.id,
+        permissionID: permissionId,
+        directory: session.cwd,
+        tool: '',
+        patterns: [],
+        title: '',
+        createdAt: new Date().toISOString(),
+      });
 
       res.status(204).end();
     } catch (err) {
@@ -1723,15 +1741,17 @@ export class AgentSessionsController {
         logger.info(
           `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
         );
-        const opencodeSession = await opencodeClient.createSession(
-          session.name,
-          session.cwd,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          session.permissionMode,
-        );
+        const opencodeSession = session.permissionMode === 'plan'
+          ? await opencodeClient.createSession(
+              session.name,
+              session.cwd,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              session.permissionMode,
+            )
+          : await opencodeClient.createSession(session.name, session.cwd);
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
           throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
