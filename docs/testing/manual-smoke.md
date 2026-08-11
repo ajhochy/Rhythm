@@ -139,6 +139,23 @@ cd apps/desktop_flutter && RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
 - [ ] Log out or switch users and confirm prior artifact tabs/data clear before the next user loads.
 - [ ] Compare Dashboard, overflow/picker, Worship Calendar, conflict, deleted, and error states with the AV-06/AV-07 screenshot evidence in `docs/ai/runs/`.
 
+### Session Inspector artifact previewer (#1359–#1362)
+
+Run in the shipping macOS app against `tools/dev/sandbox.sh`; record the same
+artifact ID from the persisted session mutation through Dashboard handoff.
+
+- [ ] In a narrow layout, open Agents → exact session → Artifacts. Confirm the selector, compact title/status/reload toolbar, and one interactive preview fit without sharing controls or overflow.
+- [ ] Resize the inspector after editing content inside the WKWebView. Confirm the interactive state survives and only one preview remains mounted.
+- [ ] Using only the keyboard, focus and open the selector, change artifacts, reload, and activate Open in Dashboard. Confirm every target is at least 44px.
+- [ ] With VoiceOver, hear the selected artifact's full title, generic availability status, reload action, and Dashboard action; confirm truncated visual titles retain the full spoken name and no authorization details are exposed.
+- [ ] During an in-flight artifact load, perform a session switch and a Rhythm user switch. Confirm the prior WKWebView is removed and no late response appears in the new identity.
+- [ ] Perform only a provider-account switch. Confirm the inspector and WKWebView are not reset.
+- [ ] Exercise revoked/deleted artifacts. Confirm each row remains discoverable with only generic Unavailable/Deleted copy and no access detail.
+- [ ] Create and later update one supported artifact mutation, then use Dashboard handoff. Confirm the same stable artifact ID is pinned and selected exactly once in Dashboard.
+
+These checks remain unrun until orchestrator smoke; an unchecked item is not a
+pass. Record failures, observed output, and follow-up ownership in the run note.
+
 ---
 
 ## 10. Full test suite

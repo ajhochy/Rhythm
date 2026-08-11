@@ -21,6 +21,7 @@ import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
+import '../../live_artifacts/controllers/live_artifacts_controller.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_at_mention_popover.dart';
 import '_attachment_mime.dart';
@@ -74,7 +75,16 @@ ComposerShellParse parseComposerShellPrefix(String trimmed) {
 }
 
 class AgentsView extends StatefulWidget {
-  const AgentsView({super.key});
+  const AgentsView({
+    super.key,
+    this.activeUserId,
+    this.artifactsController,
+    this.onNavigateToDashboard,
+  });
+
+  final int? activeUserId;
+  final LiveArtifactsController? artifactsController;
+  final VoidCallback? onNavigateToDashboard;
 
   @override
   State<AgentsView> createState() => _AgentsViewState();
@@ -170,7 +180,12 @@ class _AgentsViewState extends State<AgentsView> {
           const SizedBox(width: 6),
           const _InspectorResizeHandle(),
           const SizedBox(width: 6),
-          SessionSidePanel(session: selectedSession),
+          SessionSidePanel(
+            session: selectedSession,
+            activeUserId: widget.activeUserId,
+            artifactsController: widget.artifactsController,
+            onNavigateToDashboard: widget.onNavigateToDashboard,
+          ),
         ],
       ],
     );

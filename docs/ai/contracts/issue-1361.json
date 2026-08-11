@@ -1,0 +1,64 @@
+{
+  "issue": 1361,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1361-c1",
+      "text": "Open in Dashboard pins/selects the exact selected artifact through the existing `LiveArtifactsController` and lands on Dashboard with that artifact selected.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c1: Open in Dashboard uses the existing controller to select the exact artifact before navigating",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1361-c2",
+      "text": "The handoff preserves one stable artifact ID; it does not create a duplicate artifact/controller record.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c2: Dashboard handoff preserves one stable ID without a duplicate controller record",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1361-c3",
+      "text": "A successful supported mutation for the selected artifact reloads that selected preview and retains the same ID.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c3: a later supported mutation reloads the selected preview under the same stable ID",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1361-c4",
+      "text": "Resizing or rebuilding the inspector preserves the mounted WKWebView instance and interactive state rather than recreating it.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c4: inspector resize and rebuild preserve the mounted viewer state and interaction",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1361-c5",
+      "text": "Session switch and user switch invalidate stale requests and dispose the previous WebView; late responses cannot update the new session/user.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c5: session and user switches dispose the prior viewer and reject stale late responses",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1361-c6",
+      "text": "Provider-account switch alone does not invalidate the inspector or recreate its WebView.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c6: provider-account switch alone does not invalidate or recreate the viewer",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1361-c7",
+      "text": "Existing artifact pinning, selection, reload, and secure rendering tests continue to pass.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1361_artifact_lifecycle_contract_test.dart",
+      "test_id": "issue-1361-c7: existing pin, select, reload, and secure-view behavior remains intact",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}
