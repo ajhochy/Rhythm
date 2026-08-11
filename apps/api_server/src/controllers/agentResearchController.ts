@@ -28,8 +28,10 @@ import {
 import { logger } from '../utils/logger';
 import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
+import { ResearchProjectOrchestrator } from '../services/research_project_orchestrator';
 
 const researchJobs = new AgentResearchRepository();
+const projectOrchestrator = new ResearchProjectOrchestrator(researchJobs);
 
 function projectOwner(req: Request): number {
   const owner = req.auth?.user.id;
@@ -153,6 +155,15 @@ export async function executeResearchJob(id: string): Promise<void> {
 export async function recoverStaleResearchJobs(): Promise<number> {
   const error = 'Research interrupted by server restart. Retry this job to run it again.';
   return researchJobs.recoverActive(error);
+}
+
+export async function recoverInterruptedResearchProjectRuns(): Promise<number> {
+  if (!env.researchProjectsEnabled) return 0;
+  const owners = await researchJobs.listInterruptedProjectRunOwners();
+  const recovered = await Promise.all(
+    owners.map((ownerUserId) => projectOrchestrator.reconcileInterruptedStarts(ownerUserId)),
+  );
+  return recovered.reduce((count, runs) => count + runs.length, 0);
 }
 
 async function writeCompletedResearchNote(job: ResearchJob): Promise<string | null> {
@@ -284,13 +295,17 @@ export class AgentResearchController {
 
   async createProjectRun(req: Request, res: Response, next: NextFunction) {
     try {
+      const ownerUserId = projectOwner(req);
       const run = await researchJobs.createProjectRun(
         req.params.projectId,
-        projectOwner(req),
+        ownerUserId,
         triggerType((req.body as Record<string, unknown>).triggerType),
       );
       if (!run) throw AppError.notFound('ResearchProject');
       res.status(201).json(run);
+      void projectOrchestrator.start(run.id, ownerUserId).catch((error) => {
+        logger.error(`[ResearchProject] run ${run.id} failed outside request lifecycle: ${String(error)}`);
+      });
     } catch (err) { next(err); }
   }
 

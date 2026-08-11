@@ -1,0 +1,13 @@
+{
+  "issue": 1292,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1292-c1", "text": "Configured passes have distinct persisted agent sessions.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1292.test.ts", "test_id": "issue-1292-c1: creates one persisted job and distinct session per configured pass", "status": "pass" },
+    { "criterion_id": "issue-1292-c2", "text": "No pass receives sibling prose before synthesis.", "mode": "unit", "test_file": "apps/api_server/src/__tests__/contract/issue_1292.test.ts", "test_id": "issue-1292-c2: constructs every pass prompt from only the immutable shared snapshot", "status": "pass" },
+    { "criterion_id": "issue-1292-c3", "text": "One failed pass does not erase successful work.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1292.test.ts", "test_id": "issue-1292-c3: preserves successful jobs and marks the run degraded after a partial failure", "status": "pass" },
+    { "criterion_id": "issue-1292-c4", "text": "Duplicate start requests do not create duplicate active passes.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1292.test.ts", "test_id": "issue-1292-c4: coalesces concurrent and repeated start requests", "status": "pass" },
+    { "criterion_id": "issue-1292-c5", "text": "Tests cover success, partial failure, timeout, duplicate start, capacity limits, and interrupted startup.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1292.test.ts", "test_id": "issue-1292-c5: records timeout capacity and interrupted starts without duplicating completed passes", "status": "pass" }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

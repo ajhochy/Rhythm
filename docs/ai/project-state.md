@@ -52,3 +52,10 @@ Decide the import product scope and #1339 scope before implementation resumes. T
 - Decisions made: immutable run snapshots copy all mutable project configuration at creation; every child lookup rechecks owner; new routes remain 404-gated while the feature flag is off.
 - Deviations from spec: none.
 - Concerns: run usage is a stable zero-valued reference until factual session accounting is added by dependency-ordered issue #1294; live HTTP/MCP evidence remains assigned to #1300.
+
+### 2026-08-11 — issue #1292 independent research pass orchestration
+- Files modified: new `ResearchProjectOrchestrator`, research repository pass/run lifecycle methods, controller dispatch/recovery, server startup recovery, acceptance contract/tests.
+- Checks run: #1292 contract passes (5 tests); #1291/legacy runner regressions and API typecheck pass.
+- Decisions made: persist pass rows before runner invocation; coalesce in-process starts and use persisted ordinals for restart idempotency; keep pass prompts confined to the shared immutable snapshot.
+- Deviations from spec: live two-pass sandbox execution is assigned to the final #1300 validation run because this worker cannot bind sockets.
+- Concerns: AgentRunner exposes its session ID only on return, so the project pass link is persisted at the earliest existing engine boundary; no parallel engine/session abstraction was introduced.

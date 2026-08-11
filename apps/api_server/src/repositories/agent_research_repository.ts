@@ -76,6 +76,34 @@ export interface ResearchProjectRun {
   usage: { tokens: number; costUsd: number };
 }
 
+export interface ResearchProjectPass {
+  id: string;
+  projectId: string;
+  projectRunId: string;
+  passRole: string;
+  passOrdinal: number;
+  runConfig: Record<string, unknown>;
+  status: string;
+  agentSessionId: string | null;
+  report: string | null;
+  error: string | null;
+}
+
+function passRow(row: Record<string, unknown>): ResearchProjectPass {
+  return {
+    id: row.id as string,
+    projectId: row.project_id as string,
+    projectRunId: row.project_run_id as string,
+    passRole: row.pass_role as string,
+    passOrdinal: Number(row.pass_ordinal),
+    runConfig: parsedJson(row.run_config_json, {}),
+    status: row.status as string,
+    agentSessionId: (row.agent_session_id as string | null) ?? null,
+    report: (row.report as string | null) ?? null,
+    error: (row.error as string | null) ?? null,
+  };
+}
+
 function parsedJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string') return fallback;
   try {
@@ -393,6 +421,159 @@ export class AgentResearchRepository {
     ).get(id, ownerUserId) as Record<string, unknown> | undefined) ?? null;
   }
 
+  async createProjectPassJob(input: {
+    projectId: string;
+    projectRunId: string;
+    ownerUserId: number;
+    question: string;
+    role: string;
+    ordinal: number;
+    profileId: string;
+    config: Record<string, unknown>;
+  }): Promise<ResearchProjectPass> {
+    this.requireProjectsEnabled();
+    const run = await this.getProjectRun(input.projectRunId, input.ownerUserId);
+    if (!run || run.projectId !== input.projectId) throw AppError.notFound('ResearchProjectRun');
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const values = [
+      id, input.question, 'pending', '[]', input.role, input.profileId,
+      input.ownerUserId, input.projectId, input.projectRunId, input.role,
+      input.ordinal, JSON.stringify(input.config), now, now,
+    ];
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO agent_research_jobs
+          (id, query, status, sources_json, title, agent_profile_id,
+           requested_by_user_id, project_id, project_run_id, pass_role,
+           pass_ordinal, run_config_json, research_type, origin, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'generic','project-pass',$13,$14)`,
+        values,
+      );
+    } else {
+      getDb().prepare(
+        `INSERT INTO agent_research_jobs
+          (id, query, status, sources_json, title, agent_profile_id,
+           requested_by_user_id, project_id, project_run_id, pass_role,
+           pass_ordinal, run_config_json, research_type, origin, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'generic','project-pass',?,?)`,
+      ).run(...values);
+    }
+    return (await this.getProjectPassJob(id, input.ownerUserId))!;
+  }
+
+  async getProjectPassJob(id: string, ownerUserId: number): Promise<ResearchProjectPass | null> {
+    this.requireProjectsEnabled();
+    const row = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          `SELECT j.* FROM agent_research_jobs j
+            JOIN agent_research_project_runs r ON r.id=j.project_run_id
+           WHERE j.id=$1 AND r.owner_user_id=$2`,
+          [id, ownerUserId],
+        )).rows[0]
+      : getDb().prepare(
+          `SELECT j.* FROM agent_research_jobs j
+            JOIN agent_research_project_runs r ON r.id=j.project_run_id
+           WHERE j.id=? AND r.owner_user_id=?`,
+        ).get(id, ownerUserId) as Record<string, unknown> | undefined;
+    return row ? passRow(row) : null;
+  }
+
+  async listProjectPassJobs(runId: string, ownerUserId: number): Promise<ResearchProjectPass[]> {
+    this.requireProjectsEnabled();
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          `SELECT j.* FROM agent_research_jobs j
+            JOIN agent_research_project_runs r ON r.id=j.project_run_id
+           WHERE j.project_run_id=$1 AND r.owner_user_id=$2 ORDER BY j.pass_ordinal`,
+          [runId, ownerUserId],
+        )).rows
+      : getDb().prepare(
+          `SELECT j.* FROM agent_research_jobs j
+            JOIN agent_research_project_runs r ON r.id=j.project_run_id
+           WHERE j.project_run_id=? AND r.owner_user_id=? ORDER BY j.pass_ordinal`,
+        ).all(runId, ownerUserId) as Record<string, unknown>[];
+    return rows.map(passRow);
+  }
+
+  async updateProjectPassJob(
+    id: string,
+    ownerUserId: number,
+    patch: { status?: string; agentSessionId?: string | null; report?: string | null; error?: string | null },
+  ): Promise<ResearchProjectPass | null> {
+    const current = await this.getProjectPassJob(id, ownerUserId);
+    if (!current) return null;
+    const next = { ...current, ...patch };
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE agent_research_jobs SET status=$1, agent_session_id=$2, report=$3,
+          error=$4, updated_at=$5 WHERE id=$6`,
+        [next.status, next.agentSessionId, next.report, next.error, now, id],
+      );
+    } else {
+      getDb().prepare(
+        `UPDATE agent_research_jobs SET status=?, agent_session_id=?, report=?,
+          error=?, updated_at=? WHERE id=?`,
+      ).run(next.status, next.agentSessionId, next.report, next.error, now, id);
+    }
+    return this.getProjectPassJob(id, ownerUserId);
+  }
+
+  async updateProjectRunState(
+    id: string,
+    ownerUserId: number,
+    patch: { status: string; progress?: Record<string, unknown>; diagnostics?: Record<string, unknown>; startedAt?: string | null; completedAt?: string | null },
+  ): Promise<ResearchProjectRun | null> {
+    const current = await this.getProjectRun(id, ownerUserId);
+    if (!current) return null;
+    const next = { ...current, ...patch };
+    const values = [
+      next.status, JSON.stringify(next.progress), JSON.stringify(next.diagnostics),
+      next.startedAt, next.completedAt, id, ownerUserId,
+    ];
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE agent_research_project_runs SET status=$1, progress_json=$2,
+          diagnostics_json=$3, started_at=$4, completed_at=$5
+         WHERE id=$6 AND owner_user_id=$7`,
+        values,
+      );
+    } else {
+      getDb().prepare(
+        `UPDATE agent_research_project_runs SET status=?, progress_json=?,
+          diagnostics_json=?, started_at=?, completed_at=?
+         WHERE id=? AND owner_user_id=?`,
+      ).run(...values);
+    }
+    return this.getProjectRun(id, ownerUserId);
+  }
+
+  async listInterruptedProjectRuns(ownerUserId: number): Promise<ResearchProjectRun[]> {
+    this.requireProjectsEnabled();
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          `SELECT * FROM agent_research_project_runs WHERE owner_user_id=$1 AND status='running'`,
+          [ownerUserId],
+        )).rows
+      : getDb().prepare(
+          `SELECT * FROM agent_research_project_runs WHERE owner_user_id=? AND status='running'`,
+        ).all(ownerUserId) as Record<string, unknown>[];
+    return Promise.all(rows.map((row: Record<string, unknown>) => this.hydrateRun(row)));
+  }
+
+  async listInterruptedProjectRunOwners(): Promise<number[]> {
+    this.requireProjectsEnabled();
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query(
+          `SELECT DISTINCT owner_user_id FROM agent_research_project_runs WHERE status='running'`,
+        )).rows
+      : getDb().prepare(
+          `SELECT DISTINCT owner_user_id FROM agent_research_project_runs WHERE status='running'`,
+        ).all() as Array<{ owner_user_id: number }>;
+    return rows.map((row: { owner_user_id: number }) => Number(row.owner_user_id));
+  }
+
   async insert(
     job: Omit<ResearchJob, 'createdAt' | 'updatedAt'>,
   ): Promise<ResearchJob> {
@@ -602,7 +783,7 @@ export class AgentResearchRepository {
       const result = await getPostgresPool().query(
         `UPDATE agent_research_jobs
             SET status='error', error=$1, updated_at=$2
-          WHERE status = ANY($3)`,
+          WHERE status = ANY($3) AND project_run_id IS NULL`,
         [error, now, active],
       );
       return result.rowCount ?? 0;
@@ -611,7 +792,8 @@ export class AgentResearchRepository {
       .prepare(
         `UPDATE agent_research_jobs
             SET status='error', error=?, updated_at=?
-          WHERE status IN ('pending','gathering','reading','synthesizing')`,
+          WHERE status IN ('pending','gathering','reading','synthesizing')
+            AND project_run_id IS NULL`,
       )
       .run(error, now).changes;
   }

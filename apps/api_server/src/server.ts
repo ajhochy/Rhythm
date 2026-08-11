@@ -552,6 +552,13 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] research profile engine projection failed (non-fatal): ${String(e)}`);
       }
+      try {
+        const { recoverInterruptedResearchProjectRuns } = await import('./controllers/agentResearchController');
+        const recovered = await recoverInterruptedResearchProjectRuns();
+        if (recovered) logger.warn(`[server] resumed ${recovered} interrupted research project run(s)`);
+      } catch (e) {
+        logger.warn(`[server] research project recovery failed (non-fatal): ${String(e)}`);
+      }
 
       // #746 — Notify the skill curator that the engine is ready so it can
       // begin deferring extraction work until the cold-start window passes.
