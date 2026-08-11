@@ -1,5 +1,8 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -97,6 +100,10 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     sessionMap.set(inserted.id, SDK_ID);
   });
 
+  afterEach(() => {
+    delete process.env.ARTIFACT_STORAGE_ROOT;
+  });
+
   function relay(event: Record<string, unknown>): void {
     (bridge as unknown as {
       _relayEvent: (e: unknown) => void;
@@ -137,6 +144,44 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     expect(transcriptAppend?.id).toBe(localId);
     expect(transcriptAppend?.role).toBe('output');
     expect(transcriptAppend?.text).toBe('Hello, world!');
+  });
+
+  it('rebroadcasts and persists a generated image with its hosted artifact route', async () => {
+    const session = new AgentSessionsRepository().listActive()[0];
+    getDb().prepare(`INSERT INTO projects (id, name, cwd, created_at) VALUES (?, ?, ?, ?)`)
+      .run('project-media', 'Media', '/tmp/media', new Date().toISOString());
+    getDb().prepare('UPDATE agent_sessions SET project_id = ? WHERE id = ?')
+      .run('project-media', session.id);
+    sessionMap.clear();
+    sessionMap.set(session.id, SDK_ID);
+    const storageRoot = mkdtempSync(join(tmpdir(), 'rhythm-stream-media-'));
+    process.env.ARTIFACT_STORAGE_ROOT = storageRoot;
+    const imagePath = join(storageRoot, '..', `generated-${crypto.randomUUID()}.png`);
+    writeFileSync(imagePath, Buffer.from('generated-image'));
+
+    relay({
+      type: 'message.part.updated',
+      properties: {
+        sessionID: SDK_ID,
+        part: {
+          id: 'part-image', sessionID: SDK_ID, messageID: 'message-image',
+          type: 'tool', tool: 'image_generation',
+          state: { status: 'completed', metadata: { path: imagePath } },
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      const hosted = broadcastSpy.mock.calls
+        .map((call) => call[0] as { part?: { state?: { metadata?: Record<string, unknown> } } })
+        .find((frame) => typeof frame.part?.state?.metadata?.artifactId === 'string');
+      expect(hosted?.part?.state?.metadata).toMatchObject({
+        path: imagePath,
+        artifactUrl: expect.stringMatching(/^\/artifacts\//),
+      });
+    });
+    const persisted = new AgentSessionMessagesRepository().listBySession(session.id);
+    expect(persisted[0].partsJson).toContain('artifactId');
   });
 
   it('#1109 — on turn completion schedules idle evaluation instead of running it directly', () => {

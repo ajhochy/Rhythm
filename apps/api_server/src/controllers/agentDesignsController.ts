@@ -6,6 +6,11 @@ import {
   resolveLocalArtifact,
   validateAgentDesignInput,
 } from '../services/agent_design_artifacts';
+import {
+  mediaMimeForPath,
+  registerGeneratedMediaFile,
+} from '../services/media_artifact_store';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 const repo = new AgentDesignsRepository();
 
@@ -45,6 +50,21 @@ export class AgentDesignsController {
         filePath: input.localPath,
         sessionId: input.sessionId,
       });
+
+      // Finished local image/video designs join the durable media store when
+      // their originating session supplies the project scope.
+      if (input.localPath && input.sessionId) {
+        const session = new AgentSessionsRepository().findById(input.sessionId);
+        const mime = mediaMimeForPath(input.localPath);
+        if (session?.projectId && mime) {
+          await registerGeneratedMediaFile({
+            filePath: input.localPath,
+            project: session.projectId,
+            session: session.id,
+            mime,
+          });
+        }
+      }
 
       res.status(201).json(publicAgentDesign(design));
     } catch (err) {

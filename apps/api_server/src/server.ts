@@ -103,6 +103,27 @@ async function main() {
   }
 
   await initDb();
+
+  // #1309 — sweep expired unpinned media at boot and daily. This runs in both
+  // local and cloud roles because either can own the configured durable root.
+  if (process.env.VITEST !== 'true') {
+    const sweepMediaArtifacts = async (): Promise<void> => {
+      try {
+        const { MediaArtifactStore } = await import('./services/media_artifact_store');
+        const result = await new MediaArtifactStore().sweepExpiredArtifacts();
+        if (result.removedMetadata > 0) {
+          logger.info(
+            `[server] media artifact retention: metadata=${result.removedMetadata} bytes=${result.removedBytes}`,
+          );
+        }
+      } catch (error) {
+        logger.warn(`[server] media artifact retention failed (non-fatal): ${String(error)}`);
+      }
+    };
+    void sweepMediaArtifacts();
+    const mediaRetentionTimer = setInterval(() => void sweepMediaArtifacts(), 86_400_000);
+    mediaRetentionTimer.unref();
+  }
   logger.info('Database initialized');
   try {
     const { recoverStaleResearchJobs } = await import('./controllers/agentResearchController');
