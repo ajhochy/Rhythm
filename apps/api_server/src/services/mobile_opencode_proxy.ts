@@ -48,6 +48,7 @@ import {
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
 import { listOwnerUnscopedMobileChats } from './mobile_chat_catalog';
+import { mobileScopeCheckStatusFailure } from './mobile_upstream_failure';
 import {
   canUpdateMobileSessionState,
   hasMobileSessionExecutionBinding,
@@ -975,14 +976,10 @@ export class MobileOpenCodeProxy {
           },
         );
         if (!response.ok) {
-          logger.warn(
-            `[MobileOpenCodeProxy] synthesized 502 for upstream status ${response.status} during scope validation`,
-          );
           await response.body?.cancel();
-          throw new AppError(
-            502,
-            'OPENCODE_SCOPE_CHECK_FAILED',
-            'OpenCode could not validate the selected mobile resource',
+          throw mobileScopeCheckStatusFailure(
+            response.status,
+            'MobileOpenCodeProxy',
           );
         }
         const body = await readBoundedBody(

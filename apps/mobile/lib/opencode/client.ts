@@ -7,6 +7,7 @@ import {
 } from '@opencode-ai/sdk/v2/client';
 import { encode as encodeBase64 } from 'base-64';
 
+import { fetchWithColdStartBackoff } from '@/lib/opencode/cold-start-retry';
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { withProjectScope } from '@/lib/transport/project-scoped-request';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
@@ -193,15 +194,25 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
       body = await request.clone().text();
     }
 
-    return scope.client.fetchResponse(
-      `${gatewayPath}${parsed.search}`,
-      withProjectScope(projectId, {
-        ...init,
-        body,
-        headers,
-        method,
-        signal: init?.signal ?? request?.signal,
-      }),
+    const signal = init?.signal ?? request?.signal;
+    // Only idempotent reads may be replayed, and never the event stream (its
+    // own consumer owns reconnection).
+    const retryable =
+      method.toUpperCase() === 'GET' && gatewayPath !== '/mobile-gateway/events';
+
+    return fetchWithColdStartBackoff(
+      () =>
+        scope.client.fetchResponse(
+          `${gatewayPath}${parsed.search}`,
+          withProjectScope(projectId, {
+            ...init,
+            body,
+            headers,
+            method,
+            signal,
+          }),
+        ),
+      { retryable, signal },
     );
   };
 }
