@@ -1,41 +1,46 @@
 # Rhythm — Project State
 
-**Focus:** MEGA PR backlog burn-down — **complete, PR open, awaiting manual test + merge.**
-**Branch:** `mega/2026-08-10-backlog-burndown` → **PR #1368** (https://github.com/ajhochy/Rhythm/pull/1368). **Do NOT merge** — AJ merges after manual testing.
+**Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
+**Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
 
 ## What shipped
-All 59 open issues (58 snapshot 2026-08-10 + #1367) implemented on one mega branch across 10
-Codex-built workstreams, integrated sequentially with a full compile+test gate after each merge.
-~84 commits, ~388 files. New surfaces disabled by default: `RHYTHM_RESEARCH_PROJECTS_ENABLED=off`,
-`RHYTHM_MCP_APPS_MODE=off`.
+MEGA PR #1368 **merged** (all 59 issues; new surfaces off by default:
+`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`, `RHYTHM_MCP_APPS_MODE=off`).
 
-## Test status (mega HEAD)
-- api_server: tsc clean; vitest **4293 passed** (per-file green; see flaky note).
-- desktop_flutter: format clean, analyze clean, **flutter test 1202/0**.
-- opencode_fork: permission + shell-cancel + full session suites green; SDK artifact regenerated & stable.
-- mcp_server: build clean. mobile: **Jest 61/61**, **Playwright 71/0** (== baseline), foundation contract green (136 ops).
-- CI (PR #1368): all five checks green after the SDK-regen + mcp-app-op classification fix (both root causes fixed & verified locally).
+#1368 lifted the **React Native** halves of the mobile workstream off its branch
+(`f4c7c352`) while the server halves landed. PR #1383 restores that RN transport:
+#1270 profile fallback · #1308/#1311 attachment-limit constant · #1364/#1366
+session-lifecycle fencing · #1247 SSE permission replay. Five commits, one per issue.
+
+#1363 (binding-repair CLI) was never reverted — server-side, already on main, verified intact.
+
+## Test status (PR #1383)
+- mobile: tsc clean, eslint 0 errors, **Jest 61/61**, **Playwright 71/71**, `test:ci:static` exit 0,
+  contract green (**136 ops**) — matches mega-HEAD parity exactly.
+- api_server: mobile gateway + proxy 17/17; `session_binding_cleanup` 3/3.
+- **Contract anchors untouched → no fingerprint bump, no re-pair.**
+
+## Two regressions found during the rebuild
+1. `eas.json` lost `ascAppId` (revert reset it pre-#1175) — non-interactive TestFlight submit would
+   prompt and fail. Restored + the iOS preflight now requires a non-empty `ascAppId` (it previously
+   accepted an empty `ios: {}`).
+2. `issue-1247.test.mjs` was orphaned (no npm script ever ran it). Wired into `test:ci:static`.
+
+## NOT started — #1378 / #1379 smart-client plan
+`docs/ai/plan-mobile-smart-client.md` is a **proposed** plan to make the phone a client of the
+api_server mirror instead of a raw-engine proxy (Phases 0–4). It is unrelated to PR #1383's six
+issues and is **unimplemented**. Its four open decisions still need a call before Phase 1/2 —
+chiefly mirror authority vs. live backfill, and whether new mobile-native DTOs get a contract
+version separate from the engine fingerprint.
 
 ## Flaky note (pre-existing, out of scope)
 api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation (verified: tasks_permissions,
-agent_designs, isolate_worktree, org_proposals, mobile deep-links). The two in-scope flaky issues
-#1247/#1310 are fixed at the root. CI re-run clears transient reds.
-
-## Phase 4 (live smoke)
-Fork engine rebuilt for this branch + re-signed ad-hoc, staged to api_server/opencode_bin and the dev
-shadow path; env-gated live E2E suites written for sandbox (research #1300, permissions #1322,
-plumbing #1325/#1326, media #1309, inspector #1361). Full per-issue GUI click-through against live
-prod + Synology is the manual smoke the PR stays open for (per this file's Git/PR workflow — user
-tests locally before merge).
-
-## HUMAN-GATED (one-line actions in the PR body)
-#1175 TestFlight Apple auth · #1176 approve keep-blocked · #1177 name remote-exec use case / defer ·
-#1178 approve sharing decision sheet · #1280 physical-iPhone composer check · #1363 approve dry-run
-then --apply · #1364 Tailscale cold-open timing · #1300 flip research flag after approval.
+DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
+(Both full mobile suites ran clean on #1383.)
 
 ## Next step
-AJ: manual-smoke the PR locally against prod + Synology, action the 8 human-gated items, then merge.
+AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
+and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
 ```bash
-tools/dev/launch_desktop_current.sh   # engine already rebuilt + staged for this branch
+cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
 ```
