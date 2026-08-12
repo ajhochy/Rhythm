@@ -338,10 +338,12 @@ export function getNewSessionPreferences(
       profile.profileId,
       profile.opencodeAgentId,
     ].some((value) => value.trim().toLocaleLowerCase() === 'secretary'));
-  return secretary
-    ? applyProfileDefaults(secretary, current)
-    : undefined;
+  const selected = secretary ?? profiles[0];
+  return selected ? applyProfileDefaults(selected, current) : undefined;
 }
+
+export const NO_SELECTABLE_PROFILE_MESSAGE =
+  'No selectable profile available — enable one in Profiles';
 
 function includesSearchValue(
   values: (string | null | undefined)[],
