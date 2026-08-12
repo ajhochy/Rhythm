@@ -1,6 +1,7 @@
 import { WebSocket, type RawData } from 'ws';
 
 import { logger } from '../utils/logger';
+import { RelayOutboxRepository } from '../repositories/relay_outbox_repository';
 import { OpencodeEventHub, type HubSubscription } from './opencode_event_hub';
 import {
   parseUplinkFrame,
@@ -63,6 +64,7 @@ export class RelayUplinkClient {
   private dialTask: Promise<void> | null = null;
   private hubTask: Promise<void> | null = null;
   private inflightRpc = 0;
+  private lastSentSeq = 0;
   private readonly pendingInbound: Array<{
     frame: UplinkFrame;
     socket: WebSocket;
@@ -179,6 +181,7 @@ export class RelayUplinkClient {
         return;
       }
       this.socket = socket;
+      this.lastSentSeq = 0;
       let opened = false;
       let settled = false;
 
@@ -260,6 +263,15 @@ export class RelayUplinkClient {
       this.handleResync(socket, frame);
       return;
     }
+    if (frame.ch === 'ctrl' && frame.t === 'ack') {
+      try {
+        new RelayOutboxRepository().pruneThrough(frame.seq);
+      } catch {
+        // Phase-1/unit harnesses may not initialize SQLite. A malformed ack or
+        // unavailable local DB must not take down the uplink connection.
+      }
+      return;
+    }
     if (frame.ch === 'rpc' && frame.t === 'req') {
       this.rpcQueue.push({ frame, socket });
       this.pumpRpcQueue();
@@ -286,11 +298,69 @@ export class RelayUplinkClient {
   }
 
   private handleResync(socket: WebSocket, frame: CtrlResyncFrame): void {
-    this.sendFrameOn(socket, {
+    let throughSeq = frame.sinceSeq;
+    this.lastSentSeq = frame.sinceSeq;
+    try {
+      const outbox = new RelayOutboxRepository();
+      while (true) {
+        const rows = outbox.listSince(throughSeq, 500);
+        if (rows.length === 0) break;
+        for (const row of rows) {
+          const sent = this.sendFrameOn(socket, {
+            ch: 'repl',
+            t: 'row',
+            seq: row.seq,
+            tbl: row.tbl,
+            op: row.op,
+            pk: row.pk,
+            ...(row.row === null ? {} : { row: row.row }),
+          });
+          if (!sent) return;
+          throughSeq = row.seq;
+          this.lastSentSeq = row.seq;
+        }
+        if (rows.length < 500) break;
+      }
+    } catch {
+      // Preserve Phase-1 behavior for harnesses without an initialized DB.
+    }
+    if (!this.sendFrameOn(socket, {
       ch: 'ctrl',
       t: 'resync-done',
-      throughSeq: frame.sinceSeq,
-    });
+      throughSeq,
+    })) {
+      return;
+    }
+    this.flushOutbox();
+  }
+
+  /** Send the durable live tail after the last row emitted on this socket. */
+  flushOutbox(): void {
+    const socket = this.socket;
+    if (!this.ready || !socket || socket.readyState !== WebSocket.OPEN) return;
+    try {
+      const outbox = new RelayOutboxRepository();
+      while (true) {
+        const rows = outbox.listSince(this.lastSentSeq, 500);
+        for (const row of rows) {
+          const sent = this.sendFrameOn(socket, {
+            ch: 'repl',
+            t: 'row',
+            seq: row.seq,
+            tbl: row.tbl,
+            op: row.op,
+            pk: row.pk,
+            ...(row.row === null ? {} : { row: row.row }),
+          });
+          if (!sent) return;
+          this.lastSentSeq = row.seq;
+        }
+        if (rows.length < 500) break;
+      }
+    } catch {
+      // Persistence and event fan-out must remain fail-soft if replication is
+      // unavailable; reconnect/resync will retry every durable row later.
+    }
   }
 
   private pumpRpcQueue(): void {

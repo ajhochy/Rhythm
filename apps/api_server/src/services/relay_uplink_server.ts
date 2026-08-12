@@ -17,6 +17,7 @@ import {
   parseUplinkFrame,
   serializeUplinkFrame,
   type ReplDevicesFrame,
+  type ReplRowFrame,
   type RpcReqFrame,
   type RpcResFrame,
   type UplinkFrame,
@@ -50,6 +51,11 @@ const DEVICE_COLUMNS = [
   'revoked_at',
   'created_at',
 ] as const;
+
+const REPLICATED_TABLES = new Set([
+  'agent_sessions',
+  'agent_session_messages',
+]);
 
 function header(request: IncomingMessage, name: string): string | null {
   const value = request.headers[name.toLowerCase()];
@@ -164,6 +170,75 @@ function applyDevicesSnapshot(frame: ReplDevicesFrame): void {
   })();
 }
 
+function lastAppliedSeq(): number {
+  const db = getDb();
+  db.prepare(
+    `INSERT OR IGNORE INTO relay_sync_state (id, last_applied_seq)
+     VALUES (1, 0)`,
+  ).run();
+  const row = db.prepare(
+    `SELECT last_applied_seq FROM relay_sync_state WHERE id = 1`,
+  ).get() as { last_applied_seq: number };
+  return row.last_applied_seq;
+}
+
+function applyReplicationRow(frame: ReplRowFrame): boolean {
+  if (
+    !Number.isSafeInteger(frame.seq) ||
+    frame.seq <= 0 ||
+    !REPLICATED_TABLES.has(frame.tbl) ||
+    (frame.op !== 'upsert' && frame.op !== 'delete')
+  ) {
+    return false;
+  }
+
+  const db = getDb();
+  // Replica semantics: replicated rows reference users/projects/tasks that
+  // deliberately do NOT exist on the relay — referential integrity is the
+  // single writer's (the Mac's) job. The pragma is a no-op inside a
+  // transaction, so it is set here, outside it.
+  db.pragma('foreign_keys = OFF');
+  return db.transaction(() => {
+    const current = lastAppliedSeq();
+    if (frame.seq <= current) return false;
+
+    if (frame.op === 'delete') {
+      db.prepare(`DELETE FROM ${frame.tbl} WHERE id = ?`).run(frame.pk);
+    } else {
+      if (
+        !frame.row ||
+        !Object.hasOwn(frame.row, 'id') ||
+        String(frame.row.id) !== frame.pk
+      ) {
+        return false;
+      }
+      const availableColumns = new Set(
+        (db.prepare(`PRAGMA table_info(${frame.tbl})`).all() as Array<{ name: string }>)
+          .map((column) => column.name),
+      );
+      const columns = Object.keys(frame.row);
+      if (
+        columns.length === 0 ||
+        columns.some((column) => !availableColumns.has(column))
+      ) {
+        return false;
+      }
+      const names = columns
+        .map((column) => `"${column.replaceAll('"', '""')}"`)
+        .join(', ');
+      const placeholders = columns.map(() => '?').join(', ');
+      db.prepare(
+        `INSERT OR REPLACE INTO ${frame.tbl} (${names}) VALUES (${placeholders})`,
+      ).run(...columns.map((column) => frame.row![column]));
+    }
+
+    db.prepare(
+      `UPDATE relay_sync_state SET last_applied_seq = ? WHERE id = 1`,
+    ).run(frame.seq);
+    return true;
+  })();
+}
+
 export class MacOfflineError extends Error {
   constructor() {
     super('Mac uplink is offline');
@@ -181,6 +256,8 @@ export class RelayUplinkServer {
   private active: UplinkConnection | null = null;
   private health: unknown | null = null;
   private macOnline = false;
+  private appliedSinceAck = 0;
+  private readonly resyncedCallbacks = new Set<() => void>();
 
   constructor(options: RelayUplinkServerOptions = {}) {
     this.bearerValidator = options.bearerValidator ?? defaultBearerValidator;
@@ -218,6 +295,10 @@ export class RelayUplinkServer {
 
   getHealth(): unknown | null {
     return this.health;
+  }
+
+  onResynced(callback: () => void): void {
+    this.resyncedCallbacks.add(callback);
   }
 
   sendRpc(request: {
@@ -332,7 +413,7 @@ export class RelayUplinkServer {
         socket.send(serializeUplinkFrame({
           ch: 'ctrl',
           t: 'resync',
-          sinceSeq: 0,
+          sinceSeq: lastAppliedSeq(),
         }));
         return;
       }
@@ -352,6 +433,16 @@ export class RelayUplinkServer {
     if (frame.ch === 'ctrl' && frame.t === 'resync-done') {
       this.macOnline = true;
       this.hub.setLive(true);
+      for (const callback of this.resyncedCallbacks) {
+        try {
+          callback();
+        } catch {
+          // One observer cannot prevent the relay from becoming live.
+        }
+      }
+      // Let already-queued repl frames advance the cumulative state before
+      // answering. In normal protocol order they have already been applied.
+      setImmediate(() => this.sendAck());
       return;
     }
     if (frame.ch === 'events' && frame.t === 'env') {
@@ -363,6 +454,17 @@ export class RelayUplinkServer {
         applyDevicesSnapshot(frame);
       } catch {
         // A bad snapshot is ignored without taking down the authenticated uplink.
+      }
+      return;
+    }
+    if (frame.ch === 'repl' && frame.t === 'row') {
+      try {
+        if (applyReplicationRow(frame)) {
+          this.appliedSinceAck += 1;
+          if (this.appliedSinceAck >= 100) this.sendAck();
+        }
+      } catch {
+        // Reject malformed or inapplicable rows without dropping the uplink.
       }
       return;
     }
@@ -380,6 +482,21 @@ export class RelayUplinkServer {
     if (this.active !== connection) return;
     this.active = null;
     this.setOffline();
+  }
+
+  private sendAck(): void {
+    const active = this.active;
+    if (!active || active.socket.readyState !== WebSocket.OPEN) return;
+    try {
+      active.socket.send(serializeUplinkFrame({
+        ch: 'ctrl',
+        t: 'ack',
+        seq: lastAppliedSeq(),
+      }));
+      this.appliedSinceAck = 0;
+    } catch {
+      // Disconnect handling owns recovery and the next ack is cumulative.
+    }
   }
 
   private setOffline(): void {

@@ -799,10 +799,20 @@ export class OpencodeStreamBridge {
           // #1379 Phase 2 — mobile subscribers DO need these: they are the only
           // traffic on an idle stream, and the phone treats any envelope as
           // proof of liveness before it stands its polling fallback down.
-          this._publishToHub(event);
+          this._publishHeartbeatToHub(event);
           continue;
         }
         this._relayEvent(event);
+        // Relay rows are the durable record and must precede the corresponding
+        // lossy envelope on the single uplink socket. Replication is fail-soft:
+        // a later reconnect/resync replays anything this live flush misses.
+        try {
+          void Promise.resolve(
+            getRelayUplinkClient()?.flushOutbox(),
+          ).catch(() => {});
+        } catch {
+          // Never let uplink failure escape into the engine event loop.
+        }
         // Published after the relay so every hub subscriber sees a frame the
         // mirror has already persisted — the same ordering guarantee the
         // desktop `broadcast()` path has.
@@ -1093,6 +1103,12 @@ export class OpencodeStreamBridge {
    * mobile project filter is fail-closed on the `directory` field, so the
    * envelope has to be reassembled exactly before it goes out.
    */
+  private _publishHeartbeatToHub(
+    event: import('@opencode-ai/sdk').RhythmEvent & { __directory?: string },
+  ): void {
+    this._publishToHub(event);
+  }
+
   private _publishToHub(
     event: import('@opencode-ai/sdk').RhythmEvent & { __directory?: string },
   ): void {

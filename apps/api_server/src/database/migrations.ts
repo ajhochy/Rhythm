@@ -46,6 +46,25 @@ export function runMigrations(db: Database.Database): void {
     )
   `);
 
+  // Synology relay Phase 2 — durable, sequence-stamped mirror replication.
+  // These are structure-only migrations: CREATE TABLE IF NOT EXISTS is safe
+  // on every boot and does not rewrite user-editable content.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS relay_outbox (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      tbl TEXT NOT NULL,
+      op TEXT NOT NULL,
+      pk TEXT NOT NULL,
+      row_json TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS relay_sync_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      last_applied_seq INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
   const runOnce = (key: string, fn: () => void): void => {
     const done = db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(key);
     if (done) return;

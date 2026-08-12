@@ -99,6 +99,11 @@ export function createRelayGatewayRouter(
     },
   });
   const requireDevice = requireMobileDevice(getMobilePairingService);
+  const liveSseResponses = new Set<Response>();
+  uplink.onResynced(() => {
+    for (const response of liveSseResponses) response.end();
+    liveSseResponses.clear();
+  });
 
   router.get('/health', (_req, res) => {
     res.json({
@@ -135,6 +140,10 @@ export function createRelayGatewayRouter(
       const authorization = req.header('Authorization') ?? '';
       const token = authorization.match(/^Device\s+(\S+)$/i)?.[1] ?? '';
       const deviceId = req.mobileDevice!.id;
+      liveSseResponses.add(res);
+      const removeLiveResponse = () => liveSseResponses.delete(res);
+      res.once('close', removeLiveResponse);
+      res.once('finish', removeLiveResponse);
       try {
         await sseProxy.stream({
           request: req,
@@ -153,6 +162,8 @@ export function createRelayGatewayRouter(
           return;
         }
         next(error instanceof AppError ? error : AppError.internal());
+      } finally {
+        removeLiveResponse();
       }
     };
 

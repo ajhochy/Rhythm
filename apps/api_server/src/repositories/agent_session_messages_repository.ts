@@ -1,5 +1,9 @@
 import { getDb } from '../database/db';
 import type { AgentSessionMessage, StructuredAgentSessionMessage } from '../models/agent_session';
+import {
+  appendRelayDelete,
+  appendRelayUpsert,
+} from './relay_outbox_repository';
 
 interface AgentSessionMessageRow {
   id: number;
@@ -165,7 +169,7 @@ export class AgentSessionMessagesRepository {
    * @param cost        Cost in USD, or null
    */
   upsertStructured(
-    sessionId: string,
+    sessionId: string | number,
     sdkMessageId: string,
     role: 'output' | 'input' | 'system',
     partsJson: string,
@@ -187,32 +191,33 @@ export class AgentSessionMessagesRepository {
 
     const db = getDb();
 
-    // Check if a row already exists for this (session_id, sdk_message_id) pair.
-    // SQLite partial indexes (WHERE sdk_message_id IS NOT NULL) do not support
-    // ON CONFLICT clauses in INSERT statements, so we use an explicit
-    // check-then-insert-or-update pattern inside a single DB transaction.
-    const existing = db.prepare(
-      `SELECT id FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
-    ).get(sessionId, sdkMessageId) as { id: number } | undefined;
+    return db.transaction(() => {
+      // SQLite partial indexes (WHERE sdk_message_id IS NOT NULL) do not
+      // support ON CONFLICT clauses, so use one transactional check + write.
+      const existing = db.prepare(
+        `SELECT id FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as { id: number } | undefined;
 
-    if (existing) {
-      db.prepare(`
-        UPDATE agent_session_messages
-        SET role = ?, raw_text = ?, stripped_text = ?, parts_json = ?, tokens_json = ?, cost = ?
-        WHERE session_id = ? AND sdk_message_id = ?
-      `).run(role, rawText, rawText, partsJson, tokensJson, cost, sessionId, sdkMessageId);
-    } else {
-      db.prepare(`
-        INSERT INTO agent_session_messages
-          (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(sessionId, role, rawText, rawText, sdkMessageId, partsJson, tokensJson, cost);
-    }
+      if (existing) {
+        db.prepare(`
+          UPDATE agent_session_messages
+          SET role = ?, raw_text = ?, stripped_text = ?, parts_json = ?, tokens_json = ?, cost = ?
+          WHERE session_id = ? AND sdk_message_id = ?
+        `).run(role, rawText, rawText, partsJson, tokensJson, cost, sessionId, sdkMessageId);
+      } else {
+        db.prepare(`
+          INSERT INTO agent_session_messages
+            (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(sessionId, role, rawText, rawText, sdkMessageId, partsJson, tokensJson, cost);
+      }
 
-    const row = db.prepare(
-      `SELECT * FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
-    ).get(sessionId, sdkMessageId) as AgentSessionMessageRow;
-    return rowToModel(row);
+      const row = db.prepare(
+        `SELECT * FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as AgentSessionMessageRow;
+      appendRelayUpsert(db, 'agent_session_messages', String(row.id));
+      return rowToModel(row);
+    })();
   }
 
   /**
@@ -227,7 +232,7 @@ export class AgentSessionMessagesRepository {
    * only { sessionID, info } with no parts field.
    */
   upsertMessageInfo(
-    sessionId: string,
+    sessionId: string | number,
     sdkMessageId: string,
     role: 'output' | 'input' | 'system',
     tokensJson: string | null,
@@ -235,28 +240,34 @@ export class AgentSessionMessagesRepository {
     infoJson: string | null = null,
   ): void {
     const db = getDb();
-    const existing = db.prepare(
-      `SELECT id, raw_text FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
-    ).get(sessionId, sdkMessageId) as { id: number; raw_text: string } | undefined;
+    db.transaction(() => {
+      const existing = db.prepare(
+        `SELECT id, raw_text FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as { id: number; raw_text: string } | undefined;
 
-    if (existing) {
-      // Only update info-level columns. Do NOT touch parts_json.
-      // COALESCE keeps a previously-mirrored info when a later event carries
-      // none, so a session never regresses to mirror-incomplete.
-      db.prepare(`
-        UPDATE agent_session_messages
-        SET role = ?, tokens_json = ?, cost = ?, info_json = COALESCE(?, info_json)
-        WHERE session_id = ? AND sdk_message_id = ?
-      `).run(role, tokensJson, cost, infoJson, sessionId, sdkMessageId);
-    } else {
-      // Row doesn't exist yet — insert a placeholder with NULL parts_json.
-      // Parts will be filled in as message.part.updated events arrive.
-      db.prepare(`
-        INSERT INTO agent_session_messages
-          (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost, info_json)
-        VALUES (?, ?, '', '', ?, NULL, ?, ?, ?)
-      `).run(sessionId, role, sdkMessageId, tokensJson, cost, infoJson);
-    }
+      if (existing) {
+        // Only update info-level columns. Do NOT touch parts_json.
+        // COALESCE keeps a previously-mirrored info when a later event carries
+        // none, so a session never regresses to mirror-incomplete.
+        db.prepare(`
+          UPDATE agent_session_messages
+          SET role = ?, tokens_json = ?, cost = ?, info_json = COALESCE(?, info_json)
+          WHERE session_id = ? AND sdk_message_id = ?
+        `).run(role, tokensJson, cost, infoJson, sessionId, sdkMessageId);
+      } else {
+        // Row doesn't exist yet — insert a placeholder with NULL parts_json.
+        // Parts will be filled in as message.part.updated events arrive.
+        db.prepare(`
+          INSERT INTO agent_session_messages
+            (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost, info_json)
+          VALUES (?, ?, '', '', ?, NULL, ?, ?, ?)
+        `).run(sessionId, role, sdkMessageId, tokensJson, cost, infoJson);
+      }
+      const row = db.prepare(
+        `SELECT id FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as { id: number };
+      appendRelayUpsert(db, 'agent_session_messages', String(row.id));
+    })();
   }
 
   /**
@@ -272,61 +283,56 @@ export class AgentSessionMessagesRepository {
    * @param part          Full Part object from the event
    */
   upsertPart(
-    sessionId: string,
+    sessionId: string | number,
     sdkMessageId: string,
     part: Record<string, unknown>,
   ): void {
     const db = getDb();
+    db.transaction(() => {
+      // Ensure a row exists for this message. If message.updated hasn't fired
+      // yet, create a placeholder filled by the later info event.
+      const existing = db.prepare(
+        `SELECT id, parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as { id: number; parts_json: string | null } | undefined;
 
-    // Ensure a row exists for this message. If message.updated hasn't fired yet
-    // we create a placeholder with NULL role (filled in later by upsertMessageInfo).
-    const existing = db.prepare(
-      `SELECT id, parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
-    ).get(sessionId, sdkMessageId) as { id: number; parts_json: string | null } | undefined;
-
-    if (!existing) {
-      // Create placeholder row — role will be set by subsequent message.updated.
-      db.prepare(`
-        INSERT INTO agent_session_messages
-          (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost)
-        VALUES (?, 'output', '', '', ?, '[]', NULL, NULL)
-      `).run(sessionId, sdkMessageId);
-    }
-
-    // Read current parts array.
-    const row = db.prepare(
-      `SELECT parts_json, raw_text FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
-    ).get(sessionId, sdkMessageId) as { parts_json: string | null; raw_text: string };
-
-    let parts: Array<Record<string, unknown>> = [];
-    if (row.parts_json != null) {
-      try {
-        parts = JSON.parse(row.parts_json) as Array<Record<string, unknown>>;
-      } catch {
-        parts = [];
+      if (!existing) {
+        db.prepare(`
+          INSERT INTO agent_session_messages
+            (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost)
+          VALUES (?, 'output', '', '', ?, '[]', NULL, NULL)
+        `).run(sessionId, sdkMessageId);
       }
-    }
 
-    // Upsert by part id — replace in-place if found, else append.
-    const partId = part.id as string | undefined;
-    const idx = partId ? parts.findIndex((p) => p.id === partId) : -1;
-    if (idx >= 0) {
-      parts[idx] = part;
-    } else {
-      parts.push(part);
-    }
+      const row = db.prepare(
+        `SELECT id, parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
+      ).get(sessionId, sdkMessageId) as { id: number; parts_json: string | null };
 
-    // Rebuild raw_text from text parts.
-    const rawText = parts
-      .filter((p) => p.type === 'text' && typeof p.text === 'string')
-      .map((p) => p.text as string)
-      .join('\n');
+      let parts: Array<Record<string, unknown>> = [];
+      if (row.parts_json != null) {
+        try {
+          parts = JSON.parse(row.parts_json) as Array<Record<string, unknown>>;
+        } catch {
+          parts = [];
+        }
+      }
 
-    db.prepare(`
-      UPDATE agent_session_messages
-      SET parts_json = ?, raw_text = ?, stripped_text = ?
-      WHERE session_id = ? AND sdk_message_id = ?
-    `).run(JSON.stringify(parts), rawText, rawText, sessionId, sdkMessageId);
+      const partId = part.id as string | undefined;
+      const idx = partId ? parts.findIndex((p) => p.id === partId) : -1;
+      if (idx >= 0) parts[idx] = part;
+      else parts.push(part);
+
+      const rawText = parts
+        .filter((p) => p.type === 'text' && typeof p.text === 'string')
+        .map((p) => p.text as string)
+        .join('\n');
+
+      db.prepare(`
+        UPDATE agent_session_messages
+        SET parts_json = ?, raw_text = ?, stripped_text = ?
+        WHERE session_id = ? AND sdk_message_id = ?
+      `).run(JSON.stringify(parts), rawText, rawText, sessionId, sdkMessageId);
+      appendRelayUpsert(db, 'agent_session_messages', String(row.id));
+    })();
   }
 
   /**
@@ -335,12 +341,14 @@ export class AgentSessionMessagesRepository {
    * No-op if the part or message row doesn't exist.
    */
   applyPartDelta(
-    sessionId: string,
+    sessionId: string | number,
     sdkMessageId: string,
     partId: string,
     field: string,
     delta: string,
   ): void {
+    // ponytail: deliberately no relay outbox write for per-token deltas; the
+    // next full-part upsert is the replication convergence point.
     const db = getDb();
     const row = db.prepare(
       `SELECT parts_json FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`
@@ -388,11 +396,20 @@ export class AgentSessionMessagesRepository {
    * Delete the row associated with the given SDK message id.
    * Returns the number of deleted rows (0 or 1).
    */
-  deleteBySdkMessageId(sessionId: string, sdkMessageId: string): number {
-    const result = getDb()
-      .prepare(`DELETE FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`)
-      .run(sessionId, sdkMessageId);
-    return result.changes;
+  deleteBySdkMessageId(sessionId: string | number, sdkMessageId: string): number {
+    const db = getDb();
+    return db.transaction(() => {
+      const row = db.prepare(
+        `SELECT id FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`,
+      ).get(sessionId, sdkMessageId) as { id: number } | undefined;
+      const result = db
+        .prepare(`DELETE FROM agent_session_messages WHERE session_id = ? AND sdk_message_id = ?`)
+        .run(sessionId, sdkMessageId);
+      if (result.changes > 0 && row) {
+        appendRelayDelete('agent_session_messages', String(row.id));
+      }
+      return result.changes;
+    })();
   }
 
   /**
