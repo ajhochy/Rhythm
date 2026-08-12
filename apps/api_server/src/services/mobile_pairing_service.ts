@@ -3,6 +3,20 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { AppError } from '../errors/app_error';
 import { MobileDevicesRepository } from '../repositories/mobile_devices_repository';
 import type { MobileDeviceRecord } from '../repositories/mobile_devices_repository';
+import { getRelayUplinkClient } from './relay_uplink_runtime';
+
+/**
+ * Device-verifier replication (docs/ai/plan-synology-relay.md S1.5): every
+ * pairing mutation pushes a fresh replace-all snapshot up the relay uplink so
+ * existing pairings work at the relay without re-pairing, and revocation
+ * propagates. Fire-and-forget — pairing must not fail because the NAS is
+ * unreachable; the uplink client also snapshots on every (re)connect.
+ */
+function replicateDevicesToRelay(): void {
+  const uplink = getRelayUplinkClient();
+  if (!uplink) return;
+  void uplink.sendDevicesSnapshot().catch(() => {});
+}
 
 export const MOBILE_GATEWAY_COMPATIBILITY = {
   gatewayVersion: '1',
@@ -127,6 +141,8 @@ export class MobilePairingService {
     );
     if (!consumed) throw AppError.conflict('Pairing code has already been used');
 
+    replicateDevicesToRelay();
+
     return {
       deviceId,
       hostId: pairingCode.hostId,
@@ -150,7 +166,10 @@ export class MobilePairingService {
   }
 
   revokeDevice(deviceId: string, userId: number): boolean {
-    return this.repository.revokeDevice(deviceId, userId, this.now().toISOString());
+    const revoked =
+      this.repository.revokeDevice(deviceId, userId, this.now().toISOString());
+    if (revoked) replicateDevicesToRelay();
+    return revoked;
   }
 
   authenticateDevice(deviceToken: string): MobileDevice | null {

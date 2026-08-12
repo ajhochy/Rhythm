@@ -16,6 +16,7 @@ import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
 import { opencodeEventHub } from './opencode_event_hub';
+import { getRelayUplinkClient } from './relay_uplink_runtime';
 import { classifyCommands, extractBashCommands } from '../security/command_approval';
 
 /**
@@ -773,6 +774,10 @@ export class OpencodeStreamBridge {
     // resubscribe so a phone rides out an engine restart on a quiet stream
     // instead of falling back to hammering a dead engine.
     opencodeEventHub.setLive(true);
+    // Relay uplink (plan S1.1): a (re)established engine stream can mean new
+    // health/fingerprint values — push a fresh health frame to the relay so
+    // its passthrough never serves a stale contract. Fire-and-forget.
+    void getRelayUplinkClient()?.sendHealth().catch(() => {});
     this._listenGlobal(sub.stream).catch((err) =>
       logger.error('[OpencodeStreamBridge] global listener crashed:', err),
     );
