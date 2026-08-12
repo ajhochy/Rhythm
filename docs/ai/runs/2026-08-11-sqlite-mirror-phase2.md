@@ -2,7 +2,7 @@
 date: 2026-08-11
 repo: Rhythm
 branch: mobile/mirror-event-fanout
-pr: TBD
+pr: https://github.com/ajhochy/Rhythm/pull/1386
 issues: [1379]
 status: implemented — Phase 2 transport landed
 tags: [run, Rhythm]

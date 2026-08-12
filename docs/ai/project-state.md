@@ -8,7 +8,7 @@ being a thin client of the raw OpenCode engine and becomes a client of api_serve
 | PR | Branch | Scope |
 |---|---|---|
 | [#1384](https://github.com/ajhochy/Rhythm/pull/1384) | `mobile/sqlite-mirror` | Phase 0 (#1378 fail-soft) + Phase 1 (#1379a mirror-served reads) |
-| TBD | `mobile/mirror-event-fanout` | Phase 2 (#1379b event fan-out) — branched off `main`, not off #1384 |
+| [#1386](https://github.com/ajhochy/Rhythm/pull/1386) | `mobile/mirror-event-fanout` | Phase 2 (#1379b event fan-out) — branched off `main`, not off #1384 |
 
 Both branch off `main` (`23c51f12`, the merged MEGA PR #1368). They overlap in exactly one file,
 `apps/api_server/src/services/mobile_sse_proxy.ts`, in disjoint regions — #1384 adds a bounded
