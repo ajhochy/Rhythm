@@ -159,6 +159,23 @@ class AuthSessionService extends ChangeNotifier {
     await prefs.remove(_sessionTokenKey);
   }
 
+  /// Read the persisted session token without constructing the full service.
+  ///
+  /// Relay uplink wiring (docs/ai/plan-synology-relay.md): the agent server
+  /// spawns BEFORE this service restores the session, so ApiServerService
+  /// pulls the persisted token straight from the same Keychain entry to seed
+  /// RHYTHM_RELAY_BEARER in the spawned process env. Secure storage only —
+  /// the one-time legacy-prefs migration stays in the instance restore path.
+  static Future<String?> readPersistedSessionToken() async {
+    const storage = FlutterSecureStorage(
+      mOptions: MacOsOptions(
+        accessibility: KeychainAccessibility.first_unlock_this_device,
+      ),
+    );
+    final token = await storage.read(key: _sessionTokenKey);
+    return (token == null || token.isEmpty) ? null : token;
+  }
+
   Future<String?> _readSecureStorageSessionToken() async {
     final secureToken = await _secureStorage.read(key: _sessionTokenKey);
     final prefs = await SharedPreferences.getInstance();

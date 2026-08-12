@@ -50,6 +50,7 @@ Map<String, String> buildApiServerEnvironment({
   String? memoryVaultPath,
   String? memoryVaultSubdir,
   String? mcpRolesDir,
+  String? relaySessionToken,
   required String humanApprovalCapabilitySha256,
   required String humanApprovalPublicKey,
 }) {
@@ -76,6 +77,16 @@ Map<String, String> buildApiServerEnvironment({
   if (mcpRolesDir != null && !baseEnv.containsKey('MCP_ROLES_DIR')) {
     env['MCP_ROLES_DIR'] = mcpRolesDir;
   }
+  // Relay uplink (docs/ai/plan-synology-relay.md): seed the bearer the
+  // server's RelayUplinkClient authenticates with. An explicit non-empty
+  // `export RHYTHM_RELAY_BEARER=...` dev override wins, same as the vault
+  // keys above.
+  if (relaySessionToken != null &&
+      relaySessionToken.isNotEmpty &&
+      (baseEnv['RHYTHM_RELAY_BEARER'] == null ||
+          baseEnv['RHYTHM_RELAY_BEARER']!.isEmpty)) {
+    env['RHYTHM_RELAY_BEARER'] = relaySessionToken;
+  }
 
   return env;
 }
@@ -86,8 +97,10 @@ class ApiServerService {
     String? memoryVaultPath,
     String? memoryVaultSubdir,
     HumanApprovalSigner? humanApprovalSigner,
+    Future<String?> Function()? relaySessionTokenProvider,
   })  : _memoryVaultPath = memoryVaultPath,
         _memoryVaultSubdir = memoryVaultSubdir,
+        _relaySessionTokenProvider = relaySessionTokenProvider,
         _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
 
   Process? _process;
@@ -98,6 +111,11 @@ class ApiServerService {
   /// e.g. in unrelated call sites/tests that construct this service bare).
   final String? _memoryVaultPath;
   final String? _memoryVaultSubdir;
+
+  /// Relay uplink: resolves the persisted cloud session token at spawn time
+  /// (the auth service has not restored yet when the server starts). Null or
+  /// a throwing provider simply leaves RHYTHM_RELAY_BEARER unset.
+  final Future<String?> Function()? _relaySessionTokenProvider;
   final HumanApprovalSigner _humanApprovalSigner;
 
   /// Rolling buffer of recent stderr lines from the spawned server process.
@@ -225,6 +243,13 @@ class ApiServerService {
     );
     stdout.writeln('[ApiServerService] DB path: $dbPath');
 
+    String? relaySessionToken;
+    try {
+      relaySessionToken = await _relaySessionTokenProvider?.call();
+    } catch (_) {
+      relaySessionToken = null; // fail-soft: uplink stays disabled
+    }
+
     try {
       _process = await Process.start(
         serverInfo.executable,
@@ -242,6 +267,7 @@ class ApiServerService {
           memoryVaultPath: _memoryVaultPath,
           memoryVaultSubdir: _memoryVaultSubdir,
           mcpRolesDir: serverInfo.mcpRolesDir,
+          relaySessionToken: relaySessionToken,
           humanApprovalCapabilitySha256: humanApprovalCapabilitySha256,
           humanApprovalPublicKey: humanApprovalPublicKey,
         ),

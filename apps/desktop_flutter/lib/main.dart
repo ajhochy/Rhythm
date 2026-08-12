@@ -170,6 +170,9 @@ void main() async {
   final agentService = ApiServerService(
     memoryVaultPath: memoryVaultConfigService.resolvedPath,
     memoryVaultSubdir: memoryVaultConfigService.subdir,
+    // Relay uplink: the spawned server authenticates its NAS uplink with the
+    // persisted cloud session token (docs/ai/plan-synology-relay.md).
+    relaySessionTokenProvider: AuthSessionService.readPersistedSessionToken,
   );
   final agentServerController = AgentServerController(
     agentService,
