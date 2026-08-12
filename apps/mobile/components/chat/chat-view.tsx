@@ -13,6 +13,7 @@ import { SessionConfigurationSheet } from '@/components/chat/session-configurati
 import { styles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
 import { type TranscriptEntry } from '@/lib/opencode/format';
 import {
   findEditableUserTextPart,
@@ -377,7 +378,9 @@ export function ChatView() {
       if (result.canceled || !result.assets?.length) {
         return;
       }
-      if (result.assets.some((asset) => typeof asset.size === 'number' && asset.size > 10 * 1024 * 1024)) {
+      if (result.assets.some((asset) =>
+        typeof asset.size === 'number' &&
+        asset.size > MOBILE_ATTACHMENT_LIMIT_BYTES)) {
         setSendFeedback('File exceeds the 10 MB attachment limit.');
         return;
       }
