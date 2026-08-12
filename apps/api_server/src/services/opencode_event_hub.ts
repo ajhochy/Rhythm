@@ -83,7 +83,12 @@ class Subscriber {
   }
 }
 
-class OpencodeEventHub {
+/**
+ * Exported so the Synology relay can run its own hub instance fed by the
+ * uplink instead of the bridge (docs/ai/plan-synology-relay.md). The module
+ * singleton below remains the ONLY hub on the Mac path.
+ */
+export class OpencodeEventHub {
   private readonly subscribers = new Set<Subscriber>();
   private live = false;
 
