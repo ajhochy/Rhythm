@@ -74,7 +74,10 @@ export class RelayOutboxRepository {
 }
 
 function replicationEnabled(): boolean {
-  return env.relayUrls.length > 0 && !env.isRelayRole;
+  // Optional-chained on purpose: many suites vi.mock '../config/env' with a
+  // partial object, and this helper sits inside every mirror-write
+  // transaction — it must never throw for an env shape it didn't expect.
+  return (env.relayUrls?.length ?? 0) > 0 && env.isRelayRole !== true;
 }
 
 /** Call only from the transaction that performed the mirror mutation. */

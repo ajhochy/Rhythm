@@ -1458,7 +1458,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           ? await trackMacOffline(() =>
               createMobileGatewaySession(pairedHostClient, projectId, {
                 ...(trimmedTitle ? { title: trimmedTitle } : {}),
-                profileId,
+                // The literal `profileId: preferences.profileId` is pinned by
+                // the #1282/#1286 source contracts (scope resolved before any
+                // engine create); the narrowed const only backstops typing.
+                profileId: preferences.profileId ?? profileId,
               }),
             )
           : undefined
