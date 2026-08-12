@@ -227,6 +227,18 @@ Setup on the NAS (one time):
 The relay is Watchtower-labeled like `rhythm-api`, so it auto-updates from the
 same `:main` image publishes.
 
+Mac-side env (Settings/launcher environment of the DESKTOP api_server — not
+the NAS):
+
+```bash
+# Ordered uplink candidates, LAN first so same-network traffic skips Cloudflare
+RHYTHM_RELAY_URLS="ws://<nas-lan-ip>:4010/relay/uplink,wss://api.vcrcapps.com/relay/uplink"
+# Cloud session token the uplink authenticates with (validated via /auth/me)
+RHYTHM_RELAY_BEARER="<cloud session token>"
+# Phone-facing base advertised in pairing + gateway health
+RHYTHM_RELAY_PUBLIC_URL="https://api.vcrcapps.com/relay"
+```
+
 ### OAuth callback updates
 
 Google OAuth authorized redirect URI:

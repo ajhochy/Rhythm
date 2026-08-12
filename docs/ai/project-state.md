@@ -1,56 +1,82 @@
 # Rhythm — Project State
 
-**Focus:** Mobile smart-client migration (`docs/ai/plan-mobile-smart-client.md`) — the phone stops
-being a thin client of the raw OpenCode engine and becomes a client of api_server's smart server.
+**Focus:** Synology relay for mobile (`docs/ai/plan-synology-relay.md`) — the NAS becomes the
+phone's single always-on endpoint; the Mac dials one outbound uplink carrying events, replicated
+mirror rows, and tunneled commands. Supersedes the standalone smart-client plan's remote-access
+phase; builds on merged #1384 + #1386.
 
-**Two open PRs, neither merged. Do NOT merge — AJ merges after manual testing.**
+**Branch:** `mobile/synology-relay` (integration branch; #1384 + #1386 merged in, conflict
+resolved in `mobile_sse_proxy.ts`). **Do NOT merge to main — AJ merges after device smoke.**
+No PR yet; one draft PR opens when all phases land.
 
-| PR | Branch | Scope |
-|---|---|---|
-| [#1384](https://github.com/ajhochy/Rhythm/pull/1384) | `mobile/sqlite-mirror` | Phase 0 (#1378 fail-soft) + Phase 1 (#1379a mirror-served reads) |
-| [#1386](https://github.com/ajhochy/Rhythm/pull/1386) | `mobile/mirror-event-fanout` | Phase 2 (#1379b event fan-out) — branched off `main`, not off #1384 |
+## Delivery model (AJ's standing instruction)
 
-Both branch off `main` (`23c51f12`, the merged MEGA PR #1368). They overlap in exactly one file,
-`apps/api_server/src/services/mobile_sse_proxy.ts`, in disjoint regions — #1384 adds a bounded
-scope-check pre-check at the top of `stream()`, Phase 2 replaces the transport loop below it.
+Claude writes acceptance contracts (`docs/ai/contracts/relay-t*.md`) + contract tests; Codex
+implements in in-repo worktrees (`.worktrees/*`); Claude gates (tsc + contract suites), commits,
+squash-merges each track into the integration branch, then removes the worktree + branch.
 
-## In progress / next
+## Landed on the branch (all gated green)
 
-- **AJ:** manual-smoke both PRs on a physical device over the remote gateway, then merge.
-- **#1379 is not auto-closed by either PR alone.** Its remaining acceptance is device-only:
-  measured cold-start timings and physical-device evidence over a remote gateway, which cannot be
-  produced in a headless environment.
-- Phase 3 follow-ups not yet filed: optimistic outgoing-bubble send on the phone; mirror child
-  message *parts* (the bridge mirrors child rows but not child parts); mirror pending
-  permissions/questions; dispatch queue so even submit does not block on a saturated engine.
+1. #1384 + #1386 merge, plus a hermeticity fix (mirror-reads suite pinned to a dead engine port —
+   it failed on any dev Mac running the desktop app).
+2. Phase 0: `RHYTHM_ROLE=relay` (agentExecutionEnabled=false), `/relay` surface skeleton,
+   `rhythm-relay` compose service (own SQLite volume, host 4010 LAN fast path), Cloudflare path
+   rule `/relay*` documented in the runbook, `.env.relay.example`.
+3. Shared foundations: `relay_uplink_protocol.ts` (frame contract §2 of the plan),
+   `OpencodeEventHub` class export.
+4. Track 1 — `relay_uplink_client.ts` (Mac side): ordered candidate dialing (LAN first), bearer
+   auth, hello + devices snapshot, verbatim envelope forwarding, rpc dispatch against 4002,
+   reconnect/backoff. 8/8 contract tests.
+5. Track 2 — `relay_uplink_server.ts` + relay routes: WS upgrade auth via cloud bearer,
+   hello→resync handshake, health passthrough (verbatim + macOnline), replace-all device-verifier
+   snapshots, relay-local hub, scoped SSE via MobileSseProxy hub mode (engine fallback
+   impossible), rpc tunnel catch-all (query-preserving, /pair bootstrap exempt), PTY 501,
+   supersession, malformed-frame tolerance. 18/18 contract tests. MobileSseProxy gained an
+   injectable `hub` option (Mac singleton default; Mac-path SSE suites re-verified).
+6. Track 3 — phone relay transport: `safeRelayUrl` (exact-match relay base), pairing payload +
+   health adoption of `relayUrl`, relay-first base selection, path-prefix-safe client URLs, PTY
+   pinned to direct `.ts.net`; Mac advertises `RHYTHM_RELAY_PUBLIC_URL` in pair/health. jest 7/7 +
+   api_server 3/3 + paired-host 23 scenarios.
+7. Orchestrator wiring: server.ts starts the uplink client behind
+   `RHYTHM_RELAY_URLS`+`RHYTHM_RELAY_BEARER`; pairing mutations push device snapshots; bridge
+   pushes fresh health on engine-stream resubscribe; shutdown stops the client.
+8. Root lockfile sync fix (`npm ci` was broken by #1298's `marked` dep).
+
+**Full api_server suite after Phase 1: 535 files passed / 103 skipped, exit 0.**
+
+## In flight (Codex, worktrees)
+
+- Track 4 `.worktrees/relay-repl` — outbox + row replication (S2.1–S2.3): relay_outbox +
+  relay_sync_state tables, repo hooks (applyPartDelta deliberately excluded), resync replay,
+  flushOutbox ordering (persist → flush → publish), idempotent whitelist applier, acks/prune,
+  onResynced → phone-SSE force-close.
+- Track 5 `.worktrees/relay-mirror-reads` — relay serves the three #1384 mirror reads from its
+  replica; null → tunnel when Mac online, else 503 `mac_offline_and_mirror_incomplete`.
+- Track 6 `.worktrees/phone-offline` — MacOfflineError, presence derivation,
+  `desktop-offline` connection status; reads never gated.
+
+## Next
+
+- Gate + squash-merge Tracks 4–6 (expect a small deliberate overlap in `relay_gateway_routes.ts`
+  between T4's SSE force-close and T5's mirror routes — resolve at merge).
+- Phase 3 contract + Codex track: artifact push-on-produce (`file/artifact` frames, ≤8 MB), relay
+  store/serve with cache-on-fetch, `lastUplinkAt` presence polish.
+- Final gate: full api_server suite + mobile checks, push branch, open ONE draft PR, leave open
+  for AJ's physical-device smoke (LTE, no Tailscale: browse with Mac asleep, live stream, writes,
+  offline banner, artifact view).
+
+## Risks / known gaps
+
+- Relay smoke on real infra still pending: Cloudflare path rule + SSE-buffering check
+  (issue-#1287 class) are documented in the runbook but unverified against the real tunnel.
+- PTY over relay intentionally 501s (falls back to direct `.ts.net`); deferred write queue
+  intentionally out of scope.
+- `git checkout`-style reverts inside Codex worktrees destroy uncommitted Codex work (bitten once,
+  reconstructed); commit Codex output before any revert.
+- Worktree node_modules symlinks must never be committed (`.git/info/exclude` now covers;
+  gitignore's `node_modules/` pattern does not match symlinks).
 
 ## Test status
 
-- **Phase 2 branch:** api_server serial suite **524 files / 4311 tests passed, exit 0**. 15 of 16
-  PR-level checks green; the serial gate surfaced one shared-state flake (see below) that passes
-  standalone and in isolation.
-- **Phase 1 branch (#1384):** 529 files / 4349 tests passed, exit 0; all 16 checks green.
-- desktop_flutter: format + analyze clean, flutter test green. mcp_server, opencode fork, and the
-  four mobile suites green on both branches.
-
-## Flaky note (pre-existing, out of scope)
-
-The api_server serial gate surfaces ~1 shared-state ordering flake per full run — a *different*
-test each time (observed: `dashboard_summary`, `agent_configs_routes`), always passing in isolation
-and on a standalone re-run of the full serial suite. Documented on `PR_CHECKS` in
-`scripts/run_ai_workflow.py` (#755/#1088). Re-run clears it.
-
-## Risks
-
-- The consolidated `/global/event` bridge stream is now on the critical path for **mobile
-  streaming**, not just desktop and persistence. If it stops, phones fall back to per-device engine
-  SSE (the pre-Phase-2 behavior) rather than failing — but the fallback is the slow path.
-- Phase 1's mirror reads fall through live on any ambiguity, so a mirror bug degrades to the old
-  behavior rather than serving wrong data. Paging past the mirror's earliest row for a session
-  always costs one live engine call.
-
-## Launch
-
-```bash
-tools/dev/launch_desktop_current.sh
-```
+- Integration branch (post-Phase-1): full api_server suite green (535/103 skipped). Mobile:
+  targeted jest + node-test suites green; full mobile suite deferred to final gate.
