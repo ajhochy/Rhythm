@@ -40,11 +40,15 @@ export class MobileGatewayController {
 
   createPairingCode(req: Request, res: Response, next: NextFunction): void {
     try {
-      res
-        .status(201)
-        .json(
-          this.pairingService.createPairingCode(authenticatedUserId(req)),
-        );
+      res.status(201).json({
+        ...this.pairingService.createPairingCode(authenticatedUserId(req)),
+        // Relay-first pairing (docs/ai/plan-synology-relay.md): surface the
+        // relay base so the desktop QR carries it. The phone prefers relayUrl
+        // over the .ts.net gatewayUrl, so a device paired from this code runs
+        // its reads/writes/streams — and the pairing handshake itself —
+        // through the relay, never Tailscale.
+        ...(env.relayPublicUrl ? { relayUrl: env.relayPublicUrl } : {}),
+      });
     } catch (error) {
       forwardSecretSafe(next, error);
     }

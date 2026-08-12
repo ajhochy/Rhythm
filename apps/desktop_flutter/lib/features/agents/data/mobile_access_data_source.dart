@@ -29,6 +29,7 @@ class MobilePairingCode {
     required this.code,
     required this.expiresAt,
     required this.gatewayUrl,
+    this.relayUrl,
   });
 
   final String id;
@@ -37,9 +38,16 @@ class MobilePairingCode {
   final DateTime expiresAt;
   final String gatewayUrl;
 
+  /// Relay-first pairing (docs/ai/plan-synology-relay.md): when the api_server
+  /// advertises a relay base, it rides in the QR. The phone prefers it over
+  /// the .ts.net gatewayUrl, so a device paired from this code never uses
+  /// Tailscale for its data path.
+  final String? relayUrl;
+
   String get qrPayload => jsonEncode(<String, String>{
         'gatewayUrl': gatewayUrl,
         'pairingCode': code,
+        if (relayUrl != null && relayUrl!.isNotEmpty) 'relayUrl': relayUrl!,
       });
 }
 
@@ -194,6 +202,7 @@ class MobileAccessDataSource {
     final id = body['id'];
     final hostId = body['hostId'];
     final code = body['pairingCode'];
+    final relayUrl = body['relayUrl'];
     final expiresAt = DateTime.tryParse(body['expiresAt']?.toString() ?? '');
     if (id is! String ||
         hostId is! String ||
@@ -209,6 +218,7 @@ class MobileAccessDataSource {
       code: code,
       expiresAt: expiresAt,
       gatewayUrl: gatewayUrl,
+      relayUrl: relayUrl is String && relayUrl.isNotEmpty ? relayUrl : null,
     );
   }
 

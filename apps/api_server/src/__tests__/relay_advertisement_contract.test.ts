@@ -113,9 +113,28 @@ describe('Track 3 contract — relay URL advertisement', () => {
     vi.resetModules();
   });
 
-  it('advertises relayUrl in pair response and gateway health when configured', async () => {
+  it('advertises relayUrl in the pairing-code, pair, and health responses when configured', async () => {
     const app = await makeMacApp(RELAY_BASE);
     close = app.close;
+
+    // The pairing-code response is what the desktop QR is built from — it must
+    // carry relayUrl so a scanned QR pairs over the relay, not Tailscale.
+    const codeResponse = await fetch(
+      `${app.baseUrl}/mobile-gateway/pairing-codes`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${app.bearer}`,
+          'Content-Type': 'application/json',
+          ...app.humanCapabilityHeader,
+        },
+        body: '{}',
+      },
+    );
+    expect(codeResponse.status).toBe(201);
+    expect(
+      ((await codeResponse.json()) as Record<string, unknown>).relayUrl,
+    ).toBe(RELAY_BASE);
 
     const pairBody = await pair(app);
     expect(pairBody.relayUrl).toBe(RELAY_BASE);
@@ -130,6 +149,20 @@ describe('Track 3 contract — relay URL advertisement', () => {
   it('omits relayUrl entirely when not configured', async () => {
     const app = await makeMacApp(null);
     close = app.close;
+
+    const codeResponse = await fetch(
+      `${app.baseUrl}/mobile-gateway/pairing-codes`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${app.bearer}`,
+          'Content-Type': 'application/json',
+          ...app.humanCapabilityHeader,
+        },
+        body: '{}',
+      },
+    );
+    expect('relayUrl' in ((await codeResponse.json()) as object)).toBe(false);
 
     const pairBody = await pair(app);
     expect('relayUrl' in pairBody).toBe(false);

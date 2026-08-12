@@ -105,6 +105,37 @@ Future<void> disposeDialog(WidgetTester tester) async {
 }
 
 void main() {
+  // Relay-first pairing (docs/ai/plan-synology-relay.md): the QR carries
+  // relayUrl when the server advertises one, so the phone pairs over the relay
+  // rather than Tailscale; it is omitted otherwise.
+  test('qrPayload includes relayUrl when present', () {
+    final payload = jsonDecode(
+      MobilePairingCode(
+        id: 'c',
+        hostId: 'h',
+        code: repeated('b'),
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+        gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+        relayUrl: 'https://api.vcrcapps.com/relay',
+      ).qrPayload,
+    ) as Map<String, dynamic>;
+    expect(payload.keys.toSet(), {'gatewayUrl', 'pairingCode', 'relayUrl'});
+    expect(payload['relayUrl'], 'https://api.vcrcapps.com/relay');
+  });
+
+  test('qrPayload omits relayUrl when absent', () {
+    final payload = jsonDecode(
+      MobilePairingCode(
+        id: 'c',
+        hostId: 'h',
+        code: repeated('b'),
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+        gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+      ).qrPayload,
+    ) as Map<String, dynamic>;
+    expect(payload.containsKey('relayUrl'), isFalse);
+  });
+
   test(
     'mobile access admin requests include the Keychain capability',
     () async {
