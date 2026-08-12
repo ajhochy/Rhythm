@@ -12,6 +12,24 @@ interface AgentSessionMessageRow {
   parts_json: string | null;
   tokens_json: string | null;
   cost: number | null;
+  info_json: string | null;
+}
+
+/** One engine-shaped transcript message: exactly `{ info, parts }`. */
+export interface EngineShapedMirrorMessage {
+  info: Record<string, unknown>;
+  parts: unknown[];
+}
+
+export interface EngineShapedMirrorPage {
+  messages: EngineShapedMirrorMessage[];
+  /**
+   * False when any row in the window predates `info_json` (or the session has
+   * no mirrored rows at all). Callers must fall back to a live engine read
+   * rather than serving a reconstructed shape.
+   */
+  complete: boolean;
+  hasMore: boolean;
 }
 
 export interface StructuredAgentSessionMessagePage {
@@ -214,6 +232,7 @@ export class AgentSessionMessagesRepository {
     role: 'output' | 'input' | 'system',
     tokensJson: string | null,
     cost: number | null,
+    infoJson: string | null = null,
   ): void {
     const db = getDb();
     const existing = db.prepare(
@@ -222,19 +241,21 @@ export class AgentSessionMessagesRepository {
 
     if (existing) {
       // Only update info-level columns. Do NOT touch parts_json.
+      // COALESCE keeps a previously-mirrored info when a later event carries
+      // none, so a session never regresses to mirror-incomplete.
       db.prepare(`
         UPDATE agent_session_messages
-        SET role = ?, tokens_json = ?, cost = ?
+        SET role = ?, tokens_json = ?, cost = ?, info_json = COALESCE(?, info_json)
         WHERE session_id = ? AND sdk_message_id = ?
-      `).run(role, tokensJson, cost, sessionId, sdkMessageId);
+      `).run(role, tokensJson, cost, infoJson, sessionId, sdkMessageId);
     } else {
       // Row doesn't exist yet — insert a placeholder with NULL parts_json.
       // Parts will be filled in as message.part.updated events arrive.
       db.prepare(`
         INSERT INTO agent_session_messages
-          (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost)
-        VALUES (?, ?, '', '', ?, NULL, ?, ?)
-      `).run(sessionId, role, sdkMessageId, tokensJson, cost);
+          (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json, tokens_json, cost, info_json)
+        VALUES (?, ?, '', '', ?, NULL, ?, ?, ?)
+      `).run(sessionId, role, sdkMessageId, tokensJson, cost, infoJson);
     }
   }
 
@@ -500,6 +521,82 @@ export class AgentSessionMessagesRepository {
         hasMore && pageRows.length > 0 ? String(pageRows[0].id) : null,
       hasMore,
     };
+  }
+
+  /**
+   * A backward-looking transcript window in the *engine's* `session.messages`
+   * shape — `[{ info, parts }]`, oldest-first within the page (#1379).
+   *
+   * The engine's cursor is a message id (`before=<sdk_message_id>`, exclusive),
+   * not a local row id, so the caller's cursor is resolved against
+   * sdk_message_id before paging on the monotonic local id.
+   *
+   * `complete: false` means at least one row in the window predates the
+   * `info_json` column, so the mirror cannot reproduce the engine shape
+   * faithfully — the caller must fall through to a live engine read instead of
+   * serving a partial transcript.
+   */
+  listEngineShapedPage(
+    sessionId: string,
+    limit = 20,
+    beforeSdkMessageId?: string,
+  ): EngineShapedMirrorPage {
+    const db = getDb();
+    let beforeId: number | undefined;
+    if (beforeSdkMessageId !== undefined) {
+      const anchor = db
+        .prepare(
+          `SELECT id FROM agent_session_messages
+            WHERE session_id = ? AND sdk_message_id = ?`,
+        )
+        .get(sessionId, beforeSdkMessageId) as { id: number } | undefined;
+      // An unknown cursor means the mirror cannot honour the caller's paging
+      // position. Fall through to live rather than silently restarting the page.
+      if (!anchor) return { messages: [], complete: false, hasMore: false };
+      beforeId = anchor.id;
+    }
+
+    const queryLimit = limit + 1;
+    const rows = (beforeId === undefined
+      ? db
+          .prepare(
+            `SELECT * FROM agent_session_messages
+              WHERE session_id = ? AND sdk_message_id IS NOT NULL
+              ORDER BY id DESC LIMIT ?`,
+          )
+          .all(sessionId, queryLimit)
+      : db
+          .prepare(
+            `SELECT * FROM agent_session_messages
+              WHERE session_id = ? AND sdk_message_id IS NOT NULL AND id < ?
+              ORDER BY id DESC LIMIT ?`,
+          )
+          .all(sessionId, beforeId, queryLimit)) as AgentSessionMessageRow[];
+
+    const hasMore = rows.length > limit;
+    const pageRows = rows.slice(0, limit).reverse();
+    if (pageRows.length === 0) {
+      return { messages: [], complete: false, hasMore: false };
+    }
+
+    const messages: EngineShapedMirrorMessage[] = [];
+    for (const row of pageRows) {
+      if (row.info_json == null) return { messages: [], complete: false, hasMore };
+      let info: unknown;
+      try {
+        info = JSON.parse(row.info_json);
+      } catch {
+        return { messages: [], complete: false, hasMore };
+      }
+      if (typeof info !== 'object' || info === null || Array.isArray(info)) {
+        return { messages: [], complete: false, hasMore };
+      }
+      messages.push({
+        info: info as Record<string, unknown>,
+        parts: rowToStructured(row).parts,
+      });
+    }
+    return { messages, complete: true, hasMore };
   }
 
   deleteBySession(sessionId: string): number {

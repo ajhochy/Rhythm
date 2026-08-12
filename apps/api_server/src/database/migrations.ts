@@ -1339,6 +1339,15 @@ export function runMigrations(db: Database.Database): void {
   if (!asmCols686.includes('cost')) {
     db.exec(`ALTER TABLE agent_session_messages ADD COLUMN cost REAL`);
   }
+  // #1379 — the verbatim engine `message.info` object, so a mirror-served
+  // transcript can return the exact engine shape rather than a lossy
+  // reconstruction from role/tokens/cost (which drops `error`, `summary`, and
+  // `time.completed` — fields the phone renders). Rows written before this
+  // column existed have info_json IS NULL, which is the mirror-incomplete
+  // signal that makes the read fall back to a live engine fetch.
+  if (!asmCols686.includes('info_json')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN info_json TEXT`);
+  }
   // Unique index on (session_id, sdk_message_id) — used for upsert keying.
   // The partial WHERE sdk_message_id IS NOT NULL prevents index from treating
   // multiple NULL sdk_message_ids as duplicates (legacy rows).

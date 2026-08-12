@@ -21,6 +21,10 @@ import {
   type MobileOpenCodeOwnerScope,
   type MobileOpenCodeJsonFetcher,
 } from './mobile_opencode_security';
+import {
+  mobileScopeCheckStatusFailure,
+  mobileScopeCheckThrownFailure,
+} from './mobile_upstream_failure';
 
 type FetchFn = (
   input: string | URL | globalThis.Request,
@@ -36,6 +40,8 @@ export interface MobileSseProxyOptions {
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
   activeCheckIntervalMs?: number;
+  /** Budget for the one-shot scope-validation pre-check (#1378). */
+  scopeCheckTimeoutMs?: number;
   ownershipRepository?: MobileOpenCodeOwnershipReader;
   /**
    * #1379 Phase 2 — max envelopes this device may have queued in the fan-out
@@ -67,6 +73,7 @@ export interface MobileSseStreamInput {
 const DEFAULT_MAX_FRAME_BYTES = 256 * 1024;
 const DEFAULT_MAX_BUFFERED_BYTES = 512 * 1024;
 const DEFAULT_MAX_DEDUPE_ENTRIES = 2_048;
+const DEFAULT_SCOPE_CHECK_TIMEOUT_MS = 30_000;
 
 function unauthorized(): AppError {
   return AppError.unauthorized('Invalid or revoked device token');
@@ -301,6 +308,7 @@ export class MobileSseProxy {
   private readonly reconnectMaxMs: number;
   private readonly activeCheckIntervalMs: number;
   private readonly maxHubQueue: number;
+  private readonly scopeCheckTimeoutMs: number;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipReader;
 
@@ -319,6 +327,8 @@ export class MobileSseProxy {
     this.reconnectMaxMs = options.reconnectMaxMs ?? 15_000;
     this.activeCheckIntervalMs = options.activeCheckIntervalMs ?? 1_000;
     this.maxHubQueue = options.maxHubQueue ?? 512;
+    this.scopeCheckTimeoutMs =
+      options.scopeCheckTimeoutMs ?? DEFAULT_SCOPE_CHECK_TIMEOUT_MS;
     this.configuredOwnershipRepository = options.ownershipRepository;
   }
 
@@ -339,40 +349,61 @@ export class MobileSseProxy {
       throw AppError.badRequest('Invalid session id');
     }
     if (input.sessionId) {
+      // #1378: a cold/busy engine must read as transient (504), never as a
+      // hard 502. Bound the pre-check so a hung engine surfaces a timeout
+      // instead of holding the SSE request open indefinitely.
+      const controller = new AbortController();
+      const scopeTimeout = setTimeout(
+        () => controller.abort(),
+        this.scopeCheckTimeoutMs,
+      );
       const fetchJson: MobileOpenCodeJsonFetcher = async (path) => {
         const query = new URLSearchParams({
           directory: input.project.root,
         });
-        const response = await this.fetchFn(
-          `${this.baseUrl}${path}?${query.toString()}`,
-          {
-            headers: { Accept: 'application/json' },
-            method: 'GET',
-            redirect: 'error',
-          },
-        );
-        if (!response.ok) {
-          logger.warn(
-            `[MobileSseProxy] synthesized 502 for upstream status ${response.status} during scope validation`,
+        let response: globalThis.Response;
+        try {
+          response = await this.fetchFn(
+            `${this.baseUrl}${path}?${query.toString()}`,
+            {
+              headers: { Accept: 'application/json' },
+              method: 'GET',
+              redirect: 'error',
+              signal: controller.signal,
+            },
           );
+        } catch (error) {
+          throw mobileScopeCheckThrownFailure(
+            controller.signal.aborted
+              ? Object.assign(new Error('aborted'), { name: 'AbortError' })
+              : error,
+            'MobileSseProxy',
+          );
+        }
+        if (!response.ok) {
           await response.body?.cancel();
-          throw new AppError(
-            502,
-            'OPENCODE_SCOPE_CHECK_FAILED',
-            'OpenCode could not validate the selected mobile resource',
+          throw mobileScopeCheckStatusFailure(
+            response.status,
+            'MobileSseProxy',
           );
         }
         return boundedJson(response, this.maxBufferedBytes);
       };
-      if (
-        !await mobileSessionBelongsToProject(
-          input.sessionId,
-          input.project,
-          fetchJson,
-          owner,
-        )
-      ) {
-        throw AppError.notFound('Mobile OpenCode resource');
+      try {
+        if (
+          !await mobileSessionBelongsToProject(
+            input.sessionId,
+            input.project,
+            fetchJson,
+            owner,
+          )
+        ) {
+          throw AppError.notFound('Mobile OpenCode resource');
+        }
+      } catch (error) {
+        throw mobileScopeCheckThrownFailure(error, 'MobileSseProxy');
+      } finally {
+        clearTimeout(scopeTimeout);
       }
     }
 
