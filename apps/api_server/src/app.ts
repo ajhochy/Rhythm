@@ -45,6 +45,7 @@ import { opencodeWorktreesRouter } from './routes/opencode_worktrees_routes';
 import { opencodeSpilloverRouter } from './routes/opencode_spillover_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
+import { createRelayGatewayRouter } from './routes/relay_gateway_routes';
 import { opencodeClient } from './services/opencode_engine';
 import { streamBridge } from './services/opencode_stream_bridge';
 import { buildOpencodeHealthPayload } from './services/opencode_health';
@@ -164,6 +165,14 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   // cloud role and must not depend on the local OpenCode runtime being enabled.
   app.use(transcriptShareCreationRouter);
   app.use('/shares', sharedTranscriptsRouter);
+
+  // ── Relay surface (docs/ai/plan-synology-relay.md) ────────────────────────
+  // Only the Synology relay container mounts this; every other role 404s
+  // /relay/*. Deliberately OUTSIDE the agentExecutionEnabled block — the
+  // relay role has agentExecutionEnabled=false but still serves phones.
+  if (env.isRelayRole) {
+    app.use('/relay', createRelayGatewayRouter());
+  }
 
   // ── Agent-execution surfaces (#755) ───────────────────────────────────────
   // Registered only when the deployment role enables the agent runtime

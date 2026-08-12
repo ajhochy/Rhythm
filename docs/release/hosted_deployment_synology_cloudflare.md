@@ -201,6 +201,32 @@ Use this public hostname:
 For the API, the public hostname should route through Cloudflare Tunnel to the
 Synology-hosted `rhythm-api` container.
 
+### Relay path rule (mobile relay container)
+
+The mobile relay (`rhythm-relay` service, `RHYTHM_ROLE=relay` — see
+`docs/ai/plan-synology-relay.md`) shares the `api.vcrcapps.com` hostname via a
+path rule. In the Cloudflare Zero Trust dashboard, add a public-hostname entry
+**above** the existing `rhythm-api` catch-all:
+
+- hostname `api.vcrcapps.com`, path `/relay*` → `http://rhythm-relay:4000`
+
+Setup on the NAS (one time):
+
+1. `cp .env.relay.example .env.relay` in `/volume1/docker/Rhythm/api_server/`
+   and fill it in (see the example file for the required keys).
+2. `docker compose -f docker-compose.synology.yml up -d rhythm-relay`
+3. Verify tunnel routing: `curl -s https://api.vcrcapps.com/relay/health`
+   returns `{"status":"ok","role":"relay",...}` while
+   `curl -s https://api.vcrcapps.com/health` still answers from `rhythm-api`.
+4. Verify the LAN fast path used by the Mac uplink:
+   `curl -s http://<nas-lan-ip>:4010/relay/health`.
+5. SSE must not be buffered on the path rule: during a streaming agent turn,
+   frames on `/relay/mobile-gateway/events` must arrive continuously (< 2 s
+   lag), not in bursts — the issue #1287 failure class.
+
+The relay is Watchtower-labeled like `rhythm-api`, so it auto-updates from the
+same `:main` image publishes.
+
 ### OAuth callback updates
 
 Google OAuth authorized redirect URI:
