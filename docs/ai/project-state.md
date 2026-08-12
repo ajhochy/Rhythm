@@ -44,26 +44,37 @@ squash-merges each track into the integration branch, then removes the worktree 
 
 **Full api_server suite after Phase 1: 535 files passed / 103 skipped, exit 0.**
 
-## In flight (Codex, worktrees)
+## Landed (Phases 2–3, all gated green)
 
-- Track 4 `.worktrees/relay-repl` — outbox + row replication (S2.1–S2.3): relay_outbox +
-  relay_sync_state tables, repo hooks (applyPartDelta deliberately excluded), resync replay,
-  flushOutbox ordering (persist → flush → publish), idempotent whitelist applier, acks/prune,
-  onResynced → phone-SSE force-close.
-- Track 5 `.worktrees/relay-mirror-reads` — relay serves the three #1384 mirror reads from its
-  replica; null → tunnel when Mac online, else 503 `mac_offline_and_mirror_incomplete`.
-- Track 6 `.worktrees/phone-offline` — MacOfflineError, presence derivation,
-  `desktop-offline` connection status; reads never gated.
+9. Track 4 — seq-outbox row replication: relay_outbox + relay_sync_state, repo hooks
+   (applyPartDelta deliberately excluded), resync replay + flushOutbox ordering
+   (persist → flush → publish, source-pinned), idempotent whitelist applier with
+   foreign_keys OFF (replica semantics — FK targets never exist on the relay), acks/prune,
+   onResynced → phone-SSE force-close. 10/10 contract tests.
+10. Track 5 — relay serves the three #1384 mirror reads from its replica via the same
+    mobile_mirror_reads readers/shaping; null → tunnel when Mac online, else 503
+    `mac_offline_and_mirror_incomplete`. 6/6 (merged with T4's routes additions cleanly).
+11. Track 6 — phone offline UX: MacOfflineError, lib/transport/presence.ts,
+    'desktop-offline' status disables actions, never reads. 17/17 mobile jest + composer suite.
+12. Track 7 — artifacts + presence: pushArtifact (≤8MB bytes, metadata-only above) fired from
+    generated-media registration; relay stores under LIVE_ARTIFACT_STORAGE_DIR with meta
+    sidecars, serves local-first, tunnels-and-caches on miss, 404 mac_offline offline; validated
+    artifact ids; health gains lastUplinkAt. 51/51 across the six relay suites.
+13. Post-Phase-2 integration fixes the full suite caught: replicationEnabled() partial-env-mock
+    guard; #1282/#1286 source-contract literal restored in opencode-provider.
 
-## Next
+**FINAL GATE: api_server full suite 538 files passed / 103 skipped, exit 0. Mobile: tsc clean,
+17/17 relay jest suites, 23/23 paired-host scenarios.**
 
-- Gate + squash-merge Tracks 4–6 (expect a small deliberate overlap in `relay_gateway_routes.ts`
-  between T4's SSE force-close and T5's mirror routes — resolve at merge).
-- Phase 3 contract + Codex track: artifact push-on-produce (`file/artifact` frames, ≤8 MB), relay
-  store/serve with cache-on-fetch, `lastUplinkAt` presence polish.
-- Final gate: full api_server suite + mobile checks, push branch, open ONE draft PR, leave open
-  for AJ's physical-device smoke (LTE, no Tailscale: browse with Mac asleep, live stream, writes,
-  offline banner, artifact view).
+## Next (AJ)
+
+- Deploy the relay: `.env.relay` + `docker compose up -d rhythm-relay` on the NAS, Cloudflare
+  path rule `/relay*` → rhythm-relay:4000 ABOVE the api catch-all, Mac env
+  (RHYTHM_RELAY_URLS, RHYTHM_RELAY_BEARER, RHYTHM_RELAY_PUBLIC_URL) — runbook section
+  "Relay path rule" has the exact steps + verification curls.
+- Physical-device smoke per the draft PR checklist (LTE, no Tailscale), especially the
+  live-stream latency check through the real tunnel (issue-#1287 SSE-buffering class).
+- Merge the draft PR only after smoke passes. Do not merge before.
 
 ## Risks / known gaps
 
