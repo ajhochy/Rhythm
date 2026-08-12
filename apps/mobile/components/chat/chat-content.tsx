@@ -9,6 +9,7 @@ import { DiffCard, PendingInteractionsCard, SessionDiffCard, TranscriptMessage }
 import type { TranscriptEntry } from '@/lib/opencode/format';
 import type { FileDiff, Session, SessionStatus, Todo } from '@/lib/opencode/types';
 import type { PendingPermissionRequest, PendingQuestionAnswer, PendingQuestionRequest } from '@/lib/opencode/client';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
 import { styles } from '@/components/chat/chat-view-styles';
 import { STARTER_PROMPTS } from '@/components/chat/chat-view-utils';
@@ -20,7 +21,7 @@ type ChatContentProps = {
   activeSession?: Session;
   activeTab: 'session' | 'changes';
   awaitingUserInput: boolean;
-  connection: { status: 'idle' | 'connecting' | 'connected' | 'error'; message: string };
+  connection: { status: GatewayConnectionStatus; message: string };
   copiedMessageId?: string;
   currentActivityLabel?: string;
   currentDiffs: FileDiff[];

@@ -29,6 +29,11 @@ import {
 } from 'react';
 import { Platform } from 'react-native';
 
+import { MacOfflineError } from '@/lib/transport/api-error';
+import {
+  connectionStatusForPresence,
+  deriveMacPresence,
+} from '@/lib/transport/presence';
 import {
   buildClient,
   defaultConnectionSettings,
@@ -314,6 +319,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     status: 'idle',
     message: 'Add a server URL and connect to OpenCode.',
   });
+  const [macPresence, setMacPresence] = useState<
+    'online' | 'offline' | 'unknown'
+  >('unknown');
+  const trackMacOffline = useCallback(
+    async <T,>(operation: () => Promise<T>): Promise<T> => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (error instanceof MacOfflineError) {
+          setMacPresence('offline');
+        }
+        throw error;
+      }
+    },
+    [],
+  );
   const [activeProjectPath, setActiveProjectPath] = useState<string>();
   const [sessions, setSessions] = useState<MobileSession[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<GlobalSession[]>([]);
@@ -1383,22 +1404,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           (profile) => profile.opencodeAgentId === preferences.mode,
         );
       const selectedModel = getSelectedModelParts(preferences.modelId);
-      const next = await updateMobileSessionProfileState(
-        pairedHostClient,
-        projectId,
-        sessionId,
-        {
-          profileId: selectedProfile?.profileId ?? null,
-          opencodeAgentId: selectedProfile?.opencodeAgentId ?? null,
-          providerId: selectedModel?.providerID ??
-            preferences.providerId ??
-            null,
-          modelId: selectedModel?.modelID ?? null,
-          thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
-          permissionMode:
-            preferences.permissionMode ??
-            permissionModeForAutoApprove(preferences.autoApprove),
-        },
+      const next = await trackMacOffline(() =>
+        updateMobileSessionProfileState(
+          pairedHostClient,
+          projectId,
+          sessionId,
+          {
+            profileId: selectedProfile?.profileId ?? null,
+            opencodeAgentId: selectedProfile?.opencodeAgentId ?? null,
+            providerId:
+              selectedModel?.providerID ?? preferences.providerId ?? null,
+            modelId: selectedModel?.modelID ?? null,
+            thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
+            permissionMode:
+              preferences.permissionMode ??
+              permissionModeForAutoApprove(preferences.autoApprove),
+          },
+        ),
       );
       if (projectId === activeProjectPath) {
         setSessions((current) =>
@@ -1406,7 +1428,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       return next;
     },
-    [activeProjectPath, availableAgents, pairedHostClient],
+    [activeProjectPath, availableAgents, pairedHostClient, trackMacOffline],
   );
 
   const createSession = useCallback(
@@ -1430,15 +1452,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       preferences ??= chatPreferences;
       const trimmedTitle = title?.trim();
+      const profileId = preferences.profileId;
       const created = pairedHostClient
-        ? projectId && preferences.profileId
-          ? await createMobileGatewaySession(
-              pairedHostClient,
-              projectId,
-              {
+        ? projectId && profileId
+          ? await trackMacOffline(() =>
+              createMobileGatewaySession(pairedHostClient, projectId, {
                 ...(trimmedTitle ? { title: trimmedTitle } : {}),
-                profileId: preferences.profileId,
-              },
+                profileId,
+              }),
             )
           : undefined
         : (
@@ -1479,6 +1500,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
+      trackMacOffline,
     ],
   );
 
@@ -2142,6 +2164,35 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     setActiveProjectPath(normalizedPath);
     clearProjectState();
   }, [clearProjectState]);
+
+  useEffect(() => {
+    if (!pairedHostClient) {
+      setMacPresence('unknown');
+      return;
+    }
+
+    let cancelled = false;
+    const pollMacPresence = async () => {
+      try {
+        const health = await pairedHostClient.request<unknown>(
+          '/mobile-gateway/health',
+          { method: 'GET' },
+        );
+        if (!cancelled) {
+          setMacPresence(deriveMacPresence(health));
+        }
+      } catch {
+        // Preserve the last known state until a healthy poll supplies a body.
+      }
+    };
+
+    void pollMacPresence();
+    const interval = setInterval(() => void pollMacPresence(), 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pairedHostClient]);
 
   const connect = useCallback(async () => {
     if (pairedHostRecord && pairedHostState !== 'connected') {
@@ -3720,6 +3771,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const conversationActive = conversationPhase !== 'off';
   const conversationStatusLabel = useMemo(() => getConversationStatusLabel(conversationPhase, conversationCurrentActivityLabel), [conversationCurrentActivityLabel, conversationPhase]);
   const sessionPreviewById = useMemo(() => getSessionPreviewById(messagesBySession), [messagesBySession]);
+  const gatewayConnection = useMemo<ConnectionState>(() => {
+    const status = connectionStatusForPresence(connection.status, macPresence);
+    return {
+      ...connection,
+      status,
+      message:
+        status === 'desktop-offline'
+          ? 'Desktop offline — you can still read sessions.'
+          : connection.message,
+    };
+  }, [connection, macPresence]);
 
   const contextValue = useMemo<OpencodeContextValue>(
     () => ({
@@ -3727,7 +3789,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       settings,
       buildScopedClient,
       updateSettings,
-      connection,
+      connection: gatewayConnection,
       projects,
       activeProjectPath,
       activeProject,
@@ -3874,7 +3936,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       activeProject,
       activeProjectPath,
       connect,
-      connection,
+      gatewayConnection,
       currentConfig,
       availableProviders,
       providerAuthMethodsById,

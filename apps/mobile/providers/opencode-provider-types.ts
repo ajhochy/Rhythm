@@ -48,6 +48,7 @@ import type {
   ResponseScope as ProviderResponseScope,
   SessionExecutionState,
 } from '@/providers/opencode-provider-utils';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
 export type AgentOption = ProviderAgentOption;
 export type ChatPreferences = ProviderChatPreferences;
@@ -106,7 +107,7 @@ export type OpencodeProject = {
 };
 
 export type ConnectionState = {
-  status: 'idle' | 'connecting' | 'connected' | 'error';
+  status: GatewayConnectionStatus;
   message: string;
   checkedAt?: number;
   projectDirectory?: string;

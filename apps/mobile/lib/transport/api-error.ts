@@ -35,6 +35,26 @@ export class ApiError extends Error {
   }
 }
 
+type MacOfflineCode =
+  | 'mac_offline'
+  | 'mac_offline_and_mirror_incomplete';
+
+export class MacOfflineError extends ApiError {
+  constructor(
+    code: MacOfflineCode = 'mac_offline',
+    message = 'The paired Mac is offline. You can still read synced sessions.',
+  ) {
+    super({
+      source: 'paired-mac',
+      status: 503,
+      code,
+      message,
+      retryable: true,
+    });
+    this.name = 'MacOfflineError';
+  }
+}
+
 /**
  * Returns true for status codes where an automatic retry is reasonable:
  *   - Network-level failure (status 0)
@@ -89,6 +109,20 @@ export function normalizeApiError(
 
   try {
     const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+
+    const offlineCode = parsed.error;
+    if (
+      source === 'paired-mac' &&
+      status === 503 &&
+      (offlineCode === 'mac_offline' ||
+        offlineCode === 'mac_offline_and_mirror_incomplete')
+    ) {
+      const message =
+        typeof parsed.message === 'string'
+          ? scrubToken(parsed.message, token)
+          : undefined;
+      return new MacOfflineError(offlineCode, message);
+    }
 
     const rawCode    = typeof parsed.code === 'string'    ? parsed.code    : `HTTP_${status}`;
     const rawMessage = typeof parsed.message === 'string' ? parsed.message : `Request failed with status ${status}`;
