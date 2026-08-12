@@ -1,41 +1,83 @@
 # Rhythm — Project State
 
-**Focus:** MEGA PR backlog burn-down — **complete, PR open, awaiting manual test + merge.**
-**Branch:** `mega/2026-08-10-backlog-burndown` → **PR #1368** (https://github.com/ajhochy/Rhythm/pull/1368). **Do NOT merge** — AJ merges after manual testing.
+**Focus:** Mobile smart-client rebuild — the phone reads from api_server's SQLite
+mirror instead of live-proxying the OpenCode engine. **Implemented, PR open,
+awaiting manual test + merge.**
+**Branch:** `mobile/sqlite-mirror` (off `main`, which now carries the merged
+mega PR #1368). **Do NOT merge** — AJ merges after manual testing.
+**Issues:** #1378 (fail soft — complete) · #1379 (cold-start slowness — Phase 1
+complete, device evidence still owed).
+**Plan:** `docs/ai/plan-mobile-smart-client.md` · **Run log:**
+`docs/ai/runs/2026-08-11-sqlite-mirror.md` · **Decision:**
+`docs/ai/decisions/2026-08-11-mobile-mirror-reads-fall-through-live.md`
 
-## What shipped
-All 59 open issues (58 snapshot 2026-08-10 + #1367) implemented on one mega branch across 10
-Codex-built workstreams, integrated sequentially with a full compile+test gate after each merge.
-~84 commits, ~388 files. New surfaces disabled by default: `RHYTHM_RESEARCH_PROJECTS_ENABLED=off`,
-`RHYTHM_MCP_APPS_MODE=off`.
+## What shipped on this branch
 
-## Test status (mega HEAD)
-- api_server: tsc clean; vitest **4293 passed** (per-file green; see flaky note).
-- desktop_flutter: format clean, analyze clean, **flutter test 1202/0**.
-- opencode_fork: permission + shell-cancel + full session suites green; SDK artifact regenerated & stable.
-- mcp_server: build clean. mobile: **Jest 61/61**, **Playwright 71/0** (== baseline), foundation contract green (136 ops).
-- CI (PR #1368): all five checks green after the SDK-regen + mcp-app-op classification fix (both root causes fixed & verified locally).
+**Phase 0 (#1378)** — the scope-validation pre-check that fronts every mobile
+session open no longer collapses a cold/busy engine into a hard 502. Transient
+status or abort → `504 OPENCODE_TIMEOUT`; connection failure → `502
+OPENCODE_UNAVAILABLE`; only a definite non-OK answer keeps
+`SCOPE_CHECK_FAILED`. The SSE proxy's pre-check — which previously had **no
+timeout at all** and leaked thrown errors as a 500 — is bounded and classified
+the same way. On the phone, idempotent gateway GETs retry inside one cold-start
+budget (400/1200/3000 ms) instead of surfacing the first transient failure.
+
+**Phase 1 (#1379a)** — `experimental.session.list`, `session.children`, and
+`session.messages` are served from SQLite, behind the **existing engine-shaped
+operationIds**, so `contractFingerprint` does not move and no paired phone
+re-pairs. New `agent_session_messages.info_json` stores the engine's
+`message.info` verbatim so the transcript is returned in the engine's exact
+shape rather than reconstructed. On a mirror hit the engine is contacted **zero**
+times (pinned by test). Every ambiguity — a legacy row without `info_json`, an
+unknown cursor, an unmirrored or unowned session, an empty mirror for a project,
+a missed exact-session lookup, or the local catalog being unavailable — falls
+through to the unchanged live path.
+
+**Phase 2 (event-stream decoupling) deliberately deferred.** `ws_gateway`'s
+broadcast reaches only loopback clients today, and moving mobile onto it means
+re-homing the per-owner/per-project/per-session filtering, dedupe, and 1s
+revocation checks plus new reconnect-replay cursor logic — a second PR's worth
+of surface that also wants device evidence. Rationale in the run log.
+
+## Test status (this branch)
+
+- api_server: `tsc --noEmit` clean; full serial vitest green.
+- mobile: `test:ci:static` green (includes the 7 new cold-start-retry cases);
+  `contract:check` green — the engine OpenAPI is untouched.
+- New coverage: 46 cases across 6 files (5 api_server + 1 mobile).
+- Untouched by this branch: desktop_flutter, mcp_server, opencode_fork.
+
+## Two pre-existing defects fixed in passing
+
+1. `Number(query.get('limit'))` is `0`, not `NaN`, when the parameter is absent —
+   so an absent `limit` silently clamped a session page to one item. Invisible
+   only because the phone always sends an explicit limit. Fixed once in a shared
+   helper used by both the owner-unscoped and the new mirror path.
+2. Session-list timestamps were not zone-normalized, so SQLite's
+   designator-less `datetime('now')` values were parsed as local time — the same
+   defect class that once scrambled transcript ordering. Now normalized via
+   `toUtcIsoInstant` before parsing.
 
 ## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation (verified: tasks_permissions,
-agent_designs, isolate_worktree, org_proposals, mobile deep-links). The two in-scope flaky issues
-#1247/#1310 are fixed at the root. CI re-run clears transient reds.
 
-## Phase 4 (live smoke)
-Fork engine rebuilt for this branch + re-signed ad-hoc, staged to api_server/opencode_bin and the dev
-shadow path; env-gated live E2E suites written for sandbox (research #1300, permissions #1322,
-plumbing #1325/#1326, media #1309, inspector #1361). Full per-issue GUI click-through against live
-prod + Synology is the manual smoke the PR stays open for (per this file's Git/PR workflow — user
-tests locally before merge).
-
-## HUMAN-GATED (one-line actions in the PR body)
-#1175 TestFlight Apple auth · #1176 approve keep-blocked · #1177 name remote-exec use case / defer ·
-#1178 approve sharing decision sheet · #1280 physical-iPhone composer check · #1363 approve dry-run
-then --apply · #1364 Tailscale cold-open timing · #1300 flip research flag after approval.
+`dashboard_summary.test.ts > done tasks are excluded from pastDeadlineCount`
+failed once in a full serial run and passes in isolation both with and without
+this branch. Nothing here touches the dashboard or task path. Same shared-state
+ordering class the repo already documents on `PR_CHECKS` (#755/#1088).
 
 ## Next step
-AJ: manual-smoke the PR locally against prod + Synology, action the 8 human-gated items, then merge.
+
+AJ: manual-smoke on a physical iPhone over the remote gateway and record #1379's
+timing evidence (cold app start → first transcript open), then merge.
+
+- Expected: session list, archived list, and transcript open are instant and
+  survive a saturated or restarting engine, because reads no longer touch it.
+- Still engine-dependent by design: sending, aborting, permission/question
+  replies, the live event stream, and every working-tree read (`file.*`,
+  `session.diff`, `vcs.*`, `find.*`, pty/shell).
+- #1379 should stay open until the device timings are recorded; #1378 is fully
+  covered by automated tests.
+
 ```bash
-tools/dev/launch_desktop_current.sh   # engine already rebuilt + staged for this branch
+cd apps/api_server && npm run dev   # restart so the migration + mirror reads load
 ```
