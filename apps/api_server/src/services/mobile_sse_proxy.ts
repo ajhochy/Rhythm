@@ -17,6 +17,10 @@ import {
   type MobileOpenCodeOwnerScope,
   type MobileOpenCodeJsonFetcher,
 } from './mobile_opencode_security';
+import {
+  globalEventProducerLive,
+  subscribeGlobalEvents,
+} from './mobile_event_bus';
 
 type FetchFn = (
   input: string | URL | globalThis.Request,
@@ -32,6 +36,8 @@ export interface MobileSseProxyOptions {
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
   activeCheckIntervalMs?: number;
+  /** Per-device backlog on the #1379b fan-out bus before this client fails. */
+  maxQueuedBusEvents?: number;
   ownershipRepository?: MobileOpenCodeOwnershipReader;
 }
 
@@ -291,6 +297,7 @@ export class MobileSseProxy {
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
   private readonly activeCheckIntervalMs: number;
+  private readonly maxQueuedBusEvents: number;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipReader;
 
@@ -308,6 +315,7 @@ export class MobileSseProxy {
     this.reconnectBaseMs = options.reconnectBaseMs ?? 250;
     this.reconnectMaxMs = options.reconnectMaxMs ?? 15_000;
     this.activeCheckIntervalMs = options.activeCheckIntervalMs ?? 1_000;
+    this.maxQueuedBusEvents = options.maxQueuedBusEvents ?? 512;
     this.configuredOwnershipRepository = options.ownershipRepository;
   }
 
@@ -393,46 +401,33 @@ export class MobileSseProxy {
     try {
       while (!closed) {
         if (!deviceIsActive(input.isDeviceActive)) break;
-        // `/event` emits unwrapped payloads, so it lacks the authoritative
-        // directory evidence required by the fail-closed mobile project
-        // filter. `/global/event` wraps every non-server event with its source
-        // directory; the filters below then narrow it to the selected project,
-        // owner, and optional session.
-        const query = new URLSearchParams();
-        const path = '/global/event';
-        const url = `${this.baseUrl}${path}${
-          query.size > 0 ? `?${query.toString()}` : ''
-        }`;
         try {
-          const upstream = await this.fetchFn(url, {
-            headers: { Accept: 'text/event-stream' },
-            redirect: 'error',
-            signal: controller.signal,
-          });
-          if (
-            !upstream.ok ||
-            !upstream.body ||
-            !upstream.headers.get('content-type')
-              ?.toLowerCase()
-              .includes('text/event-stream')
-          ) {
-            if (!upstream.ok) {
-              logger.warn(
-                `[MobileSseProxy] event stream rejected with upstream status ${upstream.status}`,
-              );
-            }
-            await upstream.body?.cancel();
-            throw new Error('OpenCode event stream unavailable');
-          }
-
-          const delivered = await this.consume(
-            upstream,
-            input,
-            owner,
-            controller.signal,
-            seen,
-            seenOrder,
-          );
+          // #1379b — when the bridge's consolidated `/global/event`
+          // subscription is live, ride it instead of opening a second engine
+          // stream for this device. The engine then sees one stream no matter
+          // how many phones are paired, and a phone stops re-running its scope
+          // pre-check every time the engine hiccups: the bus goes quiet and
+          // this loop waits while the downstream connection stays open.
+          //
+          // The direct engine stream stays as the fallback for the cases where
+          // no producer exists — consolidated mode disabled
+          // (RHYTHM_SSE_GLOBAL=0), an engine build without `/global/event`, or
+          // an api_server that has not started a session yet.
+          const delivered = globalEventProducerLive()
+            ? await this.consumeBus(
+              input,
+              owner,
+              controller.signal,
+              seen,
+              seenOrder,
+            )
+            : await this.consumeEngine(
+              input,
+              owner,
+              controller.signal,
+              seen,
+              seenOrder,
+            );
           if (delivered) reconnectMs = this.reconnectBaseMs;
         } catch (error) {
           if (closed || controller.signal.aborted) break;
@@ -477,6 +472,164 @@ export class MobileSseProxy {
       seenOrder.length = 0;
       if (!input.response.writableEnded) input.response.end();
     }
+  }
+
+  /**
+   * Open this device's own `/global/event` stream against the engine.
+   * The pre-#1379b path, kept as the fallback when no consolidated producer
+   * is feeding the fan-out bus.
+   */
+  private async consumeEngine(
+    input: MobileSseStreamInput,
+    owner: MobileOpenCodeOwnerScope,
+    signal: AbortSignal,
+    seen: Set<string>,
+    seenOrder: string[],
+  ): Promise<boolean> {
+    // `/event` emits unwrapped payloads, so it lacks the authoritative
+    // directory evidence required by the fail-closed mobile project filter.
+    // `/global/event` wraps every non-server event with its source directory;
+    // the filters in `deliver` then narrow it to the selected project, owner,
+    // and optional session.
+    const upstream = await this.fetchFn(`${this.baseUrl}/global/event`, {
+      headers: { Accept: 'text/event-stream' },
+      redirect: 'error',
+      signal,
+    });
+    if (
+      !upstream.ok ||
+      !upstream.body ||
+      !upstream.headers.get('content-type')
+        ?.toLowerCase()
+        .includes('text/event-stream')
+    ) {
+      if (!upstream.ok) {
+        logger.warn(
+          `[MobileSseProxy] event stream rejected with upstream status ${upstream.status}`,
+        );
+      }
+      await upstream.body?.cancel();
+      throw new Error('OpenCode event stream unavailable');
+    }
+    return this.consume(upstream, input, owner, signal, seen, seenOrder);
+  }
+
+  /**
+   * #1379b — consume the in-process fan-out of the bridge's consolidated
+   * engine stream. Returns when the producer detaches (engine restart,
+   * watchdog resubscribe) so the caller can re-evaluate and, if the
+   * consolidated stream does not come back, fall back to a direct one.
+   *
+   * The envelopes here are the same values `consume` parses off the wire, so
+   * filtering, dedupe, shaping, and backpressure all go through the identical
+   * `deliver` path — there is deliberately no second copy of that logic.
+   */
+  private async consumeBus(
+    input: MobileSseStreamInput,
+    owner: MobileOpenCodeOwnerScope,
+    signal: AbortSignal,
+    seen: Set<string>,
+    seenOrder: string[],
+  ): Promise<boolean> {
+    const subscription = subscribeGlobalEvents({
+      maxQueued: this.maxQueuedBusEvents,
+    });
+    const closeSubscription = () => subscription.close();
+    signal.addEventListener('abort', closeSubscription, { once: true });
+    let delivered = false;
+    try {
+      for await (const envelope of subscription.events) {
+        if (signal.aborted) break;
+        // The bus carries no SSE `id:` line of its own — the engine's event id
+        // (`payload.id`) is the dedupe key, which is also what the wire path
+        // falls back to when a frame omits `id:`.
+        if (
+          await this.deliver(
+            envelope,
+            null,
+            input,
+            owner,
+            signal,
+            seen,
+            seenOrder,
+          )
+        ) {
+          delivered = true;
+        }
+        if (signal.aborted || input.response.writableEnded) break;
+      }
+      return delivered;
+    } finally {
+      signal.removeEventListener('abort', closeSubscription);
+      subscription.close();
+    }
+  }
+
+  /**
+   * Filter, dedupe, shape, and write one engine event to this device.
+   * Returns true when a frame actually reached the client.
+   *
+   * Shared by the wire path (`consume`) and the fan-out path (`consumeBus`) so
+   * the ownership/project/session filters and the redaction pass can never
+   * drift between the two sources.
+   */
+  private async deliver(
+    parsed: unknown,
+    frameId: string | null,
+    input: MobileSseStreamInput,
+    owner: MobileOpenCodeOwnerScope,
+    signal: AbortSignal,
+    seen: Set<string>,
+    seenOrder: string[],
+  ): Promise<boolean> {
+    const matches = mobileSseEventBelongsToOwner(
+        parsed,
+        input.project,
+        owner,
+        input.sessionId,
+      ) &&
+      (
+        input.sessionId
+          ? matchesSession(parsed, input.sessionId)
+          : true
+      );
+    if (!matches) return false;
+
+    const id = frameId || streamEventId(parsed);
+    if (id && seen.has(id)) return false;
+    if (id) {
+      seen.add(id);
+      seenOrder.push(id);
+      while (seenOrder.length > this.maxDedupeEntries) {
+        seen.delete(seenOrder.shift()!);
+      }
+    }
+    const mobilePayload = shapeMobileSseEvent(parsed, input.project);
+    const encoded = `${
+      id ? `id: ${id}\n` : ''
+    }event: message\ndata: ${JSON.stringify(mobilePayload)}\n\n`;
+    if (
+      Buffer.byteLength(encoded, 'utf8') > this.maxFrameBytes ||
+      input.response.writableLength > this.maxBufferedBytes
+    ) {
+      throw new AppError(
+        503,
+        'STREAM_BACKPRESSURE',
+        'Mobile event stream client is too slow',
+      );
+    }
+    if (!input.response.write(encoded)) {
+      const drained = await waitForDrain(input.response, signal);
+      if (!drained) {
+        if (signal.aborted || input.response.writableEnded) return true;
+        throw new AppError(
+          503,
+          'STREAM_BACKPRESSURE',
+          'Mobile event stream drain timed out',
+        );
+      }
+    }
+    return true;
   }
 
   private async consume(
@@ -526,59 +679,23 @@ export class MobileSseProxy {
           } catch {
             continue;
           }
-          const matches = mobileSseEventBelongsToOwner(
-              parsed,
-              input.project,
-              owner,
-              input.sessionId,
-            ) &&
-            (
-              input.sessionId
-                ? matchesSession(parsed, input.sessionId)
-                : true
-            );
-          if (!matches) continue;
-
-          const id = frame.id || streamEventId(parsed);
-          if (id && seen.has(id)) continue;
-          if (id) {
-            seen.add(id);
-            seenOrder.push(id);
-            while (seenOrder.length > this.maxDedupeEntries) {
-              seen.delete(seenOrder.shift()!);
-            }
-          }
-          const mobilePayload = shapeMobileSseEvent(
-            parsed,
-            input.project,
-          );
-          const encoded = `${
-            id ? `id: ${id}\n` : ''
-          }event: message\ndata: ${JSON.stringify(mobilePayload)}\n\n`;
           if (
-            Buffer.byteLength(encoded, 'utf8') > this.maxFrameBytes ||
-            input.response.writableLength > this.maxBufferedBytes
+            await this.deliver(
+              parsed,
+              frame.id,
+              input,
+              owner,
+              signal,
+              seen,
+              seenOrder,
+            )
           ) {
-            throw new AppError(
-              503,
-              'STREAM_BACKPRESSURE',
-              'Mobile event stream client is too slow',
-            );
+            delivered = true;
           }
-          delivered = true;
-          if (!input.response.write(encoded)) {
-            const drained = await waitForDrain(input.response, signal);
-            if (!drained) {
-              if (signal.aborted || input.response.writableEnded) {
-                return delivered;
-              }
-              throw new AppError(
-                503,
-                'STREAM_BACKPRESSURE',
-                'Mobile event stream drain timed out',
-              );
-            }
-          }
+          // A drain that gave up on an aborted/ended response stops this
+          // stream rather than writing the rest of the buffered frames into a
+          // socket that is already gone.
+          if (signal.aborted || input.response.writableEnded) return delivered;
         }
       }
       return delivered;

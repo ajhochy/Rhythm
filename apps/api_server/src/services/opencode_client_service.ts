@@ -25,6 +25,10 @@ import {
 } from './local_omlx_provider';
 import { resolveWebsearchConfig } from '../config/env';
 import {
+  publishGlobalEvent,
+  setGlobalEventProducerLive,
+} from './mobile_event_bus';
+import {
   clearTrustedMcpVerifier,
   initializeTrustedMcpVerifier,
 } from '../security/trusted_mcp_call';
@@ -1795,40 +1799,59 @@ export class OpencodeClientService {
     // anti-duck-typing guard forbids that pattern in this file).
     const body = res.body as Pick<AsyncIterable<Uint8Array>, typeof Symbol.asyncIterator>;
 
+    // #1379b — this one stream now also feeds the mobile fan-out bus, so every
+    // paired phone rides it instead of opening its own engine stream.
+    setGlobalEventProducerLive(true);
+
     async function* iterate(): AsyncIterable<
       import('@opencode-ai/sdk').RhythmEvent & { __directory?: string }
     > {
       const decoder = new TextDecoder();
       let buffer = '';
-      for await (const chunk of body) {
-        buffer += decoder.decode(chunk, { stream: true });
-        // SSE frames are separated by a blank line; each `data:` line is JSON.
-        let idx: number;
-        while ((idx = buffer.indexOf('\n\n')) !== -1) {
-          const frame = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 2);
-          const dataLine = frame
-            .split('\n')
-            .find((l) => l.startsWith('data:'));
-          if (!dataLine) continue;
-          const json = dataLine.slice(5).trim();
-          if (!json) continue;
-          let envelope: {
-            directory?: string;
-            payload?: import('@opencode-ai/sdk').RhythmEvent;
-          };
-          try {
-            envelope = JSON.parse(json);
-          } catch {
-            continue;
+      try {
+        for await (const chunk of body) {
+          buffer += decoder.decode(chunk, { stream: true });
+          // SSE frames are separated by a blank line; each `data:` line is JSON.
+          let idx: number;
+          while ((idx = buffer.indexOf('\n\n')) !== -1) {
+            const frame = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const dataLine = frame
+              .split('\n')
+              .find((l) => l.startsWith('data:'));
+            if (!dataLine) continue;
+            const json = dataLine.slice(5).trim();
+            if (!json) continue;
+            let envelope: {
+              directory?: string;
+              payload?: import('@opencode-ai/sdk').RhythmEvent;
+            };
+            try {
+              envelope = JSON.parse(json);
+            } catch {
+              continue;
+            }
+            // Publish the raw envelope BEFORE the payload check: that is the
+            // exact value MobileSseProxy used to parse off the wire, and it
+            // includes `server.heartbeat`, which the bridge swallows but which
+            // is the phone's stream keepalive.
+            publishGlobalEvent(envelope as Record<string, unknown>);
+            if (!envelope.payload) continue;
+            yield { ...envelope.payload, __directory: envelope.directory };
           }
-          if (!envelope.payload) continue;
-          yield { ...envelope.payload, __directory: envelope.directory };
         }
+      } finally {
+        setGlobalEventProducerLive(false);
       }
     }
 
-    return { stream: iterate(), abort: () => controller.abort() };
+    return {
+      stream: iterate(),
+      abort: () => {
+        setGlobalEventProducerLive(false);
+        controller.abort();
+      },
+    };
   }
 
   /**
