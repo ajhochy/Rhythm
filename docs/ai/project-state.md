@@ -1,41 +1,56 @@
 # Rhythm — Project State
 
-**Focus:** MEGA PR backlog burn-down — **complete, PR open, awaiting manual test + merge.**
-**Branch:** `mega/2026-08-10-backlog-burndown` → **PR #1368** (https://github.com/ajhochy/Rhythm/pull/1368). **Do NOT merge** — AJ merges after manual testing.
+**Focus:** Mobile smart-client migration (`docs/ai/plan-mobile-smart-client.md`) — the phone stops
+being a thin client of the raw OpenCode engine and becomes a client of api_server's smart server.
 
-## What shipped
-All 59 open issues (58 snapshot 2026-08-10 + #1367) implemented on one mega branch across 10
-Codex-built workstreams, integrated sequentially with a full compile+test gate after each merge.
-~84 commits, ~388 files. New surfaces disabled by default: `RHYTHM_RESEARCH_PROJECTS_ENABLED=off`,
-`RHYTHM_MCP_APPS_MODE=off`.
+**Two open PRs, neither merged. Do NOT merge — AJ merges after manual testing.**
 
-## Test status (mega HEAD)
-- api_server: tsc clean; vitest **4293 passed** (per-file green; see flaky note).
-- desktop_flutter: format clean, analyze clean, **flutter test 1202/0**.
-- opencode_fork: permission + shell-cancel + full session suites green; SDK artifact regenerated & stable.
-- mcp_server: build clean. mobile: **Jest 61/61**, **Playwright 71/0** (== baseline), foundation contract green (136 ops).
-- CI (PR #1368): all five checks green after the SDK-regen + mcp-app-op classification fix (both root causes fixed & verified locally).
+| PR | Branch | Scope |
+|---|---|---|
+| [#1384](https://github.com/ajhochy/Rhythm/pull/1384) | `mobile/sqlite-mirror` | Phase 0 (#1378 fail-soft) + Phase 1 (#1379a mirror-served reads) |
+| TBD | `mobile/mirror-event-fanout` | Phase 2 (#1379b event fan-out) — branched off `main`, not off #1384 |
+
+Both branch off `main` (`23c51f12`, the merged MEGA PR #1368). They overlap in exactly one file,
+`apps/api_server/src/services/mobile_sse_proxy.ts`, in disjoint regions — #1384 adds a bounded
+scope-check pre-check at the top of `stream()`, Phase 2 replaces the transport loop below it.
+
+## In progress / next
+
+- **AJ:** manual-smoke both PRs on a physical device over the remote gateway, then merge.
+- **#1379 is not auto-closed by either PR alone.** Its remaining acceptance is device-only:
+  measured cold-start timings and physical-device evidence over a remote gateway, which cannot be
+  produced in a headless environment.
+- Phase 3 follow-ups not yet filed: optimistic outgoing-bubble send on the phone; mirror child
+  message *parts* (the bridge mirrors child rows but not child parts); mirror pending
+  permissions/questions; dispatch queue so even submit does not block on a saturated engine.
+
+## Test status
+
+- **Phase 2 branch:** api_server serial suite **524 files / 4311 tests passed, exit 0**. 15 of 16
+  PR-level checks green; the serial gate surfaced one shared-state flake (see below) that passes
+  standalone and in isolation.
+- **Phase 1 branch (#1384):** 529 files / 4349 tests passed, exit 0; all 16 checks green.
+- desktop_flutter: format + analyze clean, flutter test green. mcp_server, opencode fork, and the
+  four mobile suites green on both branches.
 
 ## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation (verified: tasks_permissions,
-agent_designs, isolate_worktree, org_proposals, mobile deep-links). The two in-scope flaky issues
-#1247/#1310 are fixed at the root. CI re-run clears transient reds.
 
-## Phase 4 (live smoke)
-Fork engine rebuilt for this branch + re-signed ad-hoc, staged to api_server/opencode_bin and the dev
-shadow path; env-gated live E2E suites written for sandbox (research #1300, permissions #1322,
-plumbing #1325/#1326, media #1309, inspector #1361). Full per-issue GUI click-through against live
-prod + Synology is the manual smoke the PR stays open for (per this file's Git/PR workflow — user
-tests locally before merge).
+The api_server serial gate surfaces ~1 shared-state ordering flake per full run — a *different*
+test each time (observed: `dashboard_summary`, `agent_configs_routes`), always passing in isolation
+and on a standalone re-run of the full serial suite. Documented on `PR_CHECKS` in
+`scripts/run_ai_workflow.py` (#755/#1088). Re-run clears it.
 
-## HUMAN-GATED (one-line actions in the PR body)
-#1175 TestFlight Apple auth · #1176 approve keep-blocked · #1177 name remote-exec use case / defer ·
-#1178 approve sharing decision sheet · #1280 physical-iPhone composer check · #1363 approve dry-run
-then --apply · #1364 Tailscale cold-open timing · #1300 flip research flag after approval.
+## Risks
 
-## Next step
-AJ: manual-smoke the PR locally against prod + Synology, action the 8 human-gated items, then merge.
+- The consolidated `/global/event` bridge stream is now on the critical path for **mobile
+  streaming**, not just desktop and persistence. If it stops, phones fall back to per-device engine
+  SSE (the pre-Phase-2 behavior) rather than failing — but the fallback is the slow path.
+- Phase 1's mirror reads fall through live on any ambiguity, so a mirror bug degrades to the old
+  behavior rather than serving wrong data. Paging past the mirror's earliest row for a session
+  always costs one live engine call.
+
+## Launch
+
 ```bash
-tools/dev/launch_desktop_current.sh   # engine already rebuilt + staged for this branch
+tools/dev/launch_desktop_current.sh
 ```

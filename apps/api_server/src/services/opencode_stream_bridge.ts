@@ -15,6 +15,7 @@ import { queueSkillExtraction } from './skill_extractor';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
+import { opencodeEventHub } from './opencode_event_hub';
 import { classifyCommands, extractBashCommands } from '../security/command_approval';
 
 /**
@@ -766,6 +767,12 @@ export class OpencodeStreamBridge {
     }, ENGINE_HEALTH_POLL_MS);
     if (typeof watchdog.unref === 'function') watchdog.unref();
     this.globalStream = { abort: sub.abort, watchdog };
+    // #1379 Phase 2 — the consolidated stream is now also the mobile fan-out
+    // source. Marking it live is what lets MobileSseProxy stop dialing the
+    // engine per device; the flag deliberately stays set across a watchdog
+    // resubscribe so a phone rides out an engine restart on a quiet stream
+    // instead of falling back to hammering a dead engine.
+    opencodeEventHub.setLive(true);
     this._listenGlobal(sub.stream).catch((err) =>
       logger.error('[OpencodeStreamBridge] global listener crashed:', err),
     );
@@ -783,8 +790,18 @@ export class OpencodeStreamBridge {
         // The SDK Event union doesn't declare these synthetic types, so compare
         // via a widened view.
         const evType = (event as { type: string }).type;
-        if (evType === 'server.heartbeat' || evType === 'server.connected') continue;
+        if (evType === 'server.heartbeat' || evType === 'server.connected') {
+          // #1379 Phase 2 — mobile subscribers DO need these: they are the only
+          // traffic on an idle stream, and the phone treats any envelope as
+          // proof of liveness before it stands its polling fallback down.
+          this._publishToHub(event);
+          continue;
+        }
         this._relayEvent(event);
+        // Published after the relay so every hub subscriber sees a frame the
+        // mirror has already persisted — the same ordering guarantee the
+        // desktop `broadcast()` path has.
+        this._publishToHub(event);
       }
     } catch (err) {
       logger.error('[OpencodeStreamBridge] global stream error:', err);
@@ -1062,6 +1079,22 @@ export class OpencodeStreamBridge {
       id: eventId,
       message,
     });
+  }
+
+  /**
+   * #1379 Phase 2 — republish one `/global/event` frame to the mobile fan-out
+   * hub. `subscribeToGlobalEvents` unwraps the engine's
+   * `{directory, payload}` envelope into `{...payload, __directory}`; the
+   * mobile project filter is fail-closed on the `directory` field, so the
+   * envelope has to be reassembled exactly before it goes out.
+   */
+  private _publishToHub(
+    event: import('@opencode-ai/sdk').RhythmEvent & { __directory?: string },
+  ): void {
+    const { __directory: directory, ...payload } = event;
+    opencodeEventHub.publish(
+      directory === undefined ? { payload } : { directory, payload },
+    );
   }
 
   private _relayEvent(
@@ -2361,6 +2394,10 @@ export class OpencodeStreamBridge {
       clearInterval(this.globalStream.watchdog);
       this.globalStream = null;
     }
+    // #1379 Phase 2 — a deliberate shutdown (unlike a watchdog resubscribe)
+    // really does end the fan-out, so new mobile streams must go back to their
+    // own engine transport rather than subscribing to a hub nobody feeds.
+    opencodeEventHub.setLive(false);
     this.engineIdentityKey = null;
     this.stoppedSessions.clear();
     this.pendingText.clear();
