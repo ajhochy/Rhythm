@@ -8,14 +8,26 @@ import type {
 } from '../repositories/mobile_opencode_ownership_repository';
 import { getMobilePairingService } from '../services/mobile_gateway_runtime';
 import {
+  readMirrorSessionChildren,
+  readMirrorSessionList,
+  readMirrorTranscript,
+} from '../services/mobile_mirror_reads';
+import { MOBILE_OPENCODE_OPERATION_MANIFEST } from '../services/mobile_opencode_operations.generated';
+import {
+  MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES,
+  MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+} from '../services/mobile_opencode_proxy';
+import {
   getMobileOpenCodeOwnershipRepository,
 } from '../services/mobile_opencode_ownership_runtime';
+import { shapeMobileOpenCodeResponse } from '../services/mobile_opencode_security';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
 import {
   MacOfflineError,
   RelayUplinkServer,
   relayUplinkServer,
 } from '../services/relay_uplink_server';
+import { logger } from '../utils/logger';
 
 export interface RelayGatewayRouterDependencies {
   uplink?: RelayUplinkServer;
@@ -73,6 +85,86 @@ function tunneledPath(req: Request): string {
   return original.startsWith('/relay/')
     ? original.slice('/relay'.length)
     : original;
+}
+
+function pageLimit(raw: string | null, fallback = 100, max = 100): number {
+  if (raw === null || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, parsed);
+}
+
+function pageCursor(raw: string | null): number {
+  const parsed = Number(raw ?? 0);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function sendMirrorResponse(
+  res: Response,
+  value: unknown,
+  headers?: Record<string, string>,
+): void {
+  const body = Buffer.from(JSON.stringify(value));
+  if (body.byteLength > MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES) {
+    throw new AppError(
+      502,
+      'UPSTREAM_RESPONSE_TOO_LARGE',
+      'OpenCode response exceeded the mobile gateway limit',
+    );
+  }
+  res.type('application/json');
+  for (const [name, headerValue] of Object.entries(headers ?? {})) {
+    res.set(name, headerValue);
+  }
+  res.status(200).send(body);
+}
+
+async function readRelayMirror<T>(
+  reader: () => T | Promise<T>,
+): Promise<T | null> {
+  try {
+    return await reader();
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    logger.warn(
+      `[RelayGateway] mirror read unavailable (${
+        error instanceof Error ? error.name : 'UnknownError'
+      })`,
+    );
+    return null;
+  }
+}
+
+async function tunnelRequest(
+  uplink: RelayUplinkServer,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  if (!uplink.isMacOnline()) {
+    res.status(503).json({ error: 'mac_offline' });
+    return;
+  }
+  try {
+    const response = await uplink.sendRpc({
+      method: req.method,
+      path: tunneledPath(req),
+      headers: forwardedHeaders(req),
+      bodyB64: requestBodyB64(req),
+    });
+    for (const [name, value] of Object.entries(response.headers)) {
+      if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) {
+        res.setHeader(name, value);
+      }
+    }
+    res.status(response.status).end(Buffer.from(response.bodyB64, 'base64'));
+  } catch (error) {
+    if (error instanceof MacOfflineError) {
+      res.status(503).json({ error: 'mac_offline' });
+      return;
+    }
+    next(error);
+  }
 }
 
 /**
@@ -182,6 +274,142 @@ export function createRelayGatewayRouter(
     res.status(501).json({ error: 'pty_requires_direct_connection' });
   });
 
+  // Relay-served mirror reads (Track 5). Keep this region separate from the
+  // realtime handlers above so SSE lifecycle changes can merge independently.
+  const tunnelMirrorMiss = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    if (!uplink.isMacOnline()) {
+      res.status(503).json({
+        error: 'mac_offline_and_mirror_incomplete',
+      });
+      return;
+    }
+    await tunnelRequest(uplink, req, res, next);
+  };
+
+  router.get(
+    '/mobile-gateway/opencode/experimental/session',
+    requireDevice,
+    async (req, res, next) => {
+      try {
+        const project = relayProject(req);
+        const query = new URL(req.originalUrl, 'http://relay.local')
+          .searchParams;
+        const page = await readRelayMirror(() =>
+          readMirrorSessionList({
+            archived: query.get('archived') === 'true',
+            cursor: pageCursor(query.get('cursor')),
+            limit: pageLimit(query.get('limit')),
+            project,
+            userId: req.mobileDevice!.userId,
+            ...(query.get('search')?.trim()
+              ? { sessionId: query.get('search')!.trim() }
+              : {}),
+          })
+        );
+        if (page === null) {
+          await tunnelMirrorMiss(req, res, next);
+          return;
+        }
+        sendMirrorResponse(
+          res,
+          page.items,
+          page.nextCursor === null
+            ? undefined
+            : { 'x-next-cursor': String(page.nextCursor) },
+        );
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+
+  router.get(
+    '/mobile-gateway/opencode/session/:id/message',
+    requireDevice,
+    async (req, res, next) => {
+      try {
+        const project = relayProject(req);
+        const query = new URL(req.originalUrl, 'http://relay.local')
+          .searchParams;
+        const safeValue = await readRelayMirror(async () => {
+          const messages = readMirrorTranscript({
+            project,
+            sdkSessionId: req.params.id,
+            userId: req.mobileDevice!.userId,
+            limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+            ...(query.get('before')?.trim()
+              ? { before: query.get('before')!.trim() }
+              : {}),
+          });
+          if (messages === null) return null;
+          const authoritativeDirectory =
+            ownership.resolveSessionDirectoryForOwner?.(
+              req.params.id,
+              req.mobileDevice!.userId,
+              project.id,
+            );
+          const requestProject = authoritativeDirectory
+            ? { ...project, root: authoritativeDirectory }
+            : project;
+          const operation = MOBILE_OPENCODE_OPERATION_MANIFEST.find(
+            (candidate) => candidate.operationId === 'session.messages',
+          )!;
+          return shapeMobileOpenCodeResponse(
+            operation,
+            messages,
+            requestProject,
+            () => {
+              throw AppError.internal(
+                'Mirror reads must not contact OpenCode',
+              );
+            },
+            `/session/${encodeURIComponent(req.params.id)}/message`,
+            {
+              ownerUserId: req.mobileDevice!.userId,
+              ownership,
+            },
+            false,
+            {},
+          );
+        });
+        if (safeValue === null) {
+          await tunnelMirrorMiss(req, res, next);
+          return;
+        }
+        sendMirrorResponse(res, safeValue);
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+
+  router.get(
+    '/mobile-gateway/opencode/session/:id/children',
+    requireDevice,
+    async (req, res, next) => {
+      try {
+        const children = await readRelayMirror(() =>
+          readMirrorSessionChildren({
+            project: relayProject(req),
+            sdkSessionId: req.params.id,
+            userId: req.mobileDevice!.userId,
+          })
+        );
+        if (children === null) {
+          await tunnelMirrorMiss(req, res, next);
+          return;
+        }
+        sendMirrorResponse(res, children);
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+
   router.all(
     '/mobile-gateway/*',
     (req, res, next) => {
@@ -191,32 +419,7 @@ export function createRelayGatewayRouter(
       }
       requireDevice(req, res, next);
     },
-    async (req, res, next) => {
-      if (!uplink.isMacOnline()) {
-        res.status(503).json({ error: 'mac_offline' });
-        return;
-      }
-      try {
-        const response = await uplink.sendRpc({
-          method: req.method,
-          path: tunneledPath(req),
-          headers: forwardedHeaders(req),
-          bodyB64: requestBodyB64(req),
-        });
-        for (const [name, value] of Object.entries(response.headers)) {
-          if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) {
-            res.setHeader(name, value);
-          }
-        }
-        res.status(response.status).end(Buffer.from(response.bodyB64, 'base64'));
-      } catch (error) {
-        if (error instanceof MacOfflineError) {
-          res.status(503).json({ error: 'mac_offline' });
-          return;
-        }
-        next(error);
-      }
-    },
+    (req, res, next) => void tunnelRequest(uplink, req, res, next),
   );
 
   return router;
