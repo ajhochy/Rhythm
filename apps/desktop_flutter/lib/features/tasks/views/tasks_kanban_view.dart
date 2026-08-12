@@ -295,7 +295,9 @@ class _KanbanCard extends StatelessWidget {
                 ),
           ),
           if (task.dueDate?.trim().isNotEmpty == true ||
-              preferredAgent?.isNotEmpty == true) ...[
+              preferredAgent?.isNotEmpty == true ||
+              task.priority != null ||
+              task.tags.isNotEmpty) ...[
             const SizedBox(height: 10),
             Wrap(
               spacing: 6,
@@ -315,6 +317,18 @@ class _KanbanCard extends StatelessWidget {
                       color: colors.primary,
                     ),
                     label: Text(preferredAgent!),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                if (task.priority != null)
+                  Chip(
+                    avatar: const Icon(Icons.flag_outlined, size: 14),
+                    label: Text('P${task.priority}'),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                for (final tag in task.tags.take(3))
+                  Chip(
+                    avatar: const Icon(Icons.sell_outlined, size: 14),
+                    label: Text('#$tag'),
                     visualDensity: VisualDensity.compact,
                   ),
               ],

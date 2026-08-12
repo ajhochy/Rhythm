@@ -1,7 +1,7 @@
 {
   "engineVersion": "1.14.49",
-  "openapiSha256": "42ef292d051e66edfa44d130a7b480d46d2d15dc514b7f69c017c3f01a62f1fe",
-  "operationCount": 133,
+  "openapiSha256": "f960fbd07a9495b8911ffd511e297307f2f9e6f7e400a0d36f0740aac96dfd56",
+  "operationCount": 136,
   "operations": [
     {
       "method": "GET",
@@ -915,6 +915,39 @@
       ],
       "classification": "surfaced",
       "reason": "Chats displays project-scoped active, completed, and archived sessions."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/mcp-app-execution/{callID}",
+      "operationId": "session.mcpAppExecution",
+      "summary": "Execute an authorized same-server MCP App tool call",
+      "tags": [
+        "session"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "MCP App interactive execution is host-gated (profile scope, permission UI, signed proof); not a mobile gateway route."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/mcp-app-execution/{callID}/proof",
+      "operationId": "session.mcpAppExecutionProof",
+      "summary": "Issue a session-bound MCP App execution proof",
+      "tags": [
+        "session"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "MCP App execution proof issuance is engine-signed and host-only; never exposed to mobile."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}/mcp-app-resource/{callID}",
+      "operationId": "session.mcpAppResource",
+      "summary": "Read a session-bound MCP App resource",
+      "tags": [
+        "session"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "MCP App resource reads are trusted, session-bound, host-brokered; mobile never reads them directly."
     },
     {
       "method": "GET",

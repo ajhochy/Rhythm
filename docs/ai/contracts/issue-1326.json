@@ -1,0 +1,32 @@
+{
+  "issue": 1326,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1326-c1",
+      "text": "Persist api_server stdout/stderr to a rotating file at ~/Library/Logs/Rhythm/api_server.log while teeing output to the console.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1326_persistent_logging.test.ts",
+      "test_id": "issue-1326-c1: console output is teed to a bounded rotating log",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1326-c2",
+      "text": "Expose GET /dev/logs/tail on the loopback server and deny non-loopback callers.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1326_persistent_logging.test.ts",
+      "test_id": "issue-1326-c2: log tail is bounded and loopback-only",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1326-c3",
+      "text": "Mention the durable api_server log path in the dev launcher output.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1326_persistent_logging.test.ts",
+      "test_id": "issue-1326-c3: desktop dev launcher prints the durable log path",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

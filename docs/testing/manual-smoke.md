@@ -139,9 +139,53 @@ cd apps/desktop_flutter && RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
 - [ ] Log out or switch users and confirm prior artifact tabs/data clear before the next user loads.
 - [ ] Compare Dashboard, overflow/picker, Worship Calendar, conflict, deleted, and error states with the AV-06/AV-07 screenshot evidence in `docs/ai/runs/`.
 
+### Session Inspector artifact previewer (#1359–#1362)
+
+Run in the shipping macOS app against `tools/dev/sandbox.sh`; record the same
+artifact ID from the persisted session mutation through Dashboard handoff.
+
+- [ ] In a narrow layout, open Agents → exact session → Artifacts. Confirm the selector, compact title/status/reload toolbar, and one interactive preview fit without sharing controls or overflow.
+- [ ] Resize the inspector after editing content inside the WKWebView. Confirm the interactive state survives and only one preview remains mounted.
+- [ ] Using only the keyboard, focus and open the selector, change artifacts, reload, and activate Open in Dashboard. Confirm every target is at least 44px.
+- [ ] With VoiceOver, hear the selected artifact's full title, generic availability status, reload action, and Dashboard action; confirm truncated visual titles retain the full spoken name and no authorization details are exposed.
+- [ ] During an in-flight artifact load, perform a session switch and a Rhythm user switch. Confirm the prior WKWebView is removed and no late response appears in the new identity.
+- [ ] Perform only a provider-account switch. Confirm the inspector and WKWebView are not reset.
+- [ ] Exercise revoked/deleted artifacts. Confirm each row remains discoverable with only generic Unavailable/Deleted copy and no access detail.
+- [ ] Create and later update one supported artifact mutation, then use Dashboard handoff. Confirm the same stable artifact ID is pinned and selected exactly once in Dashboard.
+
+These checks remain unrun until orchestrator smoke; an unchecked item is not a
+pass. Record failures, observed output, and follow-up ownership in the run note.
+
 ---
 
 ## 10. Full test suite
+
+### MCP Apps GA packaged matrix (#1356)
+
+Run this matrix in a signed/packaged macOS build, not only Debug. Record the
+build SHA, macOS version, pilot call IDs, human approver, exact observed result,
+and sanitized screenshots in `docs/ai/runs/`. Any fail-open result blocks GA.
+
+For each exact `RHYTHM_MCP_APPS_MODE` value below, fully restart the engine,
+API, and packaged desktop app, then exercise both **Open Design** and
+**rhythm_get_dashboard**:
+
+- [ ] `off` (also missing, invalid, padded, and mixed-case): app UI and app-only tools are absent, resource/capability routes fail closed, and meaningful text fallback remains usable. Confirm this is the immediate rollback.
+- [ ] `readonly`: both pilots render through the same generic packaged host; all app-originated actions and context updates are denied; fallback remains usable after view teardown/crash and reopening starts a fresh ephemeral view.
+- [ ] `interactive`: enable only with explicit human smoke approval. Confirm same-server/profile-scoped calls show the existing permission UI; approve once, deny once, then prove cross-server, replayed, expired, malformed, and stale-nonce requests execute zero MCP calls.
+
+For each mode/pilot combination run the malicious fixture matrix:
+
+- [ ] scripts cannot escape the opaque iframe; navigation, external links, downloads, local/private network, and all other network requests are denied.
+- [ ] cookies/local/session storage do not survive teardown/reopen; camera, microphone, geolocation, media capture, and unknown device permissions are denied.
+- [ ] oversized content/messages, more than 20 messages/second, too many views, stale nonces, proof replay, and messages after teardown fail closed without a crash.
+- [ ] create/close/reopen views repeatedly, force a WebContent crash, switch sessions/users, and verify deterministic recovery with no prior content, capability, proof, or storage reused.
+- [ ] verify no token, raw MCP transport, server selector, resource URI authority, capability, or engine proof is visible to iframe JavaScript or logs.
+- [ ] verify context updates remain unsupported/unwired. If a future build exposes them, require explicit confirmation, 16 KiB bound, injection scan, durable `external_untrusted` taint, and an untrusted fence before accepting the build.
+
+Finally set `RHYTHM_MCP_APPS_MODE=off`, restart all three processes, and verify
+both pilot fallbacks. Leave interactive disabled until the named human approver
+accepts this complete packaged matrix.
 
 ```bash
 cd apps/api_server && npm test
@@ -355,6 +399,49 @@ credential, or webhook secret.
 - [ ] Force-quit during an active run, relaunch, and confirm the interrupted run
   remains visible and recovers after reconnect.
 
+#### Mobile lifecycle follow-up (#1280, #1364, #1366)
+
+- [ ] On a physical iPhone, type/wrap enough text to grow the composer from one
+  line through six lines. Confirm the box grows on each real UIKit layout event,
+  caps at six lines, and only then scrolls internally.
+- [ ] After a cold launch over the representative remote gateway, open an exact
+  desktop/projectless chat and record tap-to-first-transcript latency. It must
+  stay below `OPEN_PROJECT_SESSION_TIMEOUT_MS` (15 seconds) while the remaining
+  chat catalog continues to appear in the background.
+- [ ] While discovery is still loading, switch paired project scope and open a
+  different explicit chat. Delay/restore the old response and confirm it cannot
+  replace the selected transcript or introduce duplicate/cross-scope rows.
+- [ ] Drop and restore Mac/Tailscale reachability during that open. Confirm the
+  offline state appears, polling resumes while the stream is unavailable, the
+  stream reconnects, and the recovered transcript contains no duplicate turns.
+- [ ] Background/foreground and force-quit/relaunch once during the matrix to
+  exercise native timer suspension and UIKit/network lifecycle behavior that
+  Jest cannot reproduce.
+
+#### Reviewed session-binding cleanup (#1363 — human-gated)
+
+Run this only against the local-agent SQLite database on the paired Mac. The
+command is dry-run-only unless `--apply` is explicitly present, and output paths
+must not already exist.
+
+- [ ] Build the API CLI: `cd apps/api_server && npm run build`.
+- [ ] Generate the candidate report without mutation:
+  `node dist/cli/index.js session-binding-cleanup --db <rhythm.db> --output <review.json>`.
+- [ ] Match every candidate to the corresponding desktop and mobile chat. Set
+  every `reviewDecision` to either `approve` or `preserve`; leave intentional
+  `Theological-Researcher` bindings as `preserve`. For an approved row, set the
+  reviewed `proposed.profileId` and matching `proposed.agentKind`, or use a null
+  profile only when the chat should be Unassigned.
+- [ ] Stop unless a human has approved the complete reviewed JSON. Applying is
+  intentionally not part of automated verification.
+- [ ] After approval only, apply once and reserve a new audit path:
+  `node dist/cli/index.js session-binding-cleanup --db <rhythm.db> --apply --approval-file <review.json> --audit-output <audit.json>`.
+- [ ] Confirm the audit is `applied`, lists only explicitly approved session
+  IDs under `appliedSessionIds`, and lists legitimate bindings under
+  `preservedSessionIds`.
+- [ ] Fully quit and relaunch both desktop and mobile, then verify each approved
+  chat shows the reviewed profile and each preserved chat is unchanged.
+
 ### Every Tool and destructive confirmations (#1173)
 
 - [ ] Open every Tool: Brain, Research, Scheduled Jobs, Webhooks, Profiles,
@@ -401,3 +488,34 @@ credential, or webhook secret.
   production EAS build and TestFlight submission.
 - [ ] Verify the submitted TestFlight artifact hash matches the recorded
   production artifact, then leave PR #1165 draft for AJ's final approval.
+
+---
+
+## Research Projects rollout gate (#1300)
+
+Run only against the disposable sandbox described in
+`docs/ai/testing-guide.md`; keep the feature default-off outside the gate.
+
+- [ ] Create a named project with three passes. Verify distinct session IDs,
+  curated sources, critic, one canonical synthesis, factual progress, tokens,
+  cost, and visible degradation/fallback diagnostics.
+- [ ] Exercise cancel twice, selective retry, state-preserving sandbox restart,
+  budget exhaustion, and two same-local-day schedule ticks. Completed evidence
+  must survive and only unfinished/stale stages may rerun.
+- [ ] From another authenticated test owner, verify every project, run,
+  artifact, magazine, export, and discussion lookup is a concealed 404.
+- [ ] Open the magazine in Flutter. Inspect source links and uncertainty, then
+  use browser **Print** and **Save as PDF**. Open HTML and Markdown exports;
+  hostile HTML/URLs must not execute or leak prompts, paths, or credentials.
+- [ ] Start Discuss Report, ask an unsupported question, and verify the normal
+  Chats session cites frozen eligible evidence or explicitly says evidence is
+  absent and offers a follow-up research run.
+- [ ] Run reconciliation dry-run/apply/apply on the copied representative DB;
+  verify exact counts, no agent reruns, idempotence, and an unchanged vault
+  file list plus SHA-256 digest.
+- [ ] Tear down and confirm no sandbox directory, tagged process, or listener
+  remains on API 4098, engine 4097, or gateway 4099.
+- [ ] Start a fresh default-off sandbox: diagnostics say false, project routes
+  are 404, and legacy research still completes and writes its vault note.
+- [ ] Review `docs/release/research-projects-rollout.md`. Rollout requires AJ's
+  explicit approval; any abort condition keeps the flag off.

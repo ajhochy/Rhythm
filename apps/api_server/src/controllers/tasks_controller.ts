@@ -10,6 +10,8 @@ import { EmailService } from '../services/email_service';
 import { UsersRepository } from '../repositories/users_repository';
 import { emitAppEvent } from '../utils/app_events';
 import type { FilterStatus, TaskFilter } from '../models/task_filter';
+import { GoalsRepository } from '../repositories/goals_repository';
+import { normalizeTaskTags } from '../models/task';
 
 // Re-export so callers that previously imported from this module still work.
 export type { TaskFilter };
@@ -99,12 +101,34 @@ export function parseTaskFilters(query: Request['query'], userId: number): Parse
     search = query.search as string;
   }
 
+  let tag: string | undefined;
+  if (query.tag !== undefined) {
+    if (typeof query.tag !== 'string') {
+      return { ok: false, field: 'tag', message: 'tag must be a non-empty string' };
+    }
+    [tag] = normalizeTaskTags([query.tag]);
+    if (!tag) {
+      return { ok: false, field: 'tag', message: 'tag must be a non-empty string' };
+    }
+  }
+
+  let minPriority: number | undefined;
+  if (query.min_priority !== undefined) {
+    if (typeof query.min_priority !== 'string' || !/^-?\d+$/.test(query.min_priority)) {
+      return { ok: false, field: 'min_priority', message: 'min_priority must be an integer' };
+    }
+    minPriority = Number(query.min_priority);
+    if (!Number.isSafeInteger(minPriority)) {
+      return { ok: false, field: 'min_priority', message: 'min_priority must be an integer' };
+    }
+  }
+
   // Inject today's date so the repository never calls new Date() itself.
   const today = new Date().toISOString().slice(0, 10);
 
   return {
     ok: true,
-    filter: { userId, status, scheduledBefore, dueBefore, overdue, search, today },
+    filter: { userId, status, scheduledBefore, dueBefore, overdue, search, tag, minPriority, today },
   };
 }
 
@@ -121,12 +145,50 @@ function validatePreferredAgent(value: unknown): string | null {
   return value;
 }
 
+function validatePriority(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw AppError.badRequest('priority must be an integer or null');
+  }
+  return value;
+}
+
+function validateTags(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((tag) => typeof tag !== 'string')) {
+    throw AppError.badRequest('tags must be an array of strings');
+  }
+  return normalizeTaskTags(value);
+}
+
+function validateEnergy(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== 'string' ||
+    value.length > 32 ||
+    !/^\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*$/u.test(value)
+  ) {
+    throw AppError.badRequest('energy must be one emoji or null');
+  }
+  return value;
+}
+
 const repo = new TasksRepository();
 const rulesRepo = new RecurringTaskRulesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
 const claudeTriggersRepo = new ClaudeTriggersRepository();
 const usersRepo = new UsersRepository();
 const emailService = new EmailService(usersRepo);
+const goalsRepo = new GoalsRepository();
+
+async function validateOwnedGoal(goalId: unknown, userId: number): Promise<string | null> {
+  if (goalId === undefined || goalId === null) return null;
+  if (typeof goalId !== 'string' || goalId.trim() === '') {
+    throw AppError.badRequest('goalId must be a goal ID or null');
+  }
+  await goalsRepo.findByIdAsync(goalId, userId);
+  return goalId;
+}
 
 export class TasksController {
   async getAll(req: Request, res: Response, next: NextFunction) {
@@ -165,7 +227,7 @@ export class TasksController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, notes, dueDate, scheduledDate, status, preferredAgent } =
+      const { title, notes, dueDate, scheduledDate, status, preferredAgent, goalId, priority, tags, energy } =
         req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
@@ -174,6 +236,7 @@ export class TasksController {
         throw AppError.badRequest(`status must be one of: ${VALID_STATUSES.join(', ')}`);
       }
       const validatedPreferredAgent = validatePreferredAgent(preferredAgent);
+      const validatedGoalId = await validateOwnedGoal(goalId, req.auth!.user.id);
       const task = await repo.createAsync({
         title,
         notes: (notes as string) ?? null,
@@ -182,6 +245,10 @@ export class TasksController {
         status: status as ValidStatus,
         ownerId: req.auth!.user.id,
         preferredAgent: validatedPreferredAgent,
+        goalId: validatedGoalId,
+        priority: validatePriority(priority),
+        tags: validateTags(tags),
+        energy: validateEnergy(energy),
       });
       res.status(201).json(task);
     } catch (err) {
@@ -203,6 +270,18 @@ export class TasksController {
       const patchData: Record<string, unknown> = { ...data };
       if ('preferredAgent' in data) {
         patchData.preferredAgent = validatePreferredAgent(data.preferredAgent);
+      }
+      if ('goalId' in data) {
+        patchData.goalId = await validateOwnedGoal(data.goalId, actorId);
+      }
+      if ('priority' in data) {
+        patchData.priority = validatePriority(data.priority);
+      }
+      if ('tags' in data) {
+        patchData.tags = validateTags(data.tags);
+      }
+      if ('energy' in data) {
+        patchData.energy = validateEnergy(data.energy);
       }
 
       const existing = await repo.findByIdAsync(req.params.id, actorId);

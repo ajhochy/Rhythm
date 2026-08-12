@@ -159,6 +159,9 @@ export class WeeklyPlanningService {
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
         preferredAgent: null,
+        priority: null,
+        tags: [],
+        energy: null,
       });
     }
 
@@ -181,18 +184,52 @@ export class WeeklyPlanningService {
   }
 }
 
-function compareTaskVisualOrder(a: Task, b: Task): number {
-  const compare = taskVisualOrder(a) - taskVisualOrder(b);
-  if (compare !== 0) return compare;
-  return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+export function compareTaskVisualOrder(a: Task, b: Task): number {
+  if (a.scheduledOrder != null || b.scheduledOrder != null) {
+    if (a.scheduledOrder == null) return 1;
+    if (b.scheduledOrder == null) return -1;
+    const explicitCompare = a.scheduledOrder - b.scheduledOrder;
+    if (explicitCompare !== 0) return explicitCompare;
+  }
+
+  const aCalendarTime = calendarTime(a);
+  const bCalendarTime = calendarTime(b);
+  if (aCalendarTime != null || bCalendarTime != null) {
+    if (aCalendarTime == null) return 1;
+    if (bCalendarTime == null) return -1;
+    const calendarCompare = aCalendarTime - bCalendarTime;
+    if (calendarCompare !== 0) return calendarCompare;
+  }
+
+  const aEnergyRank = energyRank(a.energy);
+  const bEnergyRank = energyRank(b.energy);
+  if (aEnergyRank == null || bEnergyRank == null) {
+    if (aEnergyRank == null && bEnergyRank == null) return 0;
+    return aEnergyRank == null ? 1 : -1;
+  }
+  return aEnergyRank - bEnergyRank;
 }
 
-function taskVisualOrder(task: Task): number {
+function calendarTime(task: Task): number | null {
   if (task.sourceType === 'calendar_shadow_event' && task.startsAt != null) {
     const date = new Date(task.startsAt);
     if (!Number.isNaN(date.getTime())) {
-      return ((date.getUTCHours() * 60) + date.getUTCMinutes()) * 10000;
+      return date.getTime();
     }
   }
-  return task.scheduledOrder ?? 10000000;
+  return null;
+}
+
+function energyRank(energy: string | null): number | null {
+  switch (energy) {
+    case '🔥':
+      return 0;
+    case '⚡':
+    case '⚡️':
+      return 1;
+    case '🌱':
+      return 2;
+    default:
+      return null;
+  }
 }

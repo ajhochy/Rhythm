@@ -114,6 +114,7 @@ const mcp = Layer.succeed(
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
     tools: () => Effect.succeed({}),
+    appTools: () => Effect.succeed({}),
     // Rhythm carried patch (mcp-scope): stub for test mock
     toolClientNames: () => Effect.succeed({}),
     prompts: () => Effect.succeed({}),
@@ -156,7 +157,11 @@ const lsp = Layer.succeed(
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
-function makeHttp() {
+const promptRuntimeFlags = RuntimeFlags.layer({
+  experimentalEventSystem: true,
+  shellKillGraceMs: 0,
+} as Parameters<typeof RuntimeFlags.layer>[0])
+function makePromptLayer() {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -201,28 +206,27 @@ function makeHttp() {
     Layer.provideMerge(proc),
     Layer.provideMerge(deps),
   )
-  return Layer.mergeAll(
-    TestLLMServer.layer,
-    SessionPrompt.layer.pipe(
-      Layer.provide(SessionRevert.defaultLayer),
-      Layer.provide(Image.defaultLayer),
-      Layer.provide(Reference.defaultLayer),
-      Layer.provide(summary),
-      Layer.provideMerge(run),
-      Layer.provideMerge(compact),
-      Layer.provideMerge(proc),
-      Layer.provideMerge(registry),
-      Layer.provideMerge(trunc),
-      Layer.provide(Instruction.defaultLayer),
-      Layer.provide(SystemPrompt.defaultLayer),
-      Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
-      Layer.provideMerge(deps),
-    ),
-  ).pipe(Layer.provide(summary))
+  return SessionPrompt.layer.pipe(
+    Layer.provide(SessionRevert.defaultLayer),
+    Layer.provide(Image.defaultLayer),
+    Layer.provide(Reference.defaultLayer),
+    Layer.provide(summary),
+    Layer.provideMerge(run),
+    Layer.provideMerge(compact),
+    Layer.provideMerge(proc),
+    Layer.provideMerge(registry),
+    Layer.provideMerge(trunc),
+    Layer.provide(Instruction.defaultLayer),
+    Layer.provide(SystemPrompt.defaultLayer),
+    Layer.provide(promptRuntimeFlags),
+    Layer.provideMerge(deps),
+  )
 }
 
-const it = testEffect(makeHttp())
+const it = testEffect(Layer.mergeAll(TestLLMServer.layer, makePromptLayer()).pipe(Layer.provide(summary)))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
+const shellIt = testEffect(makePromptLayer().pipe(Layer.provide(summary)))
+const shellUnix = process.platform !== "win32" ? shellIt.instance : shellIt.instance.skip
 
 // Config that registers a custom "test" provider with a "test-model" model
 // so provider model lookup succeeds inside the loop.
@@ -323,6 +327,12 @@ const pollWithTimeout = <A, E, R>(
       duration,
       orElse: () => Effect.fail(new Error(message)),
     }),
+  )
+
+const waitForShellProcess = (file: string) =>
+  pollWithTimeout(
+    Effect.sync(() => (existsSync(file) ? true : undefined)),
+    `shell process did not create readiness marker ${file}`,
   )
 
 const hasBash = Effect.sync(() => Bun.which("bash") !== null)
@@ -1476,17 +1486,19 @@ unix(
   30_000,
 )
 
-unix(
+shellUnix(
   "cancel interrupts shell and resolves cleanly",
   () =>
     withSh(() =>
       Effect.gen(function* () {
         const { prompt, run, chat } = yield* boot()
+        const { directory } = yield* TestInstance
+        const readyFile = path.join(directory, ".cancel-ready")
 
         const sh = yield* prompt
-          .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+          .shell({ sessionID: chat.id, agent: "build", command: `: > '${readyFile}'; sleep 30` })
           .pipe(Effect.forkChild)
-        yield* Effect.sleep(50)
+        yield* waitForShellProcess(readyFile)
 
         yield* prompt.cancel(chat.id)
 
@@ -1510,19 +1522,27 @@ unix(
   30_000,
 )
 
-unix(
-  "cancel persists aborted shell result when shell ignores TERM",
+shellUnix(
+  "issue-1310-c1: cancel persists aborted shell result after zero-grace escalation",
   () =>
     withSh(() =>
       Effect.gen(function* () {
         const { prompt, chat } = yield* boot()
+        const { directory } = yield* TestInstance
+        const readyFile = path.join(directory, ".cancel-ignore-term-ready")
 
         const sh = yield* prompt
-          .shell({ sessionID: chat.id, agent: "build", command: "trap '' TERM; sleep 30" })
+          .shell({
+            sessionID: chat.id,
+            agent: "build",
+            command: `trap '' TERM; : > '${readyFile}'; sleep 30`,
+          })
           .pipe(Effect.forkChild)
-        yield* Effect.sleep(50)
+        yield* waitForShellProcess(readyFile)
 
+        const started = Date.now()
         yield* prompt.cancel(chat.id)
+        expect(Date.now() - started).toBeLessThan(1_000)
 
         const exit = yield* Fiber.await(sh)
         expect(Exit.isSuccess(exit)).toBe(true)

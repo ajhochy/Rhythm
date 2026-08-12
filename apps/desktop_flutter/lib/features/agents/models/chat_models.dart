@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import '../mcp_apps/mcp_app_readonly_host.dart';
+
 // OPC-M4-4 — Agent descriptor returned by GET /agent-sessions/agents.
 class AgentInfo {
   const AgentInfo({
@@ -126,6 +130,47 @@ DateTime? _parseDateTime(dynamic value) {
 /// `file` — OPC-M4-1: a file or image attachment sent by the user. The data
 ///         URI is stored in [fileUrl], MIME type in [fileMime], and original
 ///         filename in [fileFilename].
+class McpResultEnvelope {
+  const McpResultEnvelope({
+    required this.structuredContent,
+    required this.meta,
+    required this.isError,
+    required this.structuredJson,
+  });
+
+  static const int maxEncodedBytes = 1024 * 1024;
+
+  final Object? structuredContent;
+  final Map<String, dynamic>? meta;
+  final bool? isError;
+  final String? structuredJson;
+
+  static McpResultEnvelope? tryParse(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    try {
+      final encoded = jsonEncode(raw);
+      if (utf8.encode(encoded).length > maxEncodedBytes) return null;
+      final hasStructuredContent = raw.containsKey('structuredContent');
+      final structuredContent = raw['structuredContent'];
+      final meta = raw['_meta'];
+      final isError = raw['isError'];
+      if (!hasStructuredContent && meta == null && isError == null) return null;
+      if (meta != null && meta is! Map<String, dynamic>) return null;
+      if (isError != null && isError is! bool) return null;
+      return McpResultEnvelope(
+        structuredContent: structuredContent,
+        meta: meta as Map<String, dynamic>?,
+        isError: isError as bool?,
+        structuredJson: hasStructuredContent
+            ? const JsonEncoder.withIndent('  ').convert(structuredContent)
+            : null,
+      );
+    } on Object {
+      return null;
+    }
+  }
+}
+
 class ChatPart {
   ChatPart({
     required this.id,
@@ -137,6 +182,9 @@ class ChatPart {
     Map<String, dynamic>? toolArgs,
     String? toolOutput,
     String? toolStatus,
+    Map<String, dynamic>? toolMetadata,
+    this.mcpResult,
+    this.mcpAppResource,
     this.durationMs,
     this.fileMime,
     this.fileFilename,
@@ -145,7 +193,8 @@ class ChatPart {
   })  : _text = text,
         _toolArgs = toolArgs,
         _toolOutput = toolOutput,
-        _toolStatus = toolStatus;
+        _toolStatus = toolStatus,
+        _toolMetadata = toolMetadata;
 
   final String id;
   final String messageId;
@@ -169,6 +218,9 @@ class ChatPart {
   Map<String, dynamic>? _toolArgs;
   String? _toolOutput;
   String? _toolStatus;
+  Map<String, dynamic>? _toolMetadata;
+  McpResultEnvelope? mcpResult;
+  McpAppResourceDescriptor? mcpAppResource;
 
   /// OPC-M4-1: File-part fields. Non-null when [type] == 'file'.
   /// [fileMime] — MIME type, e.g. 'image/png', 'application/pdf'.
@@ -194,6 +246,11 @@ class ChatPart {
 
   String? get toolStatus => _toolStatus;
   set toolStatus(String? v) => _toolStatus = v;
+
+  /// Provider-owned metadata emitted with a tool state. This stays structured
+  /// and path-only; binary output is never copied into the transcript.
+  Map<String, dynamic>? get toolMetadata => _toolMetadata;
+  set toolMetadata(Map<String, dynamic>? v) => _toolMetadata = v;
 
   /// OPC-M1-3: construct a [ChatPart] from a structured REST part object.
   ///
@@ -235,6 +292,12 @@ class ChatPart {
         final out = state['output'];
         if (out is String) toolOutput = out;
         toolStatus = state['status'] as String?;
+        final metadata = state['metadata'];
+        if (metadata is Map<String, dynamic>) toolMetadata = metadata;
+        mcpResult = McpResultEnvelope.tryParse(state['mcpResult']);
+        mcpAppResource = McpAppResourceDescriptor.tryParse(
+          state['mcpAppResource'],
+        );
       }
     } else if (raw['type'] == 'reasoning') {
       final t = raw['text'];

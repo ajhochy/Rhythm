@@ -12,6 +12,19 @@ function makeDb() {
 }
 
 describe('AgentSessionsRepository', () => {
+  it('persists an explicit plan permission mode at session creation', () => {
+    const session = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'Plan at creation',
+      permissionMode: 'plan',
+    } as Parameters<AgentSessionsRepository['insert']>[0] & { permissionMode: 'plan' });
+
+    expect(session.permissionMode).toBe('plan');
+    expect(repo.findById(session.id)?.permissionMode).toBe('plan');
+  });
+
   let repo: AgentSessionsRepository;
 
   beforeEach(() => {
@@ -171,6 +184,29 @@ describe('AgentSessionsRepository', () => {
       const chats = repo.listAll(100, { scope: 'chats' });
       expect(noScope.map((s) => s.id)).toEqual([chat.id]);
       expect(chats.map((s) => s.id)).toEqual([chat.id]);
+    });
+
+    it('issue-1348 (reverted per AJ): chats scope returns roots AND delegated children (grouped under the parent client-side)', () => {
+      // AJ 2026-08-11: #1348 originally filtered delegated children out of the
+      // chats scope, but the desktop already nests children under their parent
+      // as a collapsed "N subagents" group (#910), and that is the wanted UX.
+      // The chats scope therefore RETURNS delegated children (they carry a
+      // parentSessionId so the desktop groups them); it no longer hides them.
+      const parent = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Real chat',
+      });
+      repo.setSdkSessionId(parent.id, 'sdk-parent-1348');
+      const child = repo.upsertChildSession(
+        'sdk-child-1348',
+        'sdk-parent-1348',
+        'Delegated: Specialist',
+        '/a',
+      );
+
+      expect(child?.parentSessionId).toBe(parent.id);
+      const chatIds = repo.listAll(100, { scope: 'chats' }).map((s) => s.id);
+      expect(chatIds).toContain(parent.id);
+      expect(chatIds).toContain(child!.id);
     });
 
     it('the three scopes return disjoint row sets', () => {

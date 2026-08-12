@@ -18,9 +18,19 @@ interface RegisteredTool {
 function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool> } {
   const tools = new Map<string, RegisteredTool>();
   const server = {
-    tool(name: string, description: string, shape: Record<string, unknown>, handler: ToolHandler) {
-      tools.set(name, { name, description, shape, handler });
+    registerTool(
+      name: string,
+      config: { description: string; inputSchema: Record<string, unknown> },
+      handler: ToolHandler,
+    ) {
+      tools.set(name, {
+        name,
+        description: config.description,
+        shape: config.inputSchema,
+        handler,
+      });
     },
+    registerResource() {},
   };
   return { server, tools };
 }

@@ -115,9 +115,12 @@ describe('OpencodeStreamBridge — permission.updated (real SDK event) surfaces 
       'bridge must broadcast a permission.asked WS message when the SDK emits permission.updated',
     ).toBeTruthy();
     expect(permMsg!.sessionId).toBe(localId);
-    expect(permMsg!.permissionId).toBe('perm-abc'); // from Permission.id
-    expect(permMsg!.toolName).toBe('edit'); // from Permission.type
-    expect(permMsg!.summary).toBe('Write to /tm/rhythm_smoke.txt'); // from Permission.title
+    expect(permMsg!.permissionID).toBe('perm-abc'); // from Permission.id
+    expect(permMsg!.tool).toBe('edit'); // from Permission.type
+    expect(permMsg!.title).toBe('Write to /tm/rhythm_smoke.txt'); // from Permission.title
+    expect(permMsg!.directory).toBe('/tmp');
+    expect(permMsg!.patterns).toEqual([]);
+    expect(permMsg!.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
   });
 
   it('also handles the running binary\'s permission.asked event (older flat shape)', () => {
@@ -138,9 +141,9 @@ describe('OpencodeStreamBridge — permission.updated (real SDK event) surfaces 
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
     expect(permMsg, 'permission.asked must surface a card').toBeTruthy();
-    expect(permMsg!.permissionId).toBe('perm-xyz'); // from permissionID
-    expect(permMsg!.toolName).toBe('write');
-    expect(permMsg!.summary).toBe('Write to /tmp/rhythm_711.txt');
+    expect(permMsg!.permissionID).toBe('perm-xyz'); // from permissionID
+    expect(permMsg!.tool).toBe('write');
+    expect(permMsg!.title).toBe('Write to /tmp/rhythm_711.txt');
   });
 
   it('does NOT route permission.updated to the generic-event branch', () => {

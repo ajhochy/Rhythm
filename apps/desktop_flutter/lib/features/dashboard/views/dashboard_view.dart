@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:step_progress_indicator/step_progress_indicator.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/services/server_config_service.dart';
@@ -195,6 +196,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
                           onTapItem: (preview) =>
                               _openMessageThread(context, preview),
                         ),
+                      ],
+                      if (c.goals.isNotEmpty) ...[
+                        const SizedBox(height: RhythmSpacing.lg),
+                        _GoalsRollup(goals: c.goals),
                       ],
                       const SizedBox(height: RhythmSpacing.lg),
                       const RhythmSectionHeader(
@@ -567,8 +572,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
         includeScheduledDate: true,
         includePreferredAgent: true,
         preferredAgent: request.preferredAgent,
+        includeEnergy: true,
+        energy: request.energy,
       ),
-      onToggleStatus: () => widget.controller.toggleTaskDone(task.id),
+      onToggleStatus: () => _toggleTaskWithAffirmation(task.id),
       onAddCollaborator: (userId) async {
         final collaborators =
             await collaboratorsDataSource.addToTask(task.id, userId);
@@ -668,7 +675,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
     return FocusOnDeckItem(
       title: task.title,
       checked: task.status == TaskStatus.done,
-      onChanged: (_) => widget.controller.toggleTaskDone(task.id),
+      onChanged: (_) => _toggleTaskWithAffirmation(task.id),
       onTap: () => _showTaskEditDialog(task),
       avatarLabel: _onDeckTaskPersonLabel(
         task,
@@ -676,6 +683,17 @@ class _DashboardBodyState extends State<_DashboardBody> {
         workspaceMembers,
       ),
     );
+  }
+
+  Future<void> _toggleTaskWithAffirmation(String taskId) async {
+    await widget.controller.toggleTaskDone(taskId);
+    if (!mounted) return;
+    final message = widget.controller.takeCompletionAffirmation();
+    if (message != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      );
+    }
   }
 
   String? _onDeckTaskPersonLabel(
@@ -918,6 +936,86 @@ class _DashboardBodyState extends State<_DashboardBody> {
   }
   // -------------------------------------------------------------------------
   // Add task bar
+}
+
+class _GoalsRollup extends StatelessWidget {
+  const _GoalsRollup({required this.goals});
+
+  final List<DashboardGoalProgress> goals;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const RhythmSectionHeader(
+          title: 'Season goals',
+          subtitle: 'Progress toward the outcomes that matter most',
+          dense: true,
+          padding: EdgeInsets.symmetric(horizontal: RhythmSpacing.xxs),
+        ),
+        const SizedBox(height: RhythmSpacing.sm),
+        Wrap(
+          spacing: RhythmSpacing.sm,
+          runSpacing: RhythmSpacing.sm,
+          children: [
+            for (final goal in goals)
+              RhythmSurface.section(
+                key: ValueKey('goal-progress-donut-${goal.id}'),
+                padding: const EdgeInsets.all(RhythmSpacing.md),
+                child: SizedBox(
+                  width: 280,
+                  child: Row(
+                    children: [
+                      CircularStepProgressIndicator(
+                        totalSteps: 100,
+                        currentStep: (goal.progress * 100).round(),
+                        stepSize: 4,
+                        selectedStepSize: 4,
+                        selectedColor: colors.accent,
+                        unselectedColor: colors.borderSubtle,
+                        padding: 0,
+                        width: 72,
+                        height: 72,
+                        roundedCap: (_, __) => true,
+                        child: Center(
+                          child: Text('${(goal.progress * 100).round()}%'),
+                        ),
+                      ),
+                      const SizedBox(width: RhythmSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              goal.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: RhythmSpacing.xxs),
+                            Text(
+                              '${goal.currentValue.toStringAsFixed(0)} / ${goal.endValue.toStringAsFixed(0)} · ${goal.health.replaceAll('_', ' ')}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: colors.textSecondary,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 class _HeroEyebrow extends StatelessWidget {

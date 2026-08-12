@@ -121,6 +121,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -152,6 +153,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
   @override
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -182,6 +184,12 @@ class _ErrorAgentsRepository implements AgentsRepository {
   }) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) async =>
+      const [];
 
   @override
   Future<void> replyQuestion(

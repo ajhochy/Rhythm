@@ -1,0 +1,16 @@
+{
+  "issue": 1341,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1341-c1",
+      "text": "A reply whose `(session, permission, directory)` triple matches no pending ask returns 404 (or at minimum `false`). Success should mean the permission was actually resolved.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/permission/next.test.ts",
+      "test_id": "reply - returns false and leaves the ask pending when sessionID does not match",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

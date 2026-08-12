@@ -6,6 +6,23 @@ import '../repositories/weekly_plan_repository.dart';
 
 enum WeeklyPlannerStatus { idle, loading, error }
 
+int compareWeeklyPlannerTasks(Task a, Task b) {
+  final aOrder = a.scheduledOrder;
+  final bOrder = b.scheduledOrder;
+  if (aOrder != null || bOrder != null) {
+    if (aOrder == null) return 1;
+    if (bOrder == null) return -1;
+    final orderCompare = aOrder.compareTo(bOrder);
+    if (orderCompare != 0) return orderCompare;
+  }
+  const energyRanks = {'🔥': 0, '⚡': 1, '⚡️': 1, '🌱': 2};
+  final energyCompare = (energyRanks[a.energy] ?? 3).compareTo(
+    energyRanks[b.energy] ?? 3,
+  );
+  if (energyCompare != 0) return energyCompare;
+  return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+}
+
 class WeeklyPlannerController extends ChangeNotifier {
   WeeklyPlannerController(this._repository, this._tasksRepository)
       : _currentWeekLabel = _todayWeekLabel();
@@ -19,6 +36,7 @@ class WeeklyPlannerController extends ChangeNotifier {
   String _currentWeekLabel;
   String? _selectedTaskId;
   final Set<String> _selectedTaskIds = {};
+  String? _completionAffirmation;
 
   WeeklyPlan? get plan => _plan;
   WeeklyPlannerStatus get status => _status;
@@ -26,6 +44,11 @@ class WeeklyPlannerController extends ChangeNotifier {
   String get currentWeekLabel => _currentWeekLabel;
   String? get selectedTaskId => _selectedTaskId;
   Set<String> get selectedTaskIds => Set.unmodifiable(_selectedTaskIds);
+  String? takeCompletionAffirmation() {
+    final message = _completionAffirmation;
+    _completionAffirmation = null;
+    return message;
+  }
 
   bool get isCurrentWeek => _currentWeekLabel == _todayWeekLabel();
 
@@ -117,6 +140,9 @@ class WeeklyPlannerController extends ChangeNotifier {
         status: currentlyDone ? 'open' : 'done',
         sourceType: task.sourceType,
       );
+      if (!currentlyDone) {
+        _completionAffirmation = 'Beautiful — keep the rhythm going.';
+      }
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -189,6 +215,7 @@ class WeeklyPlannerController extends ChangeNotifier {
     String? scheduledDate,
     int? ownerId,
     String? preferredAgent,
+    String? energy,
   }) async {
     try {
       await _tasksRepository.create(
@@ -198,6 +225,7 @@ class WeeklyPlannerController extends ChangeNotifier {
         scheduledDate: scheduledDate,
         ownerId: ownerId,
         preferredAgent: preferredAgent,
+        energy: energy,
       );
       await load();
     } catch (e) {
@@ -254,7 +282,7 @@ class WeeklyPlannerController extends ChangeNotifier {
   static int _compareVisualOrder(Task a, Task b) {
     final compare = _visualOrderForTask(a).compareTo(_visualOrderForTask(b));
     if (compare != 0) return compare;
-    return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    return compareWeeklyPlannerTasks(a, b);
   }
 
   static int _visualOrderForTask(Task task) {

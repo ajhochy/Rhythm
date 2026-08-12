@@ -1,0 +1,13 @@
+{
+  "issue": 1294,
+  "generated": "2026-08-11",
+  "criteria": [
+    { "criterion_id": "issue-1294-c1", "text": "Progress matches persisted jobs, artifacts, sources, elapsed time, profile/model, and session usage.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1294.test.ts", "test_id": "issue-1294-c1: derives factual progress and usage", "status": "pass" },
+    { "criterion_id": "issue-1294-c2", "text": "Cancellation reaches the live engine, is idempotent, and preserves completed artifacts.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1294.test.ts", "test_id": "issue-1294-c2: aborts active work without deleting completed artifacts", "status": "pass" },
+    { "criterion_id": "issue-1294-c3", "text": "Selective retry preserves successful passes and invalidates downstream stages without duplicate rows.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1294.test.ts", "test_id": "issue-1294-c3: retries only the selected pass and stale stages", "status": "pass" },
+    { "criterion_id": "issue-1294-c4", "text": "Restart recovery marks active work interrupted and does not rerun completed passes.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1294.test.ts", "test_id": "issue-1294-c4: resumes only unfinished work after restart", "status": "pass" },
+    { "criterion_id": "issue-1294-c5", "text": "Pass, timeout, wall-clock, token, and cost limits prevent later stages with a clear budget-exhausted status.", "mode": "integration", "test_file": "apps/api_server/src/__tests__/contract/issue_1294.test.ts", "test_id": "issue-1294-c5: blocks downstream work when a persisted budget is exhausted", "status": "pass" }
+  ],
+  "stack": "typescript",
+  "not_tested": ["Live engine abort and restart-resume require the isolated sandbox and are covered by #1300 live validation."]
+}

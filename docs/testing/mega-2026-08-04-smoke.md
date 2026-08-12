@@ -155,8 +155,10 @@ must leave a skill untouched, not disable or empty it.
 protected mutation after external content. The autonomy work must not have
 loosened this.
 
-**E2 — `git push --force` still surfaces a card.** In an interactive session under
-`bypassPermissions`, a dangerous-but-not-hardline bash command must still prompt.
+**E2 — bypass mode never parks on an ask.** In an interactive session under
+`bypassPermissions`, every non-hardline permission ask — including a dangerous
+bash command such as `git push --force` — is accepted automatically and no
+permission card is emitted. Hardline commands remain absolute denials (E3).
 
 **E3 — hardline commands are still denied.** `rm -rf /` is refused even in an
 unattended scheduled run.
@@ -168,15 +170,13 @@ it executes, because port 9 (discard) refuses the connection and `sh` then reads
 empty stdin. Pair it with the unit tests that assert the destructive patterns
 against a captured payload.
 
-**E4 — plan mode auto-denies the tools it can see.** Scoped deliberately: plan
-mode is NOT read-only for bash, and never was. The engine's own native `plan`
-agent (`agent/agent.ts`) denies `edit` (with plan-file exceptions) but not `bash`
-— only `explore` denies `*`. Rhythm's plan-mode auto-deny fires only on
-permissions the engine escalates, so with a profile carrying
-`bash {"*": "allow"}` a plain `echo foo` runs. After the #1322 escalation the
-dangerous shapes (bare `sh`/`bash`/`zsh`, `mkfs*`, `dd *`) DO escalate and are
-auto-denied in plan mode. Assert that, not blanket bash denial. Genuine
-read-only bash needs a per-session ruleset override — still open in #1322.
+**E4 — plan mode denies every bash command at the engine session boundary.**
+Create a session with `permissionMode=plan` and a profile whose projected agent
+rule allows `bash {"*": "allow"}`. An ordinary command such as `echo foo` must
+still be denied and must not complete. Create an otherwise equivalent non-plan
+session and confirm the same ordinary command behaves normally. This is a
+per-session `bash:* → deny` policy; it does not weaken the independent hardline
+gate, and it does not globally alter the agent profile's rules.
 
 **E5 — `secretary` has NO auto-approve.** `GET /agent-configs` →
 `secretary.autoApproveActions` must be `false`. Deliberate: `email.send` is a

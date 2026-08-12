@@ -38,6 +38,11 @@ import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import {
+  McpAppCapabilityBroker,
+  McpAppCapabilityDenied,
+} from '../services/mcp_app_capability_broker';
+import { deriveMcpAppCapabilityBinding } from '../services/mcp_app_capability_authority';
 
 type SdkAgent = Awaited<ReturnType<typeof opencodeClient.listAgents>>[number];
 
@@ -179,6 +184,7 @@ function parseBeforeCursor(value: unknown): number | undefined {
 
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
+const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
 import { gitCheckout, probeVcs } from '../services/vcs_probe';
 
@@ -326,6 +332,31 @@ function resolveSdkSessionId(session: {
   // streaming. The persisted id is used ONLY as a read-only fallback for this
   // action when the live map has no entry yet.
   return opencodeSessionMap.get(session.id) ?? session.sdkSessionId ?? undefined;
+}
+
+async function resolveCurrentMcpAppBinding(
+  localSessionId: string,
+  callId: string,
+) {
+  const session = repo.findById(localSessionId);
+  if (!session) throw new McpAppCapabilityDenied();
+  const sdkSessionId = resolveSdkSessionId(session);
+  if (!sdkSessionId) throw new McpAppCapabilityDenied();
+  const [messages, resource] = await Promise.all([
+    opencodeClient.listMessages(sdkSessionId, session.cwd),
+    opencodeClient.readSessionMcpAppResource(
+      sdkSessionId,
+      callId,
+      session.cwd,
+    ),
+  ]);
+  return deriveMcpAppCapabilityBinding({
+    messages: messages as unknown[],
+    sdkSessionId,
+    callId,
+    cwd: session.cwd,
+    resourceText: resource.text,
+  });
 }
 
 export class AgentSessionsController {
@@ -586,8 +617,8 @@ export class AgentSessionsController {
           },
         });
       } else {
-        const messages = messagesRepo.listBySessionStructured(session.id, 200);
-        res.json({ session, messages });
+        const page = messagesRepo.listBySessionStructuredPage(session.id, 200);
+        res.json({ session, messages: page.messages });
       }
 
       // Non-blocking: if the session never recorded a model (created without an
@@ -606,6 +637,16 @@ export class AgentSessionsController {
     try {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
+
+      const permissionMode = body.permissionMode === undefined
+        ? 'default'
+        : body.permissionMode;
+      if (
+        typeof permissionMode !== 'string' ||
+        !PERMISSION_MODES.includes(permissionMode as PermissionMode)
+      ) {
+        throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
+      }
 
       // profileId is the Rhythm profile key. agentId/agentKind remain
       // compatibility aliases for older desktop clients.
@@ -888,6 +929,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        permissionMode: permissionMode as PermissionMode,
         // C1 — MCP role (null when no role was requested).
         mcpRole: resolvedMcpRole,
         mcpAllowedToolsJson,
@@ -961,11 +1003,18 @@ export class AgentSessionsController {
       // C1: pass mcpRoleConfig so callers/tests can spy on the init-time allowlist;
       // the SDK itself doesn't have a per-session tool param (documented in service).
       const tSdkCreate = Date.now();
-      const opencodeSession = await opencodeClient.createSession(
-        typeof name === 'string' ? name.trim() : '',
-        dto.cwd,
-        mcpRoleConfig,
-      );
+      const sessionTitle = typeof name === 'string' ? name.trim() : '';
+      const opencodeSession = permissionMode === 'plan'
+        ? await opencodeClient.createSession(
+            sessionTitle,
+            dto.cwd,
+            mcpRoleConfig,
+            undefined,
+            undefined,
+            undefined,
+            permissionMode,
+          )
+        : await opencodeClient.createSession(sessionTitle, dto.cwd, mcpRoleConfig);
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
       // `null` on failure, so a truthy `{ error }` object must not pass `!x`.
@@ -1195,6 +1244,20 @@ export class AgentSessionsController {
           'OpenCode rejected the session rename',
         );
       }
+      if (
+        fields.permissionMode !== undefined &&
+        session.sdkSessionId &&
+        !(await opencodeClient.updateSessionPermissionMode(
+          session.sdkSessionId,
+          fields.permissionMode,
+        ))
+      ) {
+        throw new AppError(
+          502,
+          'SESSION_PERMISSION_SYNC_FAILED',
+          'OpenCode rejected the session permission-mode update',
+        );
+      }
       repo.updateFields(session.id, fields);
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);
@@ -1276,26 +1339,81 @@ export class AgentSessionsController {
         opencodeId,
       );
 
-      // Clear the pending permission from the bridge.
-      streamBridge.clearPendingPermission(session.id, permissionId);
+      if (!ok) {
+        throw AppError.notFound('Permission request');
+      }
 
-      // Broadcast resolution so other connected clients update their UI. Keep
-      // the legacy accept/deny decision word on the WS frame the Flutter card
-      // still expects (OCU-02 handles the always affordance UI-side).
+      // Keep the pre-#1340 reply route self-contained: existing Flutter clients
+      // depend on this route's canonical broadcast even when the newer pending-
+      // permission bridge state is unavailable (for example after a restart).
+      streamBridge.clearPendingPermission(session.id, permissionId);
       const { broadcast } = await import('../services/ws_gateway');
       broadcast({
         v: 1,
-        type: 'permission.resolved',
+        type: 'permission.replied',
         sessionId: session.id,
-        permissionId,
-        decision: reply === 'reject' ? 'deny' : 'accept',
+        permissionID: permissionId,
+        directory: session.cwd,
+        tool: '',
+        patterns: [],
+        title: '',
+        createdAt: new Date().toISOString(),
       });
 
-      if (!ok) {
-        // Non-fatal: SDK may not support this endpoint yet.
-        console.warn(`[AgentSessionsController] respondPermission: SDK returned false for session ${session.id}`);
-      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
 
+  async listPendingPermissions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.badRequest('Session has no SDK mapping for permission.');
+      const pending = await opencodeClient.listPermissions(session.cwd);
+      const createdAt = new Date().toISOString();
+      res.json(
+        pending
+          .filter((permission) => permission.sessionID === sdkSessionId)
+          .map((permission) => ({
+            sessionId: session.id,
+            permissionID: permission.id,
+            directory: session.cwd,
+            tool: permission.permission ?? '',
+            patterns: permission.patterns ?? [],
+            title: permission.title ?? permission.permission ?? '',
+            createdAt,
+          })),
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async replyPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.badRequest('Session has no SDK mapping for permission.');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const reply = body.reply;
+      if (reply !== 'once' && reply !== 'always' && reply !== 'reject') {
+        throw AppError.badRequest('reply must be once, always, or reject');
+      }
+      const message = typeof body.message === 'string' ? body.message : undefined;
+      const permissionID = req.params.permissionID;
+      const ok = await opencodeClient.replyToPermission(
+        permissionID,
+        reply,
+        message,
+        session.cwd,
+        sdkSessionId,
+      );
+      if (!ok) throw AppError.notFound('Permission request');
+      streamBridge.markPermissionReplied(session.id, permissionID);
       res.status(204).end();
     } catch (err) {
       next(err);
@@ -1654,7 +1772,17 @@ export class AgentSessionsController {
         logger.info(
           `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
         );
-        const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+        const opencodeSession = session.permissionMode === 'plan'
+          ? await opencodeClient.createSession(
+              session.name,
+              session.cwd,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              session.permissionMode,
+            )
+          : await opencodeClient.createSession(session.name, session.cwd);
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
           throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
@@ -1898,6 +2026,172 @@ export class AgentSessionsController {
       res.json(todos);
     } catch (err) {
       next(err);
+    }
+  }
+
+  async getMcpAppResource(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (Object.keys(req.query).length !== 0) {
+        throw AppError.notFound('McpAppResource');
+      }
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('McpAppResource');
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (!sdkSessionId) throw AppError.notFound('McpAppResource');
+
+      const resource = await opencodeClient.readSessionMcpAppResource(
+        sdkSessionId,
+        req.params.callId,
+        session.cwd,
+      );
+      res.json(resource);
+    } catch {
+      next(AppError.notFound('McpAppResource'));
+    }
+  }
+
+  async issueMcpAppCapability(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (
+        Object.keys(req.query).length !== 0 ||
+        !req.body ||
+        typeof req.body !== 'object' ||
+        Array.isArray(req.body) ||
+        Object.keys(req.body as Record<string, unknown>).length !== 0
+      ) {
+        throw new McpAppCapabilityDenied();
+      }
+      const current = await resolveCurrentMcpAppBinding(
+        req.params.id,
+        req.params.callId,
+      );
+      const session = repo.findById(req.params.id);
+      const sdkSessionId = session ? resolveSdkSessionId(session) : undefined;
+      if (!session || !sdkSessionId) throw new McpAppCapabilityDenied();
+      const engineProof = await opencodeClient.issueSessionMcpAppExecutionProof(
+        sdkSessionId,
+        req.params.callId,
+        session.cwd,
+      );
+      const engineExpiresAt = Date.parse(engineProof.expiresAt);
+      const expiresAt = Math.min(
+        current.originExpiresAt,
+        engineExpiresAt,
+        Date.now() + 60_000,
+      );
+      if (!Number.isFinite(engineExpiresAt) || expiresAt <= Date.now()) {
+        throw new McpAppCapabilityDenied();
+      }
+      const capability = mcpAppCapabilityBroker.issue({
+        ...current,
+        expiresAt,
+        engineProof: engineProof.proof,
+      });
+      res.json({
+        capability: capability.id,
+        expiresAt: capability.expiresAt,
+      });
+    } catch {
+      next(AppError.notFound('McpAppCapability'));
+    }
+  }
+
+  async brokerMcpAppCapability(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const body = req.body as Record<string, unknown> | undefined;
+      if (
+        Object.keys(req.query).length !== 0 ||
+        !body ||
+        typeof body !== 'object' ||
+        Array.isArray(body) ||
+        Object.keys(body).some(
+          (key) => !['capability', 'id', 'method', 'params'].includes(key),
+        ) ||
+        typeof body.capability !== 'string' ||
+        typeof body.id !== 'string' ||
+        (body.method !== 'host.next-gate' && body.method !== 'tools/call') ||
+        !body.params ||
+        typeof body.params !== 'object' ||
+        Array.isArray(body.params)
+      ) {
+        throw new McpAppCapabilityDenied();
+      }
+      if (body.method === 'tools/call') {
+        const params = body.params as Record<string, unknown>;
+        if (
+          Object.keys(params).some((key) => !['name', 'arguments'].includes(key)) ||
+          typeof params.name !== 'string' ||
+          !params.name ||
+          !params.arguments ||
+          typeof params.arguments !== 'object' ||
+          Array.isArray(params.arguments)
+        ) {
+          throw new McpAppCapabilityDenied();
+        }
+      }
+
+      // Reject malformed/replayed/cross-session requests before touching the
+      // engine. The current persisted binding is read only after this gate.
+      mcpAppCapabilityBroker.preflight(
+        body.capability,
+        body.id,
+        req.params.id,
+        req.params.callId,
+      );
+      const current = await resolveCurrentMcpAppBinding(
+        req.params.id,
+        req.params.callId,
+      );
+      const result = await mcpAppCapabilityBroker.consume(
+        {
+          capabilityId: body.capability,
+          correlationId: body.id,
+          binding: current,
+          payload: { method: body.method, params: body.params },
+        },
+        async (_request, authority) => {
+          if (body.method !== 'tools/call' || !authority.engineProof) {
+            throw AppError.forbidden('MCP App execution requires authorization');
+          }
+          const session = repo.findById(req.params.id);
+          const sdkSessionId = session ? resolveSdkSessionId(session) : undefined;
+          if (!session || !sdkSessionId) throw new McpAppCapabilityDenied();
+          const params = body.params as {
+            name: string;
+            arguments: Record<string, unknown>;
+          };
+          return opencodeClient.executeSessionMcpAppTool(
+            sdkSessionId,
+            req.params.callId,
+            session.cwd,
+            {
+              proof: authority.engineProof,
+              toolKey: params.name,
+              arguments: params.arguments,
+              requestId: body.id as string,
+            },
+          );
+        },
+      );
+      res.json(result);
+    } catch (error) {
+      if (error instanceof AppError) {
+        next(error);
+        return;
+      }
+      next(AppError.notFound('McpAppCapability'));
     }
   }
 

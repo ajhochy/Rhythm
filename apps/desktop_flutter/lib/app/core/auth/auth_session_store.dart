@@ -17,4 +17,13 @@ class AuthSessionStore {
     }
     return headers;
   }
+
+  /// Headers for the loopback agent server trust boundary.
+  ///
+  /// Cloud bearer tokens are intentionally excluded: a present but stale
+  /// cloud token causes AGENT_LOCAL requests to fail closed instead of using
+  /// the server's local bypass.
+  static Map<String, String> localHeaders({bool json = false}) {
+    return json ? {'Content-Type': 'application/json'} : {};
+  }
 }

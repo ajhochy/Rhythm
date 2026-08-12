@@ -10,6 +10,8 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
+import { McpAppResourceContent } from "@/session/mcp-app-resource-schema"
+import { McpAppExecutionProof, McpAppExecutionRequest, McpAppExecutionResult } from "@/session/mcp-app-execution-schema"
 import { Schema, Struct } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -88,6 +90,9 @@ export const SessionPaths = {
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
+  mcpAppResource: `${root}/:sessionID/mcp-app-resource/:callID`,
+  mcpAppExecutionProof: `${root}/:sessionID/mcp-app-execution/:callID/proof`,
+  mcpAppExecution: `${root}/:sessionID/mcp-app-execution/:callID`,
   create: root,
   remove: `${root}/:sessionID`,
   update: `${root}/:sessionID`,
@@ -444,6 +449,42 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "part.update",
             description: "Update a part in a message.",
+          }),
+        ),
+        HttpApiEndpoint.get("mcpAppResource", SessionPaths.mcpAppResource, {
+          params: { sessionID: SessionID, callID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(McpAppResourceContent, "Bound MCP App HTML resource"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.mcpAppResource",
+            summary: "Read a session-bound MCP App resource",
+            description: "Read bounded MCP App HTML using provenance persisted on an originating tool call.",
+          }),
+        ),
+        HttpApiEndpoint.post("mcpAppExecutionProof", SessionPaths.mcpAppExecutionProof, {
+          params: { sessionID: SessionID, callID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: Schema.Struct({}),
+          success: described(McpAppExecutionProof, "Engine-signed MCP App execution proof"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.mcpAppExecutionProof",
+            summary: "Issue a session-bound MCP App execution proof",
+          }),
+        ),
+        HttpApiEndpoint.post("mcpAppExecution", SessionPaths.mcpAppExecution, {
+          params: { sessionID: SessionID, callID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: McpAppExecutionRequest,
+          success: described(McpAppExecutionResult, "Origin-bound MCP App tool result"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.mcpAppExecution",
+            summary: "Execute an authorized same-server MCP App tool call",
           }),
         ),
       )

@@ -67,6 +67,10 @@ function openApiOperations(): Array<{
   method: string;
   path: string;
 }> {
+  // Every bundled OpenAPI operation must appear in the manifest with an
+  // explicit allow/deny decision (same contract as alternate-only ops in
+  // issue-1174-c3). #1352 MCP-App host operations are present but denied to
+  // mobile (allowed:false), never reachable — asserted separately in c1.
   const specPath = resolve(
     __dirname,
     '../../../opencode_fork/packages/sdk/openapi.json',
@@ -124,6 +128,15 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     expect(actual).toEqual(expected);
     expect(new Set(actual.map((entry) => entry.operationId)).size)
       .toBe(actual.length);
+    // #1352: MCP-App host operations are present in the manifest but denied to
+    // mobile — never reachable through the generic gateway.
+    const appOnly = ['session.mcpAppExecution', 'session.mcpAppExecutionProof', 'session.mcpAppResource'];
+    for (const id of appOnly) {
+      const entry = (proxy?.MOBILE_OPENCODE_OPERATION_MANIFEST ?? [])
+        .find((e) => e.operationId === id);
+      expect(entry, `${id} must be in the manifest`).toBeDefined();
+      expect(entry?.allowed, `${id} must be denied to mobile`).toBe(false);
+    }
     expect(
       (proxy?.MOBILE_OPENCODE_OPERATION_MANIFEST ?? [])
         .filter((entry) => entry.allowed).length,
@@ -350,7 +363,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       project: { id: 'project-1169', root: '/sandbox/project' },
       userId: 1,
     });
-    expect(errorResult.status).toBe(502);
+    expect(errorResult.status).toBe(500);
     expect(decodeBody(errorResult.body)).toEqual({
       error: {
         code: 'OPENCODE_UPSTREAM_ERROR',
@@ -398,9 +411,105 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     expect(timeoutOutcome).toMatchObject({
       state: 'rejected',
       error: {
-        statusCode: 502,
-        code: 'OPENCODE_UNAVAILABLE',
+        statusCode: 504,
+        code: 'OPENCODE_TIMEOUT',
       },
+    });
+  });
+
+  it('issue-1311: preserves upstream 4xx responses and distinguishes transport timeouts', async () => {
+    const proxyModule = await loadProxyModule();
+    expect(proxyModule).not.toBeNull();
+    if (!proxyModule) return;
+
+    const upstreamBody = {
+      error: {
+        code: 'REQUEST_TOO_LARGE',
+        message: 'Request body is too large',
+      },
+    };
+    const rejected = new proxyModule.MobileOpenCodeProxy({
+      baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async () => new Response(JSON.stringify(upstreamBody), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    });
+    const rejectedResult = await rejected.forward({
+      method: 'GET',
+      path: '/global/health',
+      query: new URLSearchParams(),
+      project: { id: 'project-1311', root: '/sandbox/project' },
+      userId: 1,
+    });
+    expect(rejectedResult.status).toBe(413);
+    expect(decodeBody(rejectedResult.body)).toEqual(upstreamBody);
+
+    const unavailableResponse = new proxyModule.MobileOpenCodeProxy({
+      baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async () => new Response('unsafe upstream detail', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' },
+      }),
+    });
+    const unavailableResult = await unavailableResponse.forward({
+      method: 'GET',
+      path: '/global/health',
+      query: new URLSearchParams(),
+      project: { id: 'project-1311', root: '/sandbox/project' },
+      userId: 1,
+    });
+    expect(unavailableResult.status).toBe(503);
+    expect(decodeBody(unavailableResult.body)).toEqual({
+      error: {
+        code: 'OPENCODE_UPSTREAM_ERROR',
+        message: 'OpenCode request failed',
+        upstreamStatus: 503,
+      },
+    });
+    expect(Buffer.from(unavailableResult.body).toString('utf8'))
+      .not.toContain('unsafe upstream detail');
+
+    const unreachable = new proxyModule.MobileOpenCodeProxy({
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async () => {
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: { code: 'ECONNREFUSED' },
+        });
+      },
+    });
+    await expect(unreachable.forward({
+      method: 'GET',
+      path: '/global/health',
+      query: new URLSearchParams(),
+      project: { id: 'project-1311', root: '/sandbox/project' },
+      userId: 1,
+    })).rejects.toMatchObject({
+      statusCode: 502,
+      code: 'OPENCODE_UNAVAILABLE',
+    });
+
+    const timedOut = new proxyModule.MobileOpenCodeProxy({
+      ownershipRepository: permissiveOwnershipRepository,
+      timeoutMs: 5,
+      fetchFn: async (_input: unknown, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, { once: true });
+        }),
+    });
+    await expect(timedOut.forward({
+      method: 'GET',
+      path: '/global/health',
+      query: new URLSearchParams(),
+      project: { id: 'project-1311', root: '/sandbox/project' },
+      userId: 1,
+    })).rejects.toMatchObject({
+      statusCode: 504,
+      code: 'OPENCODE_TIMEOUT',
     });
   });
 

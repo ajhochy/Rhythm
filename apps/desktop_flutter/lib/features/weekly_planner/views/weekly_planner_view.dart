@@ -122,8 +122,12 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
       ),
       onToggleStatus: task.sourceType == 'calendar_shadow_event'
           ? null
-          : () =>
-              controller.toggleTaskDone(task, task.status == TaskStatus.done),
+          : () => _togglePlannerTaskWithAffirmation(
+                context,
+                controller,
+                task,
+                task.status == TaskStatus.done,
+              ),
       onAddCollaborator: task.sourceType == 'calendar_shadow_event'
           ? null
           : (userId) async {
@@ -589,6 +593,7 @@ class _BacklogPane extends StatelessWidget {
         dueDate: request.dueDate,
         scheduledDate: request.scheduledDate,
         preferredAgent: request.preferredAgent,
+        energy: request.energy,
       ),
     );
   }
@@ -916,15 +921,7 @@ class _DayColumnState extends State<_DayColumn> {
                           (t) => t.sourceType != 'calendar_shadow_event',
                         )
                         .toList()
-                      ..sort((a, b) {
-                        final aOrder = a.scheduledOrder ?? 10000000;
-                        final bOrder = b.scheduledOrder ?? 10000000;
-                        final cmp = aOrder.compareTo(bOrder);
-                        if (cmp != 0) return cmp;
-                        return a.title.toLowerCase().compareTo(
-                              b.title.toLowerCase(),
-                            );
-                      });
+                      ..sort(compareWeeklyPlannerTasks);
 
                     final hasContent =
                         combinedEvents.isNotEmpty || regularTasks.isNotEmpty;
@@ -994,6 +991,7 @@ class _DayColumnState extends State<_DayColumn> {
         dueDate: request.dueDate,
         scheduledDate: request.scheduledDate ?? widget.date,
         preferredAgent: request.preferredAgent,
+        energy: request.energy,
       ),
     );
   }
@@ -1102,7 +1100,12 @@ class _TaskTile extends StatelessWidget {
                     height: compact ? 14 : 16,
                     child: Checkbox(
                       value: isDone,
-                      onChanged: (_) => controller.toggleTaskDone(task, isDone),
+                      onChanged: (_) => _togglePlannerTaskWithAffirmation(
+                        context,
+                        controller,
+                        task,
+                        isDone,
+                      ),
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       visualDensity: compact
                           ? const VisualDensity(horizontal: -4, vertical: -4)
@@ -1133,21 +1136,34 @@ class _TaskTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                      Text(
-                        task.title,
-                        style: (compact
-                                ? Theme.of(context).textTheme.labelSmall
-                                : Theme.of(context).textTheme.bodySmall)
-                            ?.copyWith(
-                          decoration:
-                              isDone ? TextDecoration.lineThrough : null,
-                          color: isDone
-                              ? colors.textMuted
-                              : _plannerTextColor(context, visualStyle),
-                          fontSize: compact ? 11 : null,
-                          fontWeight: FontWeight.w700,
-                          height: compact ? 1.25 : 1.3,
-                        ),
+                      Row(
+                        children: [
+                          if (task.energy != null) ...[
+                            Text(
+                              task.energy!,
+                              key: ValueKey('task-energy-${task.id}'),
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          Expanded(
+                            child: Text(
+                              task.title,
+                              style: (compact
+                                      ? Theme.of(context).textTheme.labelSmall
+                                      : Theme.of(context).textTheme.bodySmall)
+                                  ?.copyWith(
+                                decoration:
+                                    isDone ? TextDecoration.lineThrough : null,
+                                color: isDone
+                                    ? colors.textMuted
+                                    : _plannerTextColor(context, visualStyle),
+                                fontSize: compact ? 11 : null,
+                                fontWeight: FontWeight.w700,
+                                height: compact ? 1.25 : 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1337,7 +1353,12 @@ class _DetailPaneState extends State<_DetailPane> {
                 icon:
                     isDone ? Icons.check_circle : Icons.radio_button_unchecked,
                 label: isDone ? 'Mark open' : 'Mark done',
-                onPressed: () => widget.controller.toggleTaskDone(task, isDone),
+                onPressed: () => _togglePlannerTaskWithAffirmation(
+                  context,
+                  widget.controller,
+                  task,
+                  isDone,
+                ),
               ),
             const SizedBox(height: 14),
             RhythmDisclosure(
@@ -1911,3 +1932,18 @@ String _sourceLabel(String t) => switch (t) {
       'automation_rule' => 'Automation',
       _ => t,
     };
+Future<void> _togglePlannerTaskWithAffirmation(
+  BuildContext context,
+  WeeklyPlannerController controller,
+  Task task,
+  bool isDone,
+) async {
+  await controller.toggleTaskDone(task, isDone);
+  if (!context.mounted) return;
+  final message = controller.takeCompletionAffirmation();
+  if (message != null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
+  }
+}

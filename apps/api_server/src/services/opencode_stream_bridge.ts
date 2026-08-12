@@ -2,6 +2,10 @@ import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
+import {
+  registerGeneratedMediaPart,
+  withHostedArtifactMetadata,
+} from './media_artifact_store';
 import { indexResearchSession } from './specialist_research_indexer';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -58,6 +62,8 @@ const QUESTION_RECOVERY_POLL_MS = 1500;
  * tear it down and resubscribe (which re-runs the recover/reconcile path).
  */
 const HEARTBEAT_WATCHDOG_MS = 30_000;
+const ENGINE_HEALTH_POLL_MS = 10_000;
+const DEFAULT_PERSISTENCE_STALE_MS = 5 * 60_000;
 
 /** Parse a positive-integer env override, falling back when absent/invalid. */
 function _positiveTimeoutMs(value: string | undefined, fallback: number): number {
@@ -203,6 +209,10 @@ export interface PendingPermission {
   toolName: string;
   args: Record<string, unknown>;
   summary: string;
+  directory?: string;
+  patterns?: string[];
+  title?: string;
+  createdAt?: string;
   /** SDK session ID (needed to call respondPermission). */
   sdkSessionId: string;
 }
@@ -243,6 +253,9 @@ export class OpencodeStreamBridge {
   private lastGlobalActivity = 0;
   /** Guards against overlapping resubscribes from the watchdog. */
   private globalResubscribing = false;
+  private engineHealthCheckInFlight = false;
+  private engineIdentityKey: string | null = null;
+  private persistenceBaselineAt = Date.now();
   private sessionsRepo = new AgentSessionsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
   // #818 — best-effort deny-path telemetry sink; see isToolAllowedForSession.
@@ -250,6 +263,15 @@ export class OpencodeStreamBridge {
   // #818 follow-up — used only to validate profile-attribution candidates on
   // the deny branch (never on the allow path).
   private agentConfigsRepo = new AgentConfigsRepository();
+
+  /** True only while the bridge has a current subscription receiving frames. */
+  get isLive(): boolean {
+    if (useGlobalStream()) {
+      return this.globalStream !== null &&
+        Date.now() - this.lastGlobalActivity <= HEARTBEAT_WATCHDOG_MS;
+    }
+    return this.streamsByDirectory.size > 0;
+  }
 
   // Accumulate assistant text deltas keyed by local session id. The SDK
   // streams text via `message.part.delta` events; the message body itself
@@ -296,6 +318,7 @@ export class OpencodeStreamBridge {
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
   private pendingPermissions = new Map<string, PendingPermission>();
+  private repliedPermissions = new Set<string>();
 
   /** Return the pending permission for a session+permissionId, or undefined. */
   getPendingPermission(localSessionId: string, permissionId: string): PendingPermission | undefined {
@@ -305,6 +328,27 @@ export class OpencodeStreamBridge {
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+  }
+
+  /** Broadcast the canonical reply frame once and retire the pending ask. */
+  markPermissionReplied(localSessionId: string, permissionId: string): void {
+    const key = `${localSessionId}:${permissionId}`;
+    if (this.repliedPermissions.has(key)) return;
+    const pending = this.pendingPermissions.get(key);
+    this.pendingPermissions.delete(key);
+    this.repliedPermissions.add(key);
+    const directory = pending?.directory ?? this.sessionsRepo.findById(localSessionId)?.cwd ?? '';
+    broadcast({
+      v: 1,
+      type: 'permission.replied',
+      sessionId: localSessionId,
+      permissionID: permissionId,
+      directory,
+      tool: pending?.toolName ?? '',
+      patterns: pending?.patterns ?? [],
+      title: pending?.title ?? pending?.summary ?? '',
+      createdAt: pending?.createdAt ?? new Date().toISOString(),
+    });
   }
 
   /**
@@ -322,15 +366,24 @@ export class OpencodeStreamBridge {
     if (this.stoppedSessions.has(localSessionId)) return false;
     const key = `${localSessionId}:${entry.permissionId}`;
     if (this.pendingPermissions.has(key)) return false;
-    this.pendingPermissions.set(key, entry);
+    const normalized: PendingPermission = {
+      ...entry,
+      directory: entry.directory ?? this.sessionsRepo.findById(localSessionId)?.cwd ?? '',
+      patterns: entry.patterns ?? [],
+      title: entry.title ?? entry.summary,
+      createdAt: entry.createdAt ?? new Date().toISOString(),
+    };
+    this.pendingPermissions.set(key, normalized);
     broadcast({
       v: 1,
       type: 'permission.asked',
       sessionId: localSessionId,
-      permissionId: entry.permissionId,
-      toolName: entry.toolName,
-      args: entry.args,
-      summary: entry.summary,
+      permissionID: normalized.permissionId,
+      directory: normalized.directory,
+      tool: normalized.toolName,
+      patterns: normalized.patterns,
+      title: normalized.title,
+      createdAt: normalized.createdAt,
     });
     return true;
   }
@@ -406,6 +459,8 @@ export class OpencodeStreamBridge {
       id: string;
       sessionID: string;
       permission?: string;
+      patterns?: string[];
+      title?: string;
       metadata?: Record<string, unknown>;
       tool?: { callID?: string };
     }>;
@@ -433,6 +488,9 @@ export class OpencodeStreamBridge {
         args: (p.metadata as Record<string, unknown>) ?? {},
         summary: toolName,
         sdkSessionId: p.sessionID,
+        directory,
+        patterns: Array.isArray(p.patterns) ? p.patterns : [],
+        title: typeof p.title === 'string' ? p.title : toolName,
       });
     }
   }
@@ -679,6 +737,7 @@ export class OpencodeStreamBridge {
    * every session start; a no-op once the stream is live.
    */
   async ensureGlobalStream(): Promise<void> {
+    if (!useGlobalStream()) return;
     if (this.globalStream) return;
     let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
     try {
@@ -703,7 +762,8 @@ export class OpencodeStreamBridge {
         );
         void this.resubscribeGlobalStream();
       }
-    }, HEARTBEAT_WATCHDOG_MS / 3);
+      void this.checkEngineHealthNow();
+    }, ENGINE_HEALTH_POLL_MS);
     if (typeof watchdog.unref === 'function') watchdog.unref();
     this.globalStream = { abort: sub.abort, watchdog };
     this._listenGlobal(sub.stream).catch((err) =>
@@ -765,6 +825,75 @@ export class OpencodeStreamBridge {
       }
     } finally {
       this.globalResubscribing = false;
+    }
+  }
+
+  /**
+   * Poll engine identity and persistence progress.
+   *
+   * Public so deterministic tests and diagnostics can run the same watchdog
+   * check without waiting for the interval. Calls are overlap-guarded because
+   * `/global/health`, status reconciliation, and recovery all share one local
+   * engine process.
+   */
+  async checkEngineHealthNow(): Promise<void> {
+    if (this.engineHealthCheckInFlight) return;
+    this.engineHealthCheckInFlight = true;
+    try {
+      if (typeof opencodeClient.getEngineIdentity === 'function') {
+        const identity = await opencodeClient.getEngineIdentity();
+        if (identity) {
+          const nextKey = `${identity.pid}:${identity.bootId}`;
+          const previousKey = this.engineIdentityKey;
+          this.engineIdentityKey = nextKey;
+          if (previousKey && previousKey !== nextKey) {
+            logger.error(
+              `[OpencodeStreamBridge] ENGINE IDENTITY CHANGED (${previousKey} -> ${nextKey}) — reattaching bridge and rerunning recovery`,
+            );
+            await this.reattachAndRecover();
+            return;
+          }
+        }
+      }
+
+      const statuses = await opencodeClient.getSessionStatuses();
+      const engineHasActiveSessions = Object.values(statuses).some(
+        (status) => status.type === 'busy' || status.type === 'working' || status.type === 'starting',
+      );
+      if (!engineHasActiveSessions) {
+        this.persistenceBaselineAt = Date.now();
+        return;
+      }
+
+      const latestPersistedAt = this.messagesRepo.latestPersistedAt();
+      const lastProgressAt = Math.max(
+        latestPersistedAt ?? 0,
+        this.persistenceBaselineAt,
+      );
+      const staleMs = _positiveTimeoutMs(
+        process.env.RHYTHM_BRIDGE_PERSISTENCE_STALE_MS,
+        DEFAULT_PERSISTENCE_STALE_MS,
+      );
+      if (Date.now() - lastProgressAt > staleMs) {
+        logger.error(
+          `[OpencodeStreamBridge] STALE BRIDGE: engine has active sessions but api_server persisted no messages for > ${staleMs}ms — reattaching`,
+        );
+        this.persistenceBaselineAt = Date.now();
+        await this.reattachAndRecover();
+      }
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] engine health watchdog failed:', err);
+    } finally {
+      this.engineHealthCheckInFlight = false;
+    }
+  }
+
+  private async reattachAndRecover(): Promise<void> {
+    await this.resubscribeGlobalStream();
+    try {
+      await asyncDelegationCompletionService.recoverAfterRestart();
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] post-reattach async recovery failed:', err);
     }
   }
 
@@ -1085,6 +1214,35 @@ export class OpencodeStreamBridge {
             if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
               this.broadcastToolDenied(eventId, localSessionId, toolName);
               break;
+            }
+          }
+          if (localSessionId) {
+            try {
+              const session = this.sessionsRepo.findById(localSessionId);
+              void registerGeneratedMediaPart(part, session).then((artifact) => {
+                if (!artifact) return;
+                const hostedPart = withHostedArtifactMetadata(part, artifact);
+                broadcast({
+                  v: 1,
+                  type: 'message.part.updated',
+                  id: eventId,
+                  part: hostedPart,
+                });
+                const sdkMessageId = hostedPart.messageID as string | undefined;
+                if (sdkMessageId) {
+                  this.messagesRepo.upsertPart(localSessionId, sdkMessageId, hostedPart);
+                }
+              }).catch((error) => {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to register generated media:',
+                  error,
+                );
+              });
+            } catch (error) {
+              logger.error(
+                '[OpencodeStreamBridge] Failed to register generated media:',
+                error,
+              );
             }
           }
           broadcast({
@@ -1754,6 +1912,14 @@ export class OpencodeStreamBridge {
       // shape: {permissionID,toolName,summary,args}) — confirmed from the live
       // event trace. Listening for only one name dropped the request and hung
       // the write forever. Extract fields defensively from either shape.
+      case 'permission.replied': {
+        const reply = event.properties as { requestID?: string };
+        if (localSessionId && reply.requestID) {
+          this.markPermissionReplied(localSessionId, reply.requestID);
+        }
+        break;
+      }
+
       case 'permission.asked':
       case 'permission.updated': {
         const perm = event.properties as {
@@ -1869,13 +2035,10 @@ export class OpencodeStreamBridge {
 
         // True when NOTHING is watching this session for an approval answer.
         //
-        // NOT the same thing as `bypassPermissions`. An interactive session the
-        // user has put in bypass mode still has a human at the keyboard, and
-        // #878 deliberately forces a dangerous-but-not-hardline command
-        // (`git push --force`) to surface a card even there — see
-        // opencode_stream_bridge.test.ts "manual mode (default) surfaces an
-        // approval ask ... even under bypassPermissions". Treating bypass mode
-        // as unattended would silently delete that prompt.
+        // NOT the same thing as `bypassPermissions`. A bypass session may still
+        // be interactive, but its explicit contract is that non-hardline asks
+        // auto-resolve without surfacing. `isUnattended` remains the separate
+        // signal used for default/acceptEdits sessions with no possible viewer.
         //
         // The two shapes where no human can possibly answer:
         //   • a delegated child (#1156 — no UI watches a subagent)
@@ -1966,7 +2129,11 @@ export class OpencodeStreamBridge {
               );
               break;
             }
-            if (classification.decision === 'ask' && !isUnattended) {
+            if (
+              classification.decision === 'ask' &&
+              permissionMode !== 'bypassPermissions' &&
+              !isUnattended
+            ) {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
               // surface an approval ask even under acceptEdits.
@@ -1976,18 +2143,19 @@ export class OpencodeStreamBridge {
                 args,
                 summary: `${summary} — ${classification.detail}`,
                 sdkSessionId,
+                patterns: Array.isArray(perm.patterns)
+                  ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+                  : [],
+                title: perm.title ?? perm.summary ?? summary,
               });
               break;
             }
             if (classification.decision === 'ask') {
-              // UNATTENDED: registering a permission card here is a guaranteed
-              // hang, not a safety measure. `resolveApprovalsMode()` defaults to
-              // 'manual' (APPROVALS_MODE is unset and nothing in the app sets
-              // it), and in manual mode EVERY command the engine escalates
-              // classifies 'ask' — so this branch used to `break` past the
-              // #1156 headless auto-accept below and leave a scheduled run
-              // waiting on a human who was never going to arrive, until the
-              // 600s inactivity abort killed the whole run.
+              // Registering a permission card here is a guaranteed hang for an
+              // unattended session and contradicts the explicit autonomy
+              // contract for bypassPermissions. `resolveApprovalsMode()`
+              // defaults to 'manual', where every escalated command classifies
+              // as ask; only the hardline deny branch above remains absolute.
               //
               // Falling through is safe because it does NOT weaken the parts of
               // #878 that actually protect anything: the hardline blocklist and
@@ -1995,8 +2163,9 @@ export class OpencodeStreamBridge {
               // unconditionally. Only the "uncertain, ask a human" case is
               // downgraded to allow, and only where there is provably no human.
               logger.warn(
-                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in an ` +
-                  `unattended session (reason=${classification.reason}, ` +
+                `[OpencodeStreamBridge] #878 auto-allowing an 'ask' bash command in a ` +
+                  `${permissionMode === 'bypassPermissions' ? 'bypass' : 'unattended'} session ` +
+                  `(reason=${classification.reason}, ` +
                   `permissionMode=${permissionMode}, headless=${isHeadless}): ` +
                   `${classification.detail}`,
               );
@@ -2062,6 +2231,10 @@ export class OpencodeStreamBridge {
           args,
           summary,
           sdkSessionId,
+          patterns: Array.isArray(perm.patterns)
+            ? perm.patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+            : [],
+          title: perm.title ?? perm.summary ?? summary,
         });
         break;
       }
@@ -2188,9 +2361,11 @@ export class OpencodeStreamBridge {
       clearInterval(this.globalStream.watchdog);
       this.globalStream = null;
     }
+    this.engineIdentityKey = null;
     this.stoppedSessions.clear();
     this.pendingText.clear();
     this.pendingPermissions.clear();
+    this.repliedPermissions.clear();
     this.pendingQuestions.clear();
   }
 }

@@ -15,6 +15,7 @@ import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_se
 import { isAllowedLocalAgentSurfaceRequest } from '../middleware/local_agent_surface_guard';
 import { resolveProfileScope } from './agent_profile_scope';
 import { retainTurn } from './turn_redispatch';
+import type { PermissionMode } from '../models/agent_session';
 
 export interface WsMessage {
   v: 1;
@@ -388,7 +389,7 @@ export async function handleInputFrame(
   // it here, Claude/anthropic sessions silently hang waiting for user
   // approval while openrouter free sessions (chat-only, no tool calls)
   // appear to "work" because they never trigger tool-use at all.
-  let sessionPermissionMode: string = 'default';
+  let sessionPermissionMode: PermissionMode = 'default';
   try {
     const session = new AgentSessionsRepository().findById(id);
     if (session) {
@@ -617,6 +618,8 @@ export async function handleInputFrame(
             wsMcpRoleConfig,
             wsSkillNames,
             resolvedTurnProviderId,
+            undefined,
+            sessionPermissionMode,
           );
           // #1222 — createSession no longer returns a bare `null`; check `.id`
           // explicitly so a truthy `{ error }` failure object is never
@@ -658,6 +661,8 @@ export async function handleInputFrame(
           wsMcpRoleConfig,
           wsSkillNames,
           resolvedTurnProviderId,
+          undefined,
+          sessionPermissionMode,
         );
         // #1222 — check `.id` explicitly (see comment on the sibling branch above).
         if (!opencodeSession.id) {

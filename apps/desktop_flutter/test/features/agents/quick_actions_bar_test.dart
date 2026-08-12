@@ -140,6 +140,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -237,6 +238,10 @@ class _FakeTasksLocalDataSource extends TasksLocalDataSource {
     String? scheduledDate,
     int? ownerId,
     String? preferredAgent,
+    String? goalId,
+    int? priority,
+    List<String> tags = const [],
+    String? energy,
   }) async {
     if (shouldFail) {
       throw Exception('task creation failed');

@@ -36,6 +36,12 @@ setGlobalDispatcher(
 );
 
 async function main() {
+  const {
+    apiServerLogPath,
+    installPersistentConsoleLogging,
+  } = await import('./utils/logger');
+  installPersistentConsoleLogging();
+
   const [
     { createApp },
     { initDb },
@@ -65,6 +71,8 @@ async function main() {
     import('./mobile_gateway_surface'),
     import('./mobile_gateway_config'),
   ]);
+
+  logger.info(`[server] durable log: ${apiServerLogPath()}`);
 
   const port = Number(process.env.PORT ?? 4000);
   // #1175 — AGENT_LOCAL bypass is safe only behind an explicit IPv4 loopback
@@ -103,6 +111,27 @@ async function main() {
   }
 
   await initDb();
+
+  // #1309 — sweep expired unpinned media at boot and daily. This runs in both
+  // local and cloud roles because either can own the configured durable root.
+  if (process.env.VITEST !== 'true') {
+    const sweepMediaArtifacts = async (): Promise<void> => {
+      try {
+        const { MediaArtifactStore } = await import('./services/media_artifact_store');
+        const result = await new MediaArtifactStore().sweepExpiredArtifacts();
+        if (result.removedMetadata > 0) {
+          logger.info(
+            `[server] media artifact retention: metadata=${result.removedMetadata} bytes=${result.removedBytes}`,
+          );
+        }
+      } catch (error) {
+        logger.warn(`[server] media artifact retention failed (non-fatal): ${String(error)}`);
+      }
+    };
+    void sweepMediaArtifacts();
+    const mediaRetentionTimer = setInterval(() => void sweepMediaArtifacts(), 86_400_000);
+    mediaRetentionTimer.unref();
+  }
   logger.info('Database initialized');
   try {
     const { recoverStaleResearchJobs } = await import('./controllers/agentResearchController');
@@ -552,6 +581,13 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] research profile engine projection failed (non-fatal): ${String(e)}`);
       }
+      try {
+        const { recoverInterruptedResearchProjectRuns } = await import('./controllers/agentResearchController');
+        const recovered = await recoverInterruptedResearchProjectRuns();
+        if (recovered) logger.warn(`[server] resumed ${recovered} interrupted research project run(s)`);
+      } catch (e) {
+        logger.warn(`[server] research project recovery failed (non-fatal): ${String(e)}`);
+      }
 
       // #746 — Notify the skill curator that the engine is ready so it can
       // begin deferring extraction work until the cold-start window passes.
@@ -570,6 +606,8 @@ async function main() {
       // down. Non-fatal: a reconcile failure must never block boot.
       try {
         const { streamBridge } = await import('./services/opencode_stream_bridge');
+        await streamBridge.ensureGlobalStream();
+        await streamBridge.checkEngineHealthNow();
         await streamBridge.reconcileSessionStatuses();
         logger.info('[server] session status resync complete (#1045)');
       } catch (e) {

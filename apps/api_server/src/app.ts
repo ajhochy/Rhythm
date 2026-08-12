@@ -46,6 +46,8 @@ import { opencodeSpilloverRouter } from './routes/opencode_spillover_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
+import { streamBridge } from './services/opencode_stream_bridge';
+import { buildOpencodeHealthPayload } from './services/opencode_health';
 import agentSchedulesRouter from './routes/agentSchedulesRoutes';
 import agentMemoryRouter from './routes/agentMemoryRoutes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
@@ -64,6 +66,9 @@ import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
 import { liveArtifactsRouter } from './routes/live_artifacts_routes';
+import { devLogsRouter } from './routes/dev_logs_routes';
+import { goalsRouter } from './routes/goals_routes';
+import { mediaArtifactsRouter } from './routes/media_artifacts_routes';
 import {
   sharedTranscriptsRouter,
   transcriptShareCreationRouter,
@@ -104,7 +109,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
-      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID'],
     }),
   );
   // Allow larger bodies for OAuth token exchange and session creation.
@@ -122,6 +127,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   app.use('/integrations/planning-center/api', pcoBrokerRouter);
   app.use('/integrations', integrationsRouter);
   app.use('/tasks', tasksRouter);
+  app.use('/goals', goalsRouter);
   app.use('/project-templates', projectTemplatesRouter);
   app.use('/recurring-rules', recurringRulesRouter);
   app.use('/project-instances', projectInstancesRouter);
@@ -131,6 +137,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   app.use('/facilities', facilitiesRouter);
   app.use('/workspaces', workspaceRouter);
   app.use('/live-artifacts', liveArtifactsRouter);
+  app.use('/artifacts', mediaArtifactsRouter);
   // #755 — the agent-execution notifications surface must be mounted BEFORE the
   // always-on `/notifications` prefix (Express matches `/notifications` against
   // `/notifications/agent` otherwise). Gated like the rest of the agent
@@ -168,6 +175,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   // handlers) so concurrent handler-owning issues (#736/#765/#737) are left
   // untouched.
   if (env.agentExecutionEnabled) {
+    app.use('/dev', devLogsRouter);
     app.use(
       '/mobile-gateway',
       options.mobileGatewayRouter ?? createMobileGatewayRouter(),
@@ -259,13 +267,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
       }
     });
     app.get('/opencode/health', (_req, res) => {
-      res.json({
-        status: opencodeClient.isReady ? 'ready' : 'unavailable',
-        message: opencodeClient.statusMessage,
-        // OCU-08 (#1049) — surface websearch-tool availability so the UI can
-        // show it as configured/not. Never exposes the key itself.
-        websearchConfigured: opencodeClient.websearchConfigured,
-      });
+      res.json(buildOpencodeHealthPayload(opencodeClient, streamBridge));
     });
   }
 

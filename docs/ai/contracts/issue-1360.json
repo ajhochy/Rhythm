@@ -1,0 +1,72 @@
+{
+  "issue": 1360,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1360-c1",
+      "text": "The inspector exposes an **Artifacts** tab on the session side panel.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c1: the session side panel exposes an Artifacts tab",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c2",
+      "text": "Given representative persisted transcript parts, extraction returns only the four supported successful mutation forms, with IDs parsed from the specified source and no malformed IDs.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c2: extraction accepts only four successful mutation forms and their specified ID sources",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c3",
+      "text": "IDs are deduped and sorted by latest successful mutation, and a later successful mutation for an existing artifact makes that artifact first.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c3: IDs are deduped newest-first and a later mutation promotes an existing artifact",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c4",
+      "text": "Extraction cannot include a descendant subagent session when the exact inspected session has no matching mutation.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c4: extraction is scoped to the exact inspected session and excludes descendants",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c5",
+      "text": "Older transcript pages are requested progressively until history is complete, a page fails, or the endpoint makes no progress; failure does not spin and exposes a retry path while preserving discovered rows.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c5: history pages stop on completion, failure, or no progress and retry without dropping rows",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c6",
+      "text": "Metadata is fetched through hosted `LiveArtifactsDataSource.get`; a deleted, revoked, unavailable, or conflict result retains a useful row and does not reveal authorization details.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c6: hosted get resolves metadata and every unavailable outcome retains a generic useful row",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c7",
+      "text": "The selector supports changing the selected artifact while only one interactive preview is mounted.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c7: changing the selector keeps exactly one interactive preview mounted",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1360-c8",
+      "text": "The preview uses the existing `LiveArtifactView` runtime and preserves its existing secure rendering behavior.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1360_artifacts_tab_contract_test.dart",
+      "test_id": "issue-1360-c8: preview composes the existing LiveArtifactView secure runtime",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

@@ -1,5 +1,8 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -97,6 +100,10 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     sessionMap.set(inserted.id, SDK_ID);
   });
 
+  afterEach(() => {
+    delete process.env.ARTIFACT_STORAGE_ROOT;
+  });
+
   function relay(event: Record<string, unknown>): void {
     (bridge as unknown as {
       _relayEvent: (e: unknown) => void;
@@ -137,6 +144,44 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     expect(transcriptAppend?.id).toBe(localId);
     expect(transcriptAppend?.role).toBe('output');
     expect(transcriptAppend?.text).toBe('Hello, world!');
+  });
+
+  it('rebroadcasts and persists a generated image with its hosted artifact route', async () => {
+    const session = new AgentSessionsRepository().listActive()[0];
+    getDb().prepare(`INSERT INTO projects (id, name, cwd, created_at) VALUES (?, ?, ?, ?)`)
+      .run('project-media', 'Media', '/tmp/media', new Date().toISOString());
+    getDb().prepare('UPDATE agent_sessions SET project_id = ? WHERE id = ?')
+      .run('project-media', session.id);
+    sessionMap.clear();
+    sessionMap.set(session.id, SDK_ID);
+    const storageRoot = mkdtempSync(join(tmpdir(), 'rhythm-stream-media-'));
+    process.env.ARTIFACT_STORAGE_ROOT = storageRoot;
+    const imagePath = join(storageRoot, '..', `generated-${crypto.randomUUID()}.png`);
+    writeFileSync(imagePath, Buffer.from('generated-image'));
+
+    relay({
+      type: 'message.part.updated',
+      properties: {
+        sessionID: SDK_ID,
+        part: {
+          id: 'part-image', sessionID: SDK_ID, messageID: 'message-image',
+          type: 'tool', tool: 'image_generation',
+          state: { status: 'completed', metadata: { path: imagePath } },
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      const hosted = broadcastSpy.mock.calls
+        .map((call) => call[0] as { part?: { state?: { metadata?: Record<string, unknown> } } })
+        .find((frame) => typeof frame.part?.state?.metadata?.artifactId === 'string');
+      expect(hosted?.part?.state?.metadata).toMatchObject({
+        path: imagePath,
+        artifactUrl: expect.stringMatching(/^\/artifacts\//),
+      });
+    });
+    const persisted = new AgentSessionMessagesRepository().listBySession(session.id);
+    expect(persisted[0].partsJson).toContain('artifactId');
   });
 
   it('#1109 — on turn completion schedules idle evaluation instead of running it directly', () => {
@@ -362,12 +407,56 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
     expect(asked).toBeDefined();
-    expect(asked?.permissionId).toBe('perm-1');
-    expect(asked?.toolName).toBe('bash');
+    expect(asked?.permissionID).toBe('perm-1');
+    expect(asked?.tool).toBe('bash');
     expect(replyToPermissionSpy).not.toHaveBeenCalled();
 
     // Pending entry should be registered.
     expect(bridge.getPendingPermission(localId, 'perm-1')).toBeDefined();
+  });
+
+  it('issue-1340-c1: forwards asked and replied with the exact permission WS payload', () => {
+    relay({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-contract-1',
+        sessionID: SDK_ID,
+        permission: 'bash',
+        patterns: ['git push origin feature'],
+        title: 'Allow git push?',
+        metadata: {},
+      },
+    });
+
+    const asked = broadcastSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((frame) => frame.type === 'permission.asked');
+    expect(asked).toEqual({
+      v: 1,
+      type: 'permission.asked',
+      sessionId: localId,
+      permissionID: 'perm-contract-1',
+      directory: '/tmp',
+      tool: 'bash',
+      patterns: ['git push origin feature'],
+      title: 'Allow git push?',
+      createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+    });
+
+    relay({
+      type: 'permission.replied',
+      properties: {
+        sessionID: SDK_ID,
+        requestID: 'perm-contract-1',
+        reply: 'once',
+      },
+    });
+
+    const replied = broadcastSpy.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((frame) => frame.type === 'permission.replied');
+    expect(replied).toEqual({ ...asked, type: 'permission.replied' });
+    expect(bridge.getPendingPermission(localId, 'perm-contract-1')).toBeUndefined();
   });
 
   it('acceptEdits mode: auto-accepts edit tools', async () => {
@@ -435,6 +524,55 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
     expect(resolved?.decision).toBe('accept');
+  });
+
+  it('bypassPermissions mode: auto-accepts every permission type without surfacing an ask', async () => {
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'bypassPermissions');
+
+    const asks = [
+      {
+        id: 'perm-bypass-bash',
+        permission: 'bash',
+        metadata: { command: 'git push --force origin main' },
+      },
+      { id: 'perm-bypass-external', permission: 'external_directory', metadata: {} },
+      { id: 'perm-bypass-edit', permission: 'edit', metadata: { path: '/tmp/file.ts' } },
+      { id: 'perm-bypass-webfetch', permission: 'webfetch', metadata: {} },
+      { id: 'perm-bypass-tool', permission: 'custom_tool', metadata: {} },
+    ];
+
+    for (const ask of asks) {
+      relay({
+        type: 'permission.asked',
+        properties: {
+          id: ask.id,
+          sessionID: SDK_ID,
+          permission: ask.permission,
+          patterns: ask.permission === 'bash' ? ['git push --force origin main'] : ['*'],
+          always: ['*'],
+          metadata: ask.metadata,
+        },
+      });
+    }
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(replyToPermissionSpy.mock.calls).toEqual(
+      asks.map((ask) => [ask.id, 'once', undefined, '/tmp', SDK_ID]),
+    );
+    expect(
+      broadcastSpy.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .filter((m) => m.type === 'permission.asked'),
+    ).toEqual([]);
+    expect(
+      broadcastSpy.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .filter((m) => m.type === 'permission.resolved' && m.decision === 'accept'),
+    ).toHaveLength(asks.length);
+    for (const ask of asks) {
+      expect(bridge.getPendingPermission(localId, ask.id)).toBeUndefined();
+    }
   });
 });
 
@@ -574,17 +712,23 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     expect(String(denied?.message)).toContain('hardline-blocklist');
   });
 
-  it('engine payload shape: a dangerous non-hardline command under bypassPermissions still surfaces an ask', async () => {
+  it('engine payload shape: bypassPermissions auto-accepts a dangerous non-hardline command', async () => {
     new AgentSessionsRepository().updatePermissionMode(localId, 'bypassPermissions');
 
     relay(makeEnginePermEvent('perm-real-push-1', ['git push --force origin main']));
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(replyToPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-real-push-1',
+      'once',
+      undefined,
+      '/tmp',
+      SDK_ID,
+    );
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
-    expect(asked).toBeDefined();
+    expect(asked).toBeUndefined();
   });
 
   // #1322 gap 1 — the engine splits pipelines into command NODES before asking,
@@ -703,7 +847,7 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     expect(asked).toBeDefined();
   });
 
-  it('manual mode (default) surfaces an approval ask for a dangerous-but-not-hardline command, even under bypassPermissions', async () => {
+  it('manual approvals mode does not override bypassPermissions for dangerous non-hardline commands', async () => {
     process.env.APPROVALS_MODE = 'manual';
     const repo = new AgentSessionsRepository();
     repo.updatePermissionMode(localId, 'bypassPermissions');
@@ -711,14 +855,18 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     relay(makeBashPermEvent('perm-ask-1', 'git push --force origin main'));
     await new Promise((r) => setTimeout(r, 10));
 
-    // Must NOT auto-accept despite bypassPermissions — forced to the ask path.
-    expect(replyToPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-ask-1',
+      'once',
+      undefined,
+      '/tmp',
+      SDK_ID,
+    );
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
-    expect(asked).toBeDefined();
-    expect(asked?.permissionId).toBe('perm-ask-1');
-    expect(bridge.getPendingPermission(localId, 'perm-ask-1')).toBeDefined();
+    expect(asked).toBeUndefined();
+    expect(bridge.getPendingPermission(localId, 'perm-ask-1')).toBeUndefined();
   });
 
   // ── unattended runs must not hang on an 'ask' (2026-08-04) ────────────────
@@ -1100,9 +1248,9 @@ describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', (
 
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
-      .find((m) => m.type === 'permission.asked' && m.permissionId === 'perm-orphan-1');
+      .find((m) => m.type === 'permission.asked' && m.permissionID === 'perm-orphan-1');
     expect(asked).toBeDefined();
-    expect(asked?.toolName).toBe('bash');
+    expect(asked?.tool).toBe('bash');
     // And it is now tracked so a reply routes correctly.
     expect(bridge.getPendingPermission(localId, 'perm-orphan-1')).toBeDefined();
   });
@@ -1117,7 +1265,7 @@ describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', (
 
     const asks = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
-      .filter((m) => m.type === 'permission.asked' && m.permissionId === 'perm-orphan-2');
+      .filter((m) => m.type === 'permission.asked' && m.permissionID === 'perm-orphan-2');
     expect(asks).toHaveLength(1);
   });
 
@@ -1143,7 +1291,7 @@ describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', (
 
     const asks = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
-      .filter((m) => m.type === 'permission.asked' && m.permissionId === 'perm-dup-1');
+      .filter((m) => m.type === 'permission.asked' && m.permissionID === 'perm-dup-1');
     expect(asks).toHaveLength(1);
   });
 

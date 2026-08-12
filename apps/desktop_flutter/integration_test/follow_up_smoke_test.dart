@@ -158,6 +158,7 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -197,6 +198,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   @override
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -239,6 +241,12 @@ class _FakeAgentsRepository implements AgentsRepository {
     String decision, {
     String? message,
   }) async {}
+
+  @override
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) async =>
+      const [];
 
   @override
   Future<void> replyQuestion(

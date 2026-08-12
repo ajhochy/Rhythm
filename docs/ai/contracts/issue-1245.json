@@ -1,0 +1,48 @@
+{
+  "issue": 1245,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1245-c1",
+      "text": "Surface existing rhythm completionRatio as a progress donut",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1245_dopamine_loop_test.dart",
+      "test_id": "issue-1245-c1: rhythm card donut consumes completionRatio",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1245-c2",
+      "text": "small completion affirmation",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1245_dopamine_loop_test.dart",
+      "test_id": "issue-1245-c2: affirmation emits once only after a successful transition to done",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1245-c3",
+      "text": "optional emoji motivation/energy column on tasks",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1245_contract.test.ts",
+      "test_id": "issue-1245-c3: task energy is nullable and round-trips as one emoji value",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1245-c4",
+      "text": "feeding weekly-planner ordering",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1245_contract.test.ts",
+      "test_id": "issue-1245-c4: weekly ordering uses energy only after explicit scheduledOrder",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1245-c5",
+      "text": "SQLite+Postgres parity for energy.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1245_contract.test.ts",
+      "test_id": "issue-1245-c5: SQLite and Postgres add the same nullable energy column additively",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript,dart",
+  "not_tested": []
+}

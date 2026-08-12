@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/auth/auth_session_store.dart';
 import '../controllers/project_template_controller.dart';
+import '../controllers/project_milestones_controller.dart';
 import '../models/project_instance.dart';
 import '../models/project_template.dart';
 import '../models/project_template_step.dart';
@@ -1175,6 +1176,118 @@ class _InstanceCard extends StatelessWidget {
   final bool showCompleted;
   final String? templateName;
 
+  Future<void> _addMilestone(BuildContext context) async {
+    final textController = TextEditingController();
+    final title = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add milestone'),
+        content: TextField(
+          controller: textController,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Milestone title'),
+          onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, textController.text.trim()),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    textController.dispose();
+    if (title == null || title.isEmpty || !context.mounted) return;
+    final created = await context.read<ProjectMilestonesController>().create(
+          instance.id,
+          title,
+          sortOrder: instance.milestones.length,
+        );
+    if (created) onRefresh();
+  }
+
+  List<Widget> _timelineChildren(
+    BuildContext context,
+    List<ProjectInstanceStep> visibleSteps,
+  ) {
+    final milestones = [...instance.milestones]
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    final children = <Widget>[];
+    for (final milestone in milestones) {
+      final steps = visibleSteps
+          .where((step) => step.milestoneId == milestone.id)
+          .toList();
+      children.add(
+        ListTile(
+          key: ValueKey('project-milestone-${milestone.id}'),
+          dense: true,
+          leading: const Icon(Icons.flag_outlined, size: 18),
+          title: Text(milestone.title),
+          subtitle: milestone.dueDate == null
+              ? null
+              : Text(
+                  'Due ${DateFormatters.fullDate(milestone.dueDate, fallback: milestone.dueDate!)}',
+                ),
+          trailing: IconButton(
+            tooltip: 'Delete milestone',
+            icon: const Icon(Icons.close, size: 16),
+            onPressed: () async {
+              final deleted = await context
+                  .read<ProjectMilestonesController>()
+                  .delete(instance.id, milestone.id);
+              if (deleted) onRefresh();
+            },
+          ),
+        ),
+      );
+      children.addAll(
+        steps.map(
+          (step) => _InstanceStepTile(
+            instance: instance,
+            step: step,
+            milestones: milestones,
+            onRefresh: onRefresh,
+            onUpdateStep: onUpdateStep,
+            onInspectStep: onInspectStep,
+          ),
+        ),
+      );
+    }
+    final ungrouped = visibleSteps
+        .where(
+          (step) =>
+              step.milestoneId == null ||
+              !milestones.any((milestone) => milestone.id == step.milestoneId),
+        )
+        .toList();
+    children.add(
+      const ListTile(
+        key: ValueKey('project-milestone-ungrouped'),
+        dense: true,
+        leading: Icon(Icons.horizontal_rule, size: 18),
+        title: Text('Ungrouped'),
+      ),
+    );
+    children.addAll(
+      ungrouped.map(
+        (step) => _InstanceStepTile(
+          instance: instance,
+          step: step,
+          milestones: milestones,
+          onRefresh: onRefresh,
+          onUpdateStep: onUpdateStep,
+          onInspectStep: onInspectStep,
+        ),
+      ),
+    );
+    return children;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -1214,6 +1327,14 @@ class _InstanceCard extends StatelessWidget {
           onPressed: () => onDeleteInstance(instance.id),
         ),
         children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => _addMilestone(context),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add milestone'),
+            ),
+          ),
           if (instance.ownerId != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
@@ -1237,14 +1358,7 @@ class _InstanceCard extends StatelessWidget {
                 },
               ),
             ),
-          ...visibleSteps.map(
-            (step) => _InstanceStepTile(
-              instance: instance,
-              step: step,
-              onUpdateStep: onUpdateStep,
-              onInspectStep: onInspectStep,
-            ),
-          ),
+          ..._timelineChildren(context, visibleSteps),
         ],
       ),
     );
@@ -1255,11 +1369,15 @@ class _InstanceStepTile extends StatelessWidget {
   const _InstanceStepTile({
     required this.instance,
     required this.step,
+    required this.milestones,
+    required this.onRefresh,
     required this.onUpdateStep,
     required this.onInspectStep,
   });
   final ProjectInstance instance;
   final ProjectInstanceStep step;
+  final List<ProjectMilestone> milestones;
+  final VoidCallback onRefresh;
   final Future<void> Function(
     ProjectInstanceStep step, {
     String? title,
@@ -1327,9 +1445,36 @@ class _InstanceStepTile extends StatelessWidget {
               ),
           ],
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.edit_outlined, size: 16),
-          onPressed: () => onInspectStep(instance, step),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PopupMenuButton<String?>(
+              tooltip: 'Assign milestone',
+              icon: const Icon(Icons.flag_outlined, size: 16),
+              onSelected: (milestoneId) async {
+                final assigned = await context
+                    .read<ProjectMilestonesController>()
+                    .assignStep(step.id, milestoneId);
+                if (assigned) onRefresh();
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem<String?>(
+                  value: null,
+                  child: Text('Ungrouped'),
+                ),
+                ...milestones.map(
+                  (milestone) => PopupMenuItem<String?>(
+                    value: milestone.id,
+                    child: Text(milestone.title),
+                  ),
+                ),
+              ],
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              onPressed: () => onInspectStep(instance, step),
+            ),
+          ],
         ),
       ),
     );

@@ -26,7 +26,7 @@ class AgentModelVisibilityDataSource {
     try {
       final res = await _client.get(
         Uri.parse('$_baseUrl/agent-models/visibility'),
-        headers: AuthSessionStore.headers(),
+        headers: AuthSessionStore.localHeaders(),
       );
       assertOk(res);
       final list = jsonDecode(res.body) as List<dynamic>;
@@ -53,7 +53,7 @@ class AgentModelVisibilityDataSource {
     });
     final res = await _client.patch(
       Uri.parse('$_baseUrl/agent-models/visibility'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: body,
     );
     assertOk(res);
@@ -64,7 +64,7 @@ class AgentModelVisibilityDataSource {
     try {
       final res = await _client.get(
         Uri.parse('$_baseUrl/opencode/models?provider=openrouter'),
-        headers: AuthSessionStore.headers(),
+        headers: AuthSessionStore.localHeaders(),
       );
       assertOk(res);
       final list = jsonDecode(res.body) as List<dynamic>;

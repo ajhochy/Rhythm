@@ -1057,11 +1057,44 @@ it.instance(
 )
 
 it.instance(
-  "reply - does nothing for unknown requestID",
+  "reply - returns false for unknown requestID",
   () =>
     Effect.gen(function* () {
-      yield* reply({ requestID: PermissionID.make("per_unknown"), reply: "once" })
+      const resolved = yield* reply({ requestID: PermissionID.make("per_unknown"), reply: "once" })
+      expect(resolved).toBe(false)
       expect(yield* list()).toHaveLength(0)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "reply - returns false and leaves the ask pending when sessionID does not match",
+  () =>
+    Effect.gen(function* () {
+      const requestID = PermissionID.make("per_wrong_session")
+      const expectedSessionID = SessionID.make("session_expected")
+      const fiber = yield* ask({
+        id: requestID,
+        sessionID: expectedSessionID,
+        permission: "bash",
+        patterns: ["echo hello"],
+        metadata: {},
+        always: [],
+        ruleset: [],
+      }).pipe(Effect.forkScoped)
+
+      expect(yield* waitForPending(1)).toHaveLength(1)
+      const resolved = yield* reply({
+        requestID,
+        sessionID: SessionID.make("session_other"),
+        reply: "once",
+      })
+
+      expect(resolved).toBe(false)
+      expect(yield* list()).toHaveLength(1)
+
+      yield* reply({ requestID, reply: "reject" })
+      yield* Fiber.await(fiber)
     }),
   { git: true },
 )

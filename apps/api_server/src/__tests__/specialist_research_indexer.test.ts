@@ -25,10 +25,11 @@ describe('specialist research session indexer', () => {
       .run(id, text, text, `${id}-message`, JSON.stringify(parts));
   }
 
-  it('indexes scheduled, interactive, and delegated specialist sessions idempotently from persisted parts', async () => {
+  it('indexes scheduled specialist sessions but excludes unrelated specialist chats', async () => {
     session('scheduled', 'AI-Trend-Researcher');
     session('interactive', 'Theological-Researcher');
     session('child', 'AI-Trend-Researcher');
+    db.prepare("UPDATE agent_sessions SET category = 'scheduled' WHERE id = 'scheduled'").run();
     output('scheduled', 'Trend report', [{ type: 'tool', input: { url: 'https://example.com/a' } }, { type: 'text', text: 'Trend report' }]);
     output('interactive', 'Theology report', [{ type: 'tool', output: { path: 'Areas/Research/Theology/report.md', url: 'https://example.com/b' } }]);
     output('child', 'Delegated report', [{ type: 'text', text: 'Delegated report' }]);
@@ -40,8 +41,6 @@ describe('specialist research session indexer', () => {
 
     const rows = db.prepare(`SELECT agent_session_id, research_type, origin, sources_json, vault_path FROM agent_research_jobs ORDER BY agent_session_id`).all();
     expect(rows).toEqual([
-      expect.objectContaining({ agent_session_id: 'child', research_type: 'ai-trends', origin: 'specialist-run' }),
-      expect.objectContaining({ agent_session_id: 'interactive', research_type: 'theological', origin: 'specialist-run', vault_path: 'Areas/Research/Theology/report.md' }),
       expect.objectContaining({ agent_session_id: 'scheduled', research_type: 'ai-trends', origin: 'specialist-run', sources_json: '["https://example.com/a"]' }),
     ]);
   });

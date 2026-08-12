@@ -129,6 +129,10 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       this._state = getOrCreateClientState(lastCreatedClientName)
     }
 
+    getServerCapabilities() {
+      return {}
+    }
+
     setNotificationHandler(schema: unknown, handler: (...args: any[]) => any) {
       this._state?.notificationHandlers.set(schema, handler)
     }

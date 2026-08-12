@@ -122,6 +122,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   final List<({AgentSession session, List<AgentSessionMessage> messages})>
       getSessionResults = [];
+  Object? getSessionError;
 
   final StreamController<AgentWsMessage> _msgCtrl =
       StreamController<AgentWsMessage>.broadcast();
@@ -165,6 +166,7 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
       getSession(String id) async {
+    if (getSessionError case final error?) throw error;
     if (getSessionResults.isNotEmpty) return getSessionResults.removeAt(0);
     return (
       session: _sessions.firstWhere((s) => s.id == id),
@@ -182,6 +184,7 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -494,6 +497,43 @@ void main() {
         tester.getSize(find.byType(SessionRow).first).height,
         38,
         reason: 'Top-level interactive session rows must stay compact',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    testWidgets(
+        'issue-1340-c2: permission-blocked session row says Waiting on you instead of working',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1024, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = _makeControllerWithSessions([
+        _makeSession('permission-blocked', 'Approval needed'),
+      ]);
+      controller.handleWsMessageForTest(
+        const PermissionAskedMessage(
+          sessionId: 'permission-blocked',
+          permissionId: 'permission-1',
+          toolName: 'bash',
+          args: {
+            'patterns': ['git push origin feature/chat-ui']
+          },
+          summary: 'Push the feature branch',
+        ),
+      );
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final row = find.byKey(const ValueKey('session-row-permission-blocked'));
+      expect(
+        find.descendant(of: row, matching: find.text('Waiting on you')),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSemantics(row),
+        containsSemantics(label: 'Approval needed, Waiting on you'),
       );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
@@ -1632,6 +1672,56 @@ void main() {
       expect(find.text('The scheduled briefing is ready.'), findsOneWidget);
       expect(find.text('Idle'), findsOneWidget);
       expect(controller.selectedSessionId, starting.id);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    testWidgets(
+        'issue-1358-c3: transcript failure shows an error with retry, not waiting',
+        (tester) async {
+      // Regression: a failed REST transcript load was rendered as a genuinely
+      // empty session, making users believe their history had disappeared.
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final session = _makeRunSession(
+        'transcript-error',
+        'Unavailable transcript',
+        hasSdk: true,
+        status: AgentSessionStatus.idle,
+      );
+      final repo = _StubAgentsRepository([session])
+        ..getSessionError = Exception('local transcript request failed');
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+      await controller.loadSessions(AgentSessionScope.selfImprovement);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Couldn't load transcript"), findsOneWidget);
+      expect(find.byKey(const ValueKey('transcript-retry-button')),
+          findsOneWidget);
+      expect(find.text('Session started. Waiting for output…'), findsNothing);
+
+      repo
+        ..getSessionError = null
+        ..getSessionResults.add((session: session, messages: const []));
+      await tester.tap(find.byKey(const ValueKey('transcript-retry-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text("Couldn't load transcript"), findsNothing);
+      expect(find.text('Session started. Waiting for output…'), findsOneWidget);
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();

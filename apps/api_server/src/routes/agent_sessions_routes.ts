@@ -68,6 +68,18 @@ agentSessionsRouter.post('/', controller.create.bind(controller));
 agentSessionsRouter.patch('/:id', controller.update.bind(controller));
 agentSessionsRouter.post('/:id/cancel', controller.cancel.bind(controller));
 agentSessionsRouter.get('/:id/diff', controller.getDiff.bind(controller));
+agentSessionsRouter.get(
+  '/:id/mcp-app-resource/:callId',
+  controller.getMcpAppResource.bind(controller),
+);
+agentSessionsRouter.post(
+  '/:id/mcp-app-capability/:callId',
+  controller.issueMcpAppCapability.bind(controller),
+);
+agentSessionsRouter.post(
+  '/:id/mcp-app-capability/:callId/request',
+  controller.brokerMcpAppCapability.bind(controller),
+);
 // OCU-19 (#1060) — file/find proxy scoped to the session directory
 // (worktree dir when isolated). Path-traversal guarded; content capped ~2MB.
 agentSessionsRouter.get('/:id/files/find-text', controller.findText.bind(controller));
@@ -83,6 +95,14 @@ agentSessionsRouter.get('/:id/vcs/diff/raw', controller.getVcsDiffRaw.bind(contr
 // OCU-24 (#1065) — session.shell quick-run. OCU-25 (#1066) — session.init.
 agentSessionsRouter.post('/:id/shell', controller.shell.bind(controller));
 agentSessionsRouter.post('/:id/init', controller.init.bind(controller));
+agentSessionsRouter.get(
+  '/:id/pending-permissions',
+  controller.listPendingPermissions.bind(controller),
+);
+agentSessionsRouter.post(
+  '/:id/permissions/:permissionID/reply',
+  controller.replyPermission.bind(controller),
+);
 agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),

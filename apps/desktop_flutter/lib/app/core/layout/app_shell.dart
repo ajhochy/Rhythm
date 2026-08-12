@@ -13,7 +13,11 @@ import '../../../features/notifications/views/notification_panel.dart';
 import 'background_activity_indicator.dart';
 import '../../../features/dashboard/views/dashboard_view.dart';
 import '../../../features/live_artifacts/widgets/dashboard_artifact_tabs.dart';
-// DashboardArtifactTabs and LiveArtifactsController are mounted by the Dashboard workspace only.
+// DashboardArtifactTabs and LiveArtifactsController are mounted by the
+// Dashboard artifact workspace and shared with the Session Inspector.
+import '../../../features/live_artifacts/controllers/live_artifacts_controller.dart';
+import '../../../features/live_artifacts/data/live_artifacts_data_source.dart';
+import '../../../features/settings/data/user_preferences_data_source.dart';
 import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/models/integration_account.dart';
 import '../../../features/integrations/views/integrations_view.dart';
@@ -257,7 +261,7 @@ class _ServerFailedView extends StatelessWidget {
 //                Automations(7), Integrations(8), Agents(9)
 // #1027 (USO A4): Session History (was index 10) retired — no index remap
 // needed since it was the last item; all prior indices are unchanged.
-class _AppContent extends StatelessWidget {
+class _AppContent extends StatefulWidget {
   const _AppContent({
     required this.selectedIndex,
     required this.onItemSelected,
@@ -267,21 +271,68 @@ class _AppContent extends StatelessWidget {
   final ValueChanged<int> onItemSelected;
 
   @override
+  State<_AppContent> createState() => _AppContentState();
+}
+
+class _AppContentState extends State<_AppContent> {
+  LiveArtifactsController? _artifactsController;
+  String? _artifactsBaseUrl;
+  int? _artifactUserId;
+
+  LiveArtifactsController _controllerFor(String baseUrl) {
+    if (_artifactsController == null || _artifactsBaseUrl != baseUrl) {
+      _artifactsController?.dispose();
+      _artifactsBaseUrl = baseUrl;
+      _artifactUserId = null;
+      _artifactsController = LiveArtifactsController(
+        LiveArtifactsDataSource(baseUrl: baseUrl),
+        UserPreferencesDataSource(baseUrl: baseUrl),
+      );
+    }
+    return _artifactsController!;
+  }
+
+  @override
+  void dispose() {
+    _artifactsController?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final updateController = context.watch<UpdateController>();
     final authSessionService = context.watch<AuthSessionService>();
     final baseUrl = context.watch<ServerConfigService>().url;
+    final artifactsController = _controllerFor(baseUrl);
+    final user = authSessionService.currentUser;
+    if (_artifactUserId != user?.id) {
+      _artifactUserId = user?.id;
+      artifactsController.reset();
+      if (user != null) {
+        final expectedUserId = user.id;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _artifactUserId == expectedUserId) {
+            unawaited(
+              artifactsController.restore(user.id, user.artifactTabIds),
+            );
+          }
+        });
+      }
+    }
     final views = <Widget>[
       DashboardArtifactWorkspace(
+        controller: artifactsController,
         baseUrl: baseUrl,
         workspaceId: authSessionService.currentWorkspace!.id,
+        manageAuthLifecycle: false,
+        activeUserId: user?.id,
         dashboard: DashboardView(
           showPlanningBadge: false,
           openWeeklyPlanner: () =>
-              onItemSelected(AppConstants.navWeeklyPlanner),
-          openRhythms: () => onItemSelected(AppConstants.navRhythms),
-          openProjects: () => onItemSelected(AppConstants.navProjects),
-          openMessages: () => onItemSelected(AppConstants.navMessages),
+              widget.onItemSelected(AppConstants.navWeeklyPlanner),
+          openRhythms: () => widget.onItemSelected(AppConstants.navRhythms),
+          openProjects: () => widget.onItemSelected(AppConstants.navProjects),
+          openMessages: () => widget.onItemSelected(AppConstants.navMessages),
         ),
       ),
       const WeeklyPlannerView(),
@@ -292,7 +343,12 @@ class _AppContent extends StatelessWidget {
       const FacilitiesView(),
       const AutomationRulesView(),
       const IntegrationsView(),
-      const AgentsView(),
+      AgentsView(
+        activeUserId: user?.id,
+        artifactsController: artifactsController,
+        onNavigateToDashboard: () =>
+            widget.onItemSelected(AppConstants.navDashboard),
+      ),
     ];
     return Scaffold(
       backgroundColor: context.rhythm.canvas,
@@ -309,9 +365,9 @@ class _AppContent extends StatelessWidget {
                     children: [
                       Expanded(
                         child: NavigationSidebar(
-                          selectedIndex: selectedIndex,
+                          selectedIndex: widget.selectedIndex,
                           collapsed: false,
-                          onItemSelected: onItemSelected,
+                          onItemSelected: widget.onItemSelected,
                         ),
                       ),
                       // #747 — Background activity indicator sits in the
@@ -334,7 +390,7 @@ class _AppContent extends StatelessWidget {
                     borderRadius: BorderRadius.circular(RhythmRadius.xl),
                     child: Material(
                       color: context.rhythm.surface,
-                      child: views[selectedIndex],
+                      child: views[widget.selectedIndex],
                     ),
                   ),
                 ),

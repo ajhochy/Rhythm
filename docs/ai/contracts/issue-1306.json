@@ -1,0 +1,32 @@
+{
+  "issue": 1306,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1306-c1",
+      "text": "desktop chat must display generated images, rendering client-side from the tool part metadata.path when tool == image_generation",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1306_test.dart",
+      "test_id": "issue-1306-c1: completed image_generation tool part renders the local metadata.path image",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1306-c2",
+      "text": "Handle missing/swept files gracefully (placeholder + path text).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1306_test.dart",
+      "test_id": "issue-1306-c2: swept image renders a non-crashing placeholder and its path",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1306-c3",
+      "text": "Do NOT attach full-res base64.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1306_test.dart",
+      "test_id": "issue-1306-c3: production tool payload remains path-only without file or data URI bytes",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

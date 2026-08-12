@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:step_progress_indicator/step_progress_indicator.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/widgets/error_banner.dart';
@@ -220,21 +221,24 @@ class _RuleTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         child: Row(
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: dimmed
-                    ? context.rhythm.surfaceMuted
-                    : context.rhythm.accentMuted,
-                borderRadius: BorderRadius.circular(RhythmRadius.md),
-                border: Border.all(color: context.rhythm.borderSubtle),
-              ),
-              child: Icon(
-                Icons.repeat,
-                size: 18,
-                color:
-                    dimmed ? context.rhythm.textMuted : context.rhythm.accent,
+            CircularStepProgressIndicator(
+              key: ValueKey('rhythm-progress-donut-${rule.id}'),
+              totalSteps: 100,
+              currentStep: (rule.completionFraction * 100).round(),
+              stepSize: 3,
+              selectedStepSize: 3,
+              selectedColor:
+                  dimmed ? context.rhythm.textMuted : context.rhythm.accent,
+              unselectedColor: context.rhythm.borderSubtle,
+              padding: 0,
+              width: 42,
+              height: 42,
+              roundedCap: (_, __) => true,
+              child: Center(
+                child: Text(
+                  '${(rule.completionFraction * 100).round()}%',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
               ),
             ),
             const SizedBox(width: 12),

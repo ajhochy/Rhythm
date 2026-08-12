@@ -201,6 +201,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // notifyListeners() and the same message bubble grows in size.
   final Map<String, List<ChatMessage>> _chatMessagesBySession = {};
   final Map<String, List<ChatPart>> _chatPartsByMessage = {};
+  final Map<String, String> _transcriptLoadErrorsBySession = {};
 
   /// Message ids whose parts the CLIENT authored optimistically (user input /
   /// slash commands). The client already knows this content exactly, so the
@@ -505,6 +506,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Chat messages for [sessionId] in insertion order.
   List<ChatMessage> chatMessagesFor(String sessionId) =>
       List.unmodifiable(_chatMessagesBySession[sessionId] ?? const []);
+
+  String? transcriptLoadErrorFor(String sessionId) =>
+      _transcriptLoadErrorsBySession[sessionId];
 
   /// Parts (text, tool, reasoning, …) for [messageId] in insertion order.
   List<ChatPart> chatPartsFor(String messageId) =>
@@ -1440,7 +1444,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   ///
   /// Does NOT touch permissionMode or any other session field — the agent
   /// selector is orthogonal to the PermissionModePicker (c6).
-  void setSelectedAgent(String sessionId, String? agentName) {
+  void setSelectedAgent(
+    String sessionId,
+    String? agentName, {
+    String? profileId,
+  }) {
     if (agentName == null) {
       _selectedAgentBySession.remove(sessionId);
     } else {
@@ -1453,18 +1461,29 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // selectedAgentFor doc) always fell back to the row's original value
       // after a restart wiped this in-memory map. Fire-and-forget: a failed
       // persist only costs cross-restart continuity, not this run's behavior.
-      unawaited(_persistSelectedAgent(sessionId, agentName));
+      unawaited(
+        _persistSelectedAgent(
+          sessionId,
+          agentName,
+          profileId: profileId,
+        ),
+      );
     }
     notifyListeners();
   }
 
   /// Writes the explicitly-selected profile onto the session row so restart
   /// rehydration (selectedAgentFor step 2) picks it up. Non-fatal on failure.
-  Future<void> _persistSelectedAgent(String sessionId, String agentName) async {
+  Future<void> _persistSelectedAgent(
+    String sessionId,
+    String agentName, {
+    String? profileId,
+  }) async {
     try {
       final updated = await _repository.updateSession(
         sessionId,
-        agentId: agentName,
+        profileId: profileId,
+        agentId: profileId == null ? agentName : null,
       );
       if (_disposed) return;
       _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
@@ -1894,6 +1913,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// form) get the catalog-default fallback so the server doesn't reject
   /// them with 400 until that surface is also migrated.
   Future<AgentSession?> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -1923,6 +1943,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final session = await _repository.createSession(
+        // #1365: persist the effective profile binding — an explicit profileId,
+        // else the explicit/resolved default agent — so the session row is not
+        // left Unassigned (which mobile would then display).
+        profileId:
+            profileId ?? (resolvedAgentId.isEmpty ? agentId : resolvedAgentId),
         agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
         taskId: taskId,
         cwd: cwd,
@@ -2154,7 +2179,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
-      await _repository.respondPermission(sessionId, permissionId, 'accept');
+      await _repository.respondPermission(sessionId, permissionId, 'once');
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
@@ -2176,7 +2201,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       await _repository.respondPermission(
         sessionId,
         permissionId,
-        'deny',
+        'reject',
         message: reason,
       );
     } catch (e) {
@@ -2790,6 +2815,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _pendingTurnOverride = null;
     notifyListeners();
     await _refreshSessionDetail(id, subscribe: true);
+    await _hydratePendingPermissions(id);
     // Load model routes for the newly selected session in the background.
     _loadModelRoutes(id);
     // Load slash commands for this session (Issue #610).
@@ -2809,11 +2835,27 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(refreshCatalog());
   }
 
+  Future<void> _hydratePendingPermissions(String sessionId) async {
+    try {
+      final pending = await _repository.fetchPendingPermissions(sessionId);
+      if (_disposed || _selectedSessionId != sessionId) return;
+      for (final permission in pending) {
+        _storePendingPermission(permission);
+      }
+      notifyListeners();
+    } catch (_) {
+      // Non-fatal fallback: live permission.asked frames still surface asks.
+    }
+  }
+
   /// Refresh the open session row and transcript without changing selection.
   /// Used by the mounted detail view while observing a headless run, which
   /// persists progress without emitting the WS events used by interactive turns.
   Future<void> refreshSelectedSessionDetail(String id) =>
       _refreshSessionDetail(id, subscribe: false);
+
+  Future<void> retrySessionDetail(String id) =>
+      _refreshSessionDetail(id, subscribe: true);
 
   Future<void> _refreshSessionDetail(
     String id, {
@@ -2824,6 +2866,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (_disposed || _selectedSessionId != id) return;
       _sessions = _upsertById(_sessions, result.session);
       _rehydrateChatMessages(id, result.messages);
+      _transcriptLoadErrorsBySession.remove(id);
       if (!_olderTranscriptCursorBySession.containsKey(id)) {
         _olderTranscriptCursorBySession[id] = result.messages.isEmpty
             ? null
@@ -2837,7 +2880,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     } catch (e) {
       if (_disposed || _selectedSessionId != id) return;
-      _error = e.toString();
+      final message = e is AppError ? e.message : e.toString();
+      _transcriptLoadErrorsBySession[id] = message;
+      _error = message;
       notifyListeners();
     }
   }
@@ -3243,19 +3288,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         unawaited(fetchAvailableAgents(activeSessionId));
       }
     } else if (msg is PermissionAskedMessage) {
-      final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
-      // Deduplicate by permissionId.
-      if (!list.any((p) => p.permissionId == msg.permissionId)) {
-        list.add(
-          PendingPermission(
-            sessionId: msg.sessionId,
-            permissionId: msg.permissionId,
-            toolName: msg.toolName,
-            args: msg.args,
-            summary: msg.summary,
-          ),
-        );
-      }
+      _storePendingPermission(msg);
       // #815: native notification when the user is not looking at this ask.
       final detail = msg.summary.trim().isNotEmpty
           ? msg.summary.trim()
@@ -3391,6 +3424,22 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       ];
     }
     notifyListeners();
+  }
+
+  void _storePendingPermission(PermissionAskedMessage msg) {
+    final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
+    if (list.any((permission) => permission.permissionId == msg.permissionId)) {
+      return;
+    }
+    list.add(
+      PendingPermission(
+        sessionId: msg.sessionId,
+        permissionId: msg.permissionId,
+        toolName: msg.toolName,
+        args: msg.args,
+        summary: msg.summary,
+      ),
+    );
   }
 
   // --------------------------------------------------------------------------

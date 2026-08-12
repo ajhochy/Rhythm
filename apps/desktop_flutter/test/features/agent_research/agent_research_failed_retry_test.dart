@@ -59,6 +59,14 @@ void main() {
     },
         () => MockClient((request) async {
               requests.add(request);
+              if (request.url.path.endsWith('/agent-research/projects')) {
+                return http.Response(
+                  jsonEncode({
+                    'error': {'message': 'not found'}
+                  }),
+                  404,
+                );
+              }
               if (request.method == 'POST') {
                 return http.Response(
                     jsonEncode(

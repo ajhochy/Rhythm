@@ -44,6 +44,9 @@ const externalReads = new Map<string, string>([
   ["rhythm_search_memory", "memory.search"],
   ["rhythm_list_memories", "memory.list"],
   ["rhythm_get_research_job", "research.job"],
+  ["rhythm_list_research_projects", "research.project.list"],
+  ["rhythm_get_research_project", "research.project.get"],
+  ["rhythm_get_research_project_run", "research.project.run"],
   ["rhythm_list_automations", "automation.list"],
   ["rhythm_get_automation", "automation.get"],
   ["rhythm_preview_automation", "automation.preview"],
@@ -165,6 +168,15 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
       { action: "research.update", sourceFile: "agentResearch.ts" },
     ],
     [
+      "rhythm_complete_research_pass",
+      { action: "research.complete-pass", sourceFile: "agentResearch.ts" },
+    ],
+    ["rhythm_create_research_project", { action: "research.project.create", sourceFile: "agentResearch.ts" }],
+    ["rhythm_update_research_project", { action: "research.project.update", sourceFile: "agentResearch.ts" }],
+    ["rhythm_archive_research_project", { action: "research.project.archive", sourceFile: "agentResearch.ts" }],
+    ["rhythm_start_research_project_run", { action: "research.project.run.start", sourceFile: "agentResearch.ts" }],
+    ["rhythm_discuss_research_report", { action: "research.project.discussion.start", sourceFile: "agentResearch.ts" }],
+    [
       "rhythm_run_org_optimizer",
       { action: "org-optimizer.run", sourceFile: "orgOptimizer.ts" },
     ],
@@ -283,7 +295,7 @@ const approvalRequestTool = "rhythm_request_approval";
 
 function toolBlock(source: string, tool: string): string {
   const match = new RegExp(
-    `(?:registerTool\\(\\s*server\\s*,|server\\.tool\\()\\s*['"]${tool}['"]`,
+    `(?:register(?:App)?Tool\\(\\s*server\\s*,|server\\.tool\\()\\s*['"]${tool}['"]`,
   ).exec(source);
   const toolIndex = match?.index ?? -1;
   expect(
@@ -291,7 +303,7 @@ function toolBlock(source: string, tool: string): string {
     `${tool} must have a static tool registration block`,
   ).toBeGreaterThanOrEqual(0);
   const remainder = source.slice(toolIndex + (match?.[0].length ?? 1));
-  const nextRelative = remainder.search(/(?:registerTool\(|server\.tool\()/);
+  const nextRelative = remainder.search(/(?:register(?:App)?Tool\(|server\.tool\()/);
   const next =
     nextRelative < 0
       ? undefined
@@ -315,7 +327,7 @@ function rhythmTools(role: RoleFile): string[] {
 function registeredRhythmTools(): Map<string, string> {
   const registered = new Map<string, string>();
   const registration =
-    /(?:registerTool\(\s*server\s*,|server\.tool\()\s*["'](rhythm_[a-z0-9_]+)["']/g;
+    /(?:register(?:App)?Tool\(\s*server\s*,|server\.tool\()\s*["'](rhythm_[a-z0-9_]+)["']/g;
   for (const name of readdirSync(toolsDir)) {
     if (
       !name.endsWith(".ts") ||
@@ -561,6 +573,9 @@ describe("#1175 external-content role graph", () => {
       rhythm_search_memory: "agentMemory.ts",
       rhythm_list_memories: "agentMemory.ts",
       rhythm_get_research_job: "agentResearch.ts",
+      rhythm_list_research_projects: "agentResearch.ts",
+      rhythm_get_research_project: "agentResearch.ts",
+      rhythm_get_research_project_run: "agentResearch.ts",
       rhythm_list_automations: "automations.ts",
       rhythm_get_automation: "automations.ts",
       rhythm_preview_automation: "automations.ts",
@@ -609,7 +624,7 @@ describe("#1175 external-content role graph", () => {
         `${tool} must register via registerTool(): the raw server.tool() path ` +
           `leaves the engine proof out of async-local scope, so its taint POST ` +
           `is unsigned and the agent server refuses it 403`,
-      ).toMatch(/^registerTool\(/);
+      ).toMatch(/^register(?:App)?Tool\(/);
     }
 
     const boundary = readFileSync(

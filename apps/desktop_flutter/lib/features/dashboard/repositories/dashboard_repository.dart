@@ -60,6 +60,8 @@ class DashboardRepository {
     bool includeScheduledDate = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
+    bool includeEnergy = false,
+    String? energy,
   }) =>
       _dataSource.updateTask(
         id,
@@ -72,6 +74,8 @@ class DashboardRepository {
         includeScheduledDate: includeScheduledDate,
         includePreferredAgent: includePreferredAgent,
         preferredAgent: preferredAgent,
+        includeEnergy: includeEnergy,
+        energy: energy,
       );
 
   Future<ProjectInstanceStep> updateProjectInstanceStepStatus(

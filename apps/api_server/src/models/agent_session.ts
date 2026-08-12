@@ -191,6 +191,8 @@ export interface CreateAgentSessionDto {
   cwd: string;
   name: string;
   projectId?: string | null;
+  /** Session-scoped permission policy selected by the client. */
+  permissionMode?: PermissionMode;
   /** C1 — optional MCP role slug (e.g. "church-admin"). Null/undefined = no scoping. */
   mcpRole?: string | null;
   /**
@@ -212,6 +214,8 @@ export interface CreateAgentSessionDto {
   ownerUserId?: number | null;
   /** Delegation nesting depth. Root sessions default to 0. */
   delegationDepth?: number;
+  /** Local parent session for delegated runs. Null/undefined for root sessions. */
+  parentSessionId?: string | null;
   /**
    * USO B1 (#1028) — explicit session category. When omitted it is derived at
    * insert time: 'scheduled' if scheduledTaskId is set, otherwise 'chat'. Pass

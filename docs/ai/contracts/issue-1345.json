@@ -1,0 +1,75 @@
+{
+  "issue": 1345,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1345-c1",
+      "text": "Reads derive server and URI from persisted call metadata.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/issue_1345_mcp_app_resource_contract.test.ts",
+      "test_id": "issue-1345-c1: reads derive server and URI from persisted call metadata",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1345-c2",
+      "text": "Missing, expired, mismatched, cross-session, and cross-server requests fail closed.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/issue_1345_mcp_app_resource_contract.test.ts",
+      "test_id": "issue-1345-c2: missing, expired, mismatched, cross-session, and cross-server requests fail closed",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1345-c3",
+      "text": "Only bounded `text/html;profile=mcp-app` resources are returned for app rendering.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/issue_1345_mcp_app_resource_contract.test.ts",
+      "test_id": "issue-1345-c3: only bounded text/html;profile=mcp-app content is returned",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1345-c4",
+      "text": "Flutter has no direct MCP transport.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1345_mcp_app_resource_test.dart",
+      "test_id": "issue-1345-c4: Flutter has no direct MCP transport and uses localhost API",
+      "status": "environment_blocked"
+    },
+    {
+      "criterion_id": "issue-1345-c5",
+      "text": "Existing text output remains unchanged.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/issue_1345_mcp_app_resource_contract.test.ts",
+      "test_id": "issue-1345-c5: existing text output remains unchanged",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1345-c6",
+      "text": "Fork/API contract and authorization tests.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1345_mcp_app_resource.test.ts",
+      "test_id": "issue-1345-c6: fork/API contract and authorization tests expose a URI-free route with no SQL migration",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1345-c7",
+      "text": "SDK regeneration check.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1345_mcp_app_resource.test.ts",
+      "test_id": "issue-1345-c7: generated SDK regeneration exposes the typed session resource operation",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-1345-c8",
+      "text": "Live sandbox test drives a resource read through the real API and records evidence.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1345_mcp_app_resource_live.test.ts",
+      "test_id": "issue-1345-c8: live sandbox reads a persisted call resource through the real fork and API",
+      "status": "environment_blocked"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1345-c4: flutter_tester cannot bind 127.0.0.1:0 in this workspace sandbox (EPERM)",
+    "issue-1345-c8: live sandbox sockets are unavailable in this workspace; the env-gated test is ready for the socket-capable orchestrator"
+  ]
+}

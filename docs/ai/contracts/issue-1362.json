@@ -1,0 +1,14 @@
+{
+  "issue": 1362,
+  "generated": "2026-08-10",
+  "stack": "dart",
+  "criteria": [
+    {"criterion_id":"issue-1362-c1","text":"Keyboard users can operate selector, reload, and Dashboard handoff.","mode":"ui","test_file":"apps/desktop_flutter/test/features/agents/issue_1362_artifact_accessibility_contract_test.dart","test_id":"issue-1362-c1: selector and preview actions are keyboard operable","status":"pending"},
+    {"criterion_id":"issue-1362-c2","text":"Selected artifact, generic status, and actions expose meaningful VoiceOver labels without sharing controls.","mode":"ui","test_file":"apps/desktop_flutter/test/features/agents/issue_1362_artifact_accessibility_contract_test.dart","test_id":"issue-1362-c2: selected artifact, status, and actions have VoiceOver labels","status":"pending"},
+    {"criterion_id":"issue-1362-c3","text":"Inspector interactive targets are at least 44px.","mode":"ui","test_file":"apps/desktop_flutter/test/features/agents/issue_1362_artifact_accessibility_contract_test.dart","test_id":"issue-1362-c3: every inspector control is at least 44px","status":"pending"},
+    {"criterion_id":"issue-1362-c4","text":"Long titles truncate visually while retaining their full semantic name.","mode":"ui","test_file":"apps/desktop_flutter/test/features/agents/issue_1362_artifact_accessibility_contract_test.dart","test_id":"issue-1362-c4: long title truncates visually but keeps its full semantic name","status":"pending"},
+    {"criterion_id":"issue-1362-c5","text":"An env-gated real macOS flow covers mutation, interaction, reload, and stable-ID Dashboard handoff.","mode":"integration","test_file":"apps/desktop_flutter/test/features/agents/issue_1362_artifact_accessibility_contract_test.dart","test_id":"issue-1362-c5: env-gated real macOS lifecycle flow is committed","status":"pending"},
+    {"criterion_id":"issue-1362-c6","text":"Manual smoke documents every required lifecycle and accessibility check.","mode":"integration","test_file":"apps/desktop_flutter/test/features/agents/issue_1362_artifact_accessibility_contract_test.dart","test_id":"issue-1362-c6: manual smoke names every required lifecycle check","status":"pending"}
+  ],
+  "not_tested": []
+}

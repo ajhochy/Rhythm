@@ -36,6 +36,7 @@ export interface RecurringTaskRule {
   enabled: boolean;
   sequential: boolean;
   ownerId: number | null;
+  goalId?: string | null;
   steps: RecurringTaskRuleStep[];
   collaborators: RhythmCollaborator[];
   progress?: RecurringTaskRuleProgress;
@@ -51,6 +52,7 @@ export interface CreateRecurringTaskRuleDto {
   enabled?: boolean;
   sequential?: boolean;
   ownerId?: number | null;
+  goalId?: string | null;
   steps?: RecurringTaskRuleStep[];
 }
 
@@ -63,5 +65,6 @@ export interface UpdateRecurringTaskRuleDto {
   enabled?: boolean;
   sequential?: boolean;
   ownerId?: number | null;
+  goalId?: string | null;
   steps?: RecurringTaskRuleStep[];
 }

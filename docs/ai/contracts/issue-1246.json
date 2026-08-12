@@ -1,0 +1,48 @@
+{
+  "issue": 1246,
+  "generated": "2026-08-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1246-c1",
+      "text": "Optional milestone grouping",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1246_contract.test.ts",
+      "test_id": "issue-1246-c1: defines a small instance-scoped milestone table",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1246-c2",
+      "text": "milestone CRUD",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1246_contract.test.ts",
+      "test_id": "issue-1246-c2: exposes instance-scoped milestone CRUD routes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1246-c3",
+      "text": "on project instances",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1246_contract.test.ts",
+      "test_id": "issue-1246-c3: project steps may be grouped into a milestone or remain ungrouped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1246-c4",
+      "text": "simple timeline view for multi-phase efforts.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1246_milestone_timeline_test.dart",
+      "test_id": "issue-1246-c4: project instance renders one ordered milestone timeline",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1246-c5",
+      "text": "All additive migrations, SQLite + Postgres parity mandatory.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1246_contract.test.ts",
+      "test_id": "issue-1246-c5: SQLite and Postgres milestone schema are additive and equivalent",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript,dart",
+  "not_tested": []
+}

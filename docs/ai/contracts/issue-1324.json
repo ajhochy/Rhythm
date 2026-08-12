@@ -1,0 +1,16 @@
+{
+  "issue": 1324,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1324-c1",
+      "text": "GET /agent-sessions/:id without transcriptLimit must never return the oldest 200 messages while silently dropping newer messages.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1324_transcript_window.test.ts",
+      "test_id": "issue-1324-c1: non-paged session detail returns the newest 200 messages in ascending order",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -355,6 +355,15 @@ class Session extends _HeyApiClient {
         });
     }
     /**
+     * Read a session-bound MCP App resource
+     */
+    mcpAppResource(options) {
+        return (options.client ?? this._client).get({
+            url: "/session/{id}/mcp-app-resource/{callID}",
+            ...options,
+        });
+    }
+    /**
      * Create and send a new message to a session
      */
     prompt(options) {

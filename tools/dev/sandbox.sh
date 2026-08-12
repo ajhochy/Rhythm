@@ -232,7 +232,7 @@ stop_recorded_engine_if_needed() {
   fail "recorded sandbox engine PID $current_pid did not release :$ENGINE_PORT"
 }
 
-down() {
+stop() {
   safe_sandbox_path
   if [[ -f "$PID_FILE" ]]; then
     local pid command
@@ -257,6 +257,50 @@ down() {
   stop_recorded_engine_if_needed
   [[ -z "$(listener "$API_PORT")" ]] || fail "sandbox API port :$API_PORT is still occupied"
   [[ -z "$(listener "$ENGINE_PORT")" ]] || fail "sandbox engine port :$ENGINE_PORT is still occupied"
+  [[ -z "$(listener "$GATEWAY_PORT")" ]] || fail "sandbox gateway port :$GATEWAY_PORT is still occupied"
+  rm -f "$PID_FILE" "$ENGINE_PID_FILE" "$FOREGROUND_PID_FILE" "$SHUTDOWN_FILE" "$SHUTDOWN_ACK_FILE"
+}
+
+restart() {
+  local -a runtime_env=(
+    "HOME=$SB/home"
+    "PORT=$API_PORT"
+    "DB_PATH=$SB/rhythm.db"
+    "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
+    "MEMORY_VAULT_PATH=$SB/vault"
+    "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
+    "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
+    "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
+    "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
+    "OPENCODE_DB=opencode-rhythm-sandbox.db"
+    "MAX_CONCURRENT_AGENT_RUNS=2"
+    "AGENT_LOCAL=true"
+    "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
+  )
+  local api_pid
+
+  safe_sandbox_path
+  [[ -f "$SB/rhythm.db" ]] || fail "sandbox DB is missing; run '$0 up' first"
+  [[ -d "$SB/home" && -d "$SB/vault" && -d "$SB/live-artifacts" ]] ||
+    fail "sandbox runtime directories are incomplete; refusing a partial restart"
+  [[ -x "$ENGINE_BIN" ]] || fail "sandbox engine binary is missing: $ENGINE_BIN"
+  [[ -f "$API_DIR/dist/server.js" ]] || fail "built api_server is missing; run '$0 up' first"
+
+  stop
+  require_free_port "$API_PORT"
+  require_free_port "$ENGINE_PORT"
+  require_free_port "$GATEWAY_PORT"
+  nohup env "${runtime_env[@]}" \
+    node "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
+  api_pid="$!"
+  printf '%s\n' "$api_pid" >"$PID_FILE"
+  wait_for_ready
+  ensure_rhythm_mcp
+  printf 'Sandbox restarted without replacing DB or vault: %s\n' "$SB"
+}
+
+down() {
+  stop
   rm -rf "$SB"
   printf 'Sandbox removed: %s\n' "$SB"
 }
@@ -264,12 +308,12 @@ down() {
 status() {
   safe_sandbox_path
   [[ -d "$SB/live-artifacts" ]] || fail "live-artifact storage root is missing"
-  printf 'sandbox: %s\nlive-artifact storage: %s\napi :%s listener: %s\nengine :%s listener: %s\n' \
-    "$SB" "$SB/live-artifacts" "$API_PORT" "$(listener "$API_PORT" || true)" "$ENGINE_PORT" "$(listener "$ENGINE_PORT" || true)"
+  printf 'sandbox: %s\nlive-artifact storage: %s\napi :%s listener: %s\nengine :%s listener: %s\ngateway :%s listener: %s\n' \
+    "$SB" "$SB/live-artifacts" "$API_PORT" "$(listener "$API_PORT" || true)" "$ENGINE_PORT" "$(listener "$ENGINE_PORT" || true)" "$GATEWAY_PORT" "$(listener "$GATEWAY_PORT" || true)"
 }
 
 usage() {
-  printf 'Usage: %s {up [--foreground]|down|status}\n' "$0" >&2
+  printf 'Usage: %s {up [--foreground]|restart|down|status}\n' "$0" >&2
 }
 
 case "${1:-}" in
@@ -284,6 +328,7 @@ case "${1:-}" in
     esac
     ;;
   down) down ;;
+  restart) restart ;;
   status) status ;;
   *) usage; exit 2 ;;
 esac

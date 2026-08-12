@@ -86,6 +86,22 @@ export function resolveLiveArtifactStorageDir(): string {
   return expandHome(process.env.LIVE_ARTIFACT_STORAGE_DIR ?? path.join(process.cwd(), 'live-artifacts'));
 }
 
+/** Filesystem root for checksum-addressed generated media bytes (#1309). */
+export function resolveMediaArtifactStorageRoot(): string {
+  const appDataDir = path.dirname(
+    expandHome(process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db')),
+  );
+  return expandHome(
+    process.env.ARTIFACT_STORAGE_ROOT ?? path.join(appDataDir, 'media-artifacts'),
+  );
+}
+
+/** Retention period for unpinned generated media. Invalid values use 30 days. */
+export function resolveMediaArtifactRetentionDays(): number {
+  const parsed = Number(process.env.ARTIFACT_RETENTION_DAYS ?? 30);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 30;
+}
+
 /**
  * #1093 prompt-retrieval augmentation, promoted to the DEFAULT lane (step 2 of
  * the semantic-memory rollout). `hybrid` is now what unset AND unrecognized
@@ -316,6 +332,11 @@ export const env = {
    * on the same condition.
    */
   agentExecutionEnabled: deploymentRole !== 'cloud',
+  /** #1288 — additive Research Projects surfaces remain opt-in until launched. */
+  researchProjectsEnabled:
+    (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')
+      .trim()
+      .toLowerCase() === 'true',
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),

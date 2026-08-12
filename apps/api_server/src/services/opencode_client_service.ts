@@ -18,6 +18,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
+import type { PermissionMode } from '../models/agent_session';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -488,6 +489,12 @@ export function augmentPathForOpencode(): void {
 }
 
 type OpencodeServerHandle = { url: string; close(): void };
+
+export interface OpencodeEngineIdentity {
+  version: string;
+  pid: number;
+  bootId: string;
+}
 
 export class OpencodeClientService {
   private status: EngineStatus = 'uninitialized';
@@ -1138,6 +1145,10 @@ export class OpencodeClientService {
     // omitted by every pre-#1123 caller, so top-level create/resume/AgentRunner
     // behavior stays byte-for-byte unchanged.
     parentSdkSessionId?: string,
+    // #1322 — plan is an engine-enforced, per-session bash deny. Keeping this
+    // on the session (instead of prompt text or a caller-side check) covers
+    // every bash invocation, including commands introduced by tools/agents.
+    permissionMode?: PermissionMode,
     // #1222 — root-cause of the discarded-error bug: every failure branch
     // below used to collapse to a bare `null`, so callers (AgentRunner in
     // particular) could only ever report the generic "failed to create
@@ -1227,6 +1238,11 @@ export class OpencodeClientService {
       if (mcpAllowlist !== undefined) {
         body.mcpAllowlist = mcpAllowlist;
       }
+      if (permissionMode === 'plan') {
+        body.permission = [
+          { permission: 'bash', pattern: '*', action: 'deny' },
+        ];
+      }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
       if (skillAllowlist !== undefined) {
@@ -1260,6 +1276,32 @@ export class OpencodeClientService {
       const message = err instanceof Error ? err.message : String(err);
       logger.error('[OpencodeClientService] createSession failed:', err);
       return { error: `Opencode session.create threw: ${message}` };
+    }
+  }
+
+  /** Keep the engine's session policy synchronized when Rhythm mode changes. */
+  async updateSessionPermissionMode(
+    sessionId: string,
+    permissionMode: PermissionMode,
+  ): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const permission = permissionMode === 'plan'
+        ? [{ permission: 'bash' as const, pattern: '*', action: 'deny' as const }]
+        : [];
+      const raw = await client.session.update({ sessionID: sessionId, permission });
+      if (raw.error) {
+        logger.warn(
+          '[OpencodeClientService] updateSessionPermissionMode SDK error for session %s: %o',
+          sessionId,
+          raw.error,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] updateSessionPermissionMode failed:', err);
+      return false;
     }
   }
 
@@ -1790,6 +1832,44 @@ export class OpencodeClientService {
   }
 
   /**
+   * Read the engine process identity from `/global/health`.
+   *
+   * Version alone is deliberately insufficient: a replacement process runs
+   * the same build. The fork exposes both pid and a random per-boot id so the
+   * still-running api_server can detect that its SSE subscription belongs to
+   * a dead predecessor.
+   */
+  async getEngineIdentity(): Promise<OpencodeEngineIdentity | null> {
+    try {
+      const res = await fetch(`${this.serverUrl}/global/health`, {
+        signal: AbortSignal.timeout(2_000),
+      });
+      if (!res.ok) return null;
+      const body = await res.json() as Partial<OpencodeEngineIdentity> & {
+        healthy?: boolean;
+      };
+      if (
+        body.healthy !== true ||
+        typeof body.version !== 'string' ||
+        !Number.isInteger(body.pid) ||
+        typeof body.bootId !== 'string' ||
+        body.bootId.length === 0
+      ) {
+        logger.warn('[OpencodeClientService] /global/health omitted engine identity');
+        return null;
+      }
+      return {
+        version: body.version,
+        pid: body.pid as number,
+        bootId: body.bootId,
+      };
+    } catch (err) {
+      logger.warn(`[OpencodeClientService] engine identity check failed: ${String(err)}`);
+      return null;
+    }
+  }
+
+  /**
    * Get OAuth authorization URL for a provider.
    * Returns the URL, method, and instructions on success.
    * Returns `{ error: string }` on failure so the caller can surface the SDK message.
@@ -2028,9 +2108,9 @@ export class OpencodeClientService {
    * endpoint `POST /permission/{requestID}/reply` (reply=once|always|reject
    * + optional {message}). `always` persists a project-level approval engine-
    * side; a reject message is fed back to the agent's next turn. This is the
-   * default path; the deprecated per-session endpoint
-   * ({@link respondToPermission}) is used ONLY as a fallback when the modern
-   * route 404s (older engine binary that predates it).
+   * default path. A 404 is authoritative: with the bundled fork it means the
+   * scoped request did not match a pending ask. Falling back would turn that
+   * required false result into a false-positive success (#1341).
    *
    * Direct fetch until a typed SDK adopts this route. Never throws — returns
    * true on 2xx, false on any failure (the caller still clears local UI
@@ -2055,21 +2135,6 @@ export class OpencodeClientService {
         body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
       });
       if (res.ok) return true;
-      // Older engine that never shipped /permission/:id/reply → fall back to
-      // the deprecated per-session endpoint (needs the SDK session id).
-      if (res.status === 404 && sdkSessionId) {
-        logger.warn(
-          '[OpencodeClientService] replyToPermission: modern /permission/%s/reply 404 — falling back to deprecated per-session endpoint',
-          requestID,
-        );
-        try {
-          await this.respondToPermission(sdkSessionId, requestID, reply, directory, message);
-          return true;
-        } catch (err) {
-          logger.error('[OpencodeClientService] replyToPermission fallback failed:', err);
-          return false;
-        }
-      }
       logger.error(
         `[OpencodeClientService] replyToPermission failed (${res.status}) for ${requestID}`,
       );
@@ -2217,6 +2282,8 @@ export class OpencodeClientService {
       id: string;
       sessionID: string;
       permission?: string;
+      patterns?: string[];
+      title?: string;
       metadata?: Record<string, unknown>;
       tool?: { callID?: string; messageID?: string };
     }>
@@ -2229,6 +2296,8 @@ export class OpencodeClientService {
         id: string;
         sessionID: string;
         permission?: string;
+        patterns?: string[];
+        title?: string;
         metadata?: Record<string, unknown>;
         tool?: { callID?: string; messageID?: string };
       }>;
@@ -2633,6 +2702,71 @@ export class OpencodeClientService {
       );
     }
     return raw.data ?? [];
+  }
+
+  async readSessionMcpAppResource(
+    sdkId: string,
+    callId: string,
+    directory: string,
+  ): Promise<{ mimeType: 'text/html;profile=mcp-app'; text: string }> {
+    const client = this.requireClient();
+    const raw = await client.session.mcpAppResource({
+      path: { id: sdkId, callID: callId },
+      query: { directory },
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(404, 'NOT_FOUND', 'MCP App resource unavailable');
+    }
+    return raw.data;
+  }
+
+  async issueSessionMcpAppExecutionProof(
+    sdkId: string,
+    callId: string,
+    directory: string,
+  ): Promise<{ proof: string; expiresAt: string }> {
+    const client = await this.v2Client();
+    const raw = await client.session.mcpAppExecutionProof({
+      sessionID: sdkId,
+      callID: callId,
+      directory,
+      body: {},
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(404, 'NOT_FOUND', 'MCP App execution proof unavailable');
+    }
+    return raw.data;
+  }
+
+  async executeSessionMcpAppTool(
+    sdkId: string,
+    callId: string,
+    directory: string,
+    input: {
+      proof: string;
+      toolKey: string;
+      arguments: Record<string, unknown>;
+      requestId: string;
+    },
+  ): Promise<{
+    content?: unknown[];
+    structuredContent?: unknown;
+    isError?: boolean;
+  }> {
+    const client = await this.v2Client();
+    const raw = await client.session.mcpAppExecution({
+      sessionID: sdkId,
+      callID: callId,
+      directory,
+      proof: input.proof,
+      toolKey: input.toolKey,
+      input: input.arguments,
+      requestID: input.requestId,
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(403, 'MCP_APP_EXECUTION_DENIED', 'MCP App execution denied');
+    }
+    return raw.data;
   }
 
   /**

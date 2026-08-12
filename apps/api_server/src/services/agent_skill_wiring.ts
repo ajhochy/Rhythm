@@ -49,6 +49,122 @@ export interface AgentSkillWiringMismatch {
   reasons: SkillWiringReason[];
 }
 
+export interface ResearchCapabilityDiagnosticsInput {
+  requestedSkills: string[];
+  availableSkills: string[];
+  requestedMcps: string[];
+  mcpStatuses: Record<string, string | undefined>;
+  vaultWritable: boolean;
+}
+
+export interface ResearchChannelDiagnostic {
+  available: boolean;
+  action: 'available' | 'fallback' | 'skip';
+  via: string | null;
+  reason?: string;
+}
+
+export interface ResearchCapabilityDiagnostics {
+  skills: { requested: string[]; available: string[]; unavailable: string[] };
+  mcps: { requested: string[]; available: string[]; unavailable: string[] };
+  channels: Record<'exa' | 'x' | 'reddit' | 'youtube' | 'gmail', ResearchChannelDiagnostic>;
+  fallbacks: string[];
+  vaultWritable: boolean;
+}
+
+const RESEARCH_PROFILE_IDS = new Set([
+  'research',
+  'AI-Trend-Researcher',
+  'Theological-Researcher',
+]);
+const OPTIONAL_RESEARCH_MCPS = new Set([
+  'exa',
+  'playwright',
+  'scrapling',
+  'pdf-tools',
+  'minutes',
+  'youtube-transcript',
+  'gmail-work',
+  'gmail-personal',
+]);
+
+export function partitionResearchMcpPreflight(
+  profileId: string | null | undefined,
+  unavailableServers: string[],
+  researchProjectsEnabled = true,
+): { blocking: string[]; degraded: string[] } {
+  if (!researchProjectsEnabled || !profileId || !RESEARCH_PROFILE_IDS.has(profileId)) {
+    return { blocking: unavailableServers, degraded: [] };
+  }
+  return {
+    blocking: unavailableServers.filter((name) => !OPTIONAL_RESEARCH_MCPS.has(name)),
+    degraded: unavailableServers.filter((name) => OPTIONAL_RESEARCH_MCPS.has(name)),
+  };
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+/**
+ * Build the JSON-safe research preflight snapshot persisted with project runs.
+ * Gmail is deliberately capability-based: merely requesting it never grants
+ * inbox access, and a disconnected Gmail MCP always resolves to `skip`.
+ */
+export function buildResearchCapabilityDiagnostics(
+  input: ResearchCapabilityDiagnosticsInput,
+): ResearchCapabilityDiagnostics {
+  const requestedSkills = unique(input.requestedSkills);
+  const availableSkillSet = new Set(input.availableSkills);
+  const availableSkills = requestedSkills.filter((name) => availableSkillSet.has(name));
+  const requestedMcps = unique(input.requestedMcps);
+  const connected = (name: string) => input.mcpStatuses[name] === 'connected';
+  const availableMcps = requestedMcps.filter(connected);
+  const hasAgentReach = availableSkillSet.has('agent-reach');
+  const hasWebFallback = hasAgentReach || connected('playwright') || connected('scrapling');
+  const gmailServer = ['gmail-work', 'gmail-personal'].find(connected) ?? null;
+
+  const channels: ResearchCapabilityDiagnostics['channels'] = {
+    exa: connected('exa')
+      ? { available: true, action: 'available', via: 'exa' }
+      : hasWebFallback
+        ? { available: false, action: 'fallback', via: hasAgentReach ? 'agent-reach' : 'web', reason: 'exa unavailable' }
+        : { available: false, action: 'skip', via: null, reason: 'exa unavailable and no safe fallback' },
+    x: hasAgentReach
+      ? { available: true, action: 'available', via: 'agent-reach' }
+      : { available: false, action: 'skip', via: null, reason: 'agent-reach unavailable' },
+    reddit: hasAgentReach
+      ? { available: true, action: 'available', via: 'agent-reach' }
+      : { available: false, action: 'skip', via: null, reason: 'agent-reach unavailable' },
+    youtube: connected('youtube-transcript')
+      ? { available: true, action: 'available', via: 'youtube-transcript' }
+      : hasAgentReach
+        ? { available: false, action: 'fallback', via: 'agent-reach', reason: 'youtube-transcript unavailable' }
+        : { available: false, action: 'skip', via: null, reason: 'YouTube capability unavailable' },
+    gmail: gmailServer
+      ? { available: true, action: 'available', via: gmailServer }
+      : { available: false, action: 'skip', via: null, reason: 'Gmail capability unavailable' },
+  };
+
+  return {
+    skills: {
+      requested: requestedSkills,
+      available: availableSkills,
+      unavailable: requestedSkills.filter((name) => !availableSkillSet.has(name)),
+    },
+    mcps: {
+      requested: requestedMcps,
+      available: availableMcps,
+      unavailable: requestedMcps.filter((name) => !connected(name)),
+    },
+    channels,
+    fallbacks: Object.entries(channels)
+      .filter(([, channel]) => channel.action === 'fallback')
+      .map(([name, channel]) => `${name}:${channel.via}`),
+    vaultWritable: input.vaultWritable,
+  };
+}
+
 /**
  * Extract the skill names an agent's system prompt tells the model to load.
  *

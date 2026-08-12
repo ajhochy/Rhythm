@@ -109,13 +109,27 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(instance_id, id)
+    );
+
     CREATE TABLE IF NOT EXISTS project_instance_steps (
       id TEXT PRIMARY KEY,
       instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
       step_id TEXT NOT NULL REFERENCES project_template_steps(id),
       title TEXT NOT NULL,
       due_date TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open'
+      status TEXT NOT NULL DEFAULT 'open',
+      milestone_id TEXT,
+      FOREIGN KEY (instance_id, milestone_id) REFERENCES project_milestones(instance_id, id)
     );
 
     CREATE TABLE IF NOT EXISTS weekly_plans (
@@ -1249,6 +1263,30 @@ export function runMigrations(db: Database.Database): void {
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`);
 
+  // #1309 — generated-media metadata. Bytes remain in the app-managed,
+  // checksum-addressed filesystem store rather than bloating SQLite.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS media_artifacts (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      session TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL CHECK (size >= 0),
+      checksum TEXT NOT NULL CHECK (length(checksum) = 64),
+      created_at TEXT NOT NULL,
+      storage_key TEXT NOT NULL,
+      pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_project_created
+      ON media_artifacts(project, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_storage_key
+      ON media_artifacts(storage_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_media_artifacts_session_checksum
+      ON media_artifacts(project, session, checksum);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_retention
+      ON media_artifacts(pinned, created_at);
+  `);
+
   // Issue #601 — agent_sessions.archived_at (soft-archive, distinct from hard-delete)
   // Additive, nullable, no default. Idempotent via pragma check.
   const agentSessionColsArchive = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
@@ -1699,6 +1737,47 @@ export function runMigrations(db: Database.Database): void {
       ON agent_webhook_endpoints(enabled);
   `);
 
+  // #1288 — named research-project persistence. Project runs are immutable
+  // configuration snapshots; mutable execution state lives on their pass jobs.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_research_projects (
+      id TEXT PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      question TEXT NOT NULL,
+      goals_json TEXT NOT NULL DEFAULT '[]',
+      domain TEXT,
+      profile_id TEXT,
+      pass_config_json TEXT NOT NULL DEFAULT '[]',
+      model_policy_json TEXT NOT NULL DEFAULT '{}',
+      critic_config_json TEXT NOT NULL DEFAULT '{}',
+      synthesis_config_json TEXT NOT NULL DEFAULT '{}',
+      schedule_ref TEXT,
+      budget_json TEXT NOT NULL DEFAULT '{}',
+      archived_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_projects_owner_activity
+      ON agent_research_projects(owner_user_id, archived_at, updated_at);
+
+    CREATE TABLE IF NOT EXISTS agent_research_project_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      trigger_type TEXT NOT NULL,
+      config_snapshot_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      progress_json TEXT NOT NULL DEFAULT '{}',
+      diagnostics_json TEXT NOT NULL DEFAULT '{}',
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_project_runs_project_activity
+      ON agent_research_project_runs(project_id, created_at);
+  `);
+
   // agent_research_jobs — deep research pipeline queue.
   // status: 'pending' | 'gathering' | 'reading' | 'synthesizing' | 'done' | 'error'
   db.exec(`
@@ -1716,6 +1795,13 @@ export function runMigrations(db: Database.Database): void {
       origin TEXT NOT NULL DEFAULT 'page',
       vault_path TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      pass_role TEXT,
+      pass_ordinal INTEGER,
+      run_config_json TEXT,
+      progress_json TEXT,
+      classification_json TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -1731,8 +1817,84 @@ export function runMigrations(db: Database.Database): void {
   if (!researchCols.includes('agent_profile_id')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN agent_profile_id TEXT`);
   if (!researchCols.includes('origin')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'page'`);
   if (!researchCols.includes('vault_path')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN vault_path TEXT`);
+  if (!researchCols.includes('project_id')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE`);
+  if (!researchCols.includes('project_run_id')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE`);
+  if (!researchCols.includes('pass_role')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN pass_role TEXT`);
+  if (!researchCols.includes('pass_ordinal')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN pass_ordinal INTEGER`);
+  if (!researchCols.includes('run_config_json')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN run_config_json TEXT`);
+  if (!researchCols.includes('progress_json')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN progress_json TEXT`);
+  if (!researchCols.includes('classification_json')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN classification_json TEXT`);
   db.exec(`UPDATE agent_research_jobs SET research_type = 'generic', title = query, agent_profile_id = 'research', origin = 'page' WHERE research_type IS NULL OR title IS NULL OR agent_profile_id IS NULL OR origin IS NULL`);
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_research_jobs_agent_session_id ON agent_research_jobs(agent_session_id) WHERE agent_session_id IS NOT NULL`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_project_run_pass ON agent_research_jobs(project_run_id, pass_ordinal)`);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_research_artifacts (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
+      artifact_role TEXT NOT NULL,
+      vault_path TEXT NOT NULL,
+      content_hash TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_artifacts_run_role
+      ON agent_research_artifacts(project_run_id, artifact_role);
+
+    CREATE TABLE IF NOT EXISTS agent_research_curated_sources (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
+      canonical_url TEXT NOT NULL,
+      title TEXT,
+      publisher TEXT,
+      source_type TEXT,
+      capture_status TEXT NOT NULL DEFAULT 'metadata-only',
+      structured_vault_path TEXT,
+      full_text_vault_path TEXT,
+      content_hash TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_curated_sources_project_url
+      ON agent_research_curated_sources(project_id, canonical_url);
+
+    CREATE TABLE IF NOT EXISTS agent_research_qa_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE SET NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      question TEXT NOT NULL,
+      answer TEXT,
+      artifact_id TEXT REFERENCES agent_research_artifacts(id) ON DELETE SET NULL,
+      source_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
+      ON agent_research_qa_links(project_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS agent_research_pass_relationships (
+      id TEXT PRIMARY KEY,
+      parent_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
+      child_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
+      relationship_type TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(parent_job_id, child_job_id, relationship_type)
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_pass_relationships_child
+      ON agent_research_pass_relationships(child_job_id, relationship_type);
+  `);
+
+  const researchQaCols = (db.pragma('table_info(agent_research_qa_links)') as { name: string }[])
+    .map((column) => column.name);
+  if (!researchQaCols.includes('agent_session_id')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  if (!researchQaCols.includes('context_snapshot_json')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN context_snapshot_json TEXT NOT NULL DEFAULT '{}'`);
+  if (!researchQaCols.includes('context_hash')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN context_hash TEXT`);
+  if (!researchQaCols.includes('model_usage_json')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN model_usage_json TEXT NOT NULL DEFAULT '{}'`);
+  if (!researchQaCols.includes('diagnostics_json')) db.exec(`ALTER TABLE agent_research_qa_links ADD COLUMN diagnostics_json TEXT NOT NULL DEFAULT '{}'`);
 
   // Extend pending_claude_triggers with scheduler context columns (additive).
   // These are all nullable — existing human-triggered rows have NULL here.
@@ -3357,5 +3519,95 @@ If someone asks for creative work that needs a local capability:
     );
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
       ON agent_scheduled_task_runs(task_id, started_at DESC);
+  `);
+
+  // #1243 — first-class season goals. This is deliberately additive: existing
+  // tasks, project instances, and rhythms remain ungrouped with a NULL goal_id.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      metric_type TEXT NOT NULL,
+      start_value REAL NOT NULL,
+      current_value REAL NOT NULL,
+      end_value REAL NOT NULL,
+      health TEXT NOT NULL DEFAULT 'on_track',
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_goals_owner_dates
+      ON goals(owner_id, start_date, end_date);
+  `);
+  for (const table of ['tasks', 'project_instances', 'recurring_task_rules']) {
+    const columns = (db.pragma(`table_info(${table})`) as { name: string }[])
+      .map((column) => column.name);
+    if (!columns.includes('goal_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_goal_id ON ${table}(goal_id)`);
+  }
+
+  // #1244 — nullable priority and normalized JSON-array tags for task organization.
+  const taskColumns = (db.pragma('table_info(tasks)') as { name: string }[])
+    .map((column) => column.name);
+  if (!taskColumns.includes('priority')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN priority INTEGER');
+  }
+  if (!taskColumns.includes('tags')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!taskColumns.includes('energy')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN energy TEXT');
+  }
+
+  // #1246 — compact, instance-scoped milestones. Fresh databases receive the
+  // composite FK above; triggers enforce the same invariant on legacy tables
+  // where SQLite cannot add a table constraint without rebuilding the table.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(instance_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_milestones_instance_order
+      ON project_milestones(instance_id, sort_order);
+  `);
+  const milestoneStepColumns = (
+    db.pragma('table_info(project_instance_steps)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!milestoneStepColumns.includes('milestone_id')) {
+    db.exec('ALTER TABLE project_instance_steps ADD COLUMN milestone_id TEXT');
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_project_instance_steps_milestone
+      ON project_instance_steps(instance_id, milestone_id);
+    CREATE TRIGGER IF NOT EXISTS project_instance_steps_milestone_insert_guard
+    BEFORE INSERT ON project_instance_steps
+    WHEN NEW.milestone_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM project_milestones
+      WHERE id = NEW.milestone_id AND instance_id = NEW.instance_id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'milestone must belong to the project instance');
+    END;
+    CREATE TRIGGER IF NOT EXISTS project_instance_steps_milestone_update_guard
+    BEFORE UPDATE OF instance_id, milestone_id ON project_instance_steps
+    WHEN NEW.milestone_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM project_milestones
+      WHERE id = NEW.milestone_id AND instance_id = NEW.instance_id
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'milestone must belong to the project instance');
+    END;
   `);
 }

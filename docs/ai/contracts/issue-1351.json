@@ -1,0 +1,16 @@
+{
+  "issue": 1351,
+  "generated": "2026-08-10",
+  "criteria": [
+    {"criterion_id":"issue-1351-c1","text":"Open Design renders through descriptor-driven generic host code.","mode":"integration","test_file":"apps/desktop_flutter/tool/contracts/issue_1351_readonly_pilot.dart","test_id":"descriptor-driven load","status":"passing"},
+    {"criterion_id":"issue-1351-c2","text":"Text and structured fallback appears before HTML loads.","mode":"unit","test_file":"apps/desktop_flutter/tool/contracts/issue_1351_readonly_pilot.dart","test_id":"fallback before load","status":"passing"},
+    {"criterion_id":"issue-1351-c3","text":"Unsupported actions and links deny with zero mutation.","mode":"unit","test_file":"apps/desktop_flutter/tool/contracts/issue_1351_readonly_pilot.dart","test_id":"zero-action denial","status":"passing"},
+    {"criterion_id":"issue-1351-c4","text":"Resource errors preserve usable fallback.","mode":"unit","test_file":"apps/desktop_flutter/tool/contracts/issue_1351_readonly_pilot.dart","test_id":"resource error fallback","status":"passing"},
+    {"criterion_id":"issue-1351-c5","text":"Mode off remains generic tool card and performs no resource read.","mode":"unit","test_file":"apps/desktop_flutter/tool/contracts/issue_1351_readonly_pilot.dart","test_id":"mode off","status":"passing"},
+    {"criterion_id":"issue-1351-c6","text":"Live and packaged Open Design evidence, including denied mutation.","mode":"manual","test_file":"apps/api_server/src/__tests__/issue_1351_open_design_live.test.ts","test_id":"live readonly Open Design pilot","status":"environment_blocked"}
+  ],
+  "stack": "dart-typescript",
+  "not_tested": [
+    "issue-1351-c6: live sandbox and packaged/debug Open Design evidence require socket/UI-capable orchestration"
+  ]
+}

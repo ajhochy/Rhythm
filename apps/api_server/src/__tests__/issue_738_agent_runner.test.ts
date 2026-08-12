@@ -295,6 +295,30 @@ describe('#738 — AgentRunner', () => {
     expect(recorded?.category).toBe('chat');
   });
 
+  it('issue-1348-c2: synchronous delegated runs persist their parent link and depth', async () => {
+    // Regression caught: delegateToAgent derived depth but AgentRunner inserted
+    // a root row, so the sync child survived Chats filtering and could not nest.
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('Delegated result'));
+    const parent = new AgentSessionsRepository().insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'Parent chat',
+    });
+
+    const result = await run({
+      prompt: 'Do delegated work',
+      parentSessionId: parent.id,
+      delegationDepth: 1,
+    });
+
+    const child = new AgentSessionsRepository().findById(result.sessionId);
+    expect(child?.parentSessionId).toBe(parent.id);
+    expect(child?.delegationDepth).toBe(1);
+  });
+
   // ── dev-dashboard-refresh incident (2026-07-22): a scheduled/headless run
   // hung on a live "Allow?" card for `glob` even though the prompt() call was
   // given permissionMode: 'bypassPermissions'. Root cause: that value was

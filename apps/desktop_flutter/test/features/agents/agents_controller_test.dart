@@ -76,6 +76,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   final List<Map<String, dynamic>> sentMessages = [];
   List<AgentSession> sessionsToReturn = [];
   List<AgentInfo> availableAgentsToReturn = const [];
+  List<PermissionAskedMessage> pendingPermissionsToReturn = const [];
+  final List<({String sessionId, String permissionId, String response})>
+      permissionResponses = [];
 
   /// Push a synthetic WS message from the test.
   void emit(AgentWsMessage msg) => _msgController.add(msg);
@@ -128,6 +131,7 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId,
     String? taskId,
     required String cwd,
@@ -140,14 +144,14 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool isolateWorktree = false,
     String? worktreeName,
   }) async {
-    lastCreateAgentId = agentId;
+    lastCreateProfileId = profileId;
     if (createSessionError != null) throw createSessionError!;
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
 
-  /// #889: the agentId passed to the most recent createSession call, so tests
+  /// #889: the profileId passed to the most recent createSession call, so tests
   /// can assert default-agent resolution.
-  String? lastCreateAgentId;
+  String? lastCreateProfileId;
 
   /// #1154 — When set, [createSession] throws this instead of returning a
   /// session, so tests can assert how `AgentsController` surfaces a
@@ -173,6 +177,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   @override
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -215,7 +220,18 @@ class _FakeAgentsRepository implements AgentsRepository {
     String permissionId,
     String decision, {
     String? message,
-  }) async {}
+  }) async {
+    permissionResponses.add((
+      sessionId: sessionId,
+      permissionId: permissionId,
+      response: decision,
+    ));
+  }
+
+  @override
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+          String sessionId) async =>
+      pendingPermissionsToReturn;
 
   @override
   Future<void> replyQuestion(
@@ -351,6 +367,7 @@ AgentSession _makeScopedSession(
   AgentSessionStatus status, {
   bool isSystem = false,
   String category = 'chat',
+  String? parentId,
 }) {
   final now = DateTime.now();
   return AgentSession(
@@ -363,6 +380,7 @@ AgentSession _makeScopedSession(
     updatedAt: now,
     isSystem: isSystem,
     category: category,
+    parentId: parentId,
   );
 }
 
@@ -412,7 +430,7 @@ void main() {
       () async {
         // `controller` (from setUp) has no configuredDefaultAgentResolver.
         await controller.createSession(cwd: '/tmp');
-        expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+        expect(fakeRepo.lastCreateProfileId, equals('secretary'));
       },
     );
 
@@ -422,7 +440,7 @@ void main() {
       () async {
         final c = build(resolver: () => 'theologian');
         await c.createSession(cwd: '/tmp');
-        expect(fakeRepo.lastCreateAgentId, equals('theologian'));
+        expect(fakeRepo.lastCreateProfileId, equals('theologian'));
       },
     );
 
@@ -431,13 +449,13 @@ void main() {
       () async {
         final c = build(resolver: () => null);
         await c.createSession(cwd: '/tmp');
-        expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+        expect(fakeRepo.lastCreateProfileId, equals('secretary'));
       },
     );
 
     test('does not override an explicitly-passed agentId', () async {
       await controller.createSession(cwd: '/tmp', agentId: 'worship-planning');
-      expect(fakeRepo.lastCreateAgentId, equals('worship-planning'));
+      expect(fakeRepo.lastCreateProfileId, equals('worship-planning'));
     });
   });
 
@@ -636,6 +654,27 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
       expect(controller.sessions.map((s) => s.id), contains('chat-updated'));
+    });
+
+    test(
+        'issue-1348-c3 (reverted per AJ): child chat sessions enter the Chats '
+        'list (grouped under their parent as a collapsed subagent group)',
+        () async {
+      expect(controller.scope, AgentSessionScope.chats);
+
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession(
+          'delegated-child',
+          AgentSessionStatus.working,
+          parentId: 'parent-chat',
+        ),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // AJ 2026-08-11: #1348's client-side exclusion is reverted; delegated
+      // children belong to the Chats scope again and the session-list tree
+      // (#910) nests them under their parent.
+      expect(controller.sessions.map((s) => s.id), contains('delegated-child'));
     });
 
     test(
@@ -896,6 +935,48 @@ void main() {
         );
       },
     );
+  });
+
+  group('#1340 permission lifecycle', () {
+    test(
+        'issue-1340-c4: selecting a session hydrates pre-existing pending permissions',
+        () async {
+      // Regression caught: an ask created before the desktop subscribed was
+      // invisible forever because session selection only fetched transcript.
+      fakeRepo.pendingPermissionsToReturn = const [
+        PermissionAskedMessage(
+          sessionId: 'session-with-ask',
+          permissionId: 'permission-before-open',
+          toolName: 'bash',
+          args: {
+            'directory': '/tmp/project',
+            'patterns': ['git push origin feature/chat-ui'],
+          },
+          summary: 'Push the feature branch',
+        ),
+      ];
+
+      await controller.selectSession('session-with-ask');
+
+      expect(
+        controller
+            .pendingPermissionsFor('session-with-ask')
+            .map((permission) => permission.permissionId),
+        ['permission-before-open'],
+      );
+    });
+
+    test('approval and denial use once/always/reject response vocabulary',
+        () async {
+      await controller.acceptPermission('session-1', 'permission-once');
+      await controller.alwaysAllowPermission('session-1', 'permission-always');
+      await controller.denyPermission('session-1', 'permission-reject');
+
+      expect(
+        fakeRepo.permissionResponses.map((reply) => reply.response),
+        ['once', 'always', 'reject'],
+      );
+    });
   });
 
   // --------------------------------------------------------------------------

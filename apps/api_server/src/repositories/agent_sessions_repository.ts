@@ -316,9 +316,10 @@ export class AgentSessionsRepository {
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
-            mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
+            anthropic_account_id, owner_user_id, parent_session_id,
+            delegation_depth, category, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -329,12 +330,14 @@ export class AgentSessionsRepository {
         dto.cwd,
         dto.name,
         dto.projectId ?? null,
+        dto.permissionMode ?? 'default',
         dto.mcpRole ?? null,
         dto.mcpAllowedToolsJson ?? null,
         dto.scheduledTaskId ?? null,
         dto.isSystem ? 1 : 0,
         dto.anthropicAccountId ?? null,
         dto.ownerUserId ?? null,
+        dto.parentSessionId ?? null,
         dto.delegationDepth ?? 0,
         category,
         now,
@@ -410,14 +413,18 @@ export class AgentSessionsRepository {
     // USO B1 (#1028): the `scope` selects which slice of sessions to return,
     // filtered on the persisted `category` column (upgraded from A1's
     // is_system/scheduled_task_id placeholder).
-    //   - 'chats' (default) → category = 'chat' AND is_system = 0. The is_system
-    //     guard is retained so a stray is_system=1 row can never leak into the
-    //     default Chats view even if its category were 'chat'.
+    //   - no scope (internal callers) → the legacy non-system Chat set,
+    //     including delegated children needed by persistence/audit consumers.
+    //   - 'chats' → root category = 'chat' rows only. The is_system guard is
+    //     retained so a stray is_system=1 row can never leak into Chats even if
+    //     its category were 'chat'.
     //   - 'scheduled' → category = 'scheduled'.
     //   - 'self_improvement' → category = 'self_improvement'.
-    const scope = opts.scope ?? 'chats';
+    const scope = opts.scope;
     const scopeClause =
-      scope === 'scheduled'
+      scope === undefined
+        ? "category = 'chat' AND is_system = 0"
+        : scope === 'scheduled'
         ? "category = 'scheduled'"
         : scope === 'self_improvement'
           ? "category = 'self_improvement'"

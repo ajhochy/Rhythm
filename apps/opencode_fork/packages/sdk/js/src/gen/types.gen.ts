@@ -2585,6 +2585,34 @@ export type SessionMessagesResponses = {
 
 export type SessionMessagesResponse = SessionMessagesResponses[keyof SessionMessagesResponses]
 
+export type SessionMcpAppResourceData = {
+  body?: never
+  path: {
+    id: string
+    callID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{id}/mcp-app-resource/{callID}"
+}
+
+export type SessionMcpAppResourceErrors = {
+  400: BadRequestError
+  404: NotFoundError
+}
+
+export type SessionMcpAppResourceError = SessionMcpAppResourceErrors[keyof SessionMcpAppResourceErrors]
+
+export type SessionMcpAppResourceResponses = {
+  200: {
+    mimeType: "text/html;profile=mcp-app"
+    text: string
+  }
+}
+
+export type SessionMcpAppResourceResponse = SessionMcpAppResourceResponses[keyof SessionMcpAppResourceResponses]
+
 export type SessionPromptData = {
   body?: {
     messageID?: string

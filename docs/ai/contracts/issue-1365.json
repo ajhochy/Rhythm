@@ -1,0 +1,40 @@
+{
+  "issue": 1365,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1365-c1",
+      "text": "Creating or selecting a desktop chat persists the selected profile binding on the session row.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1365_profile_binding_test.dart",
+      "test_id": "issue-1365-c1: desktop create and selection PATCH send profileId",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1365-c2",
+      "text": "Existing explicit bindings are not overwritten accidentally.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1365_profile_binding_test.dart",
+      "test_id": "issue-1365-c2: unrelated desktop PATCH does not overwrite profileId",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1365-c3",
+      "text": "Mobile displays the stored profile consistently after refresh and scope changes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1365_profile_binding.test.ts",
+      "test_id": "issue-1365-c3: mobile state reads the stored profile after refresh",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1365-c4",
+      "text": "Add focused API/desktop coverage and live sandbox evidence for a newly created session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1365_profile_binding.test.ts",
+      "test_id": "issue-1365-c4: a newly created session exposes its persisted profile",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

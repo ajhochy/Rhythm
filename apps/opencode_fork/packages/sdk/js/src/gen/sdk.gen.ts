@@ -88,6 +88,9 @@ import type {
   SessionMessagesData,
   SessionMessagesResponses,
   SessionMessagesErrors,
+  SessionMcpAppResourceData,
+  SessionMcpAppResourceResponses,
+  SessionMcpAppResourceErrors,
   SessionPromptData,
   SessionPromptResponses,
   SessionPromptErrors,
@@ -605,6 +608,22 @@ class Session extends _HeyApiClient {
   public messages<ThrowOnError extends boolean = false>(options: Options<SessionMessagesData, ThrowOnError>) {
     return (options.client ?? this._client).get<SessionMessagesResponses, SessionMessagesErrors, ThrowOnError>({
       url: "/session/{id}/message",
+      ...options,
+    })
+  }
+
+  /**
+   * Read a session-bound MCP App resource
+   */
+  public mcpAppResource<ThrowOnError extends boolean = false>(
+    options: Options<SessionMcpAppResourceData, ThrowOnError>,
+  ) {
+    return (options.client ?? this._client).get<
+      SessionMcpAppResourceResponses,
+      SessionMcpAppResourceErrors,
+      ThrowOnError
+    >({
+      url: "/session/{id}/mcp-app-resource/{callID}",
       ...options,
     })
   }

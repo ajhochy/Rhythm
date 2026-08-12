@@ -54,6 +54,8 @@ class _TasksViewState extends State<TasksView> {
   bool _showCompleted = false;
   String _searchQuery = '';
   String? _activeTimeFilter; // null = all, 'today', 'week', 'month'
+  String? _activeTag;
+  int _minimumPriority = 0;
   TaskSortField _sortField = TaskSortField.dueDate;
   TasksPresentation _presentation = TasksPresentation.list;
 
@@ -201,7 +203,12 @@ class _TasksViewState extends State<TasksView> {
             ].join(' ').toLowerCase();
             return haystack.contains(query);
           }).toList();
-    return [...searched]
+    final organized = searched.where((task) {
+      final matchesTag = _activeTag == null || task.tags.contains(_activeTag);
+      final matchesPriority = (task.priority ?? 0) >= _minimumPriority;
+      return matchesTag && matchesPriority;
+    });
+    return [...organized]
       ..sort((a, b) => compareTasksBySortField(a, b, _sortField));
   }
 
@@ -227,6 +234,43 @@ class _TasksViewState extends State<TasksView> {
         width: 200,
       ),
       filters: [
+        PopupMenuButton<String>(
+          key: const ValueKey('tasks-tag-filter'),
+          tooltip: 'Filter by tag',
+          onSelected: (value) => setState(
+            () => _activeTag = value.isEmpty ? null : value,
+          ),
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: '', child: Text('All tags')),
+            for (final tag
+                in controller.tasks.expand((task) => task.tags).toSet().toList()
+                  ..sort())
+              PopupMenuItem(value: tag, child: Text('#$tag')),
+          ],
+          child: RhythmBadge(
+            label: _activeTag == null ? 'Tag' : '#$_activeTag',
+            icon: Icons.sell_outlined,
+            compact: true,
+          ),
+        ),
+        PopupMenuButton<int>(
+          key: const ValueKey('tasks-priority-filter'),
+          tooltip: 'Minimum priority',
+          initialValue: _minimumPriority,
+          onSelected: (value) => setState(() => _minimumPriority = value),
+          itemBuilder: (_) => [
+            for (var value = 0; value <= 3; value++)
+              PopupMenuItem(
+                value: value,
+                child: Text(value == 0 ? 'Any priority' : 'Priority $value+'),
+              ),
+          ],
+          child: RhythmBadge(
+            label: _minimumPriority == 0 ? 'Priority' : 'P$_minimumPriority+',
+            icon: Icons.flag_outlined,
+            compact: true,
+          ),
+        ),
         RhythmSegmentedControl<bool>(
           compact: true,
           value: _showCompleted,
@@ -273,8 +317,8 @@ class _TasksViewState extends State<TasksView> {
             ),
           ],
         ),
-        RhythmColorLegend(
-          items: const [
+        const RhythmColorLegend(
+          items: [
             (Color(0xFFDC5B58), 'Past due'),
             (TaskVisualStyles.pastDeadlineAccent, 'Past deadline'),
             (Color(0xFFE29A3A), 'Today'),
@@ -624,7 +668,10 @@ class _TasksViewState extends State<TasksView> {
                 height: 16,
                 child: Checkbox(
                   value: isDone,
-                  onChanged: (_) => controller.toggleDone(task.id),
+                  onChanged: (_) => _toggleDoneWithAffirmation(
+                    controller,
+                    task.id,
+                  ),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity:
                       const VisualDensity(horizontal: -4, vertical: -4),
@@ -658,6 +705,26 @@ class _TasksViewState extends State<TasksView> {
                               color: colors.textMuted,
                               fontSize: 11,
                             ),
+                      ),
+                    if (task.priority != null || task.tags.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            if (task.priority != null)
+                              RhythmMetaChip(
+                                label: 'P${task.priority}',
+                                icon: Icons.flag_outlined,
+                              ),
+                            for (final tag in task.tags.take(3))
+                              RhythmMetaChip(
+                                label: '#$tag',
+                                icon: Icons.sell_outlined,
+                              ),
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -763,8 +830,10 @@ class _TasksViewState extends State<TasksView> {
         includeScheduledDate: true,
         includePreferredAgent: true,
         preferredAgent: request.preferredAgent,
+        includeEnergy: true,
+        energy: request.energy,
       ),
-      onToggleStatus: () => controller.toggleDone(task.id),
+      onToggleStatus: () => _toggleDoneWithAffirmation(controller, task.id),
       onAddCollaborator: (userId) async {
         final collaborators =
             await collaboratorsDataSource.addToTask(task.id, userId);
@@ -777,6 +846,24 @@ class _TasksViewState extends State<TasksView> {
         return collaborators;
       },
     );
+  }
+
+  Future<void> _toggleDoneWithAffirmation(
+    TasksController controller,
+    String taskId,
+  ) async {
+    await controller.toggleDone(taskId);
+    if (!mounted) return;
+    final message = controller.takeCompletionAffirmation();
+    if (message != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const ValueKey('task-completion-affirmation'),
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 }
 

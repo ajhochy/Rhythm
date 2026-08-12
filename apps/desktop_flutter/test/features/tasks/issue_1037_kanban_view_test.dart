@@ -347,6 +347,14 @@ class _FakeTasksDataSource extends TasksLocalDataSource {
     bool includeOwnerId = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
+    bool includeGoalId = false,
+    String? goalId,
+    bool includePriority = false,
+    int? priority,
+    bool includeTags = false,
+    List<String>? tags,
+    bool includeEnergy = false,
+    String? energy,
   }) async {
     updateCalls += 1;
     updatedTaskId = id;

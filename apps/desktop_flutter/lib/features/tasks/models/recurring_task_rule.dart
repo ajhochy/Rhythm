@@ -114,6 +114,7 @@ class RecurringTaskRule {
     this.steps = const [],
     this.collaborators = const [],
     this.progress,
+    this.goalId,
   });
 
   factory RecurringTaskRule.fromJson(Map<String, dynamic> json) {
@@ -125,6 +126,7 @@ class RecurringTaskRule {
       dayOfMonth: asInt(json['dayOfMonth']),
       month: asInt(json['month']),
       ownerId: asInt(json['ownerId']),
+      goalId: asString(json['goalId']),
       createdAt: asString(json['createdAt']) ?? '',
       enabled: asBool(json['enabled']) ?? true,
       sequential: asBool(json['sequential']) ?? false,
@@ -160,6 +162,7 @@ class RecurringTaskRule {
   final List<RecurringTaskRuleStep> steps;
   final List<RhythmCollaborator> collaborators;
   final RecurringTaskRuleProgress? progress;
+  final String? goalId;
 
   RecurringTaskRule copyWith({
     bool? enabled,
@@ -167,6 +170,7 @@ class RecurringTaskRule {
     List<RecurringTaskRuleStep>? steps,
     List<RhythmCollaborator>? collaborators,
     int? ownerId,
+    Object? goalId = _goalSentinel,
   }) {
     return RecurringTaskRule(
       id: id,
@@ -182,6 +186,8 @@ class RecurringTaskRule {
       steps: steps ?? this.steps,
       collaborators: collaborators ?? this.collaborators,
       progress: progress,
+      goalId:
+          identical(goalId, _goalSentinel) ? this.goalId : goalId as String?,
     );
   }
 
@@ -247,3 +253,5 @@ class RecurringTaskRule {
     }
   }
 }
+
+const Object _goalSentinel = Object();

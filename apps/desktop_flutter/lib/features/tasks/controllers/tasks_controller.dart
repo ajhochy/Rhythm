@@ -12,10 +12,17 @@ class TasksController extends ChangeNotifier {
   List<Task> _tasks = [];
   TasksStatus _status = TasksStatus.idle;
   String? _errorMessage;
+  String? _completionAffirmation;
 
   List<Task> get tasks => _tasks;
   TasksStatus get status => _status;
   String? get errorMessage => _errorMessage;
+
+  String? takeCompletionAffirmation() {
+    final message = _completionAffirmation;
+    _completionAffirmation = null;
+    return message;
+  }
 
   Future<void> load() async {
     _status = TasksStatus.loading;
@@ -66,6 +73,14 @@ class TasksController extends ChangeNotifier {
     bool includeScheduledDate = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
+    bool includeGoalId = false,
+    String? goalId,
+    bool includePriority = false,
+    int? priority,
+    bool includeTags = false,
+    List<String>? tags,
+    bool includeEnergy = false,
+    String? energy,
   }) async {
     try {
       final updated = await _repository.update(
@@ -79,6 +94,14 @@ class TasksController extends ChangeNotifier {
         includeScheduledDate: includeScheduledDate,
         includePreferredAgent: includePreferredAgent,
         preferredAgent: preferredAgent,
+        includeGoalId: includeGoalId,
+        goalId: goalId,
+        includePriority: includePriority,
+        priority: priority,
+        includeTags: includeTags,
+        tags: tags,
+        includeEnergy: includeEnergy,
+        energy: energy,
       );
       _tasks = _tasks
           .map(
@@ -127,6 +150,9 @@ class TasksController extends ChangeNotifier {
           .toList();
       _status = TasksStatus.idle;
       _errorMessage = null;
+      if (status == TaskStatus.done) {
+        _completionAffirmation = 'Nice work — one less thing carrying weight.';
+      }
       notifyListeners();
     } catch (e) {
       _tasks = previousTasks;

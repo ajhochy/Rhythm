@@ -175,3 +175,30 @@ Date: 2026-07-27
 - Destructive CRUD, provider OAuth, email, gallery, and external integrations
   are outside this local no-publish smoke unless an existing safe fixture makes
   them fully reversible.
+
+---
+
+## Research Projects milestone (#1300)
+
+Overall result: **FAIL / BLOCKED**. Required live and visual flows were authored but cannot execute in this socket-restricted worker. This file must not be interpreted as rollout approval.
+
+| # | Check | Result | Evidence / required observation |
+|---|---|---|---|
+| 1 | Milestone API contracts and schema parity | Success | #1288–#1300 contract matrix: 65/65; final focused regression matrix: 22/22. |
+| 2 | API static/build | Success | `npm run build` and `npx tsc --noEmit` exit 0. |
+| 3 | MCP registration/security | Success | Typecheck exit 0; focused registry/security 8/8; exact tool count 100. |
+| 4 | Sandbox script syntax and static lifecycle contract | Success | `bash -n tools/dev/sandbox.sh`; #1300 contract checks restart plus 4099 accounting. |
+| 5 | Flutter static surface | Success | Analyze exit 0 with pre-existing infos; formatter inspected 465 files, 0 changed (telemetry write then denied). |
+| 6 | Flag-on full engine flow | Blocked | Run `research_projects_live_e2e.test.ts`; observe three distinct pass sessions, critic, one canonical synthesis artifact, curated sources, factual usage, and owner 404. |
+| 7 | Lifecycle and scheduling | Blocked | In the same suite observe idempotent cancel, selective retry, state-preserving restart resume, budget stop, and one same-local-day scheduled run. |
+| 8 | Security, export, and grounded Q&A | Blocked | Observe deterministic CSP-protected HTML/Markdown, escaped hostile data, frozen discussion context, and explicit missing-evidence answer. |
+| 9 | Flag-off and copied-data reconciliation | Blocked | Fresh flag-off process must conceal project routes while legacy research succeeds; dry/apply/apply must leave vault digest unchanged. |
+| 10 | Shipping Flutter and clean teardown | Blocked | Open magazine, Print / Save as PDF, export, Discuss Report; teardown leaves no sandbox/tagged process or listener on 4098/4097/4099. |
+
+## Falsification value
+
+- Removing prompt job/run/pass IDs fails #1292/#1293 assertions.
+- Rejecting generic project completion calls fails the #1289 canonical synthesis regression while ordinary generic sessions remain ignored.
+- Deleting restart or gateway cleanup fails #1300-c2.
+- Weakening rollout approval/recovery language fails #1300-c3/c4.
+- Runtime cache, process, engine, authentication, or UI wiring failures are caught only by checks 6–10; those checks remain blocked here and therefore the overall smoke fails.

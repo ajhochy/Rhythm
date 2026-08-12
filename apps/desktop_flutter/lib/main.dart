@@ -29,8 +29,11 @@ import 'features/integrations/controllers/integrations_controller.dart';
 import 'features/integrations/data/integrations_data_source.dart';
 import 'features/integrations/repositories/integrations_repository.dart';
 import 'features/projects/controllers/project_template_controller.dart';
+import 'features/projects/controllers/project_milestones_controller.dart';
 import 'features/projects/data/projects_local_data_source.dart';
+import 'features/projects/data/project_milestones_data_source.dart';
 import 'features/projects/repositories/projects_repository.dart';
+import 'features/projects/repositories/project_milestones_repository.dart';
 import 'features/rhythms/controllers/rhythms_controller.dart';
 import 'features/rhythms/data/rhythms_data_source.dart';
 import 'features/rhythms/repositories/rhythms_repository.dart';
@@ -43,6 +46,9 @@ import 'features/tasks/repositories/tasks_repository.dart';
 import 'features/dashboard/controllers/dashboard_controller.dart';
 import 'features/dashboard/data/dashboard_data_source.dart';
 import 'features/dashboard/repositories/dashboard_repository.dart';
+import 'features/goals/controllers/goals_controller.dart';
+import 'features/goals/data/goals_data_source.dart';
+import 'features/goals/repositories/goals_repository.dart';
 import 'features/messages/controllers/messages_controller.dart';
 import 'features/messages/data/messages_data_source.dart';
 import 'features/messages/repositories/messages_repository.dart';
@@ -340,6 +346,13 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
+          create: (_) => ProjectMilestonesController(
+            ProjectMilestonesRepository(
+              ProjectMilestonesDataSource(baseUrl: baseUrl),
+            ),
+          ),
+        ),
+        ChangeNotifierProvider(
           create: (_) => RhythmsController(
             RhythmsRepository(RhythmsDataSource(baseUrl: baseUrl)),
           ),
@@ -353,6 +366,11 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => DashboardController(
             DashboardRepository(DashboardDataSource(baseUrl: baseUrl)),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => GoalsController(
+            GoalsRepository(GoalsDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(

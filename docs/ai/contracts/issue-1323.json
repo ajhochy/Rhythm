@@ -1,0 +1,32 @@
+{
+  "issue": 1323,
+  "generated": "2026-08-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-1323-c1",
+      "text": "The async delegation wake renders as a system/delegation event instead of a right-aligned user bubble.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1323_async_delegation_render_test.dart",
+      "test_id": "issue-1323-c1: async wake renders as a delegation event rather than a user bubble",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1323-c2",
+      "text": "The rhythm-async-delegation HTML-comment marker is not visible in the desktop transcript.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1323_async_delegation_render_test.dart",
+      "test_id": "issue-1323-c2: async wake hides the internal idempotency marker",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1323-c3",
+      "text": "Restart-recovery idempotency still recognizes an accepted deterministic wake and never prompts twice.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "test_id": "issue-1175-c9: restart recovery recognizes an accepted deterministic wake and never prompts twice",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

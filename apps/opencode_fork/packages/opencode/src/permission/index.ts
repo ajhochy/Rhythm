@@ -105,13 +105,14 @@ export type AskInput = Schema.Schema.Type<typeof AskInput>
 
 export const ReplyInput = Schema.Struct({
   requestID: PermissionID,
+  sessionID: Schema.optional(SessionID),
   ...reply,
 }).annotate({ identifier: "PermissionReplyInput" })
 export type ReplyInput = Schema.Schema.Type<typeof ReplyInput>
 
 export interface Interface {
   readonly ask: (input: AskInput) => Effect.Effect<void, Error>
-  readonly reply: (input: ReplyInput) => Effect.Effect<void>
+  readonly reply: (input: ReplyInput) => Effect.Effect<boolean>
   readonly list: () => Effect.Effect<ReadonlyArray<Request>>
 }
 
@@ -198,7 +199,7 @@ export const layer = Layer.effect(
     const reply = Effect.fn("Permission.reply")(function* (input: ReplyInput) {
       const { approved, pending } = yield* InstanceState.get(state)
       const existing = pending.get(input.requestID)
-      if (!existing) return
+      if (!existing || (input.sessionID && existing.info.sessionID !== input.sessionID)) return false
 
       pending.delete(input.requestID)
       yield* bus.publish(Event.Replied, {
@@ -223,11 +224,11 @@ export const layer = Layer.effect(
           })
           yield* Deferred.fail(item.deferred, new RejectedError())
         }
-        return
+        return true
       }
 
       yield* Deferred.succeed(existing.deferred, undefined)
-      if (input.reply === "once") return
+      if (input.reply === "once") return true
 
       for (const pattern of existing.info.always) {
         approved.push({
@@ -251,6 +252,7 @@ export const layer = Layer.effect(
         })
         yield* Deferred.succeed(item.deferred, undefined)
       }
+      return true
     })
 
     const list = Effect.fn("Permission.list")(function* () {

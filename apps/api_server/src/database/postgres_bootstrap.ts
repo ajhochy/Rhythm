@@ -37,6 +37,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       notes TEXT,
       owner_id INTEGER REFERENCES users(id),
       scheduled_order INTEGER,
+      priority INTEGER,
+      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      energy TEXT,
       search_vector TSVECTOR GENERATED ALWAYS AS (
         setweight(to_tsvector('english', title), 'A') ||
         setweight(to_tsvector('english', COALESCE(notes, '')), 'B')
@@ -302,6 +305,72 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       last_read_at TEXT,
       PRIMARY KEY (thread_id, user_id)
     );
+  `);
+
+  // #1243 — first-class season goals and optional links. Keep this block
+  // idempotent so it is safe on both fresh and already-populated deployments.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS goals (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      metric_type TEXT NOT NULL,
+      start_value DOUBLE PRECISION NOT NULL,
+      current_value DOUBLE PRECISION NOT NULL,
+      end_value DOUBLE PRECISION NOT NULL,
+      health TEXT NOT NULL DEFAULT 'on_track',
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    );
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL;
+    ALTER TABLE project_instances ADD COLUMN IF NOT EXISTS goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL;
+    ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS goal_id TEXT REFERENCES goals(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_goals_owner_dates ON goals(owner_id, start_date, end_date);
+    CREATE INDEX IF NOT EXISTS idx_tasks_goal_id ON tasks(goal_id);
+    CREATE INDEX IF NOT EXISTS idx_project_instances_goal_id ON project_instances(goal_id);
+    CREATE INDEX IF NOT EXISTS idx_recurring_task_rules_goal_id ON recurring_task_rules(goal_id);
+  `);
+
+  // #1244 — task organization fields. JSONB preserves exact array membership.
+  await pool.query(`
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS energy TEXT;
+  `);
+
+  // #1246 — compact, instance-scoped milestones and optional step grouping.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT,
+      color TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      UNIQUE(instance_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_milestones_instance_order
+      ON project_milestones(instance_id, sort_order);
+    ALTER TABLE project_instance_steps ADD COLUMN IF NOT EXISTS milestone_id TEXT;
+    CREATE INDEX IF NOT EXISTS idx_project_instance_steps_milestone
+      ON project_instance_steps(instance_id, milestone_id);
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'project_instance_steps_milestone_instance_fk'
+      ) THEN
+        ALTER TABLE project_instance_steps
+          ADD CONSTRAINT project_instance_steps_milestone_instance_fk
+          FOREIGN KEY (instance_id, milestone_id)
+          REFERENCES project_milestones(instance_id, id);
+      END IF;
+    END $$;
   `);
 
   await pool.query(`
@@ -702,6 +771,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     );
   `);
 
+  // #1309 — production metadata parity for checksum-addressed media bytes.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_artifacts (
+      id TEXT PRIMARY KEY,
+      project TEXT NOT NULL,
+      session TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size BIGINT NOT NULL CHECK (size >= 0),
+      checksum TEXT NOT NULL CHECK (length(checksum) = 64),
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      storage_key TEXT NOT NULL,
+      pinned BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_project_created
+      ON media_artifacts(project, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_storage_key
+      ON media_artifacts(storage_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_media_artifacts_session_checksum
+      ON media_artifacts(project, session, checksum);
+    CREATE INDEX IF NOT EXISTS idx_media_artifacts_retention
+      ON media_artifacts(pinned, created_at);
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
@@ -824,6 +916,52 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     )
   `);
 
+  // #1288 — named research-project persistence. Runs retain an immutable
+  // configuration snapshot while jobs record mutable pass execution state.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_projects (
+      id TEXT PRIMARY KEY,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      question TEXT NOT NULL,
+      goals_json TEXT NOT NULL DEFAULT '[]',
+      domain TEXT,
+      profile_id TEXT,
+      pass_config_json TEXT NOT NULL DEFAULT '[]',
+      model_policy_json TEXT NOT NULL DEFAULT '{}',
+      critic_config_json TEXT NOT NULL DEFAULT '{}',
+      synthesis_config_json TEXT NOT NULL DEFAULT '{}',
+      schedule_ref TEXT,
+      budget_json TEXT NOT NULL DEFAULT '{}',
+      archived_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_research_projects_owner_activity
+      ON agent_research_projects(owner_user_id, archived_at, updated_at)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_project_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      trigger_type TEXT NOT NULL,
+      config_snapshot_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      progress_json TEXT NOT NULL DEFAULT '{}',
+      diagnostics_json TEXT NOT NULL DEFAULT '{}',
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_research_project_runs_project_activity
+      ON agent_research_project_runs(project_id, created_at)
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_research_jobs (
       id TEXT PRIMARY KEY,
@@ -839,6 +977,13 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       origin TEXT NOT NULL DEFAULT 'page',
       vault_path TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      pass_role TEXT,
+      pass_ordinal INTEGER,
+      run_config_json TEXT,
+      progress_json TEXT,
+      classification_json TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -849,9 +994,96 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS agent_profile_id TEXT`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'page'`);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS vault_path TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS pass_role TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS pass_ordinal INTEGER`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS run_config_json TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS progress_json TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS classification_json TEXT`);
   await pool.query(`UPDATE agent_research_jobs SET research_type = 'generic', title = query, agent_profile_id = 'research', origin = 'page' WHERE research_type IS NULL OR title IS NULL OR agent_profile_id IS NULL OR origin IS NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status ON agent_research_jobs(status)`);
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_research_jobs_agent_session_id ON agent_research_jobs(agent_session_id) WHERE agent_session_id IS NOT NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_project_run_pass ON agent_research_jobs(project_run_id, pass_ordinal)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_artifacts (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
+      artifact_role TEXT NOT NULL,
+      vault_path TEXT NOT NULL,
+      content_hash TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_research_artifacts ALTER COLUMN project_id DROP NOT NULL`);
+  await pool.query(`ALTER TABLE agent_research_artifacts ALTER COLUMN project_run_id DROP NOT NULL`);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_research_artifacts_run_role
+      ON agent_research_artifacts(project_run_id, artifact_role)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_curated_sources (
+      id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE CASCADE,
+      job_id TEXT REFERENCES agent_research_jobs(id) ON DELETE SET NULL,
+      canonical_url TEXT NOT NULL,
+      title TEXT,
+      publisher TEXT,
+      source_type TEXT,
+      capture_status TEXT NOT NULL DEFAULT 'metadata-only',
+      structured_vault_path TEXT,
+      full_text_vault_path TEXT,
+      content_hash TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_research_curated_sources ALTER COLUMN project_id DROP NOT NULL`);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_research_curated_sources_project_url
+      ON agent_research_curated_sources(project_id, canonical_url)
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_qa_links (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES agent_research_projects(id) ON DELETE CASCADE,
+      project_run_id TEXT REFERENCES agent_research_project_runs(id) ON DELETE SET NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      question TEXT NOT NULL,
+      answer TEXT,
+      artifact_id TEXT REFERENCES agent_research_artifacts(id) ON DELETE SET NULL,
+      source_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
+      ON agent_research_qa_links(project_id, created_at)
+  `);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_snapshot_json TEXT NOT NULL DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_hash TEXT`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS model_usage_json TEXT NOT NULL DEFAULT '{}'`);
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS diagnostics_json TEXT NOT NULL DEFAULT '{}'`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_pass_relationships (
+      id TEXT PRIMARY KEY,
+      parent_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
+      child_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
+      relationship_type TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(parent_job_id, child_job_id, relationship_type)
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_research_pass_relationships_child
+      ON agent_research_pass_relationships(child_job_id, relationship_type)
+  `);
 
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
   await pool.query(`

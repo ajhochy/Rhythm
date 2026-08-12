@@ -98,6 +98,72 @@ class AgentsDataSource {
   /// How many frames are waiting for the socket to come back.
   int get pendingSendCount => _pendingSends.length;
 
+  Future<Map<String, dynamic>> fetchMcpAppResource({
+    required String sessionId,
+    required String toolCallId,
+  }) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-resource/${Uri.encodeComponent(toolCallId)}',
+      ),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return _decodeResponseMap(response);
+  }
+
+  Future<Map<String, dynamic>> issueMcpAppCapability({
+    required String sessionId,
+    required String toolCallId,
+  }) async {
+    final response = await _client.post(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-capability/${Uri.encodeComponent(toolCallId)}',
+      ),
+      headers: {
+        ...AuthSessionStore.headers(),
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    );
+    assertOk(response);
+    return _decodeResponseMap(response);
+  }
+
+  Future<String> brokerMcpAppCapability({
+    required String sessionId,
+    required String toolCallId,
+    required String encodedRequest,
+  }) async {
+    final request = jsonDecode(encodedRequest);
+    if (request is! Map<String, dynamic> || request['id'] is! String) {
+      throw const FormatException('invalid MCP App request');
+    }
+    final response = await _client.post(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/${Uri.encodeComponent(sessionId)}/mcp-app-capability/${Uri.encodeComponent(toolCallId)}/request',
+      ),
+      headers: {
+        ...AuthSessionStore.headers(),
+        'content-type': 'application/json',
+      },
+      body: encodedRequest,
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return jsonEncode({
+        'kind': 'response',
+        'id': request['id'],
+        'error': 'capability_denied',
+      });
+    }
+    final payload = await _decodeResponseMap(response);
+    return jsonEncode({
+      'kind': 'response',
+      'id': request['id'],
+      'result': payload,
+    });
+  }
+
   /// True only once the socket is actually live.
   ///
   /// Deliberately NOT `_channel != null`. `WebSocketChannel.connect` is lazy: it
@@ -269,7 +335,7 @@ class AgentsDataSource {
     );
     final response = await _client.get(
       uri,
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final body = jsonDecode(response.body);
@@ -289,7 +355,7 @@ class AgentsDataSource {
       Uri.parse('$_baseUrl/agent-sessions/$id').replace(
         queryParameters: {'transcriptLimit': '50'},
       ),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final body = await _decodeResponseMap(response);
@@ -325,7 +391,7 @@ class AgentsDataSource {
           if (before != null) 'before': before,
         },
       ),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final body = await _decodeResponseMap(response);
@@ -346,6 +412,7 @@ class AgentsDataSource {
   }
 
   Future<AgentSession> createSession({
+    String? profileId,
     String? agentId, // #602: null → agent-less session
     String? taskId,
     required String cwd,
@@ -363,9 +430,12 @@ class AgentsDataSource {
   }) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({
-        if (agentId != null) 'agentId': agentId,
+        if (profileId != null)
+          'profileId': profileId
+        else if (agentId != null)
+          'agentId': agentId,
         // When agentId is null, omit the field entirely so the server treats it
         // as an agent-less session (agentId: null path in the controller).
         'cwd': cwd,
@@ -393,7 +463,7 @@ class AgentsDataSource {
   Future<void> resetWorktree(String sessionId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/worktree/reset'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
   }
@@ -404,7 +474,7 @@ class AgentsDataSource {
   Future<AgentSession> removeWorktree(String sessionId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/worktree/remove'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     return AgentSession.fromJson(
@@ -415,6 +485,7 @@ class AgentsDataSource {
   // M2-1 / #611 / #604: session-level rename + provider/model/permissionMode/thinking/fastMode override.
   Future<AgentSession> updateSession(
     String id, {
+    String? profileId,
     String? name,
     String? providerId,
     String? modelId,
@@ -429,9 +500,13 @@ class AgentsDataSource {
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
-    // #1119 — persist an explicit profile switch so it survives an app
-    // restart (see AgentsController.setSelectedAgent).
-    if (agentId != null) payload['agentId'] = agentId;
+    if (profileId != null) {
+      payload['profileId'] = profileId;
+    } else if (agentId != null) {
+      // Compatibility for raw engine-agent selections that have no Rhythm
+      // profile identity. Profile-backed picker rows always use profileId.
+      payload['agentId'] = agentId;
+    }
     if (clearProvider) {
       payload['providerId'] = null;
     } else if (providerId != null) {
@@ -456,7 +531,7 @@ class AgentsDataSource {
     }
     final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode(payload),
     );
     assertOk(response);
@@ -477,13 +552,46 @@ class AgentsDataSource {
   }) async {
     final response = await _client.post(
       Uri.parse(
-          '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
-      headers: AuthSessionStore.headers(json: message != null),
-      body: message != null ? jsonEncode({'message': message}) : null,
+        '$_baseUrl/agent-sessions/$sessionId/permissions/$permissionId/reply',
+      ),
+      // #1340 reply endpoint + #1358 loopback headers (no cloud bearer to 4001).
+      // Body key MUST be `reply` — the replyPermission handler validates
+      // `body.reply ∈ {once,always,reject}`. Sending `response` made every
+      // approve/deny 400 (BAD_REQUEST), so the engine stayed blocked and the
+      // card re-surfaced forever ("hung waiting for approval", #1367 follow-up).
+      headers: AuthSessionStore.localHeaders(json: true),
+      body: jsonEncode({
+        'reply': decision,
+        if (message != null) 'message': message,
+      }),
     );
     if (response.statusCode != 204) {
       assertOk(response);
     }
+  }
+
+  /// Fetch permission asks that predate the current WebSocket subscription.
+  Future<List<PermissionAskedMessage>> fetchPendingPermissions(
+    String sessionId,
+  ) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_baseUrl/agent-sessions/$sessionId/pending-permissions',
+      ),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final decoded = jsonDecode(response.body);
+    final raw = decoded is List<dynamic>
+        ? decoded
+        : decoded is Map<String, dynamic> &&
+                decoded['permissions'] is List<dynamic>
+            ? decoded['permissions'] as List<dynamic>
+            : const <dynamic>[];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(PermissionAskedMessage.fromJson)
+        .toList(growable: false);
   }
 
   /// Answer a pending `question` (AskUserQuestion) tool call.
@@ -498,7 +606,7 @@ class AgentsDataSource {
   ) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/question/$callId/reply'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'answers': answers}),
     );
     if (response.statusCode != 204) {
@@ -510,7 +618,7 @@ class AgentsDataSource {
   Future<void> rejectQuestion(String sessionId, String callId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/question/$callId/reject'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     if (response.statusCode != 204) {
       assertOk(response);
@@ -521,7 +629,7 @@ class AgentsDataSource {
   Future<void> cancelSession(String id) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/cancel'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     if (response.statusCode != 204) {
       assertOk(response);
@@ -531,7 +639,7 @@ class AgentsDataSource {
   Future<void> closeSession(String id) async {
     final response = await _client.delete(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     if (response.statusCode != 204) {
       assertOk(response);
@@ -543,7 +651,7 @@ class AgentsDataSource {
   Future<void> deleteSession(String id) async {
     final response = await _client.delete(
       Uri.parse('$_baseUrl/agent-sessions/$id/hard'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     if (response.statusCode != 204) {
       assertOk(response);
@@ -554,7 +662,7 @@ class AgentsDataSource {
   Future<AgentSession> archiveSession(String id) async {
     final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'archived': true}),
     );
     assertOk(response);
@@ -567,7 +675,7 @@ class AgentsDataSource {
   Future<AgentSession> unarchiveSession(String id) async {
     final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'archived': false}),
     );
     assertOk(response);
@@ -579,7 +687,7 @@ class AgentsDataSource {
   Future<AgentSession> resumeSession(String id) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/resume'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     return AgentSession.fromJson(
@@ -596,7 +704,7 @@ class AgentsDataSource {
     );
     final response = await _client.get(
       uri,
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -614,7 +722,7 @@ class AgentsDataSource {
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id/diff'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -628,7 +736,7 @@ class AgentsDataSource {
   Future<void> revertSession(String id, String messageId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/revert'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'messageId': messageId}),
     );
     assertOk(response);
@@ -640,7 +748,7 @@ class AgentsDataSource {
   Future<void> unrevertSession(String id) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/unrevert'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
   }
@@ -653,7 +761,7 @@ class AgentsDataSource {
   Future<void> summarizeSession(String id) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/summarize'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
   }
@@ -666,7 +774,7 @@ class AgentsDataSource {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id/todo'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -683,7 +791,7 @@ class AgentsDataSource {
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id/memory-provenance'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
@@ -707,7 +815,7 @@ class AgentsDataSource {
     final response = await _client.get(
       Uri.parse(
           '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages$query'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -727,7 +835,7 @@ class AgentsDataSource {
   Future<AgentSession> forkSession(String id, String messageId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/fork'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'messageId': messageId}),
     );
     assertOk(response);
@@ -751,7 +859,7 @@ class AgentsDataSource {
     );
     final response = await _client.get(
       uri,
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final body = await _decodeResponseMap(response);
@@ -770,7 +878,7 @@ class AgentsDataSource {
   Future<Map<String, dynamic>> getVcs(String sessionId) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
@@ -781,7 +889,7 @@ class AgentsDataSource {
   Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs/status'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -797,7 +905,7 @@ class AgentsDataSource {
   ) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs/diff?mode=$mode'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -809,7 +917,7 @@ class AgentsDataSource {
   Future<String> getVcsDiffRaw(String sessionId) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs/diff/raw'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     return response.body;
@@ -824,7 +932,7 @@ class AgentsDataSource {
   Future<void> shellCommand(String sessionId, String command) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/shell'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'command': command}),
     );
     assertOk(response);
@@ -837,7 +945,7 @@ class AgentsDataSource {
   Future<void> initProject(String sessionId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/init'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode(const {}),
     );
     assertOk(response);
@@ -866,7 +974,7 @@ class AgentsDataSource {
       },
     );
     final response =
-        await _client.get(uri, headers: AuthSessionStore.headers());
+        await _client.get(uri, headers: AuthSessionStore.localHeaders());
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<String>();
@@ -881,7 +989,7 @@ class AgentsDataSource {
     final uri = Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/list')
         .replace(queryParameters: {'path': path});
     final response =
-        await _client.get(uri, headers: AuthSessionStore.headers());
+        await _client.get(uri, headers: AuthSessionStore.localHeaders());
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<Map<String, dynamic>>();
@@ -898,7 +1006,7 @@ class AgentsDataSource {
     final uri = Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/content')
         .replace(queryParameters: {'path': path});
     final response =
-        await _client.get(uri, headers: AuthSessionStore.headers());
+        await _client.get(uri, headers: AuthSessionStore.localHeaders());
     assertOk(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
@@ -908,7 +1016,7 @@ class AgentsDataSource {
   Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/status'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -925,7 +1033,7 @@ class AgentsDataSource {
   Future<String> createPty(String sessionId) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId/pty'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
     );
     assertOk(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -936,7 +1044,7 @@ class AgentsDataSource {
   Future<void> resizePty(String ptyId, int cols, int rows) async {
     final response = await _client.patch(
       Uri.parse('$_baseUrl/pty/$ptyId'),
-      headers: AuthSessionStore.headers(json: true),
+      headers: AuthSessionStore.localHeaders(json: true),
       body: jsonEncode({'cols': cols, 'rows': rows}),
     );
     assertOk(response);
@@ -946,7 +1054,7 @@ class AgentsDataSource {
   Future<void> killPty(String ptyId) async {
     await _client.delete(
       Uri.parse('$_baseUrl/pty/$ptyId'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.localHeaders(),
     );
   }
 
