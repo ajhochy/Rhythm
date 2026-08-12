@@ -1,4 +1,5 @@
 import { WebSocket, type RawData } from 'ws';
+import { readFile } from 'node:fs/promises';
 
 import { logger } from '../utils/logger';
 import { RelayOutboxRepository } from '../repositories/relay_outbox_repository';
@@ -7,6 +8,7 @@ import {
   parseUplinkFrame,
   serializeUplinkFrame,
   type CtrlResyncFrame,
+  type FileArtifactFrame,
   type RpcReqFrame,
   type RpcResFrame,
   type UplinkFrame,
@@ -44,6 +46,7 @@ const HOP_BY_HOP_HEADERS = new Set([
 ]);
 
 const RPC_TIMEOUT_MS = 30_000;
+const ARTIFACT_BASE64_LIMIT_BYTES = 8 * 1024 * 1024;
 
 type DialResult = 'failed' | 'closed' | 'stopped';
 
@@ -132,6 +135,36 @@ export class RelayUplinkClient {
   async sendDevicesSnapshot(): Promise<void> {
     const snapshot = await this.options.devicesProvider();
     this.sendFrame({ ch: 'repl', t: 'devices', ...snapshot });
+  }
+
+  async pushArtifact(input: {
+    artifactId: string;
+    meta: Record<string, unknown>;
+    filePath: string;
+  }): Promise<void> {
+    try {
+      const bytes = await readFile(input.filePath);
+      const encoded = bytes.toString('base64');
+      const frame: FileArtifactFrame = {
+        ch: 'file',
+        t: 'artifact',
+        artifactId: input.artifactId,
+        meta: input.meta,
+        dataB64:
+          Buffer.byteLength(encoded, 'ascii') <= ARTIFACT_BASE64_LIMIT_BYTES
+            ? encoded
+            : null,
+      };
+      if (!this.sendFrame(frame)) {
+        logger.warn(
+          `[RelayUplinkClient] artifact push skipped while offline: ${input.artifactId}`,
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        `[RelayUplinkClient] artifact push failed for ${input.artifactId}: ${String(error)}`,
+      );
+    }
   }
 
   private async dialLoop(): Promise<void> {

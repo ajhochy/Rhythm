@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
+import { resolveLiveArtifactStorageDir } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { requireMobileDevice } from '../middleware/mobile_device_auth';
 import type {
@@ -44,6 +47,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
+const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function relayProject(req: Request): { id: string; root: string } {
   const projectId = req.header('X-Rhythm-Project-ID')?.trim();
@@ -202,13 +206,17 @@ export function createRelayGatewayRouter(
       status: 'ok',
       role: 'relay',
       macOnline: uplink.isMacOnline(),
+      lastUplinkAt: uplink.getLastUplinkAt(),
     });
   });
 
   router.get('/mobile-gateway/health', (_req, res) => {
     const health = uplink.getHealth();
     if (health === null) {
-      res.status(503).json({ error: 'no_uplink' });
+      res.status(503).json({
+        error: 'no_uplink',
+        lastUplinkAt: uplink.getLastUplinkAt(),
+      });
       return;
     }
     const body =
@@ -218,8 +226,13 @@ export function createRelayGatewayRouter(
       ? {
           ...(health as Record<string, unknown>),
           macOnline: uplink.isMacOnline(),
+          lastUplinkAt: uplink.getLastUplinkAt(),
         }
-      : { health, macOnline: uplink.isMacOnline() };
+      : {
+          health,
+          macOnline: uplink.isMacOnline(),
+          lastUplinkAt: uplink.getLastUplinkAt(),
+        };
     res.json(body);
   });
 
@@ -406,6 +419,90 @@ export function createRelayGatewayRouter(
         sendMirrorResponse(res, children);
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+
+  router.get(
+    '/mobile-gateway/artifacts/:id',
+    requireDevice,
+    async (req, res, next) => {
+      const artifactId = req.params.id;
+      if (!ARTIFACT_ID_PATTERN.test(artifactId)) {
+        res.status(400).json({ error: 'invalid_artifact_id' });
+        return;
+      }
+
+      const storageDir = resolveLiveArtifactStorageDir();
+      const artifactPath = join(storageDir, artifactId);
+      const metadataPath = join(storageDir, `${artifactId}.meta.json`);
+      try {
+        const bytes = await readFile(artifactPath);
+        let contentType = 'application/octet-stream';
+        try {
+          const metadata = JSON.parse(
+            await readFile(metadataPath, 'utf8'),
+          ) as { contentType?: unknown };
+          if (typeof metadata.contentType === 'string') {
+            contentType = metadata.contentType;
+          }
+        } catch {
+          // Missing or malformed metadata falls back to generic binary bytes.
+        }
+        res.setHeader('content-type', contentType);
+        res.status(200).send(bytes);
+        return;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          next(error);
+          return;
+        }
+      }
+
+      if (!uplink.isMacOnline()) {
+        res.status(404).json({ error: 'mac_offline' });
+        return;
+      }
+
+      try {
+        const response = await uplink.sendRpc({
+          method: req.method,
+          path: tunneledPath(req),
+          headers: forwardedHeaders(req),
+          bodyB64: requestBodyB64(req),
+        });
+        const bytes = Buffer.from(response.bodyB64, 'base64');
+        const contentType = Object.entries(response.headers).find(
+          ([name]) => name.toLowerCase() === 'content-type',
+        )?.[1] ?? 'application/octet-stream';
+        if (response.status === 200) {
+          try {
+            await mkdir(storageDir, { recursive: true });
+            await Promise.all([
+              writeFile(artifactPath, bytes),
+              writeFile(
+                metadataPath,
+                JSON.stringify({ contentType }),
+              ),
+            ]);
+          } catch (error) {
+            logger.warn(
+              `[RelayGateway] failed to cache artifact ${artifactId}: ${String(error)}`,
+            );
+          }
+        }
+        for (const [name, value] of Object.entries(response.headers)) {
+          if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase())) {
+            res.setHeader(name, value);
+          }
+        }
+        res.status(response.status).end(bytes);
+      } catch (error) {
+        if (error instanceof MacOfflineError) {
+          res.status(404).json({ error: 'mac_offline' });
+          return;
+        }
+        next(error);
       }
     },
   );

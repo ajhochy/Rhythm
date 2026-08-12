@@ -2,6 +2,8 @@ import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
+import { resolveMediaArtifactStorageRoot } from '../config/env';
+import { resolve } from 'node:path';
 import {
   registerGeneratedMediaPart,
   withHostedArtifactMetadata,
@@ -1286,6 +1288,18 @@ export class OpencodeStreamBridge {
                 if (sdkMessageId) {
                   this.messagesRepo.upsertPart(localSessionId, sdkMessageId, hostedPart);
                 }
+                void getRelayUplinkClient()?.pushArtifact({
+                  artifactId: artifact.id,
+                  meta: {
+                    contentType: artifact.mime,
+                    size: artifact.size,
+                    checksum: artifact.checksum,
+                  },
+                  filePath: resolve(
+                    resolveMediaArtifactStorageRoot(),
+                    artifact.storageKey,
+                  ),
+                });
               }).catch((error) => {
                 logger.error(
                   '[OpencodeStreamBridge] Failed to register generated media:',

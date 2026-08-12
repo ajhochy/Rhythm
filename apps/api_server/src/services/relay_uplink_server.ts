@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
+import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 
 import {
@@ -9,14 +11,17 @@ import {
 } from 'ws';
 
 import { getDb } from '../database/db';
+import { resolveLiveArtifactStorageDir } from '../config/env';
 import {
   initializeMobilePairingSchema,
 } from '../repositories/mobile_devices_repository';
 import { OpencodeEventHub } from './opencode_event_hub';
+import { logger } from '../utils/logger';
 import {
   parseUplinkFrame,
   serializeUplinkFrame,
   type ReplDevicesFrame,
+  type FileArtifactFrame,
   type ReplRowFrame,
   type RpcReqFrame,
   type RpcResFrame,
@@ -56,6 +61,7 @@ const REPLICATED_TABLES = new Set([
   'agent_sessions',
   'agent_session_messages',
 ]);
+const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function header(request: IncomingMessage, name: string): string | null {
   const value = request.headers[name.toLowerCase()];
@@ -255,6 +261,7 @@ export class RelayUplinkServer {
   private readonly pendingRpcs = new Map<string, PendingRpc>();
   private active: UplinkConnection | null = null;
   private health: unknown | null = null;
+  private lastUplinkAt: string | null = null;
   private macOnline = false;
   private appliedSinceAck = 0;
   private readonly resyncedCallbacks = new Set<() => void>();
@@ -295,6 +302,10 @@ export class RelayUplinkServer {
 
   getHealth(): unknown | null {
     return this.health;
+  }
+
+  getLastUplinkAt(): string | null {
+    return this.lastUplinkAt;
   }
 
   onResynced(callback: () => void): void {
@@ -410,6 +421,7 @@ export class RelayUplinkServer {
         this.setOffline();
         this.active = connection;
         this.health = frame.health;
+        this.stampUplink();
         socket.send(serializeUplinkFrame({
           ch: 'ctrl',
           t: 'resync',
@@ -428,9 +440,11 @@ export class RelayUplinkServer {
   private handleFrame(frame: UplinkFrame): void {
     if (frame.ch === 'ctrl' && frame.t === 'health') {
       this.health = frame.health;
+      this.stampUplink();
       return;
     }
     if (frame.ch === 'ctrl' && frame.t === 'resync-done') {
+      this.stampUplink();
       this.macOnline = true;
       this.hub.setLive(true);
       for (const callback of this.resyncedCallbacks) {
@@ -474,6 +488,42 @@ export class RelayUplinkServer {
       this.pendingRpcs.delete(frame.id);
       pending.resolve(frame);
       return;
+    }
+    if (frame.ch === 'file' && frame.t === 'artifact') {
+      if (
+        typeof frame.artifactId !== 'string' ||
+        !ARTIFACT_ID_PATTERN.test(frame.artifactId) ||
+        typeof frame.meta !== 'object' ||
+        frame.meta === null ||
+        Array.isArray(frame.meta) ||
+        (frame.dataB64 !== null && typeof frame.dataB64 !== 'string')
+      ) {
+        return;
+      }
+      void this.storeArtifact(frame).catch((error) => {
+        logger.warn(
+          `[RelayUplinkServer] failed to store artifact ${frame.artifactId}: ${String(error)}`,
+        );
+      });
+    }
+  }
+
+  private stampUplink(): void {
+    this.lastUplinkAt = new Date().toISOString();
+  }
+
+  private async storeArtifact(frame: FileArtifactFrame): Promise<void> {
+    const storageDir = resolveLiveArtifactStorageDir();
+    await mkdir(storageDir, { recursive: true });
+    await writeFile(
+      join(storageDir, `${frame.artifactId}.meta.json`),
+      JSON.stringify(frame.meta),
+    );
+    if (typeof frame.dataB64 === 'string') {
+      await writeFile(
+        join(storageDir, frame.artifactId),
+        Buffer.from(frame.dataB64, 'base64'),
+      );
     }
   }
 
