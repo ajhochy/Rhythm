@@ -4,7 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The engine's ABSENCE is this suite's premise, but a dev Mac running the
+// desktop app has a real engine listening on the default 127.0.0.1:4096.
+// Pin the proxy to port 1 — binding it needs root on macOS/Linux, so a
+// connect always refuses — before any import resolves OPENCODE_ENGINE_PORT
+// (a module-level const; vi.hoisted runs ahead of the import graph).
+vi.hoisted(() => {
+  process.env.RHYTHM_OPENCODE_ENGINE_PORT = '1';
+});
 
 import { createApp } from '../app';
 import { setDb } from '../database/db';
