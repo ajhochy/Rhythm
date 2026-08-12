@@ -2,7 +2,7 @@
 date: 2026-08-11
 repo: Rhythm
 branch: mobile/sqlite-mirror
-pr: https://github.com/ajhochy/Rhythm/pull/PENDING
+pr: https://github.com/ajhochy/Rhythm/pull/1384
 issues: [1378, 1379]
 status: implemented — Phase 0 + Phase 1 landed, Phase 2 deliberately deferred
 tags: [run, Rhythm]

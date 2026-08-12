@@ -3,7 +3,7 @@
 **Focus:** Mobile smart-client rebuild — the phone reads from api_server's SQLite
 mirror instead of live-proxying the OpenCode engine. **Implemented, PR open,
 awaiting manual test + merge.**
-**Branch:** `mobile/sqlite-mirror` (off `main`, which now carries the merged
+**Branch:** `mobile/sqlite-mirror` → **PR #1384** (https://github.com/ajhochy/Rhythm/pull/1384). Off `main`, which now carries the merged
 mega PR #1368). **Do NOT merge** — AJ merges after manual testing.
 **Issues:** #1378 (fail soft — complete) · #1379 (cold-start slowness — Phase 1
 complete, device evidence still owed).
