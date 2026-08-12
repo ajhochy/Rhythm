@@ -464,6 +464,14 @@ async function main() {
   const app = createApp({ mobileGatewayRouter });
 
   const httpServer = http.createServer(app);
+  const relayUplink = env.isRelayRole
+    ? (await import('./services/relay_uplink_server')).relayUplinkServer
+    : null;
+  if (relayUplink) {
+    httpServer.on('upgrade', (request, socket, head) => {
+      if (!relayUplink.handleUpgrade(request, socket, head)) socket.destroy();
+    });
+  }
   const mobileGatewayServer = mobileGatewayRouter
     ? http.createServer(createMobileGatewaySurface(mobileGatewayRouter))
     : null;
@@ -795,6 +803,8 @@ async function main() {
     // Dual-accounts Task B — stop the accounts refresh loop (timer is unref'd,
     // but a refresh mid-shutdown would burn a single-use refresh token).
     try { anthropicAccountsServiceRef?.stopRefreshLoop(); } catch (_) { /* ignore */ }
+
+    try { relayUplink?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }

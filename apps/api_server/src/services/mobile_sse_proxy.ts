@@ -12,6 +12,7 @@ import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   opencodeEventHub,
   type HubSubscription,
+  type OpencodeEventHub,
 } from './opencode_event_hub';
 import type { MobileProjectScope } from './mobile_project_scope';
 import {
@@ -48,6 +49,12 @@ export interface MobileSseProxyOptions {
    * hub before it is treated as too slow (`STREAM_BACKPRESSURE`).
    */
   maxHubQueue?: number;
+  /**
+   * Relay support (docs/ai/plan-synology-relay.md): the hub to serve from.
+   * Defaults to the module singleton the Mac bridge feeds; the Synology relay
+   * passes its own uplink-fed instance.
+   */
+  hub?: OpencodeEventHub;
 }
 
 export interface MobileSseStreamInput {
@@ -309,6 +316,7 @@ export class MobileSseProxy {
   private readonly activeCheckIntervalMs: number;
   private readonly maxHubQueue: number;
   private readonly scopeCheckTimeoutMs: number;
+  private readonly hub: OpencodeEventHub;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipReader;
 
@@ -326,6 +334,7 @@ export class MobileSseProxy {
     this.reconnectBaseMs = options.reconnectBaseMs ?? 250;
     this.reconnectMaxMs = options.reconnectMaxMs ?? 15_000;
     this.activeCheckIntervalMs = options.activeCheckIntervalMs ?? 1_000;
+    this.hub = options.hub ?? opencodeEventHub;
     this.maxHubQueue = options.maxHubQueue ?? 512;
     this.scopeCheckTimeoutMs =
       options.scopeCheckTimeoutMs ?? DEFAULT_SCOPE_CHECK_TIMEOUT_MS;
@@ -439,8 +448,8 @@ export class MobileSseProxy {
     // them), but N phones now cost zero extra engine connections and a phone no
     // longer blocks on engine liveness to open its stream.
     let hub: HubSubscription | null = null;
-    if (opencodeEventHub.isLive() && !closed) {
-      hub = opencodeEventHub.subscribe(this.maxHubQueue);
+    if (this.hub.isLive() && !closed) {
+      hub = this.hub.subscribe(this.maxHubQueue);
     }
     if (hub) {
       const subscription = hub;
