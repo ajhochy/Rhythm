@@ -1384,6 +1384,11 @@ export class OpencodeStreamBridge {
                 dbRole,
                 tokens != null ? JSON.stringify(tokens) : null,
                 cost,
+                // #1379 — store the engine's `info` verbatim so a mirror-served
+                // transcript returns the engine shape rather than a lossy
+                // reconstruction. `error`, `summary`, and `time.completed` exist
+                // only here.
+                JSON.stringify(info),
               );
 
               // #930 — record the turn's user-message id as the revert target

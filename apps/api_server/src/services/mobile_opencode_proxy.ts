@@ -37,8 +37,14 @@ import {
   shapeMobileOpenCodeResponse,
   shapeMobileOpenCodeTextResponse,
   type MobileOpenCodeJsonFetcher,
+  type MobileOpenCodeOwnerScope,
   type MobileOpenCodeResourceScope,
 } from './mobile_opencode_security';
+import {
+  readMirrorSessionChildren,
+  readMirrorSessionList,
+  readMirrorTranscript,
+} from './mobile_mirror_reads';
 import {
   resolveProfileIdForOpenCodeAgent,
   safeMobileSessionProfileState,
@@ -796,6 +802,25 @@ function operationPathParameter(
   }
 }
 
+/**
+ * Page size from a caller query, defaulting when the parameter is absent.
+ *
+ * `Number(null)` is 0, not NaN, so reading an absent `limit` through
+ * `Number.isSafeInteger` silently clamped the page to a single item. The phone
+ * always sends an explicit limit, which is why that stayed invisible.
+ */
+function pageLimit(raw: string | null, fallback = 100, max = 100): number {
+  if (raw === null || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(max, parsed);
+}
+
+function pageCursor(raw: string | null): number {
+  const parsed = Number(raw ?? 0);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
 export class MobileOpenCodeProxy {
   private readonly baseUrl: string;
   private readonly fetchFn: FetchFn;
@@ -837,6 +862,142 @@ export class MobileOpenCodeProxy {
           directory,
         );
       });
+  }
+
+  /** Serialize a mirror-served body, enforcing the same size ceiling. */
+  private mirrorResponse(
+    value: unknown,
+    headers?: Record<string, string>,
+  ): MobileOpenCodeProxyResponse {
+    const body = Buffer.from(JSON.stringify(value));
+    if (body.byteLength > this.responseBodyLimitBytes) {
+      throw new AppError(
+        502,
+        'UPSTREAM_RESPONSE_TOO_LARGE',
+        'OpenCode response exceeded the mobile gateway limit',
+      );
+    }
+    return {
+      status: 200,
+      contentType: 'application/json',
+      ...(headers ? { headers } : {}),
+      body,
+    };
+  }
+
+  /**
+   * Answer a read from api_server's SQLite mirror instead of the engine (#1379).
+   *
+   * Returns `null` for anything the mirror cannot answer authoritatively, and
+   * the caller then performs the unchanged live forward — including its
+   * write-through, which populates the mirror for the next request. Writes,
+   * live-state reads (working tree, diffs, vcs, find, pty), and streams are
+   * never routed here.
+   *
+   * Served behind the existing engine-shaped operationIds, so the pinned
+   * `contractFingerprint` does not move and paired phones do not re-pair.
+   */
+  private async serveFromMirror(
+    operation: (typeof MOBILE_OPENCODE_OPERATION_MANIFEST)[number],
+    input: MobileOpenCodeForwardInput,
+    requestProject: MobileProjectScope,
+    query: URLSearchParams,
+    addressedSessionId: string | null,
+    owner: MobileOpenCodeOwnerScope,
+  ): Promise<MobileOpenCodeProxyResponse | null> {
+    // Fail closed to the live path when the local catalog cannot be consulted
+    // at all (e.g. the proxy exercised without an initialized database). The
+    // mirror is an accelerator: its unavailability must never fail a request
+    // the engine could still answer.
+    try {
+      return await this.readMirror(
+        operation,
+        input,
+        requestProject,
+        query,
+        addressedSessionId,
+        owner,
+      );
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      logger.warn(
+        `[MobileOpenCodeProxy] mirror read unavailable, forwarding live (${
+          error instanceof Error ? error.name : 'UnknownError'
+        })`,
+      );
+      return null;
+    }
+  }
+
+  private async readMirror(
+    operation: (typeof MOBILE_OPENCODE_OPERATION_MANIFEST)[number],
+    input: MobileOpenCodeForwardInput,
+    requestProject: MobileProjectScope,
+    query: URLSearchParams,
+    addressedSessionId: string | null,
+    owner: MobileOpenCodeOwnerScope,
+  ): Promise<MobileOpenCodeProxyResponse | null> {
+    if (operation.operationId === 'experimental.session.list') {
+      const page = await readMirrorSessionList({
+        archived: query.get('archived') === 'true',
+        cursor: pageCursor(query.get('cursor')),
+        limit: pageLimit(query.get('limit')),
+        project: input.project,
+        userId: input.userId,
+        ...(query.get('search')?.trim()
+          ? { sessionId: query.get('search')!.trim() }
+          : {}),
+      });
+      if (!page) return null;
+      return this.mirrorResponse(
+        page.items,
+        page.nextCursor === null
+          ? undefined
+          : { 'x-next-cursor': String(page.nextCursor) },
+      );
+    }
+
+    if (operation.operationId === 'session.children' && addressedSessionId) {
+      const children = await readMirrorSessionChildren({
+        project: input.project,
+        sdkSessionId: addressedSessionId,
+        userId: input.userId,
+      });
+      return children === null ? null : this.mirrorResponse(children);
+    }
+
+    if (operation.operationId === 'session.messages' && addressedSessionId) {
+      const messages = readMirrorTranscript({
+        project: input.project,
+        sdkSessionId: addressedSessionId,
+        userId: input.userId,
+        limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+        ...(query.get('before')?.trim()
+          ? { before: query.get('before')!.trim() }
+          : {}),
+      });
+      if (messages === null) return null;
+      // Reuse the live path's shaping so mirror-served parts get exactly the
+      // same host-path and secret scrubbing. `session.messages` shaping never
+      // consults the engine, so the fetcher must never be called.
+      const safeValue = await shapeMobileOpenCodeResponse(
+        operation,
+        messages,
+        // Scrub against the session's authoritative directory (a worktree may
+        // differ from the project root), exactly as the live path does.
+        requestProject,
+        () => {
+          throw AppError.internal('Mirror reads must not contact OpenCode');
+        },
+        input.path,
+        owner,
+        false,
+        {},
+      );
+      return this.mirrorResponse(safeValue);
+    }
+
+    return null;
   }
 
   async forward(
@@ -884,18 +1045,10 @@ export class MobileOpenCodeProxy {
       ownerUnscopedDiscovery,
     );
     if (ownerUnscopedDiscovery) {
-      const requestedLimit = Number(query.get('limit'));
-      const requestedCursor = Number(query.get('cursor'));
-      const limit = Number.isSafeInteger(requestedLimit)
-        ? Math.max(1, Math.min(100, requestedLimit))
-        : 100;
-      const cursor = Number.isSafeInteger(requestedCursor) && requestedCursor >= 0
-        ? requestedCursor
-        : 0;
       const page = await listOwnerUnscopedMobileChats({
         archived: query.get('archived') === 'true',
-        cursor,
-        limit,
+        cursor: pageCursor(query.get('cursor')),
+        limit: pageLimit(query.get('limit')),
         ownerUserId: input.userId,
         projectId: input.project.id,
         sessionId: query.get('search')?.trim() || undefined,
@@ -931,6 +1084,16 @@ export class MobileOpenCodeProxy {
         body: safeBody,
       };
     }
+    const mirrored = await this.serveFromMirror(
+      operation,
+      input,
+      requestProject,
+      query,
+      addressedSessionId,
+      owner,
+    );
+    if (mirrored) return mirrored;
+
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
     const acceptsBody = operation.method !== 'GET';
     const requestBodyLimitBytes = mobileOpenCodeRequestBodyLimitBytes(
