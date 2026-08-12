@@ -3,8 +3,9 @@
 **Focus:** Mobile smart-client rebuild — the phone reads from api_server's SQLite
 mirror instead of live-proxying the OpenCode engine. **Implemented, PR open,
 awaiting manual test + merge.**
-**Branch:** `mobile/sqlite-mirror` → **PR #1384** (https://github.com/ajhochy/Rhythm/pull/1384). Off `main`, which now carries the merged
-mega PR #1368). **Do NOT merge** — AJ merges after manual testing.
+**Branch:** `mobile/sqlite-mirror` → **PR #1384**
+(https://github.com/ajhochy/Rhythm/pull/1384), off `main` (which now carries the
+merged mega PR #1368). **Do NOT merge** — AJ merges after manual testing.
 **Issues:** #1378 (fail soft — complete) · #1379 (cold-start slowness — Phase 1
 complete, device evidence still owed).
 **Plan:** `docs/ai/plan-mobile-smart-client.md` · **Run log:**
@@ -41,10 +42,14 @@ of surface that also wants device evidence. Rationale in the run log.
 
 ## Test status (this branch)
 
-- api_server: `tsc --noEmit` clean; full serial vitest green.
-- mobile: `test:ci:static` green (includes the 7 new cold-start-retry cases);
-  `contract:check` green — the engine OpenAPI is untouched.
-- New coverage: 46 cases across 6 files (5 api_server + 1 mobile).
+- `checks --level pr` → **exit 0**, all 16 checks green.
+- api_server serial vitest: **529 files / 4349 tests passed**.
+- mobile `test:ci:static` + `contract:check` green — the engine OpenAPI is
+  untouched, so `contractFingerprint` does not move.
+- New coverage: **60 cases across 8 files** (53 api_server + 7 mobile). The
+  load-bearing one is `issue_1379_mirror_reads_http.test.ts`: the real
+  `/mobile-gateway/opencode/*` route, real `Device` auth, real SQLite, engine
+  unreachable, with a negative control proving the engine is down.
 - Untouched by this branch: desktop_flutter, mcp_server, opencode_fork.
 
 ## Two pre-existing defects fixed in passing
@@ -61,8 +66,8 @@ of surface that also wants device evidence. Rationale in the run log.
 ## Flaky note (pre-existing, out of scope)
 
 `dashboard_summary.test.ts > done tasks are excluded from pastDeadlineCount`
-failed once in a full serial run and passes in isolation both with and without
-this branch. Nothing here touches the dashboard or task path. Same shared-state
+failed in one early full serial run, passes in isolation both with and without
+this branch, and did not recur in either later full run. Nothing here touches the dashboard or task path. Same shared-state
 ordering class the repo already documents on `PR_CHECKS` (#755/#1088).
 
 ## Next step
