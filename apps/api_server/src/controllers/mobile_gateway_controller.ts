@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { MobilePairingService } from '../services/mobile_pairing_service';
 
@@ -31,7 +32,10 @@ export class MobileGatewayController {
   constructor(private readonly pairingService: MobilePairingService) {}
 
   health(_req: Request, res: Response): void {
-    res.json(this.pairingService.health());
+    res.json({
+      ...this.pairingService.health(),
+      ...(env.relayPublicUrl ? { relayUrl: env.relayPublicUrl } : {}),
+    });
   }
 
   createPairingCode(req: Request, res: Response, next: NextFunction): void {
@@ -49,13 +53,14 @@ export class MobileGatewayController {
   pair(req: Request, res: Response, next: NextFunction): void {
     try {
       const pairingCode = consumeRequiredSecret(req, 'pairingCode');
-      res.status(201).json(
-        this.pairingService.pair({
+      res.status(201).json({
+        ...this.pairingService.pair({
           pairingCode,
           hostId: requiredString(req.body?.hostId, 'hostId'),
           deviceName: requiredString(req.body?.deviceName, 'deviceName'),
         }),
-      );
+        ...(env.relayPublicUrl ? { relayUrl: env.relayPublicUrl } : {}),
+      });
     } catch (error) {
       forwardSecretSafe(next, error);
     }

@@ -350,6 +350,9 @@ export const env = {
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0),
+  /** Public relay base advertised by the Mac gateway to paired phones. */
+  relayPublicUrl:
+    (process.env.RHYTHM_RELAY_PUBLIC_URL ?? '').trim() || null,
   /** #1288 — additive Research Projects surfaces remain opt-in until launched. */
   researchProjectsEnabled:
     (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')

@@ -102,6 +102,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
                 next.host.hostId,
                 next.host.deviceId,
                 next.host.gatewayUrl,
+                next.host.relayUrl ?? '',
               ].join(':')
             : null;
         if (clientScopeRef.current !== nextClientScope) {

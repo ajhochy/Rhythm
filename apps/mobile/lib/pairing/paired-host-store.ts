@@ -35,6 +35,7 @@ export type PairedHostState =
 export interface PairedHost {
   rhythmUserId: number;
   gatewayUrl: string;
+  relayUrl?: string | null;
   deviceId: string;
   hostId: string;
   deviceName: string;
@@ -60,6 +61,7 @@ export interface PairedHostSnapshot {
 export interface PairingPayload {
   gatewayUrl: string;
   pairingCode: string;
+  relayUrl?: string | null;
 }
 
 export interface PairedHostStoreOptions {
@@ -80,6 +82,7 @@ interface PairingResponse {
   contractFingerprint: string;
   minimumMobileVersion: string;
   features: string[];
+  relayUrl?: unknown;
 }
 
 type HealthResponse = Omit<PairingResponse, 'deviceId' | 'deviceToken'> & {
@@ -134,6 +137,63 @@ function safeGatewayUrl(value: unknown): string {
   return `https://${hostname}`;
 }
 
+const CONFIGURED_RELAY_BASE =
+  (process.env.EXPO_PUBLIC_RHYTHM_RELAY_URL ?? '').trim() ||
+  'https://api.vcrcapps.com/relay';
+
+export function safeRelayUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
+  }
+
+  let configured: URL;
+  let candidate: URL;
+  try {
+    configured = new URL(CONFIGURED_RELAY_BASE);
+    candidate = new URL(value);
+  } catch {
+    throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
+  }
+
+  const configuredPath = configured.pathname.replace(/\/$/, '');
+  const candidatePath = candidate.pathname.replace(/\/$/, '');
+  if (
+    configured.protocol !== 'https:' ||
+    configured.username ||
+    configured.password ||
+    configured.port ||
+    configured.search ||
+    configured.hash ||
+    candidate.protocol !== 'https:' ||
+    candidate.username ||
+    candidate.password ||
+    candidate.port ||
+    candidate.search ||
+    candidate.hash ||
+    candidate.origin !== configured.origin ||
+    candidatePath !== configuredPath
+  ) {
+    throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
+  }
+
+  return `${configured.origin}${configuredPath}`;
+}
+
+export function effectiveGatewayBase(host: {
+  gatewayUrl: string;
+  relayUrl?: string | null;
+}): string {
+  return host.relayUrl ?? host.gatewayUrl;
+}
+
+function relayUrlFromHealth(value: unknown): string | null {
+  try {
+    return safeRelayUrl(value);
+  } catch {
+    return null;
+  }
+}
+
 export function parsePairingPayload(raw: string): PairingPayload {
   let value: unknown;
   try {
@@ -146,10 +206,12 @@ export function parsePairingPayload(raw: string): PairingPayload {
   }
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
+  const allowedKeys = record.relayUrl === undefined
+    ? ['gatewayUrl', 'pairingCode']
+    : ['gatewayUrl', 'pairingCode', 'relayUrl'];
   if (
-    keys.length !== 2 ||
-    keys[0] !== 'gatewayUrl' ||
-    keys[1] !== 'pairingCode' ||
+    keys.length !== allowedKeys.length ||
+    keys.some((key, index) => key !== allowedKeys[index]) ||
     typeof record.pairingCode !== 'string' ||
     record.pairingCode.length < 32 ||
     record.pairingCode.length > 128 ||
@@ -160,6 +222,9 @@ export function parsePairingPayload(raw: string): PairingPayload {
   return {
     gatewayUrl: safeGatewayUrl(record.gatewayUrl),
     pairingCode: record.pairingCode,
+    ...(record.relayUrl === undefined
+      ? {}
+      : { relayUrl: safeRelayUrl(record.relayUrl) }),
   };
 }
 
@@ -228,6 +293,14 @@ function isPairedHost(value: unknown): value is PairedHost {
     Number.isSafeInteger(host.rhythmUserId) &&
     host.rhythmUserId > 0 &&
     typeof host.gatewayUrl === 'string' &&
+    (
+      host.relayUrl === undefined ||
+      host.relayUrl === null ||
+      (
+        typeof host.relayUrl === 'string' &&
+        safeRelayUrl(host.relayUrl) === host.relayUrl
+      )
+    ) &&
     typeof host.deviceId === 'string' &&
     typeof host.hostId === 'string' &&
     typeof host.deviceName === 'string' &&
@@ -336,7 +409,8 @@ export class PairedHostStore {
       return null;
     }
     return new PairedMacClient({
-      baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+      baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
+      directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getDeviceToken: async () => {
         const token = await this.getCredential(PAIRED_DEVICE_SECURE_KEY);
         if (!token) throw new Error('Paired-device credential unavailable');
@@ -472,7 +546,8 @@ export class PairedHostStore {
         );
       }
       const client = new PairedMacClient({
-        baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+        baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
+        directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
         getDeviceToken: async () => token,
       });
       const health = await client.request<HealthResponse>(
@@ -488,8 +563,11 @@ export class PairedHostStore {
       }
       const incompatibility = compatibilityError(health);
       if (incompatibility) return this.apply('incompatible', incompatibility);
+      const relayUrl =
+        host.relayUrl ?? relayUrlFromHealth(health.relayUrl);
       const refreshedHost: PairedHost = {
         ...host,
+        ...(relayUrl ? { relayUrl } : {}),
         gatewayVersion: health.gatewayVersion,
         rhythmVersion: health.rhythmVersion,
         opencodeVersion: health.opencodeVersion,
@@ -554,6 +632,7 @@ export class PairedHostStore {
     let payload: PairingPayload = {
       gatewayUrl: '',
       pairingCode: '',
+      relayUrl: null,
     };
     let newDeviceToken = '';
     let existingDeviceToken: string | null = null;
@@ -578,7 +657,7 @@ export class PairedHostStore {
         }
       }
       const publicClient = new PublicGatewayClient({
-        baseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
+        baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(payload)),
       });
       const health = await publicClient.requestPublic<HealthResponse>(
         '/mobile-gateway/health',
@@ -626,8 +705,18 @@ export class PairedHostStore {
         response && typeof response.deviceToken === 'string'
           ? response.deviceToken
           : '';
+      const relayUrl =
+        payload.relayUrl ??
+        relayUrlFromHealth(health.relayUrl) ??
+        relayUrlFromHealth(response?.relayUrl);
       const newClient = new PairedMacClient({
-        baseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
+        baseUrl: this.resolvedGatewayUrl(
+          effectiveGatewayBase({
+            gatewayUrl: payload.gatewayUrl,
+            relayUrl,
+          }),
+        ),
+        directBaseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
         getDeviceToken: async () => newDeviceToken,
       });
       const revokeNewDevice = async (): Promise<boolean> => {
@@ -696,6 +785,7 @@ export class PairedHostStore {
       const host: PairedHost = {
         rhythmUserId: response.userId,
         gatewayUrl: payload.gatewayUrl,
+        ...(relayUrl ? { relayUrl } : {}),
         deviceId: response.deviceId,
         hostId: response.hostId,
         deviceName: input.deviceName,
@@ -778,7 +868,8 @@ export class PairedHostStore {
       }
       if (existing && existingDeviceToken && !recycledEndpoint) {
         const oldClient = new PairedMacClient({
-          baseUrl: this.resolvedGatewayUrl(existing.gatewayUrl),
+          baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(existing)),
+          directBaseUrl: this.resolvedGatewayUrl(existing.gatewayUrl),
           getDeviceToken: async () => existingDeviceToken!,
         });
         try {
@@ -871,7 +962,7 @@ export class PairedHostStore {
       this.apply(this.host ? 'offline' : 'unpaired', safe.message, this.host);
       throw safe;
     } finally {
-      payload = { gatewayUrl: '', pairingCode: '' };
+      payload = { gatewayUrl: '', pairingCode: '', relayUrl: null };
       newDeviceToken = '';
       existingDeviceToken = null;
     }
@@ -892,7 +983,8 @@ export class PairedHostStore {
       );
     }
     const client = new PairedMacClient({
-      baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+      baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
+      directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getDeviceToken: async () => deviceToken,
     });
     try {
