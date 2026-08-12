@@ -453,6 +453,43 @@ export class PairedHostStore {
     return this.options.resolveGatewayUrl?.(gatewayUrl) ?? gatewayUrl;
   }
 
+  /**
+   * Probe the KNOWN relay base for an already-paired host that has no stored
+   * relayUrl, and return a host with relayUrl adopted when the relay is
+   * reachable and advertises a valid one. Never throws — an unreachable relay
+   * returns null so the caller falls back to the stored (Tailscale) path.
+   * The device token is replicated to the relay by the Mac, so the existing
+   * pairing authenticates there without a re-pair.
+   */
+  private async adoptConfiguredRelay(
+    host: PairedHost,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<{ host: PairedHost; health: HealthResponse } | null> {
+    let relayBase: string;
+    try {
+      relayBase = safeRelayUrl(CONFIGURED_RELAY_BASE);
+    } catch {
+      return null;
+    }
+    try {
+      const relayClient = new PairedMacClient({
+        baseUrl: this.resolvedGatewayUrl(relayBase),
+        directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+        getDeviceToken: async () => token,
+      });
+      const health = await relayClient.request<HealthResponse>(
+        '/mobile-gateway/health',
+        { method: 'GET', signal },
+      );
+      if (health.status !== 'ready') return null;
+      const relayUrl = relayUrlFromHealth(health.relayUrl) ?? relayBase;
+      return { host: { ...host, relayUrl }, health };
+    } catch {
+      return null;
+    }
+  }
+
   private neutralizeDeviceToken(): Promise<void> {
     return neutralizeDeviceToken(this.options);
   }
@@ -545,15 +582,32 @@ export class PairedHostStore {
           'This iPhone is offline. Your paired Mac is still saved.',
         );
       }
-      const client = new PairedMacClient({
-        baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
-        directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
-        getDeviceToken: async () => token,
-      });
-      const health = await client.request<HealthResponse>(
-        '/mobile-gateway/health',
-        { method: 'GET', signal },
-      );
+      // Relay-first migration (docs/ai/plan-synology-relay.md): a device paired
+      // before the relay existed has no stored relayUrl, so effectiveGatewayBase
+      // would fall back to the .ts.net gatewayUrl and connect over Tailscale —
+      // and it could only *learn* the relay URL from a health response fetched
+      // over that same Tailscale path (a bootstrap trap). Instead, when the host
+      // carries no relayUrl, probe the KNOWN relay base directly and adopt it, so
+      // the connection and every subsequent read/write/stream go through the
+      // relay with no re-pair. Falls back to the stored path if the relay is
+      // unreachable.
+      const adopted = host.relayUrl
+        ? null
+        : await this.adoptConfiguredRelay(host, token, signal);
+      const connectHost = adopted?.host ?? host;
+      const usingRelay = connectHost.relayUrl != null;
+      // The relay probe already fetched a compatible health payload — reuse it
+      // rather than making a second round trip over the same base.
+      const health =
+        adopted?.health ??
+        (await new PairedMacClient({
+          baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(connectHost)),
+          directBaseUrl: this.resolvedGatewayUrl(connectHost.gatewayUrl),
+          getDeviceToken: async () => token,
+        }).request<HealthResponse>('/mobile-gateway/health', {
+          method: 'GET',
+          signal,
+        }));
       if (operation !== this.operation) return this.snapshot();
       if (health.status !== 'ready') {
         return this.apply(
@@ -564,9 +618,9 @@ export class PairedHostStore {
       const incompatibility = compatibilityError(health);
       if (incompatibility) return this.apply('incompatible', incompatibility);
       const relayUrl =
-        host.relayUrl ?? relayUrlFromHealth(health.relayUrl);
+        connectHost.relayUrl ?? relayUrlFromHealth(health.relayUrl);
       const refreshedHost: PairedHost = {
-        ...host,
+        ...connectHost,
         ...(relayUrl ? { relayUrl } : {}),
         gatewayVersion: health.gatewayVersion,
         rhythmVersion: health.rhythmVersion,
@@ -581,7 +635,9 @@ export class PairedHostStore {
       );
       return this.apply(
         'connected',
-        'Connected securely to your Mac over Tailscale.',
+        usingRelay || relayUrl != null
+          ? 'Connected securely to your Mac through the relay.'
+          : 'Connected securely to your Mac over Tailscale.',
         refreshedHost,
       );
     } catch (error) {

@@ -297,6 +297,46 @@ async function pairedStore() {
   assert.match(result.message, /Tailscale/);
 }
 
+// relay-first migration: an already-paired host with no stored relayUrl probes
+// the KNOWN relay base, adopts it, and connects through the relay — no re-pair.
+{
+  __reset();
+  const store = await pairedStore();
+  const RELAY = 'https://api.vcrcapps.com/relay';
+  __setMacHandler(async (path, init, token, baseUrl) => {
+    // The relay is the ONLY reachable endpoint; the .ts.net direct base fails
+    // (Tailscale off), proving adoption did not depend on Tailscale.
+    if (baseUrl !== RELAY) {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    }
+    return { ...healthResponse, relayUrl: RELAY };
+  });
+  const result = await store.refresh();
+  assert.equal(result.state, 'connected');
+  assert.match(result.message, /relay/i);
+  assert.equal(result.host.relayUrl, RELAY);
+  // Every gateway request rode the relay base, never the .ts.net gateway.
+  for (const call of __macRequests()) assert.equal(call.baseUrl, RELAY);
+}
+
+// relay-first migration: when the relay is unreachable, fall back to the stored
+// Tailscale path unchanged (no relayUrl adopted, connects over Tailscale).
+{
+  __reset();
+  const store = await pairedStore();
+  const RELAY = 'https://api.vcrcapps.com/relay';
+  __setMacHandler(async (path, init, token, baseUrl) => {
+    if (baseUrl === RELAY) {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    }
+    return healthResponse;
+  });
+  const result = await store.refresh();
+  assert.equal(result.state, 'connected');
+  assert.match(result.message, /Tailscale/);
+  assert.equal(result.host.relayUrl, undefined);
+}
+
 // issue-1171-c4: revocation clears Keychain but retains safe host diagnostics.
 {
   __reset();
