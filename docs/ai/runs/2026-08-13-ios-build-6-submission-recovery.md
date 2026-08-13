@@ -2,9 +2,9 @@
 date: 2026-08-13
 repo: Rhythm
 branch: codex/ios-submit-app-id
-pr: null
+pr: 1390
 issues: [1175, 1380]
-status: verified-config-awaiting-submit
+status: submitted-processing
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -25,6 +25,10 @@ index: "[[Rhythm]]"
 - `ai-workflow checks --level pr` — PASS after environment recovery: Flutter tests; API lint, serial
   tests, build; MCP tests/build; opencode fork typecheck/session tests; mobile static/contracts,
   fake-server self-test, and web E2E 71/71.
+- PR #1390 Mobile CI run `31682137911` — PASS in 6m1s; PR merged as
+  `0c4c2461ae394daeec8876eea791684f809ffe49`.
+- `eas submit --platform ios --id 626de7fe-116f-4fb9-afc1-9a82c97b1632 --profile production
+  --non-interactive --wait` — PASS; binary uploaded to App Store Connect.
 
 ## Notes
 
@@ -38,3 +42,8 @@ index: "[[Rhythm]]"
   the orphan process, and granting documented local cache/port access resolved the environment. No
   product code repair or follow-up issue was required.
 - No UI, API, backend behavior, Terminal work, Gallery redesign, production data, or credentials changed.
+- Submission `d52e1e6d-b832-4f21-a897-b513c53ce60a` targeted ASC app `6796011479` via EAS-hosted
+  API key `9XHDX3ZN44`. Apple accepted the upload and began processing build `1.0.8 (6)`.
+- TestFlight URL: `https://appstoreconnect.apple.com/apps/6796011479/testflight/ios`.
+- Remaining external state: Apple processing, potential issue #1380 export-compliance resolution, and
+  physical-iPhone smoke of that exact TestFlight build.
