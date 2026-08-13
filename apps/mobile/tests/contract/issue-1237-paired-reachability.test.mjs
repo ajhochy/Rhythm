@@ -8,17 +8,17 @@ const read = (path) => readFile(new URL(path, repoRoot), 'utf8');
 
 test('issue-1237-c4: authoritative offline copy preserves paired-host distinctions', async () => {
   // Regression caught: treating every saved-host failure as "not paired"
-  // erases the actionable iPhone-offline and Tailscale-unreachable states.
+  // erases the actionable iPhone-offline and gateway-unreachable states.
   const [store, labels] = await Promise.all([
     read('apps/mobile/lib/pairing/paired-host-store.ts'),
     read('apps/mobile/components/settings/paired-mac-section.tsx'),
   ]);
 
   assert.match(store, /This iPhone is offline\. Your paired Mac is still saved\./);
-  assert.match(store, /Tailscale cannot reach the paired Mac\./);
+  assert.match(store, /Rhythm Cloud Gateway cannot reach your Mac\./);
   assert.match(store, /Pair this iPhone with your Mac to use Rhythm Agents\./);
   assert.match(labels, /offline:\s*'iPhone offline'/);
-  assert.match(labels, /tailscaleUnavailable:\s*'Tailscale unavailable'/);
+  assert.match(labels, /tailscaleUnavailable:\s*'Cloud gateway unavailable'/);
   assert.match(labels, /unpaired:\s*'Not paired'/);
 });
 
@@ -149,16 +149,12 @@ test('issue-1237-regression: unpaired direct-web chat stays online', async () =>
   );
   assert.match(
     chatDetail,
-    /!pairedHost\.host \|\| pairedHost\.state === 'connected'/,
-  );
-  assert.ok(
-    chatDetail.indexOf('if (!pairedHostAvailable)') <
-      chatDetail.indexOf('if (!sessionId || opencode.currentSessionId !== sessionId)'),
-    'paired-host loss must exit session loading before rendering its spinner',
+    /!pairedHostRecord \|\| pairedHostState === 'connected'/,
   );
   assert.match(
     chatDetail,
-    /sessionTransportAvailable[\s\S]*opencode\.connection\.status === 'connected'/,
+    /pairedHostAvailable[\s\S]*'Loading the transcript and agent state\.'[\s\S]*pairedHostMessage/,
+    'paired-host loss must replace generic transcript loading copy with the actionable gateway state',
   );
   assert.match(runtime, /createPairedHostStore/);
   assert.match(fakeState, /mobileReachability:\s*'online'/);
@@ -166,4 +162,68 @@ test('issue-1237-regression: unpaired direct-web chat stays online', async () =>
     new URL('../fake-opencode/state.mjs', import.meta.url)
   );
   assert.equal(createState('happy-path').mobileReachability, 'online');
+});
+
+test('issue-1387-c3: relay health never masks a catalog connection error', async () => {
+  // Regression caught: paired-host relay health was rendered as Connected even
+  // while the authenticated projects request had failed with status 502.
+  const settings = await read('apps/mobile/app/(tabs)/settings.tsx');
+
+  assert.doesNotMatch(
+    settings,
+    /status:\s*pairedHost\.state === 'connected'\s*\?\s*'connected'\s*:\s*'error'/,
+  );
+  assert.match(
+    settings,
+    /pairedHost\.state !== 'connected'[\s\S]*connection\.status === 'connected'/,
+  );
+});
+
+test('issue-1387-c5: every paired-host catalog skips project engine fan-out', async () => {
+  const agentChat = await read(
+    'apps/mobile/providers/agent-chat-provider.tsx',
+  );
+
+  assert.match(
+    agentChat,
+    /usePairedCatalogRef\s*=\s*useRef\(Boolean\(pairedHost\.host\)\)/,
+  );
+  assert.match(
+    agentChat,
+    /skipProjectScopedSweep:\s*usePairedCatalogRef\.current/,
+  );
+});
+
+test('issue-1387-c8-stream-guard: relay stream reconnect never downgrades paired-host reachability', async () => {
+  const provider = await read('apps/mobile/providers/opencode-provider.tsx');
+
+  assert.match(
+    provider,
+    /pairedHostClient\s*&&\s*pairedHostRecord\?\.relayUrl\s*==\s*null\s*&&\s*!reachabilityFailureReported/,
+    'an SSE reconnect may probe direct Tailscale, but relay reachability is owned by the independent health probe',
+  );
+});
+
+test('issue-1387-c10: relay UI does not present the legacy Tailscale route', async () => {
+  const [pairedSection, pairScreen, toolState] = await Promise.all([
+    read('apps/mobile/components/settings/paired-mac-section.tsx'),
+    read('apps/mobile/app/pair.tsx'),
+    read('apps/mobile/components/tools/tool-screen-state.tsx'),
+  ]);
+
+  assert.doesNotMatch(pairedSection, /Tailscale|host\.gatewayUrl\.replace/);
+  assert.match(pairedSection, /Rhythm Cloud Gateway/);
+  assert.doesNotMatch(pairScreen, /Tailscale/);
+  assert.match(pairScreen, /Rhythm Cloud Gateway/);
+  assert.doesNotMatch(toolState, /Tailscale/);
+  assert.match(toolState, /cloud gateway/i);
+});
+
+test('issue-1387-c11: owner discovery uses the generic relay tunnel catalog route', async () => {
+  const client = await read('apps/mobile/lib/opencode/client.ts');
+
+  assert.match(
+    client,
+    /sdkPath === '\/experimental\/session'[\s\S]*owner-unscoped[\s\S]*'\/mobile-gateway\/chat-catalog'/,
+  );
 });

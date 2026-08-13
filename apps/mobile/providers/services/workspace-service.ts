@@ -7,8 +7,16 @@ function requireData<T>(data: T | undefined, operation: string): T {
   return data;
 }
 
-export async function findFiles(client: OpencodeClient, query: string, includeDirectories = false) {
-  return requireData((await client.find.files({ query, dirs: includeDirectories ? 'true' : 'false' })).data, 'file search');
+export async function findFiles(
+  client: OpencodeClient,
+  query: string,
+  includeDirectories = false,
+  signal?: AbortSignal,
+) {
+  return requireData((await client.find.files(
+    { query, dirs: includeDirectories ? 'true' : 'false' },
+    { signal },
+  )).data, 'file search');
 }
 
 export async function listFiles(client: OpencodeClient, path: string) {

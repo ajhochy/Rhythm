@@ -28,7 +28,10 @@ function requireData<T>(data: T | undefined, operation: string): T {
 export async function discoverChatCapabilities(
   client: OpencodeClient,
   activeProjectPath?: string,
-  options: { includeEngineAgents?: boolean } = {},
+  options: {
+    includeEngineAgents?: boolean;
+    includeProviderAuth?: boolean;
+  } = {},
 ) {
   if (!activeProjectPath) {
     return {
@@ -42,11 +45,14 @@ export async function discoverChatCapabilities(
     };
   }
 
-  const [configResponse, providersResponse, providerAuthResponse] = await Promise.all([
-    client.config.get(),
-    client.provider.list(),
-    client.provider.auth(),
-  ]);
+  const [configResponse, providersResponse, providerAuthResponse] =
+    await Promise.all([
+      client.config.get(),
+      client.provider.list(),
+      options.includeProviderAuth === false
+        ? Promise.resolve({ data: {} })
+        : client.provider.auth(),
+    ]);
 
   const nextConfig = requireData(configResponse.data, 'config request');
   const providerData = requireData(providersResponse.data, 'provider request');

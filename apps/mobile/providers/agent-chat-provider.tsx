@@ -161,6 +161,8 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   // the effects below and re-ran the sweep on every navigation (#1287).
   const isOnlineRef = useRef(isOnline);
   isOnlineRef.current = isOnline;
+  const usePairedCatalogRef = useRef(Boolean(pairedHost.host));
+  usePairedCatalogRef.current = Boolean(pairedHost.host);
   const buildScopedClientRef = useRef(buildScopedClient);
   buildScopedClientRef.current = buildScopedClient;
   const projectPathsRef = useRef(projectPaths);
@@ -187,6 +189,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
         (projectId) => buildScopedClientRef.current(projectId),
         projectPathsRef.current,
         {
+          skipProjectScopedSweep: usePairedCatalogRef.current,
           onProgress(progress) {
             if (
               !mountedRef.current ||

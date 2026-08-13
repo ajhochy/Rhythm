@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -156,6 +157,46 @@ test('Gallery cache shaping cannot retain a desktop filesystem path', () => {
       artifactType: 'png',
     },
   ]);
+});
+
+test('issue-1387-c15: Gallery resolves its finished artifact through the authenticated Cloud Gateway tunnel', async () => {
+  // Regression caught: Gallery cards render metadata but have no action, or
+  // construct a direct/Tailscale URL instead of the paired relay transport.
+  const paired = recordingTransport(() => []);
+  paired.resourceConnection = async (path, init) => ({
+    url: `https://api.vcrcapps.com/relay${path}`,
+    headers: init.headers,
+  });
+  const service = new RhythmToolsService({
+    cloud: recordingTransport(() => []),
+    paired,
+    projectId: 'project-rhythm',
+  });
+
+  const source = await service.getGalleryArtifactSource({
+    id: 'design with spaces',
+    title: 'Sunday reel',
+    artifactType: 'mp4',
+    artifactUrl: 'https://legacy-mac.tail1234.ts.net/sunday.mp4',
+  });
+
+  assert.deepEqual(source, {
+    kind: 'video',
+    uri: 'https://api.vcrcapps.com/relay/mobile-gateway/tools/agent-designs/design%20with%20spaces/artifact',
+    headers: { 'X-Rhythm-Project-ID': 'project-rhythm' },
+  });
+});
+
+test('issue-1387-c16: Gallery exposes an explicit unavailable state when an artifact cannot load', async () => {
+  // Regression caught: tapping a Gallery row silently does nothing when its
+  // underlying local artifact is missing or unsupported on mobile.
+  const source = await readFile(
+    new URL('../app/tools/[tool].tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /openGalleryArtifact/);
+  assert.match(source, /Artifact unavailable/);
+  assert.match(source, /tool === 'gallery'/);
 });
 
 function recordingTransport(resolve) {

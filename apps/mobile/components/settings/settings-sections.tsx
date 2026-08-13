@@ -17,6 +17,7 @@ import { Colors, Fonts } from '@/constants/theme';
 import { formatTimestamp } from '@/lib/opencode/format';
 import type { NotificationDebugStatus } from '@/lib/notifications';
 import type { OpencodeConnectionSettings } from '@/lib/opencode/client';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 import type { SpeechVoiceOption } from '@/lib/voice/speech-output';
 import type { WorkingSoundVariant } from '@/lib/voice/working-sound';
 import type { ChatPreferences, ModelOption, ProviderOption, ResponseScope } from '@/providers/opencode-provider';
@@ -54,7 +55,7 @@ export function DiagnosticsSection({
 }
 
 type ConnectionSectionProps = {
-  connection: { status: 'idle' | 'connecting' | 'connected' | 'error'; message: string; checkedAt?: number };
+  connection: { status: GatewayConnectionStatus; message: string; checkedAt?: number };
   isConnecting: boolean;
   onReconnect: () => void;
   palette: Palette;

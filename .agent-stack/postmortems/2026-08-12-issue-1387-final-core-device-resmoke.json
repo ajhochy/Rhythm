@@ -1,0 +1,87 @@
+{
+  "run_id": "2026-08-12-issue-1387-final-core-device-resmoke",
+  "issue": 1387,
+  "date": "2026-08-12",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "smoke_scope": "Final-core physical iPhone re-smoke of c19 and c25-c27 against the native Cloud Gateway. The send-time regression was exercised manually, then the strengthened c19 repair was rebuilt, installed, and checked through a safe physical Mac-uplink loss and recovery. Terminal is explicitly paused by the user and excluded from this smoke's blockers and remaining criteria.",
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1387-c19",
+      "text": "While the native Cloud Gateway health body continues to report macOnline true, two successful prompt-and-assistant-response turns remain Connected after a transient relay request failure instead of falsely downgrading the chat to Desktop offline.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Physical iPhone PASS after the strengthened c19 repair. The first manual RELAY_FINAL turn on the older final build collapsed to Opening chat while relay health simultaneously showed macOnline false and lastUplinkAt null, then recovered and preserved both the prompt and response. A second RELAY_FINAL_TWO turn stayed Connected while macOnline remained true and the Cloudflare socket was established, showing that send traffic itself did not trigger the outage. After rebuild and install, stopping the desktop with the chat already open produced an honest Offline header while the complete transcript remained visible and no Opening chat state appeared; restoring the desktop returned that same transcript to Connected. Final relay health reported macOnline true and the desktop was signed in on Dashboard."
+    },
+    {
+      "criterion_id": "issue-1387-c25",
+      "text": "During cold hydration of a persisted paired project, opening Gallery shows an honest loading or restoring state instead of falsely telling the user to select a project, then renders the persisted project's artifacts within the shared 12-second tool deadline.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Physical iPhone PASS after the c25 correction: Gallery's first observable frame already rendered both persisted-project artifacts, Hymn of Love Reel and Normal Worship Times — Sunday Reel. No false Select a project state appeared."
+    },
+    {
+      "criterion_id": "issue-1387-c26",
+      "text": "When the relay reports macOnline false, the Agents catalog shows an explicit desktop-offline status while still listing mirrored sessions, and never claims Connected.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Physical iPhone PASS with the Mac genuinely offline: the first exact status was Desktop offline — you can still read sessions; the sustained state later read Rhythm Cloud Gateway cannot reach your Mac. Mirrored sessions remained visible and the screen never claimed Connected."
+    },
+    {
+      "criterion_id": "issue-1387-c27",
+      "text": "When the relay mirror has project metadata for offline sessions, the Agents catalog preserves and displays those project names instead of Unknown project.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The first offline launch used an older cache and showed Unknown project, matching the documented migration risk. After one online catalog refresh the session showed Song Writing, and a second cold launch while offline preserved Song Writing. Physical iPhone PASS for refreshed mirrors."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "device-control-permission",
+      "description": "iPhone Mirroring denied Computer Use touch control, so the user performed the final c19 sends manually while the tester observed connection, relay-health, and recovery state.",
+      "detected_by": "Computer Use returned that it was not approved to use iPhone Mirroring. Manual user interaction completed the physical criterion, so this did not remain a blocker."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "smoke-test",
+      "computer-use",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "smoke-test",
+      "computer-use",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx",
+    "apps/mobile/providers/rhythm-tools-provider.tsx",
+    "apps/mobile/tests/contract/issue-1387-gallery-loading.test.tsx",
+    "apps/mobile/components/chat/chat-list.tsx",
+    "apps/api_server/src/services/mobile_chat_catalog.ts",
+    "apps/api_server/src/__tests__/issue_1387_send_uplink_restart_diagnostic.test.ts",
+    "apps/mobile/tests/contract/issue-1387-offline-sessions-state.test.tsx",
+    "docs/ai/contracts/issue-1387.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "No core issue-1387 mobile smoke follow-up remains. Terminal is paused and excluded by user choice. Do not begin commit, push, PR, or CI work unless the user explicitly resumes release preparation."
+}

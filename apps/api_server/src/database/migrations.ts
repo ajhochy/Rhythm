@@ -46,6 +46,25 @@ export function runMigrations(db: Database.Database): void {
     )
   `);
 
+  // Synology relay Phase 2 — durable, sequence-stamped mirror replication.
+  // These are structure-only migrations: CREATE TABLE IF NOT EXISTS is safe
+  // on every boot and does not rewrite user-editable content.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS relay_outbox (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      tbl TEXT NOT NULL,
+      op TEXT NOT NULL,
+      pk TEXT NOT NULL,
+      row_json TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS relay_sync_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      last_applied_seq INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
   const runOnce = (key: string, fn: () => void): void => {
     const done = db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(key);
     if (done) return;
@@ -1338,6 +1357,15 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!asmCols686.includes('cost')) {
     db.exec(`ALTER TABLE agent_session_messages ADD COLUMN cost REAL`);
+  }
+  // #1379 — the verbatim engine `message.info` object, so a mirror-served
+  // transcript can return the exact engine shape rather than a lossy
+  // reconstruction from role/tokens/cost (which drops `error`, `summary`, and
+  // `time.completed` — fields the phone renders). Rows written before this
+  // column existed have info_json IS NULL, which is the mirror-incomplete
+  // signal that makes the read fall back to a live engine fetch.
+  if (!asmCols686.includes('info_json')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN info_json TEXT`);
   }
   // Unique index on (session_id, sdk_message_id) — used for upsert keying.
   // The partial WHERE sdk_message_id IS NOT NULL prevents index from treating

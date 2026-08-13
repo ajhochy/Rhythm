@@ -42,9 +42,20 @@ import {
 } from '../services/mobile_profile_catalog';
 import { createMobileToolsRouter } from './mobile_tools_routes';
 import { MediaArtifactsController } from '../controllers/media_artifacts_controller';
+import { listOwnerUnscopedMobileChats } from '../services/mobile_chat_catalog';
 
 export { buildSafeMobileProfileCatalog };
 export { canUpdateMobileSessionState };
+
+function catalogInteger(
+  raw: string | null,
+  fallback: number,
+  maximum: number,
+): number {
+  const parsed = Number(raw ?? '');
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return fallback;
+  return Math.min(parsed, maximum);
+}
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
@@ -116,6 +127,33 @@ export function createMobileGatewayRouter(): Router {
   router.get(
     '/health',
     withController((active, req, res) => active.health(req, res)),
+  );
+  router.get(
+    '/chat-catalog',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const query = new URL(req.originalUrl, 'http://mobile.local')
+          .searchParams;
+        const page = await listOwnerUnscopedMobileChats({
+          archived: query.get('archived') === 'true',
+          cursor: catalogInteger(query.get('cursor'), 0, Number.MAX_SAFE_INTEGER),
+          limit: catalogInteger(query.get('limit'), 100, 100) || 100,
+          ownerUserId: req.mobileDevice!.userId,
+          projectId: req.mobileProject!.id,
+          ...(query.get('search')?.trim()
+            ? { sessionId: query.get('search')!.trim() }
+            : {}),
+        });
+        if (page.nextCursor !== null) {
+          res.setHeader('x-next-cursor', String(page.nextCursor));
+        }
+        res.json(page.items);
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
   );
   router.get(
     '/access',

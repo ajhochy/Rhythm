@@ -1,41 +1,51 @@
 # Rhythm — Project State
 
-**Focus:** MEGA PR backlog burn-down — **complete, PR open, awaiting manual test + merge.**
-**Branch:** `mega/2026-08-10-backlog-burndown` → **PR #1368** (https://github.com/ajhochy/Rhythm/pull/1368). **Do NOT merge** — AJ merges after manual testing.
+## Current focus
 
-## What shipped
-All 59 open issues (58 snapshot 2026-08-10 + #1367) implemented on one mega branch across 10
-Codex-built workstreams, integrated sequentially with a full compile+test gate after each merge.
-~84 commits, ~388 files. New surfaces disabled by default: `RHYTHM_RESEARCH_PROJECTS_ENABLED=off`,
-`RHYTHM_MCP_APPS_MODE=off`.
+The native Cloud Gateway/mobile release candidate is isolated and verified locally. It restores
+relay-backed mobile catalog, chat, Gallery, workspace, model/profile/tool, and offline recovery
+behavior without exposing Tailscale language in the desktop access dialog.
 
-## Test status (mega HEAD)
-- api_server: tsc clean; vitest **4293 passed** (per-file green; see flaky note).
-- desktop_flutter: format clean, analyze clean, **flutter test 1202/0**.
-- opencode_fork: permission + shell-cancel + full session suites green; SDK artifact regenerated & stable.
-- mcp_server: build clean. mobile: **Jest 61/61**, **Playwright 71/0** (== baseline), foundation contract green (136 ops).
-- CI (PR #1368): all five checks green after the SDK-regen + mcp-app-op classification fix (both root causes fixed & verified locally).
+## Active branch / PR
 
-## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation (verified: tasks_permissions,
-agent_designs, isolate_worktree, org_proposals, mobile deep-links). The two in-scope flaky issues
-#1247/#1310 are fixed at the root. CI re-run clears transient reds.
+- Branch: `codex/cloud-gateway-mobile-release` (based on `mobile/synology-relay` at `36c27ef5`).
+- PR: #1388 (draft), commit `b2496905`; branch is pushed and CI is running.
+- The index contains the intended release candidate. Unstaged Terminal/PTy, transcript display,
+  activity-service, proof-image, and unrelated postmortem work remains preserved in the working tree.
 
-## Phase 4 (live smoke)
-Fork engine rebuilt for this branch + re-signed ad-hoc, staged to api_server/opencode_bin and the dev
-shadow path; env-gated live E2E suites written for sandbox (research #1300, permissions #1322,
-plumbing #1325/#1326, media #1309, inspector #1361). Full per-issue GUI click-through against live
-prod + Synology is the manual smoke the PR stays open for (per this file's Git/PR workflow — user
-tests locally before merge).
+## In progress
 
-## HUMAN-GATED (one-line actions in the PR body)
-#1175 TestFlight Apple auth · #1176 approve keep-blocked · #1177 name remote-exec use case / defer ·
-#1178 approve sharing decision sheet · #1280 physical-iPhone composer check · #1363 approve dry-run
-then --apply · #1364 Tailscale cold-open timing · #1300 flip research flag after approval.
+- Commit the isolated index, push, open a draft PR, monitor required checks, and merge after green CI.
+- Release affected surfaces after merge: hosted API/relay image, signed macOS desktop artifacts, and
+  iOS production build/submission.
+- Verify hosted health/source SHA and perform focused post-release desktop/mobile Cloud Gateway smoke.
+
+## Risks / known issues
+
+- GitNexus reports HIGH aggregate staged risk (64 files, 121 symbols, seven affected flows); focused
+  `OpencodeProvider` recovery repair risk is LOW (one caller, no indexed flow).
+- Local macOS release build produced a 70 MB universal `Rhythm.app`, but this machine does not trust
+  the signing certificate chain. Distribution signing/notarization must pass in the release workflow.
+- Mobile production-bundle verification requires the three production Expo OAuth/Cloud URL variables;
+  they were not present locally. Nine Expo dependency recommendations are pre-existing on `main` and
+  are not repository release gates.
+- Terminal is intentionally deferred. The discussed Gallery cloud-upload redesign is not implemented.
+
+## Test status
+
+- PASS: repository issue checks (Flutter analyze/format, API and MCP TypeScript); full Flutter tests;
+  macOS release compilation; mobile lint (zero errors, three warnings), typecheck, 25 suites/85 tests,
+  static/security contracts, Expo config prebuild/introspection, and web E2E 71/71.
+- PASS: API build; full serial Vitest 539 files/4,423 tests (104 files/162 tests skipped); focused
+  gateway/relay 14 files/79 tests; restart diagnostic 1/1.
+- PASS: isolated live sandbox health for API, engine bridge, and gateway; authenticated relay GET E2E
+  1/1 through real `RelayUplinkClient` into candidate HTTP. Sandbox teardown and port cleanup passed.
+- PASS: recorded physical-device c19, c22, c24-c27 plus online sessions, chats, Gallery, Models,
+  Profiles, Scheduled Jobs, Settings, Agents, relay interruption recovery, and persisted messages.
+- Triage resolved two mobile web failures: one hidden-element test locator and duplicate concurrent
+  relay health probes. Full mobile verification passed after the repair.
 
 ## Next step
-AJ: manual-smoke the PR locally against prod + Synology, action the 8 human-gated items, then merge.
-```bash
-tools/dev/launch_desktop_current.sh   # engine already rebuilt + staged for this branch
-```
+
+Monitor PR #1388, resolve any required check failures, mark it ready, merge after green CI, then run the
+documented hosted, desktop, and iOS release workflows and focused production smoke.

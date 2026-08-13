@@ -115,8 +115,8 @@ export default function PairScreen() {
           Scan the code from Rhythm on your Mac
         </Text>
         <Text variant="bodyMedium" style={{ color: palette.muted }}>
-          Pairing stays inside your private Tailscale network. The one-time
-          code is discarded as soon as the Mac exchanges it.
+          Pairing connects this iPhone to your Mac through Rhythm Cloud Gateway.
+          The one-time code is discarded as soon as the Mac exchanges it.
         </Text>
         {!signedIn ? (
           <View

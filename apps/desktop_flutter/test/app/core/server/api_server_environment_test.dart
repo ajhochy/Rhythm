@@ -167,5 +167,43 @@ void main() {
       expect(env.containsKey('HUMAN_APPROVAL_CAPABILITY'), isFalse);
       expect(env.containsKey('HUMAN_APPROVAL_PRIVATE_KEY'), isFalse);
     });
+
+    test('seeds RHYTHM_RELAY_BEARER from the persisted session token', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        relaySessionToken: 'persisted-token',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['RHYTHM_RELAY_BEARER'], 'persisted-token');
+    });
+
+    test('an explicit RHYTHM_RELAY_BEARER env override wins', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {'RHYTHM_RELAY_BEARER': 'dev-override'},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        relaySessionToken: 'persisted-token',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['RHYTHM_RELAY_BEARER'], 'dev-override');
+    });
+
+    test('leaves RHYTHM_RELAY_BEARER unset without a token', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env.containsKey('RHYTHM_RELAY_BEARER'), isFalse);
+    });
   });
 }

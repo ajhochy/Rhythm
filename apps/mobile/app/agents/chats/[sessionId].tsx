@@ -44,6 +44,14 @@ export default function AgentChatDetailScreen() {
   } = opencode;
   const pairedHostAvailable =
     !pairedHostRecord || pairedHostState === 'connected';
+  const relayMirrorReadable =
+    pairedHostRecord?.relayUrl != null &&
+    connection.status === 'desktop-offline';
+  const readableConnectionKey = relayMirrorReadable
+    ? 'relay-mirror'
+    : connection.status === 'connected'
+      ? 'connected'
+      : '';
   const sessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
     : params.sessionId;
@@ -53,9 +61,19 @@ export default function AgentChatDetailScreen() {
   const targetProjectId = projectId ?? activeProjectPath ?? '';
   const targetSessionId = sessionId ?? '';
   const readyTargetRef = useRef({ key: '', observed: false });
+  const terminalRetryRef = useRef({
+    key: '',
+    readableConnectionKey: '',
+  });
   const targetKey = `${targetProjectId}\u0000${targetSessionId}`;
   if (readyTargetRef.current.key !== targetKey) {
     readyTargetRef.current = { key: targetKey, observed: false };
+  }
+  if (terminalRetryRef.current.key !== targetKey) {
+    terminalRetryRef.current = {
+      key: targetKey,
+      readableConnectionKey: '',
+    };
   }
   const stateMatchesTarget =
     'projectId' in openState &&
@@ -64,7 +82,6 @@ export default function AgentChatDetailScreen() {
   if (stateMatchesTarget && openState.kind === 'ready') {
     readyTargetRef.current.observed = true;
   }
-
   const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
 
   useEffect(() => {
@@ -80,6 +97,15 @@ export default function AgentChatDetailScreen() {
     if (stateMatchesTarget) {
       if (openState.kind === 'opening') return;
       if (TERMINAL_STATES.has(openState.kind as OpenProjectSessionTerminalKind)) {
+        if (
+          readableConnectionKey &&
+          terminalRetryRef.current.readableConnectionKey !==
+            readableConnectionKey
+        ) {
+          terminalRetryRef.current.readableConnectionKey =
+            readableConnectionKey;
+          void openProjectSession(targetProjectId, targetSessionId);
+        }
         return;
       }
       // The controller publishes ready immediately after committing the
@@ -99,6 +125,8 @@ export default function AgentChatDetailScreen() {
     openProjectSession,
     pairedHostAvailable,
     pairedHostRecord,
+    readableConnectionKey,
+    relayMirrorReadable,
     stateMatchesTarget,
     targetProjectId,
     targetSessionId,

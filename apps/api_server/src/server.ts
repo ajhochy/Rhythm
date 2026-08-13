@@ -464,6 +464,14 @@ async function main() {
   const app = createApp({ mobileGatewayRouter });
 
   const httpServer = http.createServer(app);
+  const relayUplink = env.isRelayRole
+    ? (await import('./services/relay_uplink_server')).relayUplinkServer
+    : null;
+  if (relayUplink) {
+    httpServer.on('upgrade', (request, socket, head) => {
+      if (!relayUplink.handleUpgrade(request, socket, head)) socket.destroy();
+    });
+  }
   const mobileGatewayServer = mobileGatewayRouter
     ? http.createServer(createMobileGatewaySurface(mobileGatewayRouter))
     : null;
@@ -765,6 +773,61 @@ async function main() {
     });
   }
 
+  // Synology relay uplink (docs/ai/plan-synology-relay.md). Only the Mac
+  // dials out, and only when a relay is configured; the relay/cloud roles
+  // never run this (no mobile gateway to dispatch against).
+  if (
+    env.agentExecutionEnabled &&
+    mobileGatewayServer &&
+    env.relayUrls.length > 0 &&
+    env.relayBearer
+  ) {
+    const os = await import('os');
+    const { RelayUplinkClient } = await import(
+      './services/relay_uplink_client'
+    );
+    const { setRelayUplinkClient } = await import(
+      './services/relay_uplink_runtime'
+    );
+    const { opencodeEventHub } = await import(
+      './services/opencode_event_hub'
+    );
+    const { getDb } = await import('./database/db');
+    const { findSolePairedUserId } = await import(
+      './repositories/mobile_devices_repository'
+    );
+    const gatewayBase = `http://127.0.0.1:${mobileGatewayListenPort()}`;
+    const relayClient = new RelayUplinkClient({
+      urls: env.relayUrls,
+      bearer: env.relayBearer,
+      // Advisory only — the relay binds the uplink to the userId it resolves
+      // from the bearer via /auth/me, not to this claim.
+      userId: findSolePairedUserId(getDb()) ?? 0,
+      machineId: os.hostname(),
+      hub: opencodeEventHub,
+      healthProvider: async () => {
+        const response = await fetch(`${gatewayBase}/mobile-gateway/health`);
+        return await response.json();
+      },
+      devicesProvider: async () => {
+        try {
+          const devices = getDb()
+            .prepare('SELECT * FROM mobile_devices')
+            .all() as Record<string, unknown>[];
+          return { devices };
+        } catch {
+          return { devices: [] };
+        }
+      },
+      dispatchBaseUrl: gatewayBase,
+    });
+    relayClient.start();
+    setRelayUplinkClient(relayClient);
+    logger.info(
+      `[relay] uplink client started (${env.relayUrls.length} candidate(s))`,
+    );
+  }
+
   // #614 — Clean shutdown handler.
   // Registered once here so it applies to both SIGTERM (Flutter kill) and
   // SIGINT (Ctrl-C in dev). The handler is idempotent via the `shuttingDown`
@@ -780,6 +843,12 @@ async function main() {
     (opencodeClient as unknown as Record<string, unknown>)['_shuttingDown'] = true;
 
     // 1. Stop cron jobs so no new work is kicked off.
+    try {
+      void import('./services/relay_uplink_runtime').then((runtime) => {
+        void runtime.getRelayUplinkClient()?.stop();
+        runtime.setRelayUplinkClient(null);
+      });
+    } catch (_) { /* ignore */ }
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
@@ -795,6 +864,8 @@ async function main() {
     // Dual-accounts Task B — stop the accounts refresh loop (timer is unref'd,
     // but a refresh mid-shutdown would burn a single-use refresh token).
     try { anthropicAccountsServiceRef?.stopRefreshLoop(); } catch (_) { /* ignore */ }
+
+    try { relayUplink?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }
