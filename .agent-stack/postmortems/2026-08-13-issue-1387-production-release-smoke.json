@@ -1,0 +1,52 @@
+{
+  "run_id": "2026-08-13-issue-1387-production-release",
+  "issue": 1387,
+  "date": "2026-08-13",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {"criterion_id":"issue-1387-c1","text":"Bodyless relay GET reaches the Mac and returns its response.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Real-uplink live E2E passed before merge; production project route is live and auth-protected."},
+    {"criterion_id":"issue-1387-c2","text":"GET and HEAD never forward a relay-provided body.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Focused contract and real-uplink live E2E passed."},
+    {"criterion_id":"issue-1387-c3","text":"Settings never masks a catalog failure as Connected.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Automated and physical Settings checks passed."},
+    {"criterion_id":"issue-1387-c4","text":"Owner catalog pagination avoids per-project engine fan-out.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Catalog contracts and physical session discovery passed."},
+    {"criterion_id":"issue-1387-c5","text":"Paired catalogs select owner discovery before relay adoption races.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Bounded recovery E2E passed after probe coalescing."},
+    {"criterion_id":"issue-1387-c6","text":"Paired capability hydration does not block on provider-auth.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Capability and Models contracts plus physical Models smoke passed."},
+    {"criterion_id":"issue-1387-c7","text":"Online owner catalog tunnels to the Mac; offline reads use the mirror.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Relay mirror contracts and physical online/offline catalogs passed."},
+    {"criterion_id":"issue-1387-c8","text":"One transient relay health miss preserves connected reachability.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Paired-host contract and relay interruption smoke passed."},
+    {"criterion_id":"issue-1387-c9","text":"Relay failures are named as Cloud Gateway failures, not Tailscale.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Source scan, contracts, and visible desktop/mobile wording passed."},
+    {"criterion_id":"issue-1387-c10","text":"User-facing connection UI names the native Cloud Gateway.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Desktop widget tests, mobile contracts, and physical UI smoke passed."},
+    {"criterion_id":"issue-1387-c11","text":"Owner discovery uses the authenticated generic relay tunnel.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"HTTP contracts and live E2E passed."},
+    {"criterion_id":"issue-1387-c12","text":"Workspace search renders returned files.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Component and physical Workspace smoke passed."},
+    {"criterion_id":"issue-1387-c13","text":"Empty Workspace search has an explicit query-aware state.","contract_status":"pass","smoke_status":"not_checked","category":"none","notes":"Contract passed; not repeated in production smoke."},
+    {"criterion_id":"issue-1387-c14","text":"Stalled Workspace search reaches a retryable timeout.","contract_status":"pass","smoke_status":"not_checked","category":"none","notes":"Contract passed; not repeated in production smoke."},
+    {"criterion_id":"issue-1387-c15","text":"Gallery artifacts resolve through the authenticated Cloud Gateway.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical Gallery smoke passed."},
+    {"criterion_id":"issue-1387-c16","text":"Unavailable Gallery artifacts show an explicit state.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical Gallery smoke passed."},
+    {"criterion_id":"issue-1387-c17","text":"Offline cached sessions open mirrored transcripts.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical cold-offline smoke passed."},
+    {"criterion_id":"issue-1387-c18","text":"Workspace file rows open a readable preview.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Component and physical Workspace smoke passed."},
+    {"criterion_id":"issue-1387-c19","text":"Send-time relay loss preserves and later converges the transcript.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Real interruption smoke preserved transcript and persisted prompt/response."},
+    {"criterion_id":"issue-1387-c20","text":"Stalled Gallery exits loading with Retry.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Component contract and physical Gallery hydration passed."},
+    {"criterion_id":"issue-1387-c21","text":"Models render without waiting for stalled provider-auth.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Component contract and physical Models smoke passed."},
+    {"criterion_id":"issue-1387-c22","text":"Cold offline relaunch renders the mirrored transcript and Offline state.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical cold-launch smoke passed."},
+    {"criterion_id":"issue-1387-c23","text":"Terminal PTY uses the Cloud Gateway relay.","contract_status":"untested","smoke_status":"not_checked","category":"none","notes":"Intentionally excluded: Terminal work remains paused for a later release."},
+    {"criterion_id":"issue-1387-c24","text":"Incomplete offline mirror auto-recovers after Mac refresh.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical automatic recovery passed."},
+    {"criterion_id":"issue-1387-c25","text":"Persisted Gallery scope hydrates honestly after cold launch.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical Gallery hydration passed."},
+    {"criterion_id":"issue-1387-c26","text":"Offline Agents lists mirrors without claiming Connected.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical offline Agents smoke passed."},
+    {"criterion_id":"issue-1387-c27","text":"Offline Agents preserves mirrored project names.","contract_status":"pass","smoke_status":"pass","category":"none","notes":"Contract and physical offline catalog smoke passed."}
+  ],
+  "process_issues": [
+    {"process_category":"P4","description":"A timing-sensitive scheduler contract intermittently observed two cron dispatches in parallel CI.","detected_by":"Server CI failed once at scheduler_dispatch_contract.test.ts:107, then passed on targeted job rerun; full serial suite passed 4,423/4,423."},
+    {"process_category":"release-submission-config","description":"The signed iOS build completed, but automatic submission requires ascAppId or an interactive Apple login.","detected_by":"EAS submit stopped before upload with missing ascAppId; interactive recovery reached the Apple ID login prompt."}
+  ],
+  "workflow_adherence": {
+    "overall_score":"partial",
+    "expected_chain":["workflow-orchestrator","acceptance-contract","coding-agent","verification-gate","failure-triage","project-state-updater","failure-postmortem"],
+    "observed_chain":["workflow-orchestrator","coding-agent","verification-gate","failure-triage","project-state-updater","failure-postmortem"],
+    "skipped_skills":["acceptance-contract"],
+    "issues":[{"workflow_category":"W1","affected_skill":"acceptance-contract","description":"The takeover used the existing issue-1387 contract rather than regenerating it before implementation triage.","detected_by":"Transcript and existing untracked contract inspection."}]
+  },
+  "implementation_files":["apps/api_server/src","apps/desktop_flutter/lib/features/agents/views/mobile_access_dialog.dart","apps/mobile",".github/workflows/desktop_ci.yml",".github/workflows/desktop_release.yml"],
+  "failure_output":"Production smoke ultimately passed. Initial shell harness used zsh-special variable name path, temporarily hiding curl/tr; corrected immediately with route_path and absolute utilities.",
+  "overall_category":"none",
+  "suggested_follow_up":"Add ascAppId to the EAS production submit profile and keep Flutter pinned for deterministic golden tests."
+}

@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/cloud-gateway-mobile-release
 pr: 1388
 issues: [1387]
-status: pr-open
+status: released-with-ios-submission-gate
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -56,3 +56,29 @@ index: "[[Rhythm]]"
   No merge, deployment, desktop release, or iOS submission was performed in this checkpoint.
 - No follow-up issue was filed. Terminal and the Gallery cloud-upload redesign remain intentionally
   deferred from this release.
+
+## Merge and release — 2026-08-13
+
+- PR #1388 required checks passed and the PR was squash-merged as
+  `ed31ea597878c0636169f49b4cbae9cb378c7d17`.
+- Desktop CI initially exposed nine golden groups already failing on parent SHA `36c27ef5` after the
+  floating stable channel advanced from Flutter 3.44.9 to 3.47.0. CI and release were pinned to the
+  last-green 3.44.9 toolchain; the rerun passed all 1,208 tests and the macOS build.
+- One server rerun hit the timing-sensitive scheduler double-dispatch assertion; the prior candidate
+  run, targeted rerun, and full serial 4,423-test suite passed. The failed job rerun passed completely.
+- Hosted image publish run `31675836351` passed. Watchtower deployed the image; production API health
+  reports merge SHA `ed31ea59`, relay health is `ok`, public gateway health is `ready` with the Mac
+  online, and protected projects/sessions/chat-catalog routes reject unauthenticated access with 401.
+- Desktop release `v0.18.58` run `31675857386` passed every bundle smoke, signing, notarization, and
+  publish step. Published DMG SHA-256:
+  `8aefe86d1546ae48791db9ade33c7e80086dc428d0ffa3d2429bebc775fe362b`; embedded build `0.18.58 (142)`.
+  Independent checks found a valid signature, Gatekeeper `Notarized Developer ID`, and a valid DMG
+  staple. The app itself has no separate staple, but Gatekeeper accepts it from the stapled DMG.
+- EAS production preflight passed, remote build number incremented 5 → 6, and store build
+  `626de7fe-116f-4fb9-afc1-9a82c97b1632` finished for `1.0.8 (6)`. Its recorded feature SHA and merged
+  SHA have identical Git tree `a9573fe84aca5c75b6a243d1aeaf30e4557b796a`. IPA SHA-256:
+  `0b60914a133c8c77d173341d74d1973b73276159238551f7b8059c5939511f48`.
+- Automatic App Store submission stopped before upload because `submit.production.ios.ascAppId` is
+  absent. Interactive recovery reached the Apple ID login prompt. Exact remaining human action: get the
+  numeric Apple ID for `org.visaliacrc.rhythm.agents`, add it to the EAS submit profile (or sign in
+  interactively), submit build 6, and smoke that exact TestFlight build.

@@ -660,3 +660,11 @@
 - **Criteria affected**: issue-1286-c10/c11/c12, chat-switching latency/list stability
 - **Root cause**: server fixes handed to smoke against a pre-fix api_server process; four client defects (scope-flip cache destruction, discovery sweep re-runs, capability catalog cleared without refetch on the detail route, stale refresh timers) invisible to every web-tier gate.
 - **Suggested fix**: mandatory desktop relaunch step before device smoke when apps/api_server changed; add a scope-flip-simulating test tier; on-device probes (hit/miss reasons) as a standard smoke instrument.
+
+## 2026-08-13 — Issue 1387 — Native Cloud Gateway production release
+
+- **Result**: smoke PASS (verification claimed PASS)
+- **Category**: none — no correctness divergence
+- **Criteria affected**: c1-c22 and c24-c27 passed; c23 Terminal intentionally not checked
+- **Root cause**: No product failure; release triage found Flutter toolchain drift, one scheduler timing flake, and missing EAS `ascAppId` submission configuration.
+- **Suggested fix**: Keep desktop Flutter pinned and add the App Store Connect app ID to the production submit profile.
