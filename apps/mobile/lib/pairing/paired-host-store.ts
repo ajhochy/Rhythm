@@ -131,7 +131,7 @@ function safeGatewayUrl(value: unknown): string {
   ) {
     throw new PairedHostError(
       'invalidPayload',
-      'Pairing requires a private Tailscale gateway.',
+      'Pairing requires a secure Rhythm gateway.',
     );
   }
   return `https://${hostname}`;
@@ -369,6 +369,7 @@ export class PairedHostStore {
   private message = 'Pair this iPhone with your Mac to use Rhythm Agents.';
   private operation = 0;
   private accountUserId: number | null = null;
+  private consecutiveRelayReachabilityFailures = 0;
 
   constructor(private readonly options: PairedHostStoreOptions = {}) {}
 
@@ -424,6 +425,9 @@ export class PairedHostStore {
     message: string,
     host: PairedHost | null = this.host,
   ): PairedHostSnapshot {
+    if (state === 'connected') {
+      this.consecutiveRelayReachabilityFailures = 0;
+    }
     this.state = state;
     this.message = message;
     this.host = host;
@@ -636,8 +640,8 @@ export class PairedHostStore {
       return this.apply(
         'connected',
         usingRelay || relayUrl != null
-          ? 'Connected securely to your Mac through the relay.'
-          : 'Connected securely to your Mac over Tailscale.',
+          ? 'Connected securely to your Mac through Rhythm Cloud Gateway.'
+          : 'Connected securely to your Mac.',
         refreshedHost,
       );
     } catch (error) {
@@ -666,9 +670,18 @@ export class PairedHostStore {
             'This iPhone is offline. Your paired Mac is still saved.',
           );
         }
+        if (this.state === 'connected' && this.host?.relayUrl != null) {
+          // Prompt traffic can briefly delay the independent relay health RPC.
+          // Keep an active transport through one miss; the next bounded probe
+          // still surfaces a sustained outage on the normal five-second cadence.
+          this.consecutiveRelayReachabilityFailures += 1;
+          if (this.consecutiveRelayReachabilityFailures < 2) {
+            return this.snapshot();
+          }
+        }
         return this.apply(
           'tailscaleUnavailable',
-          'Tailscale cannot reach the paired Mac. Open Tailscale and check the Mac is online.',
+          'Rhythm Cloud Gateway cannot reach your Mac. Check that Rhythm is running on the Mac and try again.',
         );
       }
       return this.apply(
@@ -984,7 +997,9 @@ export class PairedHostStore {
       }
       return this.apply(
         'connected',
-        'Connected securely to your Mac over Tailscale.',
+        host.relayUrl
+          ? 'Connected securely to your Mac through Rhythm Cloud Gateway.'
+          : 'Connected securely to your Mac.',
         host,
       );
     } catch (error) {
@@ -1057,7 +1072,7 @@ export class PairedHostStore {
           error.status >= 500
         );
       const message = tailnetUnavailable
-        ? 'This iPhone was not revoked and access is still active. Bring the paired Mac online in Tailscale and retry.'
+        ? 'This iPhone was not revoked and access is still active. Bring the paired Mac online in Rhythm and retry.'
         : 'This iPhone was not revoked and access is still active. Retry, or revoke it from Rhythm on the Mac.';
       this.apply(
         tailnetUnavailable ? 'tailscaleUnavailable' : 'unhealthy',

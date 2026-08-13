@@ -225,7 +225,7 @@ export type OpencodeContextValue = {
   workspaceFileStatuses: File[];
   selectedWorkspaceFile?: { path: string; content: FileContent };
   vcsInfo?: VcsInfo;
-  searchWorkspaceFiles: (query: string) => Promise<void>;
+  searchWorkspaceFiles: (query: string, signal?: AbortSignal) => Promise<string[]>;
   listWorkspaceDirectory: (path: string) => Promise<FileNode[]>;
   searchWorkspaceText: (pattern: string) => Promise<WorkspaceTextMatch[]>;
   searchWorkspaceSymbols: (query: string) => Promise<Symbol[]>;

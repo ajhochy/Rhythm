@@ -1,0 +1,48 @@
+{
+  "run_id": "2026-08-12-issue-1387-paired-tools-loading-device-smoke",
+  "issue": 1387,
+  "date": "2026-08-12",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1387-c20",
+      "text": "A stalled Gallery catalog request through the paired Cloud Gateway exits the shared paired-tool loading state within the existing 12-second service deadline and shows a retryable error instead of leaving the screen on an infinite spinner.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The first combined signed Release build left both rhythmagents://tools/gallery and rhythmagents://tools/profiles on Loading for more than 14 seconds. A follow-up preserved the mounted refresh callback across service identity changes and expanded the c20 contract to exercise repeated service replacement plus Profiles; that suite passed 2/2. After rebuilding and reinstalling the signed Release, Gallery still remained on Loading for an additional period longer than 14 seconds, with a quiet console. Service identity churn was therefore one real refresh-reset trigger, but not the sole trigger. The revised contract still mounts RhythmToolsProvider directly and holds the surrounding account, paired-host, activeProjectPath, availability, and cache-scope lifecycle outside the test; the physical app runs through AppRhythmToolsProvider, where those hydration and probe transitions can still restart or invalidate the visible request deadline."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "smoke-test",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "smoke-test",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/providers/rhythm-tools-provider.tsx",
+    "apps/mobile/tests/contract/issue-1387-gallery-loading.test.tsx",
+    "docs/ai/contracts/issue-1387.json"
+  ],
+  "failure_output": "Second physical iPhone Release after the serviceRef follow-up: Gallery still remained on Loading for more than 14 additional seconds. The revised service-replacement and Profiles deadline contract passed 2/2 before rebuild/reinstall, and the device console remained quiet.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Replace the direct RhythmToolsProvider c20 proxy with a full AppRhythmToolsProvider contract that drives account, paired-host probe, activeProjectPath, availability, and cache-scope hydration transitions during one stalled request and proves one monotonic 12-second deadline survives them."
+}

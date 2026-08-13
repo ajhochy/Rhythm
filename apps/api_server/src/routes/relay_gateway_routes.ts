@@ -76,6 +76,7 @@ function forwardedHeaders(req: Request): Record<string, string> {
 }
 
 function requestBodyB64(req: Request): string {
+  if (req.method === 'GET' || req.method === 'HEAD') return '';
   if (req.body === undefined || req.body === null) return '';
   if (Buffer.isBuffer(req.body)) return req.body.toString('base64');
   const body = typeof req.body === 'string'
@@ -308,6 +309,13 @@ export function createRelayGatewayRouter(
     requireDevice,
     async (req, res, next) => {
       try {
+        if (
+          req.header('x-rhythm-session-discovery') === 'owner-unscoped' &&
+          uplink.isMacOnline()
+        ) {
+          await tunnelRequest(uplink, req, res, next);
+          return;
+        }
         const project = relayProject(req);
         const query = new URL(req.originalUrl, 'http://relay.local')
           .searchParams;

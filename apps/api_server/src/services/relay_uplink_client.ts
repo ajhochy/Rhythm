@@ -424,15 +424,17 @@ export class RelayUplinkClient {
   private async dispatchRpc(frame: RpcReqFrame): Promise<RpcResFrame> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+    const method = frame.method.toUpperCase();
+    const methodAllowsBody = method !== 'GET' && method !== 'HEAD';
 
     try {
       const response = await this.fetchFn(
         `${this.options.dispatchBaseUrl.replace(/\/$/, '')}${frame.path}`,
         {
-          method: frame.method,
+          method,
           headers: frame.headers,
           body:
-            frame.bodyB64.length === 0
+            !methodAllowsBody || frame.bodyB64.length === 0
               ? undefined
               : Buffer.from(frame.bodyB64, 'base64'),
           signal: controller.signal,

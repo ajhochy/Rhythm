@@ -588,6 +588,42 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
     expect(await response.json()).toEqual({ accepted: true });
   });
 
+  it('issue-1387-c1: tunnels bodyless GET requests with an empty rpc body', async () => {
+    // Regression caught: Express initializes req.body to {}, which was encoded
+    // into the RPC frame and made Node fetch reject the GET before dispatch.
+    const { relay, mac } = await relayWithDevices();
+
+    const answering = (async () => {
+      const req = await mac.waitFor(
+        (f): f is RpcReqFrame =>
+          f.ch === 'rpc' &&
+          f.t === 'req' &&
+          f.path === '/mobile-gateway/projects',
+      );
+      mac.send({
+        ch: 'rpc',
+        t: 'res',
+        id: req.id,
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        bodyB64: Buffer.from(JSON.stringify({ projects: [] })).toString(
+          'base64',
+        ),
+      });
+      return req;
+    })();
+
+    const response = await fetch(
+      `${relay.baseUrl}/relay/mobile-gateway/projects`,
+      { headers: { Authorization: `Device ${fixture.deviceToken}` } },
+    );
+    const req = await answering;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ projects: [] });
+    expect(req.method).toBe('GET');
+    expect(req.bodyB64).toBe('');
+  });
+
   it('POST /mobile-gateway/pair tunnels WITHOUT device auth (pairing bootstrap)', async () => {
     const { relay, mac } = await relayWithDevices();
     const answering = (async () => {

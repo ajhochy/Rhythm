@@ -48,6 +48,7 @@ export interface PairedHostContextValue {
   host: PairedHost | null;
   client: PairedMacClient | null;
   message: string;
+  refreshRevision: number;
   pair: (
     payload: string,
     options?: { replaceExisting?: boolean },
@@ -69,6 +70,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     store.snapshot(),
   );
   const [client, setClient] = useState<PairedMacClient | null>(null);
+  const [refreshRevision, setRefreshRevision] = useState(0);
   const mountedRef = useRef(true);
   const refreshInFlightRef = useRef<Promise<PairedHostSnapshot> | null>(null);
   const clientScopeRef = useRef<string | null>(null);
@@ -95,6 +97,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
       if (mountedRef.current) {
         if (next.state === 'connected') resetProbeInterval();
         setSnapshot(next);
+        setRefreshRevision((current) => current + 1);
         const nextClientScope =
           next.host && next.host.rhythmUserId === account.user?.id
             ? [
@@ -272,13 +275,14 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     () => ({
       ...snapshot,
       client,
+      refreshRevision,
       pair,
       refresh,
       revoke,
       forget,
       supports: (feature) => store.supports(feature),
     }),
-    [client, forget, pair, refresh, revoke, snapshot, store],
+    [client, forget, pair, refresh, refreshRevision, revoke, snapshot, store],
   );
 
   return (

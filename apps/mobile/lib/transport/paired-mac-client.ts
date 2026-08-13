@@ -1,7 +1,7 @@
 /**
  * PairedMacClient
  *
- * HTTP client for the paired Mac's mobile gateway (Tailscale HTTPS endpoint).
+ * HTTP client for the paired Mac through the active Cloud Gateway relay.
  *
  * Authorization scheme: `Device <token>` in the `Authorization` header.
  * This intentionally differs from the `Bearer` scheme used by
@@ -89,6 +89,31 @@ export class PairedMacClient {
       init,
       fetchFn,
     });
+  }
+
+  /**
+   * Resolve a short-lived authenticated HTTP source for native media views.
+   * Resource reads always use the active paired base URL (the Cloud Gateway
+   * relay when configured); the direct PTY fallback is intentionally ignored.
+   */
+  async resourceConnection(
+    path: string,
+    init: { headers?: Record<string, string> } = {},
+  ): Promise<{ url: string; headers: Record<string, string> }> {
+    let token: string;
+    try {
+      token = await this.getDeviceToken();
+    } catch {
+      throw normalizeProviderError('paired-mac');
+    }
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return {
+      url: `${this.baseUrl}${normalizedPath}`,
+      headers: {
+        ...init.headers,
+        Authorization: `Device ${token}`,
+      },
+    };
   }
 
   /**

@@ -137,4 +137,49 @@ describe('issue #1285 owner-scoped session discovery', () => {
     }
     expect(published.at(-1)).toContain('ses-later');
   });
+
+  it('issue-1387-c4: paired discovery uses every owner page without project engine fan-out', async () => {
+    let buildCalls = 0;
+    const client = {
+      session: {
+        async list() {
+          throw new Error('paired discovery must not initialize project engines');
+        },
+        async status() {
+          throw new Error('paired discovery must not query project statuses');
+        },
+      },
+      experimental: {
+        session: {
+          async list(parameters: Record<string, unknown>) {
+            if (parameters.archived === false && parameters.cursor === undefined) {
+              return {
+                data: [{ id: 'ses-recent', projectId: '/project/one' }],
+                response: {
+                  headers: new Headers({ 'x-next-cursor': '10' }),
+                },
+              };
+            }
+            if (parameters.archived === false && parameters.cursor === 10) {
+              return { data: [{ id: 'ses-older', projectId: '/project/two' }] };
+            }
+            return { data: [] };
+          },
+        },
+      },
+    };
+
+    const sessions = await listSessionsAcrossProjects(
+      () => {
+        buildCalls += 1;
+        return client as never;
+      },
+      ['/project/one', '/project/two'],
+      { skipProjectScopedSweep: true },
+    );
+
+    expect(buildCalls).toBe(1);
+    expect(sessions.map(({ id }) => id)).toEqual(['ses-recent', 'ses-older']);
+  });
+
 });

@@ -70,6 +70,7 @@ export type ProjectSessionCatalogEntry = Record<string, unknown> & {
 
 type SessionCatalogOptions = {
   onProgress?: (sessions: ProjectSessionCatalogEntry[]) => void;
+  skipProjectScopedSweep?: boolean;
 };
 
 function statusLabel(status: unknown): string {
@@ -140,6 +141,10 @@ export async function listSessionsAcrossProjects(
         firstPage = false;
       } while (cursor !== undefined);
     }
+  }
+
+  if (options.skipProjectScopedSweep) {
+    return publish();
   }
 
   // Keep the paired Mac responsive when an organization has many worktrees.

@@ -24,6 +24,7 @@ interface MobileChatCatalogRow {
   name: string;
   status: string;
   project_id: string | null;
+  project_name: string | null;
   parent_sdk_session_id: string | null;
   archived_at: string | null;
   created_at: string;
@@ -47,7 +48,7 @@ function timestamp(value: string | null): number | undefined {
 
 const SELECT_COLUMNS = `
     SELECT session.sdk_session_id, session.name, session.status,
-           session.project_id,
+           session.project_id, project_scope.name AS project_name,
            parent.sdk_session_id AS parent_sdk_session_id,
            session.archived_at, session.created_at,
            COALESCE(session.last_activity_at, session.updated_at, session.created_at) AS activity_at
@@ -116,6 +117,7 @@ function decorate(
           : {}),
       },
       projectId: row.project_id?.trim() || null,
+      projectName: row.project_name?.trim() || null,
       ...(local &&
           canUpdateMobileSessionState(local, ownerUserId, routingProjectId) &&
           hasMobileSessionExecutionBinding(local)

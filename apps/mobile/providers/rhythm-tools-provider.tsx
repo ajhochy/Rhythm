@@ -18,6 +18,7 @@ import {
   RhythmToolsService,
   sanitizeToolCache,
   TOOL_SCREEN_MANIFEST,
+  type GalleryArtifactSource,
   type ToolRecord,
   type ToolScreenId,
   type ToolTransport,
@@ -29,6 +30,7 @@ import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export type ToolsAvailability =
   | 'connected'
+  | 'restoring'
   | 'offline'
   | 'expired-auth'
   | 'forbidden'
@@ -92,6 +94,9 @@ export type ToolAction =
 
 interface ToolsContextValue {
   getState: (tool: ToolScreenId) => ToolResourceState;
+  getGalleryArtifactSource: (
+    item: ToolRecord,
+  ) => Promise<GalleryArtifactSource | null>;
   refresh: (tool: ToolScreenId) => Promise<void>;
   perform: (
     tool: ToolScreenId,
@@ -108,6 +113,17 @@ const INITIAL_STATE: ToolResourceState = {
   error: null,
   errorState: null,
 };
+
+const TOOL_SCREEN_LOAD_TIMEOUT_MS = 12_000;
+
+class ToolScreenLoadTimeoutError extends Error {
+  readonly status = 408;
+
+  constructor() {
+    super('The paired Mac did not respond within 12 seconds. Try again.');
+    this.name = 'ToolScreenLoadTimeoutError';
+  }
+}
 
 const ToolsContext = createContext<ToolsContextValue | null>(null);
 
@@ -217,11 +233,15 @@ export function RhythmToolsProvider({
     Partial<Record<ToolScreenId, ToolResourceState>>
   >({});
   const generation = useRef<Partial<Record<ToolScreenId, number>>>({});
+  const previousCacheScope = useRef(cacheScope);
+  const cacheScopeRef = useRef(cacheScope);
+  cacheScopeRef.current = cacheScope;
+  const serviceRef = useRef(service);
+  serviceRef.current = service;
 
   useEffect(() => {
-    for (const tool of Object.keys(generation.current) as ToolScreenId[]) {
-      generation.current[tool] = (generation.current[tool] ?? 0) + 1;
-    }
+    if (previousCacheScope.current === cacheScope) return;
+    previousCacheScope.current = cacheScope;
     setStates({});
   }, [cacheScope]);
 
@@ -269,19 +289,25 @@ export function RhythmToolsProvider({
     async (tool: ToolScreenId): Promise<void> => {
       const requestGeneration = (generation.current[tool] ?? 0) + 1;
       generation.current[tool] = requestGeneration;
+      const requestCacheScope = cacheScopeRef.current;
       const availability = availabilityFor(tool);
+      const activeService = serviceRef.current;
       setToolState(tool, (current) => ({
         loading: current.items.length === 0,
         refreshing: current.items.length > 0,
         error: null,
         errorState: null,
       }));
-      if (!service || availability !== 'connected') {
+      if (availability === 'restoring') return;
+      if (!activeService || availability !== 'connected') {
         const cached = await readCache(tool);
-        if (generation.current[tool] !== requestGeneration) return;
+        if (
+          generation.current[tool] !== requestGeneration ||
+          cacheScopeRef.current !== requestCacheScope
+        ) return;
         const failure = classifyToolFailure(
           undefined,
-          service ? availability : 'network-failure',
+          activeService ? availability : 'network-failure',
           originFor(tool),
         );
         const canUseCache = failure === 'network-failure';
@@ -294,9 +320,36 @@ export function RhythmToolsProvider({
         });
         return;
       }
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
-        const response = await service.loadScreen(tool);
-        if (generation.current[tool] !== requestGeneration) return;
+        const screenRequest = activeService.loadScreen(tool);
+        const response = originFor(tool) === 'paired'
+          ? await Promise.race([
+              screenRequest,
+              new Promise<never>((_, reject) => {
+                timeout = setTimeout(() => {
+                  const reason = new ToolScreenLoadTimeoutError();
+                  if (
+                    generation.current[tool] === requestGeneration &&
+                    cacheScopeRef.current === requestCacheScope
+                  ) {
+                    setToolState(tool, {
+                      loading: false,
+                      refreshing: false,
+                      offline: false,
+                      error: reason.message,
+                      errorState: 'error',
+                    });
+                  }
+                  reject(reason);
+                }, TOOL_SCREEN_LOAD_TIMEOUT_MS);
+              }),
+            ])
+          : await screenRequest;
+        if (
+          generation.current[tool] !== requestGeneration ||
+          cacheScopeRef.current !== requestCacheScope
+        ) return;
         const items = sanitizeToolCache(tool, response);
         await AsyncStorage.setItem(
           getToolCacheStorageKey(cacheScope, tool),
@@ -309,7 +362,10 @@ export function RhythmToolsProvider({
           offline: false,
         });
       } catch (reason) {
-        if (generation.current[tool] !== requestGeneration) return;
+        if (
+          generation.current[tool] !== requestGeneration ||
+          cacheScopeRef.current !== requestCacheScope
+        ) return;
         const cached = await readCache(tool);
         const failure = classifyToolFailure(
           reason,
@@ -328,13 +384,14 @@ export function RhythmToolsProvider({
             : null,
           errorState: canUseCache && cached.length > 0 ? null : failure,
         });
+      } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
       }
     },
     [
       availabilityFor,
       cacheScope,
       readCache,
-      service,
       setToolState,
     ],
   );
@@ -361,9 +418,19 @@ export function RhythmToolsProvider({
     [states],
   );
 
+  const getGalleryArtifactSource = useCallback(
+    async (item: ToolRecord): Promise<GalleryArtifactSource | null> => {
+      if (!service || availabilityFor('gallery') !== 'connected') {
+        throw new Error('Artifact unavailable');
+      }
+      return service.getGalleryArtifactSource(item);
+    },
+    [availabilityFor, service],
+  );
+
   const value = useMemo<ToolsContextValue>(
-    () => ({ getState, perform, refresh }),
-    [getState, perform, refresh],
+    () => ({ getGalleryArtifactSource, getState, perform, refresh }),
+    [getGalleryArtifactSource, getState, perform, refresh],
   );
   return (
     <ToolsContext.Provider value={value}>{children}</ToolsContext.Provider>
@@ -373,7 +440,7 @@ export function RhythmToolsProvider({
 export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
   const pairedHost = usePairedHost();
-  const { activeProjectPath } = useOpencode();
+  const { activeProjectPath, isHydrated } = useOpencode();
   const e2eMode = mobileRuntimeVariant.enabled;
   const service = useMemo(() => {
     const e2eService = mobileRuntimeVariant.createRhythmToolsService();
@@ -417,9 +484,11 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
       : account.state === 'offline'
         ? 'offline'
         : 'expired-auth';
-  const pairedAvailability: ToolsAvailability = !activeProjectPath
-    ? 'missing-scope'
-    : e2eMode
+  const pairedAvailability: ToolsAvailability = !isHydrated
+    ? 'restoring'
+    : !activeProjectPath
+      ? 'missing-scope'
+      : e2eMode
       ? 'connected'
       : pairedHost.state === 'incompatible'
         ? 'version-mismatch'

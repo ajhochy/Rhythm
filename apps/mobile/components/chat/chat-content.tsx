@@ -1,7 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import {
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 import { ActivityIndicator, Button, Card, IconButton, Text, TouchableRipple } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
@@ -93,7 +99,8 @@ export function ChatContent({
   status,
 }: ChatContentProps) {
   const [todosExpanded, setTodosExpanded] = useState(false);
-  const transcriptRef = useRef<FlashListRef<TranscriptEntry>>(null);
+  const transcriptRef = useRef<FlatList<TranscriptEntry>>(null);
+  const transcriptNearBottomRef = useRef(true);
   const shouldPositionInitialTranscriptRef = useRef(false);
   const previousTranscriptRef = useRef({ sessionId: currentSessionId, length: displayTranscript.length });
   const completedTodoCount = currentTodos.filter((todo) => todo.status === 'completed').length;
@@ -102,6 +109,7 @@ export function ChatContent({
     const previous = previousTranscriptRef.current;
     if (previous.sessionId !== currentSessionId || (previous.length === 0 && displayTranscript.length > 0)) {
       shouldPositionInitialTranscriptRef.current = true;
+      transcriptNearBottomRef.current = true;
     }
     previousTranscriptRef.current = { sessionId: currentSessionId, length: displayTranscript.length };
   }, [currentSessionId, displayTranscript.length]);
@@ -109,7 +117,7 @@ export function ChatContent({
   return (
     <View style={styles.chatArea}>
       {activeTab === 'session' ? (
-        <FlashList
+        <FlatList
           key={currentSessionId || 'no-session'}
           ref={transcriptRef}
           testID="chat-transcript"
@@ -124,17 +132,24 @@ export function ChatContent({
           keyboardShouldPersistTaps="handled"
           keyExtractor={(entry) => `${entry.id}-${entry.createdAt}`}
           maintainVisibleContentPosition={{
-            autoscrollToBottomThreshold: 0,
-            animateAutoScrollToBottom: false,
-            startRenderingFromBottom: true,
+            minIndexForVisible: 0,
           }}
           onContentSizeChange={() => {
-            if (!shouldPositionInitialTranscriptRef.current || displayTranscript.length === 0) {
+            if (
+              displayTranscript.length === 0 ||
+              (!shouldPositionInitialTranscriptRef.current && !transcriptNearBottomRef.current)
+            ) {
               return;
             }
             shouldPositionInitialTranscriptRef.current = false;
             transcriptRef.current?.scrollToEnd({ animated: false });
           }}
+          onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            transcriptNearBottomRef.current =
+              layoutMeasurement.height + contentOffset.y >= contentSize.height - 32;
+          }}
+          scrollEventThrottle={16}
           refreshControl={<RefreshControl refreshing={isRefreshingMessages} onRefresh={onRefresh} tintColor={palette.tint} />}
           renderItem={({ item: entry }) => (
             <View style={styles.transcriptItem}>

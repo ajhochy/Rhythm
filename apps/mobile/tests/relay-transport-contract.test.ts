@@ -164,4 +164,20 @@ describe('Track 3 contract — PairedMacClient with a path-bearing base', () => 
       true,
     );
   });
+
+  it('Gallery resource URLs stay on the relay even when a direct base exists', async () => {
+    const { client } = await makeClient({ directBaseUrl: TSNET });
+    const connection = await client.resourceConnection(
+      '/mobile-gateway/tools/agent-designs/design-1/artifact',
+      { headers: { 'X-Rhythm-Project-ID': 'project-rhythm' } },
+    );
+    expect(connection).toEqual({
+      url: `${RELAY_BASE}/mobile-gateway/tools/agent-designs/design-1/artifact`,
+      headers: {
+        Authorization: 'Device device-token',
+        'X-Rhythm-Project-ID': 'project-rhythm',
+      },
+    });
+    expect(connection.url).not.toContain('tail1234.ts.net');
+  });
 });

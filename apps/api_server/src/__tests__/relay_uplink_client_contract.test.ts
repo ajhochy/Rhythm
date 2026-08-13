@@ -321,6 +321,47 @@ describe('Track 1 contract — RelayUplinkClient', () => {
     expect(seen.body).toBe(body);
   });
 
+  it('issue-1387-c2: never forwards relay-provided bodies for GET or HEAD requests', async () => {
+    // Regression caught: a stale relay can encode Express's synthetic {} body;
+    // passing it to fetch makes GET fail with uplink_dispatch_failed (502).
+    const relay = await startFakeRelay();
+    cleanups.push(() => relay.close());
+    const gateway = await startGatewayStub();
+    cleanups.push(() => gateway.close());
+
+    const { client } = makeClient([relay.url], {
+      dispatchBaseUrl: gateway.baseUrl,
+    });
+    cleanups.push(() => client.stop());
+    client.start();
+    await relay.waitFor(isHello);
+
+    for (const method of ['GET', 'HEAD']) {
+      const id = `rpc-${method.toLowerCase()}-with-synthetic-body`;
+      relay.send({
+        ch: 'rpc',
+        t: 'req',
+        id,
+        method,
+        path: '/mobile-gateway/projects',
+        headers: { authorization: 'Device dtok' },
+        bodyB64: Buffer.from('{}').toString('base64'),
+      });
+
+      const res = await relay.waitFor(
+        (frame): frame is RpcResFrame => isRpcRes(frame) && frame.id === id,
+      );
+      expect(res.status).toBe(201);
+    }
+
+    expect(gateway.requests).toHaveLength(2);
+    expect(gateway.requests.map((request) => request.method)).toEqual([
+      'GET',
+      'HEAD',
+    ]);
+    expect(gateway.requests.every((request) => request.body === '')).toBe(true);
+  });
+
   it('answers rpc/res 502 uplink_dispatch_failed when the gateway is unreachable', async () => {
     const relay = await startFakeRelay();
     cleanups.push(() => relay.close());

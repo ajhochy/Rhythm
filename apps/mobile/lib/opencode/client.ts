@@ -8,6 +8,7 @@ import {
 import { encode as encodeBase64 } from 'base-64';
 
 import { fetchWithColdStartBackoff } from '@/lib/opencode/cold-start-retry';
+import { normalizeApiError } from '@/lib/transport/api-error';
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { withProjectScope } from '@/lib/transport/project-scoped-request';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
@@ -172,16 +173,19 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
       }
     }
 
-    const sdkPath = parsed.pathname;
-    const gatewayPath =
-      sdkPath === '/event' || sdkPath === '/global/event'
-        ? '/mobile-gateway/events'
-        : `/mobile-gateway/opencode${sdkPath}`;
     const headers: Record<string, string> = {
       ...headersRecord(request?.headers),
       ...headersRecord(init?.headers),
     };
     delete headers.authorization;
+    const sdkPath = parsed.pathname;
+    const gatewayPath =
+      sdkPath === '/experimental/session' &&
+        headers['x-rhythm-session-discovery'] === 'owner-unscoped'
+        ? '/mobile-gateway/chat-catalog'
+        : sdkPath === '/event' || sdkPath === '/global/event'
+          ? '/mobile-gateway/events'
+          : `/mobile-gateway/opencode${sdkPath}`;
 
     const method = init?.method ?? request?.method ?? 'GET';
     let body = init?.body;
@@ -200,7 +204,7 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
     const retryable =
       method.toUpperCase() === 'GET' && gatewayPath !== '/mobile-gateway/events';
 
-    return fetchWithColdStartBackoff(
+    const response = await fetchWithColdStartBackoff(
       () =>
         scope.client.fetchResponse(
           `${gatewayPath}${parsed.search}`,
@@ -211,9 +215,25 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
             method,
             signal,
           }),
-        ),
+      ),
       { retryable, signal },
     );
+    if (response.status === 503) {
+      const body = await response.clone().text();
+      let code: unknown;
+      try {
+        code = (JSON.parse(body) as { error?: unknown }).error;
+      } catch {
+        code = undefined;
+      }
+      if (
+        code === 'mac_offline' ||
+        code === 'mac_offline_and_mirror_incomplete'
+      ) {
+        throw normalizeApiError('paired-mac', response.status, body, undefined);
+      }
+    }
+    return response;
   };
 }
 

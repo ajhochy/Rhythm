@@ -204,7 +204,27 @@ describe('#1379 mirror reads over the real mobile-gateway HTTP route', () => {
     expect(response.status).toBe(200);
     const items = (await response.json()) as Array<Record<string, unknown>>;
     expect(items.map((item) => item.id)).toEqual([sdkSessionId]);
-    expect(items[0].title).toBe('Mirrored chat');
+    expect(items[0]).toMatchObject({
+      projectId,
+      projectName: PROJECT_NAME,
+      title: 'Mirrored chat',
+    });
+  });
+
+  it('issue-1387-c11: serves the owner catalog on the generic relay tunnel route', async () => {
+    const response = await fetch(
+      `${baseUrl}/mobile-gateway/chat-catalog?limit=10`,
+      {
+        headers: {
+          Authorization: `Device ${deviceToken}`,
+          'X-Rhythm-Project-ID': projectId,
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const items = (await response.json()) as Array<Record<string, unknown>>;
+    expect(items.map((item) => item.id)).toEqual([sdkSessionId]);
   });
 
   it('serves session children over HTTP with the engine down', async () => {

@@ -51,7 +51,8 @@ test('scanner pairing and Settings revocation work without exposing credentials'
   await scanTestQr(page);
 
   await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
-  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByText('Rhythm Cloud Gateway').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('.ts.net');
   await expect(page.locator('body')).not.toContainText('e2e-device-token');
   await expect(page.locator('body')).not.toContainText('a'.repeat(43));
 
@@ -77,7 +78,10 @@ test('confirmed replacement revokes the old Mac before committing the new one', 
   await page.getByRole('button', { name: 'Pair a different Mac' }).click();
   page.once('dialog', (dialog) => void dialog.accept());
   await scanTestQr(page);
-  await expect(page.getByText('other-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pair a Mac' })).toHaveCount(0);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await expect(page.getByText('Rhythm Cloud Gateway').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('.ts.net');
 
   const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
   const body = await audit.json();
@@ -114,7 +118,8 @@ test('failed old-Mac revocation rolls back the new credential and remains usable
   await page.getByLabel('Close pairing').click();
   await page.getByRole('button', { name: 'Refresh paired Mac status' }).click();
   await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
-  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByText('Rhythm Cloud Gateway').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('.ts.net');
 
   const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
   const body = await audit.json();
@@ -146,7 +151,8 @@ test('replacement secure-write failure preserves the previous pairing and revoke
 
   await page.getByLabel('Close pairing').click();
   await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
-  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByText('Rhythm Cloud Gateway').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('.ts.net');
   await expect(page.getByRole('button', { name: 'Pair a different Mac' })).toBeEnabled();
 
   const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
@@ -180,10 +186,12 @@ test('replacement secure-write and new-device cleanup failure preserves the prev
 
   await page.getByLabel('Close pairing').click();
   await expect(page.getByLabel('Paired Mac status: Mac unhealthy').last()).toBeVisible();
-  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByText('Secure Mac connection').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('.ts.net');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByLabel('Paired Mac status: Mac unhealthy').last()).toBeVisible();
-  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByText('Secure Mac connection').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('.ts.net');
   await expect(page.getByText(/new Mac still lists.*Revoke/i).last()).toBeVisible();
 
   const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
@@ -212,7 +220,7 @@ test('revoke failure remains visible and retryable without an unhandled rejectio
   page.once('dialog', (dialog) => void dialog.accept());
   await page.getByRole('button', { name: 'Revoke this iPhone from the paired Mac' }).click();
   await expect(
-    page.getByLabel('Paired Mac status: Tailscale unavailable').last(),
+    page.getByLabel('Paired Mac status: Cloud gateway unavailable').last(),
   ).toBeVisible();
   await expect(page.getByText(/not revoked.*still active/i).last()).toBeVisible();
   expect(pageErrors).toEqual([]);
