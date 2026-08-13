@@ -2,9 +2,9 @@
 date: 2026-08-12
 repo: Rhythm
 branch: codex/cloud-gateway-mobile-release
-pr: none
+pr: 1388
 issues: [1387]
-status: ready-for-pr
+status: pr-open
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -52,7 +52,7 @@ index: "[[Rhythm]]"
 - Expo's nine package recommendations reproduce from `main` and are not referenced by CI or release
   preflight. Production bundle verification was not run because the required production Expo variables
   are absent locally.
-- GitHub CLI authentication is invalid. No commit, push, PR, merge, deployment, desktop release, or iOS
-  submission was performed in this checkpoint.
+- Commit `b2496905` was pushed and draft PR #1388 was opened with the full test and release matrix.
+  No merge, deployment, desktop release, or iOS submission was performed in this checkpoint.
 - No follow-up issue was filed. Terminal and the Gallery cloud-upload redesign remain intentionally
   deferred from this release.

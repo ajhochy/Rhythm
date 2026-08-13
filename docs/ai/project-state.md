@@ -9,8 +9,7 @@ behavior without exposing Tailscale language in the desktop access dialog.
 ## Active branch / PR
 
 - Branch: `codex/cloud-gateway-mobile-release` (based on `mobile/synology-relay` at `36c27ef5`).
-- PR: not yet opened; local GitHub CLI authentication is invalid and must be restored before push,
-  PR, CI, merge, or release operations.
+- PR: #1388 (draft), commit `b2496905`; branch is pushed and CI is running.
 - The index contains the intended release candidate. Unstaged Terminal/PTy, transcript display,
   activity-service, proof-image, and unrelated postmortem work remains preserved in the working tree.
 
@@ -48,5 +47,5 @@ behavior without exposing Tailscale language in the desktop access dialog.
 
 ## Next step
 
-Restore GitHub CLI authentication with `gh auth login -h github.com`, then commit the isolated index,
-push, open the PR, and continue through CI, merge, and the documented release workflows.
+Monitor PR #1388, resolve any required check failures, mark it ready, merge after green CI, then run the
+documented hosted, desktop, and iOS release workflows and focused production smoke.
