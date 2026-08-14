@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { env } from '../../config/env';
 import type { AgentSession } from '../../models/agent_session';
 
 type Fixture = Pick<AgentSession, 'isSystem' | 'category' | 'mcpRole'>;
@@ -71,6 +72,80 @@ describe('evaluateLearningSessionEligibility', () => {
     const result = evaluateLearningSessionEligibility({ isSystem: true, category: 'chat', mcpRole: null });
     expect(result.reason).toBe('system-session');
   });
+
+  // ── W3 late-review corrective package: fail-closed allow-list, not deny-list ──
+  // The matrix must ADMIT only a known-good shape (isSystem === false exactly,
+  // category === 'chat' exactly, mcpRole null/string). Any missing, corrupt, or
+  // wrong-typed runtime value must be ineligible with its own machine-readable
+  // reason distinct from the known deny-listed values above.
+
+  it('rejects a missing isSystem field as malformed, not as an eligible default', async () => {
+    const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+    const result = evaluateLearningSessionEligibility({ category: 'chat', mcpRole: null });
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toBe('invalid-is-system');
+  });
+
+  it.each([1, 0, 'false', 'true', null, undefined, {}, []])(
+    'rejects a non-boolean isSystem value (%j) as malformed',
+    async (badValue) => {
+      const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+      const result = evaluateLearningSessionEligibility({ isSystem: badValue, category: 'chat', mcpRole: null });
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toBe('invalid-is-system');
+    },
+  );
+
+  it('rejects a missing category field as malformed, not as an eligible default', async () => {
+    const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+    const result = evaluateLearningSessionEligibility({ isSystem: false, mcpRole: null });
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toBe('invalid-category');
+  });
+
+  it.each(['CHAT', 'chats', '', null, undefined, 42, {}, 'unknown_future_category'])(
+    'rejects a corrupt/unknown category value (%j) as malformed',
+    async (badValue) => {
+      const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+      const result = evaluateLearningSessionEligibility({ isSystem: false, category: badValue, mcpRole: null });
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toBe('invalid-category');
+    },
+  );
+
+  it('still recognizes the known self_improvement/scheduled deny-list values as their own reasons', async () => {
+    const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+    expect(evaluateLearningSessionEligibility({ ...USER_CHAT, category: 'self_improvement' }).reason).toBe(
+      'category-self-improvement',
+    );
+    expect(evaluateLearningSessionEligibility({ ...USER_CHAT, category: 'scheduled' }).reason).toBe(
+      'category-scheduled',
+    );
+  });
+
+  it.each([42, true, false, {}, []])(
+    'rejects a malformed (non-null, non-string) mcpRole value (%j)',
+    async (badValue) => {
+      const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+      const result = evaluateLearningSessionEligibility({ ...USER_CHAT, mcpRole: badValue });
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toBe('invalid-mcp-role');
+    },
+  );
+
+  it('a missing mcpRole field is malformed, not treated as null', async () => {
+    const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+    const result = evaluateLearningSessionEligibility({ isSystem: false, category: 'chat' });
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toBe('invalid-mcp-role');
+  });
+
+  it('an empty object (all fields missing/corrupt) is ineligible on the FIRST malformed field, isSystem', async () => {
+    const { evaluateLearningSessionEligibility } = await import('../learning_session_eligibility');
+    const result = evaluateLearningSessionEligibility({});
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toBe('invalid-is-system');
+  });
 });
 
 describe('checkLearningSessionEligibility (sessionId + repo lookup, fail-closed)', () => {
@@ -103,5 +178,27 @@ describe('checkLearningSessionEligibility (sessionId + repo lookup, fail-closed)
     });
     expect(result.eligible).toBe(false);
     expect(result.reason).toBe('system-session');
+  });
+
+  it('short-circuits under Postgres WITHOUT invoking the (SQLite-only) repo lookup', async () => {
+    const { checkLearningSessionEligibility } = await import('../learning_session_eligibility');
+    const originalDbClient = env.dbClient;
+    (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = 'postgres';
+    let called = false;
+    try {
+      const result = checkLearningSessionEligibility('any-session-id', {
+        sessionsRepo: {
+          findById: () => {
+            called = true;
+            return { ...USER_CHAT } as AgentSession;
+          },
+        },
+      });
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toBe('postgres-unsupported');
+      expect(called).toBe(false);
+    } finally {
+      (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = originalDbClient;
+    }
   });
 });
