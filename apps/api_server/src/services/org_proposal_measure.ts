@@ -699,11 +699,23 @@ export async function classifyRerunFailure(
       return { status: 'reproduced', categories: reproduced };
     }
 
-    if (categories.includes('retry-loop') && extractor.extractToolAttempts(messages).length === 0) {
-      return {
-        status: 'inconclusive',
-        reason: `original failure includes retry-loop but rerun session ${sessionId} has no readable structured tool-attempt evidence`,
-      };
+    // W3 final architectural corrective — consume the SAME shared strict
+    // parser detectRetryLoopSignals itself uses (persisted_tool_evidence.ts),
+    // not a length check on the narrow extractToolAttempts compatibility
+    // export. A nonzero attempt count is NOT proof of a clean pass: one
+    // persisted pending/fresh-running/timed-out/errored/completed-MCP-error
+    // attempt is exactly nonzero-length while being zero evidence of a
+    // genuine success. 'clean' requires evidence integrity to be valid AND at
+    // least one producer-valid TERMINAL SUCCESS (completed, isError!==true).
+    if (categories.includes('retry-loop')) {
+      const { parsePersistedToolEvidence, isTerminalSuccess } = await import('./persisted_tool_evidence');
+      const evidence = parsePersistedToolEvidence(messages);
+      if (evidence.integrity !== 'valid' || !evidence.attempts.some(isTerminalSuccess)) {
+        return {
+          status: 'inconclusive',
+          reason: `original failure includes retry-loop but rerun session ${sessionId} has no producer-valid terminal tool success evidence`,
+        };
+      }
     }
 
     return { status: 'clean' };

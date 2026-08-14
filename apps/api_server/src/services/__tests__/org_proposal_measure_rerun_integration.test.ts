@@ -67,9 +67,11 @@ function seedToolAttempt(
     state.time = { start: opts.startedAt };
   }
   messagesRepo.upsertPart(sessionId, sdkMessageId, {
-    id: `part-${opts.callId}`,
+    // `raw.sessionID` is a structurally valid producer SessionID — never the
+    // Rhythm local session UUID (`sessionId` here only routes the upsert).
+    id: `prt-${opts.callId}`,
     type: 'tool',
-    sessionID: sessionId,
+    sessionID: 'ses-test-session',
     messageID: sdkMessageId,
     callID: opts.callId,
     tool: opts.tool,
@@ -118,5 +120,90 @@ describe('classifyRerunFailure — integration (real extractor + real DB)', () =
     const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
 
     expect(result.status).toBe('clean');
+  });
+
+  describe('W3 FINAL ARCHITECTURAL CORRECTIVE — RED probes: terminal producer-valid success required', () => {
+    it('RED: a single pending-only attempt must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-pending', mcpRole: 'secretary' });
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+        state: { status: 'pending', input: { cmd: 'npm test' }, raw: 'npm test' },
+      });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: a single fresh (non-stale) running-only attempt must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-running', mcpRole: 'secretary' });
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+        state: { status: 'running', input: { cmd: 'npm test' }, time: { start: Date.now() } },
+      });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: a single stale/timed-out running-only attempt must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-timeout', mcpRole: 'secretary' });
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+        state: { status: 'running', input: { cmd: 'npm test' }, time: { start: Date.now() - 20 * 60 * 1000 } },
+      });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: a single error-only attempt must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-error', mcpRole: 'secretary' });
+      const t0 = Date.now() - 60_000;
+      seedToolAttempt(messagesRepo, s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input: { cmd: 'npm test' } });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: a single completed-but-MCP-error attempt must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-mcp-error', mcpRole: 'secretary' });
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'mcp_tool',
+        state: {
+          status: 'completed', input: { cmd: 'call' }, output: 'boom', title: 't', metadata: {},
+          time: { start: Date.now() - 60_000, end: Date.now() - 59_000 }, mcpResult: { isError: true },
+        },
+      });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: malformed evidence (bad producer identity) must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-malformed', mcpRole: 'secretary' });
+      // Missing sessionID/messageID entirely — producer-invalid identity.
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1', type: 'tool', callID: 'call-1', tool: 'bash',
+        state: {
+          status: 'completed', input: { cmd: 'npm test' }, output: 'ok', title: 't', metadata: {},
+          time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+        },
+      });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
   });
 });

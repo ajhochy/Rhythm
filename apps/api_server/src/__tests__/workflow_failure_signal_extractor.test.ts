@@ -124,9 +124,13 @@ function seedToolAttempt(
     if (opts.mcpIsError !== undefined) state.mcpResult = { isError: opts.mcpIsError };
   }
   messagesRepo.upsertPart(sessionId, sdkMessageId, {
-    id: opts.partId ?? `part-${opts.callId}`,
+    // Producer-shaped identity throughout: `raw.sessionID` is the OpenCode
+    // engine's own session id — structurally valid ("ses..."), but NEVER the
+    // Rhythm local session UUID (`sessionId` here is only the DB row key used
+    // to route the upsert, never compared against `raw.sessionID`).
+    id: opts.partId ?? `prt-${opts.callId}`,
     type: 'tool',
-    sessionID: sessionId,
+    sessionID: 'ses-test-session',
     messageID: sdkMessageId,
     callID: opts.callId,
     tool: opts.tool,
@@ -489,8 +493,8 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     // Same callID persisted twice under two DIFFERENT message rows (as could
     // happen on a reconnect/replay), with distinct part ids so the per-row
     // upsert dedup does not collapse them itself.
-    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input, partId: 'part-a' });
-    seedToolAttempt(s.id, 'msg-2', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input, partId: 'part-b' });
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input, partId: 'prt-a' });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input, partId: 'prt-b' });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
@@ -507,11 +511,16 @@ describe('W3 final review corrective (slice B) — producer-valid tool state val
   const rejectsMalformedState = (label: string, badState: Record<string, unknown>) => {
     it(`rejects: ${label}`, async () => {
       const { extractToolAttempts } = await import('../services/workflow_failure_signal_extractor');
+      // Producer-VALID identity throughout (sessionID/messageID/id all
+      // properly prefixed, messageID matching the row's sdkMessageId) so the
+      // ONLY thing under test is the `state` shape itself — an identity gap
+      // must never be what causes rejection here.
       const message = {
         role: 'output',
         strippedText: '',
+        sdkMessageId: 'msg-1',
         partsJson: JSON.stringify([
-          { id: 'part-1', type: 'tool', callID: 'call-1', tool: 'bash', state: badState },
+          { id: 'prt-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash', state: badState },
         ]),
       } as unknown as import('../models/agent_session').AgentSessionMessage;
 
@@ -892,5 +901,217 @@ describe('issue-933-c12: the extractor performs no writes to any table', () => {
     for (const t of tables) after[t] = (db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
 
     expect(after).toEqual(before);
+  });
+});
+
+describe('W3 FINAL ARCHITECTURAL CORRECTIVE — RED probes against producer-invalid evidence', () => {
+  it('RED: two distinct calls sharing one part ID must never emit retry-loop evidence', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'dup-part-id', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    const state1: Record<string, unknown> = {
+      status: 'error', input, error: 'boom', time: { start: t0, end: t0 + 1000 },
+    };
+    const state2: Record<string, unknown> = {
+      status: 'completed', input, output: 'ok', title: 't', metadata: {}, time: { start: t0 + 5000, end: t0 + 6000 },
+    };
+    const messagesRepo = new AgentSessionMessagesRepository();
+    // NOTE: missing sessionID/messageID entirely (no producer identity at all)
+    // AND both records share the SAME part id despite being two DIFFERENT calls.
+    messagesRepo.upsertPart(s.id, 'msg-1', { id: 'part-shared', type: 'tool', callID: 'call-1', tool: 'bash', state: state1 });
+    messagesRepo.upsertPart(s.id, 'msg-2', { id: 'part-shared', type: 'tool', callID: 'call-2', tool: 'bash', state: state2 });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((sig) => sig.category === 'retry-loop' && sig.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('RED: mcpResult._meta must be a plain record, and time.compacted must be a non-negative integer', async () => {
+    const { extractToolAttempts } = await import('../services/workflow_failure_signal_extractor');
+    const badMeta = {
+      role: 'output',
+      strippedText: '',
+      sdkMessageId: 'msg-1',
+      partsJson: JSON.stringify([
+        {
+          id: 'prt-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+          state: {
+            status: 'completed', input: {}, output: 'ok', title: 't', metadata: {},
+            time: { start: 0, end: 1 }, mcpResult: { _meta: 'not-a-record' },
+          },
+        },
+      ]),
+    } as unknown as import('../models/agent_session').AgentSessionMessage;
+    expect(extractToolAttempts([badMeta])).toHaveLength(0);
+
+    const badCompacted = {
+      role: 'output',
+      strippedText: '',
+      sdkMessageId: 'msg-2',
+      partsJson: JSON.stringify([
+        {
+          id: 'prt-2', type: 'tool', sessionID: 'ses-test', messageID: 'msg-2', callID: 'call-2', tool: 'bash',
+          state: {
+            status: 'completed', input: {}, output: 'ok', title: 't', metadata: {},
+            time: { start: 0, end: 1, compacted: -1 },
+          },
+        },
+      ]),
+    } as unknown as import('../models/agent_session').AgentSessionMessage;
+    expect(extractToolAttempts([badCompacted])).toHaveLength(0);
+  });
+
+  it('RED: a tool part missing producer sessionID/messageID identity must be rejected outright', async () => {
+    const { extractToolAttempts } = await import('../services/workflow_failure_signal_extractor');
+    const message = {
+      role: 'output',
+      strippedText: '',
+      sdkMessageId: 'msg-1',
+      partsJson: JSON.stringify([
+        {
+          // no sessionID, no messageID at all
+          id: 'prt-1', type: 'tool', callID: 'call-1', tool: 'bash',
+          state: {
+            status: 'completed', input: {}, output: 'ok', title: 't', metadata: {}, time: { start: 0, end: 1 },
+          },
+        },
+      ]),
+    } as unknown as import('../models/agent_session').AgentSessionMessage;
+    expect(extractToolAttempts([message])).toHaveLength(0);
+  });
+
+  it('RED: messageID must equal the persisted row sdkMessageId exactly', async () => {
+    const { extractToolAttempts } = await import('../services/workflow_failure_signal_extractor');
+    const message = {
+      role: 'output',
+      strippedText: '',
+      sdkMessageId: 'msg-real',
+      partsJson: JSON.stringify([
+        {
+          id: 'prt-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-different', callID: 'call-1', tool: 'bash',
+          state: {
+            status: 'completed', input: {}, output: 'ok', title: 't', metadata: {}, time: { start: 0, end: 1 },
+          },
+        },
+      ]),
+    } as unknown as import('../models/agent_session').AgentSessionMessage;
+    expect(extractToolAttempts([message])).toHaveLength(0);
+  });
+});
+
+describe('W3 FINAL ARCHITECTURAL CORRECTIVE — RED probes for strict chronology', () => {
+  it('RED: stale-running settles AT the exact threshold (>=), not only strictly past it — deterministic explicit `now`', async () => {
+    const { classifyToolAttempt, STUCK_TOOL_RUNNING_MS } = await import('../services/workflow_failure_signal_extractor');
+    const start = 1_000_000;
+    const attempt = {
+      partId: 'prt-1',
+      tool: 'web_fetch',
+      callId: 'call-1',
+      status: 'running' as const,
+      startedAt: start,
+      endedAt: null,
+      mcpIsError: false,
+      inputHash: 'hash',
+    };
+    // `now` is EXACTLY start + STUCK_TOOL_RUNNING_MS — the boundary itself must
+    // already count as timed out (>=), not remain 'in-flight' until strictly past it.
+    expect(classifyToolAttempt(attempt, start + STUCK_TOOL_RUNNING_MS)).toBe('timeout');
+  });
+
+  it('RED: equal-start attempts must never signal, regardless of persistence order (order A)', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'equal-order-a', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    const messagesRepo = new AgentSessionMessagesRepository();
+    messagesRepo.upsertPart(s.id, 'msg-1', {
+      id: 'prt-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+      state: { status: 'error', input, error: 'boom', time: { start: t0, end: t0 + 1000 } },
+    });
+    messagesRepo.upsertPart(s.id, 'msg-2', {
+      id: 'prt-2', type: 'tool', sessionID: 'ses-test', messageID: 'msg-2', callID: 'call-2', tool: 'bash',
+      state: { status: 'completed', input, output: 'ok', title: 't', metadata: {}, time: { start: t0, end: t0 + 1000 } },
+    });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+    expect(signals.some((sig) => sig.category === 'retry-loop' && sig.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('RED: equal-start attempts must never signal, regardless of persistence order (order B, reversed insert)', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'equal-order-b', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    const messagesRepo = new AgentSessionMessagesRepository();
+    // Same two records, inserted in the OPPOSITE order.
+    messagesRepo.upsertPart(s.id, 'msg-2', {
+      id: 'prt-2', type: 'tool', sessionID: 'ses-test', messageID: 'msg-2', callID: 'call-2', tool: 'bash',
+      state: { status: 'completed', input, output: 'ok', title: 't', metadata: {}, time: { start: t0, end: t0 + 1000 } },
+    });
+    messagesRepo.upsertPart(s.id, 'msg-1', {
+      id: 'prt-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+      state: { status: 'error', input, error: 'boom', time: { start: t0, end: t0 + 1000 } },
+    });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+    expect(signals.some((sig) => sig.category === 'retry-loop' && sig.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('RED: a long-running failure that settles AFTER a later-starting success must never be recovered (order A)', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'overlap-long-a', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    const messagesRepo = new AgentSessionMessagesRepository();
+    // A: fails but settles late (long-running failure, ends at t0+10000).
+    messagesRepo.upsertPart(s.id, 'msg-a', {
+      id: 'prt-a', type: 'tool', sessionID: 'ses-test', messageID: 'msg-a', callID: 'call-a', tool: 'bash',
+      state: { status: 'error', input, error: 'boom', time: { start: t0, end: t0 + 10_000 } },
+    });
+    // B: a SECOND failure that starts before A settles (overlapping with A) — must not be usable as
+    // a "prior failure" basis for a later success, since B itself overlapped an unsettled A.
+    messagesRepo.upsertPart(s.id, 'msg-b', {
+      id: 'prt-b', type: 'tool', sessionID: 'ses-test', messageID: 'msg-b', callID: 'call-b', tool: 'bash',
+      state: { status: 'error', input, error: 'boom', time: { start: t0 + 50, end: t0 + 150 } },
+    });
+    // C: succeeds, starting after B settled but still WELL BEFORE A (the long-running failure) settles.
+    messagesRepo.upsertPart(s.id, 'msg-c', {
+      id: 'prt-c', type: 'tool', sessionID: 'ses-test', messageID: 'msg-c', callID: 'call-c', tool: 'bash',
+      state: { status: 'completed', input, output: 'ok', title: 't', metadata: {}, time: { start: t0 + 200, end: t0 + 300 } },
+    });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+    const signal = signals.find((sig) => sig.category === 'retry-loop' && sig.sessionIds.includes(s.id));
+    expect(signal?.retryOutcome).not.toBe('recovered');
+  });
+
+  it('RED: a long-running failure that settles AFTER a later-starting success must never be recovered (order B, reversed insert)', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'overlap-long-b', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    const messagesRepo = new AgentSessionMessagesRepository();
+    messagesRepo.upsertPart(s.id, 'msg-c', {
+      id: 'prt-c', type: 'tool', sessionID: 'ses-test', messageID: 'msg-c', callID: 'call-c', tool: 'bash',
+      state: { status: 'completed', input, output: 'ok', title: 't', metadata: {}, time: { start: t0 + 200, end: t0 + 300 } },
+    });
+    messagesRepo.upsertPart(s.id, 'msg-b', {
+      id: 'prt-b', type: 'tool', sessionID: 'ses-test', messageID: 'msg-b', callID: 'call-b', tool: 'bash',
+      state: { status: 'error', input, error: 'boom', time: { start: t0 + 50, end: t0 + 150 } },
+    });
+    messagesRepo.upsertPart(s.id, 'msg-a', {
+      id: 'prt-a', type: 'tool', sessionID: 'ses-test', messageID: 'msg-a', callID: 'call-a', tool: 'bash',
+      state: { status: 'error', input, error: 'boom', time: { start: t0, end: t0 + 10_000 } },
+    });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+    const signal = signals.find((sig) => sig.category === 'retry-loop' && sig.sessionIds.includes(s.id));
+    expect(signal?.retryOutcome).not.toBe('recovered');
   });
 });
