@@ -10,9 +10,14 @@
  *    proof of failure" nuance — ground truth is the CHILD's own evidence).
  *  - issue-933-c3: delegate-result — a stale in-flight child ('incomplete')
  *    only signals once repeated (one-off is suppressed).
- *  - issue-933-c4: retry-loop — a single severely-loopy session signals
- *    alone; a one-off (single session, single phrase) does not; repeated
- *    across sessions signals grouped.
+ *  - issue-933-c4: retry-loop (W3, self-improvement-engine-foundation) —
+ *    evidence comes ONLY from structured, persisted tool-call parts (tool
+ *    name + callID + state.status), never from lexical "retry"/"try again"
+ *    prose. A single failed-then-retried-then-completed tool is a recovered
+ *    signal; a failed-then-retried-and-still-failing tool is an unresolved
+ *    (higher confidence) signal; a lone (non-repeated) failure is not a
+ *    retry loop; and tool parts missing call identity/state are suppressed
+ *    rather than falling back to scanning message text.
  *  - issue-933-c5: hallucinated-claim — a commit/PR claim later contradicted
  *    by the user, repeated across sessions.
  *  - issue-933-c6: unverified-claim — a "tests pass" claim with no recorded
@@ -59,6 +64,42 @@ function rawUpdate(table: string, id: string, fields: Record<string, string>): v
   getDb()
     .prepare(`UPDATE ${table} SET ${sets} WHERE id = ?`)
     .run(...Object.values(fields), id);
+}
+
+/**
+ * W3 — persist a structured `type: 'tool'` message part (mirrors the shape
+ * opencode_stream_bridge.ts's message.part.updated handler writes into
+ * parts_json: { type, tool, callID, state: { status, time } }). Each call
+ * uses its own sdkMessageId so ordering across attempts is unambiguous.
+ */
+function seedToolAttempt(
+  sessionId: string,
+  sdkMessageId: string,
+  opts: {
+    callId: string;
+    tool: string;
+    status: 'pending' | 'running' | 'completed' | 'error';
+    startedAt?: number;
+  },
+): void {
+  const messagesRepo = new AgentSessionMessagesRepository();
+  const state: Record<string, unknown> = { status: opts.status };
+  if (opts.startedAt !== undefined) {
+    state.time = opts.status === 'completed' || opts.status === 'error'
+      ? { start: opts.startedAt, end: opts.startedAt + 1000 }
+      : { start: opts.startedAt };
+  }
+  if (opts.status === 'error') state.error = 'boom';
+  if (opts.status === 'completed') state.output = 'ok';
+  messagesRepo.upsertPart(sessionId, sdkMessageId, {
+    id: `part-${opts.callId}`,
+    type: 'tool',
+    sessionID: sessionId,
+    messageID: sdkMessageId,
+    callID: opts.callId,
+    tool: opts.tool,
+    state,
+  });
 }
 
 function makeChildSession(
@@ -154,47 +195,114 @@ describe('issue-933-c3: delegate-result — a stale in-flight child only signals
   });
 });
 
-describe('issue-933-c4: retry-loop', () => {
-  it('a single severely-loopy session signals alone; a one-off elsewhere does not', async () => {
+describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
+  it('never fires from retry/resume prose alone — no tool parts at all means no signal', async () => {
     const sessionsRepo = new AgentSessionsRepository();
     const messagesRepo = new AgentSessionMessagesRepository();
 
-    const loopy = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'loopy', mcpRole: 'secretary' });
-    const loopText = 'Let me try again. Retrying. One more attempt. Let me try a different approach.';
-    messagesRepo.append(loopy.id, 'output', loopText, loopText);
-
-    const oneOff = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'oneoff', mcpRole: 'research' });
-    messagesRepo.append(oneOff.id, 'output', 'Retrying once.', 'Retrying once.');
+    const prosey = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'prosey', mcpRole: 'secretary' });
+    const loopText =
+      'Let me try again. Retrying. One more attempt. Let me try a different approach. ' +
+      'Our retry policy resumes automatically after a transient failure.';
+    messagesRepo.append(prosey.id, 'output', loopText, loopText);
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
 
-    const severe = signals.find((s) => s.category === 'retry-loop' && s.sessionIds.includes(loopy.id));
-    expect(severe).toBeDefined();
-    expect(severe?.confidence).toBe('high');
-
-    expect(signals.some((s) => s.category === 'retry-loop' && s.sessionIds.includes(oneOff.id))).toBe(false);
+    expect(signals.some((s) => s.category === 'retry-loop')).toBe(false);
   });
 
-  it('a retry phrase repeated across sessions for the same profile signals grouped', async () => {
+  it('a failed tool call retried and then completed is a recovered signal (medium confidence)', async () => {
     const sessionsRepo = new AgentSessionsRepository();
-    const messagesRepo = new AgentSessionMessagesRepository();
-
-    const ids: string[] = [];
-    for (let i = 0; i < 2; i++) {
-      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: `s-${i}`, mcpRole: 'secretary' });
-      messagesRepo.append(s.id, 'output', 'Trying again.', 'Trying again.');
-      ids.push(s.id);
-    }
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'recovered', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0 });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 5_000 });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
 
-    const grouped = signals.find(
-      (s) => s.category === 'retry-loop' && s.confidence === 'medium' && s.agentConfigId === 'secretary',
-    );
-    expect(grouped).toBeDefined();
-    expect(grouped?.count).toBe(2);
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('recovered');
+    expect(signal?.confidence).toBe('medium');
+    expect(signal?.agentConfigId).toBe('secretary');
+  });
+
+  it('a failed tool call retried and still failing is an unresolved signal (high confidence)', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'unresolved', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0 });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'error', startedAt: t0 + 5_000 });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('unresolved');
+    expect(signal?.confidence).toBe('high');
+  });
+
+  it('a tool stuck "running" long past its start time counts as a timed-out attempt', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'timedout', mcpRole: 'secretary' });
+    const staleStart = Date.now() - 60 * 60 * 1000; // 1h ago — well past any reasonable tool duration
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'web_fetch', status: 'running', startedAt: staleStart });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'web_fetch', status: 'error', startedAt: Date.now() });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('unresolved');
+    expect(signal?.count).toBe(2); // both the stale timeout and the explicit error count as "bad"
+  });
+
+  it('a single (non-repeated) tool failure is not a retry loop', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'lone-failure', mcpRole: 'secretary' });
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: Date.now() });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('a tool retried twice with no failure/timeout in between is not a retry loop', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'clean-repeat', mcpRole: 'secretary' });
+    const t0 = Date.now() - 10_000;
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'completed', startedAt: t0 });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 2_000 });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('suppresses the signal (no fallback to prose) when tool parts are missing call identity or state', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'malformed', mcpRole: 'secretary' });
+
+    // Two "tool" parts repeated, but missing callID (no call identity) — must
+    // be suppressed rather than counted as a retry loop.
+    messagesRepo.upsertPart(s.id, 'msg-1', { id: 'part-1', type: 'tool', tool: 'bash', state: { status: 'error' } });
+    messagesRepo.upsertPart(s.id, 'msg-2', { id: 'part-2', type: 'tool', tool: 'bash', state: { status: 'error' } });
+    // Also seed prose that would have tripped the old lexical detector, to
+    // prove there is no fallback path.
+    const proseText = 'Let me try again. Retrying. One more attempt. Different approach.';
+    messagesRepo.append(s.id, 'output', proseText, proseText);
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
   });
 });
 

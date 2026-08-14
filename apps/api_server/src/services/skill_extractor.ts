@@ -44,6 +44,7 @@ import {
   managedSkillsRoot,
   writeDraftManagedSkill,
 } from './rhythm_managed_skills';
+import { checkLearningSessionEligibility } from './learning_session_eligibility';
 import type { AgentSkill } from '../models/agent_skill';
 
 /**
@@ -488,6 +489,16 @@ export async function distillFromSession(
     return null;
   }
 
+  // W3 (self-improvement-engine-foundation) — defense in depth: enforce the
+  // SAME learning-eligibility predicate queueSkillExtraction already checked
+  // before ever queuing this call. A direct caller must not be able to bypass
+  // it by skipping queueSkillExtraction. Fails closed on a missing session.
+  const eligibility = checkLearningSessionEligibility(sessionId);
+  if (!eligibility.eligible) {
+    logger.info(`[skill-extract] session ${sessionId} ineligible for harvesting (${eligibility.reason}) — skipping`);
+    return null;
+  }
+
   const llmCall = opts?.llmCall ?? defaultLlmCall;
   const source = opts?.source ?? 'auto-extract';
 
@@ -844,6 +855,18 @@ export function _resetHarvestGuardForTests(): void {
  * test injects a fake `distill`.
  */
 export function queueSkillExtraction(sessionId: string, distill: DistillFn = distillFromSession): void {
+  // W3 (self-improvement-engine-foundation) — learning eligibility is checked
+  // FIRST, before round counting, the #1109 lifetime guard, the cooldown, or
+  // any distill dispatch. An ineligible session (isSystem, self_improvement/
+  // scheduled category, curator mcpRole, or missing) must not consume the
+  // guard/cooldown either — otherwise it could starve an unrelated ELIGIBLE
+  // session queued right after it.
+  const eligibility = checkLearningSessionEligibility(sessionId);
+  if (!eligibility.eligible) {
+    logger.info(`[skill-extract] queue: session ${sessionId} ineligible for harvesting (${eligibility.reason}) — skipping`);
+    return;
+  }
+
   // #746 — Defer curator during the cold-start window so background skill work
   // does not contend with the first interactive session. Non-fatal: logs and exits.
   if (isCuratorThrottled()) {
