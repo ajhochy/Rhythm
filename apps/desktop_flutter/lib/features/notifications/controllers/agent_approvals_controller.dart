@@ -31,9 +31,13 @@ class AgentApprovalsController extends ChangeNotifier {
     try {
       _pending = await _dataSource.listPending();
       notifyListeners();
-    } catch (_) {
-      // Silently ignore polling errors — the local agent server may not be
-      // ready yet, same convention as NotificationsController.
+    } catch (error) {
+      // The local agent server may not be ready yet on the first few polls
+      // (same convention as NotificationsController), but a persistent
+      // failure here (401/403/network) must not be silent — it is the only
+      // fetch path for security-bound approval cards, and a swallowed error
+      // is indistinguishable from "no approvals exist".
+      debugPrint('AgentApprovalsController poll failed: $error');
     }
   }
 

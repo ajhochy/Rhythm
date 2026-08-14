@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../../features/messages/controllers/messages_controller.dart';
 import '../../../features/dashboard/controllers/dashboard_controller.dart';
 import '../../../features/integrations/controllers/integrations_controller.dart';
+import '../../../features/notifications/controllers/agent_approvals_controller.dart';
 import '../../../features/notifications/controllers/notifications_controller.dart';
 import '../../../features/notifications/views/notification_panel.dart';
 import 'background_activity_indicator.dart';
@@ -65,6 +66,17 @@ bool googleAccessReady(List<IntegrationAccount> accounts) {
           ) ==
           true;
 }
+
+/// Total count the notification bell badge must show. A pending agent
+/// approval is rendered by [NotificationPanel] but tracked by
+/// [AgentApprovalsController], not [NotificationsController] — so it must be
+/// folded in here explicitly, or a blocked security gate has zero passive
+/// signal telling the user to open the panel.
+int notificationBadgeCount({
+  required NotificationsController notifications,
+  required AgentApprovalsController approvals,
+}) =>
+    notifications.unreadCount + approvals.pending.length;
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -477,7 +489,11 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
 
     final hasUpdate = widget.updateController.availableUpdate != null;
     final notifController = context.watch<NotificationsController>();
-    final unreadCount = notifController.unreadCount;
+    final approvalsController = context.watch<AgentApprovalsController>();
+    final unreadCount = notificationBadgeCount(
+      notifications: notifController,
+      approvals: approvalsController,
+    );
 
     return Row(
       mainAxisSize: MainAxisSize.min,
