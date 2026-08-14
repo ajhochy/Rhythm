@@ -383,6 +383,86 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
   });
 
+  it('a completed tool call followed by a later error is NOT a retry loop — no retry happened after the failure', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'completed-then-error', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'completed', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'error', startedAt: t0 + 5_000, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('a failed tool call followed by a non-stale in-flight (running) retry is inconclusive — no signal yet', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'error-then-running', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'running', startedAt: Date.now(), input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('a failed tool call followed by a non-stale pending retry is inconclusive — no signal yet', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'error-then-pending', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'pending', startedAt: Date.now(), input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('a repeated candidate group with a missing start time is suppressed — fails closed on ambiguous chronology', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'missing-start', mcpRole: 'secretary' });
+    const input = { cmd: 'npm test' };
+    // First attempt carries no state.time at all; second is finite. Sorting
+    // these against each other cannot be trusted, so the whole group must be
+    // suppressed rather than guessing an order.
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: Date.now(), input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('dedupToken carries the FULL input hash while evidence keeps only a short prefix', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'full-hash-dedup', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'error', startedAt: t0 + 5_000, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    const inputHashInEvidence = /inputHash=([0-9a-f]+)/.exec(signal!.evidence)?.[1];
+    expect(inputHashInEvidence).toBeDefined();
+    expect(inputHashInEvidence!.length).toBeLessThanOrEqual(12);
+
+    const dedupSuffix = signal!.dedupToken.slice(`${s.id}:bash:`.length);
+    expect(dedupSuffix.length).toBe(64); // full sha256 hex digest, not the 12-char evidence prefix
+    expect(dedupSuffix.startsWith(inputHashInEvidence!)).toBe(true);
+  });
+
   it('a duplicate persisted record of the SAME call (callID) is deduped to one attempt, not counted as a retry', async () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'dup-record', mcpRole: 'secretary' });

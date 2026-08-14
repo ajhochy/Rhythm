@@ -74,10 +74,14 @@ export type WorkflowFailureCategory =
 export type DelegateOutcome = 'failed' | 'transport-empty' | 'incomplete' | 'unknown';
 
 /**
- * Only present when category='retry-loop'. 'recovered' means the LAST
- * attempt of the repeated tool eventually completed; 'unresolved' means it
- * did not (still failed/timed-out, or never got a terminal attempt at all).
- * See {@link detectRetryLoopSignals}.
+ * Only present when category='retry-loop'. Only assigned once a failed/
+ * timed-out attempt has been followed by a LATER attempt of the same
+ * (tool, equivalent-input) pair AND the latest such attempt is terminal
+ * (completed, or failed/timed-out) — a failure with no later attempt is not
+ * a retry, and a latest attempt still in-flight (not stale) is inconclusive,
+ * not evidence either way. 'recovered' means that latest attempt completed;
+ * 'unresolved' means it was also failed/timed-out. See
+ * {@link detectRetryLoopSignals}.
  */
 export type RetryOutcome = 'recovered' | 'unresolved';
 
@@ -336,7 +340,8 @@ function extractToolAttempts(messages: AgentSessionMessage[]): ToolAttempt[] {
       if (!state || !Object.prototype.hasOwnProperty.call(state, 'input')) continue;
 
       const time = state.time as Record<string, unknown> | undefined;
-      const startedAt = typeof time?.start === 'number' ? time.start : null;
+      const startedAt =
+        typeof time?.start === 'number' && Number.isFinite(time.start) ? time.start : null;
       byCallId.set(callId, { tool, callId, status: status as ToolAttemptStatus, startedAt, inputHash: hashInput(state.input) });
     }
   }
@@ -383,17 +388,41 @@ function detectRetryLoopSignals(
       // severe, is not a retry.
       if (group.length < WORKFLOW_SIGNAL_MIN_REPEAT_COUNT) continue;
 
+      // Fail closed on ambiguous chronology: every candidate attempt in this
+      // group must carry its own finite, numeric state.time.start. Sorting a
+      // mix of real timestamps against a missing one (treated as "0" or
+      // "now") can manufacture an ordering claim that was never actually
+      // observed — so an incomplete group is suppressed wholesale rather than
+      // guessed at.
+      if (!group.every((a) => typeof a.startedAt === 'number' && Number.isFinite(a.startedAt))) continue;
+
       // state.time.start (not message/row insertion order) is the authoritative
       // chronology — it is what the engine itself stamped on the attempt.
-      const sorted = [...group].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
+      const sorted = [...group].sort((a, b) => (a.startedAt as number) - (b.startedAt as number));
       const results = sorted.map((a) => classifyToolAttempt(a, now));
-      const badCount = results.filter((r) => r === 'failed' || r === 'timeout').length;
-      if (badCount === 0) continue; // repeated calls with no failure/timeout — not a retry loop
 
-      const retryOutcome: RetryOutcome = results[results.length - 1] === 'ok' ? 'recovered' : 'unresolved';
+      // A retry loop requires a failed/timed-out attempt to be followed by a
+      // LATER attempt of the same (tool, equivalent-input) pair — a failure
+      // that is itself the last attempt was never retried, so it is just a
+      // failure, not a retry loop.
+      const hasFailureWithLaterAttempt = results
+        .slice(0, -1)
+        .some((r) => r === 'failed' || r === 'timeout');
+      if (!hasFailureWithLaterAttempt) continue;
+
+      // The latest attempt's outcome is still unknown while it is in-flight
+      // (pending, or running but not yet stale) — that is inconclusive, not
+      // evidence of an unresolved retry loop. Only report once the latest
+      // attempt reaches a terminal outcome (completed, or failed/timed-out).
+      const lastResult = results[results.length - 1];
+      if (lastResult === 'in-flight') continue;
+
+      const badCount = results.filter((r) => r === 'failed' || r === 'timeout').length;
+      const retryOutcome: RetryOutcome = lastResult === 'ok' ? 'recovered' : 'unresolved';
       const agentConfigId = profileOf(session);
       const tool = sorted[0].tool;
-      const inputHashPrefix = sorted[0].inputHash.slice(0, 12);
+      const inputHash = sorted[0].inputHash;
+      const inputHashPrefix = inputHash.slice(0, 12);
 
       signals.push({
         category: 'retry-loop',
@@ -403,11 +432,14 @@ function detectRetryLoopSignals(
         sessionIds: [session.id],
         retryOutcome,
         evidence: `tool='${tool}' inputHash=${inputHashPrefix} attempts=${sorted.length} failedOrTimeout=${badCount} outcome=${retryOutcome} agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
-        // Keyed on session+tool+inputHash — a single materially-repeated
+        // Keyed on session+tool+FULL inputHash — a single materially-repeated
         // (tool, equivalent-input) pair within one session is itself
         // unambiguous, structured evidence (unlike the old lexical count,
-        // which needed a cross-session repeat to be trustworthy).
-        dedupToken: `${session.id}:${tool}:${inputHashPrefix}`,
+        // which needed a cross-session repeat to be trustworthy). The full
+        // hash (not the human-readable evidence's short prefix) is used here
+        // so two genuinely different inputs can never collide onto one
+        // dedup key.
+        dedupToken: `${session.id}:${tool}:${inputHash}`,
       });
     }
   }
