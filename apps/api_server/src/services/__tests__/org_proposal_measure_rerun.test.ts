@@ -32,8 +32,17 @@ vi.mock('../../repositories/agent_session_messages_repository', () => ({
 }));
 
 // Keep the failure classifier deterministic: no detector fires unless a test
-// opts in. classifyRerunFailure runs these over synthetic single-turn doubles.
+// opts in. classifyRerunFailure now runs these over the REAL persisted
+// messages for the rerun session (see listBySessionMock) — mocked here only
+// to keep this file's focus on run()-routing, not detector behavior (that's
+// covered by workflow_failure_signal_extractor.test.ts and the
+// org_proposal_measure_rerun_integration.test.ts real-extractor suite).
 const detectRetryLoopSignals = vi.fn(() => [] as { category: string }[]);
+// Defaults to non-empty (as if a real, valid tool call was persisted) so the
+// existing "clean rerun -> completed" tests don't accidentally trip the
+// "retry-loop category with NO structured tool-attempt evidence at all ->
+// inconclusive" fail-closed guard — that guard gets its own dedicated test.
+const extractToolAttempts = vi.fn(() => [{ tool: 'bash' }] as unknown[]);
 vi.mock('../workflow_failure_signal_extractor', () => ({
   detectRetryLoopSignals: (...args: unknown[]) => detectRetryLoopSignals(...(args as [])),
   detectHallucinatedClaimSignals: () => [],
@@ -41,6 +50,7 @@ vi.mock('../workflow_failure_signal_extractor', () => ({
   detectToolUnavailableSignals: () => [],
   detectRepeatedCorrectionSignals: () => [],
   detectDelegateResultSignals: () => [],
+  extractToolAttempts: (...args: unknown[]) => extractToolAttempts(...(args as [])),
 }));
 
 import { defaultRerunScenario } from '../org_proposal_measure';
@@ -56,6 +66,7 @@ const ctx = {
 beforeEach(() => {
   vi.clearAllMocks();
   detectRetryLoopSignals.mockReturnValue([]);
+  extractToolAttempts.mockReturnValue([{ tool: 'bash' }]);
   resolveRunModelMock.mockReturnValue({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' });
   listBySessionMock.mockReturnValue([
     { role: 'input', strippedText: 'do the failing thing', partsJson: null },
@@ -121,5 +132,22 @@ describe('defaultRerunScenario routes the behavioral re-run through AgentRunner.
     const outcome = await defaultRerunScenario(proposal, ctx);
     expect(outcome.status).toBe('infra-error');
     expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('W3 corrective: retry-loop category with NO structured tool-attempt evidence at all -> infra-error, never completed', async () => {
+    // Nothing reproduced AND no readable tool-attempt evidence — this must
+    // NEVER be treated as a clean pass (that was the bug: a synthetic
+    // partsJson:null double always looked evidence-free and always kept).
+    extractToolAttempts.mockReturnValue([]);
+    runMock.mockResolvedValue({
+      sessionId: 'rerun-sess',
+      status: 'done',
+      result: 'A sufficiently long, clean-looking output with no lexical failure signature.',
+    });
+
+    const outcome = await defaultRerunScenario(proposal, ctx);
+
+    expect(outcome.status).toBe('infra-error');
+    expect(outcome.reason).toContain('inconclusive');
   });
 });

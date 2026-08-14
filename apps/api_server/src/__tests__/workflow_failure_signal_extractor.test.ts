@@ -76,10 +76,12 @@ function rawUpdate(table: string, id: string, fields: Record<string, string>): v
 }
 
 /**
- * W3 — persist a structured `type: 'tool'` message part (mirrors the shape
- * opencode_stream_bridge.ts's message.part.updated handler writes into
- * parts_json: { type, tool, callID, state: { status, time } }). Each call
- * uses its own sdkMessageId so ordering across attempts is unambiguous.
+ * W3 — persist a structured `type: 'tool'` message part, in a PRODUCER-VALID
+ * shape matching the actual schema at
+ * apps/opencode_fork/packages/opencode/src/session/message-v2.ts:251-338
+ * (ToolPart / ToolStatePending / ToolStateRunning / ToolStateCompleted /
+ * ToolStateError). Each call uses its own sdkMessageId so ordering across
+ * attempts is unambiguous.
  */
 function seedToolAttempt(
   sessionId: string,
@@ -89,22 +91,38 @@ function seedToolAttempt(
     tool: string;
     status: 'pending' | 'running' | 'completed' | 'error';
     startedAt?: number;
+    /** Overrides the default `startedAt + 1000` end time (completed/error only). */
+    endedAt?: number;
     /** state.input — omit to simulate a part with no recorded input at all. */
     input?: Record<string, unknown>;
     /** Overrides the default `id` (used to simulate a duplicate persisted part for the SAME callID). */
     partId?: string;
+    /** completed-only: sets `state.mcpResult.isError` — a completed MCP call that itself failed. */
+    mcpIsError?: boolean;
   },
 ): void {
   const messagesRepo = new AgentSessionMessagesRepository();
   const state: Record<string, unknown> = { status: opts.status };
   if (opts.input !== undefined) state.input = opts.input;
-  if (opts.startedAt !== undefined) {
-    state.time = opts.status === 'completed' || opts.status === 'error'
-      ? { start: opts.startedAt, end: opts.startedAt + 1000 }
-      : { start: opts.startedAt };
+
+  if (opts.status === 'pending') {
+    state.raw = 'raw-tool-call-text';
+  }
+  if (opts.status === 'running' && opts.startedAt !== undefined) {
+    state.time = { start: opts.startedAt };
+  }
+  if (opts.status === 'completed' || opts.status === 'error') {
+    if (opts.startedAt !== undefined) {
+      state.time = { start: opts.startedAt, end: opts.endedAt ?? opts.startedAt + 1000 };
+    }
   }
   if (opts.status === 'error') state.error = 'boom';
-  if (opts.status === 'completed') state.output = 'ok';
+  if (opts.status === 'completed') {
+    state.output = 'ok';
+    state.title = 'Tool result';
+    state.metadata = {};
+    if (opts.mcpIsError !== undefined) state.mcpResult = { isError: opts.mcpIsError };
+  }
   messagesRepo.upsertPart(sessionId, sdkMessageId, {
     id: opts.partId ?? `part-${opts.callId}`,
     type: 'tool',
@@ -478,6 +496,202 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     const signals = await extractWorkflowFailureSignals();
 
     expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+});
+
+describe('W3 final review corrective (slice B) — producer-valid tool state validation', () => {
+  // extractToolAttempts must drop a part whose `state` deviates from the
+  // producer schema OUTRIGHT (not coerce/guess/partially trust it) — asserted
+  // directly against the exported parser so a would-be malformed attempt can
+  // never hide behind a grouping-key coincidence with a valid one.
+  const rejectsMalformedState = (label: string, badState: Record<string, unknown>) => {
+    it(`rejects: ${label}`, async () => {
+      const { extractToolAttempts } = await import('../services/workflow_failure_signal_extractor');
+      const message = {
+        role: 'output',
+        strippedText: '',
+        partsJson: JSON.stringify([
+          { id: 'part-1', type: 'tool', callID: 'call-1', tool: 'bash', state: badState },
+        ]),
+      } as unknown as import('../models/agent_session').AgentSessionMessage;
+
+      expect(extractToolAttempts([message])).toHaveLength(0);
+    });
+  };
+
+  rejectsMalformedState('null input', {
+    status: 'error', input: null, error: 'boom', time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('array input (not a record)', {
+    status: 'error', input: [], error: 'boom', time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('scalar input', {
+    status: 'error', input: 'not-an-object', error: 'boom', time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('negative time.start', {
+    status: 'error', input: { cmd: 'x' }, error: 'boom', time: { start: -5, end: 10 },
+  });
+  rejectsMalformedState('fractional time.start', {
+    status: 'error', input: { cmd: 'x' }, error: 'boom', time: { start: 1.5, end: 10 },
+  });
+  rejectsMalformedState('nonfinite time.start', {
+    status: 'error', input: { cmd: 'x' }, error: 'boom', time: { start: Infinity, end: Infinity },
+  });
+  rejectsMalformedState('impossible state: time.end before time.start', {
+    status: 'error', input: { cmd: 'x' }, error: 'boom', time: { start: 100, end: 50 },
+  });
+  rejectsMalformedState('error status missing the error string', {
+    status: 'error', input: { cmd: 'x' }, time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('completed status missing output', {
+    status: 'completed', input: { cmd: 'x' }, title: 't', metadata: {}, time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('completed status missing title', {
+    status: 'completed', input: { cmd: 'x' }, output: 'ok', metadata: {}, time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('completed status missing metadata', {
+    status: 'completed', input: { cmd: 'x' }, output: 'ok', title: 't', time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+  });
+  rejectsMalformedState('completed status with end < start', {
+    status: 'completed', input: { cmd: 'x' }, output: 'ok', title: 't', metadata: {}, time: { start: 100, end: 50 },
+  });
+  rejectsMalformedState('pending status missing raw', {
+    status: 'pending', input: { cmd: 'x' },
+  });
+  rejectsMalformedState('running status missing time.start', {
+    status: 'running', input: { cmd: 'x' },
+  });
+  rejectsMalformedState('completed status with a non-object mcpResult', {
+    status: 'completed', input: { cmd: 'x' }, output: 'ok', title: 't', metadata: {},
+    time: { start: Date.now() - 60_000, end: Date.now() - 59_000 }, mcpResult: 'oops',
+  });
+  rejectsMalformedState('completed status with mcpResult.isError not a boolean', {
+    status: 'completed', input: { cmd: 'x' }, output: 'ok', title: 't', metadata: {},
+    time: { start: Date.now() - 60_000, end: Date.now() - 59_000 }, mcpResult: { isError: 'true' },
+  });
+  rejectsMalformedState('an impossible/unrecognized status', {
+    status: 'succeeded', input: { cmd: 'x' },
+  });
+
+  it('a completed state with mcpResult.isError===true is FAILED, not a recovered success', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'mcp-error', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'call_tool' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'mcp_tool', status: 'error', startedAt: t0, input });
+    // Looks like a "completed" retry on its face, but the MCP result itself
+    // reports failure — must be classified as still-failing, not recovered.
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'mcp_tool', status: 'completed', startedAt: t0 + 5_000, input, mcpIsError: true });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('unresolved');
+  });
+
+  it('accepts a producer-valid completed state with mcpResult.isError===false as a genuine recovery', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'mcp-ok', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'call_tool' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'mcp_tool', status: 'error', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'mcp_tool', status: 'completed', startedAt: t0 + 5_000, input, mcpIsError: false });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('recovered');
+  });
+});
+
+describe('W3 final review corrective (slice B) — strict retry chronology', () => {
+  it('RED: an overlapping "retry" that started before the prior failure settled is NOT evidence', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'overlap', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    // Failure settles (time.end) at t0+1000. The second attempt started at
+    // t0+500 — BEFORE that settlement — so it was already in flight before
+    // the failure was even known, not a sequential retry of it.
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, endedAt: t0 + 1000, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 500, endedAt: t0 + 1500, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('RED: an attempt with the EXACT same start time as the failure is NOT evidence of a retry', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'equal-starts', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, endedAt: t0 + 1000, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0, endedAt: t0 + 1000, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('GREEN: a failure that settled, followed by a LATER attempt starting after settlement, IS a retry', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'settled-then-later', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    // Failure settles at t0+1000; the retry starts at t0+1001 — strictly
+    // after settlement.
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, endedAt: t0 + 1000, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 1001, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('recovered');
+  });
+
+  it('RED: a retry started BEFORE the stale-running timeout threshold was crossed is NOT evidence', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'timeout-before-threshold', mcpRole: 'secretary' });
+    // Stale by "now" (started 20 minutes ago, well past STUCK_TOOL_RUNNING_MS
+    // = 10 minutes), but the second attempt started only 5 minutes after the
+    // first — well BEFORE the 10-minute timeout threshold was crossed, so at
+    // the time it started this was not yet a known failure.
+    const t0 = Date.now() - 20 * 60 * 1000;
+    const input = { url: 'https://example.com' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'web_fetch', status: 'running', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'web_fetch', status: 'completed', startedAt: t0 + 5 * 60 * 1000, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('GREEN: a retry started AFTER the stale-running timeout threshold was crossed IS evidence', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'timeout-after-threshold', mcpRole: 'secretary' });
+    // Same stale first attempt, but this time the retry starts 11 minutes
+    // after t0 — strictly after the 10-minute timeout threshold.
+    const t0 = Date.now() - 20 * 60 * 1000;
+    const input = { url: 'https://example.com' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'web_fetch', status: 'running', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'web_fetch', status: 'completed', startedAt: t0 + 11 * 60 * 1000, input });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('recovered');
   });
 });
 

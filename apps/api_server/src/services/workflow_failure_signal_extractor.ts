@@ -271,8 +271,12 @@ interface ToolAttempt {
   tool: string;
   callId: string;
   status: ToolAttemptStatus;
-  /** `state.time.start`, ms epoch. null when the part carries no timing. */
+  /** `state.time.start`, ms epoch. null for 'pending' (the producer schema carries no `time` on it at all). */
   startedAt: number | null;
+  /** `state.time.end`, ms epoch. Only present for terminal ('completed'/'error') states. */
+  endedAt: number | null;
+  /** true iff status='completed' AND `state.mcpResult.isError===true` — a completed MCP call that itself failed. */
+  mcpIsError: boolean;
   /**
    * SHA-256 identity of `state.input`, canonicalized (recursively key-sorted
    * JSON) so key-order differences never split one retry pattern into two.
@@ -280,8 +284,6 @@ interface ToolAttempt {
    */
   inputHash: string;
 }
-
-const TOOL_ATTEMPT_STATUSES = new Set<string>(['pending', 'running', 'completed', 'error']);
 
 /** Recursively key-sorted JSON serialization — a stable basis for a content-equality hash. */
 function canonicalJson(value: unknown): string {
@@ -302,13 +304,91 @@ function hashInput(input: unknown): string {
   return createHash('sha256').update(canonicalJson(input)).digest('hex');
 }
 
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/** Integer, finite, >= 0 — matches the producer schema's `NonNegativeInt` (opencode_fork's `@opencode-ai/core/schema`). */
+function isNonNegativeInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v >= 0;
+}
+
+interface ValidatedToolState {
+  status: ToolAttemptStatus;
+  startedAt: number | null;
+  endedAt: number | null;
+  mcpIsError: boolean;
+}
+
+/**
+ * Validate one `state` object against the PRODUCER schema — the actual
+ * `ToolState` discriminated union in
+ * apps/opencode_fork/packages/opencode/src/session/message-v2.ts:251-338 —
+ * rather than a lenient/lexical guess. Any deviation from that schema (wrong
+ * type, a missing terminal field, an impossible `end < start` ordering, a
+ * malformed `mcpResult`) rejects the WHOLE state (`null`), never a
+ * partial/best-effort read. No status outside the four the schema defines is
+ * ever accepted.
+ *
+ * `mcpResult.isError===true` on a 'completed' state means the MCP tool call
+ * itself reported failure — that is FAILED evidence, not a recovered success
+ * (see `mcpIsError` on the returned attempt).
+ */
+function validateToolState(state: unknown): ValidatedToolState | null {
+  if (!isPlainRecord(state)) return null;
+  if (!isPlainRecord(state.input)) return null; // every status requires `input: Record<string, Any>`
+
+  const status = state.status;
+
+  if (status === 'pending') {
+    if (typeof state.raw !== 'string') return null;
+    return { status: 'pending', startedAt: null, endedAt: null, mcpIsError: false };
+  }
+
+  if (status === 'running') {
+    if (state.title !== undefined && typeof state.title !== 'string') return null;
+    if (state.metadata !== undefined && !isPlainRecord(state.metadata)) return null;
+    if (!isPlainRecord(state.time) || !isNonNegativeInt(state.time.start)) return null;
+    return { status: 'running', startedAt: state.time.start, endedAt: null, mcpIsError: false };
+  }
+
+  if (status === 'completed') {
+    if (typeof state.output !== 'string') return null;
+    if (typeof state.title !== 'string') return null;
+    if (!isPlainRecord(state.metadata)) return null;
+    if (!isPlainRecord(state.time)) return null;
+    const { start, end } = state.time;
+    if (!isNonNegativeInt(start) || !isNonNegativeInt(end) || end < start) return null;
+
+    let mcpIsError = false;
+    if (state.mcpResult !== undefined) {
+      if (!isPlainRecord(state.mcpResult)) return null;
+      const isError = state.mcpResult.isError;
+      if (isError !== undefined && typeof isError !== 'boolean') return null;
+      mcpIsError = isError === true;
+    }
+    return { status: 'completed', startedAt: start, endedAt: end, mcpIsError };
+  }
+
+  if (status === 'error') {
+    if (typeof state.error !== 'string') return null;
+    if (state.metadata !== undefined && !isPlainRecord(state.metadata)) return null;
+    if (!isPlainRecord(state.time)) return null;
+    const { start, end } = state.time;
+    if (!isNonNegativeInt(start) || !isNonNegativeInt(end) || end < start) return null;
+    return { status: 'error', startedAt: start, endedAt: end, mcpIsError: false };
+  }
+
+  return null; // unrecognized status — impossible state, reject rather than guess
+}
+
 /**
  * Parse persisted tool-call parts out of a session's messages. A part is only
- * trusted as a real attempt when it carries a call identity (`callID`), a
- * recognized `state.status`, AND a recorded `state.input` — anything less
- * (missing identity, missing state, an unrecognized status, no input) is
+ * trusted as a real attempt when it carries a call identity (`id`, `callID`),
+ * a `tool` name, AND a producer-VALID `state` (see {@link validateToolState})
+ * — anything less (missing identity, malformed/impossible state) is
  * SUPPRESSED here rather than guessed at, so a malformed/legacy part can
- * never manufacture retry-loop evidence.
+ * never manufacture retry-loop evidence. No lexical/prose fallback exists.
  *
  * Duplicate persisted records of the SAME call (`callID`) — e.g. from a
  * reconnect/replay writing the part into more than one message row — are
@@ -328,21 +408,27 @@ function extractToolAttempts(messages: AgentSessionMessage[]): ToolAttempt[] {
     if (!Array.isArray(parts)) continue;
 
     for (const raw of parts) {
-      if (!raw || typeof raw !== 'object') continue;
-      const part = raw as Record<string, unknown>;
-      if (part.type !== 'tool') continue;
+      if (!isPlainRecord(raw)) continue;
+      if (raw.type !== 'tool') continue;
 
-      const tool = typeof part.tool === 'string' ? part.tool : null;
-      const callId = typeof part.callID === 'string' ? part.callID : null;
-      const state = part.state as Record<string, unknown> | undefined;
-      const status = typeof state?.status === 'string' ? state.status : null;
-      if (!tool || !callId || !status || !TOOL_ATTEMPT_STATUSES.has(status)) continue;
-      if (!state || !Object.prototype.hasOwnProperty.call(state, 'input')) continue;
+      const id = raw.id;
+      const tool = raw.tool;
+      const callId = raw.callID;
+      if (typeof id !== 'string' || typeof tool !== 'string' || typeof callId !== 'string') continue;
 
-      const time = state.time as Record<string, unknown> | undefined;
-      const startedAt =
-        typeof time?.start === 'number' && Number.isFinite(time.start) ? time.start : null;
-      byCallId.set(callId, { tool, callId, status: status as ToolAttemptStatus, startedAt, inputHash: hashInput(state.input) });
+      const validated = validateToolState(raw.state);
+      if (!validated) continue;
+
+      const input = (raw.state as Record<string, unknown>).input;
+      byCallId.set(callId, {
+        tool,
+        callId,
+        status: validated.status,
+        startedAt: validated.startedAt,
+        endedAt: validated.endedAt,
+        mcpIsError: validated.mcpIsError,
+        inputHash: hashInput(input),
+      });
     }
   }
   return Array.from(byCallId.values());
@@ -350,14 +436,32 @@ function extractToolAttempts(messages: AgentSessionMessage[]): ToolAttempt[] {
 
 type ToolAttemptResult = 'failed' | 'timeout' | 'ok' | 'in-flight';
 
-/** Classify one attempt. A stale 'running' attempt (see STUCK_TOOL_RUNNING_MS) counts as a timeout. */
+/**
+ * Classify one attempt. A stale 'running' attempt (see STUCK_TOOL_RUNNING_MS)
+ * counts as a timeout. A 'completed' state whose `mcpResult.isError===true`
+ * is FAILED, not a recovered success.
+ */
 function classifyToolAttempt(attempt: ToolAttempt, now: number): ToolAttemptResult {
   if (attempt.status === 'error') return 'failed';
-  if (attempt.status === 'completed') return 'ok';
+  if (attempt.status === 'completed') return attempt.mcpIsError ? 'failed' : 'ok';
   if (attempt.status === 'running' && attempt.startedAt !== null && now - attempt.startedAt > STUCK_TOOL_RUNNING_MS) {
     return 'timeout';
   }
   return 'in-flight'; // pending, or running but not yet stale — not evidence either way
+}
+
+/**
+ * The instant a failing/timed-out attempt SETTLES — the earliest a
+ * subsequent attempt could genuinely be "after" it. A terminal failure
+ * settles at its own `state.time.end`; a stale-running timeout settles no
+ * earlier than `start + STUCK_TOOL_RUNNING_MS` (the instant it actually
+ * crossed the staleness threshold, not "now"). `null` for non-failing results
+ * — they never gate a retry.
+ */
+function settlementOf(attempt: ToolAttempt, result: ToolAttemptResult): number | null {
+  if (result === 'failed') return attempt.endedAt;
+  if (result === 'timeout') return (attempt.startedAt as number) + STUCK_TOOL_RUNNING_MS;
+  return null;
 }
 
 function detectRetryLoopSignals(
@@ -389,11 +493,12 @@ function detectRetryLoopSignals(
       if (group.length < WORKFLOW_SIGNAL_MIN_REPEAT_COUNT) continue;
 
       // Fail closed on ambiguous chronology: every candidate attempt in this
-      // group must carry its own finite, numeric state.time.start. Sorting a
-      // mix of real timestamps against a missing one (treated as "0" or
-      // "now") can manufacture an ordering claim that was never actually
-      // observed — so an incomplete group is suppressed wholesale rather than
-      // guessed at.
+      // group must carry its own finite, numeric state.time.start. A
+      // 'pending' attempt NEVER carries one (the producer schema has no
+      // `time` field on it at all) — sorting a mix of real timestamps
+      // against a missing one (treated as "0" or "now") can manufacture an
+      // ordering claim that was never actually observed, so an incomplete
+      // group is suppressed wholesale rather than guessed at.
       if (!group.every((a) => typeof a.startedAt === 'number' && Number.isFinite(a.startedAt))) continue;
 
       // state.time.start (not message/row insertion order) is the authoritative
@@ -401,14 +506,24 @@ function detectRetryLoopSignals(
       const sorted = [...group].sort((a, b) => (a.startedAt as number) - (b.startedAt as number));
       const results = sorted.map((a) => classifyToolAttempt(a, now));
 
-      // A retry loop requires a failed/timed-out attempt to be followed by a
-      // LATER attempt of the same (tool, equivalent-input) pair — a failure
-      // that is itself the last attempt was never retried, so it is just a
-      // failure, not a retry loop.
-      const hasFailureWithLaterAttempt = results
-        .slice(0, -1)
-        .some((r) => r === 'failed' || r === 'timeout');
-      if (!hasFailureWithLaterAttempt) continue;
+      // STRICT retry chronology: a retry exists only when some attempt's
+      // `time.start` is STRICTLY GREATER than a prior failure/timeout's
+      // SETTLEMENT time (see {@link settlementOf}) — not merely "a later
+      // array index." Equal starts and overlapping attempts (an attempt that
+      // started before the prior failure/timeout even settled) are NOT
+      // evidence of a retry; they look concurrent, not sequential.
+      let hasQualifyingRetry = false;
+      for (let i = 0; i < sorted.length && !hasQualifyingRetry; i++) {
+        const settlement = settlementOf(sorted[i], results[i]);
+        if (settlement === null) continue;
+        for (let j = i + 1; j < sorted.length; j++) {
+          if ((sorted[j].startedAt as number) > settlement) {
+            hasQualifyingRetry = true;
+            break;
+          }
+        }
+      }
+      if (!hasQualifyingRetry) continue;
 
       // The latest attempt's outcome is still unknown while it is in-flight
       // (pending, or running but not yet stale) — that is inconclusive, not

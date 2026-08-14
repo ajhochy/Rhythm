@@ -583,12 +583,22 @@ export const defaultRerunScenario: RerunScenario = async (proposal, ctx) => {
       };
     }
 
-    const detected = await classifyRerunFailure(rerunSessionId, ctx.patchedProfileId, replayPrompt, outputText);
-    const reproduced = detected.filter((c) => ctx.categories.includes(c));
-    if (reproduced.length > 0) {
+    const classification = await classifyRerunFailure(
+      rerunSessionId,
+      ctx.patchedProfileId,
+      ctx.categories,
+      messagesRepo,
+    );
+    if (classification.status === 'reproduced') {
       return {
         status: 'failed',
-        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${reproduced.join(',')}] (session ${rerunSessionId})`,
+        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${classification.categories.join(',')}] (session ${rerunSessionId})`,
+      };
+    }
+    if (classification.status === 'inconclusive') {
+      return {
+        status: 'infra-error',
+        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} inconclusive: ${classification.reason} (session ${rerunSessionId})`,
       };
     }
     return {
@@ -600,27 +610,58 @@ export const defaultRerunScenario: RerunScenario = async (proposal, ctx) => {
   }
 };
 
+/** Outcome of classifying a rerun session against the ORIGINAL failure categories. */
+export type RerunClassification =
+  | { status: 'reproduced'; categories: string[] }
+  | { status: 'clean' }
+  | { status: 'inconclusive'; reason: string };
+
 /**
  * Reuse the workflow-failure-signal extractor's OWN detectors to classify a
- * fresh re-run session — no duplicated failure heuristics. Builds a synthetic
- * single-session view (the replayed prompt as `input`, the model's answer as
- * `output`) and runs the message-based detectors over it, returning the failure
- * categories they emit. Multi-session / multi-turn patterns (hallucinated-claim
- * needs a user correction; stale-redo needs an issue redo) structurally can't
- * fire on one headless turn — those categories are given the benefit of the
- * doubt, which is the intended coarseness of a single tool-less replay.
+ * fresh re-run session — no duplicated failure heuristics.
+ *
+ * W3 final review corrective — this used to synthesize a fake two-message
+ * session (`partsJson: null`) instead of loading the rerun's ACTUAL persisted
+ * messages. `extractToolAttempts` (the retry-loop detector's ONLY evidence
+ * source) requires real `partsJson`, so that synthetic double could NEVER
+ * carry structured tool-attempt evidence — a reproduced retry-loop was
+ * therefore invisible to this classifier, and every retry-loop diagnosis
+ * proposal was silently kept regardless of whether the patch actually fixed
+ * anything. This now loads the rerun session's real messages via
+ * `AgentSessionMessagesRepository.listBySession` (the existing seam) and runs
+ * every detector, including retry-loop, against that real evidence.
+ *
+ * Raw prompt/output text can still support the TEXT-based detectors
+ * (hallucinated-claim, unverified-claim, tool-unavailable-attempted,
+ * repeated-correction, delegate-result) because those read real message
+ * `strippedText` either way — but it can never substitute for retry-loop's
+ * structured tool-attempt evidence, so retry-loop is judged ONLY on what
+ * `extractToolAttempts` finds in the real persisted parts.
+ *
+ * Returns:
+ *   - `reproduced` — a category from the original failure signature actually
+ *     reproduced under the patch (a REAL retry-loop signal, not a guess).
+ *   - `inconclusive` — the original categories include 'retry-loop' but this
+ *     rerun has NO readable structured tool-attempt evidence at all (a
+ *     tool-less/bare probe can't exercise the built-in tools a retry-loop
+ *     would show up on) — the caller must leave the proposal `measuring`,
+ *     never treat this as a clean pass.
+ *   - `clean` — nothing reproduced, AND (when 'retry-loop' was an original
+ *     category) valid persisted tool-attempt evidence existed and showed no
+ *     retry loop — a genuine, evidence-backed pass.
  */
-async function classifyRerunFailure(
+export async function classifyRerunFailure(
   sessionId: string,
   profileId: string,
-  promptText: string,
-  outputText: string,
-): Promise<string[]> {
+  categories: string[],
+  messagesRepo: import('../repositories/agent_session_messages_repository').AgentSessionMessagesRepository,
+): Promise<RerunClassification> {
   try {
     const extractor = await import('./workflow_failure_signal_extractor');
+    const messages = messagesRepo.listBySession(sessionId);
 
     const now = new Date().toISOString();
-    // Minimal read-only doubles — only the fields the detectors touch matter.
+    // Minimal read-only double — only the fields the detectors touch matter.
     const session = {
       id: sessionId,
       status: 'idle',
@@ -633,11 +674,6 @@ async function classifyRerunFailure(
       createdAt: now,
     } as unknown as import('../models/agent_session').AgentSession;
 
-    const messages = [
-      { role: 'input', strippedText: promptText, partsJson: null },
-      { role: 'output', strippedText: outputText, partsJson: null },
-    ] as unknown as import('../models/agent_session').AgentSessionMessage[];
-
     const getMessages = () => messages;
 
     const detectors = [
@@ -649,17 +685,30 @@ async function classifyRerunFailure(
       extractor.detectDelegateResultSignals,
     ];
 
-    const categories = new Set<string>();
+    const detectedCategories = new Set<string>();
     for (const detect of detectors) {
       try {
-        for (const signal of detect([session], getMessages)) categories.add(signal.category);
+        for (const signal of detect([session], getMessages)) detectedCategories.add(signal.category);
       } catch {
         // A single detector failing must not mask the others.
       }
     }
-    return [...categories];
+
+    const reproduced = categories.filter((c) => detectedCategories.has(c));
+    if (reproduced.length > 0) {
+      return { status: 'reproduced', categories: reproduced };
+    }
+
+    if (categories.includes('retry-loop') && extractor.extractToolAttempts(messages).length === 0) {
+      return {
+        status: 'inconclusive',
+        reason: `original failure includes retry-loop but rerun session ${sessionId} has no readable structured tool-attempt evidence`,
+      };
+    }
+
+    return { status: 'clean' };
   } catch (err) {
     logger.warn(`[org-proposal-measure] classifyRerunFailure failed (non-fatal): ${String(err)}`);
-    return [];
+    return { status: 'inconclusive', reason: `classifyRerunFailure threw: ${String(err)}` };
   }
 }
