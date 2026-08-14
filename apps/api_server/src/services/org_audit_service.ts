@@ -159,7 +159,17 @@ export interface OrgAuditSnapshot {
 }
 
 export type SuccessfulUseEvidence =
-  | { availability: 'available'; canonicalPairs: Set<string> }
+  | {
+      availability: 'available';
+      canonicalPairs: Set<string>;
+      /**
+       * Profile ids whose own resolveExercisedTools call came back
+       * unavailable (W2: no global suppression). detectTightenGaps must
+       * treat these profiles' telemetry as unknown while still judging
+       * every other, fully-covered profile on its own evidence.
+       */
+      unavailableProfileIds: Set<string>;
+    }
   | { availability: 'unavailable' };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -350,6 +360,14 @@ function detectPruneGaps(drift: AllowlistDrift[]): OrgAuditGap[] {
  * one), matching the issue's "no data at all must NEVER produce a prune"
  * requirement. A profile with a long history but a genuinely unused tool
  * still produces a gap exactly as before.
+ *
+ * W2 fix: successful-use evidence is profile-granular. `successfulUse.availability
+ * === 'unavailable'` means the catalog/engine itself was unreachable (no MCP
+ * names to judge against at all) and still suppresses every gap. But when the
+ * catalog is live, one profile's own telemetry being unavailable
+ * (`unavailableProfileIds`) must ONLY suppress tighten judgements for THAT
+ * profile — an unrelated, well-covered, genuinely-zero-use profile still gets
+ * judged on its own evidence rather than being dragged down by a sibling.
  */
 export function detectTightenGaps(
   profiles: ProfileScopeSnapshot[],
@@ -363,6 +381,7 @@ export function detectTightenGaps(
   if (successfulUse.availability === 'unavailable') return [];
   const gaps: OrgAuditGap[] = [];
   for (const profile of profiles) {
+    if (successfulUse.unavailableProfileIds.has(profile.id)) continue;
     const sessionCount = sessionCountByProfile.get(profile.id) ?? 0;
     const observationDays = observationDaysByProfile.get(profile.id) ?? 0;
     if (sessionCount < MIN_TIGHTEN_ACTIVITY_COUNT) continue;
@@ -540,21 +559,24 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
         }),
       );
 
+      // W2 fix: a single profile's unavailable telemetry (e.g. an
+      // unrelated preset with unreadable structured rows) must not blank
+      // out successful-use evidence for every OTHER profile — collect
+      // canonical pairs per available profile and track unavailable ones
+      // separately so detectTightenGaps can skip judging only those.
       const canonicalPairs = new Set<string>();
-      let exercisedTelemetryAvailable = true;
+      const unavailableProfileIds = new Set<string>();
       for (const profile of profiles) {
         const telemetry = await resolveExercisedTools(profile.id, undefined, liveMcpNames);
         if (telemetry.availability === 'unavailable') {
-          exercisedTelemetryAvailable = false;
-          break;
+          unavailableProfileIds.add(profile.id);
+          continue;
         }
         for (const serverId of telemetry.canonicalServerIds) {
           canonicalPairs.add(`${profile.id}::${serverId}`);
         }
       }
-      if (exercisedTelemetryAvailable) {
-        successfulUse = { availability: 'available', canonicalPairs };
-      }
+      successfulUse = { availability: 'available', canonicalPairs, unavailableProfileIds };
 
       for (const profile of profiles) {
         for (const name of profile.allowedMcps) {

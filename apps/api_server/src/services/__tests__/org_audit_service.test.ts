@@ -380,7 +380,14 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
     ).toEqual([]);
   });
 
-  it('suppresses all tightening when any profile telemetry is unreadable', async () => {
+  it('suppresses tightening only for the profile with unreadable telemetry, not for an unrelated well-covered profile', async () => {
+    // W2 fix: a single profile's unreadable structured telemetry must not
+    // blank out successful-use evidence for the whole org. This asserts BOTH
+    // halves of the contract in one snapshot: 'unreadable-profile' (whose
+    // only attributed session is unreadable) gets no tighten judgement at
+    // all, while 'well-observed' (old/active, fully covered, genuine
+    // zero-use) still gets its tighten-scope gap for the never-invoked
+    // 'gitnexus' grant.
     listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
     const configsRepo = new AgentConfigsRepository();
     configsRepo.insert({
@@ -396,13 +403,15 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
       allowedMcpsJson: JSON.stringify(['gitnexus']),
     });
     getDb()
-      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id IN (?, ?)`)
       .run(
         new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
         'well-observed',
+        'unreadable-profile',
       );
 
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const session = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -410,6 +419,25 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
         cwd: '/tmp',
         name: `well-observed-${i}`,
         mcpRole: 'well-observed',
+      });
+      sessionsRepo.updateStatus(session.id, 'idle');
+      // Every attributed session contributes a readable, genuinely-empty
+      // structured row — proving structured telemetry actually covered this
+      // profile's traffic and recorded no tool use (the W2 fail-closed
+      // available-empty distinction), so this profile is NOT unavailable.
+      messagesRepo.upsertStructured(session.id, `well-observed-${i}-msg`, 'output', '[]', null, null);
+    }
+    // 'unreadable-profile' ALSO clears the #857 activity/observation floor
+    // (10 idle sessions, backdated 30 days) so its suppression below can only
+    // be explained by the new per-profile unavailable-telemetry skip, not by
+    // the pre-existing thin-data guard.
+    for (let i = 0; i < 9; i++) {
+      const session = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `unreadable-${i}`,
+        mcpRole: 'unreadable-profile',
       });
       sessionsRepo.updateStatus(session.id, 'idle');
     }
@@ -420,7 +448,8 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
       name: 'unreadable',
       mcpRole: 'unreadable-profile',
     });
-    new AgentSessionMessagesRepository().upsertStructured(
+    sessionsRepo.updateStatus(unreadableSession.id, 'idle');
+    messagesRepo.upsertStructured(
       unreadableSession.id,
       'unreadable-message',
       'output',
@@ -431,7 +460,20 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
 
     const { buildOrgAuditSnapshot } = await import('../org_audit_service');
     const snapshot = await buildOrgAuditSnapshot();
-    expect(snapshot.gaps.filter((gap) => gap.kind === 'tighten-scope')).toEqual([]);
+
+    expect(
+      snapshot.gaps.filter(
+        (gap) => gap.kind === 'tighten-scope' && gap.evidence.includes('unreadable-profile'),
+      ),
+    ).toEqual([]);
+    expect(
+      snapshot.gaps.find(
+        (gap) =>
+          gap.kind === 'tighten-scope' &&
+          gap.evidence.includes('well-observed') &&
+          gap.evidence.includes('gitnexus'),
+      ),
+    ).toBeDefined();
   });
 
   it('a profile allowlisting a live MCP with zero denied-tool AND zero recorded use produces a tighten-scope gap with evidence', async () => {

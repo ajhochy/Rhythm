@@ -112,7 +112,9 @@ export type ExercisedTelemetryUnavailableReason =
   | 'database-error'
   | 'unreadable-source'
   | 'catalog-unavailable'
-  | 'no-structured-telemetry';
+  | 'no-structured-telemetry'
+  | 'no-attributable-sessions'
+  | 'partial-structured-telemetry';
 
 interface ExercisedToolsTelemetryBase {
   rawCallableNames: Set<string>;
@@ -218,11 +220,15 @@ export async function resolveExercisedTools(
       for (const row of mcpRoleSessionRows) sessionIdSet.add(row.id);
     }
 
+    // No session could be attributed to this profile at all — the
+    // observation window is empty, not zero-use. Reporting "available,
+    // nothing exercised" here would let a prune guard pass on a profile this
+    // resolver never actually observed (W2 fail-closed contract).
     if (sessionIdSet.size === 0) {
       return telemetryResult(
         empty,
         catalog,
-        catalog.length > 0 ? undefined : 'catalog-unavailable',
+        catalog.length > 0 ? 'no-attributable-sessions' : 'catalog-unavailable',
       );
     }
 
@@ -237,25 +243,38 @@ export async function resolveExercisedTools(
       )
       .all(...sessionIds) as { session_id: string; parts_json: string | null }[];
 
-    // Attributed sessions exist, but if not one of them contributed a
-    // readable structured row, structured telemetry never covered this
-    // profile's traffic at all — that is missing capture, not proof the
-    // profile used nothing (see module header + the W2 fail-closed
-    // contract).
-    if (messageRows.length === 0) {
-      return telemetryResult(new Set<string>(), catalog, 'no-structured-telemetry');
-    }
-
+    // Track which attributed sessions actually contributed a readable
+    // structured row (a Set keyed by session_id — O(rows) to build, O(1) per
+    // membership check, no per-session re-scan of the row list).
+    const coveredSessionIds = new Set<string>();
     const exercised = new Set<string>();
     for (const row of messageRows) {
       const parsed = extractToolNamesFromPartsJson(row.parts_json);
       if (!parsed.readable) {
         return telemetryResult(exercised, catalog, 'unreadable-source');
       }
+      coveredSessionIds.add(row.session_id);
       for (const name of parsed.names) {
         exercised.add(name);
       }
     }
+
+    // Attributed sessions exist, but none of them contributed a readable
+    // structured row — structured telemetry never covered this profile's
+    // traffic at all. That is missing capture, not proof the profile used
+    // nothing (see module header + the W2 fail-closed contract).
+    if (coveredSessionIds.size === 0) {
+      return telemetryResult(new Set<string>(), catalog, 'no-structured-telemetry');
+    }
+
+    // Some, but not all, attributed sessions have readable coverage — the
+    // observation window is partial. A profile with an uncovered session
+    // could have exercised a tool only in the gap, so partial telemetry can
+    // never authorize a prune/keep decision the way full coverage can.
+    if (coveredSessionIds.size < sessionIdSet.size) {
+      return telemetryResult(new Set<string>(), catalog, 'partial-structured-telemetry');
+    }
+
     return telemetryResult(
       exercised,
       catalog,

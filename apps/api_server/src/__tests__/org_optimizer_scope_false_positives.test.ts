@@ -409,7 +409,7 @@ describe('the tighten lane requires available canonical usage telemetry', () => 
         new Set(),
         sessions,
         days,
-        { availability: 'available', canonicalPairs: new Set(['p::gitnexus']) },
+        { availability: 'available', canonicalPairs: new Set(['p::gitnexus']), unavailableProfileIds: new Set() },
       ),
     ).toEqual([]);
     expect(
@@ -419,7 +419,7 @@ describe('the tighten lane requires available canonical usage telemetry', () => 
         new Set(),
         sessions,
         days,
-        { availability: 'available', canonicalPairs: new Set() },
+        { availability: 'available', canonicalPairs: new Set(), unavailableProfileIds: new Set() },
       ),
     ).toHaveLength(1);
     expect(

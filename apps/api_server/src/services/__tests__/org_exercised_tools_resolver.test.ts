@@ -87,16 +87,19 @@ describe('known-catalog MCP callable identity', () => {
 });
 
 describe('exercised telemetry availability', () => {
-  it('distinguishes available-empty telemetry from unavailable telemetry', async () => {
+  it('distinguishes no-attributable-sessions telemetry from postgres-unsupported telemetry', async () => {
     const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
     const configsRepo = new AgentConfigsRepository();
     const config = configsRepo.insert({ label: 'Empty', icon: 'x' });
 
-    const available = await resolveExercisedTools(config.id, undefined, ['rhythm']);
-    expect(available).toMatchObject({
-      availability: 'available',
-      rawCallableNames: new Set(),
-      canonicalServerIds: new Set(),
+    // No session is attributable to this profile at all — the observation
+    // window is empty, not zero-use, so this must be unavailable rather than
+    // available-empty (see W2 cycle 1: a catalog-present, zero-session
+    // profile used to fail open to available-empty).
+    const noSessions = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(noSessions).toMatchObject({
+      availability: 'unavailable',
+      reason: 'no-attributable-sessions',
     });
 
     const originalDbClient = env.dbClient;
@@ -224,6 +227,85 @@ describe('exercised telemetry availability', () => {
       null,
       null,
     );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result).toMatchObject({
+      availability: 'available',
+      rawCallableNames: new Set(),
+      canonicalServerIds: new Set(),
+    });
+  });
+
+  it('reports partial structured coverage across attributed sessions as unavailable, not empty-available', async () => {
+    // Bug this catches: a profile with two attributed sessions where only
+    // one contributed a readable structured row used to be treated as fully
+    // observed the moment ANY row existed — the uncovered session's traffic
+    // (which could easily be where a tool was actually used) was silently
+    // dropped from the observation instead of making the whole window
+    // partial. Partial telemetry must never look identical to full coverage.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Partially instrumented', icon: 'x' });
+    const sessionsRepo = new AgentSessionsRepository();
+    const coveredSession = sessionsRepo.insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'covered session',
+      mcpRole: config.id,
+    });
+    sessionsRepo.insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'uncovered session',
+      mcpRole: config.id,
+    });
+    // Only one of the two attributed sessions ever persisted a structured
+    // row; the other has none at all.
+    new AgentSessionMessagesRepository().upsertStructured(
+      coveredSession.id,
+      'zero-use-message',
+      'output',
+      '[]',
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result).toMatchObject({
+      availability: 'unavailable',
+      reason: 'partial-structured-telemetry',
+      rawCallableNames: new Set(),
+      canonicalServerIds: new Set(),
+    });
+  });
+
+  it('reports available-empty only once EVERY attributed session has readable structured coverage', async () => {
+    // The positive counterpart, generalized to multiple sessions: once every
+    // attributed session (not just some of them) contributes a readable
+    // empty tool-parts row, the observation window is complete and genuine
+    // zero-use is provable — this is the only fixture shape allowed to
+    // resolve available-empty with more than one attributed session.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Fully instrumented', icon: 'x' });
+    const sessionsRepo = new AgentSessionsRepository();
+    const sessionA = sessionsRepo.insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'session a',
+      mcpRole: config.id,
+    });
+    const sessionB = sessionsRepo.insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'session b',
+      mcpRole: config.id,
+    });
+    const messagesRepo = new AgentSessionMessagesRepository();
+    messagesRepo.upsertStructured(sessionA.id, 'msg-a', 'output', '[]', null, null);
+    messagesRepo.upsertStructured(sessionB.id, 'msg-b', 'output', '[]', null, null);
 
     const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(result).toMatchObject({
