@@ -95,6 +95,61 @@ describe('AgentConfigsRepository', () => {
     });
   });
 
+  describe('compareAndSetScopeField()', () => {
+    it('updates exactly one allowlist column only when the prior value matches', () => {
+      const config = repo.insert({
+        label: 'CAS scope',
+        icon: 'shield',
+        allowedMcpsJson: JSON.stringify(['x', 'y']),
+        allowedSkillsJson: JSON.stringify(['skill-a']),
+      });
+
+      const updated = repo.compareAndSetScopeField(
+        config.id,
+        'allowedMcpsJson',
+        JSON.stringify(['x', 'y']),
+        JSON.stringify(['y']),
+      );
+
+      expect(updated?.allowedMcpsJson).toBe(JSON.stringify(['y']));
+      expect(updated?.allowedSkillsJson).toBe(JSON.stringify(['skill-a']));
+    });
+
+    it('returns null and writes nothing on stale or null-mismatched expectations', () => {
+      const config = repo.insert({
+        label: 'CAS miss',
+        icon: 'shield',
+        allowedMcpsJson: JSON.stringify(['x', 'y']),
+      });
+
+      expect(
+        repo.compareAndSetScopeField(config.id, 'allowedMcpsJson', null, JSON.stringify(['y'])),
+      ).toBeNull();
+      expect(
+        repo.compareAndSetScopeField(
+          config.id,
+          'allowedMcpsJson',
+          JSON.stringify(['stale']),
+          JSON.stringify(['y']),
+        ),
+      ).toBeNull();
+      expect(repo.getById(config.id)?.allowedMcpsJson).toBe(JSON.stringify(['x', 'y']));
+    });
+
+    it('rejects any runtime field outside the fixed scope-column allowlist', () => {
+      const config = repo.insert({ label: 'CAS field guard', icon: 'shield' });
+      expect(() =>
+        repo.compareAndSetScopeField(
+          config.id,
+          'systemPrompt' as 'allowedMcpsJson',
+          null,
+          'hostile',
+        ),
+      ).toThrow(/Unsupported agent config scope field/);
+      expect(repo.getById(config.id)?.systemPrompt).toBeNull();
+    });
+  });
+
   describe('insert()', () => {
     it('inserts a config with no id and derives a human-readable slug from the label (#960)', () => {
       const config = repo.insert({

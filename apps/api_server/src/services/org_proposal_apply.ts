@@ -16,16 +16,15 @@
  * or a future queue regression tries to push a high-risk proposal through.
  *
  * `revertProposal` (used by #821's measure step, `org_proposal_measure.ts`,
- * on a non-improving change) replays `before_snapshot_json` to restore the
- * exact prior state and sets `status='reverted'`. The reverted row is NOT
+ * on a non-improving change) restores non-scope snapshots and uses versioned
+ * CAS + entry-level inverses for scope deltas before setting `status='reverted'`. The reverted row is NOT
  * deleted — it remains in the table so `existsByDedupKeyAsync` continues to
  * report the dedup_key as seen, preventing an apply/revert flip-flop loop
  * where the same change gets re-proposed every optimizer run.
  *
- * Only ONE apply target kind is wired in v1: `agent_configs` scope fields
- * (`allowedMcpsJson` / `allowedSkillsJson`), covering `tighten-scope` and
- * `prune-scope` — the two mechanical LOW-risk kinds with a concrete field to
- * snapshot/mutate/restore. `refine-skill` / `consolidate-skill` /
+ * The historical scope apply target (`allowedMcpsJson` / `allowedSkillsJson`)
+ * remains wired defensively with V2 snapshots, but scope-removal proposals are
+ * now HIGH-risk and refused by the unattended entry point. `refine-skill` / `consolidate-skill` /
  * `refine-recipe` proposals are also accepted here (their `changeJson` is
  * carried through to `measuring` unmodified — the LLM-scored measure step is
  * what determines keep/revert for those kinds; per the skill loop precedent
@@ -40,6 +39,8 @@
  *     resolve to `{ status: 'skipped' }` rather than throwing or leaving the
  *     row in an inconsistent state.
  */
+
+import { createHash } from 'node:crypto';
 
 import { logger } from '../utils/logger';
 import { classifyProposalRisk } from './org_risk_classifier';
@@ -83,6 +84,40 @@ interface AgentConfigScopeChange {
   remove?: string[];
   /** Names to add to the current allowlist (broaden-scope — never reaches here; HIGH). */
   add?: string[];
+}
+
+type ScopeFieldName = AgentConfigScopeChange['field'];
+
+export interface ScopeDeltaV2RemovedEntry {
+  name: string;
+  /** Exact array element or tools-map value removed by the apply. */
+  priorValue: unknown;
+  /** Original entry position, used to restore ordering without replaying the field. */
+  priorIndex: number;
+}
+
+/** Versioned, entry-level scope rollback record. */
+export interface ScopeDeltaV2Snapshot {
+  version: 'scope-delta-v2';
+  target: { type: 'agent_config'; id: string };
+  field: ScopeFieldName;
+  /** Normalized exact removal request bound to change_json and integrityHash. */
+  requestedRemove: string[];
+  removedEntries: ScopeDeltaV2RemovedEntry[];
+  /** Exact serialized field value written by apply; this is the CAS expectation. */
+  expectedAppliedValue: string;
+  /** Exact-match CAS material for expectedAppliedValue alone (kept for that narrow check). */
+  expectedAppliedHash: string;
+  /**
+   * SHA-256 over the canonical {version, target, field, requestedRemove,
+   * removedEntries, expectedAppliedValue} tuple — every field a revert reads to decide WHAT to
+   * write back. Unlike {@link expectedAppliedHash} (which only covers
+   * `expectedAppliedValue`), this catches tampering of `target`, `field`, or
+   * `removedEntries` (e.g. a rewritten priorValue/priorIndex/name) even when
+   * `expectedAppliedValue` itself is untouched. Validated FIRST, before any
+   * read/CAS/write, so a tampered or hand-edited snapshot is refused closed.
+   */
+  integrityHash: string;
 }
 
 function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
@@ -213,7 +248,15 @@ export function computeScopeList(
   // meaning the array shape carries.
   const priorMap = parseScopeMap(priorJson);
   if (priorMap) {
-    const next: Record<string, unknown> = { ...priorMap };
+    const next = Object.create(null) as Record<string, unknown>;
+    for (const [name, value] of Object.entries(priorMap)) {
+      Object.defineProperty(next, name, {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
     for (const name of patch.remove ?? []) delete next[name];
     for (const name of patch.add ?? []) if (!(name in next)) next[name] = [];
     return JSON.stringify(next);
@@ -226,6 +269,236 @@ export function computeScopeList(
     if (!next.includes(name)) next.push(name);
   }
   return JSON.stringify(next);
+}
+
+function hashScopeValue(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function normalizeRequestedRemove(remove: readonly string[]): string[] {
+  return [...new Set(remove)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * Canonical integrity material for a V2 snapshot: every field a revert reads
+ * to decide what to write back, in a fixed key order so the hash is stable
+ * regardless of how the snapshot was constructed or re-serialized.
+ */
+function scopeDeltaIntegrityMaterial(input: {
+  version: 'scope-delta-v2';
+  target: { type: 'agent_config'; id: string };
+  field: ScopeFieldName;
+  requestedRemove: string[];
+  removedEntries: ScopeDeltaV2RemovedEntry[];
+  expectedAppliedValue: string;
+}): string {
+  return JSON.stringify({
+    version: input.version,
+    target: { type: input.target.type, id: input.target.id },
+    field: input.field,
+    requestedRemove: input.requestedRemove,
+    removedEntries: input.removedEntries.map((e) => ({
+      name: e.name,
+      priorValue: e.priorValue,
+      priorIndex: e.priorIndex,
+    })),
+    expectedAppliedValue: input.expectedAppliedValue,
+  });
+}
+
+function computeScopeIntegrityHash(input: {
+  version: 'scope-delta-v2';
+  target: { type: 'agent_config'; id: string };
+  field: ScopeFieldName;
+  requestedRemove: string[];
+  removedEntries: ScopeDeltaV2RemovedEntry[];
+  expectedAppliedValue: string;
+}): string {
+  return hashScopeValue(scopeDeltaIntegrityMaterial(input));
+}
+
+/**
+ * Build the V2 delta before a scope mutation. It records only entries the
+ * mutation actually removes plus the exact post-apply value used for CAS.
+ */
+export function createScopeDeltaV2Snapshot(
+  agentConfigId: string,
+  field: ScopeFieldName,
+  priorValue: string | null,
+  remove: string[],
+): ScopeDeltaV2Snapshot {
+  const removeSet = new Set(remove);
+  const priorMap = parseScopeMap(priorValue);
+  let removedEntries: ScopeDeltaV2RemovedEntry[];
+
+  if (priorMap) {
+    removedEntries = Object.entries(priorMap).flatMap(([name, value], priorIndex) =>
+      removeSet.has(name) ? [{ name, priorValue: value, priorIndex }] : [],
+    );
+  } else {
+    const priorArray = priorValue ? safeParseStringArray(priorValue) : [];
+    removedEntries = priorArray.flatMap((name, priorIndex) =>
+      removeSet.has(name) ? [{ name, priorValue: name, priorIndex }] : [],
+    );
+  }
+
+  const version = 'scope-delta-v2' as const;
+  const target = { type: 'agent_config' as const, id: agentConfigId };
+  const requestedRemove = normalizeRequestedRemove(remove);
+  const expectedAppliedValue = computeScopeList(priorValue, { remove });
+  return {
+    version,
+    target,
+    field,
+    requestedRemove,
+    removedEntries,
+    expectedAppliedValue,
+    expectedAppliedHash: hashScopeValue(expectedAppliedValue),
+    integrityHash: computeScopeIntegrityHash({ version, target, field, requestedRemove, removedEntries, expectedAppliedValue }),
+  };
+}
+
+function isScopeDeltaV2Snapshot(v: unknown): v is ScopeDeltaV2Snapshot {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  const target = c.target as Record<string, unknown> | undefined;
+  if (
+    c.version !== 'scope-delta-v2' ||
+    target?.type !== 'agent_config' ||
+    typeof target.id !== 'string' ||
+    (c.field !== 'allowedMcpsJson' && c.field !== 'allowedSkillsJson') ||
+    !Array.isArray(c.removedEntries) ||
+    !Array.isArray(c.requestedRemove) ||
+    typeof c.expectedAppliedValue !== 'string' ||
+    typeof c.expectedAppliedHash !== 'string' ||
+    typeof c.integrityHash !== 'string'
+  ) {
+    return false;
+  }
+  const requestedRemove = c.requestedRemove as unknown[];
+  if (
+    requestedRemove.length === 0 ||
+    !requestedRemove.every((name) => typeof name === 'string' && name.length > 0)
+  ) {
+    return false;
+  }
+  const requestedNames = requestedRemove as string[];
+  if (
+    new Set(requestedNames).size !== requestedNames.length ||
+    JSON.stringify(normalizeRequestedRemove(requestedNames)) !== JSON.stringify(requestedNames)
+  ) {
+    return false;
+  }
+  const names = new Set<string>();
+  for (const entry of c.removedEntries) {
+    if (!entry || typeof entry !== 'object') return false;
+    const e = entry as Record<string, unknown>;
+    if (
+      typeof e.name !== 'string' ||
+      !e.name ||
+      !('priorValue' in e) ||
+      !Number.isInteger(e.priorIndex) ||
+      (e.priorIndex as number) < 0
+    ) {
+      return false;
+    }
+    // Reject a snapshot claiming to remove the same entry twice — either a
+    // construction bug or a tampered payload, never a legitimate delta.
+    if (names.has(e.name)) return false;
+    names.add(e.name);
+  }
+  return JSON.stringify(normalizeRequestedRemove([...names])) === JSON.stringify(requestedNames);
+}
+
+/**
+ * Recompute the integrity hash over the snapshot's OWN fields and compare —
+ * catches tampering of `target`/`field`/`removedEntries` that a CAS check on
+ * `expectedAppliedValue` alone would miss.
+ */
+function scopeDeltaIntegrityHolds(snapshot: ScopeDeltaV2Snapshot): boolean {
+  return (
+    computeScopeIntegrityHash({
+      version: snapshot.version,
+      target: snapshot.target,
+      field: snapshot.field,
+      requestedRemove: snapshot.requestedRemove,
+      removedEntries: snapshot.removedEntries,
+      expectedAppliedValue: snapshot.expectedAppliedValue,
+    }) === snapshot.integrityHash
+  );
+}
+
+/**
+ * When the proposal's live `change_json` still carries the original
+ * `{agentConfigId, field}` targeting, it must agree with the snapshot's own
+ * target/field. A mismatch means the snapshot and the row's change_json have
+ * drifted apart (tampering, or a manual edit) — fail closed rather than
+ * mutate whatever the snapshot alone claims.
+ */
+function scopeDeltaMatchesChangeJson(snapshot: ScopeDeltaV2Snapshot, change: unknown): boolean {
+  if (!change || typeof change !== 'object' || Array.isArray(change)) return false;
+  const c = change as Record<string, unknown>;
+  if (c.agentConfigId !== snapshot.target.id || c.field !== snapshot.field) return false;
+  if (c.add !== undefined || !Array.isArray(c.remove)) return false;
+  const remove = c.remove;
+  if (!remove.every((name) => typeof name === 'string' && name.length > 0)) return false;
+  const names = remove as string[];
+  if (new Set(names).size !== names.length) return false;
+  return (
+    JSON.stringify(normalizeRequestedRemove(names)) === JSON.stringify(snapshot.requestedRemove)
+  );
+}
+
+function invertScopeDelta(snapshot: ScopeDeltaV2Snapshot): string | null {
+  let applied: unknown;
+  try {
+    applied = JSON.parse(snapshot.expectedAppliedValue);
+  } catch {
+    return null;
+  }
+
+  const removed = [...snapshot.removedEntries].sort((a, b) => a.priorIndex - b.priorIndex);
+  if (Array.isArray(applied)) {
+    if (!applied.every((value) => typeof value === 'string')) return null;
+    const restored = [...applied] as string[];
+    for (const entry of removed) {
+      // Array-shaped scope columns have no separate "value" — the entry's
+      // name IS the restored element, so priorValue must equal name exactly.
+      if (
+        typeof entry.priorValue !== 'string' ||
+        entry.priorValue !== entry.name ||
+        restored.includes(entry.name)
+      ) {
+        return null;
+      }
+      restored.splice(Math.min(entry.priorIndex, restored.length), 0, entry.priorValue);
+    }
+    return JSON.stringify(restored);
+  }
+
+  if (applied && typeof applied === 'object') {
+    const entries = Object.entries(applied as Record<string, unknown>);
+    for (const entry of removed) {
+      if (entries.some(([name]) => name === entry.name)) return null;
+      entries.splice(
+        Math.min(entry.priorIndex, entries.length),
+        0,
+        [entry.name, entry.priorValue],
+      );
+    }
+    const restored = Object.create(null) as Record<string, unknown>;
+    for (const [name, value] of entries) {
+      Object.defineProperty(restored, name, {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return JSON.stringify(restored);
+  }
+
+  return null;
 }
 
 // ── Shared skill-body revert snapshot (#971 workflow-prompt-fix / #976 refine-skill) ──
@@ -438,7 +711,13 @@ async function applyAgentConfigScopeChange(
   }
 
   const priorValue = config[change.field] ?? null;
-  const beforeSnapshot = JSON.stringify({ [change.field]: priorValue });
+  const scopeDelta = createScopeDeltaV2Snapshot(
+    change.agentConfigId,
+    change.field,
+    priorValue,
+    change.remove ?? [],
+  );
+  const beforeSnapshot = JSON.stringify(scopeDelta);
 
   // 1. Snapshot FIRST (before any mutation) — this is what makes the apply
   //    reversible by construction.
@@ -451,7 +730,7 @@ async function applyAgentConfigScopeChange(
 
   // 2. Mutate — remove the named entries from the current allowlist (shared
   //    set-arithmetic with the human-gate refine-scope applier).
-  const nextList = computeScopeList(priorValue, { remove: change.remove });
+  const nextList = scopeDelta.expectedAppliedValue;
 
   configsRepo.update(change.agentConfigId, { [change.field]: nextList });
 
@@ -611,7 +890,7 @@ async function applyConsolidateSkillChange(
   return { status: 'applied-ok' };
 }
 
-export type RevertOutcome = 'reverted' | 'skipped';
+export type RevertOutcome = 'reverted' | 'skipped' | 'conflict' | 'unsafe-legacy-scope';
 
 /** Audit fields the measure step may want persisted alongside the revert transition. */
 export interface RevertPatch {
@@ -636,10 +915,11 @@ export async function revertProposal(
   try {
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
     const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
+    const isScopeRemovalKind = proposal.kind === 'tighten-scope' || proposal.kind === 'prune-scope';
 
     if (!proposal.beforeSnapshotJson) {
       logger.warn(`[org-proposal-apply] no before_snapshot_json for '${proposal.id}' — cannot revert`);
-      return 'skipped';
+      return isScopeRemovalKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
     let snapshot: Record<string, unknown>;
@@ -647,7 +927,7 @@ export async function revertProposal(
       snapshot = JSON.parse(proposal.beforeSnapshotJson);
     } catch (err) {
       logger.warn(`[org-proposal-apply] unparseable snapshot for '${proposal.id}': ${String(err)}`);
-      return 'skipped';
+      return isScopeRemovalKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
     let change: unknown = null;
@@ -657,7 +937,38 @@ export async function revertProposal(
       change = null;
     }
 
-    if (proposal.kind === 'external-adoption' && isExternalAdoptionRevertSnapshot(snapshot)) {
+    if (isScopeRemovalKind && !isScopeDeltaV2Snapshot(snapshot)) {
+      logger.warn(`[org-proposal-apply] refusing invalid/legacy scope revert for '${proposal.id}'`);
+      return 'unsafe-legacy-scope';
+    }
+
+    if (isScopeDeltaV2Snapshot(snapshot)) {
+      if (!scopeDeltaIntegrityHolds(snapshot)) {
+        logger.warn(`[org-proposal-apply] scope snapshot integrity conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+      if (hashScopeValue(snapshot.expectedAppliedValue) !== snapshot.expectedAppliedHash) {
+        logger.warn(`[org-proposal-apply] scope snapshot integrity conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+      if (!scopeDeltaMatchesChangeJson(snapshot, change)) {
+        logger.warn(`[org-proposal-apply] scope snapshot/change_json target mismatch for '${proposal.id}'`);
+        return 'conflict';
+      }
+      const restoredValue = invertScopeDelta(snapshot);
+      if (restoredValue === null) return 'conflict';
+      const restored = configsRepo.compareAndSetScopeField(
+        snapshot.target.id,
+        snapshot.field,
+        snapshot.expectedAppliedValue,
+        restoredValue,
+      );
+      if (!restored) {
+        logger.warn(`[org-proposal-apply] scope CAS conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+      writeAgentProfileFile(restored);
+    } else if (proposal.kind === 'external-adoption' && isExternalAdoptionRevertSnapshot(snapshot)) {
       // Undo the adopt: remove the skill we wrote (only if WE created it —
       // never delete a pre-existing engine-owned library skill), and restore
       // the agent's prior allowlist + resync its file. The capability-gap is
@@ -673,6 +984,12 @@ export async function revertProposal(
         const restored = configsRepo.getById(snapshot.agentConfigId);
         if (restored) writeAgentProfileFile(restored);
       }
+    } else if (
+      isConfigFieldSnapshot(snapshot) &&
+      (snapshot.field === 'allowedMcpsJson' || snapshot.field === 'allowedSkillsJson')
+    ) {
+      logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
+      return 'unsafe-legacy-scope';
     } else if (isConfigFieldSnapshot(snapshot)) {
       // #971 — refine-config (scalar swap) AND refine-scope (add/remove) both
       // snapshot {agentConfigId, field, priorValue}; restore the field to its
@@ -690,11 +1007,11 @@ export async function revertProposal(
         scheduledTaskFieldPatch(snapshot.field, snapshot.priorValue),
       );
     } else if (isAgentConfigScopeChange(change)) {
-      // tighten-scope / prune-scope (auto lane) — snapshot is {[field]: priorValue}.
-      const priorValue = snapshot[change.field];
-      configsRepo.update(change.agentConfigId, {
-        [change.field]: typeof priorValue === 'string' ? priorValue : null,
-      });
+      // Legacy auto-scope snapshots replayed a whole field. Without an exact
+      // post-apply value they cannot distinguish safe rollback from clobbering
+      // a later operator edit, so they fail closed.
+      logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
+      return 'unsafe-legacy-scope';
     } else if (proposal.kind === 'consolidate-skill' && isConsolidateSkillRevertSnapshot(snapshot)) {
       // #852 — restore BOTH skills to their exact pre-merge state: the
       // survivor's original body/status, and the retired skill's original

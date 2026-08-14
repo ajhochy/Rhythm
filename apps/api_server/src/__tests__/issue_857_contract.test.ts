@@ -37,6 +37,7 @@ import { setDb, getDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { createScopeDeltaV2Snapshot } from '../services/org_proposal_apply';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -221,26 +222,33 @@ describe('issue-857-c5: revertProposal succeeds on an active proposal', () => {
     // measuring -> reverted, so calling revert on an already-active proposal
     // threw "Illegal status transition 'active' -> 'reverted'" — the exact
     // failure the maintainer hit hand-reverting the 16 live proposals.
+    //
+    // W1 (self-improvement-engine-foundation review) replaced the legacy
+    // whole-field snapshot ({allowedMcpsJson: prior}) with a versioned,
+    // entry-level scope-delta-v2 snapshot — replaying the OLD legacy shape is
+    // now refused (unsafe-legacy-scope) because it cannot distinguish a safe
+    // rollback from clobbering a later operator edit. This test now drives
+    // the same active-proposal-revert scenario through the V2 snapshot the
+    // real apply step actually writes.
     const { revertProposal } = await import('../services/org_proposal_apply');
 
     const configsRepo = new AgentConfigsRepository();
+    const priorMcps = JSON.stringify(['rhythm', 'nfl-mcp']);
     const config = configsRepo.insert({
       label: 'Secretary',
       icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['rhythm']),
+      allowedMcpsJson: priorMcps,
     });
+
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', priorMcps, ['nfl-mcp']);
 
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'tighten-scope',
-      risk: 'low',
+      risk: 'high',
       title: 'Tighten unused mcp scope nfl-mcp from secretary',
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['nfl-mcp'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']) }),
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl-mcp'] }),
+      beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'issue-857-c5:active-revert',
     });
 
@@ -252,9 +260,9 @@ describe('issue-857-c5: revertProposal succeeds on an active proposal', () => {
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     expect(active?.status).toBe('active');
 
-    // Mutate the live config to the "applied" (pruned) state, as the real
+    // Mutate the live config to the exact post-apply value, as the real
     // apply step would have already done before this row reached 'active'.
-    configsRepo.update(config.id, { allowedMcpsJson: JSON.stringify(['rhythm']) });
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
 
     const outcome = await revertProposal(active!);
     expect(outcome).toBe('reverted');

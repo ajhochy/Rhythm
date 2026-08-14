@@ -56,10 +56,12 @@ import {
 } from '../services/org_proposal_apply';
 import { measureProposal } from '../services/org_proposal_measure';
 import {
+  applyProposal as applyApprovedProposal,
   hasSecurityNote,
   requiresSecurityNote,
   resetProposalPluginsForTests,
 } from '../services/org_proposal_apply_service';
+import { registerAllProposalAppliers } from '../services/org_proposal_appliers_wiring';
 import {
   registerNewAgentApplier,
   validateCreateAgentChange,
@@ -82,12 +84,19 @@ afterEach(() => {
   resetProposalPluginsForTests();
 });
 
-describe('issue-831-c1: the auto path REVERTS on a forced regression', () => {
+describe('issue-831-c1/W1: the human-approved path REVERTS on a forced regression', () => {
   it('restores before_snapshot_json and sets status=reverted when the functional guard fails after apply', async () => {
     // Bug this catches: a revert path that forgets to replay
     // before_snapshot_json (or that deletes/loses the row) would leave a
     // pruned-but-still-in-use scope permanently broken, or would let the same
     // bad change get re-proposed and re-applied every optimizer run.
+    //
+    // W1 (self-improvement-engine-foundation review) reclassified
+    // tighten-scope/prune-scope HIGH-risk, so this scenario now drives the
+    // change through the human-approved apply lane (org_proposal_apply_service
+    // .applyProposal + the org_proposal_appliers_wiring registration), the
+    // same path OrgProposalsController.approve() uses — not the unattended
+    // auto-apply lane, which refuses these kinds outright.
     const configsRepo = new AgentConfigsRepository();
     const config = configsRepo.insert({
       label: 'Secretary',
@@ -98,7 +107,7 @@ describe('issue-831-c1: the auto path REVERTS on a forced regression', () => {
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'prune-scope',
-      risk: 'low',
+      risk: 'high',
       title: 'Prune nfl_mcp (forced regression scenario)',
       targetRef: `agent_config:${config.id}`,
       changeJson: JSON.stringify({
@@ -109,10 +118,20 @@ describe('issue-831-c1: the auto path REVERTS on a forced regression', () => {
       dedupKey: 'issue-831-c1:prune-scope:forced-regression',
     });
 
-    // 1. Apply (low-risk auto path).
-    const applied = await applyLowRiskProposal(proposal);
-    expect(applied.status).toBe('applied-ok');
-    const beforeMeasure = await proposalsRepo.findByIdAsync(proposal.id);
+    // 1. Apply via the human-approved lane (mirrors OrgProposalsController
+    //    .approve(): apply -> stamp 'applied' with the snapshot -> 'measuring').
+    registerAllProposalAppliers();
+    const applyResult = await applyApprovedProposal(proposal);
+    expect(applyResult.measurable).toBe(true);
+    const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
+      proposal.id,
+      null,
+      applyResult.beforeSnapshotJson ?? null,
+      applyResult.changeJson,
+    );
+    expect(applied?.status).toBe('applied');
+    await applyResult.applyAfterClaim?.();
+    const beforeMeasure = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     expect(beforeMeasure?.status).toBe('measuring');
     const originalSnapshot = beforeMeasure!.beforeSnapshotJson;
     expect(originalSnapshot).toBeTruthy();
@@ -154,7 +173,7 @@ describe('issue-831-c1: the auto path REVERTS on a forced regression', () => {
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'tighten-scope',
-      risk: 'low',
+      risk: 'high',
       title: 'Tighten scope (direct revert path)',
       targetRef: `agent_config:${config.id}`,
       changeJson: JSON.stringify({
@@ -164,8 +183,17 @@ describe('issue-831-c1: the auto path REVERTS on a forced regression', () => {
       }),
       dedupKey: 'issue-831-c1:tighten-scope:direct-revert',
     });
-    await applyLowRiskProposal(proposal);
-    const measuring = await proposalsRepo.findByIdAsync(proposal.id);
+    registerAllProposalAppliers();
+    const applyResult = await applyApprovedProposal(proposal);
+    const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
+      proposal.id,
+      null,
+      applyResult.beforeSnapshotJson ?? null,
+      applyResult.changeJson,
+    );
+    expect(applied?.status).toBe('applied');
+    await applyResult.applyAfterClaim?.();
+    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
 
     const revertOutcome = await revertProposal(measuring!);
     expect(revertOutcome).toBe('reverted');

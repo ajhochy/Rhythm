@@ -14,14 +14,17 @@
  * This module is the ONE place that imports all six generators and calls
  * their registration functions, wiring REAL dependencies (not test fakes):
  *
- *   - scope_hygiene_generator (#822): registers NOTHING here. Per the
- *     2026-07-02 project-state.md run notes, its three kinds
- *     (tighten-scope / prune-scope / consolidate-skill) are `risk='low'`
- *     and flow through the direct `proposed -> applied` auto-apply lane
- *     (`org_proposal_apply.ts`'s `applyAgentConfigScopeChange`, already
- *     wired), NOT the human-gate queue's registered-applier path this
- *     module wires. Listed here only so this file is the single documented
- *     place confirming all six generators were considered.
+ *   - scope_hygiene_generator (#822): its `consolidate-skill` kind is
+ *     `risk='low'` and still flows through the direct `proposed -> applied`
+ *     auto-apply lane (`org_proposal_apply.ts`). Its `tighten-scope` /
+ *     `prune-scope` kinds are `risk='high'` as of the W1 self-improvement-
+ *     engine-foundation review (2026-08-14): scope REMOVAL is reversible
+ *     only while no later config edit has occurred, so it is human-gated
+ *     like every other HIGH-risk kind and refused outright by
+ *     `org_proposal_apply.applyProposal`. This module registers their ONLY
+ *     apply path — `registerProposalValidator`/`registerProposalApplier` for
+ *     `tighten-scope`/`prune-scope` below — reachable exclusively through
+ *     `OrgProposalsController.approve()`'s explicit human-consent gate.
  *   - recipe_generator (#823, applier added by #851): `generateRecipeProposals`
  *     produces proposal INPUTS for both `create-recipe` and `refine-recipe`.
  *     `refine-recipe` (LOW risk) is handled by `org_proposal_measure.ts`'s
@@ -97,6 +100,7 @@ import {
   readAgentConfigField,
   agentConfigFieldPatch,
   computeScopeList,
+  createScopeDeltaV2Snapshot,
   readScheduledTaskField,
   scheduledTaskFieldPatch,
 } from './org_proposal_apply';
@@ -1002,23 +1006,175 @@ const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   return { measurable: false, beforeSnapshotJson };
 };
 
-async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
-  const change = parseChange(proposal.changeJson);
+/**
+ * The scope-removal shape `tighten-scope`/`prune-scope` proposals carry:
+ * {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', remove: [<name>, ...]}.
+ * Deliberately narrower than {@link extractScopePatch}'s ScopePatch — a scope
+ * REMOVAL proposal must never smuggle an `add` (broadening content has no
+ * business on a human-gated removal kind; see W1 review), so its presence at
+ * all (even `add: []`) is refused rather than silently ignored. Duplicate
+ * `remove` entries are refused too — a legitimate audit gap never names the
+ * same entry twice.
+ */
+function extractScopeRemovalChange(
+  change: Record<string, unknown> | null,
+): { agentConfigId: string; field: (typeof SCOPE_ALLOWLIST_FIELDS)[number]; remove: string[] } | null {
+  if (!change) return null;
+  if (typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) return null;
+  if (typeof change.field !== 'string' || !(SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(change.field)) {
+    return null;
+  }
+  if (change.add !== undefined) return null;
   if (
-    !change ||
-    typeof change.agentConfigId !== 'string' ||
-    change.field !== 'allowedMcpsJson' ||
     !Array.isArray(change.remove) ||
     change.remove.length === 0 ||
-    !change.remove.every((name) => typeof name === 'string' && name.trim())
+    !change.remove.every((name) => typeof name === 'string' && name.trim().length > 0)
   ) {
-    return { valid: false, reason: `${proposal.kind} requires {agentConfigId, field: 'allowedMcpsJson', remove: [<server>, ...]}` };
+    return null;
   }
-  if (!new AgentConfigsRepository().getById(change.agentConfigId)) {
-    return { valid: false, reason: `${proposal.kind} target agent_config '${change.agentConfigId}' no longer exists` };
-  }
-  return validateMcpScopeNames(change.remove as string[]);
+  const remove = change.remove as string[];
+  if (new Set(remove).size !== remove.length) return null;
+  return { agentConfigId: change.agentConfigId, field: change.field as (typeof SCOPE_ALLOWLIST_FIELDS)[number], remove };
 }
+
+interface CurrentScopeInspection {
+  names: Set<string>;
+  invalidReason?: string;
+  duplicateRequested: string[];
+}
+
+/** Validate the live array/map shape and retain duplicate occurrence evidence. */
+function inspectCurrentScope(
+  value: string | null | undefined,
+  requestedRemove: readonly string[],
+): CurrentScopeInspection {
+  if (!value) return { names: new Set(), duplicateRequested: [] };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      if (!parsed.every((entry) => typeof entry === 'string' && entry.length > 0)) {
+        return {
+          names: new Set(),
+          duplicateRequested: [],
+          invalidReason: 'current scope array must contain only non-empty string names',
+        };
+      }
+      const counts = new Map<string, number>();
+      for (const name of parsed as string[]) counts.set(name, (counts.get(name) ?? 0) + 1);
+      return {
+        names: new Set(parsed as string[]),
+        duplicateRequested: requestedRemove.filter((name) => (counts.get(name) ?? 0) > 1),
+      };
+    }
+    if (parsed && typeof parsed === 'object') {
+      return { names: new Set(Object.keys(parsed as Record<string, unknown>)), duplicateRequested: [] };
+    }
+  } catch {
+    return { names: new Set(), duplicateRequested: [], invalidReason: 'current scope JSON is malformed' };
+  }
+  return { names: new Set(), duplicateRequested: [], invalidReason: 'current scope must be an array or object map' };
+}
+
+async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
+  const patch = extractScopeRemovalChange(parseChange(proposal.changeJson));
+  if (!patch) {
+    return {
+      valid: false,
+      reason:
+        `${proposal.kind} requires {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', ` +
+        `remove: [<name>, ...]} with no add/broadening content and no duplicate remove entries`,
+    };
+  }
+  const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+  if (!config) {
+    return { valid: false, reason: `${proposal.kind} target agent_config '${patch.agentConfigId}' no longer exists` };
+  }
+  // A name the current allowlist no longer carries is a stale signal (already
+  // removed, or never present) — approving it now would be a no-op replay of
+  // a gap that no longer reflects live state; refuse rather than silently applying nothing.
+  const current = inspectCurrentScope(readAgentConfigField(config, patch.field), patch.remove);
+  if (current.invalidReason) {
+    return { valid: false, reason: `${proposal.kind} cannot safely inspect ${patch.field}: ${current.invalidReason}` };
+  }
+  if (current.duplicateRequested.length > 0) {
+    return {
+      valid: false,
+      reason:
+        `${proposal.kind} cannot remove duplicate current scope name(s): ` +
+        `${current.duplicateRequested.join(', ')}; deduplicate the allowlist before approval`,
+    };
+  }
+  const stale = patch.remove.filter((name) => !current.names.has(name));
+  if (stale.length > 0) {
+    return {
+      valid: false,
+      reason: `${proposal.kind} remove list is stale — not present in the current ${patch.field} allowlist: ${stale.join(', ')}`,
+    };
+  }
+  if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.remove);
+  return { valid: true };
+}
+
+/**
+ * Human-approved apply for `tighten-scope`/`prune-scope` (W1 review finding
+ * #2 — these two kinds are HIGH-risk and refused by the unattended
+ * `org_proposal_apply.applyProposal` entry point; this is their ONLY
+ * apply path, reachable solely through `OrgProposalsController.approve`'s
+ * explicit human-consent gate). Prepares a V2 scope delta without mutating
+ * (reused verbatim from org_proposal_apply.ts so this and any future
+ * auto-lane snapshot can never drift), removes exactly the validated names,
+ * re-projects the opencode agent file, and advances to `measuring` so the
+ * same functional-guard measure step scope proposals have always used still
+ * governs keep/revert.
+ */
+const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const patch = extractScopeRemovalChange(parseChange(proposal.changeJson));
+  if (!patch) {
+    throw AppError.badRequest(`${proposal.kind} change_json is missing its {agentConfigId, field, remove} at apply time`);
+  }
+  const configsRepo = new AgentConfigsRepository();
+  const config = configsRepo.getById(patch.agentConfigId);
+  if (!config) throw AppError.badRequest(`${proposal.kind} target '${patch.agentConfigId}' no longer exists`);
+
+  const priorValue = readAgentConfigField(config, patch.field);
+  const current = inspectCurrentScope(priorValue, patch.remove);
+  if (current.invalidReason) {
+    throw AppError.badRequest(`${proposal.kind} cannot safely inspect ${patch.field}: ${current.invalidReason}`);
+  }
+  if (current.duplicateRequested.length > 0) {
+    throw AppError.badRequest(
+      `${proposal.kind} cannot remove duplicate current scope name(s): ` +
+      `${current.duplicateRequested.join(', ')}; deduplicate the allowlist before approval`,
+    );
+  }
+  const stale = patch.remove.filter((name) => !current.names.has(name));
+  if (stale.length > 0) {
+    throw AppError.badRequest(
+      `${proposal.kind} remove list is stale at apply preparation: ${stale.join(', ')}`,
+    );
+  }
+  const scopeDelta = createScopeDeltaV2Snapshot(patch.agentConfigId, patch.field, priorValue, patch.remove);
+  const beforeSnapshotJson = JSON.stringify(scopeDelta);
+
+  return {
+    measurable: true,
+    beforeSnapshotJson,
+    applyAfterClaim: () => {
+      const updated = configsRepo.compareAndSetScopeField(
+        patch.agentConfigId,
+        patch.field,
+        priorValue,
+        scopeDelta.expectedAppliedValue,
+      );
+      if (!updated) {
+        throw AppError.conflict(
+          `${proposal.kind} target ${patch.agentConfigId}.${patch.field} changed after approval preparation`,
+        );
+      }
+      writeAgentProfileFile(updated);
+    },
+  };
+};
 
 // ── workflow-prompt-fix: skill-create branch (#1152) ──
 //
@@ -1456,8 +1612,15 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     // shape, so revert/measure are already covered.
     registry.registerProposalValidator('broaden-scope', validateBroadenScope);
     registry.registerProposalApplier('broaden-scope', broadenScopeApplier);
+    // W1 (self-improvement-engine-foundation review) — tighten-scope/prune-scope
+    // are now HIGH-risk (org_risk_classifier.ts) and refused outright by the
+    // unattended org_proposal_apply.applyProposal entry point. This is their
+    // ONLY apply path: reachable exclusively through OrgProposalsController
+    // .approve()'s explicit human-consent gate, never the auto lane.
     registry.registerProposalValidator('tighten-scope', validateScopeRemoval);
+    registry.registerProposalApplier('tighten-scope', scopeRemovalApplier);
     registry.registerProposalValidator('prune-scope', validateScopeRemoval);
+    registry.registerProposalApplier('prune-scope', scopeRemovalApplier);
     registry.registerProposalValidator('workflow-prompt-fix', validateWorkflowPromptFix);
     registry.registerProposalApplier('workflow-prompt-fix', workflowPromptFixApplier);
     registry.registerProposalValidator('refine-skill', validateRefineSkill);
@@ -1480,6 +1643,6 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
   }
 
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, broaden-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, broaden-scope, tighten-scope, prune-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
   );
 }

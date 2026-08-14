@@ -20,15 +20,13 @@
 import { describe, expect, it } from 'vitest';
 
 describe('issue-820-c1: LOW (auto) kinds classify to low', () => {
-  it('classifies refine-skill, consolidate-skill, tighten-scope, prune-scope, refine-recipe as low', async () => {
+  it('preserves the low classification for safe text-only kinds', async () => {
     // Bug this catches: a reversible/narrowing kind is miscategorized as
     // high, needlessly routing safe hygiene changes into the human queue.
     const { classifyProposalRisk } = await import('../services/org_risk_classifier');
     const lowKinds = [
       'refine-skill',
       'consolidate-skill',
-      'tighten-scope',
-      'prune-scope',
       'refine-recipe',
     ];
     for (const kind of lowKinds) {
@@ -56,6 +54,14 @@ describe('issue-820-c2: HIGH (gate) kinds classify to high', () => {
       expect(classifyProposalRisk({ kind })).toBe('high');
     }
   });
+
+  it.each(['tighten-scope', 'prune-scope'])(
+    'classifies scope-removal kind %s as high',
+    async (kind) => {
+      const { classifyProposalRisk } = await import('../services/org_risk_classifier');
+      expect(classifyProposalRisk({ kind })).toBe('high');
+    },
+  );
 });
 
 describe('issue-820-c3: unknown/unlisted kind defaults to high (fail-closed)', () => {
@@ -103,9 +109,9 @@ describe('issue-820-c5: pure function — no DB, no IO, deterministic', () => {
     // (e.g. to look up a live agent_configs row) making it impure and
     // untestable without a DB fixture, contrary to the acceptance criterion.
     const mod = await import('../services/org_risk_classifier');
-    const first = mod.classifyProposalRisk({ kind: 'tighten-scope' });
-    const second = mod.classifyProposalRisk({ kind: 'tighten-scope' });
-    const third = mod.classifyProposalRisk({ kind: 'tighten-scope' });
+    const first = mod.classifyProposalRisk({ kind: 'refine-skill' });
+    const second = mod.classifyProposalRisk({ kind: 'refine-skill' });
+    const third = mod.classifyProposalRisk({ kind: 'refine-skill' });
     expect(first).toBe('low');
     expect(first).toBe(second);
     expect(second).toBe(third);
@@ -157,14 +163,77 @@ describe('issue-820-c6: documented hard rules enforced via change-shape predicat
     ).toBe('high');
   });
 
-  it('classifies an allowlist removal as low under tighten-scope/prune-scope', async () => {
+  it('classifies an allowlist removal as high under tighten-scope/prune-scope', async () => {
     const { classifyProposalRisk } = await import('../services/org_risk_classifier');
     expect(
       classifyProposalRisk({
         kind: 'tighten-scope',
         changeJson: JSON.stringify({ remove: ['dead_mcp_server'] }),
       }),
-    ).toBe('low');
+    ).toBe('high');
+  });
+
+  it('classifies a scope-removal payload as high even under a text-only kind label', async () => {
+    const { classifyProposalRisk } = await import('../services/org_risk_classifier');
+    expect(
+      classifyProposalRisk({
+        kind: 'refine-recipe',
+        changeJson: JSON.stringify({
+          agentConfigId: 'config-1',
+          field: 'allowedMcpsJson',
+          remove: ['dead_mcp_server'],
+        }),
+      }),
+    ).toBe('high');
+  });
+
+  it.each([
+    {
+      scopePatch: {
+        agentConfigId: 'config-1',
+        field: 'allowedMcpsJson',
+        remove: ['dead_mcp_server'],
+      },
+    },
+    {
+      configPatch: {
+        change: {
+          field: 'allowedSkillsJson',
+          remove: ['stale-skill'],
+        },
+      },
+    },
+    {
+      wrapper: [
+        { harmless: true },
+        {
+          nested: {
+            scopePatch: {
+              field: 'allowedMcpsJson',
+              remove: ['dead_mcp_server'],
+            },
+          },
+        },
+      ],
+    },
+  ])('recursively classifies nested or array-contained scope removal as high', async (change) => {
+    // Bug this catches: the classifier only checks top-level aliases, so a
+    // nominally text-only proposal can hide a scope removal under scopePatch,
+    // configPatch/change, another object, or an array and reach auto-apply.
+    const { classifyProposalRisk } = await import('../services/org_risk_classifier');
+    expect(
+      classifyProposalRisk({ kind: 'refine-recipe', changeJson: JSON.stringify(change) }),
+    ).toBe('high');
+  });
+
+  it('fails high when a deeply nested payload exceeds the inspection bound', async () => {
+    const { classifyProposalRisk } = await import('../services/org_risk_classifier');
+    let change: Record<string, unknown> = { text: 'safe-looking leaf' };
+    for (let i = 0; i < 40; i += 1) change = { nested: change };
+
+    expect(
+      classifyProposalRisk({ kind: 'refine-recipe', changeJson: JSON.stringify(change) }),
+    ).toBe('high');
   });
 
   it('classifies a webhook-endpoint create as high regardless of stated kind', async () => {

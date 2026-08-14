@@ -350,6 +350,33 @@ export class AgentConfigsRepository {
     return row ? rowToModel(row) : null;
   }
 
+  /**
+   * Compare-and-set one scope column using a fixed field-to-column map. The
+   * caller-provided field is never interpolated into SQL.
+   */
+  compareAndSetScopeField(
+    id: string,
+    field: 'allowedMcpsJson' | 'allowedSkillsJson',
+    expectedPriorValue: string | null,
+    nextValue: string | null,
+  ): AgentConfig | null {
+    const columnByField = {
+      allowedMcpsJson: 'allowed_mcps_json',
+      allowedSkillsJson: 'allowed_skills_json',
+    } as const;
+    const column = columnByField[field];
+    if (!column) throw new Error(`Unsupported agent config scope field: ${String(field)}`);
+    const row = getDb()
+      .prepare(
+        `UPDATE agent_configs
+            SET ${column} = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND ${column} IS ?
+          RETURNING *`,
+      )
+      .get(nextValue, id, expectedPriorValue) as AgentConfigRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
   insert(config: AgentConfigInput): AgentConfig {
     const id = config.id ?? deriveAgentConfigIdFromLabel(
       config.label,

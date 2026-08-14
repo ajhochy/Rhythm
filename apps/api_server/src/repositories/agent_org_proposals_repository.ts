@@ -476,4 +476,68 @@ export class AgentOrgProposalsRepository {
 
     return this.findByIdAsync(id);
   }
+
+  /**
+   * Atomically wins a human approval and stores its rollback snapshot in the
+   * same conditional UPDATE. There is deliberately no read-before-write:
+   * concurrent approvers race on status and exactly one can move a proposed
+   * or retryable failed row to applied.
+   */
+  async claimAppliedWithSnapshotAsync(
+    id: string,
+    decidedByUserId: number | null,
+    beforeSnapshotJson: string | null,
+    changeJson?: string,
+  ): Promise<AgentOrgProposal | null> {
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const values: unknown[] = [decidedByUserId, beforeSnapshotJson];
+      const changeSet = changeJson === undefined ? '' : ', change_json = $3';
+      if (changeJson !== undefined) values.push(changeJson);
+      values.push(now, id);
+      const updatedAtParam = `$${values.length - 1}`;
+      const idParam = `$${values.length}`;
+      const result = await getPostgresPool().query(
+        `UPDATE agent_org_proposals
+            SET status = 'applied',
+                decided_by_user_id = $1,
+                before_snapshot_json = $2${changeSet},
+                updated_at = ${updatedAtParam}
+          WHERE id = ${idParam}
+            AND status IN ('proposed', 'failed')
+          RETURNING *`,
+        values,
+      );
+      return result.rows.length === 1 ? rowToModel(result.rows[0]) : null;
+    }
+
+    const statement = changeJson === undefined
+      ? this.db!.prepare(
+          `UPDATE agent_org_proposals
+              SET status = 'applied',
+                  decided_by_user_id = ?,
+                  before_snapshot_json = ?,
+                  updated_at = ?
+            WHERE id = ?
+              AND status IN ('proposed', 'failed')
+            RETURNING *`,
+        )
+      : this.db!.prepare(
+          `UPDATE agent_org_proposals
+              SET status = 'applied',
+                  decided_by_user_id = ?,
+                  before_snapshot_json = ?,
+                  change_json = ?,
+                  updated_at = ?
+            WHERE id = ?
+              AND status IN ('proposed', 'failed')
+            RETURNING *`,
+        );
+    const row = (changeJson === undefined
+      ? statement.get(decidedByUserId, beforeSnapshotJson, now, id)
+      : statement.get(decidedByUserId, beforeSnapshotJson, changeJson, now, id)) as
+      | AgentOrgProposalRow
+      | undefined;
+    return row ? rowToModel(row) : null;
+  }
 }

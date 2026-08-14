@@ -212,4 +212,39 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
     await expect(repo.updateStatusAsync('p-1', 'applied')).rejects.toThrow(/Illegal/);
     expect(mockPoolQuery).toHaveBeenCalledTimes(1); // only the findByIdAsync read
   });
+
+  it('claimAppliedWithSnapshotAsync uses one conditional UPDATE RETURNING with no pre-read', async () => {
+    const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [pgRow({ status: 'applied', before_snapshot_json: snapshot, decided_by_user_id: 42 })],
+    });
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+
+    const claimed = await repo.claimAppliedWithSnapshotAsync('p-1', 42, snapshot, '{"normalized":true}');
+
+    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+    expect(mockPoolQuery.mock.calls[0][0]).toMatch(/UPDATE agent_org_proposals[\s\S]*status IN \('proposed', 'failed'\)[\s\S]*RETURNING \*/i);
+    expect(mockPoolQuery.mock.calls[0][1]).toEqual([
+      42,
+      snapshot,
+      '{"normalized":true}',
+      expect.any(String),
+      'p-1',
+    ]);
+    expect(claimed).toMatchObject({ status: 'applied', beforeSnapshotJson: snapshot, decidedByUserId: 42 });
+  });
+
+  it('claimAppliedWithSnapshotAsync returns null when the conditional UPDATE loses', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+
+    expect(await repo.claimAppliedWithSnapshotAsync('p-1', null, '{}')).toBeNull();
+    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+  });
 });

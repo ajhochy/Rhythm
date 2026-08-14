@@ -45,3 +45,14 @@ TestFlight.
 
 Verify Apple finishes processing build 6, resolve the existing export-compliance prompt if Apple
 requires it, then install that exact TestFlight artifact and perform the focused Cloud Gateway smoke.
+
+## Recent coding-agent runs
+
+- 2026-08-14 — W1 scope containment on `agent-stack/si-scope-safety`: preserved the reviewed dirty
+  tree; added durable one-winner proposal claim/snapshot persistence, deferred scope CAS mutation,
+  strict V2 change binding, legacy fail-closed revert, recursive risk inspection, duplicate-array
+  refusal, SQLite/Postgres repository coverage, and deterministic approval-race tests. Node 22
+  verification: 168 non-socket tests passed with 1 existing skip; the real-HTTP route suite passed
+  17/17 when rerun outside the worker sandbox; API build and static scan passed. No live database or
+  production server was started, per W1 constraints. See
+  `docs/ai/runs/2026-08-14-w1-scope-safety.md`.

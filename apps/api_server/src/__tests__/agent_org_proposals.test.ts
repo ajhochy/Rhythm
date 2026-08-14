@@ -259,6 +259,35 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
 
     expect(await repo.existsByDedupKeyAsync('seen-key')).toBe(true);
   });
+
+  it('claimAppliedWithSnapshotAsync is a one-statement, one-winner SQLite claim', async () => {
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'Atomic claim',
+      changeJson: JSON.stringify({ remove: ['x'] }),
+      dedupKey: 'w1:atomic-claim',
+    });
+
+    const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
+    const [first, second] = await Promise.all([
+      repo.claimAppliedWithSnapshotAsync(proposal.id, 7, snapshot),
+      repo.claimAppliedWithSnapshotAsync(proposal.id, 8, snapshot),
+    ]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect([first, second].filter((row) => row === null)).toHaveLength(1);
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored).toMatchObject({
+      status: 'applied',
+      beforeSnapshotJson: snapshot,
+    });
+    expect([7, 8]).toContain(stored?.decidedByUserId);
+  });
 });
 
 describe('issue-817-c6: status transitions are enforced (legal allowed, illegal rejected)', () => {

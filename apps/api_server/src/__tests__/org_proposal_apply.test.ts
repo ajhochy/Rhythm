@@ -20,7 +20,7 @@
  *    the caller — resolves to a skipped/no-op outcome.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
@@ -39,41 +39,28 @@ beforeEach(() => {
   setDb(makeDb());
 });
 
-describe('issue-821-c1: applyProposal snapshots, applies, and sets status=measuring', () => {
-  it('writes before_snapshot_json capturing the prior allowedMcpsJson, then applies the change and transitions to measuring', async () => {
-    // Bug this catches: applyProposal writes the change but skips (or
-    // mis-orders) the before_snapshot_json capture, making revert impossible
-    // — the auto-apply lane would no longer be reversible by construction.
-    const { applyProposal } = await import('../services/org_proposal_apply');
+describe('W1: versioned scope snapshots', () => {
+  it('builds a scope-delta-v2 snapshot before mutation with exact CAS material', async () => {
+    const { createScopeDeltaV2Snapshot } = await import('../services/org_proposal_apply');
+    const priorValue = JSON.stringify(['gitnexus', 'rhythm']);
 
-    const configsRepo = new AgentConfigsRepository();
-    const config = configsRepo.insert({
-      label: 'Secretary',
-      icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['nfl_mcp', 'rhythm']),
+    const snapshot = createScopeDeltaV2Snapshot(
+      'config-1',
+      'allowedMcpsJson',
+      priorValue,
+      ['gitnexus'],
+    );
+
+    expect(snapshot).toMatchObject({
+      version: 'scope-delta-v2',
+      target: { type: 'agent_config', id: 'config-1' },
+      field: 'allowedMcpsJson',
+      requestedRemove: ['gitnexus'],
+      removedEntries: [{ name: 'gitnexus', priorValue: 'gitnexus', priorIndex: 0 }],
+      expectedAppliedValue: JSON.stringify(['rhythm']),
     });
-
-    const proposalsRepo = new AgentOrgProposalsRepository();
-    const proposal = await proposalsRepo.createAsync({
-      kind: 'prune-scope',
-      risk: 'low',
-      title: 'Prune dead nfl_mcp scope from Secretary',
-      targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl_mcp'] }),
-      dedupKey: 'prune-scope:secretary:nfl_mcp',
-    });
-
-    const result = await applyProposal(proposal);
-    expect(result.status).toBe('applied-ok');
-
-    const updated = await proposalsRepo.findByIdAsync(proposal.id);
-    expect(updated?.status).toBe('measuring');
-    expect(updated?.beforeSnapshotJson).toBeTruthy();
-    const snapshot = JSON.parse(updated!.beforeSnapshotJson!);
-    expect(snapshot.allowedMcpsJson).toBe(JSON.stringify(['nfl_mcp', 'rhythm']));
-
-    const afterConfig = configsRepo.getById(config.id);
-    expect(JSON.parse(afterConfig!.allowedMcpsJson!)).toEqual(['rhythm']);
+    expect(snapshot.expectedAppliedHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(priorValue).toBe(JSON.stringify(['gitnexus', 'rhythm']));
   });
 });
 
@@ -99,84 +86,367 @@ describe('issue-821-c2: applyProposal refuses any high-risk proposal', () => {
     expect(unchanged?.status).toBe('proposed');
     expect(unchanged?.beforeSnapshotJson).toBeNull();
   });
-});
 
-describe('issue-821-c3a: measureProposal (prune-scope) keeps on hygiene improvement + functional guard pass', () => {
-  it('transitions measuring -> active when the pruned scope was never exercised', async () => {
-    // Bug this catches: the keep/revert decision ignores the functional
-    // guard and keeps ANY prune, even one that removed a tool the profile
-    // actually uses — silently breaking that profile's capability.
+  it.each(['tighten-scope', 'prune-scope'])(
+    'refuses %s even when the stored risk column says low',
+    async (kind) => {
+      const { applyProposal } = await import('../services/org_proposal_apply');
+      const configsRepo = new AgentConfigsRepository();
+      const config = configsRepo.insert({
+        label: `Stored-low ${kind}`,
+        icon: 'shield',
+        allowedMcpsJson: JSON.stringify(['gitnexus', 'rhythm']),
+      });
+      const proposalsRepo = new AgentOrgProposalsRepository();
+      const proposal = await proposalsRepo.createAsync({
+        kind,
+        risk: 'low',
+        title: `Refuse stored-low ${kind}`,
+        targetRef: `agent_config:${config.id}`,
+        changeJson: JSON.stringify({
+          agentConfigId: config.id,
+          field: 'allowedMcpsJson',
+          remove: ['gitnexus'],
+        }),
+        dedupKey: `w1:stored-low:${kind}`,
+      });
+
+      const before = configsRepo.getById(config.id)?.allowedMcpsJson;
+      const result = await applyProposal(proposal);
+
+      expect(result.status).toBe('refused-high-risk');
+      expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
+      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('proposed');
+    },
+  );
+
+  it('refuses a scope-removal payload mislabeled as a low-risk text kind', async () => {
     const { applyProposal } = await import('../services/org_proposal_apply');
-    const { measureProposal } = await import('../services/org_proposal_measure');
-
     const configsRepo = new AgentConfigsRepository();
     const config = configsRepo.insert({
-      label: 'Secretary',
-      icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['nfl_mcp', 'rhythm']),
+      label: 'Mislabeled scope',
+      icon: 'shield',
+      allowedMcpsJson: JSON.stringify(['gitnexus', 'rhythm']),
     });
-
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
-      kind: 'prune-scope',
+      kind: 'refine-recipe',
       risk: 'low',
-      title: 'Prune dead nfl_mcp scope',
-      targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl_mcp'] }),
-      dedupKey: 'prune-scope:secretary:nfl_mcp:keep',
-    });
-    await applyProposal(proposal);
-    const measuring = await proposalsRepo.findByIdAsync(proposal.id);
-
-    // never-invoked: exercisedTools returns an empty set for this profile.
-    const outcome = await measureProposal(measuring!, {
-      exercisedTools: async () => new Set<string>(),
+      title: 'Mislabeled removal',
+      changeJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['gitnexus'],
+      }),
+      dedupKey: 'w1:mislabeled-scope-removal',
     });
 
-    expect(outcome).toBe('kept');
-    const finalRow = await proposalsRepo.findByIdAsync(proposal.id);
-    expect(finalRow?.status).toBe('active');
+    const before = configsRepo.getById(config.id)?.allowedMcpsJson;
+    expect((await applyProposal(proposal)).status).toBe('refused-high-risk');
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('proposed');
+  });
+
+  it('refuses the auto path when a low-risk kind hides removal under nested scopePatch', async () => {
+    const { applyProposal } = await import('../services/org_proposal_apply');
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'refine-recipe',
+      risk: 'low',
+      title: 'Nested scope removal',
+      changeJson: JSON.stringify({
+        change: {
+          scopePatch: {
+            agentConfigId: 'config-1',
+            field: 'allowedMcpsJson',
+            remove: ['gitnexus'],
+          },
+        },
+      }),
+      dedupKey: 'w1:nested-auto-refusal',
+    });
+
+    expect(await applyProposal(proposal)).toMatchObject({ status: 'refused-high-risk' });
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('proposed');
   });
 });
 
-describe('issue-821-c3b: measureProposal (prune-scope) reverts when the functional guard fails', () => {
-  it('transitions measuring -> reverted and restores allowedMcpsJson when the pruned scope was recently exercised', async () => {
-    // Bug this catches: without the functional guard, a scope that IS in
-    // active use gets permanently pruned because the mechanical hygiene
-    // metric alone looks like an improvement (fewer allowlist entries).
-    const { applyProposal } = await import('../services/org_proposal_apply');
-    const { measureProposal } = await import('../services/org_proposal_measure');
-
+describe('W1: conflict-safe scope revert', () => {
+  it('refuses a legacy whole-field scope snapshot without changing config or status', async () => {
+    const { revertProposal } = await import('../services/org_proposal_apply');
     const configsRepo = new AgentConfigsRepository();
     const config = configsRepo.insert({
-      label: 'Secretary',
-      icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['nfl_mcp', 'rhythm']),
+      label: 'Legacy scope',
+      icon: 'shield',
+      allowedMcpsJson: JSON.stringify(['rhythm']),
     });
-
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'prune-scope',
-      risk: 'low',
-      title: 'Prune nfl_mcp scope (actually in use)',
-      targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl_mcp'] }),
-      dedupKey: 'prune-scope:secretary:nfl_mcp:revert',
+      risk: 'high',
+      title: 'Legacy scope snapshot',
+      changeJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['gitnexus'],
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        allowedMcpsJson: JSON.stringify(['gitnexus', 'rhythm']),
+      }),
+      dedupKey: 'w1:legacy-service-revert',
     });
-    await applyProposal(proposal);
-    const measuring = await proposalsRepo.findByIdAsync(proposal.id);
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+    const before = configsRepo.getById(config.id)?.allowedMcpsJson;
 
-    // The pruned tool WAS exercised in the trailing window -> functional guard fails.
-    const outcome = await measureProposal(measuring!, {
-      exercisedTools: async () => new Set(['nfl_mcp']),
+    expect(await revertProposal(active!)).toBe('unsafe-legacy-scope');
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+  });
+
+  it.each([null, 'not-json'])('fails closed for legacy scope kind with missing/malformed change_json: %s', async (changeJson) => {
+    const { revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Legacy malformed scope',
+      icon: 'shield',
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+    });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'tighten-scope',
+      risk: 'high',
+      title: 'Legacy malformed scope snapshot',
+      changeJson,
+      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['x', 'rhythm']) }),
+      dedupKey: `w1:legacy-malformed:${String(changeJson)}`,
+    });
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+    const before = configsRepo.getById(config.id)?.allowedMcpsJson;
+
+    expect(await revertProposal(active!)).toBe('unsafe-legacy-scope');
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+  });
+
+  it('restores removed array entries only when the current value exactly matches apply', async () => {
+    const { createScopeDeltaV2Snapshot, revertProposal } = await import(
+      '../services/org_proposal_apply'
+    );
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify(['gitnexus', 'rhythm', 'pco-services']);
+    const config = configsRepo.insert({
+      label: 'Array scope',
+      icon: 'shield',
+      allowedMcpsJson: prior,
+    });
+    const snapshot = createScopeDeltaV2Snapshot(
+      config.id,
+      'allowedMcpsJson',
+      prior,
+      ['gitnexus', 'pco-services'],
+    );
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'V2 array revert',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus', 'pco-services'] }),
+      beforeSnapshotJson: JSON.stringify(snapshot),
+      dedupKey: 'w1:v2-array-revert',
+    });
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+
+    expect(await revertProposal(active!)).toBe('reverted');
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+  });
+
+  it('returns conflict without writes when any intervening scope edit changed the field', async () => {
+    const { createScopeDeltaV2Snapshot, revertProposal } = await import(
+      '../services/org_proposal_apply'
+    );
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify(['gitnexus', 'rhythm']);
+    const config = configsRepo.insert({
+      label: 'Concurrent scope',
+      icon: 'shield',
+      allowedMcpsJson: prior,
+    });
+    const snapshot = createScopeDeltaV2Snapshot(
+      config.id,
+      'allowedMcpsJson',
+      prior,
+      ['gitnexus'],
+    );
+    const intervening = JSON.stringify(['rhythm', 'pco-services']);
+    configsRepo.update(config.id, { allowedMcpsJson: intervening });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'V2 conflict',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      beforeSnapshotJson: JSON.stringify(snapshot),
+      dedupKey: 'w1:v2-conflict',
+    });
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+
+    expect(await revertProposal(active!)).toBe('conflict');
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(intervening);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+  });
+
+  it('restores only removed tools-map entries and preserves narrowed sibling values', async () => {
+    const { createScopeDeltaV2Snapshot, revertProposal } = await import(
+      '../services/org_proposal_apply'
+    );
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify({
+      gitnexus: ['query', 'impact'],
+      rhythm: ['rhythm_ping'],
+      'pco-services': null,
+    });
+    const config = configsRepo.insert({
+      label: 'Tools map scope',
+      icon: 'shield',
+      allowedMcpsJson: prior,
+    });
+    const snapshot = createScopeDeltaV2Snapshot(
+      config.id,
+      'allowedMcpsJson',
+      prior,
+      ['gitnexus'],
+    );
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'tighten-scope',
+      risk: 'high',
+      title: 'V2 tools-map revert',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      beforeSnapshotJson: JSON.stringify(snapshot),
+      dedupKey: 'w1:v2-map-revert',
+    });
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+
+    expect(await revertProposal(active!)).toBe('reverted');
+    expect(JSON.parse(configsRepo.getById(config.id)?.allowedMcpsJson ?? '{}')).toEqual({
+      gitnexus: ['query', 'impact'],
+      rhythm: ['rhythm_ping'],
+      'pco-services': null,
+    });
+  });
+
+  it.each([
+    { label: 'missing', changeJson: null },
+    { label: 'malformed', changeJson: 'not-json' },
+    {
+      label: 'wrong target',
+      changeJson: JSON.stringify({ agentConfigId: 'other', field: 'allowedMcpsJson', remove: ['x'] }),
+    },
+    {
+      label: 'wrong field',
+      changeJson: JSON.stringify({ agentConfigId: 'TARGET', field: 'allowedSkillsJson', remove: ['x'] }),
+    },
+    {
+      label: 'wrong removal',
+      changeJson: JSON.stringify({ agentConfigId: 'TARGET', field: 'allowedMcpsJson', remove: ['z'] }),
+    },
+    {
+      label: 'extra add',
+      changeJson: JSON.stringify({ agentConfigId: 'TARGET', field: 'allowedMcpsJson', remove: ['x'], add: ['z'] }),
+    },
+  ])('requires exact V2 snapshot/change binding: $label', async ({ changeJson }) => {
+    const { createScopeDeltaV2Snapshot, revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify(['x', 'y']);
+    const config = configsRepo.insert({ label: 'Binding target', icon: 'shield', allowedMcpsJson: prior });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['x']);
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const boundChange = changeJson?.replace('TARGET', config.id) ?? null;
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'Exact binding',
+      changeJson: boundChange,
+      beforeSnapshotJson: JSON.stringify(snapshot),
+      dedupKey: `w1:binding:${String(boundChange)}`,
+    });
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+
+    expect(await revertProposal(active!)).toBe('conflict');
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(snapshot.expectedAppliedValue);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+  });
+
+  it('restores a __proto__-like map key without prototype pollution or sibling loss', async () => {
+    const { createScopeDeltaV2Snapshot, revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const prior = '{"__proto__":{"polluted":true},"safe":["read"]}';
+    const config = configsRepo.insert({ label: 'Hostile map key', icon: 'shield', allowedMcpsJson: prior });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['__proto__']);
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Hostile map key',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['__proto__'] }),
+      beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1:proto-map',
+    });
+    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
+
+    expect(await revertProposal(active!)).toBe('reverted');
+    const restored = JSON.parse(configsRepo.getById(config.id)?.allowedMcpsJson ?? '{}');
+    expect(Object.prototype.hasOwnProperty.call(restored, '__proto__')).toBe(true);
+    expect(restored.safe).toEqual(['read']);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe('W1: deferred human scope apply CAS', () => {
+  it('prepares without mutation and a CAS miss conflicts without projection or overwrite', async () => {
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    const { applyProposal: applyHumanProposal } = await import('../services/org_proposal_apply_service');
+    const writer = await import('../services/opencode_agent_writer');
+    registerAllProposalAppliers();
+    const profileSpy = vi.spyOn(writer, 'writeAgentProfileFile');
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify(['gitnexus', 'rhythm']);
+    const config = configsRepo.insert({ label: 'Deferred CAS', icon: 'shield', allowedMcpsJson: prior });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Deferred CAS',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      dedupKey: 'w1:deferred-cas-miss',
     });
 
-    expect(outcome).toBe('reverted');
-    const finalRow = await proposalsRepo.findByIdAsync(proposal.id);
-    expect(finalRow?.status).toBe('reverted');
+    const prepared = await applyHumanProposal(proposal);
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
+    expect(prepared.beforeSnapshotJson).toBeTruthy();
 
-    const restoredConfig = configsRepo.getById(config.id);
-    expect(JSON.parse(restoredConfig!.allowedMcpsJson!)).toEqual(['nfl_mcp', 'rhythm']);
+    const intervening = JSON.stringify(['gitnexus', 'rhythm', 'pco-services']);
+    configsRepo.update(config.id, { allowedMcpsJson: intervening });
+    await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CONFLICT',
+    });
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(intervening);
+    expect(profileSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -242,41 +512,6 @@ describe('issue-821-c3c: measureProposal (refine-skill) keeps iff post > baselin
     });
 
     expect(outcome).toBe('reverted');
-    const finalRow = await proposalsRepo.findByIdAsync(proposal.id);
-    expect(finalRow?.status).toBe('reverted');
-  });
-});
-
-describe('issue-821-c4: revert replays before_snapshot_json and the reverted proposal stays in the dedup seen-set', () => {
-  it('after revert, existsByDedupKeyAsync still reports true for the same dedup_key (not re-proposable)', async () => {
-    // Bug this catches: revert deletes or otherwise loses the row, so the
-    // dedup guard no longer sees it and the same change gets re-proposed
-    // and re-applied every optimizer run — an apply/revert flip-flop loop.
-    const { applyProposal } = await import('../services/org_proposal_apply');
-    const { measureProposal } = await import('../services/org_proposal_measure');
-
-    const configsRepo = new AgentConfigsRepository();
-    const config = configsRepo.insert({
-      label: 'Secretary',
-      icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['nfl_mcp', 'rhythm']),
-    });
-
-    const proposalsRepo = new AgentOrgProposalsRepository();
-    const dedupKey = 'prune-scope:secretary:nfl_mcp:dedup-check';
-    const proposal = await proposalsRepo.createAsync({
-      kind: 'prune-scope',
-      risk: 'low',
-      title: 'Prune nfl_mcp',
-      targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl_mcp'] }),
-      dedupKey,
-    });
-    await applyProposal(proposal);
-    const measuring = await proposalsRepo.findByIdAsync(proposal.id);
-    await measureProposal(measuring!, { exercisedTools: async () => new Set(['nfl_mcp']) });
-
-    expect(await proposalsRepo.existsByDedupKeyAsync(dedupKey)).toBe(true);
     const finalRow = await proposalsRepo.findByIdAsync(proposal.id);
     expect(finalRow?.status).toBe('reverted');
   });

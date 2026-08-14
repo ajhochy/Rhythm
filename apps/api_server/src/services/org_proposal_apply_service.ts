@@ -55,6 +55,13 @@ export interface ProposalApplyResult {
    * step reads. Undefined leaves `change_json` untouched (the common case).
    */
   changeJson?: string;
+  /**
+   * Optional target mutation deferred until the controller has atomically
+   * claimed the proposal and durably stored beforeSnapshotJson. Scope
+   * removals use this to make an unsnapshotted mutation impossible; existing
+   * eager appliers remain source-compatible.
+   */
+  applyAfterClaim?: () => void | Promise<void>;
 }
 
 export type ProposalApplier = (

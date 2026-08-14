@@ -64,7 +64,8 @@ export class OrgProposalsController {
   async approve(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const proposal = await repo().findByIdAsync(id);
+      const proposalsRepo = repo();
+      const proposal = await proposalsRepo.findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
 
       // #1056 — a proposal the applier marked 'failed' (e.g. a publish-skill-
@@ -101,21 +102,28 @@ export class OrgProposalsController {
 
       const applyResult = await applyProposal(proposal);
 
-      const applied = await repo().updateStatusAsync(id, 'applied', {
-        decidedByUserId,
-        beforeSnapshotJson: applyResult.beforeSnapshotJson,
-        // An applier may reshape change_json (e.g. workflow-prompt-fix rewrites
-        // its prose diagnosis into the BodyRefinementChange the measure step
-        // reads). Undefined = leave change_json untouched.
-        changeJson: applyResult.changeJson,
-      });
+      const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
+        id,
+        decidedByUserId ?? null,
+        applyResult.beforeSnapshotJson ?? null,
+        applyResult.changeJson,
+      );
+      if (!applied) {
+        throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);
+      }
+
+      // Scope-removal target writes are deferred until the atomic claim above
+      // has durably stored their V2 rollback snapshot. A callback failure
+      // intentionally leaves the safely snapshotted row at applied for W5
+      // reconciliation; measurement must not begin on a failed mutation.
+      await applyResult.applyAfterClaim?.();
 
       if (!applyResult.measurable) {
         res.json(applied);
         return;
       }
 
-      const measuring = await repo().updateStatusAsync(id, 'measuring');
+      const measuring = await proposalsRepo.updateStatusAsync(id, 'measuring');
 
       // #971-3 — fire-and-forget a measure attempt so a human-approved proposal
       // doesn't wait for the next optimizer run's sweep to get keep/revert'd
@@ -155,9 +163,19 @@ export class OrgProposalsController {
       }
 
       const outcome = await revertProposal(proposal);
+      if (outcome === 'unsafe-legacy-scope') {
+        throw AppError.conflict(
+          `Proposal ${id} uses an unsafe legacy scope snapshot; no changes were made and operator reconciliation is required`,
+        );
+      }
+      if (outcome === 'conflict') {
+        throw AppError.conflict(
+          `Proposal ${id} no longer matches its exact post-apply scope; no changes were made and operator reconciliation is required`,
+        );
+      }
       if (outcome !== 'reverted') {
         throw AppError.conflict(
-          `Proposal ${id} could not be reverted (missing or unparseable before_snapshot_json)`,
+          `Proposal ${id} could not be reverted safely; no changes were made and operator reconciliation is required`,
         );
       }
 

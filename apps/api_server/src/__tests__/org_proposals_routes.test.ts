@@ -40,6 +40,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
 import type { AgentOrgProposalsRepository as AgentOrgProposalsRepositoryType } from '../repositories/agent_org_proposals_repository';
+import type { AgentConfigsRepository as AgentConfigsRepositoryType } from '../repositories/agent_configs_repository';
 import { startTestServer } from './helpers/real_server';
 
 function makeDb() {
@@ -80,6 +81,7 @@ describe('issue-826: human-gate review queue API', () => {
 
   afterEach(async () => {
     await closeServer();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.resetModules();
   });
@@ -281,10 +283,7 @@ describe('issue-826: human-gate review queue API', () => {
     expect(rejectRes.status).toBe(200);
   });
 
-  it('issue-857-c7: revert undoes an active proposal, restoring the live scope and setting status=reverted', async () => {
-    // Bug this catches: there is no route to undo a proposal that already
-    // passed measurement and was kept ('active') — the exact gap the
-    // maintainer hit hand-reverting 16 live proposals via a manual DB edit.
+  it('W1: legacy active-scope revert returns conflict and leaves config/status unchanged', async () => {
     const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
     const configsRepo = new AgentConfigsRepository();
     const config = configsRepo.insert({
@@ -313,16 +312,279 @@ describe('issue-826: human-gate review queue API', () => {
       method: 'POST',
     });
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string };
-    expect(body.status).toBe('reverted');
+    expect(res.status).toBe(409);
+    expect(await res.text()).toMatch(/operator reconciliation is required/i);
 
     const stored = await repo.findByIdAsync(proposal.id);
-    expect(stored?.status).toBe('reverted');
+    expect(stored?.status).toBe('active');
 
-    const restoredConfig = configsRepo.getById(config.id);
-    const restoredList = JSON.parse(restoredConfig?.allowedMcpsJson ?? '[]');
-    expect(restoredList.sort()).toEqual(['nfl-mcp', 'rhythm'].sort());
+    const unchangedConfig = configsRepo.getById(config.id);
+    expect(unchangedConfig?.allowedMcpsJson).toBe(JSON.stringify(['rhythm']));
+  });
+
+  it('W1: a proposed prune-scope proposal makes no config change until it is approved', async () => {
+    // Bug this catches: proposal creation itself (or GET listing it) somehow
+    // mutating agent_configs before a human ever acts — scope removal must
+    // stay inert while sitting in the human-gate queue.
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Secretary',
+      icon: 'mail',
+      allowedMcpsJson: JSON.stringify(['gitnexus', 'rhythm']),
+    });
+
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'Prune dead gitnexus scope from secretary',
+      changeJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['gitnexus'],
+      }),
+      dedupKey: 'w1-routes:prune-scope:no-mutation-before-approval',
+    });
+
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(JSON.stringify(['gitnexus', 'rhythm']));
+    expect((await repo.findByIdAsync(proposal.id))?.status).toBe('proposed');
+
+    const listRes = await fetch(`${baseUrl}/agent-org-proposals?status=proposed`);
+    expect(listRes.status).toBe(200);
+
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(JSON.stringify(['gitnexus', 'rhythm']));
+    expect((await repo.findByIdAsync(proposal.id))?.status).toBe('proposed');
+  });
+
+  it('W1: approving a prune-scope proposal removes exactly the named entry, records a V2 snapshot, and advances to measuring', async () => {
+    // Bug this catches: tighten-scope/prune-scope have a registered VALIDATOR
+    // (so approve does not 400) but no registered APPLIER, so approve would
+    // silently no-op (defaultApplier -> measurable:false, no config write, no
+    // snapshot) while still reporting success — an approved human decision
+    // that never actually took effect.
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Secretary',
+      icon: 'mail',
+      allowedMcpsJson: JSON.stringify(['gitnexus', 'rhythm']),
+    });
+
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'Prune dead gitnexus scope from secretary',
+      changeJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['gitnexus'],
+      }),
+      dedupKey: 'w1-routes:prune-scope:approve-applies',
+    });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, {
+      method: 'POST',
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; beforeSnapshotJson: string | null };
+    expect(body.status).toBe('measuring');
+    expect(body.beforeSnapshotJson).toBeTruthy();
+
+    const snapshot = JSON.parse(body.beforeSnapshotJson!);
+    expect(snapshot.version).toBe('scope-delta-v2');
+    expect(snapshot.target).toEqual({ type: 'agent_config', id: config.id });
+    expect(snapshot.field).toBe('allowedMcpsJson');
+    expect(snapshot.requestedRemove).toEqual(['gitnexus']);
+    expect(snapshot.removedEntries).toEqual([{ name: 'gitnexus', priorValue: 'gitnexus', priorIndex: 0 }]);
+    expect(snapshot.expectedAppliedValue).toBe(JSON.stringify(['rhythm']));
+    expect(typeof snapshot.integrityHash).toBe('string');
+
+    // approve() fires a non-awaited measureProposal() immediately after
+    // responding (see org_proposals_controller.ts), so a re-fetched row may
+    // already have advanced past 'measuring' (e.g. to 'active') by the time
+    // this assertion runs — the response body above is the reliable, race-free
+    // proof that approve itself transitioned to 'measuring'. It must never
+    // have gone back to 'proposed' (approve took no effect) or 'applied'
+    // (stuck, un-measured).
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored?.status).not.toBe('proposed');
+    expect(stored?.status).not.toBe('applied');
+
+    // The removal itself persists regardless of the race: no exercised-tool
+    // evidence exists in this empty DB, so the functional guard, if it has
+    // already run, keeps (rather than reverts) the change.
+    const updatedConfig = configsRepo.getById(config.id);
+    expect(updatedConfig?.allowedMcpsJson).toBe(JSON.stringify(['rhythm']));
+  });
+
+  it('W1: persists the applied claim and V2 snapshot before the first config mutation', async () => {
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Ordering target', icon: 'shield', allowedMcpsJson: JSON.stringify(['gitnexus', 'rhythm']),
+    });
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Ordering proof',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      dedupKey: 'w1:ordering-proof',
+    });
+    const events: string[] = [];
+    const originalClaim = AgentOrgProposalsRepository.prototype.claimAppliedWithSnapshotAsync;
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync')
+      .mockImplementation(async function (this: AgentOrgProposalsRepositoryType, ...args) {
+        events.push('claim');
+        return originalClaim.apply(this, args);
+      });
+    const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
+    vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
+      .mockImplementation(function (this: AgentConfigsRepositoryType, ...args) {
+        events.push('config-cas');
+        return originalCas.apply(this, args);
+      });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    expect(events.slice(0, 2)).toEqual(['claim', 'config-cas']);
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored?.beforeSnapshotJson).toBeTruthy();
+  });
+
+  it('W1: claim persistence failure leaves config bytes/profile/status untouched and never measures', async () => {
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
+    const writer = await import('../services/opencode_agent_writer');
+    const measure = await import('../services/org_proposal_measure');
+    const profileSpy = vi.spyOn(writer, 'writeAgentProfileFile');
+    const measureSpy = vi.spyOn(measure, 'measureProposal');
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync')
+      .mockRejectedValue(new Error('injected snapshot persistence failure'));
+    const configsRepo = new AgentConfigsRepository();
+    const before = JSON.stringify(['gitnexus', 'rhythm']);
+    const config = configsRepo.insert({ label: 'Failure target', icon: 'shield', allowedMcpsJson: before });
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Injected failure',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      dedupKey: 'w1:claim-failure',
+    });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
+
+    expect(res.status).toBe(500);
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
+    expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
+      status: 'proposed', beforeSnapshotJson: null,
+    });
+    expect(profileSpy).not.toHaveBeenCalled();
+    expect(measureSpy).not.toHaveBeenCalled();
+  });
+
+  it('W1: concurrent approvals have one winner, one conflict, and one durable nonempty delta', async () => {
+    const applyService = await import('../services/org_proposal_apply_service');
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    let arrivals = 0;
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    applyService.registerProposalValidator('prune-scope', async () => {
+      arrivals += 1;
+      if (arrivals === 2) release();
+      await barrier;
+      return { valid: true };
+    });
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Concurrent target', icon: 'shield', allowedMcpsJson: JSON.stringify(['x', 'y']),
+    });
+    db.prepare('CREATE TABLE w1_scope_mutations (count INTEGER NOT NULL)').run();
+    db.prepare('INSERT INTO w1_scope_mutations VALUES (0)').run();
+    db.prepare(`
+      CREATE TRIGGER w1_count_scope_mutations
+      AFTER UPDATE OF allowed_mcps_json ON agent_configs
+      WHEN OLD.allowed_mcps_json IS NOT NEW.allowed_mcps_json
+      BEGIN
+        UPDATE w1_scope_mutations SET count = count + 1;
+      END
+    `).run();
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Concurrent approval',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] }),
+      dedupKey: 'w1:concurrent-approval',
+    });
+
+    const responses = await Promise.all([
+      fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' }),
+      fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' }),
+    ]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect((db.prepare('SELECT count FROM w1_scope_mutations').get() as { count: number }).count).toBe(1);
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(JSON.stringify(['y']));
+    const stored = await repo.findByIdAsync(proposal.id);
+    const snapshot = JSON.parse(stored?.beforeSnapshotJson ?? 'null');
+    expect(snapshot.requestedRemove).toEqual(['x']);
+    expect(snapshot.removedEntries).toEqual([{ name: 'x', priorValue: 'x', priorIndex: 0 }]);
+  });
+
+  it('W1: duplicate requested array member is actionable 400 before claim/config/profile writes', async () => {
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
+    const writer = await import('../services/opencode_agent_writer');
+    const claimSpy = vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync');
+    const profileSpy = vi.spyOn(writer, 'writeAgentProfileFile');
+    const configsRepo = new AgentConfigsRepository();
+    const before = JSON.stringify(['x', 'x', 'y']);
+    const config = configsRepo.insert({ label: 'Duplicate target', icon: 'shield', allowedMcpsJson: before });
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Duplicate member',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] }),
+      dedupKey: 'w1:duplicate-current',
+    });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toMatch(/duplicate.*x/i);
+    expect(claimSpy).not.toHaveBeenCalled();
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
+    expect((await repo.findByIdAsync(proposal.id))?.status).toBe('proposed');
+    expect(profileSpy).not.toHaveBeenCalled();
+  });
+
+  it('W1: successful active-route V2 revert restores exactly the removed entry', async () => {
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { createScopeDeltaV2Snapshot } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify(['x', 'y']);
+    const config = configsRepo.insert({ label: 'Route revert', icon: 'shield', allowedMcpsJson: prior });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['x']);
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Route V2 revert',
+      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] }),
+      beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1:route-v2-revert',
+    });
+    await repo.updateStatusAsync(proposal.id, 'applied');
+    await repo.updateStatusAsync(proposal.id, 'measuring');
+    await repo.updateStatusAsync(proposal.id, 'active');
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/revert`, { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
+    expect((await repo.findByIdAsync(proposal.id))?.status).toBe('reverted');
   });
 
   it('#1056: approve accepts a failed proposal for retry, not just proposed', async () => {
