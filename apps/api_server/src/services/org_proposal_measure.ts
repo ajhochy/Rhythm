@@ -59,6 +59,7 @@ import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals
 import { TASK_PATCH_TEXT_FIELDS } from './org_diagnosis_types';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { ScoreCall, SkillPurpose } from './skill_refiner';
+import type { ExercisedToolsTelemetry } from './org_exercised_tools_resolver';
 
 export type MeasureOutcome = 'kept' | 'reverted' | 'skipped';
 
@@ -128,10 +129,13 @@ export interface MeasureDeps extends ApplyDeps {
    * (#830 — {@link resolveExercisedTools}), which derives usage from
    * tool-call parts persisted on sessions run under the profile's scheduled
    * tasks (see that module's doc for the exact signal and its documented
-   * approximation). Tests inject a deterministic set to keep assertions
-   * independent of the real DB-backed signal.
+   * approximation). The discriminated result keeps unavailable telemetry
+   * distinct from a genuine empty observation. Legacy Set-returning test or
+   * integration seams remain supported narrowly for compatibility.
    */
-  exercisedTools?: (agentConfigId: string) => Promise<Set<string>>;
+  exercisedTools?: (
+    agentConfigId: string,
+  ) => Promise<ExercisedToolsTelemetry | Set<string>>;
   /** Injectable purpose-anchored scorer (defaults to skill_refiner.scoreSkillBody's real impl). */
   scoreSkillBody?: ScoreCall;
   /**
@@ -148,9 +152,23 @@ export interface MeasureDeps extends ApplyDeps {
  * (session tool-call-part telemetry), closing the #821 prune-guard stub that
  * previously always returned an empty set here.
  */
-async function defaultExercisedTools(agentConfigId: string): Promise<Set<string>> {
+async function defaultExercisedTools(agentConfigId: string): Promise<ExercisedToolsTelemetry> {
   const { resolveExercisedTools } = await import('./org_exercised_tools_resolver');
-  return resolveExercisedTools(agentConfigId);
+  const { opencodeClient } = await import('./opencode_engine');
+  try {
+    if (!opencodeClient.isReady) throw new Error('engine not ready');
+    const knownServerNames = Object.keys(await opencodeClient.listMcp());
+    if (knownServerNames.length === 0) throw new Error('empty MCP catalog');
+    return resolveExercisedTools(agentConfigId, undefined, knownServerNames);
+  } catch {
+    return {
+      availability: 'unavailable',
+      reason: 'catalog-unavailable',
+      rawCallableNames: new Set<string>(),
+      canonicalServerIds: new Set<string>(),
+      has: () => false,
+    };
+  }
 }
 
 /**
@@ -277,7 +295,17 @@ async function measureScopeChange(
   const exercisedTools = deps.exercisedTools ?? defaultExercisedTools;
   const exercised = await exercisedTools(change.agentConfigId);
 
-  const guardFailed = removed.some((name) => exercised.has(name));
+  if (!(exercised instanceof Set) && exercised.availability === 'unavailable') {
+    logger.info(
+      `[org-proposal-measure] '${proposal.id}' scope telemetry unavailable (${exercised.reason}) — leaving measuring`,
+    );
+    return 'skipped';
+  }
+
+  const guardFailed = removed.some((name) => {
+    if (exercised instanceof Set) return exercised.has(name);
+    return exercised.canonicalServerIds.has(name);
+  });
   if (guardFailed) {
     logger.info(
       `[org-proposal-measure] functional guard FAILED for '${proposal.id}' — a removed scope was actually exercised`,

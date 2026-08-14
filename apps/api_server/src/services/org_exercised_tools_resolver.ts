@@ -63,13 +63,15 @@
  * generator or the measure guard themselves — both already consume whatever
  * this resolver returns.
  *
- * Never throws — DB errors resolve to an empty set (fail toward "nothing
- * exercised", the same posture the original stub had).
+ * Never throws. Unsupported storage, unreadable rows, and DB/catalog errors
+ * are reported as unavailable so callers cannot confuse missing telemetry
+ * with a genuine zero-use observation.
  */
 
 import { getDb } from '../database/db';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { resolveMcpServerIdentity } from './mcp_scope_name';
 
 /** Default trailing window for "recently exercised" — 30 days. */
 const DEFAULT_TRAILING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -80,22 +82,69 @@ interface ToolPart {
   name?: string;
 }
 
-function extractToolNamesFromPartsJson(partsJson: string | null): string[] {
-  if (!partsJson) return [];
+type PartsReadResult =
+  | { readable: true; names: string[] }
+  | { readable: false };
+
+function extractToolNamesFromPartsJson(partsJson: string | null): PartsReadResult {
+  if (!partsJson) return { readable: false };
   try {
-    const parts = JSON.parse(partsJson) as ToolPart[];
-    if (!Array.isArray(parts)) return [];
+    const parts = JSON.parse(partsJson) as unknown;
+    if (!Array.isArray(parts)) return { readable: false };
     const names: string[] = [];
     for (const part of parts) {
-      if (part && part.type === 'tool') {
-        const name = part.tool ?? part.name;
-        if (typeof name === 'string' && name.trim()) names.push(name);
+      if (part && typeof part === 'object' && (part as ToolPart).type === 'tool') {
+        const toolPart = part as ToolPart;
+        const name = toolPart.tool ?? toolPart.name;
+        if (typeof name !== 'string' || !name.trim()) return { readable: false };
+        names.push(name);
       }
     }
-    return names;
+    return { readable: true, names };
   } catch {
-    return [];
+    return { readable: false };
   }
+}
+
+export type ExercisedTelemetryUnavailableReason =
+  | 'postgres-unsupported'
+  | 'invalid-profile'
+  | 'database-error'
+  | 'unreadable-source'
+  | 'catalog-unavailable'
+  | 'no-structured-telemetry';
+
+interface ExercisedToolsTelemetryBase {
+  rawCallableNames: Set<string>;
+  canonicalServerIds: Set<string>;
+  /** Compatibility accessor for legacy callers; safety decisions use the discriminant. */
+  has(name: string): boolean;
+}
+
+export type ExercisedToolsTelemetry =
+  | (ExercisedToolsTelemetryBase & { availability: 'available' })
+  | (ExercisedToolsTelemetryBase & {
+      availability: 'unavailable';
+      reason: ExercisedTelemetryUnavailableReason;
+    });
+
+function telemetryResult(
+  rawCallableNames: Set<string>,
+  knownServerNames: Iterable<string> | undefined,
+  unavailableReason?: ExercisedTelemetryUnavailableReason,
+): ExercisedToolsTelemetry {
+  const catalog = knownServerNames ? [...knownServerNames] : [];
+  const canonicalServerIds = new Set<string>();
+  if (catalog.length > 0) {
+    for (const callableName of rawCallableNames) {
+      const serverId = resolveMcpServerIdentity(callableName, catalog);
+      if (serverId) canonicalServerIds.add(serverId);
+    }
+  }
+  const has = (name: string) => rawCallableNames.has(name) || canonicalServerIds.has(name);
+  return unavailableReason
+    ? { availability: 'unavailable', reason: unavailableReason, rawCallableNames, canonicalServerIds, has }
+    : { availability: 'available', rawCallableNames, canonicalServerIds, has };
 }
 
 /**
@@ -103,7 +152,7 @@ function extractToolNamesFromPartsJson(partsJson: string | null): string[] {
  * `agentConfigId` within `sinceIso` (defaults to the trailing 30 days). See
  * the module header for the exact signal + its documented approximation.
  *
- * No-op (returns an empty set) under Postgres — this reads local-SQLite-only
+ * Unavailable under Postgres — this reads local-SQLite-only
  * agent-execution tables (agent_scheduled_tasks / agent_sessions /
  * agent_session_messages), consistent with the rest of the org-optimizer
  * subsystem.
@@ -111,9 +160,14 @@ function extractToolNamesFromPartsJson(partsJson: string | null): string[] {
 export async function resolveExercisedTools(
   agentConfigId: string,
   sinceIso: string = new Date(Date.now() - DEFAULT_TRAILING_WINDOW_MS).toISOString(),
-): Promise<Set<string>> {
-  if (env.dbClient === 'postgres') return new Set<string>();
-  if (!agentConfigId) return new Set<string>();
+  knownServerNames?: Iterable<string>,
+): Promise<ExercisedToolsTelemetry> {
+  const catalog = knownServerNames ? [...knownServerNames] : [];
+  const empty = new Set<string>();
+  if (env.dbClient === 'postgres') {
+    return telemetryResult(empty, catalog, 'postgres-unsupported');
+  }
+  if (!agentConfigId) return telemetryResult(empty, catalog, 'invalid-profile');
 
   try {
     const db = getDb();
@@ -164,28 +218,51 @@ export async function resolveExercisedTools(
       for (const row of mcpRoleSessionRows) sessionIdSet.add(row.id);
     }
 
-    if (sessionIdSet.size === 0) return new Set<string>();
+    if (sessionIdSet.size === 0) {
+      return telemetryResult(
+        empty,
+        catalog,
+        catalog.length > 0 ? undefined : 'catalog-unavailable',
+      );
+    }
 
     const sessionIds = Array.from(sessionIdSet);
     const sessionPlaceholders = sessionIds.map(() => '?').join(',');
 
     const messageRows = db
       .prepare(
-        `SELECT parts_json FROM agent_session_messages
+        `SELECT session_id, parts_json FROM agent_session_messages
           WHERE session_id IN (${sessionPlaceholders})
             AND parts_json IS NOT NULL`,
       )
-      .all(...sessionIds) as { parts_json: string | null }[];
+      .all(...sessionIds) as { session_id: string; parts_json: string | null }[];
+
+    // Attributed sessions exist, but if not one of them contributed a
+    // readable structured row, structured telemetry never covered this
+    // profile's traffic at all — that is missing capture, not proof the
+    // profile used nothing (see module header + the W2 fail-closed
+    // contract).
+    if (messageRows.length === 0) {
+      return telemetryResult(new Set<string>(), catalog, 'no-structured-telemetry');
+    }
 
     const exercised = new Set<string>();
     for (const row of messageRows) {
-      for (const name of extractToolNamesFromPartsJson(row.parts_json)) {
+      const parsed = extractToolNamesFromPartsJson(row.parts_json);
+      if (!parsed.readable) {
+        return telemetryResult(exercised, catalog, 'unreadable-source');
+      }
+      for (const name of parsed.names) {
         exercised.add(name);
       }
     }
-    return exercised;
+    return telemetryResult(
+      exercised,
+      catalog,
+      catalog.length > 0 ? undefined : 'catalog-unavailable',
+    );
   } catch (err) {
-    logger.warn(`[org-exercised-tools-resolver] FAILED (non-fatal, returning empty set): ${String(err)}`);
-    return new Set<string>();
+    logger.warn(`[org-exercised-tools-resolver] FAILED (non-fatal, telemetry unavailable): ${String(err)}`);
+    return telemetryResult(empty, catalog, 'database-error');
   }
 }

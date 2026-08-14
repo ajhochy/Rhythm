@@ -345,7 +345,7 @@ describe('issue-830-c7: the real exercisedTools resolver derives usage from sess
       null,
     );
 
-    const exercised = await resolveExercisedTools(config.id);
+    const exercised = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(exercised.has('rhythm_list_tasks')).toBe(true);
     expect(exercised.has('rhythm_create_task')).toBe(true);
     // A tool never seen in any session's parts must not be reported exercised.

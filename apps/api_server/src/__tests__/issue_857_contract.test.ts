@@ -36,6 +36,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 
 function makeDb() {
@@ -133,6 +134,7 @@ describe('issue-857-c2: sufficient observation window + activity still yields a 
     insertProfileWithAge(configsRepo, 'secretary', JSON.stringify(['rhythm', 'nfl-mcp']), 30);
 
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const s = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -144,6 +146,12 @@ describe('issue-857-c2: sufficient observation window + activity still yields a 
       // #1004: only EXECUTED sessions count toward the tighten-scope floor;
       // insert() stamps 'starting', so mark these as a real (idle) run.
       sessionsRepo.updateStatus(s.id, 'idle');
+      // Genuinely instrumented zero-use coverage: a readable empty
+      // parts_json row proves structured telemetry actually captured this
+      // session's traffic and recorded no tool use (W2 fail-closed
+      // distinction — a session with zero readable rows is missing capture,
+      // not proof of zero use).
+      messagesRepo.upsertStructured(s.id, `session-${i}-msg`, 'output', '[]', null, null);
     }
 
     const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
@@ -191,6 +199,7 @@ describe('issue-857-c4: tighten-scope gap evidence surfaces the observation basi
     insertProfileWithAge(configsRepo, 'secretary', JSON.stringify(['rhythm', 'nfl-mcp']), 30);
 
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const s = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -202,6 +211,12 @@ describe('issue-857-c4: tighten-scope gap evidence surfaces the observation basi
       // #1004: only EXECUTED sessions count toward the tighten-scope floor;
       // insert() stamps 'starting', so mark these as a real (idle) run.
       sessionsRepo.updateStatus(s.id, 'idle');
+      // Genuinely instrumented zero-use coverage: a readable empty
+      // parts_json row proves structured telemetry actually captured this
+      // session's traffic and recorded no tool use (W2 fail-closed
+      // distinction — a session with zero readable rows is missing capture,
+      // not proof of zero use).
+      messagesRepo.upsertStructured(s.id, `session-${i}-msg`, 'output', '[]', null, null);
     }
 
     const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');

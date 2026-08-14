@@ -28,6 +28,8 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { opencodeClient } from './opencode_engine';
 import { alignMcpName } from './mcp_name_alignment';
+import { resolveMcpServerIdentity } from './mcp_scope_name';
+import { resolveExercisedTools } from './org_exercised_tools_resolver';
 import { resolveProfileMcpScope, type ProfileMcpScopeShape } from './agent_profile_scope';
 import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
@@ -155,6 +157,10 @@ export interface OrgAuditSnapshot {
    */
   workflowFailureSignals: WorkflowFailureSignal[];
 }
+
+export type SuccessfulUseEvidence =
+  | { availability: 'available'; canonicalPairs: Set<string> }
+  | { availability: 'unavailable' };
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -351,30 +357,12 @@ export function detectTightenGaps(
   deniedPairs: Set<string>,
   sessionCountByProfile: Map<string, number>,
   observationDaysByProfile: Map<string, number>,
+  successfulUse: SuccessfulUseEvidence = { availability: 'unavailable' },
 ): OrgAuditGap[] {
   if (liveMcpNames.size === 0) return [];
+  if (successfulUse.availability === 'unavailable') return [];
   const gaps: OrgAuditGap[] = [];
   for (const profile of profiles) {
-    // Usage-judgement lane, deliberately NOT widened by the scope-shape fix.
-    //
-    // Stated as "skip tools-map", NOT "keep only 'servers'": a caller that
-    // builds a ProfileScopeSnapshot without `mcpScopeShape` (e.g.
-    // tools/release/org_optimizer_guard_check.ts, which is outside this
-    // package's tsc scope) must keep the behavior it had, never lose the
-    // feature silently. That guard exists precisely to catch a suppression
-    // like that, and it caught this one.
-    // `allowedMcps` now also resolves the tools-map shape, which makes 18 more
-    // live profiles visible here for the first time. This lane's only "was it
-    // used" evidence is denied-tool telemetry (a denial counts as an
-    // exercised-ATTEMPT); a server used SUCCESSFULLY produces no event at all,
-    // so every such grant looks "never invoked" — and tighten-scope is
-    // risk='low', i.e. it AUTO-APPLIES. Letting the corrected read feed this
-    // lane would have auto-stripped live grants (verified against the live org:
-    // workflow-orchestrator's gitnexus + obsidian, among others). Judging those
-    // grants needs real exercised-tool evidence
-    // (org_exercised_tools_resolver.resolveExercisedTools), which is a separate
-    // change; until then this lane keeps exactly the reach it already had.
-    if (profile.mcpScopeShape === 'tools-map') continue;
     const sessionCount = sessionCountByProfile.get(profile.id) ?? 0;
     const observationDays = observationDaysByProfile.get(profile.id) ?? 0;
     if (sessionCount < MIN_TIGHTEN_ACTIVITY_COUNT) continue;
@@ -384,6 +372,7 @@ export function detectTightenGaps(
       if (!matched) continue; // dead names are prune candidates, not tighten
       const deniedKey = `${profile.id}::${resolved}`;
       if (deniedPairs.has(deniedKey)) continue; // it WAS exercised (denied counts as exercised-attempt)
+      if (successfulUse.canonicalPairs.has(deniedKey)) continue;
       gaps.push({
         gapId: stableGapId('tighten-scope', profile.id, resolved),
         kind: 'tighten-scope',
@@ -515,11 +504,6 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
 
   const deniedEvents = await deniedRepo.listAllAsync();
   const deniedToolAggregates = aggregateDeniedTool(deniedEvents, sessionsRepo, validConfigIds);
-  const deniedPairs = new Set(
-    deniedToolAggregates
-      .filter((d) => d.agentConfigId !== null)
-      .map((d) => `${d.agentConfigId}::${d.toolName}`),
-  );
 
   // Open capability gaps (Plan A) — read-only surface into this snapshot.
   let capabilityGapRows: CapabilityGapRow[] = [];
@@ -534,6 +518,8 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const engineAvailable = opencodeClient.isReady;
   let drift: AllowlistDrift[] = [];
   let liveMcpNames = new Set<string>();
+  let deniedPairs = new Set<string>();
+  let successfulUse: SuccessfulUseEvidence = { availability: 'unavailable' };
 
   if (engineAvailable) {
     try {
@@ -546,6 +532,30 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     }
 
     if (liveMcpNames.size > 0) {
+      deniedPairs = new Set(
+        deniedToolAggregates.flatMap((aggregate) => {
+          if (!aggregate.agentConfigId) return [];
+          const serverId = resolveMcpServerIdentity(aggregate.toolName, liveMcpNames);
+          return serverId ? [`${aggregate.agentConfigId}::${serverId}`] : [];
+        }),
+      );
+
+      const canonicalPairs = new Set<string>();
+      let exercisedTelemetryAvailable = true;
+      for (const profile of profiles) {
+        const telemetry = await resolveExercisedTools(profile.id, undefined, liveMcpNames);
+        if (telemetry.availability === 'unavailable') {
+          exercisedTelemetryAvailable = false;
+          break;
+        }
+        for (const serverId of telemetry.canonicalServerIds) {
+          canonicalPairs.add(`${profile.id}::${serverId}`);
+        }
+      }
+      if (exercisedTelemetryAvailable) {
+        successfulUse = { availability: 'available', canonicalPairs };
+      }
+
       for (const profile of profiles) {
         for (const name of profile.allowedMcps) {
           const { matched } = alignMcpName(name, liveMcpNames);
@@ -562,7 +572,14 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
 
   const gaps: OrgAuditGap[] = [
     ...detectPruneGaps(drift),
-    ...detectTightenGaps(profiles, liveMcpNames, deniedPairs, sessionCountByProfile, observationDaysByProfile),
+    ...detectTightenGaps(
+      profiles,
+      liveMcpNames,
+      deniedPairs,
+      sessionCountByProfile,
+      observationDaysByProfile,
+      successfulUse,
+    ),
     ...detectWebhookGaps(sessions, webhookEndpoints),
     ...detectCapabilityGaps(capabilityGapRows),
   ];

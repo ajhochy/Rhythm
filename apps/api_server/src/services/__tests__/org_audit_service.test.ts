@@ -31,6 +31,7 @@ import { AgentSkillsRepository } from '../../repositories/agent_skills_repositor
 import { AgentCookbookRepository } from '../../repositories/agent_cookbook_repository';
 import { AgentWebhookEndpointsRepository } from '../../repositories/agent_webhook_endpoints_repository';
 import { AgentSessionsRepository } from '../../repositories/agent_sessions_repository';
+import { AgentSessionMessagesRepository } from '../../repositories/agent_session_messages_repository';
 import { DeniedToolEventsRepository } from '../../repositories/denied_tool_events_repository';
 
 // ── opencode_engine mock — controls isReady / listMcp / listSkills per test ──
@@ -294,6 +295,145 @@ describe('issue-819-c5 / issue-819-c6 (cold-start / empty live set): no false pr
 });
 
 describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked tool produces a tighten-scope gap', () => {
+  it('does not emit a gap when canonical successful-use telemetry shows the server was exercised', async () => {
+    listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'research',
+      label: 'Research',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+      .run(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), 'research');
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    for (let i = 0; i < 10; i++) {
+      const session = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `research-${i}`,
+        mcpRole: 'research',
+      });
+      sessionsRepo.updateStatus(session.id, 'idle');
+      if (i === 0) {
+        messagesRepo.upsertStructured(
+          session.id,
+          'gitnexus-use',
+          'output',
+          JSON.stringify([{ type: 'tool', tool: 'gitnexus_query' }]),
+          null,
+          null,
+        );
+      }
+    }
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+    expect(
+      snapshot.gaps.filter(
+        (gap) => gap.kind === 'tighten-scope' && gap.evidence.includes('gitnexus'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('canonicalizes denied callable names to the same server identity', async () => {
+    listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
+    new AgentConfigsRepository().insert({
+      id: 'denied-research',
+      label: 'Denied Research',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+      .run(
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        'denied-research',
+      );
+    const sessionsRepo = new AgentSessionsRepository();
+    for (let i = 0; i < 10; i++) {
+      const session = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `denied-research-${i}`,
+        mcpRole: 'denied-research',
+      });
+      sessionsRepo.updateStatus(session.id, 'idle');
+    }
+    await new DeniedToolEventsRepository().recordAsync({
+      sessionId: null,
+      agentConfigId: 'denied-research',
+      toolName: 'gitnexus_query',
+    });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+    expect(
+      snapshot.gaps.filter(
+        (gap) => gap.kind === 'tighten-scope' && gap.evidence.includes('gitnexus'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('suppresses all tightening when any profile telemetry is unreadable', async () => {
+    listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'well-observed',
+      label: 'Well Observed',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    configsRepo.insert({
+      id: 'unreadable-profile',
+      label: 'Unreadable Profile',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+      .run(
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        'well-observed',
+      );
+
+    const sessionsRepo = new AgentSessionsRepository();
+    for (let i = 0; i < 10; i++) {
+      const session = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `well-observed-${i}`,
+        mcpRole: 'well-observed',
+      });
+      sessionsRepo.updateStatus(session.id, 'idle');
+    }
+    const unreadableSession = sessionsRepo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'unreadable',
+      mcpRole: 'unreadable-profile',
+    });
+    new AgentSessionMessagesRepository().upsertStructured(
+      unreadableSession.id,
+      'unreadable-message',
+      'output',
+      '{not-json',
+      null,
+      null,
+    );
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+    expect(snapshot.gaps.filter((gap) => gap.kind === 'tighten-scope')).toEqual([]);
+  });
+
   it('a profile allowlisting a live MCP with zero denied-tool AND zero recorded use produces a tighten-scope gap with evidence', async () => {
     // Bug this catches: the audit only ever looks at denials (broaden-scope
     // signal) and never surfaces the complementary tighten-scope signal (a
@@ -328,8 +468,12 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
 
     // Enough sessions to clear the minimum activity floor (default 10), but
     // the org still has zero recorded usage/denial signal referencing
-    // nfl-mcp anywhere.
+    // nfl-mcp anywhere. Each session seeds a readable, genuinely-instrumented
+    // empty parts_json row — proving structured telemetry actually covered
+    // this traffic and recorded no tool use, as opposed to telemetry never
+    // having captured it at all (the W2 fail-closed distinction).
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const s = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -341,6 +485,7 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
       // #1004: only EXECUTED sessions count toward the tighten-scope floor;
       // insert() stamps 'starting', so mark these as a real (idle) run.
       sessionsRepo.updateStatus(s.id, 'idle');
+      messagesRepo.upsertStructured(s.id, `session-${i}-msg`, 'output', '[]', null, null);
     }
 
     const { buildOrgAuditSnapshot } = await import('../org_audit_service');
