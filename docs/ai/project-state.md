@@ -4,7 +4,8 @@
 
 The native Cloud Gateway/mobile release is live. Hosted API/relay and desktop `v0.18.58` are
 released; iOS `1.0.8 (6)` has been uploaded successfully to App Store Connect and is processing for
-TestFlight.
+TestFlight. Separate track: issue #1392 (pending `rhythm_request_approval` cards invisible in the
+desktop UI) has a draft fix awaiting manual smoke + merge — see PR #1393 below.
 
 ## Active branch / PR
 
@@ -14,6 +15,10 @@ TestFlight.
 - Active docs-only submission-evidence branch: `codex/ios-build-6-submission-evidence`.
 - Original workspace Terminal/PTy, transcript-display, activity-service, proof-image, and unrelated
   postmortem changes remain preserved outside this isolated branch.
+- **#1392 approval-card delivery fix**: branch `issue/approval-card-delivery` (isolated worktree),
+  draft PR #1393 open against `main`. Root cause: the desktop notification-bell badge never counted
+  `AgentApprovalsController.pending`, so a pending security-bound approval had zero passive UI signal.
+  See `docs/ai/runs/2026-08-14-issue-1392-approval-card-delivery.md` for the full trace and evidence.
 
 ## In progress
 
@@ -45,3 +50,7 @@ TestFlight.
 
 Verify Apple finishes processing build 6, resolve the existing export-compliance prompt if Apple
 requires it, then install that exact TestFlight artifact and perform the focused Cloud Gateway smoke.
+
+For #1392: manual smoke of PR #1393 (launch desktop app, trigger `rhythm_request_approval` with a
+`security_action`, confirm the bell badge lights up within 30s and the card is approvable), then
+human review/merge.
