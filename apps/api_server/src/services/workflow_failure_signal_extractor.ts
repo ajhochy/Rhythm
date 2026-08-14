@@ -45,6 +45,7 @@
  *     performance impact on active users.
  */
 
+import { createHash } from 'crypto';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -249,12 +250,16 @@ function detectDelegateResultSignals(
 // ── Detector 2: retry-loop (W3 — structured tool attempts ONLY) ──────────
 //
 // Evidence comes exclusively from persisted `type: 'tool'` message parts
-// (tool name + callID + state.status) — the SAME structured records
-// org_exercised_tools_resolver.ts and async_delegation_status_service.ts read.
-// Lexical "retry"/"try again" prose is NEVER scanned: a session can discuss
-// retry policy, resume behavior, or narrate a successful retry in prose
-// without that ever being mistaken for evidence — only an actual repeated,
-// failed/timed-out tool invocation counts.
+// (tool name + callID + state.status + state.input) — the SAME structured
+// records org_exercised_tools_resolver.ts and async_delegation_status_service.ts
+// read. Lexical "retry"/"try again" prose is NEVER scanned: a session can
+// discuss retry policy, resume behavior, or narrate a successful retry in
+// prose without that ever being mistaken for evidence — only an actual
+// repeated, failed/timed-out tool invocation with MATERIALLY EQUIVALENT input
+// counts. A read-only audit of live sessions found grouping by tool name
+// alone flagged 700 same-session/tool groups, of which only 36 had a later
+// exact-input retry — the other 664 were the same tool called with a
+// different input, i.e. a different operation, not a retry.
 
 type ToolAttemptStatus = 'pending' | 'running' | 'completed' | 'error';
 
@@ -264,19 +269,50 @@ interface ToolAttempt {
   status: ToolAttemptStatus;
   /** `state.time.start`, ms epoch. null when the part carries no timing. */
   startedAt: number | null;
+  /**
+   * SHA-256 identity of `state.input`, canonicalized (recursively key-sorted
+   * JSON) so key-order differences never split one retry pattern into two.
+   * The raw input is never logged, returned, or persisted — only this hash.
+   */
+  inputHash: string;
 }
 
 const TOOL_ATTEMPT_STATUSES = new Set<string>(['pending', 'running', 'completed', 'error']);
 
+/** Recursively key-sorted JSON serialization — a stable basis for a content-equality hash. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value as Record<string, unknown>).sort();
+    return `{${keys
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Stable in-memory identity for a tool call's input. Never exposes the input itself. */
+function hashInput(input: unknown): string {
+  return createHash('sha256').update(canonicalJson(input)).digest('hex');
+}
+
 /**
  * Parse persisted tool-call parts out of a session's messages. A part is only
- * trusted as a real attempt when it carries BOTH a call identity (`callID`)
- * and a recognized `state.status` — anything less (missing identity, missing
- * state, an unrecognized status) is SUPPRESSED here rather than guessed at,
- * so a malformed/legacy part can never manufacture retry-loop evidence.
+ * trusted as a real attempt when it carries a call identity (`callID`), a
+ * recognized `state.status`, AND a recorded `state.input` — anything less
+ * (missing identity, missing state, an unrecognized status, no input) is
+ * SUPPRESSED here rather than guessed at, so a malformed/legacy part can
+ * never manufacture retry-loop evidence.
+ *
+ * Duplicate persisted records of the SAME call (`callID`) — e.g. from a
+ * reconnect/replay writing the part into more than one message row — are
+ * collapsed to one final representation per call identity before returning,
+ * so a repeated record of one call can never look like a second attempt.
  */
 function extractToolAttempts(messages: AgentSessionMessage[]): ToolAttempt[] {
-  const attempts: ToolAttempt[] = [];
+  const byCallId = new Map<string, ToolAttempt>();
   for (const m of messages) {
     if (!m.partsJson) continue;
     let parts: unknown;
@@ -297,13 +333,14 @@ function extractToolAttempts(messages: AgentSessionMessage[]): ToolAttempt[] {
       const state = part.state as Record<string, unknown> | undefined;
       const status = typeof state?.status === 'string' ? state.status : null;
       if (!tool || !callId || !status || !TOOL_ATTEMPT_STATUSES.has(status)) continue;
+      if (!state || !Object.prototype.hasOwnProperty.call(state, 'input')) continue;
 
-      const time = state?.time as Record<string, unknown> | undefined;
+      const time = state.time as Record<string, unknown> | undefined;
       const startedAt = typeof time?.start === 'number' ? time.start : null;
-      attempts.push({ tool, callId, status: status as ToolAttemptStatus, startedAt });
+      byCallId.set(callId, { tool, callId, status: status as ToolAttemptStatus, startedAt, inputHash: hashInput(state.input) });
     }
   }
-  return attempts;
+  return Array.from(byCallId.values());
 }
 
 type ToolAttemptResult = 'failed' | 'timeout' | 'ok' | 'in-flight';
@@ -329,16 +366,21 @@ function detectRetryLoopSignals(
     const attempts = extractToolAttempts(getMessages(session.id));
     if (attempts.length === 0) continue; // no structured tool evidence — suppressed, no prose fallback
 
-    const byTool = new Map<string, ToolAttempt[]>();
+    // Grouped by tool + normalized input identity — NOT tool alone. The same
+    // tool called with a materially different input is a different
+    // operation, not a retry of the same one (see the module doc comment).
+    const byToolAndInput = new Map<string, ToolAttempt[]>();
     for (const attempt of attempts) {
-      const list = byTool.get(attempt.tool) ?? [];
+      const key = `${attempt.tool}::${attempt.inputHash}`;
+      const list = byToolAndInput.get(key) ?? [];
       list.push(attempt);
-      byTool.set(attempt.tool, list);
+      byToolAndInput.set(key, list);
     }
 
-    for (const [tool, group] of byTool) {
-      // "Materially repeated" requires the SAME tool to have been attempted
-      // more than once — a single failure, however severe, is not a retry.
+    for (const group of byToolAndInput.values()) {
+      // "Materially repeated" requires the SAME tool with EQUIVALENT input to
+      // have been attempted more than once — a single failure, however
+      // severe, is not a retry.
       if (group.length < WORKFLOW_SIGNAL_MIN_REPEAT_COUNT) continue;
 
       // state.time.start (not message/row insertion order) is the authoritative
@@ -350,6 +392,8 @@ function detectRetryLoopSignals(
 
       const retryOutcome: RetryOutcome = results[results.length - 1] === 'ok' ? 'recovered' : 'unresolved';
       const agentConfigId = profileOf(session);
+      const tool = sorted[0].tool;
+      const inputHashPrefix = sorted[0].inputHash.slice(0, 12);
 
       signals.push({
         category: 'retry-loop',
@@ -358,11 +402,12 @@ function detectRetryLoopSignals(
         confidence: retryOutcome === 'unresolved' ? 'high' : 'medium',
         sessionIds: [session.id],
         retryOutcome,
-        evidence: `tool='${tool}' attempts=${sorted.length} failedOrTimeout=${badCount} outcome=${retryOutcome} agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
-        // Keyed on session+tool — a single materially-repeated tool within one
-        // session is itself unambiguous, structured evidence (unlike the old
-        // lexical count, which needed a cross-session repeat to be trustworthy).
-        dedupToken: `${session.id}:${tool}`,
+        evidence: `tool='${tool}' inputHash=${inputHashPrefix} attempts=${sorted.length} failedOrTimeout=${badCount} outcome=${retryOutcome} agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
+        // Keyed on session+tool+inputHash — a single materially-repeated
+        // (tool, equivalent-input) pair within one session is itself
+        // unambiguous, structured evidence (unlike the old lexical count,
+        // which needed a cross-session repeat to be trustworthy).
+        dedupToken: `${session.id}:${tool}:${inputHashPrefix}`,
       });
     }
   }

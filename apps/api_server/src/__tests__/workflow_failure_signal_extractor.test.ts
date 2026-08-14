@@ -12,12 +12,21 @@
  *    only signals once repeated (one-off is suppressed).
  *  - issue-933-c4: retry-loop (W3, self-improvement-engine-foundation) —
  *    evidence comes ONLY from structured, persisted tool-call parts (tool
- *    name + callID + state.status), never from lexical "retry"/"try again"
- *    prose. A single failed-then-retried-then-completed tool is a recovered
- *    signal; a failed-then-retried-and-still-failing tool is an unresolved
- *    (higher confidence) signal; a lone (non-repeated) failure is not a
- *    retry loop; and tool parts missing call identity/state are suppressed
- *    rather than falling back to scanning message text.
+ *    name + callID + state.status + state.input), never from lexical
+ *    "retry"/"try again" prose. A single failed-then-retried-then-completed
+ *    tool is a recovered signal; a failed-then-retried-and-still-failing
+ *    tool is an unresolved (higher confidence) signal; a lone (non-repeated)
+ *    failure is not a retry loop; and tool parts missing call identity/state
+ *    are suppressed rather than falling back to scanning message text.
+ *    Grouping requires MATERIALLY EQUIVALENT input: the same tool called
+ *    with a genuinely different input is a different operation, not a
+ *    retry, even within the same session — equivalence is decided by a
+ *    canonical (recursively key-sorted) hash of `state.input`, so object
+ *    key-order differences never split one retry pattern into two, and a
+ *    part with no recorded input is suppressed rather than guessed. A
+ *    duplicate persisted record of the SAME call (callID) is also collapsed
+ *    to one final representation before classifying, so a repeat write of
+ *    one call can never look like a second attempt.
  *  - issue-933-c5: hallucinated-claim — a commit/PR claim later contradicted
  *    by the user, repeated across sessions.
  *  - issue-933-c6: unverified-claim — a "tests pass" claim with no recorded
@@ -80,10 +89,15 @@ function seedToolAttempt(
     tool: string;
     status: 'pending' | 'running' | 'completed' | 'error';
     startedAt?: number;
+    /** state.input — omit to simulate a part with no recorded input at all. */
+    input?: Record<string, unknown>;
+    /** Overrides the default `id` (used to simulate a duplicate persisted part for the SAME callID). */
+    partId?: string;
   },
 ): void {
   const messagesRepo = new AgentSessionMessagesRepository();
   const state: Record<string, unknown> = { status: opts.status };
+  if (opts.input !== undefined) state.input = opts.input;
   if (opts.startedAt !== undefined) {
     state.time = opts.status === 'completed' || opts.status === 'error'
       ? { start: opts.startedAt, end: opts.startedAt + 1000 }
@@ -92,7 +106,7 @@ function seedToolAttempt(
   if (opts.status === 'error') state.error = 'boom';
   if (opts.status === 'completed') state.output = 'ok';
   messagesRepo.upsertPart(sessionId, sdkMessageId, {
-    id: `part-${opts.callId}`,
+    id: opts.partId ?? `part-${opts.callId}`,
     type: 'tool',
     sessionID: sessionId,
     messageID: sdkMessageId,
@@ -216,8 +230,9 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'recovered', mcpRole: 'secretary' });
     const t0 = Date.now() - 60_000;
-    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0 });
-    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 5_000 });
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 5_000, input });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
@@ -233,8 +248,9 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'unresolved', mcpRole: 'secretary' });
     const t0 = Date.now() - 60_000;
-    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0 });
-    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'error', startedAt: t0 + 5_000 });
+    const input = { cmd: 'npm test' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'error', startedAt: t0 + 5_000, input });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
@@ -249,8 +265,9 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'timedout', mcpRole: 'secretary' });
     const staleStart = Date.now() - 60 * 60 * 1000; // 1h ago — well past any reasonable tool duration
-    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'web_fetch', status: 'running', startedAt: staleStart });
-    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'web_fetch', status: 'error', startedAt: Date.now() });
+    const input = { url: 'https://example.com' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'web_fetch', status: 'running', startedAt: staleStart, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'web_fetch', status: 'error', startedAt: Date.now(), input });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
@@ -264,7 +281,7 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
   it('a single (non-repeated) tool failure is not a retry loop', async () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'lone-failure', mcpRole: 'secretary' });
-    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: Date.now() });
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: Date.now(), input: { cmd: 'npm test' } });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
@@ -276,8 +293,9 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'clean-repeat', mcpRole: 'secretary' });
     const t0 = Date.now() - 10_000;
-    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'completed', startedAt: t0 });
-    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 2_000 });
+    const input = { cmd: 'ls' };
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'completed', startedAt: t0, input });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 2_000, input });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
@@ -298,6 +316,83 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     // prove there is no fallback path.
     const proseText = 'Let me try again. Retrying. One more attempt. Different approach.';
     messagesRepo.append(s.id, 'output', proseText, proseText);
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('a failed tool call followed by a call to the SAME tool with a DIFFERENT input is not a retry loop', async () => {
+    // Read-only audit finding: grouping by tool name alone flagged 700
+    // same-session/tool groups, but only 36 had a later exact-input retry —
+    // 664 were the same tool invoked with materially different input, which
+    // is a different operation, not a retry.
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'different-input', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input: { cmd: 'npm test' } });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 5_000, input: { cmd: 'npm run build' } });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('object key-order differences in input normalize to the same input identity (still a retry)', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'key-order', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    seedToolAttempt(s.id, 'msg-1', {
+      callId: 'call-1',
+      tool: 'bash',
+      status: 'error',
+      startedAt: t0,
+      input: { cmd: 'npm test', cwd: '/tmp', flags: { verbose: true, ci: false } },
+    });
+    seedToolAttempt(s.id, 'msg-2', {
+      callId: 'call-2',
+      tool: 'bash',
+      status: 'completed',
+      startedAt: t0 + 5_000,
+      // Same values, keys (including nested) in a different order.
+      input: { flags: { ci: false, verbose: true }, cwd: '/tmp', cmd: 'npm test' },
+    });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
+    expect(signal).toBeDefined();
+    expect(signal?.retryOutcome).toBe('recovered');
+  });
+
+  it('suppresses the signal when a repeated tool part carries no recorded input at all', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'no-input', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    // Both parts otherwise carry full call identity + a recognized status,
+    // but neither state carries an `input` field at all.
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0 });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0 + 5_000 });
+
+    const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
+    const signals = await extractWorkflowFailureSignals();
+
+    expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
+  });
+
+  it('a duplicate persisted record of the SAME call (callID) is deduped to one attempt, not counted as a retry', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'dup-record', mcpRole: 'secretary' });
+    const t0 = Date.now() - 60_000;
+    const input = { cmd: 'npm test' };
+    // Same callID persisted twice under two DIFFERENT message rows (as could
+    // happen on a reconnect/replay), with distinct part ids so the per-row
+    // upsert dedup does not collapse them itself.
+    seedToolAttempt(s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input, partId: 'part-a' });
+    seedToolAttempt(s.id, 'msg-2', { callId: 'call-1', tool: 'bash', status: 'error', startedAt: t0, input, partId: 'part-b' });
 
     const { extractWorkflowFailureSignals } = await import('../services/workflow_failure_signal_extractor');
     const signals = await extractWorkflowFailureSignals();
