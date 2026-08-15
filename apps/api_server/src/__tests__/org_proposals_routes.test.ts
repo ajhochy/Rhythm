@@ -800,7 +800,11 @@ describe('issue-826: human-gate review queue API', () => {
     expect(text).toMatch(/may have committed|durable state.*inspect|state.*uncertain/i);
     expect(text).not.toMatch(/no changes were made/i);
     expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(prior);
-    expect((await repo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+    // The revert committed; the unresolved transport failure is now durable, so
+    // the row is not indistinguishable from a cleanly reverted one.
+    const settled = await repo.findByIdAsync(proposal.id);
+    expect(settled?.status).toBe('reconciliation-required');
+    expect(settled?.reconciliationReason).toBeTruthy();
   });
 
   it('#1056: approve accepts a failed proposal for retry, not just proposed', async () => {

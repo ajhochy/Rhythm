@@ -1380,7 +1380,11 @@ describe('W1: scope projection is a revert gate', () => {
 
       expect(await revertProposal(active!)).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(snapshot.expectedAppliedValue);
-      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+      // The unresolved revert is now recorded DURABLY, so an operator can see
+      // it instead of a row that still looks healthy at 'active'.
+      const settled = await proposalsRepo.findByIdAsync(proposal.id);
+      expect(settled?.status).toBe('reconciliation-required');
+      expect(settled?.reconciliationReason).toBeTruthy();
     },
   );
 
@@ -1415,7 +1419,9 @@ describe('W1: scope projection is a revert gate', () => {
 
     expect(await revertProposal(active!)).toBe('reconciliation-required');
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(concurrent);
-    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+    const settled = await proposalsRepo.findByIdAsync(proposal.id);
+    expect(settled?.status).toBe('reconciliation-required');
+    expect(settled?.reconciliationReason).toBeTruthy();
   });
 
   for (const field of ['allowedSkillsJson', 'corePermissionsJson'] as const) {
@@ -1465,7 +1471,9 @@ describe('W1: scope projection is a revert gate', () => {
 
           expect(await revertProposal(active!)).toBe('reconciliation-required');
           expect(readScopeField(configsRepo, config.id, field)).toBe(applied);
-          expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+          const settled = await proposalsRepo.findByIdAsync(proposal.id);
+          expect(settled?.status).toBe('reconciliation-required');
+          expect(settled?.reconciliationReason).toBeTruthy();
         } finally {
           process.env.VITEST = originalVitest;
           process.env.NODE_ENV = originalNodeEnv;
@@ -1522,7 +1530,9 @@ describe('W1: scope projection is a revert gate', () => {
 
       expect(await revertProposal(active!)).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(concurrent);
-      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+      const settled = await proposalsRepo.findByIdAsync(proposal.id);
+      expect(settled?.status).toBe('reconciliation-required');
+      expect(settled?.reconciliationReason).toBeTruthy();
     } finally {
       process.env.VITEST = originalVitest;
       process.env.NODE_ENV = originalNodeEnv;

@@ -651,6 +651,37 @@ export interface RevertPatch {
 }
 
 /**
+ * The revert lane's unresolved exits must leave the same durable trace the
+ * apply lane leaves: a status an operator can see and filter on, not just a log
+ * line and a 409. Marked from whatever the row actually is right now, because
+ * an ambiguous transition may or may not have committed. Failing to write the
+ * record does not change the outcome — an unresolved operation is unresolved
+ * either way — but it is logged as such.
+ */
+async function recordRevertReconciliation(
+  proposalsRepo: AgentOrgProposalsRepository,
+  proposalId: string,
+  reason: string,
+): Promise<RevertOutcome> {
+  try {
+    const current = await proposalsRepo.findByIdAsync(proposalId);
+    if (current) {
+      await proposalsRepo.markReconciliationRequiredAsync({
+        proposalId,
+        expectedStatus: current.status,
+        expectedRevision: current.revision,
+        reason,
+      });
+    }
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-apply] could not persist reconciliation for '${proposalId}': ${String(error)}`,
+    );
+  }
+  return 'reconciliation-required';
+}
+
+/**
  * Restore a measuring proposal to its `before_snapshot_json` state and mark
  * it `reverted`. NEVER throws. The row is retained (not deleted) so the
  * dedup guard continues to treat the change as seen. `patch` (optional) is
@@ -760,7 +791,10 @@ export async function revertProposal(
           `[org-proposal-apply] atomic scope revert reported an ambiguous error for ` +
           `'${proposal.id}'; reconciliation required: ${String(error)}`,
         );
-        return 'reconciliation-required';
+        return await recordRevertReconciliation(
+          proposalsRepo, proposal.id,
+          'the atomic scope revert transaction reported an indeterminate result',
+        );
       }
       if (!transitioned) {
         logger.warn(`[org-proposal-apply] atomic scope revert CAS conflict for '${proposal.id}'`);
@@ -777,7 +811,9 @@ export async function revertProposal(
         expectedRevision: transitioned.target.revision,
         cause: 'scope-revert',
       });
-      const projection = projectionOutcome.kind === 'missing' ? 'failed' : projectionOutcome.kind;
+      const projection = projectionOutcome.kind === 'missing' ? 'failed'
+        : projectionOutcome.kind === 'not-applicable' ? 'skipped'
+        : projectionOutcome.kind;
       if (projection === 'blocked' || projection === 'failed') {
         let inverse;
         try {
@@ -803,28 +839,40 @@ export async function revertProposal(
             `[org-proposal-apply] atomic scope inverse reported an ambiguous error for ` +
             `'${proposal.id}'; reconciliation required: ${String(error)}`,
           );
-          return 'reconciliation-required';
+          return await recordRevertReconciliation(
+            proposalsRepo, proposal.id,
+            'the exact compensation lost a concurrent update, so the target bytes were preserved as found',
+          );
         }
         if (!inverse) {
           logger.warn(
             `[org-proposal-apply] atomic scope inverse lost a target/status CAS for ` +
             `'${proposal.id}'; reconciliation required`,
           );
-          return 'reconciliation-required';
+          return await recordRevertReconciliation(
+            proposalsRepo, proposal.id,
+            'the database pair was atomically restored but the compensating projection did not succeed',
+          );
         }
         const inverseOutcome = projectLatestAgentProfile({
           profileId: scopeSnapshot.target.id,
           expectedRevision: inverse.target.revision,
           cause: 'scope-compensation',
         });
-        const inverseProjection = inverseOutcome.kind === 'missing' ? 'failed' : inverseOutcome.kind;
+        const inverseProjection = inverseOutcome.kind === 'missing' ? 'failed'
+          : inverseOutcome.kind === 'not-applicable' ? 'skipped'
+          : inverseOutcome.kind;
         if (inverseProjection === 'blocked' || inverseProjection === 'failed') {
           logger.warn(
             `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
             `the database pair was atomically restored but compensating projection ` +
             `${inverseProjection}; reconciliation required`,
           );
-          return 'reconciliation-required';
+          return await recordRevertReconciliation(
+            proposalsRepo, proposal.id,
+            'the database pair was atomically restored but the compensating projection ' +
+            'did not succeed',
+          );
         }
         logger.warn(
           `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +

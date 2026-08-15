@@ -303,16 +303,39 @@ export async function applyApprovedScopeProposal(input: {
     expectedRevision: applied.target.revision,
     cause: 'scope-apply',
   });
-  if (projection.kind === 'projected' || projection.kind === 'stale') {
-    const measuring = await proposalsRepo.updateStatusAtRevisionAsync(
-      proposal.id,
-      applied.proposal.revision,
-      'measuring',
-    );
+  // `not-applicable` means the profile cannot be projected at all (disabled or
+  // security-locked) AND any stale file was removed, so the database is the
+  // only live scope. That is a coherent end state, not a failure.
+  if (
+    projection.kind === 'projected' ||
+    projection.kind === 'stale' ||
+    projection.kind === 'not-applicable'
+  ) {
+    // The target is already mutated and projected. `applied` has no edge any
+    // route can take, so a lost or thrown measuring CAS must land in durable
+    // reconciliation rather than escaping as a 500 and stranding the row.
+    // updateStatusAtRevisionAsync THROWS on a revision mismatch and returns
+    // null only when the row vanished — both are handled here.
+    let measuring: RevisionedAgentOrgProposal | null = null;
+    let measuringError: unknown = null;
+    try {
+      measuring = await proposalsRepo.updateStatusAtRevisionAsync(
+        proposal.id,
+        applied.proposal.revision,
+        'measuring',
+      );
+    } catch (error) {
+      measuringError = error;
+    }
     if (!measuring) {
+      const current = await proposalsRepo.findByIdAsync(proposal.id).catch(() => null);
       return await markReconciliation(
-        proposalsRepo, proposal.id, 'applied', applied.proposal.revision,
-        'the applied pair was projected but the measuring transition lost its revision CAS',
+        proposalsRepo,
+        proposal.id,
+        current?.status ?? 'applied',
+        current?.revision ?? applied.proposal.revision,
+        'the applied pair was projected but the measuring transition lost its revision CAS' +
+        (measuringError ? `: ${String(measuringError)}` : ''),
       );
     }
     return { kind: 'measuring', proposal: measuring };
@@ -388,8 +411,11 @@ export async function applyApprovedScopeProposal(input: {
     expectedRevision: inverse.target.revision,
     cause: 'scope-compensation',
   });
-  if (compensationProjection.kind === 'blocked' || compensationProjection.kind === 'failed' ||
-      compensationProjection.kind === 'missing') {
+  if (
+    compensationProjection.kind === 'blocked' ||
+    compensationProjection.kind === 'failed' ||
+    compensationProjection.kind === 'missing'
+  ) {
     return await markReconciliation(
       proposalsRepo, proposal.id, 'approved', inverse.proposal.revision,
       `profile projection ${describeProjection(projection)}; the database pair was ` +

@@ -22,8 +22,16 @@
  * DETECTION: a caller learns `stale`/`blocked`/`failed` and can reconcile.
  */
 
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
-import { writeAgentProfileFile, type AgentProfileWriteResult } from './opencode_agent_writer';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
+import {
+  deleteAgentProfileFile,
+  isProjectableAgentConfigIgnoringEnabled,
+  writeAgentProfileFile,
+  type AgentProfileWriteResult,
+} from './opencode_agent_writer';
 
 export type ProjectionCause =
   | 'scope-apply'
@@ -40,6 +48,12 @@ export type ProjectionOutcome =
   | { kind: 'blocked'; revision: number }
   /** The write itself failed. */
   | { kind: 'failed'; revision: number }
+  /**
+   * The profile is not projectable at all (disabled, security-locked, not an
+   * agent). Nothing was written — and any stale file was REMOVED, so the engine
+   * cannot keep loading a wider scope than the database now holds.
+   */
+  | { kind: 'not-applicable'; revision: number }
   /** The profile row no longer exists. */
   | { kind: 'missing' };
 
@@ -64,11 +78,22 @@ export function projectLatestAgentProfile(
   // ── critical section: latest read → render → replace, with no await ──
   const current = configsRepo.getById(input.profileId);
   if (!current) return { kind: 'missing' };
+  // A blocked/disabled/locked profile must not simply be left alone: its old
+  // file would keep serving the PRE-mutation scope to the engine, which for a
+  // tightening is strictly wider than what was just approved.
+  if (
+    agentConfigExecutionBlockReason(current) !== null &&
+    isProjectableAgentConfigIgnoringEnabled(current)
+  ) {
+    deleteAgentProfileFile(current.id);
+    return { kind: 'not-applicable', revision: current.revision };
+  }
   const result = write(current);
   // ────────────────────────────────────────────────────────────────────
 
   if (result === 'blocked') return { kind: 'blocked', revision: current.revision };
   if (result === 'failed') return { kind: 'failed', revision: current.revision };
+  if (result === 'skipped') return { kind: 'not-applicable', revision: current.revision };
   if (current.revision !== input.expectedRevision) {
     return {
       kind: 'stale',

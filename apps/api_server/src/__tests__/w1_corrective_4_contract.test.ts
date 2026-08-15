@@ -435,7 +435,11 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
 
     expect(await apply.revertProposal(active)).toBe('reconciliation-required');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(applied);
-    expect((await new AgentOrgProposalsRepository().findByIdAsync(active.id))?.status).toBe('active');
+    // Package C: the unresolved revert is recorded durably rather than left
+    // looking like a healthy `active` row.
+    const settled = await new AgentOrgProposalsRepository().findByIdAsync(active.id);
+    expect(settled?.status).toBe('reconciliation-required');
+    expect(settled?.reconciliationReason).toBeTruthy();
     expect(projection).not.toHaveBeenCalled();
   });
 
@@ -490,7 +494,12 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
     expect(await apply.revertProposal(active, { proposalsRepo: proposals, configsRepo: configs }))
       .toBe('reconciliation-required');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(prior);
-    expect((await new AgentOrgProposalsRepository().findByIdAsync(active.id))?.status).toBe('reverted');
+    // The revert DID durably commit; the point of this case is that nothing
+    // compensates it. Package C additionally records the unresolved outcome so
+    // the row is not indistinguishable from a cleanly reverted one.
+    const settled = await new AgentOrgProposalsRepository().findByIdAsync(active.id);
+    expect(settled?.status).toBe('reconciliation-required');
+    expect(settled?.reconciliationReason).toBeTruthy();
     expect(projection).not.toHaveBeenCalled();
   });
 

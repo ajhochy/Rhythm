@@ -454,10 +454,13 @@ describe('issue-W1-corrective-5-c5: atomic scope target and proposal lifecycle',
     )).not.toBe('reverted');
     const pair = await durablePair(fixture);
     expect(pair.target).toBe(fixture.applied);
+    // Package C: the unresolved revert is recorded durably. The audit fields
+    // and the exact bindings must survive that marking untouched.
     expect(pair.proposal).toMatchObject({
-      status: 'active', baselineScore: 1, postScore: 2, measureReason: 'original',
+      status: 'reconciliation-required', baselineScore: 1, postScore: 2, measureReason: 'original',
       changeJson: fixture.changeJson, beforeSnapshotJson: JSON.stringify(fixture.snapshot),
     });
+    expect(pair.proposal?.reconciliationReason).toBeTruthy();
     expect(projection).not.toHaveBeenCalled();
   });
 
@@ -561,7 +564,8 @@ describe('issue-W1-corrective-5-c5: atomic scope target and proposal lifecycle',
     })).toBe('reconciliation-required');
     const pair = await durablePair(fixture);
     expect(pair.target).toBe(fixture.prior);
-    expect(pair.proposal?.status).toBe('reverted');
+    expect(pair.proposal?.status).toBe('reconciliation-required');
+    expect(pair.proposal?.reconciliationReason).toBeTruthy();
     expect(projection).not.toHaveBeenCalled();
   });
 
@@ -597,15 +601,18 @@ describe('issue-W1-corrective-5-c5: atomic scope target and proposal lifecycle',
         configsRepo: fixture.configs,
       })).toBe('reconciliation-required');
       const pair = await durablePair(fixture);
-      if (mode === 'throw-after') {
-        expect(pair).toMatchObject({ target: fixture.applied, proposal: { status: 'active' } });
-      } else if (mode === 'target-cas') {
-        expect(pair).toMatchObject({ target: '["concurrent"]', proposal: { status: 'reverted' } });
-      } else if (mode === 'status-cas') {
-        expect(pair).toMatchObject({ target: fixture.prior, proposal: { status: 'active' } });
-      } else {
-        expect(pair).toMatchObject({ target: fixture.prior, proposal: { status: 'reverted' } });
-      }
+      // Byte safety is unchanged — only the durable STATUS moved, because an
+      // unresolved revert must be visible instead of looking healthy.
+      const expectedTarget = mode === 'throw-after'
+        ? fixture.applied
+        : mode === 'target-cas'
+          ? '["concurrent"]'
+          : fixture.prior;
+      expect(pair).toMatchObject({
+        target: expectedTarget,
+        proposal: { status: 'reconciliation-required' },
+      });
+      expect(pair.proposal?.reconciliationReason).toBeTruthy();
     },
   );
 
@@ -626,7 +633,10 @@ describe('issue-W1-corrective-5-c5: atomic scope target and proposal lifecycle',
         configsRepo: fixture.configs,
       })).toBe('reconciliation-required');
       const pair = await durablePair(fixture);
-      expect(pair).toMatchObject({ target: fixture.applied, proposal: { status: 'active' } });
+      expect(pair).toMatchObject({
+        target: fixture.applied,
+        proposal: { status: 'reconciliation-required' },
+      });
       expect(projection).toHaveBeenCalledTimes(2);
     },
   );
