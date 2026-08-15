@@ -5,9 +5,12 @@ import { runMigrations } from '../database/migrations';
 import type { AgentOrgProposalInput, RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
 import {
   mapAgentConfigRow,
+  readPersistedRevision,
   type AgentConfigRow,
   type RevisionedAgentConfig,
 } from './agent_configs_repository';
+import { parseStrictJson } from '../services/strict_json';
+import { verifyScopeSnapshotForRevert } from '../services/scope_mutation_contract';
 
 /**
  * Dual-engine (proposals-parity fix, #1113 sibling): every method branches on
@@ -100,6 +103,13 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   failed: ['applied', 'failed'],
 };
 
+const SCOPE_PROPOSAL_KINDS = new Set<string>([
+  'tighten-scope',
+  'prune-scope',
+  'refine-scope',
+  'broaden-scope',
+]);
+
 /**
  * One prior attempt in the `workflow-fix:*` re-diagnosis family (#971-5):
  * the parsed attempt number `N` plus the full proposal row it came from.
@@ -167,6 +177,65 @@ export interface ScopeApprovedClaimInput extends ScopeClaimValidationMaterial {
 
 class AtomicScopeConflict extends Error {}
 
+function isSafeRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function assertAtomicScopeSemantics(
+  input: AtomicScopeTransitionInput | LegacyAtomicScopeTransitionInput,
+): void {
+  if (!SCOPE_PROPOSAL_KINDS.has(input.expectedKind)) {
+    throw new Error('Atomic scope transition requires an exact scope kind');
+  }
+  if (
+    typeof input.expectedChangeJson !== 'string' || input.expectedChangeJson.length === 0 ||
+    typeof input.expectedBeforeSnapshotJson !== 'string' ||
+    input.expectedBeforeSnapshotJson.length === 0
+  ) {
+    throw new Error('Atomic scope transition requires exact non-null change and snapshot material');
+  }
+
+  let snapshot: unknown;
+  try {
+    snapshot = parseStrictJson(
+      input.expectedBeforeSnapshotJson,
+      'atomic scope before_snapshot_json',
+    );
+  } catch (error) {
+    throw new Error(`Atomic scope transition snapshot is invalid: ${String(error)}`);
+  }
+  const verified = verifyScopeSnapshotForRevert(
+    snapshot,
+    input.expectedKind,
+    input.expectedChangeJson,
+  );
+  if (!verified) throw new Error('Atomic scope transition snapshot is not semantically bound');
+  if (
+    verified.prepared.agentConfigId !== input.targetId ||
+    verified.prepared.field !== input.field
+  ) {
+    throw new Error('Atomic scope transition target is not bound to the verified snapshot');
+  }
+
+  const writesApplied =
+    (input.expectedProposalStatus === 'approved' && input.nextProposalStatus === 'applied') ||
+    (input.expectedProposalStatus === 'reverted' &&
+      (input.nextProposalStatus === 'active' || input.nextProposalStatus === 'measuring'));
+  const expectedTargetValue = writesApplied
+    ? verified.prepared.priorValue
+    : verified.prepared.expectedAppliedValue;
+  const nextTargetValue = writesApplied
+    ? verified.prepared.expectedAppliedValue
+    : verified.prepared.priorValue;
+  if (
+    input.expectedTargetValue !== expectedTargetValue ||
+    input.nextTargetValue !== nextTargetValue ||
+    input.expectedTargetValue === input.nextTargetValue
+  ) {
+    throw new Error('Atomic scope transition target bytes do not match the verified semantic mutation');
+  }
+}
+
 /** Escape SQLite LIKE wildcards so a literal key fragment matches literally. */
 function escapeLikePattern(s: string): string {
   return s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -196,7 +265,10 @@ function rowToModel(row: AgentOrgProposalRow): RevisionedAgentOrgProposal {
     postScore: row.post_score ?? null,
     measureReason: row.measure_reason ?? null,
     decidedByUserId: row.decided_by_user_id ?? null,
-    revision: row.revision ?? 0,
+    revision: readPersistedRevision(
+      row.revision,
+      `agent_org_proposals '${row.id}' revision`,
+    ),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -472,6 +544,14 @@ export class AgentOrgProposalsRepository {
     }
     const sourceRevision = expectedRevision ?? existing.revision;
 
+    if (
+      SCOPE_PROPOSAL_KINDS.has(existing.kind) &&
+      existing.status === 'approved' &&
+      status === 'applied'
+    ) {
+      throw new Error('Scope approved-to-applied transition requires the atomic target pair primitive');
+    }
+
     const allowedNext = ALLOWED_TRANSITIONS[existing.status];
     if (!allowedNext || !allowedNext.includes(status)) {
       throw new Error(
@@ -628,6 +708,7 @@ export class AgentOrgProposalsRepository {
     if (!forward && !inverse && !apply && !compensate) {
       throw new Error('Unsupported atomic scope proposal transition');
     }
+    assertAtomicScopeSemantics(input);
 
     const columnByField = {
       allowedMcpsJson: 'allowed_mcps_json',
@@ -648,6 +729,9 @@ export class AgentOrgProposalsRepository {
       )?.revision;
       if (expectedProposalRevision === undefined || expectedTargetRevision === undefined) {
         throw new AtomicScopeConflict('scope revision source missing');
+      }
+      if (!isSafeRevision(expectedProposalRevision) || !isSafeRevision(expectedTargetRevision)) {
+        throw new Error('Atomic scope transition found an unsafe stored revision');
       }
       const target = this.db!
         .prepare(
@@ -713,9 +797,13 @@ export class AgentOrgProposalsRepository {
   }
 
   /** Strongly typed revision-bound seam for package-C lifecycle callers. */
-  transitionScopeAtomicallyAtRevisionsAsync(
+  async transitionScopeAtomicallyAtRevisionsAsync(
     input: AtomicScopeTransitionInput,
   ): Promise<AtomicScopeTransitionResult | null> {
+    if (!isSafeRevision(input.expectedProposalRevision) ||
+        !isSafeRevision(input.expectedTargetRevision)) {
+      throw new Error('Revision-bound atomic scope transition requires both safe revisions');
+    }
     return this.transitionScopeAtomicallyAsync(input);
   }
 
@@ -733,13 +821,7 @@ export class AgentOrgProposalsRepository {
     if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
       throw new Error('Scope proposal claim requires a non-negative integer revision');
     }
-    const scopeKinds = new Set<string>([
-      'tighten-scope',
-      'prune-scope',
-      'refine-scope',
-      'broaden-scope',
-    ]);
-    if (!scopeKinds.has(input.expectedKind)) {
+    if (!SCOPE_PROPOSAL_KINDS.has(input.expectedKind)) {
       throw new Error('Scope proposal claim requires an exact scope kind');
     }
     if (typeof input.expectedChangeJson !== 'string' || input.expectedChangeJson.length === 0) {
@@ -748,11 +830,14 @@ export class AgentOrgProposalsRepository {
     if (typeof input.beforeSnapshotJson !== 'string' || input.beforeSnapshotJson.length === 0) {
       throw new Error('Scope proposal claim requires exact non-null snapshot bytes');
     }
-    if (typeof input.validateSnapshot !== 'function' || !input.validateSnapshot({
-      expectedKind: input.expectedKind,
-      expectedChangeJson: input.expectedChangeJson,
-      beforeSnapshotJson: input.beforeSnapshotJson,
-    })) {
+    const validation = typeof input.validateSnapshot === 'function'
+      ? input.validateSnapshot({
+        expectedKind: input.expectedKind,
+        expectedChangeJson: input.expectedChangeJson,
+        beforeSnapshotJson: input.beforeSnapshotJson,
+      })
+      : false;
+    if (validation !== true) {
       throw new Error('Scope proposal claim snapshot validation failed');
     }
 
@@ -828,21 +913,11 @@ export class AgentOrgProposalsRepository {
     }
     const existing = await this.findByIdAsync(id);
     if (!existing) return null;
-    const scopeKinds = new Set<string>([
-      'tighten-scope',
-      'prune-scope',
-      'refine-scope',
-      'broaden-scope',
-    ]);
-    const isScope = scopeKinds.has(existing.kind);
+    const isScope = SCOPE_PROPOSAL_KINDS.has(existing.kind);
     if (isScope) {
-      if (typeof changeJson !== 'string' || changeJson.length === 0) {
-        throw new Error('Legacy scope claim requires exact non-null change binding');
-      }
-      if (typeof beforeSnapshotJson !== 'string' || beforeSnapshotJson.length === 0) {
-        throw new Error('Legacy scope claim requires exact non-null snapshot binding');
-      }
-      if (existing.changeJson !== changeJson) return null;
+      throw new Error(
+        'Legacy scope claim is disabled; use approved claim plus the atomic target pair primitive',
+      );
     }
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {

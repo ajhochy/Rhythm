@@ -270,6 +270,23 @@ export function deriveAgentConfigIdFromLabel(
 
 export type RevisionedAgentConfig = AgentConfig & { revision: number };
 
+/**
+ * Defense in depth behind the schema triggers (see installRevisionInvariants
+ * in database/migrations.ts). A revision read out of a row is a CAS token —
+ * mapping corrupt material to a plausible number would let a lifecycle caller
+ * fence on a value that never described the stored bytes.
+ *
+ * `undefined`/`null` maps to 0 ONLY for the legacy pre-column shape, which is
+ * genuinely indistinguishable from a fresh revision-zero row.
+ */
+export function readPersistedRevision(value: unknown, source: string): number {
+  if (value === undefined || value === null) return 0;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`${source} holds an unsafe persisted revision: ${String(value)}`);
+  }
+  return value as number;
+}
+
 function rowToModel(row: AgentConfigRow): RevisionedAgentConfig {
   // Legacy CLI columns (command, can_resume, resume_command, session_id_pattern,
   // output_marker) are intentionally NOT mapped onto the returned model — they
@@ -292,7 +309,7 @@ function rowToModel(row: AgentConfigRow): RevisionedAgentConfig {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    revision: row.revision ?? 0,
+    revision: readPersistedRevision(row.revision, `agent_configs '${row.id}' revision`),
     modelProvider: row.model_provider ?? null,
     modelId: row.model_id ?? null,
     ocAgent: row.oc_agent ?? null,

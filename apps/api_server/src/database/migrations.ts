@@ -10,6 +10,74 @@ import {
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from '../services/memory_consolidation_seed';
 
+/**
+ * W1 corrective-6 package B — monotonic persistence revisions.
+ *
+ * `revision` is the CAS token the scope lifecycle fences every approved →
+ * applied → measuring transition on. A raw writer (a migration repair, a
+ * bootstrap backfill, an ad-hoc UPDATE) that changes a row without touching
+ * `revision` would leave a stale token valid, so a lifecycle caller could
+ * commit against bytes it never read. Enforce the invariant in the schema
+ * rather than at each of the ~10 call sites:
+ *
+ *   - BEFORE INSERT / BEFORE UPDATE OF revision guards pin the stored domain
+ *     to a safe non-negative integer (SQLite's INTEGER affinity happily keeps
+ *     -1, 1.5, Infinity and 2^53 in an `INTEGER NOT NULL` column).
+ *   - AFTER UPDATE auto-bumps only when the writer left `revision` unchanged,
+ *     so repository writes that already do `revision = revision + 1` are not
+ *     double-incremented.
+ *
+ * Pre-existing unsafe material fails the migration CLOSED. Silently
+ * normalizing a corrupt revision would hand a lifecycle caller a token that
+ * looks fresh but describes bytes nobody verified.
+ */
+const MAX_SAFE_SQL_REVISION = '9007199254740991';
+
+function installRevisionInvariants(db: Database.Database, table: string): void {
+  const columns = (db.pragma(`table_info(${table})`) as { name: string }[])
+    .map((column) => column.name);
+  if (!columns.includes('revision')) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const unsafeDomain =
+    `typeof(revision) <> 'integer' OR revision < 0 OR revision > ${MAX_SAFE_SQL_REVISION}`;
+  const corrupt = db
+    .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${unsafeDomain}`)
+    .get() as { n: number };
+  if (corrupt.n > 0) {
+    throw new Error(
+      `${table}.revision holds ${corrupt.n} row(s) outside the safe non-negative integer ` +
+      'domain; refusing to migrate. Reconcile the corrupt revisions before restarting.',
+    );
+  }
+
+  const rowDomain =
+    `typeof(NEW.revision) <> 'integer' OR NEW.revision < 0 ` +
+    `OR NEW.revision > ${MAX_SAFE_SQL_REVISION}`;
+  const abort = `SELECT RAISE(ABORT, '${table}.revision must be a safe non-negative integer');`;
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_insert_domain
+    BEFORE INSERT ON ${table}
+    FOR EACH ROW WHEN ${rowDomain}
+    BEGIN ${abort} END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_update_domain
+    BEFORE UPDATE OF revision ON ${table}
+    FOR EACH ROW WHEN ${rowDomain}
+    BEGIN ${abort} END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_autobump
+    AFTER UPDATE ON ${table}
+    FOR EACH ROW WHEN NEW.revision = OLD.revision
+    BEGIN
+      UPDATE ${table}
+         SET revision = OLD.revision + 1
+       WHERE id = NEW.id AND revision = OLD.revision;
+    END;
+  `);
+}
+
 export function runMigrations(db: Database.Database): void {
   // ── Write-discipline contract ─────────────────────────────────────────
   // runMigrations() runs on EVERY boot (db.ts initDb), not just first
@@ -993,6 +1061,11 @@ export function runMigrations(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled);
   `);
+
+  // Installed HERE, immediately after the table exists and BEFORE any seed or
+  // content repair below can write a row — a repair that runs while the column
+  // is missing would leave the lifecycle CAS token behind the actual bytes.
+  installRevisionInvariants(db, 'agent_configs');
 
   // Seed built-in preset rows (INSERT OR IGNORE keeps migration idempotent)
   db.exec(`
@@ -2239,6 +2312,8 @@ export function runMigrations(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
   `);
 
+  installRevisionInvariants(db, 'agent_org_proposals');
+
   // #1053 (OCU-12) — org_skills: the org's shared skill library, hosted on
   // the production API in the engine-compatible skills.urls format
   // (index.json + file serving — see org_skills_routes.ts). Reads are PUBLIC
@@ -3362,25 +3437,10 @@ If someone asks for creative work that needs a local capability:
     }
   });
 
-  // W1 corrective-6 package B — monotonic persistence revisions. Keep these
-  // structural upgrades together and idempotent so databases created before
-  // either column existed receive the same safe revision-zero baseline as a
-  // fresh database.
-  const agentConfigRevisionCols = (
-    db.pragma('table_info(agent_configs)') as { name: string }[]
-  ).map((column) => column.name);
-  if (!agentConfigRevisionCols.includes('revision')) {
-    db.exec(`ALTER TABLE agent_configs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`);
-  }
-  const agentOrgProposalRevisionCols = (
-    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
-  ).map((column) => column.name);
-  if (!agentOrgProposalRevisionCols.includes('revision')) {
-    db.exec(
-      `ALTER TABLE agent_org_proposals
-         ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`,
-    );
-  }
+  // W1 corrective-6 package B — the revision column, its stored domain and the
+  // raw-writer auto-bump are installed by installRevisionInvariants() at each
+  // table's CREATE site above, so no content repair can run against a table
+  // that still lacks the lifecycle CAS token.
 
   // #1175 — Mobile Activity is an authenticated, per-user projection. Recipes
   // and optimizer proposals predate user ownership, so add nullable ownership

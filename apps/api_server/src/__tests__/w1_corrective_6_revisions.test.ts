@@ -1,10 +1,17 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  readPersistedRevision,
+} from '../repositories/agent_configs_repository';
+import { createScopeStateV2Snapshot } from '../services/scope_mutation_contract';
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -13,13 +20,24 @@ function makeDb(): Database.Database {
   return db;
 }
 
+function dropRevisionInvariants(db: Database.Database, table: string): void {
+  // A genuine pre-corrective-6 database had neither the column nor the
+  // revision triggers, and SQLite refuses to drop a column a trigger reads.
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_${table}_revision_insert_domain;
+    DROP TRIGGER IF EXISTS trg_${table}_revision_update_domain;
+    DROP TRIGGER IF EXISTS trg_${table}_revision_autobump;
+    ALTER TABLE ${table} DROP COLUMN revision;
+  `);
+}
+
 describe('W1 corrective 6 package B — monotonic persistence revisions', () => {
   describe('B1 proposal revision schema and model', () => {
     it('migrates an existing proposal row to revision zero', () => {
       // Regression caught: adding the model field without an additive legacy
       // backfill leaves existing optimizer rows null/unreadable.
       const db = makeDb();
-      db.exec('ALTER TABLE agent_org_proposals DROP COLUMN revision');
+      dropRevisionInvariants(db, 'agent_org_proposals');
       db.prepare(
         `INSERT INTO agent_org_proposals
           (id, kind, risk, status, title)
@@ -163,11 +181,22 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         id: `atomic-target-${suffix}`,
         label: `Atomic target ${suffix}`,
         icon: 'shield',
-        allowedSkillsJson: '["base"]',
+        allowedSkillsJson: '["base","extra"]',
       });
       const proposals = new AgentOrgProposalsRepository(db);
-      const changeJson = `{"agentConfigId":"${target.id}","field":"allowedSkillsJson"}`;
-      const snapshotJson = '{"version":"scope-state-v2"}';
+      const changeJson = JSON.stringify({
+        agentConfigId: target.id,
+        field: 'allowedSkillsJson',
+        add: ['extra'],
+      });
+      const snapshotJson = JSON.stringify(createScopeStateV2Snapshot(
+        target.id,
+        'allowedSkillsJson',
+        '["base"]',
+        '["base","extra"]',
+        changeJson,
+        'broaden-scope',
+      ));
       const created = await proposals.createAsync({
         id: `atomic-proposal-${suffix}`,
         kind: 'broaden-scope',
@@ -195,8 +224,8 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         expectedBeforeSnapshotJson: state.snapshotJson,
         targetId: state.target.id,
         field: 'allowedSkillsJson' as const,
-        expectedTargetValue: '["base"]',
-        nextTargetValue: '["base","extra"]',
+        expectedTargetValue: '["base","extra"]',
+        nextTargetValue: '["base"]',
         expectedTargetRevision: state.target.revision,
         nextBaselineScore: null,
         nextPostScore: null,
@@ -237,8 +266,8 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         expectedProposalStatus: 'reverted',
         nextProposalStatus: 'measuring',
         expectedProposalRevision: forward!.proposal.revision,
-        expectedTargetValue: '["base","extra"]',
-        nextTargetValue: '["base"]',
+        expectedTargetValue: '["base"]',
+        nextTargetValue: '["base","extra"]',
         expectedTargetRevision: forward!.target.revision,
         nextMeasureReason: 'winner cycle',
       }));
@@ -272,6 +301,110 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
       db.close();
     });
 
+    it('semantically binds the atomic target id and bytes to the verified v2 snapshot', async () => {
+      const db = makeDb();
+      const state = await setupAtomic(db, 'semantic-target');
+      const other = state.configs.insert({
+        id: 'atomic-other-target',
+        label: 'Atomic other target',
+        icon: 'shield',
+        allowedSkillsJson: '["base","extra"]',
+      });
+      const beforeProposal = await state.proposals.findByIdAsync(state.measuring.id);
+      const beforeOriginal = state.configs.getById(state.target.id);
+      const beforeOther = state.configs.getById(other.id);
+
+      await expect(state.proposals.transitionScopeAtomicallyAtRevisionsAsync({
+        ...transitionInput(state),
+        targetId: other.id,
+        expectedTargetRevision: other.revision,
+      })).rejects.toThrow(/snapshot|semantic|target|bound/i);
+      await expect(state.proposals.transitionScopeAtomicallyAtRevisionsAsync({
+        ...transitionInput(state),
+        nextTargetValue: '["base","extra"]',
+      })).rejects.toThrow(/snapshot|semantic|target|mutation/i);
+
+      expect(await state.proposals.findByIdAsync(state.measuring.id)).toEqual(beforeProposal);
+      expect(state.configs.getById(state.target.id)).toEqual(beforeOriginal);
+      expect(state.configs.getById(other.id)).toEqual(beforeOther);
+      db.close();
+    });
+
+    it.each([
+      {
+        label: 'null material',
+        kind: 'broaden-scope',
+        changeJson: null,
+        snapshotJson: null,
+      },
+      {
+        label: 'a non-scope kind',
+        kind: 'refine-recipe',
+        changeJson: '{"recipePatch":true}',
+        snapshotJson: '{"legacy":true}',
+      },
+    ])('rejects $label before an atomic scope effect', async ({ kind, changeJson, snapshotJson }) => {
+      const db = makeDb();
+      setDb(db);
+      const configs = new AgentConfigsRepository();
+      const target = configs.insert({
+        id: `unsafe-atomic-target-${kind}`,
+        label: `Unsafe atomic target ${kind}`,
+        icon: 'shield',
+        allowedSkillsJson: '["base"]',
+      });
+      const proposals = new AgentOrgProposalsRepository(db);
+      const proposal = await proposals.createAsync({
+        id: `unsafe-atomic-proposal-${kind}`,
+        kind,
+        risk: 'high',
+        status: 'approved',
+        title: `Unsafe atomic proposal ${kind}`,
+        changeJson,
+        beforeSnapshotJson: snapshotJson,
+      });
+      const beforeTarget = configs.getById(target.id);
+      const beforeProposal = await proposals.findByIdAsync(proposal.id);
+
+      await expect((proposals.transitionScopeAtomicallyAtRevisionsAsync as any)({
+        proposalId: proposal.id,
+        expectedProposalStatus: 'approved',
+        nextProposalStatus: 'applied',
+        expectedProposalRevision: proposal.revision,
+        expectedKind: kind,
+        expectedChangeJson: changeJson,
+        expectedBeforeSnapshotJson: snapshotJson,
+        targetId: target.id,
+        field: 'allowedSkillsJson',
+        expectedTargetValue: '["base"]',
+        nextTargetValue: '["unsafe"]',
+        expectedTargetRevision: target.revision,
+        nextBaselineScore: null,
+        nextPostScore: null,
+        nextMeasureReason: null,
+      })).rejects.toThrow(/scope|snapshot|change|kind|material/i);
+      expect(configs.getById(target.id)).toEqual(beforeTarget);
+      expect(await proposals.findByIdAsync(proposal.id)).toEqual(beforeProposal);
+      db.close();
+    });
+
+    it('requires both revisions at runtime on the revision-bound atomic seam', async () => {
+      const db = makeDb();
+      const state = await setupAtomic(db, 'required-revisions');
+      const beforeProposal = await state.proposals.findByIdAsync(state.measuring.id);
+      const beforeTarget = state.configs.getById(state.target.id);
+      const input = transitionInput(state) as Record<string, unknown>;
+      delete input.expectedProposalRevision;
+      delete input.expectedTargetRevision;
+
+      await expect(
+        (state.proposals.transitionScopeAtomicallyAtRevisionsAsync as any)(input),
+      ).rejects.toThrow(/revision/i);
+      expect(await state.proposals.findByIdAsync(state.measuring.id)).toEqual(beforeProposal);
+      expect(state.configs.getById(state.target.id)).toEqual(beforeTarget);
+      db.close();
+    });
+
     it('atomically transitions an approved claim and exact target to applied', async () => {
       // Regression caught: the intermediate claim exists but package C has no
       // one-transaction primitive to make the target and proposal applied.
@@ -285,8 +418,19 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         allowedSkillsJson: '["base"]',
       });
       const proposals = new AgentOrgProposalsRepository(db);
-      const changeJson = '{"agentConfigId":"approved-apply-target","field":"allowedSkillsJson"}';
-      const snapshotJson = '{"version":"scope-state-v2"}';
+      const changeJson = JSON.stringify({
+        agentConfigId: target.id,
+        field: 'allowedSkillsJson',
+        add: ['extra'],
+      });
+      const snapshotJson = JSON.stringify(createScopeStateV2Snapshot(
+        target.id,
+        'allowedSkillsJson',
+        '["base"]',
+        '["base","extra"]',
+        changeJson,
+        'broaden-scope',
+      ));
       const proposal = await proposals.createAsync({
         id: 'approved-apply-proposal',
         kind: 'broaden-scope',
@@ -344,8 +488,19 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         allowedSkillsJson: '["base"]',
       });
       const proposals = new AgentOrgProposalsRepository(db);
-      const changeJson = '{"agentConfigId":"approved-compensation-target","field":"allowedSkillsJson"}';
-      const snapshotJson = '{"version":"scope-state-v2"}';
+      const changeJson = JSON.stringify({
+        agentConfigId: target.id,
+        field: 'allowedSkillsJson',
+        add: ['extra'],
+      });
+      const snapshotJson = JSON.stringify(createScopeStateV2Snapshot(
+        target.id,
+        'allowedSkillsJson',
+        '["base"]',
+        '["base","extra"]',
+        changeJson,
+        'broaden-scope',
+      ));
       const proposal = await proposals.createAsync({
         id: 'approved-compensation-proposal',
         kind: 'broaden-scope',
@@ -441,7 +596,7 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
       // Regression caught: legacy profiles receive null rather than a safe
       // initial projection generation during additive migration.
       const db = makeDb();
-      db.exec('ALTER TABLE agent_configs DROP COLUMN revision');
+      dropRevisionInvariants(db, 'agent_configs');
       runMigrations(db);
       const row = db.prepare(
         `SELECT revision FROM agent_configs WHERE id = 'codex'`,
@@ -539,6 +694,28 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
       return { proposals, proposal, changeJson, snapshotJson, validateSnapshot };
     }
 
+    it('forbids generic scope approved-to-applied outside the atomic target pair', async () => {
+      const db = makeDb();
+      const state = await setupClaim(db, 'generic-applied-bypass');
+      const approved = await state.proposals.claimScopeApprovedWithSnapshotAsync({
+        id: state.proposal.id,
+        decidedByUserId: 0,
+        expectedRevision: state.proposal.revision,
+        expectedKind: 'broaden-scope',
+        expectedChangeJson: state.changeJson,
+        beforeSnapshotJson: state.snapshotJson,
+        validateSnapshot: state.validateSnapshot,
+      });
+
+      await expect(state.proposals.updateStatusAtRevisionAsync(
+        approved!.id,
+        approved!.revision,
+        'applied',
+      )).rejects.toThrow(/scope|atomic|applied/i);
+      expect(await state.proposals.findByIdAsync(approved!.id)).toEqual(approved);
+      db.close();
+    });
+
     it('allows exactly one concurrent approved claim and retains exact bound bytes', async () => {
       // Regression caught: a read-then-write claim lets two actors win or
       // exposes applied before the target transaction has happened.
@@ -583,6 +760,7 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         (base) => ({ ...base, beforeSnapshotJson: null }),
         (base) => ({ ...base, decidedByUserId: Number.MAX_SAFE_INTEGER + 1 }),
         (base) => ({ ...base, validateSnapshot: () => false }),
+        (base) => ({ ...base, validateSnapshot: async () => false }),
       ];
       for (const [index, mutate] of invalidCases.entries()) {
         const db = makeDb();
@@ -638,6 +816,14 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
       const db = makeDb();
       const state = await setupClaim(db, 'legacy-guard');
 
+      await expect(state.proposals.claimAppliedWithSnapshotAsync(
+        state.proposal.id,
+        7,
+        '{"arbitrary":"not-a-v2-snapshot"}',
+        state.changeJson,
+      )).rejects.toThrow(/scope|legacy|approved|atomic/i);
+      expect(await state.proposals.findByIdAsync(state.proposal.id)).toEqual(state.proposal);
+
       await expect(
         state.proposals.claimAppliedWithSnapshotAsync(
           state.proposal.id,
@@ -647,13 +833,162 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
       ).rejects.toThrow(/scope|change|binding/i);
       expect(await state.proposals.findByIdAsync(state.proposal.id)).toEqual(state.proposal);
 
-      expect(await state.proposals.claimAppliedWithSnapshotAsync(
+      await expect(state.proposals.claimAppliedWithSnapshotAsync(
         state.proposal.id,
         7,
         state.snapshotJson,
         '{"different":true}',
-      )).toBeNull();
+      )).rejects.toThrow(/scope|legacy|approved|atomic/i);
       expect(await state.proposals.findByIdAsync(state.proposal.id)).toEqual(state.proposal);
+      db.close();
+    });
+  });
+
+  describe('B8 engine parity for the revision invariants', () => {
+    it.each([
+      { label: 'negative', value: -1 },
+      { label: 'fractional', value: 1.5 },
+      { label: 'infinite', value: Infinity },
+      { label: 'unsafe', value: Number.MAX_SAFE_INTEGER + 1 },
+      { label: 'string', value: '3' },
+    ])('refuses to map a $label persisted revision', ({ value }) => {
+      // Defense in depth behind the schema triggers: the hosted Postgres
+      // engine and any hand-repaired row still reach the caller through this
+      // mapper, and a CAS token that never described the stored bytes must
+      // never be handed out as a plausible number.
+      expect(() => readPersistedRevision(value, 'probe revision')).toThrow(
+        /unsafe persisted revision/,
+      );
+    });
+
+    it('maps only the legacy pre-column shape to revision zero', () => {
+      expect(readPersistedRevision(undefined, 'probe revision')).toBe(0);
+      expect(readPersistedRevision(null, 'probe revision')).toBe(0);
+      expect(readPersistedRevision(0, 'probe revision')).toBe(0);
+      expect(readPersistedRevision(7, 'probe revision')).toBe(7);
+    });
+
+    const sqliteSource = readFileSync(
+      join(__dirname, '..', 'database', 'migrations.ts'),
+      'utf8',
+    );
+    const postgresSource = readFileSync(
+      join(__dirname, '..', 'database', 'postgres_bootstrap.ts'),
+      'utf8',
+    );
+
+    it('installs the SQLite invariants before any seed or content repair can write', () => {
+      // Regression caught: the revision column/triggers were installed at the
+      // end of runMigrations, so every profile repair above them mutated rows
+      // while the lifecycle CAS token was missing or unguarded.
+      const install = sqliteSource.indexOf("installRevisionInvariants(db, 'agent_configs')");
+      const seed = sqliteSource.indexOf('INSERT OR IGNORE INTO agent_configs');
+      const relabel = sqliteSource.indexOf("label      = 'OpenRouter'");
+      expect(install).toBeGreaterThan(-1);
+      expect(seed).toBeGreaterThan(install);
+      expect(relabel).toBeGreaterThan(install);
+      expect(
+        sqliteSource.indexOf("installRevisionInvariants(db, 'agent_org_proposals')"),
+      ).toBeGreaterThan(-1);
+    });
+
+    it('gives Postgres the same non-negative domain and raw-writer auto-bump', () => {
+      // Regression caught: the invariants existed only on the local SQLite
+      // engine, so the hosted engine accepted negative revisions and let raw
+      // writers leave a stale CAS token valid.
+      expect(postgresSource).toMatch(
+        /agent_configs_revision_non_negative CHECK \(revision >= 0\)/,
+      );
+      expect(postgresSource).toMatch(
+        /agent_org_proposals_revision_non_negative CHECK \(revision >= 0\)/,
+      );
+      expect(postgresSource).toMatch(
+        /IF NEW\.revision = OLD\.revision THEN\s+NEW\.revision := OLD\.revision \+ 1;/,
+      );
+      for (const table of ['agent_configs', 'agent_org_proposals']) {
+        expect(postgresSource).toContain(
+          `DROP TRIGGER IF EXISTS trg_${table}_revision_autobump ON ${table};`,
+        );
+        expect(postgresSource).toMatch(
+          new RegExp(
+            `CREATE TRIGGER trg_${table}_revision_autobump\\s+BEFORE UPDATE ON ${table}`,
+          ),
+        );
+      }
+    });
+  });
+
+  describe('B7 migration writers and stored revision domain', () => {
+    it('advances config revision when a rerun migration changes projected profile state', () => {
+      // Regression caught: a raw migration writer relabels the profile without
+      // touching `revision`, so a lifecycle caller holding the pre-repair token
+      // can still commit a revision-fenced write against bytes it never read.
+      // Install-time repairs legitimately advance the seeded row, so the
+      // assertion is a delta — which also fails on a double increment.
+      const db = makeDb();
+      setDb(db);
+      const configs = new AgentConfigsRepository();
+      const seeded = configs.getById('opencode');
+      expect(seeded).not.toBeNull();
+      const baseline = seeded!.revision;
+
+      const edited = configs.update('opencode', { label: 'OpenCode' });
+      expect(edited).toMatchObject({ label: 'OpenCode', revision: baseline + 1 });
+
+      runMigrations(db);
+
+      expect(configs.getById('opencode')).toMatchObject({
+        label: 'OpenRouter',
+        revision: baseline + 2,
+      });
+      db.close();
+    });
+
+    it('does not inflate revisions when migrations replay with nothing to repair', () => {
+      // Regression caught: an auto-bump that fires on every no-op migration
+      // write churns the CAS token on each boot, invalidating live tokens and
+      // masking real drift.
+      const db = makeDb();
+      const read = () => db
+        .prepare('SELECT id, revision FROM agent_configs ORDER BY id')
+        .all();
+      const before = read();
+      runMigrations(db);
+      runMigrations(db);
+      expect(read()).toEqual(before);
+      db.close();
+    });
+
+    it.each([
+      { label: 'negative', value: -1 },
+      { label: 'fractional', value: 1.5 },
+      { label: 'infinite', value: Infinity },
+      { label: 'unsafe', value: Number.MAX_SAFE_INTEGER + 1 },
+    ])('rejects $label stored revisions for both mutable tables', async ({ value }) => {
+      const db = makeDb();
+      setDb(db);
+      const configs = new AgentConfigsRepository();
+      const config = configs.insert({
+        id: `revision-domain-config-${String(value)}`,
+        label: 'Revision domain config',
+        icon: 'shield',
+      });
+      const proposals = new AgentOrgProposalsRepository(db);
+      const proposal = await proposals.createAsync({
+        id: `revision-domain-proposal-${String(value)}`,
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'Revision domain proposal',
+      });
+
+      expect(() => db.prepare(
+        'UPDATE agent_configs SET revision = ? WHERE id = ?',
+      ).run(value, config.id)).toThrow(/revision|constraint|integer/i);
+      expect(() => db.prepare(
+        'UPDATE agent_org_proposals SET revision = ? WHERE id = ?',
+      ).run(value, proposal.id)).toThrow(/revision|constraint|integer/i);
+      expect(configs.getById(config.id)?.revision).toBe(0);
+      expect((await proposals.findByIdAsync(proposal.id))?.revision).toBe(0);
       db.close();
     });
   });
