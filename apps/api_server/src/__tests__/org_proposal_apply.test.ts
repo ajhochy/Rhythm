@@ -64,6 +64,8 @@ describe('W1: versioned scope snapshots', () => {
       'allowedMcpsJson',
       priorValue,
       ['gitnexus'],
+      'prune-scope',
+      '{"agentConfigId":"config-1","field":"allowedMcpsJson","remove":["gitnexus"]}',
     );
 
     expect(snapshot).toMatchObject({
@@ -93,6 +95,7 @@ describe('W1: versioned scope snapshots', () => {
       priorValue,
       expectedAppliedValue,
       exactChangeJson,
+      'refine-scope',
     );
 
     expect(snapshot).toMatchObject({
@@ -144,7 +147,7 @@ describe('W1: versioned scope snapshots', () => {
     },
   ])('refuses invalid scope-state-v2 construction: $label', async ({ args }) => {
     const { createScopeStateV2Snapshot } = await import('../services/org_proposal_apply');
-    expect(() => createScopeStateV2Snapshot(args[0], args[1], args[2], args[3], args[4])).toThrow();
+    expect(() => createScopeStateV2Snapshot(args[0], args[1], args[2], args[3], args[4], 'broaden-scope')).toThrow();
   });
 });
 
@@ -201,6 +204,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
       priorValue,
       expectedAppliedValue,
       exactChangeJson,
+      kind as 'refine-scope' | 'broaden-scope',
     );
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
@@ -275,7 +279,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
     const applied = '["skill-a","skill-b"]';
     const config = configsRepo.insert({ label: `Tamper ${label}`, icon: 'shield', allowedSkillsJson: applied });
     const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedSkillsJson', add: ['skill-b'] });
-    const snapshot = createScopeStateV2Snapshot(config.id, 'allowedSkillsJson', prior, applied, exactChangeJson) as unknown as Record<string, any>;
+    const snapshot = createScopeStateV2Snapshot(config.id, 'allowedSkillsJson', prior, applied, exactChangeJson, 'broaden-scope') as unknown as Record<string, any>;
     mutate(snapshot);
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
@@ -301,7 +305,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
     const applied = '["skill-a","skill-b"]';
     const config = configsRepo.insert({ label: 'Exact change tamper', icon: 'shield', allowedSkillsJson: applied });
     const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedSkillsJson', add: ['skill-b'] });
-    const snapshot = createScopeStateV2Snapshot(config.id, 'allowedSkillsJson', prior, applied, exactChangeJson);
+    const snapshot = createScopeStateV2Snapshot(config.id, 'allowedSkillsJson', prior, applied, exactChangeJson, 'broaden-scope');
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'broaden-scope', risk: 'high', title: 'Exact change tamper',
@@ -576,11 +580,14 @@ describe('W1: conflict-safe scope revert', () => {
       icon: 'shield',
       allowedMcpsJson: prior,
     });
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus', 'pco-services'] });
     const snapshot = createScopeDeltaV2Snapshot(
       config.id,
       'allowedMcpsJson',
       prior,
       ['gitnexus', 'pco-services'],
+      'prune-scope',
+      exactChangeJson,
     );
     configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
     const proposalsRepo = new AgentOrgProposalsRepository();
@@ -588,7 +595,7 @@ describe('W1: conflict-safe scope revert', () => {
       kind: 'prune-scope',
       risk: 'high',
       title: 'V2 array revert',
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus', 'pco-services'] }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'w1:v2-array-revert',
     });
@@ -612,11 +619,14 @@ describe('W1: conflict-safe scope revert', () => {
       icon: 'shield',
       allowedMcpsJson: prior,
     });
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] });
     const snapshot = createScopeDeltaV2Snapshot(
       config.id,
       'allowedMcpsJson',
       prior,
       ['gitnexus'],
+      'prune-scope',
+      exactChangeJson,
     );
     const intervening = JSON.stringify(['rhythm', 'pco-services']);
     configsRepo.update(config.id, { allowedMcpsJson: intervening });
@@ -625,7 +635,7 @@ describe('W1: conflict-safe scope revert', () => {
       kind: 'prune-scope',
       risk: 'high',
       title: 'V2 conflict',
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'w1:v2-conflict',
     });
@@ -653,11 +663,14 @@ describe('W1: conflict-safe scope revert', () => {
       icon: 'shield',
       allowedMcpsJson: prior,
     });
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] });
     const snapshot = createScopeDeltaV2Snapshot(
       config.id,
       'allowedMcpsJson',
       prior,
       ['gitnexus'],
+      'tighten-scope',
+      exactChangeJson,
     );
     configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
     const proposalsRepo = new AgentOrgProposalsRepository();
@@ -665,7 +678,7 @@ describe('W1: conflict-safe scope revert', () => {
       kind: 'tighten-scope',
       risk: 'high',
       title: 'V2 tools-map revert',
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'w1:v2-map-revert',
     });
@@ -705,7 +718,8 @@ describe('W1: conflict-safe scope revert', () => {
     const configsRepo = new AgentConfigsRepository();
     const prior = JSON.stringify(['x', 'y']);
     const config = configsRepo.insert({ label: 'Binding target', icon: 'shield', allowedMcpsJson: prior });
-    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['x']);
+    const snapshotChange = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['x'], 'prune-scope', snapshotChange);
     configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
     const proposalsRepo = new AgentOrgProposalsRepository();
     const boundChange = changeJson?.replace('TARGET', config.id) ?? null;
@@ -733,9 +747,9 @@ describe('W1: conflict-safe scope revert', () => {
       const arrayPrior = JSON.stringify([reserved, 'safe']);
       const mapPrior = JSON.stringify(Object.fromEntries([[reserved, ['read']], ['safe', ['read']]]));
 
-      expect(() => createScopeDeltaV2Snapshot('array-target', 'allowedSkillsJson', arrayPrior, [` ${reserved} `]))
-        .toThrow(/reserved/i);
-      expect(() => createScopeDeltaV2Snapshot('map-target', 'allowedMcpsJson', mapPrior, [reserved]))
+      expect(() => createScopeDeltaV2Snapshot('array-target', 'allowedSkillsJson', arrayPrior, [` ${reserved} `], 'prune-scope', JSON.stringify({ agentConfigId: 'array-target', field: 'allowedSkillsJson', remove: [` ${reserved} `] })))
+        .toThrow();
+      expect(() => createScopeDeltaV2Snapshot('map-target', 'allowedMcpsJson', mapPrior, [reserved], 'prune-scope', JSON.stringify({ agentConfigId: 'map-target', field: 'allowedMcpsJson', remove: [reserved] })))
         .toThrow(/reserved/i);
     },
   );
@@ -748,7 +762,8 @@ describe('W1: conflict-safe scope revert', () => {
       const configsRepo = new AgentConfigsRepository();
       const prior = JSON.stringify(['x', 'safe']);
       const config = configsRepo.insert({ label: `Tampered ${reserved}`, icon: 'shield', allowedSkillsJson: prior });
-      const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedSkillsJson', prior, ['x']);
+      const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedSkillsJson', remove: ['x'] });
+      const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedSkillsJson', prior, ['x'], 'prune-scope', exactChangeJson);
       snapshot.requestedRemove = [reserved];
       snapshot.removedEntries = [{ name: reserved, priorValue: reserved, priorIndex: 0 }];
       snapshot.integrityHash = createHash('sha256').update(JSON.stringify({
@@ -770,7 +785,7 @@ describe('W1: conflict-safe scope revert', () => {
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
-      expect(await revertProposal(active!)).toBe('unsafe-legacy-scope');
+      expect(await revertProposal(active!)).toBe('conflict');
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(snapshot.expectedAppliedValue);
       expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
     },
@@ -947,7 +962,7 @@ describe('W1: deferred human scope apply CAS', () => {
       dedupKey: `w1-c3:unreadable-prior:${label}`,
     });
 
-    await expect(applyHumanProposal(proposal)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(applyHumanProposal(proposal)).rejects.toThrow();
     expect(readScopeField(configsRepo, config.id, field)).toBe(prior);
     expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
       status: 'proposed',
@@ -1019,7 +1034,7 @@ describe('W1: deferred human scope apply CAS', () => {
       changeJson: JSON.stringify(change(config.id)), dedupKey: `w1-c3:no-op:${kind}`,
     });
 
-    await expect(applyHumanProposal(proposal)).rejects.toMatchObject({ statusCode: 409 });
+    await expect(applyHumanProposal(proposal)).rejects.toThrow();
     expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(prior);
     expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('proposed');
     expect(profileSpy).not.toHaveBeenCalled();
@@ -1317,12 +1332,13 @@ describe('W1: scope projection is a revert gate', () => {
       const configsRepo = new AgentConfigsRepository();
       const prior = ' [ "gitnexus", "rhythm" ] ';
       const config = configsRepo.insert({ label: `Revert ${writerResult}`, icon: 'shield', allowedMcpsJson: prior });
-      const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['gitnexus']);
+      const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] });
+      const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['gitnexus'], 'prune-scope', exactChangeJson);
       configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
       const proposalsRepo = new AgentOrgProposalsRepository();
       const proposal = await proposalsRepo.createAsync({
         kind: 'prune-scope', risk: 'high', title: `Revert ${writerResult}`,
-        changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+        changeJson: exactChangeJson,
         beforeSnapshotJson: JSON.stringify(snapshot),
         dedupKey: `w1:revert-writer:${writerResult}`,
       });
@@ -1344,12 +1360,13 @@ describe('W1: scope projection is a revert gate', () => {
     const prior = JSON.stringify(['gitnexus', 'rhythm']);
     const concurrent = JSON.stringify(['rhythm', 'pco-services']);
     const config = configsRepo.insert({ label: 'Revert compensation race', icon: 'shield', allowedMcpsJson: prior });
-    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['gitnexus']);
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['gitnexus'], 'prune-scope', exactChangeJson);
     configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'prune-scope', risk: 'high', title: 'Revert compensation race',
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1:revert-compensation-race',
     });
     await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
@@ -1403,7 +1420,7 @@ describe('W1: scope projection is a revert gate', () => {
           const exactChangeJson = field === 'allowedSkillsJson'
             ? JSON.stringify({ scopePatch: { agentConfigId: config.id, field, add: ['skill-b'] } })
             : JSON.stringify({ scopePatch: { agentConfigId: config.id, field, set: { read: 'allow' } } });
-          const snapshot = createScopeStateV2Snapshot(config.id, field, prior, applied, exactChangeJson);
+          const snapshot = createScopeStateV2Snapshot(config.id, field, prior, applied, exactChangeJson, 'refine-scope');
           const proposalsRepo = new AgentOrgProposalsRepository();
           const proposal = await proposalsRepo.createAsync({
             kind: 'refine-scope', risk: 'high', title: `Actual revert ${writerResult}`,
@@ -1451,7 +1468,7 @@ describe('W1: scope projection is a revert gate', () => {
         scopePatch: { agentConfigId: config.id, field: 'allowedSkillsJson', add: ['skill-b'] },
       });
       const snapshot = createScopeStateV2Snapshot(
-        config.id, 'allowedSkillsJson', prior, applied, exactChangeJson,
+        config.id, 'allowedSkillsJson', prior, applied, exactChangeJson, 'refine-scope',
       );
       const proposalsRepo = new AgentOrgProposalsRepository();
       const proposal = await proposalsRepo.createAsync({

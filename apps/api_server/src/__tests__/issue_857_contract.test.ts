@@ -240,14 +240,15 @@ describe('issue-857-c5: revertProposal succeeds on an active proposal', () => {
       allowedMcpsJson: priorMcps,
     });
 
-    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', priorMcps, ['nfl-mcp']);
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl-mcp'] });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', priorMcps, ['nfl-mcp'], 'tighten-scope', exactChangeJson);
 
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'tighten-scope',
       risk: 'high',
       title: 'Tighten unused mcp scope nfl-mcp from secretary',
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl-mcp'] }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'issue-857-c5:active-revert',
     });

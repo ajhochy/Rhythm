@@ -1,6 +1,7 @@
 {
   "issue": "W1-corrective-3",
   "generated": "2026-08-14",
+  "review_status": "failed-superseded-by-corrective-4",
   "criteria": [
     {
       "criterion_id": "issue-W1-corrective-3-c1",

@@ -1,0 +1,60 @@
+{
+  "issue": "W1-corrective-4",
+  "generated": "2026-08-14",
+  "review_status": "corrective-in-progress-route-gate-blocked",
+  "criteria": [
+    {
+      "criterion_id": "issue-W1-corrective-4-c1",
+      "text": "One strict shared scope mutation contract rejects malformed, ambiguous, duplicate, overlapping, stale, unsupported, empty, reserved, and no-op operations before preparation, claim, target mutation, projection, or measurement.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c1: strict live scope mutation contract",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: 8 reviewer validation/preparation cases were accepted or normalized; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 committed regression file: strict validation, preparation, and claim-path invariants passed within the final 38/38 run."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c2",
+      "text": "Both scope snapshot versions bind allowed proposal kind, exact change_json bytes, exact target/field/prior/applied bytes, and independently replay valid semantics before any revert mutation.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c2: proposal-kind-bound semantic snapshots",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: constructors accepted malformed states, mislabeled state reverted, delta accepted byte-different change_json, and parseable null returned skipped; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 committed regression file: constructors and independent revert replay refused every named malformed, ambiguous, mislabeled, no-op, reserved, and byte-different case within the final 38/38 run."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c3",
+      "text": "Recursive scope-bearing payloads, including core permission set/unset/content under a mislabeled text kind, classify HIGH and cannot enter unattended apply; unrelated text stays LOW.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c3: recursive scope risk and human gate",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: three nested/direct core scope shapes classified LOW and the auto lane advanced the proposal; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 committed regression file: recursive core shapes classify HIGH, unattended apply is side-effect-free, and unrelated text remains LOW within the final 38/38 run."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c4",
+      "text": "If the final reverted status transition throws, returns null, or is not durable, scope-only exact CAS compensation restores applied bytes and reprojection; a compensation miss preserves concurrent bytes and reports conflict.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c4: final status failure compensation",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: state/delta trigger cases left prior target bytes under active proposals; null status was treated as success; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 in-memory SQLite trigger/null/concurrency regressions passed within the final 38/38 run, proving exact applied-byte compensation or concurrent-byte preservation with a non-success outcome."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c5",
+      "text": "Normal unambiguous array, supported tools-map, and core mutations preserve exact semantics while all prior claim-first, CAS, projection, legacy, human-only, parity, and route guarantees remain green.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c5: normal exact scope mutations stay supported",
+      "status": "fail",
+      "reason": "Normal array, tools-map, and core controls passed; the 11 non-listener parent files passed 261 tests with 1 existing skip and the API build passed. The required route file remains unverified in this sandbox because its ephemeral app.listen(0) fails with listen EPERM before route code executes."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "src/__tests__/org_proposals_routes.test.ts: sandbox blocks ephemeral listeners with listen EPERM on 0.0.0.0; external Node 22 rerun remains required"
+  ]
+}

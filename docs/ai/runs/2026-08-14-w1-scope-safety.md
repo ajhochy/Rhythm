@@ -4,7 +4,7 @@ repo: Rhythm
 branch: agent-stack/si-scope-safety
 pr: null
 issues: [W1]
-status: verification-pending
+status: corrective-in-progress
 tags: [run, Rhythm, optimizer, scope-safety]
 ---
 
@@ -104,3 +104,38 @@ tags: [run, Rhythm, optimizer, scope-safety]
 - Parent review additionally made mixed/add/core scope preparation reject malformed JSON,
   mixed-type allowlist arrays, scalar allowlists, and non-object core-permission state before claim or
   projection; four new regressions passed. Status is verification-pending until independent review.
+- Independent review of `47bd426e` failed closed with seven P1s: v2 snapshots lacked complete
+  semantic/kind binding, ambiguous operations were normalized, recursive core-scope risk detection
+  was incomplete, delta snapshots did not bind exact change bytes, and a failed final status update
+  could leave restored target bytes under an active proposal. Corrective cycle 4 is in progress.
+
+## Corrective cycle 4
+
+- Added one pure strict mutation contract shared by refine, broaden, delta/state snapshot creation,
+  recognition, semantic replay, and revert. Both v2 shapes now bind the allowed proposal kind,
+  exact prior/applied bytes, exact `change_json` hash, target/field, and semantic proof; old or
+  incomplete shapes refuse closed.
+- Ambiguous live operations now reject before claim: duplicate current/requested entries, empty
+  present operations, overlaps, stale removals/unsets, existing additions, mixed/scalar/malformed
+  state, unsupported keys/shapes, reserved identifiers, and semantic no-ops. Normal array,
+  ordinary-key tools-map, and core set/unset controls remain supported.
+- Recursive risk detection now treats scope-shaped core payloads as HIGH even under a mislabeled
+  text kind, while unrelated prose containing `set`/`unset` remains LOW.
+- A failed/null/non-durable final `reverted` transition now performs exact scope-only CAS back to the
+  applied bytes and reprojects them. A lost compensation CAS preserves concurrent bytes and returns
+  conflict; state and delta paths are covered with real in-memory SQLite failure triggers.
+- RED against immutable `47bd426e`: the initial committed corrective test file reported 25 failed
+  and 1 passed, reproducing all five reviewer probes. GREEN under Node `v22.23.1`: the final
+  corrective file passed 38/38.
+- Exact parent gate attempt: the route file could not enter its first test because `app.listen(0)`
+  raised `listen EPERM: operation not permitted 0.0.0.0`; isolated rerun reproduced the same harness
+  failure with 1 failed and 22 skipped. That first full attempt also exposed one config-doctor error
+  wording mismatch; the strict validator was aligned to the existing contract wording, after which
+  the remaining 11 requested files passed 261 tests with 1 existing skip. `npm run build` passed
+  (`tsc` plus the advisory-copy postbuild).
+- GitNexus compare against `main` completed with 25 files, 102 symbols, zero affected processes, and
+  low reported risk. Pre-edit analysis separately classified `revertProposal` CRITICAL and
+  `classifyProposalRisk` HIGH, so both received adversarial lifecycle/risk regressions.
+- No live Rhythm/OpenCode DB, persistent server, network, W2/W3, integration, or raw scope/profile
+  logging was used. Status remains corrective-in-progress pending the external Node 22 route rerun
+  and independent review.

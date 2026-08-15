@@ -99,10 +99,8 @@ import { writeAgentProfileFile } from './opencode_agent_writer';
 import {
   readAgentConfigField,
   agentConfigFieldPatch,
-  computeScopeList,
   createScopeDeltaV2Snapshot,
   createScopeStateV2Snapshot,
-  isReservedScopeIdentifier,
   readScheduledTaskField,
   scheduledTaskFieldPatch,
   type ScopeDeltaV2Snapshot,
@@ -111,14 +109,10 @@ import {
 } from './org_proposal_apply';
 import {
   CONFIG_PATCH_FIELDS,
-  CORE_PERMISSION_ACTIONS,
-  CORE_PERMISSION_NAMES,
   SCOPE_ALLOWLIST_FIELDS,
-  SCOPE_PATCH_FIELDS,
   TASK_PATCH_FIELDS,
   TASK_PATCH_TEXT_FIELDS,
   type ConfigPatch,
-  type ScopePatch,
   type TaskPatch,
 } from './org_diagnosis_types';
 import { alignMcpName } from './mcp_name_alignment';
@@ -128,6 +122,12 @@ import { resolveProdApiBase } from './opencode_plugin_config';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import type { CuratedMcpServer } from '../config/curated_mcp_servers';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import {
+  parseScopeMutation,
+  prepareScopeMutation,
+  type ScopeProposalKind,
+  type ScopeRemovalKind,
+} from './scope_mutation_contract';
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
 import { resolveKnownMcpServerName } from './mcp_scope_name';
@@ -518,134 +518,8 @@ function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch
   return { agentConfigId: o.agentConfigId, field: o.field as ConfigPatch['field'], value: o.value };
 }
 
-const CORE_PERMISSION_NAME_SET = new Set<string>(CORE_PERMISSION_NAMES);
-const CORE_PERMISSION_ACTION_SET = new Set<string>(CORE_PERMISSION_ACTIONS);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isCorePermissionValue(value: unknown): boolean {
-  if (typeof value === 'string') return CORE_PERMISSION_ACTION_SET.has(value);
-  return isRecord(value) && Object.entries(value).every(
-    ([pattern, action]) => pattern.trim().length > 0 && typeof action === 'string' && CORE_PERMISSION_ACTION_SET.has(action),
-  );
-}
-
-/** Return a user-facing validation error for an untrusted scope patch, or null when valid. */
-function scopePatchValidationError(raw: unknown): string | null {
-  if (!isRecord(raw)) return 'refine-scope requires a machine-applyable scopePatch object';
-  if (typeof raw.agentConfigId !== 'string' || !raw.agentConfigId.trim()) return 'refine-scope scopePatch requires an agentConfigId';
-  if (typeof raw.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(raw.field)) {
-    return 'refine-scope scopePatch field must be allowedMcpsJson, allowedSkillsJson, or corePermissionsJson';
-  }
-
-  if ((SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(raw.field)) {
-    if (raw.set !== undefined || raw.unset !== undefined) {
-      return 'core permission set/unset fields are only valid for corePermissionsJson';
-    }
-    const add = raw.add;
-    const remove = raw.remove;
-    if (add !== undefined && (!Array.isArray(add) || !add.every((v) => typeof v === 'string' && v.trim().length > 0))) {
-      return 'refine-scope add must be a non-empty-name string array';
-    }
-    if (remove !== undefined && (!Array.isArray(remove) || !remove.every((v) => typeof v === 'string' && v.trim().length > 0))) {
-      return 'refine-scope remove must be a non-empty-name string array';
-    }
-    const names = [...(Array.isArray(add) ? add : []), ...(Array.isArray(remove) ? remove : [])] as string[];
-    const reserved = names.find(isReservedScopeIdentifier);
-    if (reserved !== undefined) {
-      return `reserved scope identifier '${reserved.trim()}' is not allowed`;
-    }
-    const corePermission = raw.field === 'allowedMcpsJson'
-      ? names.find((name) => CORE_PERMISSION_NAME_SET.has(name))
-      : undefined;
-    if (corePermission) return `core permission '${corePermission}' cannot be used as an MCP or skill allowlist name`;
-    if (names.length === 0) return 'refine-scope scopePatch requires at least one add or remove name';
-    return null;
-  }
-
-  if (raw.add !== undefined || raw.remove !== undefined) {
-    return 'corePermissionsJson uses set/unset, not array add/remove';
-  }
-  if (raw.set !== undefined && !isRecord(raw.set)) return 'corePermissionsJson set must be an object';
-  if (raw.unset !== undefined && (!Array.isArray(raw.unset) || !raw.unset.every((v) => typeof v === 'string' && v.trim().length > 0))) {
-    return 'corePermissionsJson unset must be a non-empty-name string array';
-  }
-  const set = isRecord(raw.set) ? raw.set : {};
-  const unset = Array.isArray(raw.unset) ? raw.unset as string[] : [];
-  for (const [name, value] of Object.entries(set)) {
-    if (!CORE_PERMISSION_NAME_SET.has(name)) return `MCP server or unknown name '${name}' cannot be used as a core permission`;
-    if (!isCorePermissionValue(value)) return `core permission '${name}' must be allow, ask, deny, or a pattern map of those actions`;
-  }
-  for (const name of unset) {
-    if (!CORE_PERMISSION_NAME_SET.has(name)) return `MCP server or unknown name '${name}' cannot be used as a core permission`;
-  }
-  if (Object.keys(set).length === 0 && unset.length === 0) return 'refine-scope corePermissionsJson requires at least one set or unset entry';
-  return null;
-}
-
-/** Extract a well-formed ScopePatch (nested under `scopePatch`), or null. */
-function extractScopePatch(change: Record<string, unknown> | null): ScopePatch | null {
-  const p = change?.scopePatch;
-  if (scopePatchValidationError(p)) return null;
-  const o = p as Record<string, unknown>;
-  return {
-    agentConfigId: o.agentConfigId as string,
-    field: o.field as ScopePatch['field'],
-    ...(Array.isArray(o.add) ? { add: o.add as string[] } : {}),
-    ...(Array.isArray(o.remove) ? { remove: o.remove as string[] } : {}),
-    ...(isRecord(o.set) ? { set: o.set } : {}),
-    ...(Array.isArray(o.unset) ? { unset: o.unset as string[] } : {}),
-  };
-}
-
-function mergeCorePermissions(
-  priorJson: string | null,
-  patch: Pick<ScopePatch, 'set' | 'unset'>,
-): string {
-  let current: Record<string, unknown> = {};
-  try {
-    const parsed = priorJson ? JSON.parse(priorJson) : {};
-    if (isRecord(parsed)) current = parsed;
-  } catch {
-    // A malformed existing value is treated as absent; the validated patch is still safe to apply.
-  }
-  const next: Record<string, unknown> = { ...current };
-  for (const [name, value] of Object.entries(patch.set ?? {})) {
-    next[name] = isRecord(next[name]) && isRecord(value)
-      ? { ...next[name], ...value }
-      : value;
-  }
-  for (const name of patch.unset ?? []) delete next[name];
-  return JSON.stringify(next);
-}
-
-/**
- * Refuse a scope mutation when the exact prior bytes cannot be interpreted in
- * the field's supported representation. Treating malformed capture as an
- * empty list/map would silently discard grants outside the approved patch.
- */
-function assertReadablePriorScope(field: ScopeStateFieldName, priorJson: string | null): void {
-  if (priorJson === null) return;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(priorJson);
-  } catch {
-    throw AppError.conflict(`${field} contains malformed JSON; repair it before applying a scope mutation`);
-  }
-  if (field === 'corePermissionsJson') {
-    if (!isRecord(parsed)) {
-      throw AppError.conflict('corePermissionsJson must be an object before applying a scope mutation');
-    }
-    return;
-  }
-  const readableArray =
-    Array.isArray(parsed) &&
-    parsed.every((entry) => typeof entry === 'string' && entry.trim().length > 0);
-  if (!readableArray && !isRecord(parsed)) {
-    throw AppError.conflict(`${field} must be a string array or tools map before applying a scope mutation`);
-  }
 }
 
 type HumanScopeSnapshot = ScopeDeltaV2Snapshot | ScopeStateV2Snapshot;
@@ -984,19 +858,16 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
 
 // ── refine-scope ──
 function validateRefineScope(proposal: AgentOrgProposal): ProposalValidationResult {
-  const change = parseChange(proposal.changeJson);
-  const error = scopePatchValidationError(change?.scopePatch);
-  const patch = extractScopePatch(change);
-  if (!patch || error) {
-    return {
-      valid: false,
-      reason: error ?? 'refine-scope requires a machine-applyable scopePatch with at least one change; a prose-only diagnosis cannot be auto-applied',
-    };
+  try {
+    const exactChangeJson = proposal.changeJson ?? '';
+    const parsed = parseScopeMutation('refine-scope', exactChangeJson);
+    const config = new AgentConfigsRepository().getById(parsed.agentConfigId);
+    if (!config) return { valid: false, reason: `refine-scope target agent_config '${parsed.agentConfigId}' no longer exists` };
+    prepareScopeMutation('refine-scope', exactChangeJson, readAgentConfigField(config, parsed.field));
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: String(error instanceof Error ? error.message : error) };
   }
-  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
-    return { valid: false, reason: `refine-scope target agent_config '${patch.agentConfigId}' no longer exists` };
-  }
-  return { valid: true };
 }
 
 const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
@@ -1004,39 +875,37 @@ const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
   if (!exactChangeJson || !exactChangeJson.trim()) {
     throw AppError.badRequest('refine-scope change_json is missing at apply time');
   }
-  const change = parseChange(exactChangeJson);
-  const validationError = scopePatchValidationError(change?.scopePatch);
-  const patch = extractScopePatch(change);
-  if (!patch || validationError) {
-    throw AppError.badRequest(
-      validationError ?? 'refine-scope change_json is missing its scopePatch at apply time',
-    );
+  let patch;
+  try {
+    patch = parseScopeMutation('refine-scope', exactChangeJson);
+  } catch (error) {
+    throw AppError.badRequest(String(error instanceof Error ? error.message : error));
   }
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`refine-scope target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  assertReadablePriorScope(patch.field, priorValue);
-  const nextJson = patch.field === 'corePermissionsJson'
-    ? mergeCorePermissions(priorValue, patch)
-    : computeScopeList(priorValue, { add: patch.add, remove: patch.remove });
-  if (nextJson === priorValue) {
-    throw AppError.conflict('refine-scope is stale or would make no exact scope change');
+  let prepared;
+  try {
+    prepared = prepareScopeMutation('refine-scope', exactChangeJson, priorValue);
+  } catch (error) {
+    throw AppError.conflict(String(error instanceof Error ? error.message : error));
   }
   const snapshot = createScopeStateV2Snapshot(
     patch.agentConfigId,
     patch.field,
     priorValue,
-    nextJson,
+    prepared.expectedAppliedValue,
     exactChangeJson,
+    'refine-scope',
   );
   return prepareDeferredHumanScopeMutation({
     proposal,
     agentConfigId: patch.agentConfigId,
     field: patch.field,
     priorValue,
-    nextValue: nextJson,
+    nextValue: prepared.expectedAppliedValue,
     measurable: true,
     snapshot,
   });
@@ -1051,23 +920,6 @@ const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
 // the same deferred claim-first CAS/projection mechanics as every human scope
 // mutation, with a scope-state-v2 exact-state snapshot. Fail-closed: refuses a payload missing agentConfigId /
 // a valid scope field / a non-empty add, and drift-guards the target at apply time.
-
-/** Extract a well-formed broaden-scope FLAT patch ({agentConfigId, field, add}), or null. */
-function extractBroadenScopePatch(
-  change: Record<string, unknown> | null,
-): { agentConfigId: string; field: ScopePatch['field']; add: string[] } | null {
-  if (!change) return null;
-  if (typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) return null;
-  if (typeof change.field !== 'string' || !(SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(change.field)) {
-    return null;
-  }
-  const add = Array.isArray(change.add)
-    ? change.add.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-    : [];
-  if (add.length === 0) return null;
-  if (add.some(isReservedScopeIdentifier)) return null;
-  return { agentConfigId: change.agentConfigId, field: change.field as ScopePatch['field'], add };
-}
 
 async function validateMcpScopeNames(names: string[]): Promise<ProposalValidationResult> {
   for (const name of names) {
@@ -1089,19 +941,17 @@ async function validateMcpScopeNames(names: string[]): Promise<ProposalValidatio
 }
 
 async function validateBroadenScope(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
-  const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
-  if (!patch) {
-    return {
-      valid: false,
-      reason:
-        "broaden-scope requires a change_json {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', add: [<name>, ...]} with at least one name to add",
-    };
+  try {
+    const exactChangeJson = proposal.changeJson ?? '';
+    const patch = parseScopeMutation('broaden-scope', exactChangeJson);
+    const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+    if (!config) return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
+    prepareScopeMutation('broaden-scope', exactChangeJson, readAgentConfigField(config, patch.field));
+    if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.add!);
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: String(error instanceof Error ? error.message : error) };
   }
-  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
-    return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
-  }
-  if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.add);
-  return { valid: true };
 }
 
 const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
@@ -1109,24 +959,30 @@ const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   if (!exactChangeJson || !exactChangeJson.trim()) {
     throw AppError.badRequest('broaden-scope change_json is missing at apply time');
   }
-  const patch = extractBroadenScopePatch(parseChange(exactChangeJson));
-  if (!patch) throw AppError.badRequest('broaden-scope change_json is missing its {agentConfigId, field, add} at apply time');
+  let patch;
+  try {
+    patch = parseScopeMutation('broaden-scope', exactChangeJson);
+  } catch (error) {
+    throw AppError.badRequest(String(error instanceof Error ? error.message : error));
+  }
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`broaden-scope target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  assertReadablePriorScope(patch.field, priorValue);
-  const nextJson = computeScopeList(priorValue, { add: patch.add });
-  if (nextJson === priorValue) {
-    throw AppError.conflict('broaden-scope is stale or would make no exact scope change');
+  let prepared;
+  try {
+    prepared = prepareScopeMutation('broaden-scope', exactChangeJson, priorValue);
+  } catch (error) {
+    throw AppError.conflict(String(error instanceof Error ? error.message : error));
   }
   const snapshot = createScopeStateV2Snapshot(
     patch.agentConfigId,
     patch.field,
     priorValue,
-    nextJson,
+    prepared.expectedAppliedValue,
     exactChangeJson,
+    'broaden-scope',
   );
 
   // The observable grant is the projected allowlist itself. Broadening has no
@@ -1137,7 +993,7 @@ const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => 
     agentConfigId: patch.agentConfigId,
     field: patch.field,
     priorValue,
-    nextValue: nextJson,
+    nextValue: prepared.expectedAppliedValue,
     measurable: false,
     snapshot,
   });
@@ -1146,111 +1002,26 @@ const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => 
 /**
  * The scope-removal shape `tighten-scope`/`prune-scope` proposals carry:
  * {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', remove: [<name>, ...]}.
- * Deliberately narrower than {@link extractScopePatch}'s ScopePatch — a scope
+ * Deliberately narrower than the refine-scope patch contract — a scope
  * REMOVAL proposal must never smuggle an `add` (broadening content has no
  * business on a human-gated removal kind; see W1 review), so its presence at
  * all (even `add: []`) is refused rather than silently ignored. Duplicate
  * `remove` entries are refused too — a legitimate audit gap never names the
  * same entry twice.
  */
-function extractScopeRemovalChange(
-  change: Record<string, unknown> | null,
-): { agentConfigId: string; field: (typeof SCOPE_ALLOWLIST_FIELDS)[number]; remove: string[] } | null {
-  if (!change) return null;
-  if (typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) return null;
-  if (typeof change.field !== 'string' || !(SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(change.field)) {
-    return null;
-  }
-  if (change.add !== undefined) return null;
-  if (
-    !Array.isArray(change.remove) ||
-    change.remove.length === 0 ||
-    !change.remove.every((name) => typeof name === 'string' && name.trim().length > 0)
-  ) {
-    return null;
-  }
-  const remove = change.remove as string[];
-  if (remove.some(isReservedScopeIdentifier)) return null;
-  if (new Set(remove).size !== remove.length) return null;
-  return { agentConfigId: change.agentConfigId, field: change.field as (typeof SCOPE_ALLOWLIST_FIELDS)[number], remove };
-}
-
-interface CurrentScopeInspection {
-  names: Set<string>;
-  invalidReason?: string;
-  duplicateRequested: string[];
-}
-
-/** Validate the live array/map shape and retain duplicate occurrence evidence. */
-function inspectCurrentScope(
-  value: string | null | undefined,
-  requestedRemove: readonly string[],
-): CurrentScopeInspection {
-  if (!value) return { names: new Set(), duplicateRequested: [] };
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      if (!parsed.every((entry) => typeof entry === 'string' && entry.length > 0)) {
-        return {
-          names: new Set(),
-          duplicateRequested: [],
-          invalidReason: 'current scope array must contain only non-empty string names',
-        };
-      }
-      const counts = new Map<string, number>();
-      for (const name of parsed as string[]) counts.set(name, (counts.get(name) ?? 0) + 1);
-      return {
-        names: new Set(parsed as string[]),
-        duplicateRequested: requestedRemove.filter((name) => (counts.get(name) ?? 0) > 1),
-      };
-    }
-    if (parsed && typeof parsed === 'object') {
-      return { names: new Set(Object.keys(parsed as Record<string, unknown>)), duplicateRequested: [] };
-    }
-  } catch {
-    return { names: new Set(), duplicateRequested: [], invalidReason: 'current scope JSON is malformed' };
-  }
-  return { names: new Set(), duplicateRequested: [], invalidReason: 'current scope must be an array or object map' };
-}
-
 async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
-  const patch = extractScopeRemovalChange(parseChange(proposal.changeJson));
-  if (!patch) {
-    return {
-      valid: false,
-      reason:
-        `${proposal.kind} requires {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', ` +
-        `remove: [<name>, ...]} with no add/broadening content and no duplicate remove entries`,
-    };
+  try {
+    const kind = proposal.kind as ScopeProposalKind;
+    const exactChangeJson = proposal.changeJson ?? '';
+    const patch = parseScopeMutation(kind, exactChangeJson);
+    const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+    if (!config) return { valid: false, reason: `${proposal.kind} target agent_config '${patch.agentConfigId}' no longer exists` };
+    prepareScopeMutation(kind, exactChangeJson, readAgentConfigField(config, patch.field));
+    if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.remove!);
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: String(error instanceof Error ? error.message : error) };
   }
-  const config = new AgentConfigsRepository().getById(patch.agentConfigId);
-  if (!config) {
-    return { valid: false, reason: `${proposal.kind} target agent_config '${patch.agentConfigId}' no longer exists` };
-  }
-  // A name the current allowlist no longer carries is a stale signal (already
-  // removed, or never present) — approving it now would be a no-op replay of
-  // a gap that no longer reflects live state; refuse rather than silently applying nothing.
-  const current = inspectCurrentScope(readAgentConfigField(config, patch.field), patch.remove);
-  if (current.invalidReason) {
-    return { valid: false, reason: `${proposal.kind} cannot safely inspect ${patch.field}: ${current.invalidReason}` };
-  }
-  if (current.duplicateRequested.length > 0) {
-    return {
-      valid: false,
-      reason:
-        `${proposal.kind} cannot remove duplicate current scope name(s): ` +
-        `${current.duplicateRequested.join(', ')}; deduplicate the allowlist before approval`,
-    };
-  }
-  const stale = patch.remove.filter((name) => !current.names.has(name));
-  if (stale.length > 0) {
-    return {
-      valid: false,
-      reason: `${proposal.kind} remove list is stale — not present in the current ${patch.field} allowlist: ${stale.join(', ')}`,
-    };
-  }
-  if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.remove);
-  return { valid: true };
 }
 
 /**
@@ -1270,39 +1041,39 @@ const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   if (!exactChangeJson) {
     throw AppError.badRequest(`${proposal.kind} change_json is missing at apply time`);
   }
-  const patch = extractScopeRemovalChange(parseChange(exactChangeJson));
-  if (!patch) {
-    throw AppError.badRequest(`${proposal.kind} change_json is missing its {agentConfigId, field, remove} at apply time`);
+  const kind = proposal.kind as ScopeRemovalKind;
+  let patch;
+  try {
+    patch = parseScopeMutation(kind, exactChangeJson);
+  } catch (error) {
+    throw AppError.badRequest(String(error instanceof Error ? error.message : error));
   }
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`${proposal.kind} target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  const current = inspectCurrentScope(priorValue, patch.remove);
-  if (current.invalidReason) {
-    throw AppError.badRequest(`${proposal.kind} cannot safely inspect ${patch.field}: ${current.invalidReason}`);
+  let prepared;
+  try {
+    prepared = prepareScopeMutation(kind, exactChangeJson, priorValue);
+  } catch (error) {
+    throw AppError.conflict(String(error instanceof Error ? error.message : error));
   }
-  if (current.duplicateRequested.length > 0) {
-    throw AppError.badRequest(
-      `${proposal.kind} cannot remove duplicate current scope name(s): ` +
-      `${current.duplicateRequested.join(', ')}; deduplicate the allowlist before approval`,
-    );
-  }
-  const stale = patch.remove.filter((name) => !current.names.has(name));
-  if (stale.length > 0) {
-    throw AppError.badRequest(
-      `${proposal.kind} remove list is stale at apply preparation: ${stale.join(', ')}`,
-    );
-  }
-  const scopeDelta = createScopeDeltaV2Snapshot(patch.agentConfigId, patch.field, priorValue, patch.remove);
+  const scopeDelta = createScopeDeltaV2Snapshot(
+    patch.agentConfigId,
+    patch.field as (typeof SCOPE_ALLOWLIST_FIELDS)[number],
+    priorValue,
+    patch.remove!,
+    kind,
+    exactChangeJson,
+  );
 
   return prepareDeferredHumanScopeMutation({
     proposal,
     agentConfigId: patch.agentConfigId,
     field: patch.field,
     priorValue,
-    nextValue: scopeDelta.expectedAppliedValue,
+    nextValue: prepared.expectedAppliedValue,
     measurable: true,
     snapshot: scopeDelta,
   });

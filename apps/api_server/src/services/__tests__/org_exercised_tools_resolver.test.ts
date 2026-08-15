@@ -200,9 +200,19 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
     // (org_proposal_apply.ts's createScopeDeltaV2Snapshot) so a revert
     // outcome here has somewhere real to restore to, exactly like the
     // production apply -> measure handoff.
-    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', priorMcps, [
-      'rhythm_send_email',
-    ]);
+    const exactChangeJson = JSON.stringify({
+      agentConfigId: config.id,
+      field: 'allowedMcpsJson',
+      remove: ['rhythm_send_email'],
+    });
+    const snapshot = createScopeDeltaV2Snapshot(
+      config.id,
+      'allowedMcpsJson',
+      priorMcps,
+      ['rhythm_send_email'],
+      'prune-scope',
+      exactChangeJson,
+    );
     configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
 
     const proposalsRepo = new AgentOrgProposalsRepository();
@@ -211,11 +221,7 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
       risk: 'high',
       status: 'measuring',
       title: 'Prune unused rhythm_send_email from Secretary',
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['rhythm_send_email'],
-      }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: `prune-scope:${config.id}:rhythm_send_email`,
     });

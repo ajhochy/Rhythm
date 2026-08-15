@@ -124,12 +124,20 @@ function changeShapeIsHardRuledHigh(change: ParsedChange | 'ambiguous' | null): 
     if (record.insertAgentConfig !== undefined) return true;
     if (record.createWebhookEndpoint !== undefined) return true;
     if (record.add !== undefined) return true;
+    if (Object.prototype.hasOwnProperty.call(record, 'corePermissionsJson')) return true;
     if (
       typeof record.agentConfigId === 'string' &&
-      (record.field === 'allowedMcpsJson' || record.field === 'allowedSkillsJson')
+      (record.field === 'allowedMcpsJson' ||
+        record.field === 'allowedSkillsJson' ||
+        record.field === 'corePermissionsJson')
     ) {
       return true;
     }
+    if (
+      record.field === 'corePermissionsJson' &&
+      (Object.prototype.hasOwnProperty.call(record, 'set') ||
+        Object.prototype.hasOwnProperty.call(record, 'unset'))
+    ) return true;
     for (const alias of removalAliases) {
       if (Object.prototype.hasOwnProperty.call(record, alias)) return true;
     }

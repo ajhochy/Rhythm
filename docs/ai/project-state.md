@@ -65,4 +65,19 @@ requires it, then install that exact TestFlight artifact and perform the focused
 - Decisions made: retain `scope-delta-v2` for removal-only rollback and add sibling `scope-state-v2`
   for mixed/add/core exact-state rollback; share deferred CAS/projection/compensation mechanics.
 - Deviations from spec: no live server or live DB was started.
-- Concerns: independent final review is still pending; status is verification-pending.
+- Concerns: independent review of `47bd426e` found seven P1 fail-closed blockers spanning semantic
+  snapshot validation, ambiguous payloads, risk gating, exact change binding, and status-failure
+  compensation. Status is corrective-in-progress; W1 remains unaccepted and unmerged.
+
+### 2026-08-14 — W1 corrective cycle 4
+- Files modified: one strict scope mutation/snapshot contract, human approval wiring, scope revert
+  lifecycle/risk classification, focused API tests, and W1 contract/run evidence.
+- Checks run under Node 22: corrective-4 regressions passed 38/38; the exact parent gate excluding
+  the listener-bound route file passed 261 tests with 1 existing skip; API build passed.
+- Decisions made: bind both v2 snapshots to allowed kind and exact `change_json` bytes, independently
+  replay prior/change/applied semantics at revert, and compensate failed final status transitions by
+  exact CAS plus reprojection without overwriting concurrent target bytes.
+- Deviations from spec: all five temporary reviewer probes were replaced by equivalent committed
+  in-memory SQLite regressions; no live DB, persistent server, network, W2/W3, or integration work ran.
+- Concerns: the exact route suite remains blocked by sandbox `listen EPERM` before route code runs.
+  Status remains corrective-in-progress; an external Node 22 route rerun and review are still required.

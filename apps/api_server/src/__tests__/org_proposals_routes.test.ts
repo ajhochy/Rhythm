@@ -702,11 +702,12 @@ describe('issue-826: human-gate review queue API', () => {
     const configsRepo = new AgentConfigsRepository();
     const prior = JSON.stringify(['x', 'y']);
     const config = configsRepo.insert({ label: 'Route revert', icon: 'shield', allowedMcpsJson: prior });
-    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['x']);
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', prior, ['x'], 'prune-scope', exactChangeJson);
     configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
     const proposal = await repo.createAsync({
       kind: 'prune-scope', risk: 'high', title: 'Route V2 revert',
-      changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] }),
+      changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1:route-v2-revert',
     });
     await repo.updateStatusAsync(proposal.id, 'applied');
