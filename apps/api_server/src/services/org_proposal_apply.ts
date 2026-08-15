@@ -54,7 +54,10 @@ import {
   type AgentScheduledTask,
 } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
-import { projectLatestAgentProfile } from './agent_profile_projection_service';
+import {
+  projectAgentProfileAfterWrite,
+  projectLatestAgentProfile,
+} from './agent_profile_projection_service';
 import { classifyAmbiguousScopePair } from './scope_pair_classification';
 import {
   writeManagedSkill,
@@ -927,7 +930,7 @@ export async function revertProposal(
           allowedSkillsJson: snapshot.priorAllowedSkillsJson ?? null,
         });
         const restored = configsRepo.getById(snapshot.agentConfigId);
-        if (restored) writeAgentProfileFile(restored);
+        if (restored) projectAgentProfileAfterWrite(restored, 'scope-revert');
       }
     } else if (
       isConfigFieldSnapshot(snapshot) &&
@@ -944,7 +947,7 @@ export async function revertProposal(
       // REST config-update path does after any config mutation.
       configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
       const restored = configsRepo.getById(snapshot.agentConfigId);
-      if (restored) writeAgentProfileFile(restored);
+      if (restored) projectAgentProfileAfterWrite(restored, 'scope-revert');
     } else if (isScheduledTaskFieldSnapshot(snapshot)) {
       // #981 — refine-task: restore the scheduled-task field the applier
       // overwrote to its exact prior value via updateAsync (no raw SQL).

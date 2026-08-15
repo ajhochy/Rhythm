@@ -38,7 +38,12 @@ export type ProjectionCause =
   | 'scope-apply'
   | 'scope-compensation'
   | 'scope-revert'
-  | 'recovery';
+  | 'recovery'
+  | 'config-create'
+  | 'config-update'
+  | 'import'
+  | 'seed'
+  | 'sync';
 
 export type ProjectionOutcome =
   /** The requested revision was the latest, and it is now on disk. */
@@ -110,4 +115,25 @@ export function projectLatestAgentProfile(
     };
   }
   return { kind: 'projected', revision: current.revision, write: result };
+}
+
+/**
+ * For callers that have just written a row and want it projected. The row is
+ * used ONLY for its id and revision — the boundary still re-reads the latest
+ * config itself, so a caller holding a row across an await cannot overwrite a
+ * newer operator edit. That is the whole reason this adapter exists instead of
+ * every callsite reaching for `writeAgentProfileFile` directly.
+ */
+export function projectAgentProfileAfterWrite(
+  config: { id: string; revision?: number },
+  cause: ProjectionCause,
+): ProjectionOutcome {
+  return projectLatestAgentProfile({
+    profileId: config.id,
+    // A row without a revision is the legacy pre-column shape; treating it as
+    // 0 makes the boundary report `stale` rather than silently claiming the
+    // caller projected the latest.
+    expectedRevision: config.revision ?? 0,
+    cause,
+  });
 }

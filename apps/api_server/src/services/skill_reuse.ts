@@ -22,6 +22,7 @@ import { isSameSkill, type RefineCandidate } from './skill_refiner';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 
 /** Subfolders under the managed root that are NOT library skills. */
@@ -242,7 +243,7 @@ export async function tryAutoWireLibrarySkill(
 
     // Best-effort file refresh (the DB allowlist is the load-bearing gate).
     const updated = configs.getById(agentConfigId);
-    if (updated) writeAgentProfileFile(updated);
+    if (updated) projectAgentProfileAfterWrite(updated, 'config-update');
 
     logger.info(
       `[skill-reuse] auto-wired library skill '${skillName}' to agent '${agentConfigId}' ` +
@@ -267,7 +268,7 @@ export function revertAutoWire(result: AutoWireResult): void {
     if (!configs.getById(result.agentConfigId)) return;
     configs.update(result.agentConfigId, { allowedSkillsJson: result.priorAllowlistJson });
     const restored = configs.getById(result.agentConfigId);
-    if (restored) writeAgentProfileFile(restored);
+    if (restored) projectAgentProfileAfterWrite(restored, 'config-update');
     logger.info(
       `[skill-reuse] reverted auto-wire of '${result.skillName}' on agent '${result.agentConfigId}'`,
     );

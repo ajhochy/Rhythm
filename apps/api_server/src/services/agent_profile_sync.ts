@@ -38,6 +38,7 @@ import {
   isProjectableAgentConfigIgnoringEnabled,
   writeAgentProfileFile,
 } from './opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 
 /**
  * opencode primaries that drive background machinery, not user-facing sessions.
@@ -799,7 +800,7 @@ export async function syncOpencodeAgentProfiles(
     for (const config of repo.list()) {
       if (!config.enabled) continue;
       if (!isAgentProfileFileMissing(config)) continue;
-      writeAgentProfileFile(config);
+      projectAgentProfileAfterWrite(config, 'sync');
       logger.warn(
         `[AgentProfileSync] #900 self-healed missing agent file for orphaned profile "${config.id}"`,
       );
@@ -844,7 +845,7 @@ export async function syncOpencodeAgentProfiles(
     // Without this the .md stays stale (pre-#889 preamble) and Secretary never
     // delegates. writeAgentProfileFile no-ops under postgres/test.
     const secretary = repo.getById('secretary');
-    if (secretary) writeAgentProfileFile(secretary);
+    if (secretary) projectAgentProfileAfterWrite(secretary, 'sync');
   } catch (err) {
     logger.warn(`[AgentProfileSync] #883 secretary delegation seed failed (non-fatal): ${String(err)}`);
   }

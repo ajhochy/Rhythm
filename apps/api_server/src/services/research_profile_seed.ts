@@ -2,6 +2,7 @@ import { env } from '../config/env';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
 import { logger } from '../utils/logger';
 import { writeAgentProfileFile } from './opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import { recordSeedMarker, seedMarkerExists } from './seed_once';
 
 export const RESEARCH_AGENT_ID = 'research';
@@ -113,7 +114,7 @@ export function seedResearchProfile(): ResearchProfileSeedResult {
   const repo = new AgentConfigsRepository();
   const existing = repo.getById(RESEARCH_AGENT_ID);
   if (seedMarkerExists(RESEARCH_PROFILE_MARKER)) {
-    if (existing) writeAgentProfileFile(existing);
+    if (existing) projectAgentProfileAfterWrite(existing, 'seed');
     return { created: false, repaired: false, config: existing };
   }
 
@@ -136,7 +137,7 @@ export function seedResearchProfile(): ResearchProfileSeedResult {
   }
 
   recordSeedMarker(RESEARCH_PROFILE_MARKER);
-  writeAgentProfileFile(config);
+  projectAgentProfileAfterWrite(config, 'seed');
   logger.info(`[research-profile] ${created ? 'seeded' : repaired ? 'repaired legacy' : 'adopted'} research profile`);
   return { created, repaired, config };
 }

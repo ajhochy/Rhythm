@@ -7,6 +7,7 @@ const {
   seedMarkerExists,
   recordSeedMarker,
   writeAgentProfileFile,
+  projectAgentProfileAfterWrite,
 } = vi.hoisted(() => ({
   getById: vi.fn(),
   insert: vi.fn(),
@@ -14,6 +15,7 @@ const {
   seedMarkerExists: vi.fn(),
   recordSeedMarker: vi.fn(),
   writeAgentProfileFile: vi.fn(),
+  projectAgentProfileAfterWrite: vi.fn(),
 }));
 
 vi.mock('../../config/env', () => ({
@@ -28,6 +30,9 @@ vi.mock('../../repositories/agent_configs_repository', () => ({
 }));
 vi.mock('../../services/seed_once', () => ({ seedMarkerExists, recordSeedMarker }));
 vi.mock('../../services/opencode_agent_writer', () => ({ writeAgentProfileFile }));
+// The seed projects through the ONE boundary now, so that is the seam the
+// contract asserts on — the boundary owns re-reading the latest row.
+vi.mock('../../services/agent_profile_projection_service', () => ({ projectAgentProfileAfterWrite }));
 vi.mock('../../utils/logger', () => ({ logger: { info: vi.fn() } }));
 
 import {
@@ -101,7 +106,7 @@ describe('issue #1290 acceptance contract', () => {
     expect(result.config).toBe(customized);
     expect(result.repaired).toBe(false);
     expect(update).not.toHaveBeenCalled();
-    expect(writeAgentProfileFile).toHaveBeenCalledWith(customized);
+    expect(projectAgentProfileAfterWrite).toHaveBeenCalledWith(customized, 'seed');
   });
 
   it('issue-1290-c3: reports channel degradation and never treats unavailable Gmail as granted', () => {

@@ -96,6 +96,7 @@ import { scanContextContent } from '../security/context_scanner';
 import { stripFrontmatterBlock } from './skill_frontmatter';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import {
   readAgentConfigField,
   agentConfigFieldPatch,
@@ -189,7 +190,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
             const nextJson = JSON.stringify([...list, serverName]);
             configsRepo.update(agentConfigId, { allowedMcpsJson: nextJson });
             const updated = configsRepo.getById(agentConfigId);
-            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+            if (updated) projectAgentProfileAfterWrite(updated, 'config-update'); // resync through the boundary
           }
           beforeSnapshotJson = JSON.stringify({
             externalAdoption: true,
@@ -244,7 +245,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
             const nextJson = JSON.stringify(list);
             configsRepo.update(agentConfigId, { allowedSkillsJson: nextJson });
             const updated = configsRepo.getById(agentConfigId);
-            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+            if (updated) projectAgentProfileAfterWrite(updated, 'config-update'); // resync through the boundary
           }
         }
       }
@@ -847,7 +848,7 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
 
   configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, patch.value));
   const updated = configsRepo.getById(patch.agentConfigId);
-  if (updated) writeAgentProfileFile(updated);
+  if (updated) projectAgentProfileAfterWrite(updated, 'config-update');
 
   return { measurable: true, beforeSnapshotJson };
 };
@@ -1153,7 +1154,7 @@ function applySkillCreate(proposal: AgentOrgProposal, title: string, concreteFix
     if (!list.includes(title)) {
       configsRepo.update(title, { allowedSkillsJson: JSON.stringify([...list, title]) });
       const updated = configsRepo.getById(title);
-      if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+      if (updated) projectAgentProfileAfterWrite(updated, 'config-update'); // resync through the boundary
     }
   }
 

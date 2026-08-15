@@ -12,6 +12,7 @@ import {
   syncAgentProfileFileForState,
   isReservedAgentConfigId,
 } from '../services/opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from '../services/agent_profile_projection_service';
 import {
   buildAgentConfigExportBundle,
   importAgentConfigBundle,
@@ -323,18 +324,18 @@ export class AgentConfigsController {
     try {
       const config = repo.getById(req.params.id);
       if (!config) throw AppError.notFound('AgentConfig');
-      const result = writeAgentProfileFile(config);
+      const result = projectAgentProfileAfterWrite(config, 'sync');
       // A blocked or failed write leaves the file stale. Reporting 200 here made
       // that indistinguishable from a successful resync — the exact confusion
       // this endpoint exists to resolve. The scanned content is never echoed
       // back; only the fact that it was rejected.
-      if (result === 'blocked') {
+      if (result.kind === 'blocked') {
         throw AppError.badRequest(
           `Agent file for "${config.id}" was not written: its system prompt was rejected by the ` +
             `content scanner. Edit the system prompt and resync again.`,
         );
       }
-      if (result === 'failed') {
+      if (result.kind === 'failed') {
         throw AppError.internal(`Agent file for "${config.id}" could not be written. See server logs.`);
       }
       broadcastAgentConfigsChanged();
@@ -404,7 +405,7 @@ export class AgentConfigsController {
       const config = repo.insert(input);
       // Project the profile out to an opencode agent file (profile = source of
       // truth). No-op for CLI presets / opencode built-ins. Non-fatal.
-      writeAgentProfileFile(config);
+      projectAgentProfileAfterWrite(config, 'config-create');
       await reloadAgentProfilesBestEffort();
       broadcastAgentConfigsChanged();
       res.status(201).json(config);
@@ -481,7 +482,7 @@ export class AgentConfigsController {
       // Re-project the updated profile to its opencode agent file — or delete
       // it when the profile just became disabled (#1135: a disabled profile's
       // stale .md must not remain live/loadable by the engine). Non-fatal.
-      syncAgentProfileFileForState(updated);
+      projectAgentProfileAfterWrite(updated, 'config-update');
       // The engine caches agent profiles (including task permission rules) for
       // its lifetime (#1015, #1014). Best-effort reload covers every edit —
       // system prompt, scope, model, AND the delegate roster — so the next
@@ -516,7 +517,7 @@ export class AgentConfigsController {
       if (!updated) {
         throw AppError.conflict('AgentConfig lock state changed; reload and retry');
       }
-      syncAgentProfileFileForState(updated);
+      projectAgentProfileAfterWrite(updated, 'config-update');
       await reloadAgentProfilesBestEffort();
       broadcastAgentConfigsChanged();
       res.json(updated);
@@ -557,7 +558,7 @@ export class AgentConfigsController {
           'AgentConfig lock state does not match the reviewed reason/version; reload and review the current lock',
         );
       }
-      syncAgentProfileFileForState(updated);
+      projectAgentProfileAfterWrite(updated, 'config-update');
       await reloadAgentProfilesBestEffort();
       broadcastAgentConfigsChanged();
       res.json(updated);

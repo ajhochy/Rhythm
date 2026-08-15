@@ -319,12 +319,12 @@ async function main() {
       const { AgentConfigsRepository } = await import(
         './repositories/agent_configs_repository'
       );
-      const { writeAgentProfileFile } = await import(
-        './services/opencode_agent_writer'
+      const { projectAgentProfileAfterWrite } = await import(
+        './services/agent_profile_projection_service'
       );
       for (const id of ['config-doctor', 'rhythm-setup', 'Theological-Researcher']) {
         const config = new AgentConfigsRepository().getById(id);
-        if (config) writeAgentProfileFile(config);
+        if (config) projectAgentProfileAfterWrite(config, 'seed');
       }
     } catch (err) {
       logger.warn(
