@@ -1,0 +1,133 @@
+{
+  "issue": "W1-corrective-6",
+  "generated": "2026-08-14",
+  "code_base_head": "4406a1ce79685e2a1757aad19f7346ab0e209ae7",
+  "status": "architecture-redesign-ready-for-implementation",
+  "decision": "Redesign W1 now around an intermediate human claim, monotonic proposal and target revisions, revision-fenced latest-state projection, and durable reconciliation.",
+  "failed_review": {
+    "delegation_id": "deleg_1483f8dc",
+    "semantic_report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-0-20260814_223301_835252.txt",
+    "lifecycle_report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-1-20260814_223301_835733.txt",
+    "reviewed_head": "4406a1ce79685e2a1757aad19f7346ab0e209ae7",
+    "parent_validated_unique_blockers": 11
+  },
+  "red_reproducers": [
+    "/tmp/w1-c5-independent-probes.ts",
+    "/tmp/w1-c5-human-claim-failure-probes.ts",
+    "/tmp/w1-c5-projection-microtask-probe.ts",
+    "/tmp/w1-c5-atomic-trigger-probe.ts",
+    "/tmp/w1-adversarial-probes.ts",
+    "/tmp/w1-final-adversarial-probes.ts"
+  ],
+  "durable_pair_invariants": [
+    "proposed or failed plus prior target means no human claim owns the mutation",
+    "approved plus prior target means one actor owns exact change and snapshot but target is not yet applied",
+    "applied, measuring, or active requires the exact applied target revision or an explicit later operator revision",
+    "reverted records the exact atomic revert transition; later target revisions are allowed but stale proposal projection is not",
+    "reconciliation-required is durable and externally distinguishable when target, proposal, or projection cannot be proven coherent"
+  ],
+  "architecture": {
+    "proposal_revision": "Add a monotonic integer revision/generation to every proposal row/model. Increment it on every SQLite and PostgreSQL status/patch transition. Bind id, source status, and expected revision in every CAS, including forward and inverse atomic scope transactions. Real ABA cycles must reject stale writers.",
+    "target_revision": "Add a monotonic agent-config revision suitable for fencing complete profile projections. Increment it on every repository update that can affect the projected profile, including fixed-column scope CAS. Returned rows must carry the committed revision.",
+    "human_scope_claim": "For scope mutations, atomically claim proposed/failed into approved, binding a safe actor, exact stored kind/change bytes, expected proposal revision, and a non-null verified v2 snapshot. The direct scope claim primitive must reject omitted, malformed, unbound, legacy, or nullable material at runtime.",
+    "atomic_apply": "After the approved claim, atomically CAS the exact target from prior to applied and transition the same proposal revision from approved to applied in one SQLite transaction. PostgreSQL split-store scope apply must refuse before either write. A target CAS miss must leave a recoverable non-applied status.",
+    "projection_fence": "Never project a stale returned row. All complete profile writes must use one revision-aware, per-profile serialized/fenced projection boundary and project the latest committed row. A stale expected revision must refuse rather than overwrite a newer projection. File replacement remains atomic. Cross-process behavior must be explicit and tested to the supported deployment contract.",
+    "projection_failure": "A blocked, failed, stale, or thrown scope projection cannot advance measurement. If exact atomic inverse of target and proposal succeeds, move to a retryable non-applied state and project the latest row. If inverse or reprojection cannot be proven, durably mark reconciliation-required without overwriting concurrent bytes.",
+    "revert": "Atomic target plus proposal revert remains exact-kind/change/snapshot/status/revision-bound. Post-commit projection uses the shared latest-state fence. Ambiguous commit, inverse failure, or stale/failed reprojection becomes durable reconciliation-required, never skipped or a no-change message.",
+    "strict_boundaries": "Use strict duplicate-aware raw JSON before every human validator/applier, unattended status change, measurement status change, scope preparation, snapshot verification, and revert. Runtime kind membership is exact; whitespace-normalized unknown kinds are high/refused.",
+    "scope_detection": "Aggregate agent-config target and operation evidence across each object/array subtree, including malformed own-property target values and sibling order permutations, while retaining explicit unrelated recipe controls.",
+    "field_semantics": "allowedSkillsJson supports arrays only; tools maps are allowed only for allowedMcpsJson. Reject byte changes that are runtime semantic no-ops. Generic refine-config and every non-scope kind must reject protected scope fields instead of emitting legacy snapshots.",
+    "measurement": "Measurement of a scope row must strictly parse and validate exact kind/change/snapshot/target/revision before active or revert. Invalid, duplicate, legacy, or ambiguous rows become durable reconciliation-required. Measure outcomes, optimizer summaries, routes, and sweeps preserve that outcome."
+  },
+  "criteria": [
+    {
+      "criterion_id": "issue-W1-corrective-6-c1",
+      "status": "red-confirmed",
+      "text": "Common human validation and all status-changing consumers reject duplicate, malformed, and exact-kind-invalid JSON before side effects."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c2",
+      "status": "red-confirmed",
+      "text": "The shared detector catches malformed target values and target/operation context split across sibling objects or arrays without making unrelated recipe operations high risk."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c3",
+      "status": "red-confirmed",
+      "text": "Protected scope fields cannot flow through generic refine-config or another non-scope applier; allowedSkillsJson rejects object maps and effective no-ops."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c4",
+      "status": "red-confirmed",
+      "text": "Every proposal mutation is revision-CAS-safe in SQLite and PostgreSQL; failed self-loop and measuring-reverted-measuring ABA probes reject stale writers."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c5",
+      "status": "red-confirmed",
+      "text": "A one-winner human scope claim stores actor, exact kind/change, verified v2 snapshot, and source revision in approved before any target or file effect."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c6",
+      "status": "red-confirmed",
+      "text": "Approved-to-applied target mutation is one revision-bound SQLite transaction; target-CAS miss, proposal failure, and PostgreSQL split-store refusal preserve a coherent recoverable pair."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c7",
+      "status": "red-confirmed",
+      "text": "Apply, revert, compensation, and ordinary profile writes share a revision-aware projection fence; both microtask and barrier interleavings leave the file equal to the latest database revision."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c8",
+      "status": "red-confirmed",
+      "text": "Projection failure and commit uncertainty either atomically restore a retryable pair or durably record reconciliation-required, preserving concurrent target bytes."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c9",
+      "status": "red-confirmed",
+      "text": "reconciliation-required propagates through measurement, optimizer summaries, routes, persistence, and retry/recovery selection without becoming skipped/conflict/no-change."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c10",
+      "status": "red-confirmed",
+      "text": "Scope measurement cannot activate duplicate-key, legacy, unbound, stale-revision, or semantically invalid rows."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-6-c11",
+      "status": "pending",
+      "text": "All prior W1, real HTTP, SQLite/PostgreSQL parity, telemetry overlap, build, diff, and security gates remain green under Node 22."
+    }
+  ],
+  "required_permanent_tests": [
+    "Production-order human route: prepare, approved claim, atomic target+applied transition, projection, measuring; assert durable pair after each injected failure.",
+    "Direct scope claim rejects omitted change, null/legacy/mismatched snapshot, changed stored kind/change, invalid actor, and stale proposal revision.",
+    "Real SQLite ABA barriers for failed-to-failed and measuring-to-reverted-to-measuring; PostgreSQL SQL-shape and zero-row parity bind revision.",
+    "Microtask and explicit barrier projection races for human apply, revert, inverse/reprojection, and ordinary config writer using a temporary HOME.",
+    "Real blocked, failed, stale, and thrown writer outcomes with target/proposal/file assertions.",
+    "Strict duplicate human refine-config and strict duplicate measurement rows.",
+    "Malformed/null/number agentConfigId and sibling target-operation permutations through detector, classifier, unattended apply, human validation, measurement, and revert.",
+    "allowedSkillsJson object-map rejection and valid allowedMcpsJson tools-map control.",
+    "Whitespace-padded and unknown exact kinds remain high/refused.",
+    "reconciliation-required route, measurement, optimizer-summary, persistence, and sweep behavior.",
+    "Real target and proposal BEFORE/AFTER trigger rollback controls."
+  ],
+  "verification": {
+    "runtime": "Node v22.23.1 from /opt/homebrew/opt/node@22/bin",
+    "baseline_gate": "/tmp/run-rhythm-w1-gate.sh",
+    "build": "npm run build in apps/api_server",
+    "required": [
+      "Focused corrective-6 tests show RED before production edits and GREEN after each vertical slice.",
+      "Exact 14-file W1 gate plus all new migration/revision/projection/reconciliation tests.",
+      "Real ephemeral HTTP route suite outside restricted sandbox if listen is denied.",
+      "git diff --check and added-line security scan.",
+      "Parent reruns all six reviewer/parent reproducers.",
+      "Two fresh independent review lanes inspect the final immutable head."
+    ]
+  },
+  "constraints": [
+    "No live Rhythm or OpenCode database access or mutation.",
+    "Use in-memory SQLite, mocked PostgreSQL, temporary HOME, fixtures, and ephemeral listeners only.",
+    "Do not touch W2, W3, or the integration checkout.",
+    "No persistent server, external network action, push, PR, merge, or raw sensitive payload logging.",
+    "Do not delete prior tests to obtain green counts.",
+    "Do not claim acceptance; parent verification and two fresh independent review lanes are mandatory."
+  ]
+}

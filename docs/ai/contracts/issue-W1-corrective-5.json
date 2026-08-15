@@ -2,7 +2,7 @@
   "issue": "W1-corrective-5",
   "generated": "2026-08-14",
   "base_head": "db78072b411d32c3f493387443e80e245afdcd6e",
-  "review_status": "verification-pending-independent-review",
+  "review_status": "independent-review-failed-superseded-by-corrective-6",
   "prior_reviews": [
     "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-0-20260814_203941_736647.txt",
     "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-1-20260814_203941_737447.txt"
@@ -78,7 +78,31 @@
     "diff_check": "pass",
     "focused_parent_follow_up": "Six new RED failures for nested contextual scope detection, compensating projection reconciliation, safe-integer actor binding, and truthful ambiguous-commit route reporting; 93/93 focused tests passed after minimal fixes.",
     "reviewer_reproducers": "w1-adversarial-probes.ts stops at duplicate add rejection; w1-final-adversarial-probes.ts stops at stale source-status conflict.",
-    "acceptance": "pending two fresh independent review lanes"
+    "acceptance": "failed; superseded by corrective-6 architecture redesign"
+  },
+  "independent_review": {
+    "reviewed_head": "4406a1ce79685e2a1757aad19f7346ab0e209ae7",
+    "delegation_id": "deleg_1483f8dc",
+    "semantic_report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-0-20260814_223301_835252.txt",
+    "lifecycle_report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-1-20260814_223301_835733.txt",
+    "verdict": "failed",
+    "counts": {
+      "p0": 0,
+      "p1_reported": 13,
+      "unique_parent_validated_blockers": 11
+    },
+    "parent_reproduction": [
+      "/tmp/w1-c5-independent-probes.ts",
+      "/tmp/w1-c5-human-claim-failure-probes.ts",
+      "/tmp/w1-c5-projection-microtask-probe.ts",
+      "/tmp/w1-c5-atomic-trigger-probe.ts"
+    ],
+    "root_causes": [
+      "Human approval can expose applied before target CAS and projection have succeeded.",
+      "Status-only CAS admits ABA when retry/compensation recreates a prior status.",
+      "Post-commit projection has no monotonic target revision fence and can overwrite a newer projection.",
+      "Strict JSON, scope detection, field-shape semantics, and reconciliation truth are not enforced at every status-changing boundary."
+    ]
   },
   "constraints": [
     "Use Node v22.23.1 from /opt/homebrew/opt/node@22/bin.",

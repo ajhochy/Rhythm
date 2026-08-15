@@ -222,3 +222,17 @@ tags: [run, Rhythm, optimizer, scope-safety]
   side-effect assertions are retained in permanent tests.
 - No live database, persistent server, external network, W2/W3, or integration checkout was used.
   Corrective 5 is verification-pending, not accepted; two fresh independent review lanes are next.
+
+## Corrective 5 independent review — failed
+- Both independent lanes reviewed exact head `4406a1ce79685e2a1757aad19f7346ab0e209ae7` and failed it:
+  semantic/input review reported five P1 blockers; lifecycle/concurrency review reported eight P1
+  blockers, with two duplicated across lanes.
+- Parent reran all four reviewer probe scripts under Node 22 using in-memory SQLite and temporary
+  homes. Eleven unique blockers reproduced; the atomic target/status transaction trigger controls
+  remained safe.
+- Architectural root causes are an applied-before-target human claim, status-only ABA tokens, and
+  unfenced post-commit profile projection. Boundary gaps also remain in generic human parsing,
+  mislabeled scope rejection, malformed/sibling detector context, allowed-skills root shapes,
+  exact kind matching, measurement validation, direct claim binding, and reconciliation propagation.
+- User selected a corrective-6 redesign: intermediate approval/apply state, monotonic revisions,
+  fenced latest-state projection, and durable reconciliation. W1 remains rejected and unmerged.
