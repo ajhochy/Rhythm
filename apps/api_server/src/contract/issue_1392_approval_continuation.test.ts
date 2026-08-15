@@ -219,4 +219,19 @@ describe('issue #1392 approval decision automatically continues its session', ()
       continuationState: 'delivered',
     });
   });
+
+  it('issue-1392-c10: an ordinary idle event with no queued continuation does not reattach the stream', async () => {
+    // Regression caught: every session.idle unconditionally called
+    // streamSession. If a finite/reconnecting stream ended with idle, that
+    // subscription replayed idle and recursively reattached until the worker
+    // exhausted memory.
+    new AgentApprovalsRepository().markContinuationDelivered(approval.id);
+    promptAsyncSpy.mockClear();
+    streamSessionSpy.mockClear();
+
+    await new AgentApprovalContinuationService().onSessionIdle(sessionId);
+
+    expect(streamSessionSpy).not.toHaveBeenCalled();
+    expect(promptAsyncSpy).not.toHaveBeenCalled();
+  });
 });

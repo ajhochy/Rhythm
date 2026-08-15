@@ -66,6 +66,13 @@ export class AgentApprovalContinuationService {
     }
     if (session.status !== 'idle') return;
 
+    // Idle events are emitted for every completed turn. Do not attach (or
+    // reattach) an engine stream unless this session actually has durable
+    // continuation work. Re-subscribing an already-ended stream from its own
+    // idle callback can replay another idle event and recurse forever.
+    const continuations = this.approvals.listContinuations(session.id);
+    if (continuations.length === 0) return;
+
     // The live map is authoritative. Persisted sdk_session_id is only a
     // fallback after restart and must never overwrite a newer live mapping.
     const sdkSessionId =
@@ -89,7 +96,7 @@ export class AgentApprovalContinuationService {
     const { streamBridge } = await import('./opencode_stream_bridge');
     await streamBridge.streamSession(session.id, sdkSessionId, session.cwd);
 
-    for (const approval of this.approvals.listContinuations(session.id)) {
+    for (const approval of continuations) {
       if (approval.status !== 'approved' && approval.status !== 'rejected') {
         continue;
       }

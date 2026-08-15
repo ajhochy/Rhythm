@@ -15,7 +15,7 @@ live-smoked inline approval card, bell badge, and native notification route on P
 - Original workspace Terminal/PTy, transcript-display, activity-service, proof-image, and unrelated
   postmortem changes remain preserved outside this isolated branch.
 - **#1392 approval-card delivery fix**: branch `issue/approval-card-delivery` (isolated worktree),
-  draft PR #1393 open against `main`. The desktop now accepts the authenticated Cloud bearer for local
+  PR #1393 open against `main` and ready for review. The desktop now accepts the authenticated Cloud bearer for local
   approval reads/decisions, renders session-scoped inline cards, emits native notifications that route
   to the exact request, and polls within 5 seconds. Manual smoke passed. See
   `docs/ai/runs/2026-08-14-issue-1392-approval-card-delivery.md` for the full trace and evidence.
@@ -42,6 +42,8 @@ live-smoked inline approval card, bell badge, and native notification route on P
 - Issue gate PASS: Flutter analyze/format plus API and MCP typechecks.
 - PR gate PASS: Flutter tests; API lint, serial tests, and build; MCP tests/build; opencode fork
   typecheck and session tests; mobile static/contracts/fake-server; mobile web E2E 71/71.
+- API CI repair PASS locally: the original `npm test --silent` command completed 542 files and 4,438
+  assertions in 51.37s after preventing no-work idle callbacks from reattaching the event stream.
 - Issue #1392 manual smoke PASS: real approval creation produced a bell badge, session-scoped inline
   card, native notification, and working decision actions; repeat delivery succeeded at 5-second cadence.
 - Production remains healthy on product merge `ed31ea59`; desktop `v0.18.58 (142)` remains released.
