@@ -101,9 +101,13 @@ import {
   agentConfigFieldPatch,
   computeScopeList,
   createScopeDeltaV2Snapshot,
+  createScopeStateV2Snapshot,
   isReservedScopeIdentifier,
   readScheduledTaskField,
   scheduledTaskFieldPatch,
+  type ScopeDeltaV2Snapshot,
+  type ScopeStateFieldName,
+  type ScopeStateV2Snapshot,
 } from './org_proposal_apply';
 import {
   CONFIG_PATCH_FIELDS,
@@ -617,6 +621,103 @@ function mergeCorePermissions(
   return JSON.stringify(next);
 }
 
+/**
+ * Refuse a scope mutation when the exact prior bytes cannot be interpreted in
+ * the field's supported representation. Treating malformed capture as an
+ * empty list/map would silently discard grants outside the approved patch.
+ */
+function assertReadablePriorScope(field: ScopeStateFieldName, priorJson: string | null): void {
+  if (priorJson === null) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(priorJson);
+  } catch {
+    throw AppError.conflict(`${field} contains malformed JSON; repair it before applying a scope mutation`);
+  }
+  if (field === 'corePermissionsJson') {
+    if (!isRecord(parsed)) {
+      throw AppError.conflict('corePermissionsJson must be an object before applying a scope mutation');
+    }
+    return;
+  }
+  const readableArray =
+    Array.isArray(parsed) &&
+    parsed.every((entry) => typeof entry === 'string' && entry.trim().length > 0);
+  if (!readableArray && !isRecord(parsed)) {
+    throw AppError.conflict(`${field} must be a string array or tools map before applying a scope mutation`);
+  }
+}
+
+type HumanScopeSnapshot = ScopeDeltaV2Snapshot | ScopeStateV2Snapshot;
+
+function applyClaimedHumanScopeMutation(input: {
+  proposal: AgentOrgProposal;
+  agentConfigId: string;
+  field: ScopeStateFieldName;
+  priorValue: string | null;
+  nextValue: string;
+}): void {
+  const configsRepo = new AgentConfigsRepository();
+  const updated = configsRepo.compareAndSetScopeField(
+    input.agentConfigId,
+    input.field,
+    input.priorValue,
+    input.nextValue,
+  );
+  if (!updated) {
+    throw AppError.conflict(
+      `${input.proposal.kind} target ${input.agentConfigId}.${input.field} changed after approval preparation`,
+    );
+  }
+  const projection = writeAgentProfileFile(updated);
+  if (projection === 'blocked' || projection === 'failed') {
+    const compensated = configsRepo.compareAndSetScopeField(
+      input.agentConfigId,
+      input.field,
+      input.nextValue,
+      input.priorValue,
+    );
+    throw AppError.conflict(
+      `${input.proposal.kind} profile projection ${projection}; ` +
+      (compensated
+        ? 'the exact prior scope was restored'
+        : 'scope compensation lost a concurrent update and reconciliation is required'),
+    );
+  }
+}
+
+/** Prepare one human-gated scope mutation without touching DB or disk. */
+function prepareDeferredHumanScopeMutation(input: {
+  proposal: AgentOrgProposal;
+  agentConfigId: string;
+  field: ScopeStateFieldName;
+  priorValue: string | null;
+  nextValue: string;
+  measurable: boolean;
+  snapshot: HumanScopeSnapshot;
+}): ProposalApplyResult {
+  const exactChangeJson = input.proposal.changeJson;
+  if (!exactChangeJson || !exactChangeJson.trim()) {
+    throw AppError.badRequest(`${input.proposal.kind} requires exact nonempty change_json at apply time`);
+  }
+  if (input.nextValue === input.priorValue) {
+    throw AppError.conflict(`${input.proposal.kind} is stale or would make no exact scope change`);
+  }
+  if (
+    input.snapshot.target.id !== input.agentConfigId ||
+    input.snapshot.field !== input.field ||
+    input.snapshot.expectedAppliedValue !== input.nextValue
+  ) {
+    throw AppError.conflict(`${input.proposal.kind} prepared scope snapshot does not match its target bytes`);
+  }
+  return {
+    measurable: input.measurable,
+    beforeSnapshotJson: JSON.stringify(input.snapshot),
+    changeJson: exactChangeJson,
+    applyAfterClaim: () => applyClaimedHumanScopeMutation(input),
+  };
+}
+
 /** Extract a well-formed TaskPatch (nested under `taskPatch`), or null. */
 function extractTaskPatch(change: Record<string, unknown> | null): TaskPatch | null {
   const p = change?.taskPatch;
@@ -899,27 +1000,46 @@ function validateRefineScope(proposal: AgentOrgProposal): ProposalValidationResu
 }
 
 const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractScopePatch(parseChange(proposal.changeJson));
-  if (!patch) throw AppError.badRequest('refine-scope change_json is missing its scopePatch at apply time');
+  const exactChangeJson = proposal.changeJson;
+  if (!exactChangeJson || !exactChangeJson.trim()) {
+    throw AppError.badRequest('refine-scope change_json is missing at apply time');
+  }
+  const change = parseChange(exactChangeJson);
+  const validationError = scopePatchValidationError(change?.scopePatch);
+  const patch = extractScopePatch(change);
+  if (!patch || validationError) {
+    throw AppError.badRequest(
+      validationError ?? 'refine-scope change_json is missing its scopePatch at apply time',
+    );
+  }
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`refine-scope target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  const beforeSnapshotJson = JSON.stringify({
-    agentConfigId: patch.agentConfigId,
-    field: patch.field,
-    priorValue,
-  });
-
+  assertReadablePriorScope(patch.field, priorValue);
   const nextJson = patch.field === 'corePermissionsJson'
     ? mergeCorePermissions(priorValue, patch)
     : computeScopeList(priorValue, { add: patch.add, remove: patch.remove });
-  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
-  const updated = configsRepo.getById(patch.agentConfigId);
-  if (updated) writeAgentProfileFile(updated);
-
-  return { measurable: true, beforeSnapshotJson };
+  if (nextJson === priorValue) {
+    throw AppError.conflict('refine-scope is stale or would make no exact scope change');
+  }
+  const snapshot = createScopeStateV2Snapshot(
+    patch.agentConfigId,
+    patch.field,
+    priorValue,
+    nextJson,
+    exactChangeJson,
+  );
+  return prepareDeferredHumanScopeMutation({
+    proposal,
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+    nextValue: nextJson,
+    measurable: true,
+    snapshot,
+  });
 };
 
 // ── broaden-scope (#1139) ──
@@ -928,11 +1048,8 @@ const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
 // — NOT the nested {scopePatch:{...}} shape refine-scope uses — so it cannot be
 // aliased to refineScopeApplier verbatim (extractScopePatch reads change.scopePatch
 // and would find nothing). This validator/applier reads that flat shape and reuses
-// the exact same apply mechanics (computeScopeList add + agentConfigFieldPatch +
-// writeAgentProfileFile) and the same {agentConfigId, field, priorValue} snapshot,
-// so the refine-scope revert branch (isConfigFieldSnapshot in org_proposal_apply.ts)
-// and the scope measure path (isAgentConfigScopeChange in org_proposal_measure.ts)
-// both cover it for free. Fail-closed: refuses a payload missing agentConfigId /
+// the same deferred claim-first CAS/projection mechanics as every human scope
+// mutation, with a scope-state-v2 exact-state snapshot. Fail-closed: refuses a payload missing agentConfigId /
 // a valid scope field / a non-empty add, and drift-guards the target at apply time.
 
 /** Extract a well-formed broaden-scope FLAT patch ({agentConfigId, field, add}), or null. */
@@ -988,28 +1105,42 @@ async function validateBroadenScope(proposal: AgentOrgProposal): Promise<Proposa
 }
 
 const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
+  const exactChangeJson = proposal.changeJson;
+  if (!exactChangeJson || !exactChangeJson.trim()) {
+    throw AppError.badRequest('broaden-scope change_json is missing at apply time');
+  }
+  const patch = extractBroadenScopePatch(parseChange(exactChangeJson));
   if (!patch) throw AppError.badRequest('broaden-scope change_json is missing its {agentConfigId, field, add} at apply time');
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`broaden-scope target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  const beforeSnapshotJson = JSON.stringify({
-    agentConfigId: patch.agentConfigId,
-    field: patch.field,
-    priorValue,
-  });
-
+  assertReadablePriorScope(patch.field, priorValue);
   const nextJson = computeScopeList(priorValue, { add: patch.add });
-  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
-  const updated = configsRepo.getById(patch.agentConfigId);
-  if (updated) writeAgentProfileFile(updated);
+  if (nextJson === priorValue) {
+    throw AppError.conflict('broaden-scope is stale or would make no exact scope change');
+  }
+  const snapshot = createScopeStateV2Snapshot(
+    patch.agentConfigId,
+    patch.field,
+    priorValue,
+    nextJson,
+    exactChangeJson,
+  );
 
   // The observable grant is the projected allowlist itself. Broadening has no
   // meaningful failure replay in measureProposal, so sending it to measuring
   // strands the row indefinitely as "unsupported kind".
-  return { measurable: false, beforeSnapshotJson };
+  return prepareDeferredHumanScopeMutation({
+    proposal,
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+    nextValue: nextJson,
+    measurable: false,
+    snapshot,
+  });
 };
 
 /**
@@ -1165,41 +1296,16 @@ const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => 
     );
   }
   const scopeDelta = createScopeDeltaV2Snapshot(patch.agentConfigId, patch.field, priorValue, patch.remove);
-  const beforeSnapshotJson = JSON.stringify(scopeDelta);
 
-  return {
+  return prepareDeferredHumanScopeMutation({
+    proposal,
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+    nextValue: scopeDelta.expectedAppliedValue,
     measurable: true,
-    beforeSnapshotJson,
-    changeJson: exactChangeJson,
-    applyAfterClaim: () => {
-      const updated = configsRepo.compareAndSetScopeField(
-        patch.agentConfigId,
-        patch.field,
-        priorValue,
-        scopeDelta.expectedAppliedValue,
-      );
-      if (!updated) {
-        throw AppError.conflict(
-          `${proposal.kind} target ${patch.agentConfigId}.${patch.field} changed after approval preparation`,
-        );
-      }
-      const projection = writeAgentProfileFile(updated);
-      if (projection === 'blocked' || projection === 'failed') {
-        const compensated = configsRepo.compareAndSetScopeField(
-          patch.agentConfigId,
-          patch.field,
-          scopeDelta.expectedAppliedValue,
-          priorValue,
-        );
-        throw AppError.conflict(
-          `${proposal.kind} profile projection ${projection}; ` +
-          (compensated
-            ? 'the exact prior scope was restored'
-            : 'scope compensation lost a concurrent update and reconciliation is required'),
-        );
-      }
-    },
-  };
+    snapshot: scopeDelta,
+  });
 };
 
 // ── workflow-prompt-fix: skill-create branch (#1152) ──

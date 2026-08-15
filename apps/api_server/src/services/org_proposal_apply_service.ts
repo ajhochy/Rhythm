@@ -58,8 +58,8 @@ export interface ProposalApplyResult {
   /**
    * Optional target mutation deferred until the controller has atomically
    * claimed the proposal and durably stored beforeSnapshotJson. Scope
-   * removals use this to make an unsnapshotted mutation impossible; existing
-   * eager appliers remain source-compatible.
+   * mutations use this to make an unsnapshotted mutation impossible; existing
+   * non-scope eager appliers remain source-compatible.
    */
   applyAfterClaim?: () => void | Promise<void>;
 }

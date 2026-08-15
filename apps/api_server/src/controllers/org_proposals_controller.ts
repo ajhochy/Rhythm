@@ -116,8 +116,8 @@ export class OrgProposalsController {
         throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);
       }
 
-      // Scope-removal target writes are deferred until the atomic claim above
-      // has durably stored their V2 rollback snapshot. A callback failure
+      // Human scope-mutation target writes are deferred until the atomic claim
+      // above has durably stored their versioned rollback snapshot. A callback failure
       // intentionally leaves the safely snapshotted row at applied for W5
       // reconciliation; measurement must not begin on a failed mutation.
       await applyResult.applyAfterClaim?.();

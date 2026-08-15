@@ -136,6 +136,49 @@ describe('AgentConfigsRepository', () => {
       expect(repo.getById(config.id)?.allowedMcpsJson).toBe(JSON.stringify(['x', 'y']));
     });
 
+    it('compare-and-sets core permissions from null and from exact string bytes', () => {
+      // Regression caught: corePermissionsJson falls outside the fixed CAS map,
+      // forcing human scope approval/revert through an unsafe direct update.
+      const config = repo.insert({ label: 'Core CAS', icon: 'shield' });
+      const first = JSON.stringify({ read: 'allow', glob: 'allow' });
+      const second = ' { "read": "allow", "glob": "ask" } ';
+
+      const fromNull = repo.compareAndSetScopeField(
+        config.id,
+        'corePermissionsJson',
+        null,
+        first,
+      );
+      expect(fromNull?.corePermissionsJson).toBe(first);
+
+      const fromString = repo.compareAndSetScopeField(
+        config.id,
+        'corePermissionsJson',
+        first,
+        second,
+      );
+      expect(fromString?.corePermissionsJson).toBe(second);
+    });
+
+    it('refuses a stale core-permission expectation without changing exact bytes', () => {
+      const prior = ' { "read": "allow" } ';
+      const config = repo.insert({
+        label: 'Core CAS miss',
+        icon: 'shield',
+        corePermissionsJson: prior,
+      });
+
+      expect(
+        repo.compareAndSetScopeField(
+          config.id,
+          'corePermissionsJson',
+          JSON.stringify({ read: 'allow' }),
+          JSON.stringify({ read: 'deny' }),
+        ),
+      ).toBeNull();
+      expect(repo.getById(config.id)?.corePermissionsJson).toBe(prior);
+    });
+
     it('rejects any runtime field outside the fixed scope-column allowlist', () => {
       const config = repo.insert({ label: 'CAS field guard', icon: 'shield' });
       expect(() =>

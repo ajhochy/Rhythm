@@ -62,3 +62,45 @@ tags: [run, Rhythm, optimizer, scope-safety]
   reran the complete 11-file command externally under Node 22: 11 files passed, 213 tests passed,
   1 existing skip, including 19/19 route tests; `npm run build` passed. Status remains
   verification-pending until independent review passes.
+
+## Corrective cycle 3
+
+- Unified every human-gated scope write behind one deferred preparation/apply helper. The reviewed
+  removal-only `scope-delta-v2` shape is unchanged; refine-scope, core-permission mutations, and
+  broaden-scope now use `scope-state-v2`, bound to exact prior/applied/change bytes and hashes.
+- Added fixed-column `corePermissionsJson` CAS, exact-state revert validation/compensation, generic
+  legacy refusal for all three scope fields, claim-trigger regressions, actual writer return probes,
+  compensation-race coverage, behavioral rerun coverage, and exact-byte/tamper matrices.
+- RED evidence against the corrective-cycle-2 head:
+  - repository CAS: 2 failures (`Unsupported agent config scope field: corePermissionsJson`);
+  - snapshot/revert: 5 failures (missing `createScopeStateV2Snapshot`; generic core snapshot reverted);
+  - constructor validation: 4 failures (empty change, target mismatch, field mismatch, no-op accepted);
+  - deferred preparation: 4 failures (refine/broaden mutated during preparation).
+- GREEN in the Codex sandbox under Node 22:
+  - non-socket corrective command (the requested set minus `org_proposals_routes.test.ts`) passed:
+    11 files, 257 tests passed, 1 existing skip;
+  - `npm run build` passed (`tsc -p tsconfig.json` plus postbuild advisory copy);
+  - actual writer probes passed for `written`, `skipped`, `blocked`, and `failed` on allowlist and
+    core-permission approval, plus actual `blocked|failed` revert compensation.
+- The exact 12-file command reached `org_proposals_routes.test.ts` but its real-server hook could not
+  bind. A direct listener probe returned exactly
+  `listen EPERM: operation not permitted 0.0.0.0`; parent external route verification remains
+  required. The run status intentionally remains `corrective-in-progress`.
+- `git diff --check 79ee9e8e` passed. A temporary-index scan covering all 12 files and the new
+  contract inspected 1,427 added lines with zero secret, dynamic-execution, shell-exec, unsafe-mode,
+  or nonlocal-HTTP findings. The
+  mandatory GitNexus change detector could not register this worktree because the sandbox refused
+  `~/.gitnexus/registry.json.tmp` with `EPERM`; pre-edit impact analysis still identified
+  `revertProposal` as HIGH risk (15 upstream impacts), which is why its adversarial revert matrix
+  is included in the corrective gate.
+- The real linked-worktree index is also outside the writable sandbox at
+  `/Users/ajhochhalter/Documents/Rhythm/.git/worktrees/w1-scope/index`; the commit step is blocked
+  locally by `index.lock: Operation not permitted` and must be completed by the parent environment.
+- Worker result: implementation and verification ran in-process with no sub-agent dispatch because
+  the corrective shares the same production/test files and parallel editing would increase conflict
+  risk. No W2/W3/integration/live DB/persistent server/network action was performed.
+- Parent external verification under Node 22 passed the complete 12-file command: 12 files passed,
+  284 tests passed, 1 existing skip, including 23/23 real HTTP route tests; `npm run build` passed.
+- Parent review additionally made mixed/add/core scope preparation reject malformed JSON,
+  mixed-type allowlist arrays, scalar allowlists, and non-object core-permission state before claim or
+  projection; four new regressions passed. Status is verification-pending until independent review.

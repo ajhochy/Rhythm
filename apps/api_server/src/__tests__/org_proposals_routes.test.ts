@@ -488,6 +488,78 @@ describe('issue-826: human-gate review queue API', () => {
     expect(measureSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      label: 'refine allowed skills',
+      kind: 'refine-scope',
+      field: 'allowedSkillsJson' as const,
+      prior: '["skill-a"]',
+      change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'allowedSkillsJson', add: ['skill-b'] } }),
+    },
+    {
+      label: 'refine allowed MCPs',
+      kind: 'refine-scope',
+      field: 'allowedMcpsJson' as const,
+      prior: '["rhythm"]',
+      change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'allowedMcpsJson', add: ['gitnexus'] } }),
+    },
+    {
+      label: 'refine core permissions',
+      kind: 'refine-scope',
+      field: 'corePermissionsJson' as const,
+      prior: ' { "read": "ask" } ',
+      change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'corePermissionsJson', set: { read: 'allow' } } }),
+    },
+    {
+      label: 'broaden allowed skills',
+      kind: 'broaden-scope',
+      field: 'allowedSkillsJson' as const,
+      prior: '["skill-a"]',
+      change: (id: string) => ({ agentConfigId: id, field: 'allowedSkillsJson', add: ['skill-b'] }),
+    },
+  ])('W1 corrective 3: real SQLite claim failure is mutation-free for $label', async ({ label, kind, field, prior, change }) => {
+    // Regression caught: eager refine/broaden writes survive a failed durable
+    // claim, leaving a proposed row with no rollback snapshot.
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const writer = await import('../services/opencode_agent_writer');
+    const measure = await import('../services/org_proposal_measure');
+    const profileSpy = vi.spyOn(writer, 'writeAgentProfileFile');
+    const measureSpy = vi.spyOn(measure, 'measureProposal');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: `Claim failure ${label}`,
+      icon: 'shield',
+      ...(field === 'allowedMcpsJson' ? { allowedMcpsJson: prior } : {}),
+      ...(field === 'allowedSkillsJson' ? { allowedSkillsJson: prior } : {}),
+      ...(field === 'corePermissionsJson' ? { corePermissionsJson: prior } : {}),
+    });
+    const exactChangeJson = JSON.stringify(change(config.id));
+    const proposal = await repo.createAsync({
+      kind, risk: 'high', title: `Claim failure ${label}`,
+      changeJson: exactChangeJson, dedupKey: `w1-c3:claim-failure:${label}`,
+    });
+    db.prepare(`
+      CREATE TRIGGER w1_abort_scope_claim
+      BEFORE UPDATE OF status ON agent_org_proposals
+      WHEN NEW.status = 'applied'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced claim persistence failure');
+      END
+    `).run();
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
+
+    expect(res.status).toBe(500);
+    expect((configsRepo.getById(config.id) as unknown as Record<string, unknown> | null)?.[field]).toBe(prior);
+    expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
+      status: 'proposed', beforeSnapshotJson: null,
+    });
+    expect(profileSpy).not.toHaveBeenCalled();
+    expect(measureSpy).not.toHaveBeenCalled();
+  });
+
   it('W1: local approval atomically binds sentinel actor, exact change, and snapshot', async () => {
     const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
     registerAllProposalAppliers();

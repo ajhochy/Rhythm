@@ -356,13 +356,14 @@ export class AgentConfigsRepository {
    */
   compareAndSetScopeField(
     id: string,
-    field: 'allowedMcpsJson' | 'allowedSkillsJson',
+    field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson',
     expectedPriorValue: string | null,
     nextValue: string | null,
   ): AgentConfig | null {
     const columnByField = {
       allowedMcpsJson: 'allowed_mcps_json',
       allowedSkillsJson: 'allowed_skills_json',
+      corePermissionsJson: 'core_permissions_json',
     } as const;
     const column = columnByField[field];
     if (!column) throw new Error(`Unsupported agent config scope field: ${String(field)}`);

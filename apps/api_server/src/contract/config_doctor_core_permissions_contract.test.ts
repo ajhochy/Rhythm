@@ -129,6 +129,14 @@ describe('config-doctor core-permissions acceptance contract', () => {
     registerAllProposalAppliers();
 
     const applyResult = await applyProposal(proposal);
+    expect(configs.getById(profile.id)?.corePermissionsJson).toBe(profile.corePermissionsJson);
+    await proposals.claimAppliedWithSnapshotAsync(
+      proposal.id,
+      1,
+      applyResult.beforeSnapshotJson ?? null,
+      applyResult.changeJson ?? proposal.changeJson,
+    );
+    await applyResult.applyAfterClaim?.();
     const after = configs.getById(profile.id)!;
     expect(JSON.parse(after.corePermissionsJson!)).toEqual({
       bash: { '*': 'allow', 'git push*': 'ask' }, webfetch: 'allow', read: 'allow', glob: 'allow',
@@ -139,7 +147,10 @@ describe('config-doctor core-permissions acceptance contract', () => {
     expect(readFileSync(file, 'utf8')).toContain('  read: allow');
 
     expect(applyResult.beforeSnapshotJson).toBeTruthy();
-    await revertProposal({ ...proposal, beforeSnapshotJson: applyResult.beforeSnapshotJson! });
+    const measuring = await proposals.updateStatusAsync(proposal.id, 'measuring');
+    const active = await proposals.updateStatusAsync(proposal.id, 'active');
+    expect(measuring).not.toBeNull();
+    await revertProposal(active!);
     expect(configs.getById(profile.id)?.corePermissionsJson).toBe(profile.corePermissionsJson);
   });
 
@@ -239,7 +250,15 @@ describe('config-doctor core-permissions acceptance contract', () => {
     registerAllProposalAppliers();
     for (const [field, add] of [['allowedMcpsJson', ['gmail-work']], ['allowedSkillsJson', ['follow-up']]] as const) {
       const proposal = await proposals.createAsync({ kind: 'refine-scope', risk: 'high', title: `add ${add[0]}`, dedupKey: `${field}-${add[0]}`, changeJson: JSON.stringify({ scopePatch: { agentConfigId: profile.id, field, add } }) });
-      await expect(applyProposal(proposal)).resolves.toMatchObject({ measurable: true });
+      const prepared = await applyProposal(proposal);
+      expect(prepared).toMatchObject({ measurable: true, changeJson: proposal.changeJson });
+      await proposals.claimAppliedWithSnapshotAsync(
+        proposal.id,
+        1,
+        prepared.beforeSnapshotJson ?? null,
+        prepared.changeJson,
+      );
+      await prepared.applyAfterClaim?.();
     }
     const updated = configs.getById(profile.id)!;
     expect(JSON.parse(updated.allowedMcpsJson!)).toEqual(['rhythm', 'gmail-work']);

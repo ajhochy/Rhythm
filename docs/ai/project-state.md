@@ -55,3 +55,14 @@ requires it, then install that exact TestFlight artifact and perform the focused
   HTTP route tests rerun outside the worker sandbox; API build and static scan passed. This work is
   verification-pending, not finally approved; independent review remains. See
   `docs/ai/runs/2026-08-14-w1-scope-safety.md`.
+
+### 2026-08-14 — W1 corrective cycle 3
+- Files modified: scope apply/revert services, proposal controller/apply contract comments, fixed-field
+  config CAS, focused API/repository/route/core-permission tests, and the W1 contract/run evidence.
+- Checks run: RED proofs recorded in the run note; Node 22 non-socket corrective gate PASS (11 files,
+  257 passed, 1 existing skip); parent Node 22 complete gate PASS (12 files, 284 passed, 1 existing
+  skip, including 23/23 real HTTP route tests); API build PASS.
+- Decisions made: retain `scope-delta-v2` for removal-only rollback and add sibling `scope-state-v2`
+  for mixed/add/core exact-state rollback; share deferred CAS/projection/compensation mechanics.
+- Deviations from spec: no live server or live DB was started.
+- Concerns: independent final review is still pending; status is verification-pending.

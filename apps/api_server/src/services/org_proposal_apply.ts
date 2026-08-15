@@ -87,6 +87,9 @@ interface AgentConfigScopeChange {
 }
 
 type ScopeFieldName = AgentConfigScopeChange['field'];
+export type ScopeStateFieldName =
+  | ScopeFieldName
+  | 'corePermissionsJson';
 
 const RESERVED_SCOPE_IDENTIFIERS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -127,6 +130,18 @@ export interface ScopeDeltaV2Snapshot {
   integrityHash: string;
 }
 
+/** Exact-state rollback record for mixed, additive, and core scope mutations. */
+export interface ScopeStateV2Snapshot {
+  version: 'scope-state-v2';
+  target: { type: 'agent_config'; id: string };
+  field: ScopeStateFieldName;
+  priorValue: string | null;
+  expectedAppliedValue: string;
+  expectedAppliedHash: string;
+  changeJsonHash: string;
+  integrityHash: string;
+}
+
 /**
  * Broad direct-shape recognition retained only for unattended refusal and
  * legacy revert detection. It must never authorize a scope mutation.
@@ -140,15 +155,11 @@ function isDirectAgentConfigScopePayload(v: unknown): v is AgentConfigScopeChang
   );
 }
 
-// ── Shared agent_config field mechanics (#971 refine-config / refine-scope) ──
+// ── Shared agent_config field mechanics (#971 refine-config + legacy recognition) ──
 //
-// The refine-config (ConfigPatch scalar swap) and refine-scope (ScopePatch
-// add/remove) appliers live in org_proposal_appliers_wiring.ts (the approve
-// lane), but their SNAPSHOT + RESTORE mechanics live here so revertProposal
-// and both appliers share one definition of "read a field" / "write a field"
-// and can never drift. Both kinds snapshot the same shape —
-// {agentConfigId, field, priorValue} — so a single revert branch restores
-// either one.
+// refine-config still uses the generic scalar snapshot below. Human scope
+// mutations use scope-delta-v2 or scope-state-v2; generic scope snapshots are
+// recognized only so revertProposal can refuse them fail-closed.
 
 /** Union of every agent_configs field the two patch shapes can target. */
 export type ConfigFieldName =
@@ -283,6 +294,90 @@ export function computeScopeList(
 
 function hashScopeValue(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function scopeStateIntegrityMaterial(
+  snapshot: Omit<ScopeStateV2Snapshot, 'integrityHash'>,
+): string {
+  return JSON.stringify({
+    version: snapshot.version,
+    target: { type: snapshot.target.type, id: snapshot.target.id },
+    field: snapshot.field,
+    priorValue: snapshot.priorValue,
+    expectedAppliedValue: snapshot.expectedAppliedValue,
+    expectedAppliedHash: snapshot.expectedAppliedHash,
+    changeJsonHash: snapshot.changeJsonHash,
+  });
+}
+
+function parseScopeChangeTarget(
+  exactChangeJson: string,
+): { agentConfigId: string; field: ScopeStateFieldName } | null {
+  if (!exactChangeJson.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(exactChangeJson);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const root = parsed as Record<string, unknown>;
+    const candidate = root.scopePatch;
+    const target = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+      ? candidate as Record<string, unknown>
+      : root;
+    if (typeof target.agentConfigId !== 'string' || !target.agentConfigId.trim()) return null;
+    if (
+      target.field !== 'allowedMcpsJson' &&
+      target.field !== 'allowedSkillsJson' &&
+      target.field !== 'corePermissionsJson'
+    ) return null;
+    return { agentConfigId: target.agentConfigId, field: target.field };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build an exact-state snapshot before any human-gated mixed/add/core write.
+ * These hashes detect accidental or stored-row tampering; they are not an
+ * authentication mechanism and do not replace the human approval boundary.
+ */
+export function createScopeStateV2Snapshot(
+  agentConfigId: string,
+  field: ScopeStateFieldName,
+  priorValue: string | null,
+  expectedAppliedValue: string,
+  exactChangeJson: string,
+): ScopeStateV2Snapshot {
+  if (!agentConfigId.trim()) throw new Error('scope-state-v2 requires a target id');
+  if (
+    field !== 'allowedMcpsJson' &&
+    field !== 'allowedSkillsJson' &&
+    field !== 'corePermissionsJson'
+  ) throw new Error('scope-state-v2 field is not a supported scope field');
+  if (typeof priorValue !== 'string' && priorValue !== null) {
+    throw new Error('scope-state-v2 priorValue must be a string or null');
+  }
+  if (typeof expectedAppliedValue !== 'string') {
+    throw new Error('scope-state-v2 expectedAppliedValue must be a string');
+  }
+  if (!exactChangeJson.trim()) throw new Error('scope-state-v2 requires exact nonempty change_json');
+  if (expectedAppliedValue === priorValue) throw new Error('scope-state-v2 refuses a no-op mutation');
+  const changeTarget = parseScopeChangeTarget(exactChangeJson);
+  if (!changeTarget) throw new Error('scope-state-v2 change_json has no valid scope target');
+  if (changeTarget.agentConfigId !== agentConfigId || changeTarget.field !== field) {
+    throw new Error('scope-state-v2 target/field does not match exact change_json');
+  }
+  const partial: Omit<ScopeStateV2Snapshot, 'integrityHash'> = {
+    version: 'scope-state-v2',
+    target: { type: 'agent_config', id: agentConfigId },
+    field,
+    priorValue,
+    expectedAppliedValue,
+    expectedAppliedHash: hashScopeValue(expectedAppliedValue),
+    changeJsonHash: hashScopeValue(exactChangeJson),
+  };
+  return {
+    ...partial,
+    integrityHash: hashScopeValue(scopeStateIntegrityMaterial(partial)),
+  };
 }
 
 function normalizeRequestedRemove(remove: readonly string[]): string[] {
@@ -443,6 +538,49 @@ function scopeDeltaIntegrityHolds(snapshot: ScopeDeltaV2Snapshot): boolean {
       expectedAppliedValue: snapshot.expectedAppliedValue,
     }) === snapshot.integrityHash
   );
+}
+
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function isScopeStateV2Snapshot(value: unknown): value is ScopeStateV2Snapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  const target = snapshot.target as Record<string, unknown> | undefined;
+  return (
+    snapshot.version === 'scope-state-v2' &&
+    target?.type === 'agent_config' &&
+    typeof target.id === 'string' &&
+    target.id.trim().length > 0 &&
+    (snapshot.field === 'allowedMcpsJson' ||
+      snapshot.field === 'allowedSkillsJson' ||
+      snapshot.field === 'corePermissionsJson') &&
+    (typeof snapshot.priorValue === 'string' || snapshot.priorValue === null) &&
+    typeof snapshot.expectedAppliedValue === 'string' &&
+    snapshot.expectedAppliedValue !== snapshot.priorValue &&
+    isSha256Hex(snapshot.expectedAppliedHash) &&
+    isSha256Hex(snapshot.changeJsonHash) &&
+    isSha256Hex(snapshot.integrityHash)
+  );
+}
+
+function scopeStateIntegrityHolds(snapshot: ScopeStateV2Snapshot): boolean {
+  const { integrityHash: _integrityHash, ...material } = snapshot;
+  return (
+    hashScopeValue(scopeStateIntegrityMaterial(material)) === snapshot.integrityHash &&
+    hashScopeValue(snapshot.expectedAppliedValue) === snapshot.expectedAppliedHash
+  );
+}
+
+function scopeStateMatchesExactChange(
+  snapshot: ScopeStateV2Snapshot,
+  exactChangeJson: string | null,
+): boolean {
+  if (!exactChangeJson || !exactChangeJson.trim()) return false;
+  if (hashScopeValue(exactChangeJson) !== snapshot.changeJsonHash) return false;
+  const target = parseScopeChangeTarget(exactChangeJson);
+  return target?.agentConfigId === snapshot.target.id && target.field === snapshot.field;
 }
 
 /**
@@ -884,11 +1022,15 @@ export async function revertProposal(
   try {
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
     const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
-    const isScopeRemovalKind = proposal.kind === 'tighten-scope' || proposal.kind === 'prune-scope';
+    const isScopeMutationKind =
+      proposal.kind === 'tighten-scope' ||
+      proposal.kind === 'prune-scope' ||
+      proposal.kind === 'refine-scope' ||
+      proposal.kind === 'broaden-scope';
 
     if (!proposal.beforeSnapshotJson) {
       logger.warn(`[org-proposal-apply] no before_snapshot_json for '${proposal.id}' — cannot revert`);
-      return isScopeRemovalKind ? 'unsafe-legacy-scope' : 'skipped';
+      return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
     let snapshot: Record<string, unknown>;
@@ -896,7 +1038,7 @@ export async function revertProposal(
       snapshot = JSON.parse(proposal.beforeSnapshotJson);
     } catch (err) {
       logger.warn(`[org-proposal-apply] unparseable snapshot for '${proposal.id}': ${String(err)}`);
-      return isScopeRemovalKind ? 'unsafe-legacy-scope' : 'skipped';
+      return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
     let change: unknown = null;
@@ -906,12 +1048,51 @@ export async function revertProposal(
       change = null;
     }
 
-    if (isScopeRemovalKind && !isScopeDeltaV2Snapshot(snapshot)) {
+    if (
+      isScopeMutationKind &&
+      snapshot.version !== 'scope-state-v2' &&
+      !isScopeDeltaV2Snapshot(snapshot)
+    ) {
       logger.warn(`[org-proposal-apply] refusing invalid/legacy scope revert for '${proposal.id}'`);
       return 'unsafe-legacy-scope';
     }
 
-    if (isScopeDeltaV2Snapshot(snapshot)) {
+    if (snapshot.version === 'scope-state-v2') {
+      if (
+        !isScopeStateV2Snapshot(snapshot) ||
+        !scopeStateIntegrityHolds(snapshot) ||
+        !scopeStateMatchesExactChange(snapshot, proposal.changeJson)
+      ) {
+        logger.warn(`[org-proposal-apply] exact-state scope snapshot conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+      const restored = configsRepo.compareAndSetScopeField(
+        snapshot.target.id,
+        snapshot.field,
+        snapshot.expectedAppliedValue,
+        snapshot.priorValue,
+      );
+      if (!restored) {
+        logger.warn(`[org-proposal-apply] exact-state scope CAS conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+      const projection = writeAgentProfileFile(restored);
+      if (projection === 'blocked' || projection === 'failed') {
+        const compensated = configsRepo.compareAndSetScopeField(
+          snapshot.target.id,
+          snapshot.field,
+          snapshot.priorValue,
+          snapshot.expectedAppliedValue,
+        );
+        logger.warn(
+          `[org-proposal-apply] exact-state scope revert projection ${projection} for '${proposal.id}'; ` +
+          (compensated
+            ? 'restored the exact applied scope'
+            : 'compensation lost a concurrent update; reconciliation required'),
+        );
+        return 'conflict';
+      }
+    } else if (isScopeDeltaV2Snapshot(snapshot)) {
       if (!scopeDeltaIntegrityHolds(snapshot)) {
         logger.warn(`[org-proposal-apply] scope snapshot integrity conflict for '${proposal.id}'`);
         return 'conflict';
@@ -970,7 +1151,9 @@ export async function revertProposal(
       }
     } else if (
       isConfigFieldSnapshot(snapshot) &&
-      (snapshot.field === 'allowedMcpsJson' || snapshot.field === 'allowedSkillsJson')
+      (snapshot.field === 'allowedMcpsJson' ||
+        snapshot.field === 'allowedSkillsJson' ||
+        snapshot.field === 'corePermissionsJson')
     ) {
       logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
       return 'unsafe-legacy-scope';
