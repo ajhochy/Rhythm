@@ -1361,10 +1361,17 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       // W4 — the headless/scheduled turn-completion point. Same fire-and-forget
       // posture as queueSkillExtraction above: never awaited, never rejects, so
       // a ledger problem can never fail the run it is describing.
+      // producedArtifact is deliberately NOT passed. `resultText.length > 0`
+      // means the model emitted some text, which is the same claim the
+      // interactive hook used to make as a bare `true` — and it routes around
+      // the finalizer's rule that absent evidence can never yield `success`.
+      // Because the row is written once and never updated, every headless or
+      // scheduled run that emitted any text with clean tool telemetry was
+      // recorded `success` permanently, and W6 promotes on this ledger.
+      // Omitting it records `unknown`, which finalizes `inconclusive`.
       void recordTerminalOutcome({
         sessionId: rhythmSessionId,
         terminalStatus: 'completed',
-        producedArtifact: resultText.length > 0,
         scheduledOccurrenceId: scheduledTaskId ?? null,
       });
     }

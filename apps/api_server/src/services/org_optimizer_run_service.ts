@@ -185,6 +185,21 @@ export interface RunOrgOptimizerResult {
    * succeed from one that would fail: it never attempts either.
    */
   recoveryLagging?: number;
+  /**
+   * Shadow only. Incoherent `approved`/`applied` scope claims — a proposal
+   * whose target no longer holds the exact bytes it was approved against,
+   * which is what a crash between the scope commit and the profile projection
+   * leaves behind.
+   *
+   * This has its own field for the same reason `recoveryLagging` does, and the
+   * omission was worse: the sweep computed this count and the caller threw it
+   * away, so in the DEFAULT mode there was no surface anywhere that reported
+   * an incoherent claim. The dry-run CLI does not cover it either — the
+   * reconciler filters `status='active'` while these rows are `approved` or
+   * `applied`. W1's corrective-6 detection was live with its output
+   * unreadable.
+   */
+  recoveryIncoherent?: number;
   /** Non-fatal error message, if the run degraded to a partial result. */
   erroredReason?: string;
 }
@@ -658,7 +673,20 @@ export async function runOrgOptimizer(
     // would repeat a possibly-expensive behavioral re-run in the same pass); a
     // row this run left `skipped` (still `measuring`) is retried on the NEXT
     // run's sweep, not this one. Localized, self-contained, never throws. ─────
-    if (mayMutateLifecycle(policy)) try {
+    // The CLASSIFICATION half runs under every non-`off` mode; only the
+    // measuring half is gated. classifyStuckMeasurement writes nothing by
+    // explicit design — the verdict is reported, never persisted — so gating it
+    // on `mayMutateLifecycle` made `measuringInconclusive` structurally always
+    // zero in the DEFAULT mode, which is the one W5 itself chose. The concrete
+    // hole: a human approves a prune-scope proposal, its single measure attempt
+    // hits unavailable telemetry and returns `skipped`, the row stays
+    // `measuring` — and every later run skipped the sweep entirely, so it sat
+    // there forever, never retried, never classified, never in a run summary.
+    // W5's own acceptance ("stuck measuring work becomes inspectable
+    // /inconclusive instead of eternal") was unmet in shadow. This is the same
+    // reconciliation the plan already made for the recovery sweep, applied
+    // consistently to its sibling in the same function.
+    try {
       const measuredThisRun = new Set(newlyCreated.map((p) => p.id));
       const stillMeasuring = await realProposalsRepo.listByStatusAsync('measuring');
       const { classifyStuckMeasurement } = await import('./org_proposal_reconciler');
@@ -675,6 +703,7 @@ export async function runOrgOptimizer(
           logger.warn(`[org-optimizer-run] '${row.id}' measurement ${budget.reason}`);
           continue;
         }
+        if (!mayMutateLifecycle(policy)) continue;
         const outcome = await measureProposal(row, { proposalsRepo: realProposalsRepo });
         if (outcome === 'kept') result.byOutcome.kept += 1;
         else if (outcome === 'reverted') result.byOutcome.reverted += 1;
@@ -703,6 +732,7 @@ export async function runOrgOptimizer(
         };
         result.recoveryReportOnly = true;
         result.recoveryLagging = reported.projectionsRepaired;
+        result.recoveryIncoherent = reported.proposalsReconciled;
         // Zero the acting counters: in shadow nothing was repaired and nothing
         // was reconciled, and a reader who misses `recoveryReportOnly` must not
         // be told otherwise. `projectionsUnresolved` is unknowable here — the

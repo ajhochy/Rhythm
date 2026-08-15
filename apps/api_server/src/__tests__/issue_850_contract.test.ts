@@ -576,6 +576,12 @@ describe('W5-c11: the W1 recovery sweep still REPORTS under shadow, and still AC
     expect(result.recovery!.projectionsRepaired).toBe(0);
     expect(result.recovery!.proposalsReconciled).toBe(0);
     expect(result.recoveryLagging ?? 0).toBeGreaterThan(0);
+    // ...and the PROPOSAL half is reported too. This fixture seeds an
+    // incoherent `applied` claim, and the sweep counted it all along — the
+    // caller just threw the number away, so in the default mode no surface
+    // anywhere reported it. The dry-run CLI does not cover these rows either:
+    // it filters `status='active'` while this one is `applied`.
+    expect(result.recoveryIncoherent ?? 0).toBeGreaterThan(0);
 
     const { getDb } = await import('../database/db');
     const db = getDb();
@@ -623,6 +629,51 @@ describe('W5-c9: a retryable measuring row past its budget stops being retried i
     // It was NOT measured this pass — the sweep left it exactly where it was.
     const repo = new AgentOrgProposalsRepository();
     expect((await repo.findByIdAsync('budget-blown'))?.status).toBe('measuring');
+  });
+
+  it('shadow classifies a stuck row too, and still measures nothing', async () => {
+    // The shadow twin of the case above, which had no coverage at all: both
+    // stuck-measurement tests ran under `auto`. Gating the CLASSIFICATION on
+    // mayMutateLifecycle made measuringInconclusive structurally always 0 in
+    // the mode W5 made the default, so a human-approved row whose single
+    // measure attempt hit unavailable telemetry sat in `measuring` forever —
+    // never retried, never classified, never in a run summary.
+    await seedUnmeasurableMeasuringRow('budget-blown-shadow');
+    const { getDb } = await import('../database/db');
+    const { MEASURING_BUDGET_MS } = await import('../services/org_proposal_reconciler');
+    getDb()
+      .prepare('UPDATE agent_org_proposals SET updated_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - MEASURING_BUDGET_MS - 60_000).toISOString(), 'budget-blown-shadow');
+
+    const repo = new AgentOrgProposalsRepository();
+    const before = await repo.findByIdAsync('budget-blown-shadow');
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    // Reported...
+    expect(result.byOutcome.measuringInconclusive).toBe(1);
+    // ...and still untouched: same status AND same revision, so the
+    // classification did not advance the lifecycle CAS token.
+    const after = await repo.findByIdAsync('budget-blown-shadow');
+    expect(after?.status).toBe('measuring');
+    expect(after?.revision).toBe(before?.revision);
+  });
+
+  it('shadow does not MEASURE a row that is inside its budget', async () => {
+    // The other half: hoisting classification out of the gate must not have
+    // dragged measureProposal out with it. Under `auto` this row ends
+    // `reconciliation-required`; under shadow it must stay put.
+    await seedUnmeasurableMeasuringRow('fresh-measuring-shadow');
+
+    const repo = new AgentOrgProposalsRepository();
+    const before = await repo.findByIdAsync('fresh-measuring-shadow');
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    expect(result.byOutcome.measuringInconclusive).toBe(0);
+    const after = await repo.findByIdAsync('fresh-measuring-shadow');
+    expect(after?.status).toBe('measuring');
+    expect(after?.revision).toBe(before?.revision);
   });
 
   it('a row still inside its budget is measured normally — the budget is what suppressed it', async () => {

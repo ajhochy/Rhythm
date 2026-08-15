@@ -2,7 +2,7 @@
  * W4 — terminal hook behaviour: fire-and-forget, idempotent, root-resolving
  * (c8, c12) and the privacy gate over the whole write path (c10).
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import Database from 'better-sqlite3';
@@ -69,12 +69,41 @@ describe('W4 — the interactive turn boundary cannot invent a verdict', () => {
     expect(view?.outcome.objectiveVerdict).toBe('inconclusive');
   });
 
+  /**
+   * The first version of this guard was broken three ways at once, and an
+   * independent cross-package review caught all three: it read ONLY
+   * opencode_stream_bridge.ts (missing both agent_runner.ts sites, one of
+   * which carried the same defect); its regex matched the literal `true`, so
+   * it could not have seen `resultText.length > 0` even pointed at the right
+   * file; and `expect(claims).toEqual([])` over a regex-populated array never
+   * asserted the regex matched anything, so a rename or reformat made it pass
+   * while checking nothing.
+   *
+   * The rule being enforced: `producedArtifact` may be omitted (unknown) or
+   * passed as literal `false`. Anything else is a claim about the run's output
+   * that the hook is not in a position to observe — and the row is written
+   * once and never updated, so a wrong claim is permanent.
+   */
   it('no terminal hook call site claims artifact production it did not observe', () => {
-    const source = readFileSync(join(__dirname, '..', 'opencode_stream_bridge.ts'), 'utf8');
+    const servicesDir = join(__dirname, '..');
+    const sources = readdirSync(servicesDir)
+      .filter((entry) => entry.endsWith('.ts'))
+      .map((entry) => [entry, readFileSync(join(servicesDir, entry), 'utf8')] as const);
+
     const claims: string[] = [];
-    for (const call of source.matchAll(/recordTerminalOutcome\(\{[\s\S]*?\}\)/g)) {
-      if (/producedArtifact:\s*true/.test(call[0])) claims.push(call[0].split('\n')[0]);
+    let callSites = 0;
+    for (const [name, source] of sources) {
+      for (const call of source.matchAll(/recordTerminalOutcome\(\{[\s\S]*?\n\s*\}\)/g)) {
+        callSites += 1;
+        const arg = /producedArtifact:\s*([^,\n]+)/.exec(call[0]);
+        if (arg && arg[1].trim() !== 'false') claims.push(`${name}: ${arg[1].trim()}`);
+      }
     }
+
+    // Non-vacuity: if the scan finds no call sites the assertion below is
+    // meaningless. Five is the shipped count (agent_runner x2, bridge x3);
+    // adding one is fine, losing them all is the failure this catches.
+    expect(callSites).toBeGreaterThanOrEqual(5);
     expect(claims).toEqual([]);
   });
 });

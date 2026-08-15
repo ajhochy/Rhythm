@@ -34,8 +34,10 @@ Node v22.23.1 throughout (`export PATH=/opt/homebrew/opt/node@22/bin:$PATH`).
   `Test Files 1 passed (1)` / `Tests 8 passed (8)`, twice consecutively.
 - Live Postgres bootstrap (`RHYTHM_LIVE_PG=1`, disposable `postgres:16`):
   `Tests 5 passed | 1 expected fail (6)`. Skips entirely without the gate.
-- GitNexus `detect_changes --base main`: ran, result NOT usable as evidence —
-  see Limitations.
+- GitNexus `detect_changes --base main`, after reindexing (the first attempt
+  ran against a stale index and reported 15 symbols / 0 processes across a
+  148-file diff, which is the absence of data, not a clean result):
+  **153 files, 624 symbols, 20 affected execution flows, risk level CRITICAL.**
 
 ## What each package established
 
@@ -120,11 +122,22 @@ columns present in SQLite and absent in Postgres.
 
 ## Limitations — read before treating any of this as done
 
-- **GitNexus `detect_changes` produced no usable signal.** It reported 15
-  changed symbols and 0 affected processes across a 148-file diff, and
-  recognised none of the new W4/W5/W6 modules. The index predates this branch.
-  The plan's step-13 gate was RUN but is NOT satisfied in substance; it needs
-  `node .gitnexus/run.cjs analyze` and a re-run to mean anything.
+- **GitNexus reports risk CRITICAL**, and the repo's own rule is to surface
+  HIGH/CRITICAL rather than proceed quietly. The 20 affected execution flows
+  are dominated by the `agent_configs` / `agent_org_proposals` read-write paths
+  — `readPersistedRevision`, `rowToModel`, `getById`, `approve`, `patch`,
+  `create`, `securityLock`, `reviewedReenable`. Those are exactly the symbols
+  W1's revision-CAS work set out to change, so the blast radius is consistent
+  with the intended design rather than evidence of an accident — but it is
+  large, it touches the human approval path, and it deserves a human's eyes
+  before merge. Mitigations already in place: an independent review per work
+  package, a first integrated cross-package review, 5,206 passing tests, and a
+  live E2E gate executed twice.
+- **The GitNexus MCP tool cannot read this index.** `analyze` wrote a v42
+  database; the MCP server's build reads v41. All GitNexus results above came
+  from the CLI (`node .gitnexus/run.cjs detect-changes --repo <path>`), which
+  matches what it wrote. Anyone re-running this via the MCP tool will get an
+  unavailable-database error until the server build catches up.
 - **W6's `verified` reachability** — see the contract's own
   `explicitly_out_of_scope` entry for the state at the time of writing.
 - **The `created_at` engine divergence** — Postgres writes ISO-8601 UTC, SQLite
