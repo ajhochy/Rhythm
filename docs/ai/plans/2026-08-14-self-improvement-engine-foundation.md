@@ -415,13 +415,13 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 1. Add one env-gated live E2E suite that drives real API behavior in the isolated sandbox and copied SQLite DB.
 2. Prove shadow optimizer generation creates proposals without changing target config, installing tools, or changing proposal target state.
-3. Seed a legacy active scope proposal and prove the revert endpoint fails closed without changing config.
-4. Seed a V2 scope snapshot, introduce a concurrent config edit, and prove revert reports conflict without clobbering the edit.
-5. Ingest successful `gitnexus_*`/`pco-services_*` tool events and prove canonical usage blocks “unused” classification.
+3. Seed a legacy scope proposal **in `status='active'`** and prove the revert endpoint fails closed without changing config. The status matters: from any other status the controller rejects at its status guard first, returning the same 409 for an unrelated reason, so a test seeded elsewhere passes without ever reaching the snapshot guard this step is about.
+4. Seed a V2 scope snapshot, introduce a concurrent config edit, and prove revert refuses without clobbering the edit. "Conflict" is three distinct shipped outcomes, and the test must say which it expects: `unsafe-legacy-scope` (409, refused by the snapshot guard) and `conflict` (409, CAS lost to the concurrent edit) both mean nothing happened, while `reconciliation-required` means the transaction may have committed and a human must inspect the pair. The third is the state an operator most needs to see and must never be folded into the other two.
+5. Ingest successful `gitnexus_*`/`pco-services_*` tool events and prove canonical usage blocks “unused” classification. `detectTightenGaps` also requires `MIN_TIGHTEN_ACTIVITY_COUNT` (10) sessions and `MIN_TIGHTEN_OBSERVATION_DAYS` (7) days of profile age, so a fixture created through the API moments earlier generates no gap at all — nothing to block, and the assertion passes with canonicalization doing nothing. Back-date `agent_configs.created_at` and pair the case with a control profile that DOES yield a removal proposal.
 6. Simulate telemetry unavailability and prove no removal/keep decision is authorized.
 7. Complete a user session and prove exactly one terminal outcome plus append-only feedback events.
 8. Prove a self-improvement/system session cannot trigger skill extraction.
-9. Prove retry-policy prose does not create a retry-loop proposal.
+9. Prove retry-policy prose does not create a retry-loop proposal, and that a genuinely repeated failed operation does. There is no proposal kind named `retry-loop`: the workflow-signal generator maps the signal category `retry-loop` to a `create-recipe` proposal titled `Recipe: reduce retry loops (<profile>)` (`workflow_signal_generator.ts`). A test matching on the kind name finds nothing and passes forever.
 10. Run `npm run build`.
 11. Run targeted suites serially.
 12. Run full API Vitest suite.
@@ -435,6 +435,42 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 20. Write a durable decision record for shadow-by-default and CAS/inverse scope rollback.
 21. Update `docs/ai/project-state.md` only after all checks reflect actual state.
 22. Commit documentation separately.
+
+---
+
+# Plan amendments
+
+Recorded rather than applied silently, so the plan and the code cannot drift.
+
+**2026-08-15 — W7 acceptance wording (editorial, no scope change).** Steps 3, 4,
+5 and 9 named behaviour in product language that the shipped code expresses
+differently or gates more tightly. Three of the four were vacuous-pass hazards:
+a test written to the original words would have gone green with the assertion
+never engaging. The steps now name the exact status, outcome, threshold and
+proposal shape. No acceptance criterion was added, removed or relaxed.
+
+**2026-08-15 — three ambiguities reconciled during W4/W5 contract derivation.**
+Each was resolved from this plan's own architecture, campaign invariants and
+final acceptance gates; the reasoning lives in the slice contracts under
+`plan_interpretations`.
+
+1. *Shadow mode versus the W1 recovery sweep.* W1 corrective-6 added a bounded
+   recovery sweep whose only production caller is `runOrgOptimizer`. Shadow is
+   the default mode, so gating the sweep phases naively would make that repair
+   path dead code the moment W5 lands. Two acceptance statements had to hold at
+   once — "shadow has zero mutation side effects" and "lifecycle drift is
+   reportable with a default-dry-run reconciler". Resolution: in shadow the
+   sweep runs report-only, writing nothing; it acts in `human_only` and `auto`,
+   where an operator has opted in.
+2. *W5 step 10's "retry/deadline accounting **or** a deterministic inconclusive
+   classification".* Persisted accounting needs new columns, and every schema
+   file is W4-owned, so building it in W5 would break the parallelism this
+   plan's dependency graph requires. Take the disjunction: implement the
+   classification branch from columns that already exist.
+3. *W4 step 2's "exactly one **mutable**-finalized outcome row" in a package
+   titled "Immutable outcome and feedback ledger".* Read as: mutable until
+   finalized, immutable after. Now pinned by its own criterion so the reading is
+   testable rather than assumed.
 
 ---
 
