@@ -37,7 +37,10 @@ import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_t
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import { AgentWebhookEndpointsRepository } from '../repositories/agent_webhook_endpoints_repository';
-import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  AgentSessionsRepository,
+  type SessionOwnershipFacet,
+} from '../repositories/agent_sessions_repository';
 import {
   DeniedToolEventsRepository,
   type DeniedToolEvent,
@@ -281,7 +284,10 @@ function buildDelegationEdges(profiles: ProfileScopeSnapshot[]): DelegationEdge[
  * only a valid explicit event owner.
  */
 function resolveAgentConfigOwnership(
-  session: AgentSession | null,
+  // Narrowed to the fields actually read, so both the full `AgentSession` rows
+  // used for denied-tool attribution and the cheap `SessionOwnershipFacet` rows
+  // used for uncapped counting can flow through one resolver.
+  session: SessionOwnershipFacet | null,
   explicitAgentConfigId: string | null,
   scheduledTaskOwnerById: ReadonlyMap<string, string | null>,
   validConfigIds: Set<string>,
@@ -526,7 +532,15 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
 
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const sessionCountByProfile = new Map<string, number>();
-  for (const session of sessions) {
+  // Counted from the UNCAPPED ownership read, not from `sessions` above.
+  // `listAll` is `ORDER BY created_at DESC LIMIT 1000`: past 1000 sessions it
+  // silently drops the older ones, so an older-but-qualifying profile's runs
+  // vanish from the count, the observation floor (sessionCount >= 10) is never
+  // met, and the audit confidently reports zero proposals when the truth is
+  // that it never looked. `sessions` stays bounded because its only remaining
+  // job is to warm the denied-tool attribution cache below, which self-heals
+  // via findById on a miss.
+  for (const session of sessionsRepo.listOwnershipFacets()) {
     // #1004: only sessions that ACTUALLY EXECUTED count toward the tighten-scope
     // observation floor. A run stuck at 'starting' or that 'error'ed never invoked
     // any tool — counting it lets "never invoked" masquerade as "unused" when the
