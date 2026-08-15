@@ -2,49 +2,64 @@
 
 ## Current focus
 
-The native Cloud Gateway/mobile release is live. Hosted API/relay and desktop `v0.18.58` are
-released; iOS `1.0.8 (6)` has been uploaded successfully to App Store Connect and is processing for
-TestFlight.
+The self-improvement engine foundation (W1–W7) is complete and integrated on one branch, awaiting
+manual smoke and a human merge decision. The Cloud Gateway/mobile release work that preceded it is
+done: hosted API/relay and desktop `v0.18.58` released, iOS `1.0.8 (6)` uploaded to App Store Connect.
 
 ## Active branch / PR
 
-- Product PR #1388 merged as `ed31ea597878c0636169f49b4cbae9cb378c7d17`.
-- Evidence PR #1389 merged as `cbe10fbc3945909feace401ec05dd890f03b9a15`.
-- Release-config PR #1390 merged as `0c4c2461ae394daeec8876eea791684f809ffe49`.
-- Active docs-only submission-evidence branch: `codex/ios-build-6-submission-evidence`.
-- Original workspace Terminal/PTy, transcript-display, activity-service, proof-image, and unrelated
-  postmortem changes remain preserved outside this isolated branch.
+- **PR #1398** — `self-improvement-engine-foundation` → `main`. Draft, never merged. ~85 commits,
+  ~150 files. This is the active work.
+- Prior Cloud Gateway PRs #1388 / #1389 / #1390 all merged.
 
 ## In progress
 
-- Wait for Apple to finish processing EAS submission `d52e1e6d-b832-4f21-a897-b513c53ce60a`, then
-  install build 6 from TestFlight and run the focused Cloud Gateway device smoke.
+- Awaiting a manual smoke of the optimizer's approve/revert path on a real machine, then a human
+  merge decision on #1398. Nothing else is blocked.
+- Apple processing for iOS build 6 (unrelated to #1398).
 
 ## Risks / known issues
 
-- Terminal remains intentionally deferred; the discussed Gallery cloud-upload redesign is not implemented.
-- TestFlight processing and an exact-build physical-device smoke remain.
-- Issue #1380 (export-compliance declaration) remains separate; it may require resolving Apple's
-  Missing Compliance prompt after processing.
+- **GitNexus reports risk CRITICAL for #1398** — 153 files, 624 symbols, 20 affected execution
+  flows. The blast radius is the `agent_configs` / `agent_org_proposals` read-write paths, which is
+  exactly what the revision-CAS work set out to change, so it is consistent with the design rather
+  than evidence of an accident. It runs through the human approval path and wants a human's eyes.
+- **W6 `verified` does not yet mean what its name claims.** Cohort assignment is wired and
+  `verified` is reachable, but nothing applies the baseline/candidate specs per run — the change is
+  already deployed to everyone by the time a run enrols, so a `promote` today is effectively an A/A
+  result over an already-deployed change. Bounded by shadow-by-default (never writes an outcome) and
+  by requiring an operator-declared experiment. Per-run spec application is the follow-up.
+- **The `created_at` timezone fix is Stage 1 of 2.** Fresh databases now emit ISO-8601 UTC and match
+  Postgres. ALREADY-MIGRATED databases are untouched — `CREATE TABLE IF NOT EXISTS` makes the DDL
+  change inert on them — so existing installs keep the 7-hour skew and the pre-existing mixed-format
+  ordering bug. Stage 2 needs a 12-step rebuild of 60 tables, including two immutable ledger tables
+  that physically reject UPDATE, and revision-preserving handling for the CAS-token tables.
+- **Postgres CI has never actually executed on GitHub Actions** — the job is written and proven
+  locally against the same image and command, but the runner-side wiring is unverified until a PR
+  touching `apps/api_server/**` triggers it.
+- `tools/dev/sandbox.sh` READS the live Rhythm database in its only supported bring-up
+  (`sqlite3 "$LIVE_DB" ".backup"`). Point `RHYTHM_LIVE_DB_PATH` at a disposable file to avoid it.
+- The GitNexus MCP tool cannot read the current index (built v42, server reads v41). Use the CLI.
 
 ## Test status
 
-- Submit-config regression: `npm run test:app-config` PASS; it asserts App Store record `6796011479`.
-- Mobile static: lint PASS with three pre-existing warnings; typecheck PASS.
-- Issue gate PASS: Flutter analyze/format plus API and MCP typechecks.
-- PR gate PASS: Flutter tests; API lint, serial tests, and build; MCP tests/build; opencode fork
-  typecheck and session tests; mobile static/contracts/fake-server; mobile web E2E 71/71.
-- Production remains healthy on product merge `ed31ea59`; desktop `v0.18.58 (142)` remains released.
-- iOS `1.0.8 (6)` store IPA remains build-complete with SHA-256
-  `0b60914a133c8c77d173341d74d1973b73276159238551f7b8059c5939511f48`.
-- EAS submission `d52e1e6d-b832-4f21-a897-b513c53ce60a` PASS: exact build
-  `626de7fe-116f-4fb9-afc1-9a82c97b1632` uploaded to App Store record `6796011479` with EAS-hosted
-  ASC API key `9XHDX3ZN44`; Apple processing is in progress.
+- API suite on the integrated head: **563 files / 5,225 tests passed, 176 skipped, exit 0**.
+  `npm run build` 0, `npx tsc --noEmit` 0. Node v22.23.1.
+- Live E2E (`RHYTHM_LIVE_E2E=1`, isolated sandbox): **8/8 passed, twice consecutively** — the first
+  execution of that suite in its history.
+- Live Postgres bootstrap (`RHYTHM_LIVE_PG=1`, disposable container): **6/6 passed**, no
+  expected-fails remaining.
+- Independent reviews: one per work package, plus a first integrated cross-package review
+  (ACCEPT WITH CHANGES — three P1s found and fixed) and a static security review (two P2s found and
+  fixed).
+- Suite flakiness: one uncaptured single-test failure in one of three consecutive runs before the
+  final merge; the three runs after it were clean. Root cause of the earlier rotating flake was
+  fixed (IPv6-wildcard test listeners being hijacked on loopback).
 
 ## Next step
 
-Verify Apple finishes processing build 6, resolve the existing export-compliance prompt if Apple
-requires it, then install that exact TestFlight artifact and perform the focused Cloud Gateway smoke.
+Manual smoke of #1398: approve and revert an optimizer proposal on a real machine. Then the human
+merge decision. Full detail in `docs/ai/runs/2026-08-14-self-improvement-engine-foundation.md`.
 
 ## Recent coding-agent runs
 
