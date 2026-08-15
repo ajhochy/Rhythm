@@ -17,6 +17,8 @@ export interface AgentConfig {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  /** Monotonic full-profile projection generation. */
+  revision?: number;
   /**
    * Preferred provider for AgentRunner model resolution (e.g. "anthropic").
    * Null means "fall back to most-recently-used session model or hardcoded default".
@@ -164,7 +166,7 @@ export interface AgentConfigInput {
   outputMarker?: string | null;
 }
 
-interface AgentConfigRow {
+export interface AgentConfigRow {
   id: string;
   label: string;
   icon: string;
@@ -185,6 +187,7 @@ interface AgentConfigRow {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  revision?: number;
   model_provider: string | null;
   model_id: string | null;
   oc_agent: string | null;
@@ -265,7 +268,26 @@ export function deriveAgentConfigIdFromLabel(
     : crypto.randomUUID();
 }
 
-function rowToModel(row: AgentConfigRow): AgentConfig {
+export type RevisionedAgentConfig = AgentConfig & { revision: number };
+
+/**
+ * Defense in depth behind the schema triggers (see installRevisionInvariants
+ * in database/migrations.ts). A revision read out of a row is a CAS token —
+ * mapping corrupt material to a plausible number would let a lifecycle caller
+ * fence on a value that never described the stored bytes.
+ *
+ * `undefined`/`null` maps to 0 ONLY for the legacy pre-column shape, which is
+ * genuinely indistinguishable from a fresh revision-zero row.
+ */
+export function readPersistedRevision(value: unknown, source: string): number {
+  if (value === undefined || value === null) return 0;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`${source} holds an unsafe persisted revision: ${String(value)}`);
+  }
+  return value as number;
+}
+
+function rowToModel(row: AgentConfigRow): RevisionedAgentConfig {
   // Legacy CLI columns (command, can_resume, resume_command, session_id_pattern,
   // output_marker) are intentionally NOT mapped onto the returned model — they
   // are obsolete under the Opencode engine. The DB schema retains them for
@@ -287,6 +309,7 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    revision: readPersistedRevision(row.revision, `agent_configs '${row.id}' revision`),
     modelProvider: row.model_provider ?? null,
     modelId: row.model_id ?? null,
     ocAgent: row.oc_agent ?? null,
@@ -309,6 +332,11 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
   };
 }
 
+/** Internal row mapper shared by fixed, cross-table SQLite transactions. */
+export function mapAgentConfigRow(row: AgentConfigRow): RevisionedAgentConfig {
+  return rowToModel(row);
+}
+
 function securityEventRowToModel(row: AgentConfigSecurityEventRow): AgentConfigSecurityEvent {
   return {
     id: row.id,
@@ -323,7 +351,7 @@ function securityEventRowToModel(row: AgentConfigSecurityEventRow): AgentConfigS
 }
 
 export class AgentConfigsRepository {
-  list(): AgentConfig[] {
+  list(): RevisionedAgentConfig[] {
     const rows = getDb()
       .prepare(
         `SELECT * FROM agent_configs ORDER BY sort_order, label`,
@@ -332,7 +360,7 @@ export class AgentConfigsRepository {
     return rows.map(rowToModel);
   }
 
-  listEnabled(): AgentConfig[] {
+  listEnabled(): RevisionedAgentConfig[] {
     const rows = getDb()
       .prepare(
         `SELECT * FROM agent_configs
@@ -343,14 +371,81 @@ export class AgentConfigsRepository {
     return rows.map(rowToModel);
   }
 
-  getById(id: string): AgentConfig | null {
+  getById(id: string): RevisionedAgentConfig | null {
     const row = getDb()
       .prepare(`SELECT * FROM agent_configs WHERE id = ?`)
       .get(id) as AgentConfigRow | undefined;
     return row ? rowToModel(row) : null;
   }
 
-  insert(config: AgentConfigInput): AgentConfig {
+  /**
+   * Compare-and-set one scope column using a fixed field-to-column map. The
+   * caller-provided field is never interpolated into SQL.
+   */
+  compareAndSetScopeField(
+    id: string,
+    field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson',
+    expectedPriorValue: string | null,
+    nextValue: string | null,
+  ): RevisionedAgentConfig | null {
+    const columnByField = {
+      allowedMcpsJson: 'allowed_mcps_json',
+      allowedSkillsJson: 'allowed_skills_json',
+      corePermissionsJson: 'core_permissions_json',
+    } as const;
+    const column = columnByField[field];
+    if (!column) throw new Error(`Unsupported agent config scope field: ${String(field)}`);
+    const row = getDb()
+      .prepare(
+        `UPDATE agent_configs
+            SET ${column} = ?,
+                revision = revision + 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND ${column} IS ?
+          RETURNING *`,
+      )
+      .get(nextValue, id, expectedPriorValue) as AgentConfigRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
+  /**
+   * Revision-bound scope CAS for lifecycle/projection callers. Unlike the
+   * compatibility method above, this cannot match a later ABA occurrence of
+   * the same exact stored bytes.
+   */
+  compareAndSetScopeFieldAtRevision(
+    id: string,
+    field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson',
+    expectedPriorValue: string | null,
+    expectedRevision: number,
+    nextValue: string | null,
+  ): RevisionedAgentConfig | null {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      throw new Error('Agent config scope CAS requires a non-negative integer revision');
+    }
+    const columnByField = {
+      allowedMcpsJson: 'allowed_mcps_json',
+      allowedSkillsJson: 'allowed_skills_json',
+      corePermissionsJson: 'core_permissions_json',
+    } as const;
+    const column = columnByField[field];
+    if (!column) throw new Error(`Unsupported agent config scope field: ${String(field)}`);
+    const row = getDb()
+      .prepare(
+        `UPDATE agent_configs
+            SET ${column} = ?,
+                revision = revision + 1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+            AND ${column} IS ?
+            AND revision = ?
+          RETURNING *`,
+      )
+      .get(nextValue, id, expectedPriorValue, expectedRevision) as AgentConfigRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
+  insert(config: AgentConfigInput): RevisionedAgentConfig {
     const id = config.id ?? deriveAgentConfigIdFromLabel(
       config.label,
       (candidate) => this.getById(candidate) !== null,
@@ -409,7 +504,7 @@ export class AgentConfigsRepository {
     return this.getById(id)!;
   }
 
-  update(id: string, patch: Partial<AgentConfigInput>): AgentConfig | null {
+  update(id: string, patch: Partial<AgentConfigInput>): RevisionedAgentConfig | null {
     const existing = this.getById(id);
     if (!existing) return null;
 
@@ -505,6 +600,7 @@ export class AgentConfigsRepository {
     // re-populate them (issue #581). The DB columns are retained for
     // rollback compatibility but new writes never touch them here.
 
+    fields.push('revision = revision + 1');
     fields.push('updated_at = CURRENT_TIMESTAMP');
 
     if (fields.length === 1) {
@@ -523,7 +619,7 @@ export class AgentConfigsRepository {
    * Atomically disables + security-locks a profile and appends immutable
    * audit evidence. Returns null if the row vanished or was already locked.
    */
-  lockForSecurity(id: string, reason: string, actor: string): AgentConfig | null {
+  lockForSecurity(id: string, reason: string, actor: string): RevisionedAgentConfig | null {
     const db = getDb();
     return db.transaction(() => {
       const lockedAt = new Date().toISOString();
@@ -535,6 +631,7 @@ export class AgentConfigsRepository {
                   disabled_reason = ?,
                   locked_at = ?,
                   locked_by = ?,
+                  revision = revision + 1,
                   updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND COALESCE(locked, 0) = 0`,
         )
@@ -556,7 +653,7 @@ export class AgentConfigsRepository {
    * version and reason they reviewed. The conditional update prevents a
    * stale approval from clearing a newer lock.
    */
-  reviewedReenable(id: string, input: ReviewedReenableInput): AgentConfig | null {
+  reviewedReenable(id: string, input: ReviewedReenableInput): RevisionedAgentConfig | null {
     const db = getDb();
     return db.transaction(() => {
       const result = db
@@ -567,6 +664,7 @@ export class AgentConfigsRepository {
                   disabled_reason = NULL,
                   locked_at = NULL,
                   locked_by = NULL,
+                  revision = revision + 1,
                   updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
               AND locked = 1

@@ -98,23 +98,33 @@ function seedDeadScopeProfile(id = 'secretary'): void {
 }
 
 describe('issue-850-c1: runOrgOptimizer executes audit->generate->persist->auto-apply; high-risk kinds never auto-apply', () => {
-  it('a low-risk prune-scope gap is persisted and advanced past proposed (auto-apply lane)', async () => {
+  it('a prune-scope gap is persisted but stays proposed — scope removal is human-gated, never auto-applied (W1)', async () => {
     // Bug this catches: the run loop only builds the snapshot/generates but
-    // never persists or auto-applies, leaving every low-risk gap sitting
-    // unactioned as if the loop were a no-op read.
+    // never persists gaps, leaving every gap unactioned as if the loop were a
+    // no-op read. Prior to the W1 self-improvement-engine-foundation review
+    // this gap auto-applied past 'proposed' (risk='low'); tighten-scope/
+    // prune-scope are now HIGH-risk, so the correct outcome is that the run
+    // loop persists the gap and leaves it sitting in the human-gate queue.
     seedDeadScopeProfile();
 
     const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
     const result = await runOrgOptimizer();
 
     const proposalsRepo = new AgentOrgProposalsRepository();
-    const pruneProposal = (await proposalsRepo.listByStatusAsync('measuring')).find(
+    const pruneProposal = (await proposalsRepo.listByStatusAsync('proposed')).find(
       (p) => p.kind === 'prune-scope',
-    ) ?? (await proposalsRepo.listByStatusAsync('active')).find((p) => p.kind === 'prune-scope');
+    );
 
     expect(pruneProposal).toBeDefined();
-    expect(pruneProposal?.status).not.toBe('proposed');
+    expect(pruneProposal?.risk).toBe('high');
     expect(result.auditRunId).toBeTruthy();
+
+    // Never auto-applied: no scope-kind row exists in any auto-apply-lane status.
+    const nonProposedStatuses = ['applied', 'measuring', 'active', 'reverted'];
+    for (const status of nonProposedStatuses) {
+      const rows = await proposalsRepo.listByStatusAsync(status);
+      expect(rows.some((p) => p.kind === 'prune-scope')).toBe(false);
+    }
   });
 
   it('a high-risk kind proposal generated THIS run (webhook-wiring) is NEVER auto-applied — it stays proposed', async () => {

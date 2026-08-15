@@ -1259,6 +1259,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
+      revision      INTEGER NOT NULL DEFAULT 0,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1323,6 +1324,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       output_marker TEXT,
       preset_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -1445,6 +1447,67 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
+
+  // W1 corrective-6 package B — monotonic persistence revisions. Existing
+  // rows receive the same revision-zero baseline as rows from the fresh DDL.
+  await pool.query(`
+    ALTER TABLE agent_configs
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS reconciliation_reason TEXT;
+  `);
+  // `revision` is the lifecycle CAS token, so the same two invariants the
+  // SQLite engine installs (see installRevisionInvariants in migrations.ts)
+  // must hold here: a non-negative stored domain, and an auto-bump for any raw
+  // writer that changes a row without touching `revision` (the marker-guarded
+  // profile repairs further below, ad-hoc backfills, manual SQL) plus a
+  // forward-only rule so a rollback cannot revive a stale CAS token.
+  // Repository writes
+  // that already do `revision = revision + 1` change the value themselves, so
+  // the trigger's equality guard leaves them alone rather than double-counting.
+  // ADD CONSTRAINT has no IF NOT EXISTS, hence the catalog guard; the ALTER
+  // itself fails CLOSED if a deployment already holds a negative revision.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_configs_revision_non_negative'
+      ) THEN
+        ALTER TABLE agent_configs
+          ADD CONSTRAINT agent_configs_revision_non_negative CHECK (revision >= 0);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_org_proposals_revision_non_negative'
+      ) THEN
+        ALTER TABLE agent_org_proposals
+          ADD CONSTRAINT agent_org_proposals_revision_non_negative CHECK (revision >= 0);
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_bump_unchanged_revision() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.revision = OLD.revision THEN
+        NEW.revision := OLD.revision + 1;
+      ELSIF NEW.revision < OLD.revision THEN
+        RAISE EXCEPTION 'revision must move forward (% -> %)', OLD.revision, NEW.revision;
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_configs_revision_autobump ON agent_configs;
+    CREATE TRIGGER trg_agent_configs_revision_autobump
+      BEFORE UPDATE ON agent_configs
+      FOR EACH ROW EXECUTE FUNCTION rhythm_bump_unchanged_revision();
+    DROP TRIGGER IF EXISTS trg_agent_org_proposals_revision_autobump ON agent_org_proposals;
+    CREATE TRIGGER trg_agent_org_proposals_revision_autobump
+      BEFORE UPDATE ON agent_org_proposals
+      FOR EACH ROW EXECUTE FUNCTION rhythm_bump_unchanged_revision();
   `);
 
   // #1175 — Activity schema + owner-index parity. All changes are additive and

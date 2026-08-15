@@ -37,6 +37,7 @@ import { AgentSessionMessagesRepository } from '../../repositories/agent_session
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import { opencodeClient } from '../opencode_engine';
 import { resolveKnownMcpServerName, resolveMcpServerIdentity } from '../mcp_scope_name';
+import { createScopeDeltaV2Snapshot } from '../org_proposal_apply';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -639,10 +640,15 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
     const { measureProposal } = await import('../org_proposal_measure');
 
     const configsRepo = new AgentConfigsRepository();
+    // W2 semantics: the allowlist holds the SERVER name, and the interactive
+    // call is a TOOL on that server — the guard must canonicalize before it
+    // can conclude the removed scope is unused. W1 semantics: the snapshot is
+    // a canonical scope-delta-v2 bound to the exact change bytes.
+    const priorMcps = JSON.stringify(['rhythm']);
     const config = configsRepo.insert({
       label: 'Secretary',
       icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['rhythm']),
+      allowedMcpsJson: priorMcps,
     });
 
     const sessionsRepo = new AgentSessionsRepository();
@@ -665,22 +671,35 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
       null,
     );
 
+    // W1 (self-improvement-engine-foundation review) replaced the legacy
+    // whole-field snapshot with a versioned, entry-level scope-delta-v2
+    // snapshot — mirror the real apply step's ACTUAL current snapshot shape
+    // (org_proposal_apply.ts's createScopeDeltaV2Snapshot) so a revert
+    // outcome here has somewhere real to restore to, exactly like the
+    // production apply -> measure handoff.
+    const exactChangeJson = JSON.stringify({
+      agentConfigId: config.id,
+      field: 'allowedMcpsJson',
+      remove: ['rhythm'],
+    });
+    const snapshot = createScopeDeltaV2Snapshot(
+      config.id,
+      'allowedMcpsJson',
+      priorMcps,
+      ['rhythm'],
+      'prune-scope',
+      exactChangeJson,
+    );
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'prune-scope',
-      risk: 'low',
+      risk: 'high',
       status: 'measuring',
-      title: 'Prune unused rhythm from Secretary',
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['rhythm'],
-      }),
-      // Mirrors the real apply step's snapshot shape (org_proposal_apply.ts's
-      // applyAgentConfigScopeChange: `{ [field]: priorValue }`) so a revert
-      // outcome here has somewhere real to restore to, exactly like the
-      // production apply -> measure handoff.
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm']) }),
+      title: 'Prune unused rhythm_send_email from Secretary',
+      changeJson: exactChangeJson,
+      beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: `prune-scope:${config.id}:rhythm_send_email`,
     });
 
@@ -1298,6 +1317,27 @@ describe('W2 P1-3: partial coverage preserves an already-proven positive at the 
         canonicalServerIds: new Set(['gitnexus']),
       });
 
+      // W1: measurement only acts on a canonical scope-delta-v2 snapshot bound
+      // to the exact change bytes and still matching the LIVE target, so this
+      // proposal is staged exactly the way the production apply step leaves it.
+      const configsRepo = new AgentConfigsRepository();
+      const priorMcps = JSON.stringify(['gitnexus']);
+      configsRepo.update(config.id, { allowedMcpsJson: priorMcps });
+      const exactChangeJson = JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['gitnexus'],
+      });
+      const snapshot = createScopeDeltaV2Snapshot(
+        config.id,
+        'allowedMcpsJson',
+        priorMcps,
+        ['gitnexus'],
+        'prune-scope',
+        exactChangeJson,
+      );
+      configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
+
       const proposalsRepo = new AgentOrgProposalsRepository();
       const proposal = await proposalsRepo.createAsync({
         kind: 'prune-scope',
@@ -1305,12 +1345,8 @@ describe('W2 P1-3: partial coverage preserves an already-proven positive at the 
         status: 'measuring',
         title: `Prune gitnexus with ${order}`,
         targetRef: `agent_config:${config.id}`,
-        changeJson: JSON.stringify({
-          agentConfigId: config.id,
-          field: 'allowedMcpsJson',
-          remove: ['gitnexus'],
-        }),
-        beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+        changeJson: exactChangeJson,
+        beforeSnapshotJson: JSON.stringify(snapshot),
         dedupKey: `prune-scope:${config.id}:gitnexus:${order}`,
       });
       const outcome = await measureProposal(proposal, { exercisedTools: async () => telemetry });

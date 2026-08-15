@@ -37,12 +37,9 @@
  * only fires on a currently-matched/live name that was simply never
  * invoked, and consolidate-skill never mutates an allowlist at all).
  *
- * APPLY-SIDE WIRING NOTE (for #830/#831): the apply/measure machinery for
- * all three kinds this generator emits ALREADY EXISTS and needs no new
- * registration:
- *   - `org_proposal_apply.ts`'s `applyAgentConfigScopeChange` already
- *     consumes exactly the `{agentConfigId, field, remove}` change_json
- *     shape this generator produces for tighten-scope/prune-scope.
+ * APPLY-SIDE WIRING NOTE (for #830/#831): scope changes must go through the
+ * registered human-gate appliers; `org_proposal_apply.ts` refuses the direct
+ * `{agentConfigId, field, remove}` shape on its unattended lane.
  *   - `org_proposal_measure.ts`'s `measureScopeChange` already measures
  *     tighten-scope/prune-scope (functional-guard keep/revert), and
  *     `measureBodyRefinement` already measures consolidate-skill IF a

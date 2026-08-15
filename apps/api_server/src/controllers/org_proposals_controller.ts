@@ -24,6 +24,7 @@
 
 import type { NextFunction, Request, Response } from 'express';
 
+import { applyApprovedScopeProposal } from '../services/org_proposal_scope_lifecycle';
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
@@ -50,6 +51,9 @@ function repo(): AgentOrgProposalsRepository {
   return new AgentOrgProposalsRepository();
 }
 
+/** Stable audit actor for an operator using the authenticated local-only bypass. */
+export const LOCAL_OPERATOR_ACTOR_ID = 0;
+
 export class OrgProposalsController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -64,7 +68,8 @@ export class OrgProposalsController {
   async approve(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const proposal = await repo().findByIdAsync(id);
+      const proposalsRepo = repo();
+      const proposal = await proposalsRepo.findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
 
       // #1056 — a proposal the applier marked 'failed' (e.g. a publish-skill-
@@ -97,25 +102,61 @@ export class OrgProposalsController {
         );
       }
 
-      const decidedByUserId = req.auth?.user.id;
+      const decidedByUserId = req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID;
 
       const applyResult = await applyProposal(proposal);
+      const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
 
-      const applied = await repo().updateStatusAsync(id, 'applied', {
+      // W1 package C — a scope proposal never reaches `applied` through the
+      // generic claim. It is claimed `approved` while its target is still
+      // untouched, then the target and the proposal move in ONE atomic
+      // revision-fenced transaction, then the committed revision is projected.
+      if (applyResult.scopePair) {
+        if (!exactChangeJson || !applyResult.beforeSnapshotJson) {
+          throw AppError.conflict(
+            `Proposal ${id} (kind '${proposal.kind}') lacks the exact change/snapshot binding its scope lifecycle requires`,
+          );
+        }
+        const outcome = await applyApprovedScopeProposal({
+          proposal,
+          decidedByUserId,
+          changeJson: exactChangeJson,
+          beforeSnapshotJson: applyResult.beforeSnapshotJson,
+          pair: applyResult.scopePair,
+        });
+        if (outcome.kind === 'conflict') throw AppError.conflict(`Proposal ${id}: ${outcome.reason}`);
+        if (outcome.kind === 'reconciliation-required') {
+          throw AppError.conflict(
+            `Proposal ${id}: ${outcome.reason}; ` +
+            (outcome.durable
+              ? "the proposal is recorded as 'reconciliation-required'"
+              : 'the reconciliation record itself could NOT be persisted') +
+            ' — the proposal, target scope, and projected profile must be inspected before retrying',
+          );
+        }
+        void measureProposal(outcome.proposal).catch((err) =>
+          logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
+        );
+        res.json(outcome.proposal);
+        return;
+      }
+
+      const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
+        id,
         decidedByUserId,
-        beforeSnapshotJson: applyResult.beforeSnapshotJson,
-        // An applier may reshape change_json (e.g. workflow-prompt-fix rewrites
-        // its prose diagnosis into the BodyRefinementChange the measure step
-        // reads). Undefined = leave change_json untouched.
-        changeJson: applyResult.changeJson,
-      });
+        applyResult.beforeSnapshotJson ?? null,
+        exactChangeJson,
+      );
+      if (!applied) {
+        throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);
+      }
 
       if (!applyResult.measurable) {
         res.json(applied);
         return;
       }
 
-      const measuring = await repo().updateStatusAsync(id, 'measuring');
+      const measuring = await proposalsRepo.updateStatusAsync(id, 'measuring');
 
       // #971-3 — fire-and-forget a measure attempt so a human-approved proposal
       // doesn't wait for the next optimizer run's sweep to get keep/revert'd
@@ -155,9 +196,24 @@ export class OrgProposalsController {
       }
 
       const outcome = await revertProposal(proposal);
+      if (outcome === 'unsafe-legacy-scope') {
+        throw AppError.conflict(
+          `Proposal ${id} uses an unsafe legacy scope snapshot; no changes were made and operator reconciliation is required`,
+        );
+      }
+      if (outcome === 'conflict') {
+        throw AppError.conflict(
+          `Proposal ${id} no longer matches its exact post-apply scope; no changes were made and operator reconciliation is required`,
+        );
+      }
+      if (outcome === 'reconciliation-required') {
+        throw AppError.conflict(
+          `Proposal ${id} encountered an indeterminate revert result; the durable database transition may have committed, so the proposal, target scope, and projected profile must be inspected before retrying`,
+        );
+      }
       if (outcome !== 'reverted') {
         throw AppError.conflict(
-          `Proposal ${id} could not be reverted (missing or unparseable before_snapshot_json)`,
+          `Proposal ${id} could not be reverted safely; no changes were made and operator reconciliation is required`,
         );
       }
 

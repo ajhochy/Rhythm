@@ -768,6 +768,22 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
   }
 }
 
+/**
+ * Whether a projected agent file is currently on disk. Unlike
+ * `isAgentProfileFileMissing`, this asks about the FILE, not about whether the
+ * profile ought to have one — a caller that just deleted a stale file for a
+ * disabled profile has to be able to prove the delete stuck.
+ */
+export function agentProfileFileExists(id: string): boolean {
+  if (env.dbClient === 'postgres') return false;
+  if (isTestEnv()) return false;
+  try {
+    return existsSync(agentFilePath(id));
+  } catch {
+    return false;
+  }
+}
+
 /** Remove the opencode agent file for a deleted profile. Never throws. */
 export function deleteAgentProfileFile(id: string): void {
   if (env.dbClient === 'postgres') return;

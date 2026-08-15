@@ -38,6 +38,7 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { createScopeDeltaV2Snapshot } from '../services/org_proposal_apply';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -48,6 +49,7 @@ function makeDb() {
 
 // ── opencode_engine mock — controls isReady / listMcp per test ─────────────
 import { vi } from 'vitest';
+import { forceAppliedScopeFixture } from './helpers/force_applied_scope_fixture';
 
 const mockListMcp = vi.fn();
 let mockIsReady = true;
@@ -236,40 +238,48 @@ describe('issue-857-c5: revertProposal succeeds on an active proposal', () => {
     // measuring -> reverted, so calling revert on an already-active proposal
     // threw "Illegal status transition 'active' -> 'reverted'" — the exact
     // failure the maintainer hit hand-reverting the 16 live proposals.
+    //
+    // W1 (self-improvement-engine-foundation review) replaced the legacy
+    // whole-field snapshot ({allowedMcpsJson: prior}) with a versioned,
+    // entry-level scope-delta-v2 snapshot — replaying the OLD legacy shape is
+    // now refused (unsafe-legacy-scope) because it cannot distinguish a safe
+    // rollback from clobbering a later operator edit. This test now drives
+    // the same active-proposal-revert scenario through the V2 snapshot the
+    // real apply step actually writes.
     const { revertProposal } = await import('../services/org_proposal_apply');
 
     const configsRepo = new AgentConfigsRepository();
+    const priorMcps = JSON.stringify(['rhythm', 'nfl-mcp']);
     const config = configsRepo.insert({
       label: 'Secretary',
       icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['rhythm']),
+      allowedMcpsJson: priorMcps,
     });
+
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl-mcp'] });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', priorMcps, ['nfl-mcp'], 'tighten-scope', exactChangeJson);
 
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'tighten-scope',
-      risk: 'low',
+      risk: 'high',
       title: 'Tighten unused mcp scope nfl-mcp from secretary',
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['nfl-mcp'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']) }),
+      changeJson: exactChangeJson,
+      beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'issue-857-c5:active-revert',
     });
 
     // Drive the row all the way to 'active' (applied -> measuring -> active),
     // simulating a proposal that already passed measurement and was kept —
     // exactly the state the maintainer needed to revert by hand.
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     expect(active?.status).toBe('active');
 
-    // Mutate the live config to the "applied" (pruned) state, as the real
+    // Mutate the live config to the exact post-apply value, as the real
     // apply step would have already done before this row reached 'active'.
-    configsRepo.update(config.id, { allowedMcpsJson: JSON.stringify(['rhythm']) });
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
 
     const outcome = await revertProposal(active!);
     expect(outcome).toBe('reverted');
@@ -297,7 +307,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:active-reverted',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     const updated = await repo.updateStatusAsync(p.id, 'reverted');
@@ -312,7 +322,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:active-approved-still-illegal',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     await expect(repo.updateStatusAsync(p.id, 'approved')).rejects.toThrow();
@@ -326,7 +336,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:reverted-terminal',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     await repo.updateStatusAsync(p.id, 'reverted');

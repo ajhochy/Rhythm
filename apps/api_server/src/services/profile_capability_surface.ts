@@ -144,6 +144,54 @@ export function withHardlineBashEscalation(
   return { ...permissions, bash: { ...current, ...additions } };
 }
 
+type PermissionValue = string | Record<string, string>;
+
+function permissionBehaviorSignature(value: PermissionValue | undefined): unknown {
+  if (value === undefined) return { default: 'ask' };
+  const rules: Array<readonly [string, string]> = typeof value === 'string'
+    ? [['*', value]]
+    : Object.entries(value);
+
+  // The engine defaults an unmatched permission to ask. A map containing only
+  // ask rules therefore has exactly the same behavior as no map at all.
+  if (rules.every(([, action]) => action === 'ask')) return { default: 'ask' };
+
+  // Last match wins. The final universal rule shadows every earlier rule. If
+  // all rules after it choose the same action, the whole permission is constant;
+  // otherwise only that universal fallback plus its later overrides matter.
+  let lastUniversal = -1;
+  for (let index = rules.length - 1; index >= 0; index -= 1) {
+    if (rules[index][0] === '*') {
+      lastUniversal = index;
+      break;
+    }
+  }
+  if (lastUniversal >= 0) {
+    const effective = rules.slice(lastUniversal);
+    const fallback = effective[0][1];
+    if (effective.every(([, action]) => action === fallback)) {
+      return { default: fallback };
+    }
+    return { default: fallback, overrides: effective.slice(1) };
+  }
+
+  return { default: 'ask', overrides: rules };
+}
+
+/**
+ * Stable signature of the engine-visible core-permission behavior. It mirrors
+ * `Permission.fromConfig` + `evaluate`: exact permission names, insertion-order
+ * pattern rules, last matching rule wins, and unmatched defaults to `ask`.
+ */
+export function corePermissionBehaviorSignature(
+  permissions: Record<string, PermissionValue>,
+): string {
+  const projected = withHardlineBashEscalation(permissions);
+  return JSON.stringify(
+    CORE_PERMISSION_NAMES.map((name) => [name, permissionBehaviorSignature(projected[name])]),
+  );
+}
+
 export function parseCorePermissions(
   config: Pick<AgentConfig, 'id' | 'corePermissionsJson'>,
 ): Record<string, string | Record<string, string>> {

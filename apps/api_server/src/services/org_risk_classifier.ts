@@ -9,9 +9,9 @@
  *
  * Per docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §2, amended by
  * docs/ai/decisions/2026-07-02-autonomy-and-vault-intent.md (full autonomy
- * with rollback): reversible/narrowing kinds auto-apply behind measure/revert;
- * privilege-granting, expanding, inbound-surface, and external-code changes
- * are human-gated. The predicate DEFAULTS TO HIGH (fail-closed) — an unknown
+ * with rollback): safe text-only kinds may auto-apply behind measure/revert;
+ * scope mutations, privilege-granting, expanding, inbound-surface, and
+ * external-code changes are human-gated. The predicate DEFAULTS TO HIGH — an unknown
  * or unlisted `kind` is never auto-applied.
  *
  * Pure function: no DB access, no IO, no network — deterministic given the
@@ -28,12 +28,13 @@
  * a buggy or malicious generator mislabeling its own proposal kind.
  */
 
+import { containsScopeBearingPayload } from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
+
 /** Kinds that auto-apply behind measure/revert (proposed -> applied directly). */
 const LOW_RISK_KINDS = new Set<string>([
   'refine-skill',
   'consolidate-skill',
-  'tighten-scope',
-  'prune-scope',
   'refine-recipe',
 ]);
 
@@ -46,6 +47,10 @@ const HIGH_RISK_KINDS = new Set<string>([
   'create-recipe',
   'webhook-wiring',
   'external-adoption',
+  // Scope removal is reversible only while no later config edit has occurred.
+  // Keep it human-gated so permission changes never enter the auto-apply lane.
+  'tighten-scope',
+  'prune-scope',
   // #981 — refine-task edits a scheduled-task definition (instructions/schedule/
   // agent binding). Always human-gated: a bad schedule/binding edit runs on a
   // cron, so it never auto-applies.
@@ -78,32 +83,15 @@ export interface ProposalRiskInput {
   external?: number | boolean | null;
 }
 
-/** Parsed shape of a `changeJson` payload we inspect for hard-rule overrides. */
-interface ParsedChange {
-  /** Any write to the delegation graph is HIGH regardless of stated kind. */
-  allowed_delegates_json?: unknown;
-  /** Any new agent_configs row is HIGH regardless of stated kind. */
-  insertAgentConfig?: unknown;
-  /** Allowlist ADDITIONS are HIGH; removals are LOW (tighten/prune narrow). */
-  add?: unknown;
-  /** Any webhook-endpoint creation is HIGH regardless of stated kind. */
-  createWebhookEndpoint?: unknown;
-}
+type ParsedChange = Record<string, unknown> | unknown[];
 
-function safeParseChange(changeJson: string | null | undefined): ParsedChange | null {
+function safeParseChange(changeJson: string | null | undefined): ParsedChange | 'ambiguous' | null {
   if (!changeJson) return null;
   try {
-    const parsed = JSON.parse(changeJson);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as ParsedChange;
-    }
-    return null;
+    const parsed: unknown = parseStrictJson(changeJson, 'proposal change_json');
+    return parsed && typeof parsed === 'object' ? (parsed as ParsedChange) : 'ambiguous';
   } catch {
-    // Malformed JSON is not itself a risk signal here — the apply step (#821)
-    // is responsible for refusing to act on unparseable payloads. This
-    // predicate only escalates on a payload it CAN positively identify as
-    // privileged; anything else falls through to the kind-based classification.
-    return null;
+    return 'ambiguous';
   }
 }
 
@@ -111,13 +99,27 @@ function safeParseChange(changeJson: string | null | undefined): ParsedChange | 
  * True if the parsed change payload performs a hard-ruled privileged
  * mutation regardless of the proposal's stated `kind`. Any hit forces HIGH.
  */
-function changeShapeIsHardRuledHigh(change: ParsedChange | null): boolean {
+function changeShapeIsHardRuledHigh(change: ParsedChange | 'ambiguous' | null): boolean {
   if (!change) return false;
-  if (change.allowed_delegates_json !== undefined) return true;
-  if (change.insertAgentConfig !== undefined) return true;
-  if (change.createWebhookEndpoint !== undefined) return true;
-  if (change.add !== undefined) return true; // allowlist addition
-  return false;
+  if (change === 'ambiguous') return true;
+  if (containsScopeBearingPayload(change)) return true;
+
+  const maxDepth = 24;
+  const seen = new WeakSet<object>();
+  const inspect = (value: unknown, depth: number): boolean => {
+    if (depth > maxDepth) return true;
+    if (!value || typeof value !== 'object') return false;
+    if (seen.has(value)) return true;
+    seen.add(value);
+    if (Array.isArray(value)) return value.some((entry) => inspect(entry, depth + 1));
+
+    const record = value as Record<string, unknown>;
+    if (record.allowed_delegates_json !== undefined) return true;
+    if (record.insertAgentConfig !== undefined) return true;
+    if (record.createWebhookEndpoint !== undefined) return true;
+    return Object.values(record).some((entry) => inspect(entry, depth + 1));
+  };
+  return inspect(change, 0);
 }
 
 /**
@@ -139,7 +141,7 @@ export function classifyProposalRisk(input: ProposalRiskInput): ProposalRisk {
     return 'high';
   }
 
-  const kind = (input.kind ?? '').trim();
+  const kind = input.kind ?? '';
 
   if (LOW_RISK_KINDS.has(kind)) {
     return 'low';
@@ -160,5 +162,5 @@ export function classifyProposalRisk(input: ProposalRiskInput): ProposalRisk {
  * target agent/recipe scope, HMAC setup, SSRF/allowlist constraints).
  */
 export function requiresSecurityNote(kind: string): boolean {
-  return SECURITY_NOTE_KINDS.has((kind ?? '').trim());
+  return SECURITY_NOTE_KINDS.has(kind ?? '');
 }
