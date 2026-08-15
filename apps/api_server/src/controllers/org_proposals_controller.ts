@@ -24,6 +24,7 @@
 
 import type { NextFunction, Request, Response } from 'express';
 
+import { applyApprovedScopeProposal } from '../services/org_proposal_scope_lifecycle';
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
@@ -106,6 +107,37 @@ export class OrgProposalsController {
       const applyResult = await applyProposal(proposal);
       const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
 
+      // W1 package C — a scope proposal never reaches `applied` through the
+      // generic claim. It is claimed `approved` while its target is still
+      // untouched, then the target and the proposal move in ONE atomic
+      // revision-fenced transaction, then the committed revision is projected.
+      if (applyResult.scopePair) {
+        if (!exactChangeJson || !applyResult.beforeSnapshotJson) {
+          throw AppError.conflict(
+            `Proposal ${id} (kind '${proposal.kind}') lacks the exact change/snapshot binding its scope lifecycle requires`,
+          );
+        }
+        const outcome = await applyApprovedScopeProposal({
+          proposal,
+          decidedByUserId,
+          changeJson: exactChangeJson,
+          beforeSnapshotJson: applyResult.beforeSnapshotJson,
+          pair: applyResult.scopePair,
+        });
+        if (outcome.kind === 'conflict') throw AppError.conflict(`Proposal ${id}: ${outcome.reason}`);
+        if (outcome.kind === 'reconciliation-required') {
+          throw AppError.conflict(
+            `Proposal ${id}: ${outcome.reason}; the proposal, target scope, and projected profile ` +
+            'must be inspected before retrying',
+          );
+        }
+        void measureProposal(outcome.proposal).catch((err) =>
+          logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
+        );
+        res.json(outcome.proposal);
+        return;
+      }
+
       const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
         id,
         decidedByUserId,
@@ -115,12 +147,6 @@ export class OrgProposalsController {
       if (!applied) {
         throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);
       }
-
-      // Human scope-mutation target writes are deferred until the atomic claim
-      // above has durably stored their versioned rollback snapshot. A callback failure
-      // intentionally leaves the safely snapshotted row at applied for W5
-      // reconciliation; measurement must not begin on a failed mutation.
-      await applyResult.applyAfterClaim?.();
 
       if (!applyResult.measurable) {
         res.json(applied);

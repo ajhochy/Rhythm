@@ -1461,7 +1461,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // SQLite engine installs (see installRevisionInvariants in migrations.ts)
   // must hold here: a non-negative stored domain, and an auto-bump for any raw
   // writer that changes a row without touching `revision` (the marker-guarded
-  // profile repairs above, ad-hoc backfills, manual SQL). Repository writes
+  // profile repairs further below, ad-hoc backfills, manual SQL) plus a
+  // forward-only rule so a rollback cannot revive a stale CAS token.
+  // Repository writes
   // that already do `revision = revision + 1` change the value themselves, so
   // the trigger's equality guard leaves them alone rather than double-counting.
   // ADD CONSTRAINT has no IF NOT EXISTS, hence the catalog guard; the ALTER
@@ -1488,6 +1490,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     BEGIN
       IF NEW.revision = OLD.revision THEN
         NEW.revision := OLD.revision + 1;
+      ELSIF NEW.revision < OLD.revision THEN
+        RAISE EXCEPTION 'revision must move forward (% -> %)', OLD.revision, NEW.revision;
       END IF;
       RETURN NEW;
     END;

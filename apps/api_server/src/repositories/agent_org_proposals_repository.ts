@@ -544,12 +544,13 @@ export class AgentOrgProposalsRepository {
     }
     const sourceRevision = expectedRevision ?? existing.revision;
 
-    if (
-      SCOPE_PROPOSAL_KINDS.has(existing.kind) &&
-      existing.status === 'approved' &&
-      status === 'applied'
-    ) {
-      throw new Error('Scope approved-to-applied transition requires the atomic target pair primitive');
+    // ANY arrival at `applied` on a scope kind must go through the atomic
+    // target-pair primitive, not just approved->applied: ALLOWED_TRANSITIONS
+    // also permits proposed->applied and failed->applied, and gating only the
+    // approved edge let a scope proposal reach applied/measuring/active with
+    // the agent_configs target never written.
+    if (SCOPE_PROPOSAL_KINDS.has(existing.kind) && status === 'applied') {
+      throw new Error('Scope transition to applied requires the atomic target pair primitive');
     }
 
     const allowedNext = ALLOWED_TRANSITIONS[existing.status];

@@ -48,6 +48,7 @@ function makeDb() {
 
 // ── opencode_engine mock — controls isReady / listMcp per test ─────────────
 import { vi } from 'vitest';
+import { forceAppliedScopeFixture } from './helpers/force_applied_scope_fixture';
 
 const mockListMcp = vi.fn();
 let mockIsReady = true;
@@ -256,7 +257,7 @@ describe('issue-857-c5: revertProposal succeeds on an active proposal', () => {
     // Drive the row all the way to 'active' (applied -> measuring -> active),
     // simulating a proposal that already passed measurement and was kept —
     // exactly the state the maintainer needed to revert by hand.
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     expect(active?.status).toBe('active');
@@ -291,7 +292,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:active-reverted',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     const updated = await repo.updateStatusAsync(p.id, 'reverted');
@@ -306,7 +307,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:active-approved-still-illegal',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     await expect(repo.updateStatusAsync(p.id, 'approved')).rejects.toThrow();
@@ -320,7 +321,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:reverted-terminal',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     await repo.updateStatusAsync(p.id, 'reverted');

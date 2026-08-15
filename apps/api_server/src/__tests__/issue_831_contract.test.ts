@@ -55,6 +55,7 @@ import {
   revertProposal,
 } from '../services/org_proposal_apply';
 import { measureProposal } from '../services/org_proposal_measure';
+import { applyApprovedScopeProposal } from '../services/org_proposal_scope_lifecycle';
 import {
   applyProposal as applyApprovedProposal,
   hasSecurityNote,
@@ -123,15 +124,18 @@ describe('issue-831-c1/W1: the human-approved path REVERTS on a forced regressio
     registerAllProposalAppliers();
     const applyResult = await applyApprovedProposal(proposal);
     expect(applyResult.measurable).toBe(true);
-    const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
-      proposal.id,
-      0, // explicit local operator actor
-      applyResult.beforeSnapshotJson ?? null,
-      applyResult.changeJson,
-    );
-    expect(applied?.status).toBe('applied');
-    await applyResult.applyAfterClaim?.();
-    const beforeMeasure = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    // W1 package C: the scope route is claim-approved -> atomic pair -> project
+    // -> measuring. Drive the real production lifecycle, not a hand-rolled
+    // sequence, so this contract keeps testing what the controller does.
+    const lifecycle = await applyApprovedScopeProposal({
+      proposal,
+      decidedByUserId: 0, // explicit local operator actor
+      changeJson: applyResult.changeJson!,
+      beforeSnapshotJson: applyResult.beforeSnapshotJson!,
+      pair: applyResult.scopePair!,
+    });
+    expect(lifecycle.kind).toBe('measuring');
+    const beforeMeasure = lifecycle.kind === 'measuring' ? lifecycle.proposal : null;
     expect(beforeMeasure?.status).toBe('measuring');
     const originalSnapshot = beforeMeasure!.beforeSnapshotJson;
     expect(originalSnapshot).toBeTruthy();
@@ -185,15 +189,15 @@ describe('issue-831-c1/W1: the human-approved path REVERTS on a forced regressio
     });
     registerAllProposalAppliers();
     const applyResult = await applyApprovedProposal(proposal);
-    const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
-      proposal.id,
-      0, // explicit local operator actor
-      applyResult.beforeSnapshotJson ?? null,
-      applyResult.changeJson,
-    );
-    expect(applied?.status).toBe('applied');
-    await applyResult.applyAfterClaim?.();
-    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const lifecycle = await applyApprovedScopeProposal({
+      proposal,
+      decidedByUserId: 0, // explicit local operator actor
+      changeJson: applyResult.changeJson!,
+      beforeSnapshotJson: applyResult.beforeSnapshotJson!,
+      pair: applyResult.scopePair!,
+    });
+    expect(lifecycle.kind).toBe('measuring');
+    const measuring = lifecycle.kind === 'measuring' ? lifecycle.proposal : null;
 
     const revertOutcome = await revertProposal(measuring!);
     expect(revertOutcome).toBe('reverted');

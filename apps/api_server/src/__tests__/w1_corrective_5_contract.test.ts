@@ -27,7 +27,11 @@ async function activateProposal(input: {
     beforeSnapshotJson: input.beforeSnapshotJson,
     dedupKey: `w1-c5:${input.kind}:${crypto.randomUUID()}`,
   });
-  await proposals.updateStatusAsync(created.id, 'applied');
+  // Fixture only: place the row in the durable post-apply state directly. The
+  // generic status API refuses ANY scope arrival at `applied` (package C), so
+  // this raw write stands in for a pair the atomic primitive already
+  // committed; these tests exercise the revert/measure side of the lifecycle.
+  getDb().prepare(`UPDATE agent_org_proposals SET status = 'applied' WHERE id = ?`).run(created.id);
   await proposals.updateStatusAsync(created.id, 'measuring');
   return (await proposals.updateStatusAsync(created.id, 'active'))!;
 }
@@ -416,7 +420,11 @@ async function makeScopeFixture(
     measureReason: 'original',
     dedupKey: `w1-c5:atomic:${crypto.randomUUID()}`,
   });
-  await proposals.updateStatusAsync(created.id, 'applied');
+  // Fixture only: place the row in the durable post-apply state directly. The
+  // generic status API refuses ANY scope arrival at `applied` (package C), so
+  // this raw write stands in for a pair the atomic primitive already
+  // committed; these tests exercise the revert/measure side of the lifecycle.
+  getDb().prepare(`UPDATE agent_org_proposals SET status = 'applied' WHERE id = ?`).run(created.id);
   const measuring = await proposals.updateStatusAsync(created.id, 'measuring');
   const proposal = sourceStatus === 'active'
     ? await proposals.updateStatusAsync(created.id, 'active')
@@ -671,14 +679,20 @@ describe('issue-W1-corrective-5-c6: direct claim actor binding', () => {
       changeJson: '{"exact":true}',
       dedupKey: `w1-c5:actor-zero:${crypto.randomUUID()}`,
     });
-    const claimed = await proposals.claimAppliedWithSnapshotAsync(
-      proposal.id,
-      0,
-      '{"snapshot":true}',
-      '{"exact":true}',
-    );
+    // Package C: the scope claim lands on `approved`, and actor 0 (the local
+    // operator sentinel) must survive it exactly — a falsy-actor guard that
+    // rejects or nulls 0 is the bug this pins.
+    const claimed = await proposals.claimScopeApprovedWithSnapshotAsync({
+      id: proposal.id,
+      decidedByUserId: 0,
+      expectedRevision: proposal.revision,
+      expectedKind: 'broaden-scope',
+      expectedChangeJson: '{"exact":true}',
+      beforeSnapshotJson: '{"snapshot":true}',
+      validateSnapshot: () => true,
+    });
     expect(claimed).toMatchObject({
-      status: 'applied',
+      status: 'approved',
       decidedByUserId: 0,
       beforeSnapshotJson: '{"snapshot":true}',
       changeJson: '{"exact":true}',

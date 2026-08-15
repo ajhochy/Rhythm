@@ -7,6 +7,7 @@ import { getDb, setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { forceAppliedScopeFixture } from './helpers/force_applied_scope_fixture';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -29,7 +30,7 @@ async function activateProposal(input: {
     beforeSnapshotJson: input.beforeSnapshotJson,
     dedupKey: `w1-c4:${input.kind}:${crypto.randomUUID()}`,
   });
-  await proposals.updateStatusAsync(proposal.id, 'applied');
+  forceAppliedScopeFixture(proposal.id);
   await proposals.updateStatusAsync(proposal.id, 'measuring');
   return (await proposals.updateStatusAsync(proposal.id, 'active'))!;
 }

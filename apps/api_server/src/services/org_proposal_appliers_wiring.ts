@@ -538,42 +538,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 type HumanScopeSnapshot = ScopeDeltaV2Snapshot | ScopeStateV2Snapshot;
 
-function applyClaimedHumanScopeMutation(input: {
-  proposal: AgentOrgProposal;
-  agentConfigId: string;
-  field: ScopeStateFieldName;
-  priorValue: string | null;
-  nextValue: string;
-}): void {
-  const configsRepo = new AgentConfigsRepository();
-  const updated = configsRepo.compareAndSetScopeField(
-    input.agentConfigId,
-    input.field,
-    input.priorValue,
-    input.nextValue,
-  );
-  if (!updated) {
-    throw AppError.conflict(
-      `${input.proposal.kind} target ${input.agentConfigId}.${input.field} changed after approval preparation`,
-    );
-  }
-  const projection = writeAgentProfileFile(updated);
-  if (projection === 'blocked' || projection === 'failed') {
-    const compensated = configsRepo.compareAndSetScopeField(
-      input.agentConfigId,
-      input.field,
-      input.nextValue,
-      input.priorValue,
-    );
-    throw AppError.conflict(
-      `${input.proposal.kind} profile projection ${projection}; ` +
-      (compensated
-        ? 'the exact prior scope was restored'
-        : 'scope compensation lost a concurrent update and reconciliation is required'),
-    );
-  }
-}
-
 /** Prepare one human-gated scope mutation without touching DB or disk. */
 function prepareDeferredHumanScopeMutation(input: {
   proposal: AgentOrgProposal;
@@ -602,7 +566,12 @@ function prepareDeferredHumanScopeMutation(input: {
     measurable: input.measurable,
     beforeSnapshotJson: JSON.stringify(input.snapshot),
     changeJson: exactChangeJson,
-    applyAfterClaim: () => applyClaimedHumanScopeMutation(input),
+    scopePair: {
+      targetId: input.agentConfigId,
+      field: input.field,
+      priorValue: input.priorValue,
+      nextValue: input.nextValue,
+    },
   };
 }
 

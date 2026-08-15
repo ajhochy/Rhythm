@@ -205,7 +205,13 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
         changeJson,
         beforeSnapshotJson: snapshotJson,
       });
-      await proposals.updateStatusAsync(created.id, 'applied');
+      // Fixture only: place the row in the durable post-apply state without
+      // going through the lifecycle. The generic status API now refuses ANY
+      // scope arrival at `applied` (that is what B9 asserts), so this raw
+      // write stands in for a pair the atomic primitive already committed.
+      db.prepare(
+        `UPDATE agent_org_proposals SET status = 'applied' WHERE id = ?`,
+      ).run(created.id);
       const measuring = (await proposals.updateStatusAsync(created.id, 'measuring'))!;
       return { configs, target, proposals, measuring, changeJson, snapshotJson };
     }
@@ -844,6 +850,95 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
     });
   });
 
+  describe('B9 no scope proposal reaches applied outside the atomic pair', () => {
+    it.each(['proposed', 'failed'] as const)(
+      'refuses a generic %s -> applied scope transition and never touches the target',
+      async (sourceStatus) => {
+        // Regression caught: the guard only covered approved->applied, but the
+        // state machine also permits proposed->applied and failed->applied, so
+        // a scope proposal could walk to applied/measuring/active while
+        // agent_configs kept its prior bytes and no target CAS ever ran.
+        const db = makeDb();
+        setDb(db);
+        const configs = new AgentConfigsRepository();
+        const target = configs.insert({
+          id: `b9-target-${sourceStatus}`,
+          label: 'B9 target',
+          icon: 'shield',
+          allowedSkillsJson: '["base"]',
+        });
+        const proposals = new AgentOrgProposalsRepository(db);
+        const proposal = await proposals.createAsync({
+          id: `b9-proposal-${sourceStatus}`,
+          kind: 'refine-scope',
+          risk: 'high',
+          title: 'B9 proposal',
+          changeJson: JSON.stringify({
+            scopePatch: { agentConfigId: target.id, field: 'allowedSkillsJson', add: ['granted'] },
+          }),
+        });
+        if (sourceStatus === 'failed') {
+          expect((await proposals.updateStatusAsync(proposal.id, 'failed'))?.status).toBe('failed');
+        }
+
+        await expect(proposals.updateStatusAsync(proposal.id, 'applied')).rejects.toThrow(
+          /atomic target pair primitive/,
+        );
+        expect((await proposals.findByIdAsync(proposal.id))?.status).toBe(sourceStatus);
+        expect(configs.getById(target.id)?.allowedSkillsJson).toBe('["base"]');
+        db.close();
+      },
+    );
+  });
+
+  describe('B10 revisions move forward only', () => {
+    it('refuses a raw revision rollback that would revive a stale CAS token', async () => {
+      // Regression caught: the domain guard checked only the value range, so
+      // raw SQL could roll a revision back. Bytes A -> B -> A with the
+      // revision restored let a caller holding the original token win a
+      // revision-bound CAS over history it never observed.
+      const db = makeDb();
+      setDb(db);
+      const configs = new AgentConfigsRepository();
+      const target = configs.insert({
+        id: 'b10-target', label: 'B10 target', icon: 'shield', allowedSkillsJson: '["A"]',
+      });
+      const token = { revision: target.revision, bytes: target.allowedSkillsJson };
+
+      const bumped = configs.update(target.id, { allowedSkillsJson: '["B"]' })!;
+      expect(bumped.revision).toBe(token.revision + 1);
+
+      expect(() => db.prepare(
+        'UPDATE agent_configs SET allowed_skills_json = ?, revision = ? WHERE id = ?',
+      ).run('["A"]', token.revision, target.id)).toThrow(/revision/i);
+      expect(configs.getById(target.id)).toMatchObject({
+        allowedSkillsJson: '["B"]',
+        revision: token.revision + 1,
+      });
+
+      // The stale token can therefore never win.
+      expect(configs.compareAndSetScopeFieldAtRevision(
+        target.id, 'allowedSkillsJson', token.bytes, token.revision, '["A","late-grant"]',
+      )).toBeNull();
+      db.close();
+    });
+
+    it('still allows a forward explicit revision write and the raw-writer auto-bump', () => {
+      const db = makeDb();
+      setDb(db);
+      const configs = new AgentConfigsRepository();
+      const target = configs.insert({ id: 'b10-forward', label: 'B10 forward', icon: 'shield' });
+      db.prepare('UPDATE agent_configs SET revision = revision + 1 WHERE id = ?').run(target.id);
+      expect(configs.getById(target.id)?.revision).toBe(target.revision + 1);
+      db.prepare(`UPDATE agent_configs SET label = 'raw' WHERE id = ?`).run(target.id);
+      expect(configs.getById(target.id)).toMatchObject({
+        label: 'raw',
+        revision: target.revision + 2,
+      });
+      db.close();
+    });
+  });
+
   describe('B8 engine parity for the revision invariants', () => {
     it.each([
       { label: 'negative', value: -1 },
@@ -904,6 +999,9 @@ describe('W1 corrective 6 package B — monotonic persistence revisions', () => 
       );
       expect(postgresSource).toMatch(
         /IF NEW\.revision = OLD\.revision THEN\s+NEW\.revision := OLD\.revision \+ 1;/,
+      );
+      expect(postgresSource).toMatch(
+        /ELSIF NEW\.revision < OLD\.revision THEN\s+RAISE EXCEPTION/,
       );
       for (const table of ['agent_configs', 'agent_org_proposals']) {
         expect(postgresSource).toContain(

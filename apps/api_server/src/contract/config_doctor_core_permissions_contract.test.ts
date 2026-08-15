@@ -128,15 +128,18 @@ describe('config-doctor core-permissions acceptance contract', () => {
     const { revertProposal } = await import('../services/org_proposal_apply');
     registerAllProposalAppliers();
 
+    const { applyApprovedScopeProposal } = await import('../services/org_proposal_scope_lifecycle');
     const applyResult = await applyProposal(proposal);
+    // Preparation alone must not touch the target.
     expect(configs.getById(profile.id)?.corePermissionsJson).toBe(profile.corePermissionsJson);
-    await proposals.claimAppliedWithSnapshotAsync(
-      proposal.id,
-      1,
-      applyResult.beforeSnapshotJson ?? null,
-      applyResult.changeJson ?? proposal.changeJson,
-    );
-    await applyResult.applyAfterClaim?.();
+    const lifecycle = await applyApprovedScopeProposal({
+      proposal,
+      decidedByUserId: 1,
+      changeJson: (applyResult.changeJson ?? proposal.changeJson)!,
+      beforeSnapshotJson: applyResult.beforeSnapshotJson!,
+      pair: applyResult.scopePair!,
+    });
+    expect(lifecycle.kind).toBe('measuring');
     const after = configs.getById(profile.id)!;
     expect(JSON.parse(after.corePermissionsJson!)).toEqual({
       bash: { '*': 'allow', 'git push*': 'ask' }, webfetch: 'allow', read: 'allow', glob: 'allow',
@@ -147,7 +150,7 @@ describe('config-doctor core-permissions acceptance contract', () => {
     expect(readFileSync(file, 'utf8')).toContain('  read: allow');
 
     expect(applyResult.beforeSnapshotJson).toBeTruthy();
-    const measuring = await proposals.updateStatusAsync(proposal.id, 'measuring');
+    const measuring = lifecycle.kind === 'measuring' ? lifecycle.proposal : null;
     const active = await proposals.updateStatusAsync(proposal.id, 'active');
     expect(measuring).not.toBeNull();
     await revertProposal(active!);
@@ -247,18 +250,20 @@ describe('config-doctor core-permissions acceptance contract', () => {
     const proposals = new AgentOrgProposalsRepository();
     const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
     const { applyProposal } = await import('../services/org_proposal_apply_service');
+    const { applyApprovedScopeProposal } = await import('../services/org_proposal_scope_lifecycle');
     registerAllProposalAppliers();
     for (const [field, add] of [['allowedMcpsJson', ['gmail-work']], ['allowedSkillsJson', ['follow-up']]] as const) {
       const proposal = await proposals.createAsync({ kind: 'refine-scope', risk: 'high', title: `add ${add[0]}`, dedupKey: `${field}-${add[0]}`, changeJson: JSON.stringify({ scopePatch: { agentConfigId: profile.id, field, add } }) });
       const prepared = await applyProposal(proposal);
       expect(prepared).toMatchObject({ measurable: true, changeJson: proposal.changeJson });
-      await proposals.claimAppliedWithSnapshotAsync(
-        proposal.id,
-        1,
-        prepared.beforeSnapshotJson ?? null,
-        prepared.changeJson,
-      );
-      await prepared.applyAfterClaim?.();
+      const outcome = await applyApprovedScopeProposal({
+        proposal,
+        decidedByUserId: 1,
+        changeJson: prepared.changeJson!,
+        beforeSnapshotJson: prepared.beforeSnapshotJson!,
+        pair: prepared.scopePair!,
+      });
+      expect(outcome.kind).toBe('measuring');
     }
     const updated = configs.getById(profile.id)!;
     expect(JSON.parse(updated.allowedMcpsJson!)).toEqual(['rhythm', 'gmail-work']);

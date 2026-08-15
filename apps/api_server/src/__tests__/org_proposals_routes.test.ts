@@ -55,6 +55,16 @@ describe('issue-826: human-gate review queue API', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
 
+  /**
+   * Fixture only: place a proposal directly in the durable post-apply state.
+   * The generic status API refuses ANY scope arrival at `applied` (W1 package
+   * C), so this raw write stands in for a pair the atomic primitive already
+   * committed; the tests using it exercise later lifecycle stages.
+   */
+  const forceApplied = (id: string): void => {
+    db.prepare(`UPDATE agent_org_proposals SET status = 'applied' WHERE id = ?`).run(id);
+  };
+
   // Routers read env.agentLocal at import time (see
   // agent_local_auth_bypass.test.ts), so AGENT_LOCAL must be stubbed and the
   // module graph reset BEFORE dynamically importing db/migrations/app —
@@ -102,7 +112,7 @@ describe('issue-826: human-gate review queue API', () => {
       title: 'Prune dead scope entry',
       dedupKey: 'prune-scope:dead-1',
     });
-    await repo.updateStatusAsync(lowRisk.id, 'applied');
+    forceApplied(lowRisk.id);
 
     const res = await fetch(`${baseUrl}/agent-org-proposals?status=proposed`);
     expect(res.status).toBe(200);
@@ -304,7 +314,7 @@ describe('issue-826: human-gate review queue API', () => {
       beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']) }),
       dedupKey: 'issue-857-c7:revert-route',
     });
-    await repo.updateStatusAsync(proposal.id, 'applied');
+    forceApplied(proposal.id);
     await repo.updateStatusAsync(proposal.id, 'measuring');
     await repo.updateStatusAsync(proposal.id, 'active');
 
@@ -435,24 +445,27 @@ describe('issue-826: human-gate review queue API', () => {
       changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'] }),
       dedupKey: 'w1:ordering-proof',
     });
+    // W1 package C ordering: the durable `approved` claim (with its exact V2
+    // snapshot) must land BEFORE the atomic pair that first touches the target.
     const events: string[] = [];
-    const originalClaim = AgentOrgProposalsRepository.prototype.claimAppliedWithSnapshotAsync;
-    vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync')
+    const originalClaim = AgentOrgProposalsRepository.prototype.claimScopeApprovedWithSnapshotAsync;
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimScopeApprovedWithSnapshotAsync')
       .mockImplementation(async function (this: AgentOrgProposalsRepositoryType, ...args) {
         events.push('claim');
         return originalClaim.apply(this, args);
       });
-    const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
-    vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
-      .mockImplementation(function (this: AgentConfigsRepositoryType, ...args) {
-        events.push('config-cas');
-        return originalCas.apply(this, args);
+    const originalPair =
+      AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAtRevisionsAsync;
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'transitionScopeAtomicallyAtRevisionsAsync')
+      .mockImplementation(async function (this: AgentOrgProposalsRepositoryType, ...args) {
+        events.push('atomic-pair');
+        return originalPair.apply(this, args);
       });
 
     const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
 
     expect(res.status).toBe(200);
-    expect(events.slice(0, 2)).toEqual(['claim', 'config-cas']);
+    expect(events.slice(0, 2)).toEqual(['claim', 'atomic-pair']);
     const stored = await repo.findByIdAsync(proposal.id);
     expect(stored?.beforeSnapshotJson).toBeTruthy();
   });
@@ -466,7 +479,7 @@ describe('issue-826: human-gate review queue API', () => {
     const measure = await import('../services/org_proposal_measure');
     const profileSpy = vi.spyOn(writer, 'writeAgentProfileFile');
     const measureSpy = vi.spyOn(measure, 'measureProposal');
-    vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync')
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimScopeApprovedWithSnapshotAsync')
       .mockRejectedValue(new Error('injected snapshot persistence failure'));
     const configsRepo = new AgentConfigsRepository();
     const before = JSON.stringify(['gitnexus', 'rhythm']);
@@ -543,7 +556,7 @@ describe('issue-826: human-gate review queue API', () => {
     db.prepare(`
       CREATE TRIGGER w1_abort_scope_claim
       BEFORE UPDATE OF status ON agent_org_proposals
-      WHEN NEW.status = 'applied'
+      WHEN NEW.status = 'approved'
       BEGIN
         SELECT RAISE(ABORT, 'forced claim persistence failure');
       END
@@ -574,17 +587,22 @@ describe('issue-826: human-gate review queue API', () => {
       kind: 'prune-scope', risk: 'high', title: 'Local actor and exact change',
       changeJson: exactChangeJson, dedupKey: 'w1:local-actor-exact-change',
     });
-    const claimSpy = vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync');
+    const claimSpy = vi.spyOn(
+      AgentOrgProposalsRepository.prototype,
+      'claimScopeApprovedWithSnapshotAsync',
+    );
 
     const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
 
     expect(res.status).toBe(200);
-    expect(claimSpy).toHaveBeenCalledWith(
-      proposal.id,
-      0,
-      expect.stringContaining('scope-delta-v2'),
-      exactChangeJson,
-    );
+    expect(claimSpy).toHaveBeenCalledWith(expect.objectContaining({
+      id: proposal.id,
+      decidedByUserId: 0,
+      expectedRevision: proposal.revision,
+      expectedKind: 'prune-scope',
+      expectedChangeJson: exactChangeJson,
+      beforeSnapshotJson: expect.stringContaining('scope-delta-v2'),
+    }));
     const stored = await repo.findByIdAsync(proposal.id);
     expect(stored?.decidedByUserId).toBe(0);
     expect(stored?.changeJson).toBe(exactChangeJson);
@@ -610,10 +628,14 @@ describe('issue-826: human-gate review queue API', () => {
 
     const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
 
+    // W1 package C: the projection AND its compensating projection are both
+    // blocked, so the atomic inverse restores the exact prior target bytes and
+    // the durable human claim survives at `approved` — never at a half-applied
+    // `applied` — while the route reports the unresolved state.
     expect(res.status).toBe(409);
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
     expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
-      status: 'applied',
+      status: 'approved',
       decidedByUserId: 0,
       changeJson: exactChangeJson,
     });
@@ -675,7 +697,10 @@ describe('issue-826: human-gate review queue API', () => {
     const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
     const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
     const writer = await import('../services/opencode_agent_writer');
-    const claimSpy = vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync');
+    const claimSpy = vi.spyOn(
+      AgentOrgProposalsRepository.prototype,
+      'claimScopeApprovedWithSnapshotAsync',
+    );
     const profileSpy = vi.spyOn(writer, 'writeAgentProfileFile');
     const configsRepo = new AgentConfigsRepository();
     const before = JSON.stringify(['x', 'x', 'y']);
@@ -710,7 +735,7 @@ describe('issue-826: human-gate review queue API', () => {
       changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1:route-v2-revert',
     });
-    await repo.updateStatusAsync(proposal.id, 'applied');
+    forceApplied(proposal.id);
     await repo.updateStatusAsync(proposal.id, 'measuring');
     await repo.updateStatusAsync(proposal.id, 'active');
 
@@ -754,7 +779,7 @@ describe('issue-826: human-gate review queue API', () => {
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: `w1:route-ambiguous:${crypto.randomUUID()}`,
     });
-    await repo.updateStatusAsync(proposal.id, 'applied');
+    forceApplied(proposal.id);
     await repo.updateStatusAsync(proposal.id, 'measuring');
     await repo.updateStatusAsync(proposal.id, 'active');
 

@@ -262,7 +262,9 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
     expect(await repo.existsByDedupKeyAsync('seen-key')).toBe(true);
   });
 
-  it('claimAppliedWithSnapshotAsync is a revision-bound, one-winner SQLite claim', async () => {
+  it('claimScopeApprovedWithSnapshotAsync is a revision-bound, one-winner SQLite claim', async () => {
+    // W1 package C: a scope proposal is claimed `approved` — never `applied` —
+    // so the loser sees a plain conflict with the target still untouched.
     const { AgentOrgProposalsRepository } = await import(
       '../repositories/agent_org_proposals_repository'
     );
@@ -277,6 +279,43 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
     });
 
     const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
+    const claim = (actor: number) => repo.claimScopeApprovedWithSnapshotAsync({
+      id: proposal.id,
+      decidedByUserId: actor,
+      expectedRevision: proposal.revision,
+      expectedKind: 'prune-scope',
+      expectedChangeJson: exactChangeJson,
+      beforeSnapshotJson: snapshot,
+      validateSnapshot: () => true,
+    });
+    const [first, second] = await Promise.all([claim(7), claim(8)]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect([first, second].filter((row) => row === null)).toHaveLength(1);
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored).toMatchObject({
+      status: 'approved',
+      beforeSnapshotJson: snapshot,
+      changeJson: exactChangeJson,
+    });
+    expect([7, 8]).toContain(stored?.decidedByUserId);
+  });
+
+  it('claimAppliedWithSnapshotAsync remains a one-winner claim for non-scope kinds', async () => {
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    const exactChangeJson = ' { "configPatch": { "agentConfigId": "config-1", "field": "modelId", "value": "m" } } ';
+    const proposal = await repo.createAsync({
+      kind: 'refine-config',
+      risk: 'low',
+      title: 'Non-scope atomic claim',
+      changeJson: exactChangeJson,
+      dedupKey: 'w1:atomic-claim-non-scope',
+    });
+
+    const snapshot = JSON.stringify({ agentConfigId: 'config-1', field: 'modelId', priorValue: null });
     const [first, second] = await Promise.all([
       repo.claimAppliedWithSnapshotAsync(proposal.id, 7, snapshot, exactChangeJson),
       repo.claimAppliedWithSnapshotAsync(proposal.id, 8, snapshot, exactChangeJson),
@@ -284,13 +323,11 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
 
     expect([first, second].filter(Boolean)).toHaveLength(1);
     expect([first, second].filter((row) => row === null)).toHaveLength(1);
-    const stored = await repo.findByIdAsync(proposal.id);
-    expect(stored).toMatchObject({
+    expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
       status: 'applied',
       beforeSnapshotJson: snapshot,
       changeJson: exactChangeJson,
     });
-    expect([7, 8]).toContain(stored?.decidedByUserId);
   });
 });
 
@@ -338,7 +375,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-auto-apply',
@@ -369,7 +406,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-lifecycle-active',
@@ -386,7 +423,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-lifecycle-reverted',
@@ -405,7 +442,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const setup = new AgentOrgProposalsRepository();
     const p = await setup.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'high',
       title: 'Status CAS race',
       dedupKey: `status-cas-race:${crypto.randomUUID()}`,
@@ -484,7 +521,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-illegal-3',

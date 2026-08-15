@@ -30,6 +30,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { forceAppliedScopeFixture } from './helpers/force_applied_scope_fixture';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -207,7 +208,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: `w1-c3:exact-revert:${field}:${String(priorValue)}`,
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -254,7 +255,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
         beforeSnapshotJson: JSON.stringify({ agentConfigId: config.id, field, priorValue: null }),
         dedupKey: `w1-c3:legacy:${field}`,
       });
-      await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+      forceAppliedScopeFixture(proposal.id);
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -291,7 +292,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
       changeJson: exactChangeJson, beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: `w1-c3:tamper:${label}`,
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -316,7 +317,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
       changeJson: ` ${exactChangeJson} `,
       beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1-c3:live-change-tamper',
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -336,7 +337,7 @@ describe('W1 corrective 3: exact-state scope revert', () => {
           changeJson: JSON.stringify({ agentConfigId: 'target', field: 'allowedSkillsJson', add: ['x'] }),
           beforeSnapshotJson, dedupKey: `w1-c3:missing-snapshot:${kind}:${String(beforeSnapshotJson)}`,
         });
-        await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+        forceAppliedScopeFixture(proposal.id);
         await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
         const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
         expect(await revertProposal(active!)).toBe('unsafe-legacy-scope');
@@ -536,7 +537,7 @@ describe('W1: conflict-safe scope revert', () => {
       }),
       dedupKey: 'w1:legacy-service-revert',
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     const before = configsRepo.getById(config.id)?.allowedMcpsJson;
@@ -563,7 +564,7 @@ describe('W1: conflict-safe scope revert', () => {
       beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['x', 'rhythm']) }),
       dedupKey: `w1:legacy-malformed:${String(changeJson)}`,
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     const before = configsRepo.getById(config.id)?.allowedMcpsJson;
@@ -603,7 +604,7 @@ describe('W1: conflict-safe scope revert', () => {
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'w1:v2-array-revert',
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -643,7 +644,7 @@ describe('W1: conflict-safe scope revert', () => {
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'w1:v2-conflict',
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -686,7 +687,7 @@ describe('W1: conflict-safe scope revert', () => {
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'w1:v2-map-revert',
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -739,7 +740,7 @@ describe('W1: conflict-safe scope revert', () => {
       beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: `w1:binding:${String(boundChange)}`,
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -789,7 +790,7 @@ describe('W1: conflict-safe scope revert', () => {
         changeJson: JSON.stringify({ agentConfigId: config.id, field: 'allowedSkillsJson', remove: [reserved] }),
         beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: `w1:tampered-reserved:${reserved}`,
       });
-      await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+      forceAppliedScopeFixture(proposal.id);
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -799,6 +800,32 @@ describe('W1: conflict-safe scope revert', () => {
     },
   );
 });
+
+/**
+ * W1 package C — drive the REAL production scope route the controller runs:
+ * claim `approved` (target untouched) -> one atomic revision-fenced target +
+ * proposal transaction -> revision-fenced projection -> `measuring`.
+ *
+ * This replaces the removed `applyAfterClaim` callback seam. The assertions
+ * below are the same ones the callback tests made, restated on the lifecycle
+ * outcome: "the callback threw 409" becomes "the lifecycle refused with a
+ * conflict and compensated", and a compensation that loses its CAS is now
+ * durable `reconciliation-required` rather than a bare conflict.
+ */
+async function runScopeLifecycle(
+  proposal: Awaited<ReturnType<AgentOrgProposalsRepository['createAsync']>>,
+  prepared: { changeJson?: string; beforeSnapshotJson?: string; scopePair?: unknown },
+  decidedByUserId = 0,
+) {
+  const { applyApprovedScopeProposal } = await import('../services/org_proposal_scope_lifecycle');
+  return applyApprovedScopeProposal({
+    proposal,
+    decidedByUserId,
+    changeJson: prepared.changeJson!,
+    beforeSnapshotJson: prepared.beforeSnapshotJson!,
+    pair: prepared.scopePair as never,
+  });
+}
 
 describe('W1: deferred human scope apply CAS', () => {
   it.each([
@@ -826,20 +853,19 @@ describe('W1: deferred human scope apply CAS', () => {
       changeJson: exactChangeJson, dedupKey: `w1-c3:trigger:${kind}:${field}`,
     });
     const prepared = await applyHumanProposal(proposal);
+    // W1 package C: the scope route's first durable write is the `approved`
+    // claim, so that is where a DB-level failure must stay mutation-free.
     getDb().prepare(`
       CREATE TRIGGER w1_abort_deferred_scope_claim
       BEFORE UPDATE OF status ON agent_org_proposals
-      WHEN NEW.status = 'applied'
+      WHEN NEW.status = 'approved'
       BEGIN
         SELECT RAISE(ABORT, 'forced claim persistence failure');
       END
     `).run();
 
-    await expect(
-      proposalsRepo.claimAppliedWithSnapshotAsync(
-        proposal.id, 93, prepared.beforeSnapshotJson ?? null, prepared.changeJson,
-      ),
-    ).rejects.toThrow(/forced claim persistence failure/);
+    await expect(runScopeLifecycle(proposal, prepared, 93))
+      .rejects.toThrow(/forced claim persistence failure/);
     expect(readScopeField(configsRepo, config.id, field)).toBe(prior);
     expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
       status: 'proposed', beforeSnapshotJson: null,
@@ -915,7 +941,11 @@ describe('W1: deferred human scope apply CAS', () => {
     });
     expect(prepared.changeJson).toBe(exactChangeJson);
     expect(prepared.measurable).toBe(measurable);
-    expect(prepared.applyAfterClaim).toBeTypeOf('function');
+    expect(prepared.scopePair).toMatchObject({
+      targetId: config.id,
+      field,
+      priorValue: prior,
+    });
   });
 
   it.each([
@@ -1012,7 +1042,8 @@ describe('W1: deferred human scope apply CAS', () => {
           : { corePermissionsJson: intervening },
       );
 
-      await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({ statusCode: 409 });
+      const outcome = await runScopeLifecycle(proposal, prepared);
+      expect(outcome.kind).toBe('conflict');
       expect(readScopeField(configsRepo, config.id, field)).toBe(intervening);
       expect(profileSpy).not.toHaveBeenCalled();
     },
@@ -1070,10 +1101,8 @@ describe('W1: deferred human scope apply CAS', () => {
 
     const intervening = JSON.stringify(['gitnexus', 'rhythm', 'pco-services']);
     configsRepo.update(config.id, { allowedMcpsJson: intervening });
-    await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CONFLICT',
-    });
+    const outcome = await runScopeLifecycle(proposal, prepared);
+    expect(outcome.kind).toBe('conflict');
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(intervening);
     expect(profileSpy).not.toHaveBeenCalled();
   });
@@ -1096,21 +1125,17 @@ describe('W1: deferred human scope apply CAS', () => {
         dedupKey: `w1:approval-writer:${writerResult}`,
       });
       const prepared = await applyHumanProposal(proposal);
-      const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
-        proposal.id,
-        77,
-        prepared.beforeSnapshotJson ?? null,
-        proposal.changeJson,
-      );
-      expect(applied?.status).toBe('applied');
 
-      await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({
-        statusCode: 409,
-        code: 'CONFLICT',
-      });
+      // The projection AND its compensating projection both refuse, so the
+      // database pair is atomically restored but file/runtime coherence is
+      // unknown — that is durable reconciliation, not a plain conflict.
+      const outcome = await runScopeLifecycle(proposal, prepared, 77);
+      expect(outcome.kind).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
+      // The exact atomic inverse restored BOTH rows: the durable human claim
+      // survives at `approved`, never at a half-applied `applied`.
       expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
-        status: 'applied',
+        status: 'approved',
         beforeSnapshotJson: prepared.beforeSnapshotJson,
         decidedByUserId: 77,
       });
@@ -1134,22 +1159,21 @@ describe('W1: deferred human scope apply CAS', () => {
       dedupKey: 'w1:approval-compensation-race',
     });
     const prepared = await applyHumanProposal(proposal);
-    await proposalsRepo.claimAppliedWithSnapshotAsync(
-      proposal.id,
-      77,
-      prepared.beforeSnapshotJson ?? null,
-      proposal.changeJson,
-    );
-    const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
-    let casCalls = 0;
-    vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
-      .mockImplementation(function (this: AgentConfigsRepository, ...args) {
-        casCalls += 1;
-        if (casCalls === 2) configsRepo.update(config.id, { allowedMcpsJson: concurrent });
-        return originalCas.apply(this, args);
+    // An operator writes the target between the atomic apply and the
+    // compensating inverse, so the inverse must LOSE its CAS rather than
+    // stamp the prior bytes over the operator's write.
+    const originalTransition =
+      AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAtRevisionsAsync;
+    let transitions = 0;
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'transitionScopeAtomicallyAtRevisionsAsync')
+      .mockImplementation(async function (this: AgentOrgProposalsRepository, ...args) {
+        transitions += 1;
+        if (transitions === 2) configsRepo.update(config.id, { allowedMcpsJson: concurrent });
+        return originalTransition.apply(this, args);
       });
 
-    await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({ statusCode: 409 });
+    const outcome = await runScopeLifecycle(proposal, prepared, 77);
+    expect(outcome.kind).toBe('reconciliation-required');
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(concurrent);
     expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('applied');
   });
@@ -1198,25 +1222,19 @@ describe('W1: deferred human scope apply CAS', () => {
           });
           const prepared = await applyHumanProposal(proposal);
           const snapshot = JSON.parse(prepared.beforeSnapshotJson ?? 'null');
-          await proposalsRepo.claimAppliedWithSnapshotAsync(
-            proposal.id,
-            88,
-            prepared.beforeSnapshotJson ?? null,
-            prepared.changeJson,
-          );
 
-          if (writerResult === 'blocked' || writerResult === 'failed') {
-            await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({
-              statusCode: 409,
-              code: 'CONFLICT',
-            });
+          const outcome = await runScopeLifecycle(proposal, prepared, 88);
+          const refused = writerResult === 'blocked' || writerResult === 'failed';
+          if (refused) {
+            // Same writer refuses the compensating projection too.
+            expect(outcome.kind).toBe('reconciliation-required');
             expect(readScopeField(configsRepo, config.id, field)).toBe(prior);
           } else {
-            expect(prepared.applyAfterClaim?.()).toBeUndefined();
+            expect(outcome.kind).toBe('measuring');
             expect(readScopeField(configsRepo, config.id, field)).toBe(snapshot.expectedAppliedValue);
           }
           expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
-            status: 'applied',
+            status: refused ? 'approved' : 'measuring',
             decidedByUserId: 88,
             changeJson: exactChangeJson,
             beforeSnapshotJson: prepared.beforeSnapshotJson,
@@ -1262,19 +1280,18 @@ describe('W1: deferred human scope apply CAS', () => {
         changeJson: exactChangeJson, dedupKey: 'w1-c3:actual-blocked-approval-race',
       });
       const prepared = await applyHumanProposal(proposal);
-      await proposalsRepo.claimAppliedWithSnapshotAsync(
-        proposal.id, 91, prepared.beforeSnapshotJson ?? null, prepared.changeJson,
-      );
-      const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
-      let casCalls = 0;
-      vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
-        .mockImplementation(function (this: AgentConfigsRepository, ...args) {
-          casCalls += 1;
-          if (casCalls === 2) configsRepo.update(config.id, { allowedSkillsJson: concurrent });
-          return originalCas.apply(this, args);
+      const originalTransition =
+        AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAtRevisionsAsync;
+      let transitions = 0;
+      vi.spyOn(AgentOrgProposalsRepository.prototype, 'transitionScopeAtomicallyAtRevisionsAsync')
+        .mockImplementation(async function (this: AgentOrgProposalsRepository, ...args) {
+          transitions += 1;
+          if (transitions === 2) configsRepo.update(config.id, { allowedSkillsJson: concurrent });
+          return originalTransition.apply(this, args);
         });
 
-      await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({ statusCode: 409 });
+      const outcome = await runScopeLifecycle(proposal, prepared, 91);
+      expect(outcome.kind).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(concurrent);
       expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('applied');
     } finally {
@@ -1312,14 +1329,14 @@ describe('W1: deferred human scope apply CAS', () => {
         changeJson: exactChangeJson, dedupKey: 'w1-c3:failed-broaden-projection',
       });
       const prepared = await applyHumanProposal(proposal);
-      await proposalsRepo.claimAppliedWithSnapshotAsync(
-        proposal.id, 92, prepared.beforeSnapshotJson ?? null, prepared.changeJson,
-      );
 
-      await expect(async () => prepared.applyAfterClaim?.()).rejects.toMatchObject({ statusCode: 409 });
+      // HOME=/dev/null fails the compensating projection too, so the restored
+      // database pair is durable but file coherence is unknown.
+      const outcome = await runScopeLifecycle(proposal, prepared, 92);
+      expect(outcome.kind).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(prior);
       expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
-        status: 'applied', changeJson: exactChangeJson, decidedByUserId: 92,
+        status: 'approved', changeJson: exactChangeJson, decidedByUserId: 92,
       });
     } finally {
       process.env.VITEST = originalVitest;
@@ -1350,7 +1367,7 @@ describe('W1: scope projection is a revert gate', () => {
         beforeSnapshotJson: JSON.stringify(snapshot),
         dedupKey: `w1:revert-writer:${writerResult}`,
       });
-      await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+      forceAppliedScopeFixture(proposal.id);
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -1377,7 +1394,7 @@ describe('W1: scope projection is a revert gate', () => {
       changeJson: exactChangeJson,
       beforeSnapshotJson: JSON.stringify(snapshot), dedupKey: 'w1:revert-compensation-race',
     });
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     const originalTransition = AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAsync;
@@ -1435,7 +1452,7 @@ describe('W1: scope projection is a revert gate', () => {
             changeJson: exactChangeJson, beforeSnapshotJson: JSON.stringify(snapshot),
             dedupKey: `w1-c3:actual-revert:${field}:${writerResult}`,
           });
-          await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+          forceAppliedScopeFixture(proposal.id);
           await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
           const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
@@ -1484,7 +1501,7 @@ describe('W1: scope projection is a revert gate', () => {
         changeJson: exactChangeJson, beforeSnapshotJson: JSON.stringify(snapshot),
         dedupKey: 'w1-c3:actual-blocked-revert-race',
       });
-      await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+      forceAppliedScopeFixture(proposal.id);
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
       const originalTransition = AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAsync;
@@ -1525,7 +1542,12 @@ describe('W1: local approval claim identity and change binding', () => {
       kind: 'prune-scope', risk: 'high', title: 'Direct controller actor',
       changeJson: exactChangeJson, dedupKey: 'w1:direct-controller-actor',
     });
-    const claimSpy = vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync');
+    // W1 package C: a scope proposal is claimed `approved` first; the generic
+    // proposed->applied claim is not reachable for scope kinds at all.
+    const claimSpy = vi.spyOn(
+      AgentOrgProposalsRepository.prototype,
+      'claimScopeApprovedWithSnapshotAsync',
+    );
     const res = { json: vi.fn() };
     const next = vi.fn();
 
@@ -1536,12 +1558,14 @@ describe('W1: local approval claim identity and change binding', () => {
     );
 
     expect(next).not.toHaveBeenCalled();
-    expect(claimSpy).toHaveBeenCalledWith(
-      proposal.id,
-      0,
-      expect.stringContaining('scope-delta-v2'),
-      exactChangeJson,
-    );
+    expect(claimSpy).toHaveBeenCalledWith(expect.objectContaining({
+      id: proposal.id,
+      decidedByUserId: 0,
+      expectedRevision: proposal.revision,
+      expectedKind: 'prune-scope',
+      expectedChangeJson: exactChangeJson,
+      beforeSnapshotJson: expect.stringContaining('scope-delta-v2'),
+    }));
     expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
       decidedByUserId: 0,
       changeJson: exactChangeJson,
@@ -1630,15 +1654,10 @@ describe('W1 corrective 3: refine-scope behavioral lifecycle', () => {
     });
     const prepared = await applyHumanProposal(proposal);
     expect(JSON.parse(prepared.beforeSnapshotJson ?? 'null').version).toBe('scope-state-v2');
-    await proposalsRepo.claimAppliedWithSnapshotAsync(
-      proposal.id,
-      90,
-      prepared.beforeSnapshotJson ?? null,
-      prepared.changeJson,
-    );
-    await prepared.applyAfterClaim?.();
+    const lifecycle = await runScopeLifecycle(proposal, prepared, 90);
+    expect(lifecycle.kind).toBe('measuring');
     const appliedBytes = configsRepo.getById(config.id)?.allowedSkillsJson;
-    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+    const measuring = lifecycle.kind === 'measuring' ? lifecycle.proposal : null;
 
     const outcome = await measureProposal(measuring!, {
       proposalsRepo,

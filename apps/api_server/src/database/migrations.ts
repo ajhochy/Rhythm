@@ -26,6 +26,15 @@ import {
  *   - AFTER UPDATE auto-bumps only when the writer left `revision` unchanged,
  *     so repository writes that already do `revision = revision + 1` are not
  *     double-incremented.
+ *   - an explicit revision write must move FORWARD. Without that, raw SQL
+ *     could roll a revision back and revive a stale CAS token: bytes go
+ *     A -> B -> A while the revision returns to its old value, and a caller
+ *     holding that token wins a compare-and-set over history it never saw.
+ *
+ * Known limitation: `INSERT OR REPLACE` / `DELETE`+`INSERT` destroy and
+ * recreate the row rather than updating it, so no UPDATE trigger can observe
+ * the old revision. SQLite cannot express that guard. No writer in this
+ * repository replaces these rows; a future one must bump the revision itself.
  *
  * Pre-existing unsafe material fails the migration CLOSED. Silently
  * normalizing a corrupt revision would hand a lifecycle caller a token that
@@ -64,7 +73,7 @@ function installRevisionInvariants(db: Database.Database, table: string): void {
 
     CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_update_domain
     BEFORE UPDATE OF revision ON ${table}
-    FOR EACH ROW WHEN ${rowDomain}
+    FOR EACH ROW WHEN ${rowDomain} OR NEW.revision <= OLD.revision
     BEGIN ${abort} END;
 
     CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_autobump

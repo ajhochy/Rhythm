@@ -58,12 +58,22 @@ export interface ProposalApplyResult {
    */
   changeJson?: string;
   /**
-   * Optional target mutation deferred until the controller has atomically
-   * claimed the proposal and durably stored beforeSnapshotJson. Scope
-   * mutations use this to make an unsnapshotted mutation impossible; existing
-   * non-scope eager appliers remain source-compatible.
+   * W1 package C — the prepared human scope pair. Present iff this proposal is
+   * a scope kind. Preparation touches neither the database nor the disk; the
+   * lifecycle service claims `approved`, commits the target and the proposal in
+   * ONE atomic revision-fenced transaction, and only then projects. A callback
+   * that mutated the target after a `proposed -> applied` claim could not be
+   * fenced on the target revision, which is why that seam is gone.
    */
-  applyAfterClaim?: () => void | Promise<void>;
+  scopePair?: PreparedScopePair;
+}
+
+/** The exact, revision-fenceable target mutation a scope proposal describes. */
+export interface PreparedScopePair {
+  targetId: string;
+  field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson';
+  priorValue: string | null;
+  nextValue: string;
 }
 
 export type ProposalApplier = (

@@ -5,6 +5,7 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { forceAppliedScopeFixture } from './helpers/force_applied_scope_fixture';
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -656,7 +657,7 @@ async function makeMeasuringScopeRow(
       changed.beforeSnapshotJson === undefined ? snapshotJson : changed.beforeSnapshotJson,
     dedupKey: `w1-c6:measurement:${crypto.randomUUID()}`,
   });
-  await proposals.updateStatusAsync(created.id, 'applied');
+  forceAppliedScopeFixture(created.id);
   const measuring = (await proposals.updateStatusAsync(created.id, 'measuring'))!;
   return { configs, proposals, config, prior, applied, exactChangeJson, snapshotJson, measuring };
 }
@@ -705,7 +706,7 @@ async function makeMeasuringRefineScopeRow(
       changed.beforeSnapshotJson === undefined ? snapshotJson : changed.beforeSnapshotJson,
     dedupKey: `w1-c6:refine-measurement:${crypto.randomUUID()}`,
   });
-  await proposals.updateStatusAsync(created.id, 'applied');
+  forceAppliedScopeFixture(created.id);
   const measuring = (await proposals.updateStatusAsync(created.id, 'measuring'))!;
   return { configs, proposals, config, prior, applied, exactChangeJson, snapshotJson, measuring };
 }
