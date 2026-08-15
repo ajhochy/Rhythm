@@ -420,14 +420,21 @@ class _RhythmAppContent extends StatelessWidget {
             // #815: route a native ask-notification tap into pending navigation
             // so AppShell focuses the window and opens the asking session.
             localNotificationService.onTap = (payload) {
-              const prefix = 'agentSession:';
-              if (payload.startsWith(prefix)) {
-                final sessionId = payload.substring(prefix.length);
+              const approvalPrefix = 'agentApproval:';
+              const sessionPrefix = 'agentSession:';
+              if (payload.startsWith(approvalPrefix)) {
+                final target = payload.substring(approvalPrefix.length);
+                if (target.isNotEmpty) {
+                  controller.navigateTo('agentApproval', target);
+                }
+              } else if (payload.startsWith(sessionPrefix)) {
+                final sessionId = payload.substring(sessionPrefix.length);
                 if (sessionId.isNotEmpty) {
                   controller.navigateTo('agentSession', sessionId);
                 }
               }
             };
+            unawaited(localNotificationService.replayLaunchNotification());
             return controller;
           },
         ),
@@ -613,6 +620,7 @@ class _RhythmAppContent extends StatelessWidget {
           create: (ctx) {
             final controller = AgentApprovalsController(
               AgentApprovalsDataSource(),
+              notifications: localNotificationService,
             );
             void onAgentServerChanged() {
               if (agentServerController.isReady) {

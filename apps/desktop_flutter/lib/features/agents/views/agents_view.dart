@@ -22,12 +22,14 @@ import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../live_artifacts/controllers/live_artifacts_controller.dart';
+import '../../notifications/controllers/agent_approvals_controller.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_at_mention_popover.dart';
 import '_attachment_mime.dart';
 import '_chat_cost_footer.dart';
 import '_compaction_divider.dart';
 import '_context_usage_hint.dart';
+import '_inline_agent_approval_card.dart';
 import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_reasoning_block.dart';
@@ -781,6 +783,11 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     // deleted. All messages arrive via chatMessagesFor() / chatPartsFor()
     // (rehydrated from REST on selectSession, then updated by WS events).
     final chatMessages = controller.chatMessagesFor(session.id);
+    final approvalsController = context.watch<AgentApprovalsController?>();
+    final inlineApprovals = approvalsController?.pending
+            .where((approval) => approval.sessionId == session.id)
+            .toList() ??
+        const [];
     final loadError = controller.transcriptLoadErrorFor(session.id);
 
     if (loadError != null) {
@@ -826,7 +833,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
-    if (chatMessages.isEmpty) {
+    if (chatMessages.isEmpty && inlineApprovals.isEmpty) {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
@@ -850,7 +857,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-              itemCount: chatMessages.length + (hasOlder ? 1 : 0),
+              itemCount: chatMessages.length +
+                  inlineApprovals.length +
+                  (hasOlder ? 1 : 0),
               itemBuilder: (context, index) {
                 if (hasOlder && index == 0) {
                   return Center(
@@ -882,6 +891,19 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                   );
                 }
                 final messageIndex = hasOlder ? index - 1 : index;
+                if (messageIndex >= chatMessages.length) {
+                  final approval =
+                      inlineApprovals[messageIndex - chatMessages.length];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InlineAgentApprovalCard(
+                      key: ValueKey('inline-agent-approval-${approval.id}'),
+                      approval: approval,
+                      focused:
+                          approvalsController?.focusedApprovalId == approval.id,
+                    ),
+                  );
+                }
                 final m = chatMessages[messageIndex];
                 final parts = controller.chatPartsFor(m.id);
                 // Collect full text for copy action.

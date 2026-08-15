@@ -149,14 +149,22 @@ class _AppShellState extends State<AppShell> with WindowListener {
           'project' => AppConstants.navProjects,
           // #815: agent-ask notification tap → Agents screen + select session.
           'agentSession' => AppConstants.navAgents,
+          'agentApproval' => AppConstants.navAgents,
           _ => -1,
         };
         if (index >= 0) {
           setState(() => _selectedIndex = index);
-          if (pending.entityType == 'agentSession') {
+          if (pending.entityType == 'agentSession' ||
+              pending.entityType == 'agentApproval') {
             // Raise the window and open the asking session (#815, AC2).
             unawaited(windowManager.show());
             unawaited(windowManager.focus());
+            if (pending.entityType == 'agentApproval' &&
+                pending.requestId != null) {
+              context
+                  .read<AgentApprovalsController>()
+                  .focusApproval(pending.requestId!);
+            }
             unawaited(
               context.read<AgentsController>().selectSession(pending.entityId),
             );

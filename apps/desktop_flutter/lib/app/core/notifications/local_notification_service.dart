@@ -11,11 +11,22 @@ class LocalNotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
+  NotificationTapHandler? _onTap;
+  String? _pendingTapPayload;
 
   /// Optional tap handler. Set by `main.dart` so a notification tap can route
   /// the app to the relevant screen/session. Kept nullable so tests and the
   /// pre-wiring construction order never crash when a tap arrives early.
-  NotificationTapHandler? onTap;
+  NotificationTapHandler? get onTap => _onTap;
+
+  set onTap(NotificationTapHandler? handler) {
+    _onTap = handler;
+    final pendingPayload = _pendingTapPayload;
+    if (handler != null && pendingPayload != null) {
+      _pendingTapPayload = null;
+      handler(pendingPayload);
+    }
+  }
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -33,7 +44,29 @@ class LocalNotificationService {
   void _handleTap(NotificationResponse response) {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
-    onTap?.call(payload);
+    final handler = _onTap;
+    if (handler == null) {
+      _pendingTapPayload = payload;
+      return;
+    }
+    handler(payload);
+  }
+
+  /// Replays a notification that launched the app from a terminated state.
+  ///
+  /// `onDidReceiveNotificationResponse` only covers activations delivered to
+  /// an already-running app. This method is intentionally separate from
+  /// [initialize] so launch routing can run after [onTap] has been wired.
+  Future<void> replayLaunchNotification() async {
+    try {
+      final details = await _plugin.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp != true) return;
+      final response = details?.notificationResponse;
+      if (response != null) _handleTap(response);
+    } catch (e) {
+      debugPrint(
+          'LocalNotificationService.replayLaunchNotification failed: $e');
+    }
   }
 
   /// Explicitly request macOS notification authorization (#815, AC4).

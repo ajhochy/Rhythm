@@ -6,11 +6,16 @@ import '../repositories/notifications_repository.dart';
 
 /// A pending navigation request triggered by tapping a notification.
 class PendingNavigation {
-  PendingNavigation({required this.entityType, required this.entityId});
+  PendingNavigation({
+    required this.entityType,
+    required this.entityId,
+    this.requestId,
+  });
 
   /// 'task', 'rhythm', 'project', or 'agentSession' (#815).
   final String entityType;
   final String entityId;
+  final String? requestId;
 }
 
 class NotificationsController extends ChangeNotifier {
@@ -89,10 +94,24 @@ class NotificationsController extends ChangeNotifier {
 
   /// Called when the user taps a notification. Sets [pendingNavigation] so
   /// AppShell can respond and switch to the right tab.
-  void navigateTo(String entityType, String entityId) {
+  void navigateTo(
+    String entityType,
+    String entityId, {
+    String? requestId,
+  }) {
+    var targetEntityId = entityId;
+    var targetRequestId = requestId;
+    if (entityType == 'agentApproval' && targetRequestId == null) {
+      final separator = entityId.indexOf(':');
+      if (separator > 0 && separator < entityId.length - 1) {
+        targetEntityId = entityId.substring(0, separator);
+        targetRequestId = entityId.substring(separator + 1);
+      }
+    }
     _pendingNavigation = PendingNavigation(
       entityType: entityType,
-      entityId: entityId,
+      entityId: targetEntityId,
+      requestId: targetRequestId,
     );
     notifyListeners();
   }

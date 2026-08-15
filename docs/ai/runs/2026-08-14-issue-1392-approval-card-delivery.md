@@ -4,88 +4,53 @@ repo: Rhythm
 branch: issue/approval-card-delivery
 pr: https://github.com/ajhochy/Rhythm/pull/1393
 issues: [1392]
-status: draft-pr-open
+status: smoke-pass
 tags: [run, Rhythm]
 ---
 
-# Approval-card delivery bug — root cause + fix
+# Approval-card delivery
 
 ## Files
 
-- `apps/desktop_flutter/lib/app/core/layout/app_shell.dart` — added `notificationBadgeCount()`, wired
-  `AgentApprovalsController.pending.length` into the bell badge (`_TopRightAccountClusterState.build`).
-- `apps/desktop_flutter/lib/features/notifications/controllers/agent_approvals_controller.dart` —
-  `_poll()` now logs failures via `debugPrint` instead of `catch (_) {}`.
-- `apps/desktop_flutter/test/app/core/layout/notification_badge_count_test.dart` — new regression test.
-
-## Trace (full path investigated)
-
-1. `POST /agent-approvals` (`agent_approvals_controller.ts`) — correctly creates a pending row with a
-   decision nonce. No bug.
-2. `GET /agent-approvals?status=pending` (`agent_approvals_repository.ts` `list()`) — no session/profile
-   filtering; returns every pending row. No bug.
-3. Auth handshake (`requireAuth` + `requireHumanApprovalCapability`) — capability + P-256 public key are
-   derived fresh from Keychain each launch and passed as env vars to the spawned local `api_server` child
-   (`api_server_service.dart`). Correctly wired, no mismatch in the normal spawned-child flow.
-4. Flutter polling (`AgentApprovalsController`, 30s interval) — correctly registered in `main.dart`,
-   starts once `AgentServerController.isReady`. `NotificationPanel` renders `_ApprovalCard` per pending
-   item — structurally correct.
-5. **Root cause**: `app_shell.dart`'s bell badge (`unreadCount`) summed only `NotificationsController`,
-   never `AgentApprovalsController.pending.length` — zero passive signal that a security-bound approval
-   is blocked. Compounded by `_poll()` silently swallowing every fetch error, which would make any
-   transient auth/network failure indistinguishable from "nothing pending."
-6. No WS agent-approval broadcast exists anywhere in `apps/api_server/src` — design is polling-only by
-   intent, nothing half-wired.
-7. No inline session/transcript approval surface exists in the codebase (`apps/desktop_flutter/lib`,
-   `apps/mobile/lib`) — out of scope as a new feature, not part of this bugfix.
-
-Related but distinct: `#1382` (five-stream consolidation epic, documents a stale-cloud-token 401 deadlock
-on this same `/agent-approvals` stream) and `#1340` (engine `permission.asked` never surfacing — a
-different approval stream entirely).
+- `apps/api_server/src/middleware/auth_middleware.ts` and
+  `apps/api_server/src/routes/agent_approvals_routes.ts` — accept the signed-in desktop's Cloud bearer
+  on the loopback approval GET/PATCH routes while preserving human-decision capability checks.
+- `apps/desktop_flutter/lib/features/notifications/models/agent_approval.dart` — retain the trusted
+  originating `sessionId` returned by the API.
+- `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` and
+  `_inline_agent_approval_card.dart` — render pending approvals only in their originating transcript,
+  including empty transcripts, with the existing signed Approve/Reject path.
+- `agent_approvals_controller.dart`, `local_notification_service.dart`, `notifications_controller.dart`,
+  `app_shell.dart`, and `main.dart` — emit one native notification per new approval, dedupe and cancel
+  it, preserve session/request coordinates through activation and cold launch, focus the exact inline
+  card, and include pending approvals in the bell badge. Poll cadence is 5 seconds.
+- Contract tests cover the real approval HTTP boundary, inline session isolation, native notification
+  routing, badge count, and signed decisions.
 
 ## Checks
 
-- `flutter analyze --no-fatal-infos` — clean.
-- `dart format --set-exit-if-changed` — clean (0 changed).
-- `flutter test` — 1209/1209 passed, including the 3 pre-existing `AgentApprovalsController` tests and
-  the new `notificationBadgeCount` regression test.
-- `ai-workflow checks --level issue` — all green (flutter analyze, dart format, api_server tsc, mcp_server tsc).
-- `git -C <worktree> remote get-url origin` / `rev-parse --abbrev-ref HEAD` confirmed correct repo/branch
-  before push and PR open.
-- GitNexus `detect_changes(scope: staged)` — risk `low`, 0 affected processes, 8 changed symbols across
-  exactly the 3 files touched.
+- `dart format . --set-exit-if-changed` — 505 files, 0 changed.
+- `flutter analyze --no-fatal-infos` — exit 0; 311 pre-existing infos.
+- Focused approval/notification/legacy/badge suite — 16/16 passed.
+- Final approval delivery suite after the 5-second cadence change — 5/5 passed.
+- `ai-workflow checks --level issue` — Flutter analyze/format plus API and MCP typechecks passed.
+- Live API contract in the isolated sandbox — 7/7 passed against the real Express/SQLite/auth/signature
+  boundary.
+- GitNexus `detect-changes --scope compare --base-ref main` — medium aggregate risk, 33 symbols and one
+  affected flow (`Build → PendingNavigation`); no unexpected high/critical impact.
 
-## Sandbox evidence (live, real API boundary)
+## Manual smoke
 
-```
-RHYTHM_SANDBOX_DIR=/tmp/rhythm-sandbox-issue-1392 RHYTHM_SANDBOX_API_PORT=4198 \
-RHYTHM_SANDBOX_ENGINE_PORT=4197 RHYTHM_SANDBOX_GATEWAY_PORT=4199 \
-RHYTHM_SANDBOX_ENGINE_DIR=<main-checkout>/apps/opencode_fork/packages/opencode \
-tools/dev/sandbox.sh up
-# → Sandbox ready: http://127.0.0.1:4198 (engine :4197)
+- PASS in the rebuilt signed-in debug app using a real `rhythm_get_live_artifact` taint followed by
+  `rhythm_request_approval` for `notification.send`.
+- The bell badge incremented, the request appeared inline only in the originating session, native
+  notification delivery succeeded, and the card exposed working Reject/Approve actions.
+- The first run exposed the prior 30-second polling latency. Polling was reduced to 5 seconds, the app
+  was restarted, and the user confirmed the repeat smoke succeeded.
+- The earlier stale-token 401 condition remains tracked separately in #1382; no #1382 behavior was
+  broadened beyond accepting the already-authenticated Cloud bearer on the local approval endpoints.
 
-curl -s http://127.0.0.1:4198/health
-# → {"status":"ok","service":"rhythm-api-server","commit":"dev","features":{"researchProjectsEnabled":false}}
+## Release
 
-cd apps/api_server && npx vitest run src/__tests__/issue_895_agent_approvals.test.ts
-# → Test Files 1 passed (1), Tests 7 passed (7)
-#   Real Express server (startTestServer), real SQLite, real auth + human-approval-signature
-#   verification: create pending, GET pending/all, approve, reject, no double-decide, both
-#   auto-approve-profile code paths.
-
-tools/dev/sandbox.sh down
-# → Sandbox removed
-```
-
-## Notes / residual risk
-
-- Manual click-through smoke (launch desktop app, trigger `rhythm_request_approval`, watch the bell
-  badge light up within 30s) not run in this pass — recommended before merge.
-- `#1382`'s stale-cloud-token 401 deadlock on this same endpoint is a separate, already-tracked issue;
-  not addressed here.
-- An inline session/transcript-embedded approval card (vs. the global bell) is a new-feature ask, not
-  implied by this bugfix; flagged as out of scope in the PR body.
-
-## Next step
-
-Manual smoke per above, then human review/merge of PR #1393 (draft, not auto-merged).
+- User explicitly authorized merging PR #1393 and publishing the next desktop release after the live
+  smoke passed.

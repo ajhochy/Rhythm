@@ -1,0 +1,48 @@
+{
+  "issue": 1392,
+  "generated": "2026-08-14",
+  "criteria": [
+    {
+      "criterion_id": "issue-1392-c1",
+      "text": "A pending protected approval appears immediately as an actionable card in the originating session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_approval_delivery.test.ts",
+      "test_id": "issue-1392-c1: lists a pending approval for a cloud-authenticated desktop",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c2",
+      "text": "Approve and deny both resolve the exact pending approval.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_approval_delivery.test.ts",
+      "test_id": "issue-1392-c2: resolves the exact cloud-authenticated desktop approval",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c3",
+      "text": "The bell badge count increments within approximately 30 seconds and the card is visible in the notification panel.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/layout/notification_badge_count_test.dart",
+      "test_id": "includes pending agent approvals so a blocked security gate always pings the bell",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c4",
+      "text": "A pending AgentApproval with sessionId matching the open agent session renders an inline actionable approval card in the real transcript composition; nonmatching approvals do not render there.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1392_inline_approval_contract_test.dart",
+      "test_id": "issue-1392-c4: matching pending approval renders inline and nonmatching approval stays out of the transcript",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c5",
+      "text": "Activating a local notification payload for a pending approval selects Agents, opens the originating session, and targets the request.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/notifications/issue_1392_approval_push_route_contract_test.dart",
+      "test_id": "issue-1392-c5: a new approval pushes a notification whose activation targets its session and request",
+      "status": "pass"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}
