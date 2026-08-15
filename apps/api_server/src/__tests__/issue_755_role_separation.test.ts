@@ -81,7 +81,7 @@ async function makeApp(role: string | null): Promise<{
   setDb(db);
 
   const { createApp } = await import('../app');
-  const server = createApp().listen(0);
+  const server = createApp().listen(0, '127.0.0.1');
   server.maxRequestsPerSocket = 1;
   await new Promise<void>((r) => server.once('listening', () => r()));
   const { port } = server.address() as AddressInfo;

@@ -148,7 +148,7 @@ let sharedWsUrl: string;
 async function setupSuite(): Promise<void> {
   sharedServer = http.createServer();
   attachWsGateway(sharedServer);
-  await new Promise<void>((resolve) => sharedServer!.listen(0, resolve));
+  await new Promise<void>((resolve) => sharedServer!.listen(0, '127.0.0.1', resolve));
   const addr = sharedServer!.address() as AddressInfo;
   sharedWsUrl = `ws://127.0.0.1:${addr.port}/ws/agents`;
 }

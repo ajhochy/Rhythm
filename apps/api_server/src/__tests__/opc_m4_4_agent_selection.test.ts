@@ -162,10 +162,10 @@ describe('issue-703-c1: GET /agent-sessions/agents returns SDK-reported agent li
 
     const app = createApp();
     await new Promise<void>((resolve) => {
-      server = app.listen(0, () => resolve());
+      server = app.listen(0, '127.0.0.1', () => resolve());
     });
     const port = (server.address() as AddressInfo).port;
-    baseUrl = `http://localhost:${port}`;
+    baseUrl = `http://127.0.0.1:${port}`;
   });
 
   afterEach(async () => {

@@ -47,7 +47,7 @@ beforeAll(async () => {
     'Content-Type': 'application/json',
   };
 
-  const server = createApp().listen(0);
+  const server = createApp().listen(0, '127.0.0.1');
   server.maxRequestsPerSocket = 1;
   await new Promise<void>((resolve) =>
     server.once('listening', () => resolve()));

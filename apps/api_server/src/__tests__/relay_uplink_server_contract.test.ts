@@ -70,7 +70,7 @@ async function captureMacPairing(): Promise<PairedFixture> {
   const session = new SessionsRepository().create(user.id);
 
   const { createApp } = await import('../app');
-  const server = createApp().listen(0);
+  const server = createApp().listen(0, '127.0.0.1');
   await new Promise<void>((r) => server.once('listening', () => r()));
   const { port } = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;
