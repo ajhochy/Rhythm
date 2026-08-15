@@ -488,6 +488,67 @@ describe('issue-826: human-gate review queue API', () => {
     expect(measureSpy).not.toHaveBeenCalled();
   });
 
+  it('W1: local approval atomically binds sentinel actor, exact change, and snapshot', async () => {
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Local actor target', icon: 'shield', allowedMcpsJson: JSON.stringify(['x', 'y']),
+    });
+    const exactChangeJson = ` { "agentConfigId": "${config.id}", "field": "allowedMcpsJson", "remove": ["x"] } `;
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Local actor and exact change',
+      changeJson: exactChangeJson, dedupKey: 'w1:local-actor-exact-change',
+    });
+    const claimSpy = vi.spyOn(AgentOrgProposalsRepository.prototype, 'claimAppliedWithSnapshotAsync');
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
+
+    expect(res.status).toBe(200);
+    expect(claimSpy).toHaveBeenCalledWith(
+      proposal.id,
+      0,
+      expect.stringContaining('scope-delta-v2'),
+      exactChangeJson,
+    );
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored?.decidedByUserId).toBe(0);
+    expect(stored?.changeJson).toBe(exactChangeJson);
+    expect(stored?.beforeSnapshotJson).toContain('scope-delta-v2');
+  });
+
+  it('W1: projection refusal is HTTP conflict after durable local claim and never measures', async () => {
+    const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+    registerAllProposalAppliers();
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const writer = await import('../services/opencode_agent_writer');
+    const measure = await import('../services/org_proposal_measure');
+    vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('blocked');
+    const measureSpy = vi.spyOn(measure, 'measureProposal');
+    const configsRepo = new AgentConfigsRepository();
+    const prior = ' [ "x", "y" ] ';
+    const config = configsRepo.insert({ label: 'Blocked projection target', icon: 'shield', allowedMcpsJson: prior });
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['x'] });
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope', risk: 'high', title: 'Blocked projection',
+      changeJson: exactChangeJson, dedupKey: 'w1:blocked-projection-route',
+    });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
+
+    expect(res.status).toBe(409);
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
+    expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
+      status: 'applied',
+      decidedByUserId: 0,
+      changeJson: exactChangeJson,
+    });
+    expect((await repo.findByIdAsync(proposal.id))?.beforeSnapshotJson).toContain('scope-delta-v2');
+    expect(measureSpy).not.toHaveBeenCalled();
+  });
+
   it('W1: concurrent approvals have one winner, one conflict, and one durable nonempty delta', async () => {
     const applyService = await import('../services/org_proposal_apply_service');
     const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');

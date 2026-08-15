@@ -22,9 +22,9 @@
  * report the dedup_key as seen, preventing an apply/revert flip-flop loop
  * where the same change gets re-proposed every optimizer run.
  *
- * The historical scope apply target (`allowedMcpsJson` / `allowedSkillsJson`)
- * remains wired defensively with V2 snapshots, but scope-removal proposals are
- * now HIGH-risk and refused by the unattended entry point. `refine-skill` / `consolidate-skill` /
+ * Direct scope-shaped payloads (`allowedMcpsJson` / `allowedSkillsJson`) are
+ * refused defensively by the unattended entry point, independent of risk
+ * classification. `refine-skill` / `consolidate-skill` /
  * `refine-recipe` proposals are also accepted here (their `changeJson` is
  * carried through to `measuring` unmodified — the LLM-scored measure step is
  * what determines keep/revert for those kinds; per the skill loop precedent
@@ -88,6 +88,13 @@ interface AgentConfigScopeChange {
 
 type ScopeFieldName = AgentConfigScopeChange['field'];
 
+const RESERVED_SCOPE_IDENTIFIERS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** Reject JavaScript prototype-pollution identifiers at every scope boundary. */
+export function isReservedScopeIdentifier(name: unknown): name is string {
+  return typeof name === 'string' && RESERVED_SCOPE_IDENTIFIERS.has(name.trim());
+}
+
 export interface ScopeDeltaV2RemovedEntry {
   name: string;
   /** Exact array element or tools-map value removed by the apply. */
@@ -120,7 +127,11 @@ export interface ScopeDeltaV2Snapshot {
   integrityHash: string;
 }
 
-function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
+/**
+ * Broad direct-shape recognition retained only for unattended refusal and
+ * legacy revert detection. It must never authorize a scope mutation.
+ */
+function isDirectAgentConfigScopePayload(v: unknown): v is AgentConfigScopeChange {
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
   return (
@@ -230,9 +241,8 @@ export function agentConfigFieldPatch(
 /**
  * Set-arithmetic on a JSON string[] allowlist: start from `priorJson`, drop
  * every name in `remove`, append every name in `add` not already present
- * (order-stable). Returns a JSON array string. Shared by the auto-lane
- * scope prune ({@link applyAgentConfigScopeChange}) and the human-gate
- * refine-scope applier so the two never diverge.
+ * (order-stable). Returns a JSON array string used by human-gated scope
+ * appliers and V2 snapshot/revert mechanics.
  */
 export function computeScopeList(
   priorJson: string | null,
@@ -327,6 +337,10 @@ export function createScopeDeltaV2Snapshot(
   priorValue: string | null,
   remove: string[],
 ): ScopeDeltaV2Snapshot {
+  const reserved = remove.find(isReservedScopeIdentifier);
+  if (reserved !== undefined) {
+    throw new Error(`Reserved scope identifier '${reserved.trim()}' is not allowed`);
+  }
   const removeSet = new Set(remove);
   const priorMap = parseScopeMap(priorValue);
   let removedEntries: ScopeDeltaV2RemovedEntry[];
@@ -378,7 +392,9 @@ function isScopeDeltaV2Snapshot(v: unknown): v is ScopeDeltaV2Snapshot {
   const requestedRemove = c.requestedRemove as unknown[];
   if (
     requestedRemove.length === 0 ||
-    !requestedRemove.every((name) => typeof name === 'string' && name.length > 0)
+    !requestedRemove.every(
+      (name) => typeof name === 'string' && name.length > 0 && !isReservedScopeIdentifier(name),
+    )
   ) {
     return false;
   }
@@ -396,6 +412,7 @@ function isScopeDeltaV2Snapshot(v: unknown): v is ScopeDeltaV2Snapshot {
     if (
       typeof e.name !== 'string' ||
       !e.name ||
+      isReservedScopeIdentifier(e.name) ||
       !('priorValue' in e) ||
       !Number.isInteger(e.priorIndex) ||
       (e.priorIndex as number) < 0
@@ -441,7 +458,11 @@ function scopeDeltaMatchesChangeJson(snapshot: ScopeDeltaV2Snapshot, change: unk
   if (c.agentConfigId !== snapshot.target.id || c.field !== snapshot.field) return false;
   if (c.add !== undefined || !Array.isArray(c.remove)) return false;
   const remove = c.remove;
-  if (!remove.every((name) => typeof name === 'string' && name.length > 0)) return false;
+  if (
+    !remove.every(
+      (name) => typeof name === 'string' && name.length > 0 && !isReservedScopeIdentifier(name),
+    )
+  ) return false;
   const names = remove as string[];
   if (new Set(names).size !== names.length) return false;
   return (
@@ -638,8 +659,6 @@ export async function applyProposal(
     }
 
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
-    const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
-
     let change: unknown;
     try {
       change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
@@ -650,8 +669,11 @@ export async function applyProposal(
       return { status: 'skipped', reason: 'malformed-change-json' };
     }
 
-    if (isAgentConfigScopeChange(change)) {
-      return await applyAgentConfigScopeChange(proposal, change, { proposalsRepo, configsRepo });
+    if (isDirectAgentConfigScopePayload(change)) {
+      logger.info(
+        `[org-proposal-apply] refused direct scope payload for '${proposal.id}' — human approval required`,
+      );
+      return { status: 'refused-high-risk' };
     }
 
     // #852 — consolidate-skill: scope_hygiene_generator.ts only ever emits
@@ -688,59 +710,6 @@ export async function applyProposal(
     logger.warn(`[org-proposal-apply] FAILED (non-fatal): ${String(err)}`);
     return { status: 'skipped', reason: String(err) };
   }
-}
-
-/**
- * Apply an `agent_configs` scope mutation (tighten-scope / prune-scope):
- * snapshot the field's current value, remove the named entries, persist the
- * change, then transition the proposal to measuring.
- */
-async function applyAgentConfigScopeChange(
-  proposal: AgentOrgProposal,
-  change: AgentConfigScopeChange,
-  deps: Required<Pick<ApplyDeps, 'proposalsRepo' | 'configsRepo'>>,
-): Promise<ApplyResult> {
-  const { proposalsRepo, configsRepo } = deps;
-
-  const config = configsRepo.getById(change.agentConfigId);
-  if (!config) {
-    logger.warn(
-      `[org-proposal-apply] no agent_config '${change.agentConfigId}' for proposal '${proposal.id}'`,
-    );
-    return { status: 'skipped', reason: 'target-not-found' };
-  }
-
-  const priorValue = config[change.field] ?? null;
-  const scopeDelta = createScopeDeltaV2Snapshot(
-    change.agentConfigId,
-    change.field,
-    priorValue,
-    change.remove ?? [],
-  );
-  const beforeSnapshot = JSON.stringify(scopeDelta);
-
-  // 1. Snapshot FIRST (before any mutation) — this is what makes the apply
-  //    reversible by construction.
-  const snapshotted = await proposalsRepo.updateStatusAsync(proposal.id, 'applied', {
-    beforeSnapshotJson: beforeSnapshot,
-  });
-  if (!snapshotted) {
-    return { status: 'skipped', reason: 'proposal-not-found' };
-  }
-
-  // 2. Mutate — remove the named entries from the current allowlist (shared
-  //    set-arithmetic with the human-gate refine-scope applier).
-  const nextList = scopeDelta.expectedAppliedValue;
-
-  configsRepo.update(change.agentConfigId, { [change.field]: nextList });
-
-  // 3. Advance to measuring.
-  await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
-
-  logger.info(
-    `[org-proposal-apply] applied scope prune for '${proposal.id}' on agent_config '${change.agentConfigId}' (${change.field}: removed ${(change.remove ?? []).join(',')}) -> measuring`,
-  );
-  return { status: 'applied-ok' };
 }
 
 /** Shape of the before_snapshot_json a consolidate-skill apply writes (#852). */
@@ -967,7 +936,22 @@ export async function revertProposal(
         logger.warn(`[org-proposal-apply] scope CAS conflict for '${proposal.id}'`);
         return 'conflict';
       }
-      writeAgentProfileFile(restored);
+      const projection = writeAgentProfileFile(restored);
+      if (projection === 'blocked' || projection === 'failed') {
+        const compensated = configsRepo.compareAndSetScopeField(
+          snapshot.target.id,
+          snapshot.field,
+          restoredValue,
+          snapshot.expectedAppliedValue,
+        );
+        logger.warn(
+          `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
+          (compensated
+            ? 'restored the exact applied scope'
+            : 'compensation lost a concurrent update; reconciliation required'),
+        );
+        return 'conflict';
+      }
     } else if (proposal.kind === 'external-adoption' && isExternalAdoptionRevertSnapshot(snapshot)) {
       // Undo the adopt: remove the skill we wrote (only if WE created it —
       // never delete a pre-existing engine-owned library skill), and restore
@@ -1006,7 +990,7 @@ export async function revertProposal(
         snapshot.scheduledTaskId,
         scheduledTaskFieldPatch(snapshot.field, snapshot.priorValue),
       );
-    } else if (isAgentConfigScopeChange(change)) {
+    } else if (isDirectAgentConfigScopePayload(change)) {
       // Legacy auto-scope snapshots replayed a whole field. Without an exact
       // post-apply value they cannot distinguish safe rollback from clobbering
       // a later operator edit, so they fail closed.

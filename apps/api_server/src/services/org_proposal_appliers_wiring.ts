@@ -101,6 +101,7 @@ import {
   agentConfigFieldPatch,
   computeScopeList,
   createScopeDeltaV2Snapshot,
+  isReservedScopeIdentifier,
   readScheduledTaskField,
   scheduledTaskFieldPatch,
 } from './org_proposal_apply';
@@ -548,6 +549,10 @@ function scopePatchValidationError(raw: unknown): string | null {
       return 'refine-scope remove must be a non-empty-name string array';
     }
     const names = [...(Array.isArray(add) ? add : []), ...(Array.isArray(remove) ? remove : [])] as string[];
+    const reserved = names.find(isReservedScopeIdentifier);
+    if (reserved !== undefined) {
+      return `reserved scope identifier '${reserved.trim()}' is not allowed`;
+    }
     const corePermission = raw.field === 'allowedMcpsJson'
       ? names.find((name) => CORE_PERMISSION_NAME_SET.has(name))
       : undefined;
@@ -943,6 +948,7 @@ function extractBroadenScopePatch(
     ? change.add.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
     : [];
   if (add.length === 0) return null;
+  if (add.some(isReservedScopeIdentifier)) return null;
   return { agentConfigId: change.agentConfigId, field: change.field as ScopePatch['field'], add };
 }
 
@@ -1033,6 +1039,7 @@ function extractScopeRemovalChange(
     return null;
   }
   const remove = change.remove as string[];
+  if (remove.some(isReservedScopeIdentifier)) return null;
   if (new Set(remove).size !== remove.length) return null;
   return { agentConfigId: change.agentConfigId, field: change.field as (typeof SCOPE_ALLOWLIST_FIELDS)[number], remove };
 }
@@ -1128,7 +1135,11 @@ async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<Proposa
  * governs keep/revert.
  */
 const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractScopeRemovalChange(parseChange(proposal.changeJson));
+  const exactChangeJson = proposal.changeJson;
+  if (!exactChangeJson) {
+    throw AppError.badRequest(`${proposal.kind} change_json is missing at apply time`);
+  }
+  const patch = extractScopeRemovalChange(parseChange(exactChangeJson));
   if (!patch) {
     throw AppError.badRequest(`${proposal.kind} change_json is missing its {agentConfigId, field, remove} at apply time`);
   }
@@ -1159,6 +1170,7 @@ const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   return {
     measurable: true,
     beforeSnapshotJson,
+    changeJson: exactChangeJson,
     applyAfterClaim: () => {
       const updated = configsRepo.compareAndSetScopeField(
         patch.agentConfigId,
@@ -1171,7 +1183,21 @@ const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => 
           `${proposal.kind} target ${patch.agentConfigId}.${patch.field} changed after approval preparation`,
         );
       }
-      writeAgentProfileFile(updated);
+      const projection = writeAgentProfileFile(updated);
+      if (projection === 'blocked' || projection === 'failed') {
+        const compensated = configsRepo.compareAndSetScopeField(
+          patch.agentConfigId,
+          patch.field,
+          scopeDelta.expectedAppliedValue,
+          priorValue,
+        );
+        throw AppError.conflict(
+          `${proposal.kind} profile projection ${projection}; ` +
+          (compensated
+            ? 'the exact prior scope was restored'
+            : 'scope compensation lost a concurrent update and reconciliation is required'),
+        );
+      }
     },
   };
 };

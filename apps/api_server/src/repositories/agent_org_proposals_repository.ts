@@ -487,7 +487,7 @@ export class AgentOrgProposalsRepository {
     id: string,
     decidedByUserId: number | null,
     beforeSnapshotJson: string | null,
-    changeJson?: string,
+    changeJson?: string | null,
   ): Promise<AgentOrgProposal | null> {
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {

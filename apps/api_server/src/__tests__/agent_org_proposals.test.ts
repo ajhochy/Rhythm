@@ -274,9 +274,10 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
     });
 
     const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
+    const exactChangeJson = ' { "agentConfigId": "config-1", "remove": ["x"] } ';
     const [first, second] = await Promise.all([
-      repo.claimAppliedWithSnapshotAsync(proposal.id, 7, snapshot),
-      repo.claimAppliedWithSnapshotAsync(proposal.id, 8, snapshot),
+      repo.claimAppliedWithSnapshotAsync(proposal.id, 7, snapshot, exactChangeJson),
+      repo.claimAppliedWithSnapshotAsync(proposal.id, 8, snapshot, exactChangeJson),
     ]);
 
     expect([first, second].filter(Boolean)).toHaveLength(1);
@@ -285,6 +286,7 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
     expect(stored).toMatchObject({
       status: 'applied',
       beforeSnapshotJson: snapshot,
+      changeJson: exactChangeJson,
     });
     expect([7, 8]).toContain(stored?.decidedByUserId);
   });

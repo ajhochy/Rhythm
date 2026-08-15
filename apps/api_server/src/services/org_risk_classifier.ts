@@ -124,11 +124,14 @@ function changeShapeIsHardRuledHigh(change: ParsedChange | 'ambiguous' | null): 
     if (record.insertAgentConfig !== undefined) return true;
     if (record.createWebhookEndpoint !== undefined) return true;
     if (record.add !== undefined) return true;
+    if (
+      typeof record.agentConfigId === 'string' &&
+      (record.field === 'allowedMcpsJson' || record.field === 'allowedSkillsJson')
+    ) {
+      return true;
+    }
     for (const alias of removalAliases) {
-      const removal = record[alias];
-      if (removal !== undefined) {
-        if (!Array.isArray(removal) || removal.length > 0) return true;
-      }
+      if (Object.prototype.hasOwnProperty.call(record, alias)) return true;
     }
     return Object.values(record).some((entry) => inspect(entry, depth + 1));
   };

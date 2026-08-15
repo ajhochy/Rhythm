@@ -50,6 +50,9 @@ function repo(): AgentOrgProposalsRepository {
   return new AgentOrgProposalsRepository();
 }
 
+/** Stable audit actor for an operator using the authenticated local-only bypass. */
+export const LOCAL_OPERATOR_ACTOR_ID = 0;
+
 export class OrgProposalsController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -98,15 +101,16 @@ export class OrgProposalsController {
         );
       }
 
-      const decidedByUserId = req.auth?.user.id;
+      const decidedByUserId = req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID;
 
       const applyResult = await applyProposal(proposal);
+      const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
 
       const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
         id,
-        decidedByUserId ?? null,
+        decidedByUserId,
         applyResult.beforeSnapshotJson ?? null,
-        applyResult.changeJson,
+        exactChangeJson,
       );
       if (!applied) {
         throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);

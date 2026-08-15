@@ -189,6 +189,36 @@ describe('issue-820-c6: documented hard rules enforced via change-shape predicat
 
   it.each([
     {
+      agentConfigId: 'config-1',
+      field: 'allowedMcpsJson',
+    },
+    {
+      agentConfigId: 'config-1',
+      field: 'allowedSkillsJson',
+      remove: [],
+    },
+    {
+      agentConfigId: 'config-1',
+      field: 'allowedMcpsJson',
+      removed: 'malformed',
+    },
+    {
+      wrapper: {
+        agentConfigId: 'config-1',
+        field: 'allowedSkillsJson',
+      },
+    },
+  ])('fails high for an ambiguous scope target or any removal alias presence', async (change) => {
+    // Bug this catches: an empty/missing removal operation is treated as
+    // harmless and a mislabeled low-risk proposal reaches unattended apply.
+    const { classifyProposalRisk } = await import('../services/org_risk_classifier');
+    expect(
+      classifyProposalRisk({ kind: 'refine-recipe', changeJson: JSON.stringify(change) }),
+    ).toBe('high');
+  });
+
+  it.each([
+    {
       scopePatch: {
         agentConfigId: 'config-1',
         field: 'allowedMcpsJson',

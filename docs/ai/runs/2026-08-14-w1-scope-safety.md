@@ -4,7 +4,7 @@ repo: Rhythm
 branch: agent-stack/si-scope-safety
 pr: null
 issues: [W1]
-status: verified
+status: verification-pending
 tags: [run, Rhythm, optimizer, scope-safety]
 ---
 
@@ -35,3 +35,30 @@ tags: [run, Rhythm, optimizer, scope-safety]
   route suite in the normal Node 22 environment and it passed 17/17.
 - No live DB, production api_server, engine, production service, remote branch, PR, or integration/W2/W3 code
   was touched.
+
+## Corrective cycle 2
+
+- Deleted the obsolete unattended scope mutation dispatch and implementation. Direct or nested
+  scope-shaped payloads and every removal-alias presence now classify high; direct scope payloads
+  are independently refused by unattended apply without proposal/config/profile/measurement writes.
+- Made profile projection return status a scope apply/revert gate. `blocked`/`failed` results attempt
+  exact CAS compensation, surface conflict, preserve the durable applied snapshot on approval, keep
+  reverts active, and never overwrite a concurrent value when compensation loses.
+- Added the documented local operator actor sentinel (`0`) and atomically bound exact scope
+  `change_json` with actor and V2 snapshot in the winning claim.
+- Rejected `__proto__`, `constructor`, and `prototype` after trimming in human scope validation,
+  V2 snapshot creation, and stored-snapshot recognition.
+- RED evidence: ambiguous unattended scope cases failed 7 assertions; projection-gate cases failed
+  6 assertions; controller claim binding failed with actor `null` and change `undefined`; reserved-name
+  cases failed 12 assertions. Each slice was made green before starting the next.
+- Node 22 non-socket corrective gate:
+  `npx vitest run src/__tests__/org_risk_classifier.test.ts src/__tests__/org_proposal_apply.test.ts src/__tests__/issue_831_contract.test.ts src/__tests__/issue_850_contract.test.ts src/__tests__/issue_857_contract.test.ts src/__tests__/scope_hygiene_generator.test.ts src/services/__tests__/org_exercised_tools_resolver.test.ts src/__tests__/agent_org_proposals.test.ts src/__tests__/agent_org_proposals_postgres.test.ts src/repositories/agent_configs_repository.test.ts --no-file-parallelism`
+  → 10 files passed; 194 tests passed; 1 existing skip.
+- `npm run build` passed. `git diff --check 1699ff55` passed.
+  `python3 /tmp/git_added_scan.py 1699ff55` scanned 575 added lines with zero hits.
+  GitNexus compare against `1699ff55` reported 12 files, 21 symbols, zero affected processes, low
+  risk, with its canonical-index six-commit staleness warning.
+- The real HTTP route suite could not start in the Codex sandbox (`listen EPERM 0.0.0.0`). Parent
+  reran the complete 11-file command externally under Node 22: 11 files passed, 213 tests passed,
+  1 existing skip, including 19/19 route tests; `npm run build` passed. Status remains
+  verification-pending until independent review passes.
