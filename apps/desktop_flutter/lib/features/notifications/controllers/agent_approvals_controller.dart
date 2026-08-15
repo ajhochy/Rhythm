@@ -96,7 +96,19 @@ class AgentApprovalsController extends ChangeNotifier {
       if (hadNativeNotification) {
         final notifications = _notifications;
         if (notifications != null) {
-          unawaited(notifications.cancel(_approvalNotificationId(id)));
+          final sessionId = approval.sessionId;
+          if (sessionId != null && sessionId.isNotEmpty) {
+            unawaited(
+              notifications.showAgentAskNotification(
+                id: _approvalNotificationId(id),
+                title: approve ? 'Approval approved' : 'Approval rejected',
+                body: approval.action,
+                payload: 'agentApproval:$sessionId:${approval.id}',
+              ),
+            );
+          } else {
+            unawaited(notifications.cancel(_approvalNotificationId(id)));
+          }
         }
       }
       notifyListeners();

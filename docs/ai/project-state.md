@@ -57,3 +57,19 @@ Verify Apple finishes processing build 6, resolve the existing export-compliance
 requires it, then install that exact TestFlight artifact and perform the focused Cloud Gateway smoke.
 
 For #1392: merge PR #1393 after remote checks and publish the next desktop patch release.
+
+## Recent coding-agent runs
+
+### 2026-08-14 — approval notification lifetime
+- Files modified: `agent_approvals_controller.dart` replaces a directly resolved actionable notification in place; `issue_1392_approval_push_route_contract_test.dart` covers notification lifetime and retained chat routing.
+- Checks run: regression test RED on immediate `cancel`; focused controller/route tests PASS (4 tests); complete notification test directory PASS (4 tests); focused format check PASS; `flutter analyze --no-fatal-infos` PASS with 311 pre-existing infos.
+- Decisions made: preserve the same notification ID and route payload while changing the title to `Approval approved` or `Approval rejected`; keep poll-time cancellation for approvals resolved outside this app.
+- Deviations from spec: none.
+- Concerns: native banner visibility still requires a manual macOS smoke after rebuilding; the running app was intentionally not restarted or interrupted.
+
+### 2026-08-15 — unified bell native notifications
+- Files modified: `notifications_controller.dart`, `local_notification_service.dart`, `main.dart`, `agents_controller.dart`, and `app_shell.dart` unify native delivery/dedupe/routing for general and immediate agent notifications; two focused notification contract suites and issue #1392 criteria c17-c19 cover the behavior.
+- Checks run: acceptance contracts RED on missing general delivery and duplicate agent unread; unified contracts PASS (6 tests); notification/approval/badge slice PASS (21 tests); focused format and diff checks PASS; `flutter analyze --no-fatal-infos` PASS with 311 pre-existing infos.
+- Decisions made: baseline the first successful unread poll to prevent launch replay spam; use `notification:<entityType>:<entityId>` payloads and route targetless agent events to the Agents root; keep approval notifications on their specialized lifecycle.
+- Deviations from spec: none.
+- Concerns: native banner display and tap-through require the parent agent's rebuilt macOS smoke; the running app was intentionally not restarted.

@@ -297,7 +297,7 @@ describe('live artifacts (AV-02)', () => {
     expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(200);
   });
 
-  const parityPolicy = "default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com data:; img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'";
+  const parityPolicy = "default-src 'none'; script-src 'unsafe-inline' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com data:; img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; media-src data: blob:; connect-src blob:; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'";
 
   it('renders fragment bundles with the exact Claude-parity CSP while preserving sandbox boundaries', async () => {
     // Regression: a nonce CSP or an omitted CDN host makes otherwise valid Claude artifacts fail to render.
@@ -314,6 +314,27 @@ describe('live artifacts (AV-02)', () => {
     expect(document).not.toMatch(/nonce=/i);
     expect(headerPolicy).not.toContain("'unsafe-eval'");
     expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeLessThan(document.indexOf('<meta charset'));
+  });
+
+  it('allows self-contained bundle scripts to hydrate from blobs without enabling network fetches', async () => {
+    // Standalone artifact exporters unpack embedded dependencies into blob URLs,
+    // then load them as scripts or read them back before Babel transforms JSX.
+    const owner = users.create({ name: 'Owner', email: 'rt-blob-bundle-csp@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id), 'private', {
+      ...bundle,
+      html: '<script>const u=URL.createObjectURL(new Blob(["window.hydrated=true"],{type:"application/javascript"}));fetch(u).then(r=>r.text());const s=document.createElement("script");s.src=u;document.head.appendChild(s);</script>',
+    });
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    const document = await response.text();
+    const headerPolicy = response.headers.get('content-security-policy') ?? '';
+    const metaPolicy = document.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)?.[1] ?? '';
+    for (const policy of [headerPolicy, metaPolicy]) {
+      expect(policy).toMatch(/script-src [^;]*\bblob:/);
+      expect(policy).toContain('connect-src blob:');
+      expect(policy).not.toMatch(/connect-src [^;]*https?:/);
+    }
+    expect(headerPolicy).toContain('sandbox allow-scripts');
+    expect(headerPolicy).toContain("frame-ancestors 'none'");
   });
 
   it('injects full documents without double wrapping and preserves inline artifact blocks', async () => {

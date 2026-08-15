@@ -147,6 +147,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
           'task' => AppConstants.navTasks,
           'rhythm' => AppConstants.navRhythms,
           'project' => AppConstants.navProjects,
+          'agents' => AppConstants.navAgents,
           // #815: agent-ask notification tap → Agents screen + select session.
           'agentSession' => AppConstants.navAgents,
           'agentApproval' => AppConstants.navAgents,

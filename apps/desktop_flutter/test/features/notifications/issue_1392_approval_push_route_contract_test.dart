@@ -104,6 +104,31 @@ void main() {
         reason: 'The route must target the still-open request after selecting '
             'the originating chat.',
       );
+
+      await approvals.approve('approval-route-target');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        calls.where((call) => call.method == 'cancel'),
+        isEmpty,
+        reason: 'Approving in the app must not immediately erase the native '
+            'banner before the user can see or click it.',
+      );
+      final resolvedShowCalls =
+          calls.where((call) => call.method == 'show').toList();
+      expect(
+        resolvedShowCalls,
+        hasLength(2),
+        reason: 'The actionable notification should be replaced in-place '
+            'with a non-actionable resolution notification.',
+      );
+      final resolvedArguments = Map<String, dynamic>.from(
+        resolvedShowCalls.last.arguments as Map,
+      );
+      expect(resolvedArguments['id'], arguments['id']);
+      expect(resolvedArguments['title'], 'Approval approved');
+      expect(resolvedArguments['body'], 'Authorize notification.send');
+      expect(resolvedArguments['payload'], arguments['payload']);
     },
   );
 }

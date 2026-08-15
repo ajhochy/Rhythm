@@ -41,6 +41,118 @@
       "test_file": "apps/desktop_flutter/test/features/notifications/issue_1392_approval_push_route_contract_test.dart",
       "test_id": "issue-1392-c5: a new approval pushes a notification whose activation targets its session and request",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c6",
+      "text": "Approving a pending agent approval automatically resumes the originating session exactly once, carries the exact approval_id, and instructs the agent to retry the identical protected action once.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_approval_continuation.test.ts",
+      "test_id": "issue-1392-c6: approval resumes the origin once with the exact approval_id and one-retry instruction",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c7",
+      "text": "Rejecting a pending agent approval automatically resumes the originating session exactly once and explicitly prevents the protected action from being performed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_approval_continuation.test.ts",
+      "test_id": "issue-1392-c7: rejection resumes the origin once and forbids the protected action",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c8",
+      "text": "A decision made while the originating session is working remains durably queued, dispatches no continuation immediately, and dispatches exactly once after onSessionIdle observes the session idle.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_approval_continuation.test.ts",
+      "test_id": "issue-1392-c8: a working origin keeps the continuation queued until its idle callback dispatches once",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c9",
+      "text": "After restart, recoverAfterRestart dispatches an already queued decided approval exactly once using the persisted originating session mapping.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_approval_continuation.test.ts",
+      "test_id": "issue-1392-c9: restart recovery dispatches an already queued decided approval once",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c10",
+      "text": "After trusted external-content taint, an interactive session whose root has the server-owned explicit bypass marker does not create a per-action approval and may consume the exact delegation action without approval_id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_bypass_approval_gate.test.ts",
+      "test_id": "issue-1392-c10: tainted interactive bypass mode needs no per-action delegation approval",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c11",
+      "text": "After trusted external-content taint, the same interactive delegation in default permission mode remains pending and is forbidden without approval_id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_bypass_approval_gate.test.ts",
+      "test_id": "issue-1392-c11: the same tainted delegation remains gated in default mode",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c12",
+      "text": "The MCP approval tool reports the bypass decision as not_required and rhythm_delegate_async proceeds with the original protected arguments without inventing or forwarding an approval_id.",
+      "mode": "integration",
+      "test_file": "apps/mcp_server/src/__tests__/contract/issue-1392-bypass-approval.spec.ts",
+      "test_id": "issue-1392-c12: not_required approval result proceeds to async delegation without approval_id",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c13",
+      "text": "Agent sessions persist and expose a dedicated server-owned explicit approval-bypass marker so approval policy never trusts permission_mode alone.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_bypass_approval_gate.test.ts",
+      "test_id": "issue-1392-c13: session schema and model expose a dedicated server-owned explicit approval-bypass marker",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c14",
+      "text": "A forced-bypass child under a default root remains subject to the external-content approval gate.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_bypass_approval_gate.test.ts",
+      "test_id": "issue-1392-c14: a forced-bypass child under a default root remains gated",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c15",
+      "text": "A delegated child under an explicit human-selected bypass root resolves that root authorization without copying the server-owned marker onto the child, and may proceed through the exact protected action without approval_id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_bypass_approval_gate.test.ts",
+      "test_id": "issue-1392-c15: a child under an explicit human-selected bypass root is allowed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c16",
+      "text": "A headless or AgentRunner-like bypass root without the explicit human-selected marker remains subject to the external-content approval gate.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1392_bypass_approval_gate.test.ts",
+      "test_id": "issue-1392-c16: a headless bypass root without explicit human provenance remains gated",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c17",
+      "text": "The first successful unread-notification poll establishes a startup baseline without replaying native banners for notifications that were already unread.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/notifications/issue_1392_unified_native_notification_contract_test.dart",
+      "test_id": "issue-1392-c17: startup unread baseline does not replay native notifications",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c18",
+      "text": "A general AppNotification that first appears unread after startup emits exactly one native notification whose payload preserves its entity type and entity ID, while unchanged polls do not duplicate it.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/notifications/issue_1392_unified_native_notification_contract_test.dart",
+      "test_id": "issue-1392-c18: newly unread app notification pushes once with its exact navigation route",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1392-c19",
+      "text": "An immediate agent notification that becomes unread emits exactly one native notification, opens the Agents surface when activated, and a repeated event ID neither increments the bell nor pushes again.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/notifications/issue_1392_unified_native_notification_contract_test.dart",
+      "test_id": "issue-1392-c19: immediate agent notification pushes once and routes to Agents",
+      "status": "pass"
     }
   ],
   "stack": "dart",

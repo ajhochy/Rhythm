@@ -114,6 +114,32 @@ class LocalNotificationService {
     await _plugin.show(id, title, body, details);
   }
 
+  /// Show a fail-soft native notification that routes back into Rhythm.
+  Future<void> showRoutedMessageNotification({
+    required int id,
+    required String title,
+    required String body,
+    required String payload,
+  }) async {
+    try {
+      if (!_initialized) await initialize();
+
+      const details = NotificationDetails(
+        macOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+        linux: LinuxNotificationDetails(),
+      );
+      await _plugin.show(id, title, body, details, payload: payload);
+    } catch (e) {
+      debugPrint(
+        'LocalNotificationService.showRoutedMessageNotification failed: $e',
+      );
+    }
+  }
+
   /// Show a native notification for an agent permission/question ask (#815).
   ///
   /// [payload] is round-tripped to [onTap] when the user clicks the banner so
