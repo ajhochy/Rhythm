@@ -1,0 +1,410 @@
+import Database from 'better-sqlite3';
+
+import { env } from '../config/env';
+import { getDb, getPostgresPool } from '../database/db';
+import { runMigrations } from '../database/migrations';
+import {
+  type AgentRunFeedbackEvent,
+  type AgentRunOutcome,
+  type AgentRunOutcomeView,
+  type FeedbackSource,
+  type ObjectiveEvidence,
+  type RunAttribution,
+  type RunVerdict,
+  type TerminalStatus,
+  type UserVerdict,
+} from '../models/agent_run_outcome';
+import { buildAttribution, newLedgerId } from '../services/run_outcome_service';
+
+/**
+ * W4 — the outcome ledger's only writer.
+ *
+ * Deliberately INSERT-ONLY. There is no update and no delete method, on either
+ * table, because a finalized outcome is immutable (W4-c11) and feedback is
+ * append-only (W4-c2). The schema enforces the same thing with triggers, so a
+ * future caller that bypasses this class still cannot rewrite history.
+ *
+ * Dual-engine, following AgentOrgProposalsRepository: SQLite uses synchronous
+ * better-sqlite3 with the throwaway `:memory:` fallback for tests that never
+ * called initDb(); Postgres queries the pool directly with no fallback.
+ */
+
+interface OutcomeRow {
+  id: string;
+  root_session_id: string;
+  session_id: string | null;
+  scheduled_occurrence_id: string | null;
+  experiment_variant: string | null;
+  proposal_id: string | null;
+  profile_id: string | null;
+  config_revision: number | null;
+  terminal_status: string;
+  objective_verdict: string;
+  objective_evidence_json: string;
+  attribution_json: string;
+  finalized_at: string;
+  created_at: string;
+}
+
+interface FeedbackRow {
+  id: string;
+  root_session_id: string;
+  source: string;
+  verdict: string;
+  confidence: number;
+  actor: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface FinalizeOutcomeInput {
+  rootSessionId: string;
+  sessionId?: string | null;
+  scheduledOccurrenceId?: string | null;
+  experimentVariant?: string | null;
+  proposalId?: string | null;
+  profileId?: string | null;
+  configRevision?: number | null;
+  terminalStatus: TerminalStatus;
+  objectiveVerdict: RunVerdict;
+  objectiveEvidence: ObjectiveEvidence;
+  attribution?: RunAttribution;
+}
+
+export interface AppendFeedbackInput {
+  rootSessionId: string;
+  source: FeedbackSource;
+  verdict: UserVerdict;
+  confidence: number;
+  actor?: string | null;
+  reason?: string | null;
+}
+
+function parseJson<T>(raw: string, fallback: T): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function toIso(value: string | Date): string {
+  return typeof value === 'string' ? value : value.toISOString();
+}
+
+function outcomeFromRow(row: OutcomeRow): AgentRunOutcome {
+  return {
+    id: row.id,
+    rootSessionId: row.root_session_id,
+    sessionId: row.session_id ?? null,
+    scheduledOccurrenceId: row.scheduled_occurrence_id ?? null,
+    experimentVariant: row.experiment_variant ?? null,
+    proposalId: row.proposal_id ?? null,
+    profileId: row.profile_id ?? null,
+    configRevision: row.config_revision ?? null,
+    terminalStatus: row.terminal_status as TerminalStatus,
+    objectiveVerdict: row.objective_verdict as RunVerdict,
+    objectiveEvidence: parseJson<ObjectiveEvidence>(row.objective_evidence_json, {
+      producedArtifact: null,
+      errorCount: null,
+      approvalDenied: null,
+    }),
+    attribution: parseJson<RunAttribution>(row.attribution_json, buildAttribution()),
+    finalizedAt: toIso(row.finalized_at),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function feedbackFromRow(row: FeedbackRow): AgentRunFeedbackEvent {
+  return {
+    id: row.id,
+    rootSessionId: row.root_session_id,
+    source: row.source as FeedbackSource,
+    verdict: row.verdict as UserVerdict,
+    confidence: Number(row.confidence),
+    actor: row.actor ?? null,
+    reason: row.reason ?? null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+/** Latest verdict from one source, or null when that source never spoke. */
+function latestVerdict(
+  feedback: AgentRunFeedbackEvent[],
+  source: FeedbackSource,
+): UserVerdict | null {
+  for (let i = feedback.length - 1; i >= 0; i -= 1) {
+    if (feedback[i].source === source) return feedback[i].verdict;
+  }
+  return null;
+}
+
+function makeInMemoryDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  runMigrations(db);
+  return db;
+}
+
+/**
+ * Walks `agent_sessions.parent_session_id` to the top of the tree. Bounded so a
+ * corrupt cycle degrades to "treat this session as its own root" instead of
+ * hanging the terminal hook.
+ */
+const MAX_SESSION_TREE_DEPTH = 64;
+
+export class AgentRunOutcomesRepository {
+  /** SQLite-only handle. Never populated (and never used) under Postgres. */
+  private db: Database.Database | null;
+
+  constructor(db?: Database.Database) {
+    if (env.dbClient === 'postgres') {
+      this.db = null;
+      return;
+    }
+    if (db) {
+      this.db = db;
+    } else {
+      try {
+        this.db = getDb();
+      } catch {
+        this.db = makeInMemoryDb();
+      }
+    }
+  }
+
+  /**
+   * W4-c12 — resolve a (possibly delegated child) session to its ROOT run. A
+   * child's terminal event must land on the root's single outcome row; writing
+   * the child's own id would satisfy the unique constraint while quietly
+   * producing several outcomes for one run.
+   */
+  async resolveRootSessionIdAsync(sessionId: string): Promise<string> {
+    let current = sessionId;
+    for (let depth = 0; depth < MAX_SESSION_TREE_DEPTH; depth += 1) {
+      let parent: string | null = null;
+      if (env.dbClient === 'postgres') {
+        const r = await getPostgresPool().query(
+          `SELECT parent_session_id FROM agent_sessions WHERE id = $1`,
+          [current],
+        );
+        if (r.rows.length === 0) return current;
+        parent = (r.rows[0] as { parent_session_id: string | null }).parent_session_id;
+      } else {
+        const row = this.db!
+          .prepare(`SELECT parent_session_id FROM agent_sessions WHERE id = ?`)
+          .get(current) as { parent_session_id: string | null } | undefined;
+        if (!row) return current;
+        parent = row.parent_session_id;
+      }
+      if (!parent || parent === current) return current;
+      current = parent;
+    }
+    return current;
+  }
+
+  /**
+   * Objective tool telemetry for one session, read from the existing
+   * `tool_events` table. Returns null when the session has NO events at all:
+   * that is indistinguishable from telemetry being switched off, and guessing
+   * "zero errors" there is exactly the fail-open this campaign forbids.
+   *
+   * Only the tool NAME, the status and a count are read — never arguments,
+   * never output.
+   */
+  async findToolEvidenceAsync(
+    sessionId: string,
+  ): Promise<{ errorCount: number; tools: string[] } | null> {
+    const sql = (placeholder: string) =>
+      `SELECT tool, status FROM tool_events WHERE session_id = ${placeholder}`;
+    let rows: Array<{ tool: string; status: string }>;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql('$1'), [sessionId]);
+      rows = r.rows as Array<{ tool: string; status: string }>;
+    } else {
+      rows = this.db!.prepare(sql('?')).all(sessionId) as Array<{
+        tool: string;
+        status: string;
+      }>;
+    }
+    if (rows.length === 0) return null;
+    return {
+      errorCount: rows.filter((row) => row.status === 'error').length,
+      tools: [...new Set(rows.map((row) => row.tool))].sort(),
+    };
+  }
+
+  /**
+   * The owning user of a run, read from its root session. Null means the run is
+   * unowned (a system/scheduled run), which every identified caller may see.
+   */
+  async findRunOwnerUserIdAsync(rootSessionId: string): Promise<number | null> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT owner_user_id FROM agent_sessions WHERE id = $1`,
+        [rootSessionId],
+      );
+      return (r.rows[0] as { owner_user_id: number | null } | undefined)?.owner_user_id ?? null;
+    }
+    const row = this.db!
+      .prepare(`SELECT owner_user_id FROM agent_sessions WHERE id = ?`)
+      .get(rootSessionId) as { owner_user_id: number | null } | undefined;
+    return row?.owner_user_id ?? null;
+  }
+
+  /**
+   * W4-c5 — idempotent. The unique constraint on `root_session_id` is what
+   * actually decides the race; a second finalizer simply reads back the row the
+   * first one wrote rather than producing a competing verdict.
+   */
+  async finalizeAsync(input: FinalizeOutcomeInput): Promise<AgentRunOutcome> {
+    const row = {
+      id: newLedgerId(),
+      root_session_id: input.rootSessionId,
+      session_id: input.sessionId ?? null,
+      scheduled_occurrence_id: input.scheduledOccurrenceId ?? null,
+      experiment_variant: input.experimentVariant ?? null,
+      proposal_id: input.proposalId ?? null,
+      profile_id: input.profileId ?? null,
+      config_revision: input.configRevision ?? null,
+      terminal_status: input.terminalStatus,
+      objective_verdict: input.objectiveVerdict,
+      objective_evidence_json: JSON.stringify(input.objectiveEvidence),
+      attribution_json: JSON.stringify(input.attribution ?? buildAttribution()),
+      finalized_at: new Date().toISOString(),
+    };
+
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO agent_run_outcomes
+           (id, root_session_id, session_id, scheduled_occurrence_id, experiment_variant,
+            proposal_id, profile_id, config_revision, terminal_status, objective_verdict,
+            objective_evidence_json, attribution_json, finalized_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (root_session_id) DO NOTHING`,
+        Object.values(row),
+      );
+    } else {
+      this.db!
+        .prepare(
+          `INSERT INTO agent_run_outcomes
+             (id, root_session_id, session_id, scheduled_occurrence_id, experiment_variant,
+              proposal_id, profile_id, config_revision, terminal_status, objective_verdict,
+              objective_evidence_json, attribution_json, finalized_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT (root_session_id) DO NOTHING`,
+        )
+        .run(...Object.values(row));
+    }
+
+    const stored = await this.findOutcomeAsync(input.rootSessionId);
+    // The row was just inserted or already existed; a null here means the write
+    // was rejected outright, which the caller must see rather than swallow.
+    if (!stored) throw new Error(`Run outcome for ${input.rootSessionId} was not persisted`);
+    return stored;
+  }
+
+  async appendFeedbackAsync(input: AppendFeedbackInput): Promise<AgentRunFeedbackEvent> {
+    const row = {
+      id: newLedgerId(),
+      root_session_id: input.rootSessionId,
+      source: input.source,
+      verdict: input.verdict,
+      confidence: input.confidence,
+      actor: input.actor ?? null,
+      reason: input.reason ?? null,
+      created_at: new Date().toISOString(),
+    };
+    // ponytail: `seq` is derived inside the INSERT so a single statement both
+    // reads and writes it. Two concurrent inserts under Postgres read-committed
+    // can still land on the same seq; ordering then falls back to created_at,id,
+    // which is good enough for a human clicking a feedback button. Move to a
+    // per-root advisory lock only if a machine ever writes feedback in bursts.
+    const seqSelect = `(SELECT COALESCE(MAX(f.seq), 0) + 1 FROM agent_run_feedback_events f WHERE f.root_session_id = `;
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO agent_run_feedback_events
+           (id, root_session_id, seq, source, verdict, confidence, actor, reason, created_at)
+         VALUES ($1,$2,${seqSelect}$2),$3,$4,$5,$6,$7,$8)`,
+        Object.values(row),
+      );
+    } else {
+      this.db!
+        .prepare(
+          `INSERT INTO agent_run_feedback_events
+             (id, root_session_id, seq, source, verdict, confidence, actor, reason, created_at)
+           VALUES (?,?,${seqSelect}?),?,?,?,?,?,?)`,
+        )
+        .run(
+          row.id,
+          row.root_session_id,
+          row.root_session_id,
+          row.source,
+          row.verdict,
+          row.confidence,
+          row.actor,
+          row.reason,
+          row.created_at,
+        );
+    }
+    return feedbackFromRow(row as unknown as FeedbackRow);
+  }
+
+  async findOutcomeAsync(rootSessionId: string): Promise<AgentRunOutcome | null> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT * FROM agent_run_outcomes WHERE root_session_id = $1`,
+        [rootSessionId],
+      );
+      return r.rows.length > 0 ? outcomeFromRow(r.rows[0] as OutcomeRow) : null;
+    }
+    const row = this.db!
+      .prepare(`SELECT * FROM agent_run_outcomes WHERE root_session_id = ?`)
+      .get(rootSessionId) as OutcomeRow | undefined;
+    return row ? outcomeFromRow(row) : null;
+  }
+
+  async listFeedbackAsync(rootSessionId: string): Promise<AgentRunFeedbackEvent[]> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT * FROM agent_run_feedback_events
+          WHERE root_session_id = $1 ORDER BY seq, created_at, id`,
+        [rootSessionId],
+      );
+      return (r.rows as FeedbackRow[]).map(feedbackFromRow);
+    }
+    const rows = this.db!
+      .prepare(
+        `SELECT * FROM agent_run_feedback_events
+          WHERE root_session_id = ? ORDER BY seq, created_at, id`,
+      )
+      .all(rootSessionId) as FeedbackRow[];
+    return rows.map(feedbackFromRow);
+  }
+
+  /**
+   * W4-c4 — the composed read. Objective, explicit and inferred verdicts are
+   * three named fields; `authoritativeVerdict` states the precedence once, so
+   * no caller has to re-derive (and mis-derive) it.
+   */
+  async findByRootSessionIdAsync(
+    rootSessionId: string,
+  ): Promise<AgentRunOutcomeView | null> {
+    const outcome = await this.findOutcomeAsync(rootSessionId);
+    if (!outcome) return null;
+    const feedback = await this.listFeedbackAsync(rootSessionId);
+    const explicitUserVerdict = latestVerdict(feedback, 'explicit_user');
+    const inferredVerdict = latestVerdict(feedback, 'inferred');
+    return {
+      outcome,
+      objectiveVerdict: outcome.objectiveVerdict,
+      explicitUserVerdict,
+      inferredVerdict,
+      // An explicit human verdict outranks inference, which outranks the
+      // objective reading. Inference can never displace a human.
+      authoritativeVerdict:
+        explicitUserVerdict ?? inferredVerdict ?? outcome.objectiveVerdict,
+      feedback,
+    };
+  }
+}

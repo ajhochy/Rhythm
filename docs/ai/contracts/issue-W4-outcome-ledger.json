@@ -3,11 +3,11 @@
   "generated": "2026-08-15",
   "derived_from": {
     "plan": "docs/ai/plans/2026-08-14-self-improvement-engine-foundation.md",
-    "section": "Work package W4 — Immutable outcome and feedback ledger",
+    "section": "Work package W4 \u2014 Immutable outcome and feedback ledger",
     "note": "Refinement of the approved plan section into machine-readable criteria. No product scope is added, removed, or reinterpreted; every criterion traces to a plan line."
   },
-  "branch": "agent-stack/si-outcome-ledger",
-  "base": "integrated W1-W3 head on agent-stack/self-improvement-foundation",
+  "branch": "self-improvement/outcome-ledger",
+  "base": "integrated W1-W3 head on self-improvement-engine-foundation",
   "commit": "feat(optimizer): add immutable outcomes and append-only feedback",
   "owned_production_files": [
     "apps/api_server/src/database/migrations.ts",
@@ -25,7 +25,8 @@
     "apps/api_server/src/services/__tests__/run_outcome_service.test.ts",
     "apps/api_server/src/__tests__/run_outcome_routes.test.ts",
     "apps/api_server/src/__tests__/migrations_self_heal.test.ts",
-    "apps/api_server/src/__tests__/skill_schema_parity.test.ts"
+    "apps/api_server/src/__tests__/skill_schema_parity.test.ts",
+    "apps/api_server/src/services/__tests__/run_outcome_terminal_hook.test.ts"
   ],
   "campaign_invariants_in_force": [
     "additive schema only; no destructive migration and no production backfill",
@@ -37,13 +38,13 @@
     {
       "criterion_id": "W4-c1",
       "plan_line": "exactly one mutable-finalized outcome row per root run, guarded by a unique root session ID",
-      "text": "A root run has at most one outcome row. The uniqueness is enforced by the schema on root session id, not only by service logic, so a concurrent second finalizer cannot create a second row.",
+      "text": "A root run has EXACTLY one outcome row. Uniqueness is enforced by the schema (a table-level UNIQUE on root session id, which is also the form the dual-DB parity parser can read), not only by service logic, so a concurrent second finalizer is refused by the database itself.",
       "status": "red-pending"
     },
     {
       "criterion_id": "W4-c2",
       "plan_line": "append-only feedback events with source and confidence",
-      "text": "Feedback rows are insert-only. There is no update or delete path in the repository, and a contradictory later verdict is retained alongside the earlier one rather than replacing it.",
+      "text": "Feedback rows are insert-only: no update or delete path exists in the repository, and a contradictory later verdict is retained alongside the earlier one. Every row carries an explicit `source` and `confidence`; W6 weights evidence by exactly those two fields, so a row without them is unusable downstream.",
       "status": "red-pending"
     },
     {
@@ -67,13 +68,13 @@
     {
       "criterion_id": "W4-c6",
       "plan_line": "deterministic finalizer maps terminal status plus objective artifact/error/approval evidence to success | partial | failure | inconclusive",
-      "text": "The finalizer is a pure deterministic function of terminal status and objective evidence. No LLM call and no heuristic prose scoring participates. Absent or contradictory evidence yields inconclusive, never a guessed success.",
+      "text": "The finalizer is a pure deterministic function of terminal status and objective evidence. Proven behaviourally: the same input yields an identical outcome across repeated runs, and a full input->output fixture matrix pins every mapping. Absent or contradictory evidence yields `inconclusive`, never a guessed `success`.",
       "status": "red-pending"
     },
     {
       "criterion_id": "W4-c7",
       "plan_line": "feedback API accepts success | partial | failure plus optional reason and actor; validates ownership/auth using existing route conventions",
-      "text": "The route accepts exactly those three verdicts, rejects anything else, and enforces ownership/auth the same way sibling routes do.",
+      "text": "The route accepts exactly `success | partial | failure`, rejects anything else, and scopes ownership concretely \u2014 the ownerUserId / req.mobileDevice pattern used by run_quality_routes.ts:30-32 \u2014 rather than relying on `requireAuth`, which is a no-op under AGENT_LOCAL=true where this route actually runs. It sits behind the same registration gate as its sibling agent routes.",
       "status": "red-pending"
     },
     {
@@ -93,6 +94,24 @@
       "plan_line": "Ensure prompts, tool arguments/outputs, credentials, and secret-like values are not copied into the ledger.",
       "text": "No prompt text, tool argument, tool output, credential, or secret-like value is written to the ledger tables. A test asserts this over a fixture containing all of those.",
       "status": "red-pending"
+    },
+    {
+      "criterion_id": "W4-c11",
+      "plan_line": "Goal item 5: Add an immutable run-outcome and feedback ledger",
+      "text": "A finalized outcome row cannot be mutated through the repository. There is no update path that can alter a finalized row's verdict or evidence fields.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W4-c12",
+      "plan_line": "W4 acceptance: One terminal outcome per root run",
+      "text": "A delegated child session's terminal event resolves to its ROOT run and produces no second outcome row. Proven with a parent/child session tree, not with a single flat session.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W4-c13",
+      "plan_line": "Campaign invariant: SQLite and Postgres parity for every added column",
+      "text": "Every new table and column exists in both engines and is visible to the dual-DB drift guard: the new tables are added to skill_schema_parity.test.ts's TABLES list, each Postgres table is its own pool.query template literal with indexes in separate calls, and no ALTER spans multiple lines (the parser cannot see those).",
+      "status": "red-pending"
     }
   ],
   "acceptance_gates": [
@@ -104,7 +123,44 @@
   ],
   "explicitly_out_of_scope": [
     "Desktop feedback controls beyond the API contract (plan: Deferred by design).",
-    "Any consumption of the ledger by an experiment gate — that is W6.",
+    "Any consumption of the ledger by an experiment gate \u2014 that is W6.",
     "Backfilling outcomes for historical runs."
+  ],
+  "spec_review": {
+    "reviewer": "independent read-only architecture/spec review, 2026-08-15",
+    "verdict": "APPROVE WITH CHANGES",
+    "amendments_applied": 8
+  },
+  "plan_interpretations": [
+    {
+      "ambiguity": "W4 step 2 says 'exactly one mutable-finalized outcome row per root run' in a package titled 'Immutable outcome and feedback ledger'.",
+      "reconciled_as": "Mutable until finalized, immutable after. Reconciled from the package title and Goal item 5 ('Add an immutable run-outcome and feedback ledger'). Encoded as W4-c11.",
+      "authority": "plan title + Goal item 5"
+    },
+    {
+      "ambiguity": "No general root-session concept exists in the schema; root_session_id lives only on agent_scheduled_task_runs, and general trees are walked via agent_sessions.parent_session_id.",
+      "reconciled_as": "The hook must resolve a delegated child's terminal event to its root before writing. Encoded as W4-c12 so 'one outcome per root run' is behaviourally provable rather than satisfied by a child-id unique constraint.",
+      "authority": "plan W4 acceptance 'One terminal outcome per root run'"
+    }
+  ],
+  "verification": {
+    "runtime": "node v22.23.1 via export PATH=/opt/homebrew/opt/node@22/bin:$PATH",
+    "impact_targets": [
+      "terminal session persistence hooks",
+      "route registration"
+    ],
+    "commands": [
+      "npx vitest run <owned test files>",
+      "npx vitest run",
+      "npm run build",
+      "npx tsc --noEmit -p tsconfig.json",
+      "detect_changes --base main",
+      "git diff --check"
+    ]
+  },
+  "hazards": [
+    "installRevisionInvariants puts an AFTER UPDATE auto-bump trigger on agent_configs and agent_org_proposals. Ledger state must NOT live on those tables; agent_profile_projections is the precedent \u2014 its own table, for exactly this reason.",
+    "skill_schema_parity.test.ts parses DDL by regex: it only sees single-line ALTER TABLE ... ADD COLUMN and CREATE TABLE bodies whose closing paren is immediately followed by a backtick.",
+    "requireAuth is a no-op under AGENT_LOCAL=true, which is how the embedded desktop server runs \u2014 see W4-c7."
   ]
 }

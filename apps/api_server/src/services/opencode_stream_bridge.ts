@@ -14,6 +14,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { recordTerminalOutcome } from './run_outcome_service';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
@@ -1678,6 +1679,17 @@ export class OpencodeStreamBridge {
             // queueSkillExtraction). Must NOT block or reject the turn.
             queueSkillExtraction(localSessionId);
 
+            // W4 — the WS/interactive turn-completion point. Same posture as
+            // queueSkillExtraction directly above: fire-and-forget, never
+            // awaited, never rejects, so the user's turn cannot fail because
+            // the ledger did. A delegated child's idle event resolves to its
+            // ROOT run inside the hook, so one run yields one outcome.
+            void recordTerminalOutcome({
+              sessionId: localSessionId,
+              terminalStatus: 'completed',
+              producedArtifact: true,
+            });
+
             // #929 / #1109 — schedule (not run) evaluation of any harvested
             // draft that just crossed its use threshold. Placed HERE (not in
             // ws_gateway.ts right after promptFn) because this is the actual
@@ -1717,6 +1729,12 @@ export class OpencodeStreamBridge {
               type: 'error',
               id: localSessionId,
               message: 'The model returned an empty response.',
+            });
+            // W4 — still a terminal turn, just one that produced nothing.
+            void recordTerminalOutcome({
+              sessionId: localSessionId,
+              terminalStatus: 'completed',
+              producedArtifact: false,
             });
           }
           // #1123 — callback boundary for additive interactive async
@@ -1964,6 +1982,13 @@ export class OpencodeStreamBridge {
               err,
             );
           }
+          // W4 — the interactive error termination. Fire-and-forget; the error
+          // message itself is NOT passed to the ledger, only the status.
+          void recordTerminalOutcome({
+            sessionId: localSessionId,
+            terminalStatus: 'error',
+            producedArtifact: false,
+          });
           // #1123 — a delegated child failure is still a completion the
           // interactive parent must hear about. Persist the normal error state
           // first, then queue the callback; native task children are ignored.
