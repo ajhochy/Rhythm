@@ -50,8 +50,18 @@ export interface TestServer {
  * @param app the Express application to serve, typically `createApp()`.
  */
 export async function startTestServer(app: Express): Promise<TestServer> {
-  // `app.listen(0)` binds an ephemeral port and returns the http.Server.
-  const server = app.listen(0) as Server;
+  // Bind the ephemeral port on the IPv4 loopback *explicitly*, never on the
+  // wildcard. `app.listen(0)` with no host binds `::` (dual-stack) and draws
+  // its port from the IPv6 ephemeral pool. On macOS/BSD a *specific* bind to
+  // `127.0.0.1:<that same port>` is then still permitted — no EADDRINUSE — and
+  // the more-specific IPv4 listener wins every connection to 127.0.0.1. So any
+  // other test file running concurrently that does `listen(0, '127.0.0.1')`
+  // could be handed this server's port and silently hijack every request made
+  // to `baseUrl`; the victim got the hijacker's responses (typically Express's
+  // default HTML 404 → `SyntaxError: Unexpected token '<'` on `.json()`).
+  // Binding 127.0.0.1 here puts every test listener in the one pool the kernel
+  // does guarantee unique, so no two files can collide.
+  const server = app.listen(0, '127.0.0.1') as Server;
   // Disable keep-alive: every response gets `Connection: close`, so undici
   // never pools a socket against this server's ephemeral port.
   server.maxRequestsPerSocket = 1;
