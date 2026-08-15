@@ -48,9 +48,18 @@
  * by the `audit_run_id` the run itself reports.
  *
  * ── Known limits, stated plainly ────────────────────────────────────────────
- * As committed, this suite has NEVER BEEN EXECUTED. It was written under a
- * hard no-server constraint, so its fixture shapes are validated only against
- * the producer/validator source, not against a running backend.
+ * As committed, this suite has NEVER BEEN EXECUTED — not one case, including
+ * the six that shipped before W7-2 and W7-7 were unskipped. Every author so far
+ * has worked under a hard no-server constraint, so fixture shapes are validated
+ * against the producer/validator source only, never against a running backend.
+ *
+ * That is not a theoretical caveat. Two defects of exactly this kind were found
+ * by reading source and are fixed here: every `POST /agent-sessions` assertion
+ * expected 200 where the controller returns 201 (so the case died on its first
+ * HTTP call), and W7-8 drove its "real production trigger" through
+ * `/agent-sessions/:id/resume`, which rejects a non-resumable session and never
+ * prompts even when it succeeds — its central assertion was vacuous. Assume the
+ * same class of defect remains until a run proves otherwise.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -442,29 +451,40 @@ function feedbackRows(rootSessionId: string): Array<{ id: string; source: string
 }
 
 /**
- * Both production turn-END sites in opencode_stream_bridge.ts persist a message
- * (`output` on session.idle, `system` on session.error) IMMEDIATELY before
- * calling recordTerminalOutcome. That persisted row is therefore the durable
- * witness that a terminal event fired — which the outcome row itself cannot be,
- * because the outcome row is the thing under test.
+ * Terminal turn boundaries seen on the socket, per local session id.
  *
- * ponytail: the one turn-end path this does NOT witness is the zero-token
- * branch, which fires the hook without persisting anything. If a turn lands
- * there the wait below times out with a named failure rather than passing
- * quietly, which is the right way round for a gate.
+ * The witness is `{type:'session.status', working:false}`, which the bridge
+ * broadcasts at the TOP of its `session.idle` case — unconditionally, before
+ * the DB status check, so an errored turn emits it too (the engine still goes
+ * idle; only the status WRITE is suppressed). It is the one frame that marks a
+ * real turn boundary and nothing else: ws_gateway's own `catch` sends a
+ * `type:'error'` frame when the prompt never reaches the engine, which is NOT a
+ * terminal event, so error frames are deliberately not counted.
+ *
+ * A persisted message row is NOT a usable witness: upsertPart INSERTs the
+ * role='output' row when the FIRST streamed part arrives — the START of the
+ * response — and the session.idle append only runs for legacy sessions with no
+ * structured messages. Counting rows returns mid-turn.
  */
-function persistedTurnEndCount(sessionId: string): number {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM agent_session_messages
-        WHERE session_id = ? AND role IN ('output', 'system')`,
-    )
-    .get(sessionId) as { n: number };
-  return row.n;
+const turnBoundaries = new Map<string, number>();
+
+function boundaryCount(sessionId: string): number {
+  return turnBoundaries.get(sessionId) ?? 0;
 }
 
 async function openAgentSocket(): Promise<WebSocket> {
   const socket = new WebSocket(`${baseUrl().replace(/^http/, 'ws')}/ws/agents`);
+  socket.on('message', (raw) => {
+    let frame: { type?: unknown; id?: unknown; working?: unknown };
+    try {
+      frame = JSON.parse(raw.toString()) as typeof frame;
+    } catch {
+      return;
+    }
+    if (frame.type === 'session.status' && frame.working === false && typeof frame.id === 'string') {
+      turnBoundaries.set(frame.id, boundaryCount(frame.id) + 1);
+    }
+  });
   await new Promise<void>((ready, fail) => {
     socket.once('open', () => ready());
     socket.once('error', (err) => fail(err));
@@ -476,16 +496,17 @@ async function openAgentSocket(): Promise<WebSocket> {
  * One real interactive turn: the exact `session.input` frame the Flutter
  * composer sends, through the WS gateway, into the engine. This is the only
  * production entry point that drives a session to a terminal state — there is
- * no HTTP prompt route, and `/agent-sessions/:id/resume` requires a session
- * that is already `resumable` with a live session token.
+ * no HTTP prompt route, and `/agent-sessions/:id/resume` rejects anything not
+ * already `resumable` with a live session token (and re-attaches rather than
+ * prompting even then).
  */
 async function driveTurn(socket: WebSocket, sessionId: string, text: string): Promise<void> {
-  const before = persistedTurnEndCount(sessionId);
+  const before = boundaryCount(sessionId);
   socket.send(JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: text }));
   await waitFor(
     `session ${sessionId} to reach a terminal turn boundary`,
     TURN_TIMEOUT_MS,
-    () => persistedTurnEndCount(sessionId) > before,
+    () => boundaryCount(sessionId) > before,
   );
 }
 
@@ -544,7 +565,7 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
 
   // ── Plan step 2 ──────────────────────────────────────────────────────────
   it('W7-2: a shadow optimizer run creates proposals without changing target config, installing tools, or changing proposal target state', async () => {
-    const servers = await liveMcpServerNames();
+    const servers = await liveMcpServerIds();
     expect(
       servers.length,
       'the sandbox engine reports no MCP servers; there is no grant for scope hygiene to find',
@@ -609,6 +630,13 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
       ).toEqual([]);
 
       // (d) Nothing was installed into the live engine.
+      //
+      // Cheap smoke, NOT load-bearing, and the comment says so on purpose: no
+      // optimizer lane installs an MCP server under any mode. External
+      // adoption is classified HIGH risk and stays human-gated, and the
+      // auto-apply lane only ever touches risk==='low'. This would go red only
+      // if a future generator learned to install — which is precisely the
+      // change worth catching, so it stays.
       expect(await mcpCatalogFingerprint()).toBe(catalogBefore);
     } finally {
       if (auditRunId) deleteRunProposals(auditRunId);
@@ -858,7 +886,8 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
           name: `W7 live outcome ${profileId}`,
         }),
       });
-      expect(create.status).toBe(200);
+      // 201 — agent_sessions_controller.create ends in res.status(201).
+      expect(create.status).toBe(201);
       sessionId = ((await create.json()) as { id: string }).id;
       // A freshly created session has no parent, so it IS its own root run —
       // which is what makes `root_session_id = sessionId` the right key below.
@@ -880,6 +909,15 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
       // A second turn ends at the same production hook with the same root run
       // id. That is the duplicate terminal event: it must find the ledger row
       // already there and neither add a second nor rewrite the first.
+      //
+      // Read this pair for exactly what it is: an end-to-end confirmation that
+      // a SCHEMA guarantee survives the real path. `root_session_id UNIQUE` and
+      // the BEFORE UPDATE immutability trigger (migrations.ts) are what enforce
+      // it, and recordTerminalOutcome swallows every error it meets, so no
+      // application-layer mutation can turn these two assertions red — deleting
+      // `ON CONFLICT DO NOTHING` makes the insert throw and be swallowed, and
+      // the test stays green. Only dropping the unique index reddens it. The
+      // idempotency of finalizeAsync itself is a unit-test job, not this one's.
       await driveTurn(socket, sessionId, 'Reply with the single word: again.');
       const afterSecond = outcomeRows(rootSessionId);
       expect(
@@ -956,6 +994,7 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
   it('W7-8: a self-improvement session that clears every other harvest gate still produces no harvested skill', async () => {
     const profileId = await createProfile('harvest', '[]');
     let sessionId: string | null = null;
+    let socket: WebSocket | null = null;
 
     try {
       const create = await api('/agent-sessions', {
@@ -966,7 +1005,8 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
           name: `W7 live harvest ${profileId}`,
         }),
       });
-      expect(create.status).toBe(200);
+      // 201 — agent_sessions_controller.create ends in res.status(201).
+      expect(create.status).toBe(201);
       sessionId = ((await create.json()) as { id: string }).id;
 
       // Direct SQLite: no API surface sets a session's harvest-relevant
@@ -1013,15 +1053,18 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
       ).length;
       expect(rounds, 'the rounds gate must not be the reason nothing was harvested').toBeGreaterThanOrEqual(2);
 
-      // Drive the REAL production trigger: a resumed turn ends by calling the
-      // extraction queue. If the W3 eligibility gate were removed, this is
-      // where a self-improvement session would feed itself back into the
-      // harvester.
-      const resume = await api(`/agent-sessions/${encodeURIComponent(sessionId)}/resume`, {
-        method: 'POST',
-        body: JSON.stringify({ profileId, message: 'Summarize what we just did in one sentence.' }),
-      });
-      expect([200, 202]).toContain(resume.status);
+      // Drive the REAL production trigger: a completed interactive turn ends by
+      // calling the extraction queue (opencode_stream_bridge's session.idle
+      // handler). If the W3 eligibility gate were removed, this is where a
+      // self-improvement session would feed itself back into the harvester.
+      //
+      // NOT `/agent-sessions/:id/resume`: it rejects anything whose status is
+      // not already 'resumable' with a live session token, and even then it
+      // re-attaches and streams rather than prompting — it never reads the
+      // `message` body field. A resume-driven version of this test never ran a
+      // turn, so its "nothing was harvested" assertion was vacuous.
+      socket = await openAgentSocket();
+      await driveTurn(socket, sessionId, 'Summarize what we just did in one sentence.');
 
       // Harvesting is fire-and-forget; give it room to have happened.
       await new Promise((wait) => setTimeout(wait, 30_000));
@@ -1031,13 +1074,15 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
       ).n;
       expect(skillsAfter).toBe(skillsBefore);
     } finally {
+      socket?.close();
       if (sessionId) {
         db.prepare(`DELETE FROM agent_session_messages WHERE session_id = ?`).run(sessionId);
         db.prepare(`DELETE FROM agent_sessions WHERE id = ?`).run(sessionId);
       }
       await deleteProfile(profileId);
     }
-  }, 180_000);
+    // Room for a real turn (TURN_TIMEOUT_MS) plus the 30s harvest window.
+  }, 600_000);
 
   // ── Plan step 9 ──────────────────────────────────────────────────────────
   it('W7-9: retry-policy prose creates no retry-loop proposal, while a materially repeated failed operation does', async () => {
