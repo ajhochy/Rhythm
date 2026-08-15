@@ -163,14 +163,28 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
   ) async {
     final ok = await controller.approve(proposal.id);
     if (!mounted) return;
+    // A reconciliation outcome is neither success nor a retryable failure: the
+    // database, the target scope and the projected profile disagree and a human
+    // has to look. Saying "Approve failed" would invite exactly the retry that
+    // must not happen.
+    final needsReconciliation = controller.lastApproveNeedsReconciliation;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? 'Proposal approved' : (controller.error ?? 'Approve failed'),
+          ok
+              ? 'Proposal approved'
+              : needsReconciliation
+                  ? 'Needs reconciliation — inspect the proposal, its target '
+                      'scope and the projected profile before retrying'
+                  : (controller.error ?? 'Approve failed'),
         ),
-        backgroundColor: ok ? context.rhythm.success : context.rhythm.danger,
+        backgroundColor: ok
+            ? context.rhythm.success
+            : needsReconciliation
+                ? context.rhythm.warning
+                : context.rhythm.danger,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+        duration: Duration(seconds: needsReconciliation ? 6 : 2),
       ),
     );
   }

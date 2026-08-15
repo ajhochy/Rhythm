@@ -39,8 +39,16 @@ class OrgProposalsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// True when the last approve failed because the server durably recorded the
+  /// operation as `reconciliation-required`. That is NOT an ordinary failure to
+  /// retry: the proposal, the target scope and the projected profile have to be
+  /// inspected first, so the UI must say something different from "try again".
+  bool _lastApproveNeedsReconciliation = false;
+  bool get lastApproveNeedsReconciliation => _lastApproveNeedsReconciliation;
+
   Future<bool> approve(String id, {int? decidedByUserId}) async {
     _pendingIds.add(id);
+    _lastApproveNeedsReconciliation = false;
     notifyListeners();
     try {
       await _repository.approve(id, decidedByUserId: decidedByUserId);
@@ -49,6 +57,17 @@ class OrgProposalsController extends ChangeNotifier {
       return true;
     } catch (e) {
       _error = e.toString();
+      _lastApproveNeedsReconciliation =
+          _error!.toLowerCase().contains('reconciliation');
+      // The server may have moved this row out of `proposed` even though the
+      // approve did not succeed — a released claim becomes `failed`, an
+      // unprovable one becomes `reconciliation-required`. Re-reading keeps the
+      // queue from showing a proposal that is no longer in it.
+      try {
+        _proposals = await _repository.listProposed();
+      } catch (_) {
+        // Leave the cached list alone; the error above is the one that matters.
+      }
       return false;
     } finally {
       _pendingIds.remove(id);
