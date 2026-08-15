@@ -334,13 +334,15 @@ describe('issue-830-c7: the real exercisedTools resolver derives usage from sess
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       session.id,
-      'msg-1',
+      'msg_issue_830',
       'output',
       JSON.stringify([
         {
           type: 'tool',
-          id: 'part-1',
-          callID: 'call-1',
+          id: 'prt_issue_830_1',
+          sessionID: 'ses_issue_830',
+          messageID: 'msg_issue_830',
+          callID: 'call_issue_830_1',
           tool: 'rhythm_list_tasks',
           state: {
             status: 'completed',
@@ -353,8 +355,10 @@ describe('issue-830-c7: the real exercisedTools resolver derives usage from sess
         },
         {
           type: 'tool',
-          id: 'part-2',
-          callID: 'call-2',
+          id: 'prt_issue_830_2',
+          sessionID: 'ses_issue_830',
+          messageID: 'msg_issue_830',
+          callID: 'call_issue_830_2',
           tool: 'rhythm_create_task',
           state: {
             status: 'completed',
@@ -365,7 +369,13 @@ describe('issue-830-c7: the real exercisedTools resolver derives usage from sess
             time: { start: 0, end: 1 },
           },
         },
-        { type: 'text', text: 'done' },
+        {
+          type: 'text',
+          text: 'done',
+          id: 'prt_issue_830_text',
+          sessionID: 'ses_issue_830',
+          messageID: 'msg_issue_830',
+        },
       ]),
       null,
       null,

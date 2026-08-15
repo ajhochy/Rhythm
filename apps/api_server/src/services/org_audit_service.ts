@@ -273,23 +273,33 @@ function buildDelegationEdges(profiles: ProfileScopeSnapshot[]): DelegationEdge[
 }
 
 /**
- * Resolve a `denied_tool_events` row's profile when `agent_config_id` is
- * null (the #838 bridge-seam gap) by joining through `session_id ->
- * agent_sessions.mcpRole`, validated against a real `agent_configs.id`
- * (mirrors the resolution the bridge itself performs, documented in
- * denied_tool_events_repository.ts's module header).
+ * Authoritative profile ownership for both activity and denied telemetry.
+ * Scheduled-task ownership is exclusive: once a session names a scheduled
+ * task, only that task's valid owner may win and every conflicting fallback
+ * is ignored. True interactive sessions retain the explicit-event then exact
+ * mcpRole/legacy-agentKind compatibility order; a missing session can use
+ * only a valid explicit event owner.
  */
-function resolveAgentConfigId(
-  event: DeniedToolEvent,
-  sessionsById: Map<string, AgentSession>,
+function resolveAgentConfigOwnership(
+  session: AgentSession | null,
+  explicitAgentConfigId: string | null,
+  scheduledTaskOwnerById: ReadonlyMap<string, string | null>,
   validConfigIds: Set<string>,
 ): string | null {
-  if (event.agentConfigId && validConfigIds.has(event.agentConfigId)) {
-    return event.agentConfigId;
+  if (!session) {
+    return explicitAgentConfigId && validConfigIds.has(explicitAgentConfigId)
+      ? explicitAgentConfigId
+      : null;
   }
-  if (!event.sessionId) return null;
-  const session = sessionsById.get(event.sessionId);
-  if (!session) return null;
+
+  if (session.scheduledTaskId) {
+    const scheduledOwner = scheduledTaskOwnerById.get(session.scheduledTaskId);
+    return scheduledOwner && validConfigIds.has(scheduledOwner) ? scheduledOwner : null;
+  }
+
+  if (explicitAgentConfigId && validConfigIds.has(explicitAgentConfigId)) {
+    return explicitAgentConfigId;
+  }
   if (session.mcpRole && validConfigIds.has(session.mcpRole)) return session.mcpRole;
   if (session.agentKind && validConfigIds.has(session.agentKind)) return session.agentKind;
   return null;
@@ -297,20 +307,24 @@ function resolveAgentConfigId(
 
 function aggregateDeniedTool(
   events: DeniedToolEvent[],
+  sessionsById: Map<string, AgentSession>,
   sessionsRepo: AgentSessionsRepository,
+  scheduledTaskOwnerById: ReadonlyMap<string, string | null>,
   validConfigIds: Set<string>,
 ): DeniedToolAggregate[] {
-  const sessionsById = new Map<string, AgentSession>();
-  for (const event of events) {
-    if (event.sessionId && !sessionsById.has(event.sessionId)) {
-      const session = sessionsRepo.findById(event.sessionId);
-      if (session) sessionsById.set(event.sessionId, session);
-    }
-  }
-
   const counts = new Map<string, DeniedToolAggregate>();
   for (const event of events) {
-    const agentConfigId = resolveAgentConfigId(event, sessionsById, validConfigIds);
+    let session = event.sessionId ? (sessionsById.get(event.sessionId) ?? null) : null;
+    if (!session && event.sessionId) {
+      session = sessionsRepo.findById(event.sessionId);
+      if (session) sessionsById.set(event.sessionId, session);
+    }
+    const agentConfigId = resolveAgentConfigOwnership(
+      session,
+      event.agentConfigId,
+      scheduledTaskOwnerById,
+      validConfigIds,
+    );
     const key = `${agentConfigId ?? '(unattributed)'}::${event.toolName}`;
     const existing = counts.get(key);
     if (existing) {
@@ -510,6 +524,7 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const scheduledTaskOwnerById = new Map<string, string | null>();
   for (const task of scheduledTasks) scheduledTaskOwnerById.set(task.id, task.agentConfigId);
 
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const sessionCountByProfile = new Map<string, number>();
   for (const session of sessions) {
     // #1004: only sessions that ACTUALLY EXECUTED count toward the tighten-scope
@@ -519,19 +534,14 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     // MCPs. Under-counting only makes pruning MORE conservative (the safe direction).
     if (session.status === 'starting' || session.status === 'error') continue;
 
-    if (session.scheduledTaskId) {
-      const ownerId = scheduledTaskOwnerById.get(session.scheduledTaskId);
-      // Fail closed: an unresolvable/unowned scheduled task counts toward
-      // NEITHER profile rather than guessing via mcp_role.
-      if (!ownerId || !validConfigIds.has(ownerId)) continue;
-      sessionCountByProfile.set(ownerId, (sessionCountByProfile.get(ownerId) ?? 0) + 1);
-      continue;
-    }
-
-    // True interactive session (no scheduled task) — mcp_role is only trusted
-    // when it is a validated exact agent_configs.id match.
-    if (!session.mcpRole || !validConfigIds.has(session.mcpRole)) continue;
-    sessionCountByProfile.set(session.mcpRole, (sessionCountByProfile.get(session.mcpRole) ?? 0) + 1);
+    const ownerId = resolveAgentConfigOwnership(
+      session,
+      null,
+      scheduledTaskOwnerById,
+      validConfigIds,
+    );
+    if (!ownerId) continue;
+    sessionCountByProfile.set(ownerId, (sessionCountByProfile.get(ownerId) ?? 0) + 1);
   }
 
   // #857 — observation window per profile: wall-clock age since the profile
@@ -545,7 +555,13 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   }
 
   const deniedEvents = await deniedRepo.listAllAsync();
-  const deniedToolAggregates = aggregateDeniedTool(deniedEvents, sessionsRepo, validConfigIds);
+  const deniedToolAggregates = aggregateDeniedTool(
+    deniedEvents,
+    sessionsById,
+    sessionsRepo,
+    scheduledTaskOwnerById,
+    validConfigIds,
+  );
 
   // Open capability gaps (Plan A) — read-only surface into this snapshot.
   let capabilityGapRows: CapabilityGapRow[] = [];

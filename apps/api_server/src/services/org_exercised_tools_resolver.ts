@@ -76,9 +76,16 @@ import { resolveMcpServerIdentity } from './mcp_scope_name';
 /** Default trailing window for "recently exercised" — 30 days. */
 const DEFAULT_TRAILING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-type PartsReadResult =
-  | { readable: true; names: string[] }
-  | { readable: false };
+interface OutputRowScanResult {
+  defectCount: number;
+  names: string[];
+}
+
+interface SessionOutputScanResult {
+  outputRowCount: number;
+  readableOutputRowCount: number;
+  names: Set<string>;
+}
 
 function isPlainRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -89,7 +96,15 @@ function isNonEmptyString(v: unknown): v is string {
 }
 
 function isNonNegativeInt(v: unknown): v is number {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+  return typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v) && v >= 0;
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function isValidProducerId(v: unknown, prefix: 'prt' | 'ses' | 'msg'): v is string {
+  return typeof v === 'string' && v.startsWith(prefix) && v.length > prefix.length;
 }
 
 /** `time.start` (and, when `requireEnd`, `time.end >= time.start`) per the producer's ToolState time shape. */
@@ -102,6 +117,82 @@ function isValidTimeWindow(time: unknown, requireEnd: boolean): boolean {
 
 type ToolPartEvaluation = { readable: false } | { readable: true; tool: string; successful: boolean };
 
+function isValidRange(range: unknown): boolean {
+  if (!isPlainRecord(range) || !isPlainRecord(range.start) || !isPlainRecord(range.end)) {
+    return false;
+  }
+  return (
+    isNonNegativeInt(range.start.line) &&
+    isNonNegativeInt(range.start.character) &&
+    isNonNegativeInt(range.end.line) &&
+    isNonNegativeInt(range.end.character)
+  );
+}
+
+function isValidFileSourceText(text: unknown): boolean {
+  return (
+    isPlainRecord(text) &&
+    typeof text.value === 'string' &&
+    isFiniteNumber(text.start) &&
+    isFiniteNumber(text.end)
+  );
+}
+
+function isValidFilePartSource(source: unknown): boolean {
+  if (!isPlainRecord(source) || !isValidFileSourceText(source.text)) return false;
+  switch (source.type) {
+    case 'file':
+      return typeof source.path === 'string';
+    case 'symbol':
+      return (
+        typeof source.path === 'string' &&
+        typeof source.name === 'string' &&
+        isNonNegativeInt(source.kind) &&
+        isValidRange(source.range)
+      );
+    case 'resource':
+      return typeof source.clientName === 'string' && typeof source.uri === 'string';
+    default:
+      return false;
+  }
+}
+
+function isValidFilePart(part: unknown): boolean {
+  if (!isPlainRecord(part)) return false;
+  if (!isValidProducerId(part.id, 'prt')) return false;
+  if (!isValidProducerId(part.sessionID, 'ses')) return false;
+  if (!isValidProducerId(part.messageID, 'msg')) return false;
+  if (part.type !== 'file') return false;
+  if (typeof part.mime !== 'string' || typeof part.url !== 'string') return false;
+  if (part.filename !== undefined && typeof part.filename !== 'string') return false;
+  return part.source === undefined || isValidFilePartSource(part.source);
+}
+
+function hasValidAttachments(attachments: unknown): boolean {
+  return attachments === undefined || (Array.isArray(attachments) && attachments.every(isValidFilePart));
+}
+
+function hasValidMcpResult(mcpResult: unknown): boolean {
+  if (mcpResult === undefined) return true;
+  if (!isPlainRecord(mcpResult)) return false;
+  if (mcpResult._meta !== undefined && !isPlainRecord(mcpResult._meta)) return false;
+  return mcpResult.isError === undefined || typeof mcpResult.isError === 'boolean';
+}
+
+function hasValidMcpAppResource(resource: unknown): boolean {
+  if (resource === undefined) return true;
+  if (!isPlainRecord(resource)) return false;
+  return [
+    'sessionID',
+    'callID',
+    'serverName',
+    'cwd',
+    'resourceUri',
+    'advertisedAt',
+    'expiresAt',
+  ].every((field) => typeof resource[field] === 'string');
+}
+
 /**
  * Validate a single `type:'tool'` part against the producer schema
  * (opencode_fork's session/message-v2.ts ToolPart/ToolState) closely enough
@@ -110,9 +201,21 @@ type ToolPartEvaluation = { readable: false } | { readable: true; tool: string; 
  * as a successful call. `state.input` is only ever type-checked, never read
  * or logged — it is untrusted tool-call payload, not telemetry.
  */
-function evaluateToolPart(part: Record<string, unknown>): ToolPartEvaluation {
-  const { id, callID, tool, state } = part;
-  if (!isNonEmptyString(id) || !isNonEmptyString(callID) || !isNonEmptyString(tool)) {
+function evaluateToolPart(
+  part: Record<string, unknown>,
+  rowSdkMessageId: string | null,
+): ToolPartEvaluation {
+  const { id, sessionID, messageID, callID, tool, state } = part;
+  if (
+    !isValidProducerId(id, 'prt') ||
+    !isValidProducerId(sessionID, 'ses') ||
+    !isValidProducerId(messageID, 'msg') ||
+    rowSdkMessageId === null ||
+    messageID !== rowSdkMessageId ||
+    !isNonEmptyString(callID) ||
+    !isNonEmptyString(tool) ||
+    (part.metadata !== undefined && !isPlainRecord(part.metadata))
+  ) {
     return { readable: false };
   }
   if (!isPlainRecord(state) || !isPlainRecord(state.input)) {
@@ -121,7 +224,7 @@ function evaluateToolPart(part: Record<string, unknown>): ToolPartEvaluation {
 
   switch (state.status) {
     case 'pending':
-      if (!isNonEmptyString(state.raw)) return { readable: false };
+      if (typeof state.raw !== 'string') return { readable: false };
       return { readable: true, tool, successful: false };
 
     case 'running':
@@ -131,7 +234,7 @@ function evaluateToolPart(part: Record<string, unknown>): ToolPartEvaluation {
       return { readable: true, tool, successful: false };
 
     case 'error':
-      if (!isNonEmptyString(state.error)) return { readable: false };
+      if (typeof state.error !== 'string') return { readable: false };
       if (state.metadata !== undefined && !isPlainRecord(state.metadata)) return { readable: false };
       if (!isValidTimeWindow(state.time, true)) return { readable: false };
       return { readable: true, tool, successful: false };
@@ -141,12 +244,17 @@ function evaluateToolPart(part: Record<string, unknown>): ToolPartEvaluation {
       if (typeof state.title !== 'string') return { readable: false };
       if (!isPlainRecord(state.metadata)) return { readable: false };
       if (!isValidTimeWindow(state.time, true)) return { readable: false };
+      if (isPlainRecord(state.time) && state.time.compacted !== undefined && !isNonNegativeInt(state.time.compacted)) {
+        return { readable: false };
+      }
+      if (!hasValidMcpResult(state.mcpResult)) return { readable: false };
+      if (!hasValidMcpAppResource(state.mcpAppResource)) return { readable: false };
+      if (!hasValidAttachments(state.attachments)) return { readable: false };
       let isError = false;
       if (state.mcpResult !== undefined) {
+        // Shape was validated above. Never inspect state.input beyond the
+        // record guard; successful telemetry needs only terminal status.
         if (!isPlainRecord(state.mcpResult)) return { readable: false };
-        if (state.mcpResult.isError !== undefined && typeof state.mcpResult.isError !== 'boolean') {
-          return { readable: false };
-        }
         isError = state.mcpResult.isError === true;
       }
       return { readable: true, tool, successful: !isError };
@@ -157,22 +265,31 @@ function evaluateToolPart(part: Record<string, unknown>): ToolPartEvaluation {
   }
 }
 
-function extractToolNamesFromPartsJson(partsJson: string | null): PartsReadResult {
-  if (!partsJson) return { readable: false };
+function scanOutputRow(partsJson: string | null, sdkMessageId: string | null): OutputRowScanResult {
+  if (partsJson === null) return { defectCount: 1, names: [] };
   try {
     const parts = JSON.parse(partsJson) as unknown;
-    if (!Array.isArray(parts)) return { readable: false };
+    if (!Array.isArray(parts)) return { defectCount: 1, names: [] };
     const names: string[] = [];
+    let defectCount = 0;
     for (const part of parts) {
-      // Non-tool parts (and non-object entries) are ignored, not counted.
-      if (!isPlainRecord(part) || part.type !== 'tool') continue;
-      const outcome = evaluateToolPart(part);
-      if (!outcome.readable) return { readable: false };
+      if (!isPlainRecord(part) || typeof part.type !== 'string') {
+        defectCount += 1;
+        continue;
+      }
+      // A well-shaped non-tool part proves the structured container is
+      // readable but contributes no tool evidence.
+      if (part.type !== 'tool') continue;
+      const outcome = evaluateToolPart(part, sdkMessageId);
+      if (!outcome.readable) {
+        defectCount += 1;
+        continue;
+      }
       if (outcome.successful) names.push(outcome.tool);
     }
-    return { readable: true, names };
+    return { defectCount, names };
   } catch {
-    return { readable: false };
+    return { defectCount: 1, names: [] };
   }
 }
 
@@ -325,45 +442,44 @@ export async function resolveExercisedTools(
 
     const messageRows = db
       .prepare(
-        `SELECT session_id, parts_json FROM agent_session_messages
+        `SELECT session_id, sdk_message_id, parts_json FROM agent_session_messages
           WHERE session_id IN (${sessionPlaceholders})
-            AND parts_json IS NOT NULL`,
+            AND role = 'output'`,
       )
-      .all(...sessionIds) as { session_id: string; parts_json: string | null }[];
+      .all(...sessionIds) as {
+      session_id: string;
+      sdk_message_id: string | null;
+      parts_json: string | null;
+    }[];
 
-    // Track which attributed sessions actually contributed a readable
-    // structured row (a Set keyed by session_id — O(rows) to build, O(1) per
-    // membership check, no per-session re-scan of the row list).
-    const coveredSessionIds = new Set<string>();
-    const exercised = new Set<string>();
+    const scansBySession = new Map<string, SessionOutputScanResult>(
+      sessionIds.map((sessionId) => [
+        sessionId,
+        { outputRowCount: 0, readableOutputRowCount: 0, names: new Set<string>() },
+      ]),
+    );
     for (const row of messageRows) {
-      const parsed = extractToolNamesFromPartsJson(row.parts_json);
-      if (!parsed.readable) {
-        return telemetryResult(exercised, catalog, 'unreadable-source');
-      }
-      coveredSessionIds.add(row.session_id);
-      for (const name of parsed.names) {
-        exercised.add(name);
+      const sessionScan = scansBySession.get(row.session_id);
+      if (!sessionScan) continue;
+      sessionScan.outputRowCount += 1;
+      const rowScan = scanOutputRow(row.parts_json, row.sdk_message_id);
+      if (rowScan.defectCount === 0) sessionScan.readableOutputRowCount += 1;
+      for (const name of rowScan.names) {
+        sessionScan.names.add(name);
       }
     }
 
-    // Attributed sessions exist, but none of them contributed a readable
-    // structured row — structured telemetry never covered this profile's
-    // traffic at all. That is missing capture, not proof the profile used
-    // nothing (see module header + the W2 fail-closed contract).
-    if (coveredSessionIds.size === 0) {
+    const sessionScans = [...scansBySession.values()];
+    const exercised = new Set(sessionScans.flatMap((scan) => [...scan.names]));
+    if (sessionScans.some((scan) => scan.readableOutputRowCount < scan.outputRowCount)) {
+      return telemetryResult(exercised, catalog, 'unreadable-source');
+    }
+
+    if (sessionScans.every((scan) => scan.outputRowCount === 0)) {
       return telemetryResult(exercised, catalog, 'no-structured-telemetry');
     }
 
-    // Some, but not all, attributed sessions have readable coverage — the
-    // observation window is partial. A profile with an uncovered session
-    // could have exercised a tool only in the gap, so partial telemetry can
-    // never authorize a prune/keep (negative) decision the way full coverage
-    // can. It MUST still carry forward whatever `exercised` already proved
-    // from the sessions that WERE readable — a partial window blocks a NEW
-    // negative inference, it can never erase an already-proven positive
-    // (governing W2 rule: positive usage evidence is monotonic).
-    if (coveredSessionIds.size < sessionIdSet.size) {
+    if (sessionScans.some((scan) => scan.outputRowCount === 0)) {
       return telemetryResult(exercised, catalog, 'partial-structured-telemetry');
     }
 

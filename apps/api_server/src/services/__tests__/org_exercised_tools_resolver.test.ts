@@ -50,11 +50,17 @@ beforeEach(() => {
 });
 
 /** A producer-valid `type:'tool'` part (message-v2.ts ToolPart/ToolStateCompleted shape). */
-function toolPart(tool: string, overrides: { mcpResult?: { isError?: boolean } } = {}) {
+function toolPart(
+  tool: string,
+  messageID: string,
+  overrides: { mcpResult?: { _meta?: Record<string, unknown>; isError?: boolean } } = {},
+) {
   return {
     type: 'tool',
-    id: `part-${tool}`,
-    callID: `call-${tool}`,
+    id: `prt_${tool}`,
+    sessionID: 'ses_test_session',
+    messageID,
+    callID: `call_${tool}`,
     tool,
     state: {
       status: 'completed',
@@ -154,15 +160,15 @@ describe('exercised telemetry availability', () => {
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       session.id,
-      'malformed-message',
+      'msg_malformed',
       'output',
-      JSON.stringify([toolPart('rhythm_ping')]),
+      JSON.stringify([toolPart('rhythm_ping', 'msg_malformed')]),
       null,
       null,
     );
     getDb()
       .prepare(`UPDATE agent_session_messages SET parts_json = ? WHERE sdk_message_id = ?`)
-      .run('{not-json', 'malformed-message');
+      .run('{not-json', 'msg_malformed');
 
     const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
@@ -189,6 +195,150 @@ describe('exercised telemetry availability', () => {
 
     const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+  });
+
+  it.each([
+    ['an empty string', ''],
+    ['a parsed non-array', JSON.stringify({ type: 'text' })],
+    ['a record without a string type', JSON.stringify([{ text: 'missing type' }])],
+  ])('treats %s parts container as unreadable', async (_label, partsJson) => {
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: `Malformed ${_label}`, icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: `malformed ${_label}`,
+      mcpRole: config.id,
+    });
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      `msg_malformed_${_label.replace(/[^a-z0-9]+/gi, '_')}`,
+      'output',
+      partsJson,
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+  });
+
+  it('treats a non-record array entry as unreadable and never lets measurement keep the removal', async () => {
+    // Bug this catches: `[null]` used to be treated as a readable row with no
+    // tools, turning malformed capture into negative evidence that could keep
+    // an already-applied scope removal.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const { measureProposal } = await import('../org_proposal_measure');
+    const config = new AgentConfigsRepository().insert({
+      label: 'Null part',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify([]),
+    });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'null part telemetry',
+      mcpRole: config.id,
+    });
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      'msg_null_part',
+      'output',
+      '[null]',
+      null,
+      null,
+    );
+
+    const telemetry = await resolveExercisedTools(config.id, undefined, ['gitnexus']);
+    expect(telemetry).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope',
+      risk: 'low',
+      status: 'measuring',
+      title: 'Prune gitnexus under malformed capture',
+      targetRef: `agent_config:${config.id}`,
+      changeJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['gitnexus'],
+      }),
+      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      dedupKey: `prune-scope:${config.id}:gitnexus:null-part`,
+    });
+    const outcome = await measureProposal(proposal, { exercisedTools: async () => telemetry });
+    expect(outcome).toBe('skipped');
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('measuring');
+  });
+
+  it('treats one NULL output row plus one readable text output row as unavailable', async () => {
+    // Bug this catches: the SQL used to discard NULL output rows and mark a
+    // session covered as soon as any other readable row existed.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Partial output row', icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'partial output capture',
+      mcpRole: config.id,
+    });
+    const messagesRepo = new AgentSessionMessagesRepository();
+    messagesRepo.upsertMessageInfo(session.id, 'msg_missing_parts', 'output', null, null);
+    messagesRepo.upsertStructured(
+      session.id,
+      'msg_text',
+      'output',
+      JSON.stringify([
+        {
+          type: 'text',
+          text: 'readable non-tool output',
+          id: 'prt_text',
+          sessionID: 'ses_text',
+          messageID: 'msg_text',
+        },
+      ]),
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['gitnexus']);
+    expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+  });
+
+  it('queries output rows only: legacy NULL input/system rows do not cover or poison a session', async () => {
+    // Bug this catches: broadening the completeness scan to every message
+    // role would let legacy input/system NULL rows poison valid output
+    // coverage, or incorrectly count them as output coverage.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Role-filtered coverage', icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'legacy non-output rows',
+      mcpRole: config.id,
+    });
+    const messagesRepo = new AgentSessionMessagesRepository();
+    messagesRepo.append(session.id, 'input', 'legacy input', 'legacy input');
+    messagesRepo.append(session.id, 'system', 'legacy system', 'legacy system');
+
+    const noOutput = await resolveExercisedTools(config.id, undefined, ['gitnexus']);
+    expect(noOutput).toMatchObject({
+      availability: 'unavailable',
+      reason: 'no-structured-telemetry',
+    });
+
+    messagesRepo.upsertStructured(session.id, 'msg_empty_output', 'output', '[]', null, null);
+    const coveredOutput = await resolveExercisedTools(config.id, undefined, ['gitnexus']);
+    expect(coveredOutput).toMatchObject({
+      availability: 'available',
+      rawCallableNames: new Set(),
+      canonicalServerIds: new Set(),
+    });
   });
 
   it('reports a missing catalog as unavailable instead of available-empty', async () => {
@@ -342,9 +492,12 @@ describe('exercised telemetry availability', () => {
     });
     new AgentSessionMessagesRepository().upsertStructured(
       session.id,
-      'canonical-message',
+      'msg_canonical',
       'output',
-      JSON.stringify([toolPart('pco-services_get_plans'), toolPart('gitnexus_query')]),
+      JSON.stringify([
+        toolPart('pco-services_get_plans', 'msg_canonical'),
+        toolPart('gitnexus_query', 'msg_canonical'),
+      ]),
       null,
       null,
     );
@@ -386,9 +539,18 @@ describe('issue-853-c1: a session matched only by mcp_role contributes its tool 
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       session.id,
-      'msg-1',
+      'msg_interactive_one',
       'output',
-      JSON.stringify([toolPart('rhythm_search_memory'), { type: 'text', text: 'done' }]),
+      JSON.stringify([
+        toolPart('rhythm_search_memory', 'msg_interactive_one'),
+        {
+          type: 'text',
+          text: 'done',
+          id: 'prt_interactive_text',
+          sessionID: 'ses_test_session',
+          messageID: 'msg_interactive_one',
+        },
+      ]),
       null,
       null,
     );
@@ -443,17 +605,17 @@ describe('issue-853-c2: a tool used ONLY interactively is no longer wrongly prop
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       scheduledSession.id,
-      'msg-1',
+      'msg_scheduled',
       'output',
-      JSON.stringify([toolPart('rhythm_pco_list_service_types')]),
+      JSON.stringify([toolPart('rhythm_pco_list_service_types', 'msg_scheduled')]),
       null,
       null,
     );
     messagesRepo.upsertStructured(
       interactiveSession.id,
-      'msg-1',
+      'msg_interactive',
       'output',
-      JSON.stringify([toolPart('rhythm_pco_list_plans')]),
+      JSON.stringify([toolPart('rhythm_pco_list_plans', 'msg_interactive')]),
       null,
       null,
     );
@@ -496,9 +658,9 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       interactiveSession.id,
-      'msg-1',
+      'msg_measure_interactive',
       'output',
-      JSON.stringify([toolPart('rhythm_send_email')]),
+      JSON.stringify([toolPart('rhythm_send_email', 'msg_measure_interactive')]),
       null,
       null,
     );
@@ -607,9 +769,9 @@ describe('issue-853-c4: window/time-bounding is preserved for the mcp_role join'
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       oldSession.id,
-      'msg-1',
+      'msg_old_interactive',
       'output',
-      JSON.stringify([toolPart('rhythm_delete_task')]),
+      JSON.stringify([toolPart('rhythm_delete_task', 'msg_old_interactive')]),
       null,
       null,
     );
@@ -648,9 +810,9 @@ describe('issue-853-c5: mcp_role is only trusted when it is a real agent_configs
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       legacySlugSession.id,
-      'msg-1',
+      'msg_legacy_slug',
       'output',
-      JSON.stringify([toolPart('rhythm_create_reservation')]),
+      JSON.stringify([toolPart('rhythm_create_reservation', 'msg_legacy_slug')]),
       null,
       null,
     );
@@ -678,31 +840,39 @@ describe('W2 P1-4: only a producer-valid completed (non-mcp-error) tool part cou
 
     const pendingPart = {
       type: 'tool',
-      id: 'part-pending',
-      callID: 'call-pending',
+      id: 'prt_pending',
+      sessionID: 'ses_test_session',
+      messageID: 'msg_status_matrix',
+      callID: 'call_pending',
       tool: 'rhythm_pending_call',
       state: { status: 'pending', input: {}, raw: 'raw-pending' },
     };
     const runningPart = {
       type: 'tool',
-      id: 'part-running',
-      callID: 'call-running',
+      id: 'prt_running',
+      sessionID: 'ses_test_session',
+      messageID: 'msg_status_matrix',
+      callID: 'call_running',
       tool: 'rhythm_running_call',
       state: { status: 'running', input: {}, time: { start: 0 } },
     };
     const errorPart = {
       type: 'tool',
-      id: 'part-error',
-      callID: 'call-error',
+      id: 'prt_error',
+      sessionID: 'ses_test_session',
+      messageID: 'msg_status_matrix',
+      callID: 'call_error',
       tool: 'rhythm_error_call',
       state: { status: 'error', input: {}, error: 'boom', time: { start: 0, end: 1 } },
     };
-    const mcpErrorPart = toolPart('rhythm_mcp_error_call', { mcpResult: { isError: true } });
-    const successPart = toolPart('rhythm_success_call');
+    const mcpErrorPart = toolPart('rhythm_mcp_error_call', 'msg_status_matrix', {
+      mcpResult: { isError: true },
+    });
+    const successPart = toolPart('rhythm_success_call', 'msg_status_matrix');
 
     new AgentSessionMessagesRepository().upsertStructured(
       session.id,
-      'status-matrix-message',
+      'msg_status_matrix',
       'output',
       JSON.stringify([pendingPart, runningPart, errorPart, mcpErrorPart, successPart]),
       null,
@@ -734,13 +904,15 @@ describe('W2 P1-4: only a producer-valid completed (non-mcp-error) tool part cou
     });
     new AgentSessionMessagesRepository().upsertStructured(
       session.id,
-      'malformed-completed-message',
+      'msg_malformed_completed',
       'output',
       JSON.stringify([
         {
           type: 'tool',
-          id: 'part-1',
-          callID: 'call-1',
+          id: 'prt_incomplete',
+          sessionID: 'ses_test_session',
+          messageID: 'msg_malformed_completed',
+          callID: 'call_incomplete',
           tool: 'rhythm_incomplete_call',
           state: { status: 'completed' }, // missing input/output/title/metadata/time
         },
@@ -751,6 +923,214 @@ describe('W2 P1-4: only a producer-valid completed (non-mcp-error) tool part cou
 
     const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+  });
+
+  it.each([
+    {
+      label: 'missing sessionID/messageID',
+      build: (messageID: string) => {
+        const { sessionID: _sessionID, messageID: _messageID, ...part } = toolPart(
+          'rhythm_invalid_identity',
+          messageID,
+        );
+        return part;
+      },
+    },
+    {
+      label: 'messageID differs from persisted sdk_message_id',
+      build: () => toolPart('rhythm_mismatched_message', 'msg_different'),
+    },
+    {
+      label: 'tool metadata is not a record',
+      build: (messageID: string) => ({ ...toolPart('rhythm_bad_metadata', messageID), metadata: [] }),
+    },
+    {
+      label: 'completed time.compacted is negative',
+      build: (messageID: string) => {
+        const part = toolPart('rhythm_bad_compacted', messageID);
+        return { ...part, state: { ...part.state, time: { ...part.state.time, compacted: -1 } } };
+      },
+    },
+    {
+      label: 'mcpResult._meta is not a record',
+      build: (messageID: string) => {
+        const part = toolPart('rhythm_bad_mcp_meta', messageID);
+        return { ...part, state: { ...part.state, mcpResult: { _meta: [], isError: false } } };
+      },
+    },
+    {
+      label: 'mcpAppResource is missing required string fields',
+      build: (messageID: string) => {
+        const part = toolPart('rhythm_bad_app_resource', messageID);
+        return {
+          ...part,
+          state: {
+            ...part.state,
+            mcpAppResource: {
+              sessionID: 'ses_app',
+              callID: 'call_app',
+              serverName: 'rhythm',
+              cwd: '/tmp',
+              resourceUri: 'resource://test',
+              advertisedAt: '2026-08-14T00:00:00.000Z',
+            },
+          },
+        };
+      },
+    },
+    {
+      label: 'attachments is not an array',
+      build: (messageID: string) => {
+        const part = toolPart('rhythm_bad_attachments', messageID);
+        return { ...part, state: { ...part.state, attachments: {} } };
+      },
+    },
+    {
+      label: 'attachment source is not producer-shaped',
+      build: (messageID: string) => {
+        const part = toolPart('rhythm_bad_attachment_source', messageID);
+        return {
+          ...part,
+          state: {
+            ...part.state,
+            attachments: [
+              {
+                id: 'prt_attachment',
+                sessionID: 'ses_attachment',
+                messageID,
+                type: 'file',
+                mime: 'text/plain',
+                url: 'data:text/plain,ok',
+                source: { type: 'file', path: '/tmp/a.txt', text: { value: 'x', start: 0 } },
+              },
+            ],
+          },
+        };
+      },
+    },
+  ])('reports $label as unreadable producer evidence', async ({ label, build }) => {
+    // Bug this catches: a superficially completed tool part could be accepted
+    // even though the producer schema cannot emit its identity/nested shape.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label, icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: label,
+      mcpRole: config.id,
+    });
+    const messageID = `msg_${label.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}`;
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      messageID,
+      'output',
+      JSON.stringify([build(messageID)]),
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+    expect(result.rawCallableNames).toEqual(new Set());
+  });
+
+  it('counts a producer-valid completed part with every supported optional nested shape', async () => {
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Nested producer success', icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'nested producer success',
+      mcpRole: config.id,
+    });
+    const messageID = 'msg_nested_success';
+    const part = toolPart('rhythm_nested_success', messageID, {
+      mcpResult: { _meta: { source: 'producer' }, isError: false },
+    });
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      messageID,
+      'output',
+      JSON.stringify([
+        {
+          ...part,
+          metadata: { provider: 'test' },
+          state: {
+            ...part.state,
+            time: { ...part.state.time, compacted: 0 },
+            mcpAppResource: {
+              sessionID: 'ses_app',
+              callID: 'call_app',
+              serverName: 'rhythm',
+              cwd: '/tmp',
+              resourceUri: 'resource://test',
+              advertisedAt: '2026-08-14T00:00:00.000Z',
+              expiresAt: '2026-08-14T00:05:00.000Z',
+            },
+            attachments: [
+              {
+                id: 'prt_file_attachment',
+                sessionID: 'ses_attachment',
+                messageID,
+                type: 'file',
+                mime: 'text/plain',
+                filename: 'a.txt',
+                url: 'data:text/plain,ok',
+                source: {
+                  type: 'file',
+                  path: '/tmp/a.txt',
+                  text: { value: 'ok', start: 0, end: 2 },
+                },
+              },
+              {
+                id: 'prt_symbol_attachment',
+                sessionID: 'ses_attachment',
+                messageID,
+                type: 'file',
+                mime: 'text/plain',
+                url: 'file:///tmp/a.ts',
+                source: {
+                  type: 'symbol',
+                  path: '/tmp/a.ts',
+                  name: 'value',
+                  kind: 12,
+                  range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 5 },
+                  },
+                  text: { value: 'value', start: 0, end: 5 },
+                },
+              },
+              {
+                id: 'prt_resource_attachment',
+                sessionID: 'ses_attachment',
+                messageID,
+                type: 'file',
+                mime: 'application/json',
+                url: 'resource://server/item',
+                source: {
+                  type: 'resource',
+                  clientName: 'test-client',
+                  uri: 'resource://server/item',
+                  text: { value: '{}', start: 0, end: 2 },
+                },
+              },
+            ],
+          },
+        },
+      ]),
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result).toMatchObject({
+      availability: 'available',
+      rawCallableNames: new Set(['rhythm_nested_success']),
+      canonicalServerIds: new Set(['rhythm']),
+    });
   });
 });
 
@@ -789,9 +1169,9 @@ describe('W2 P1-2: scheduled ownership beats a conflicting mcp_role', () => {
       });
       messagesRepo.upsertStructured(
         session.id,
-        `contaminated-${i}-msg`,
+        `msg_contaminated_${i}`,
         'output',
-        JSON.stringify([toolPart('rhythm_only_a_should_see_this')]),
+        JSON.stringify([toolPart('rhythm_only_a_should_see_this', `msg_contaminated_${i}`)]),
         null,
         null,
       );
@@ -832,9 +1212,9 @@ describe('W2 P1-3: partial coverage preserves an already-proven positive at the 
     });
     new AgentSessionMessagesRepository().upsertStructured(
       coveredSession.id,
-      'gitnexus-use-message',
+      'msg_gitnexus_use',
       'output',
-      JSON.stringify([toolPart('gitnexus_query')]),
+      JSON.stringify([toolPart('gitnexus_query', 'msg_gitnexus_use')]),
       null,
       null,
     );
@@ -844,4 +1224,101 @@ describe('W2 P1-3: partial coverage preserves an already-proven positive at the 
     expect(result.canonicalServerIds.has('gitnexus')).toBe(true);
     expect(result.has('gitnexus')).toBe(true);
   });
+
+  it.each(['unreadable-before-success', 'success-before-unreadable'] as const)(
+    '%s retains the successful gitnexus call and measurement reverts the removal',
+    async (order) => {
+      // Bug this catches: returning on the first unreadable row made positive
+      // evidence depend on persistence order. A defect may block negative
+      // inference, but it may never erase a successful call in another row.
+      const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+      const { measureProposal } = await import('../org_proposal_measure');
+      const config = new AgentConfigsRepository().insert({
+        label: `Ordered evidence ${order}`,
+        icon: 'x',
+        allowedMcpsJson: JSON.stringify([]),
+      });
+      const session = new AgentSessionsRepository().insert({
+        taskId: null,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        name: order,
+        mcpRole: config.id,
+      });
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const successMessageId = `msg_success_${order}`;
+      const insertUnreadable = () =>
+        messagesRepo.upsertStructured(
+          session.id,
+          `msg_unreadable_${order}`,
+          'output',
+          '{not-json',
+          null,
+          null,
+        );
+      const insertSuccess = () =>
+        messagesRepo.upsertStructured(
+          session.id,
+          successMessageId,
+          'output',
+          JSON.stringify([
+            {
+              type: 'tool',
+              id: `prt_success_${order}`,
+              sessionID: `ses_success_${order}`,
+              messageID: successMessageId,
+              callID: `call_success_${order}`,
+              tool: 'gitnexus_query',
+              state: {
+                status: 'completed',
+                input: {},
+                output: 'ok',
+                title: 'gitnexus_query',
+                metadata: {},
+                time: { start: 0, end: 1 },
+              },
+            },
+          ]),
+          null,
+          null,
+        );
+      if (order === 'unreadable-before-success') {
+        insertUnreadable();
+        insertSuccess();
+      } else {
+        insertSuccess();
+        insertUnreadable();
+      }
+
+      const telemetry = await resolveExercisedTools(config.id, undefined, ['gitnexus']);
+      expect(telemetry).toMatchObject({
+        availability: 'unavailable',
+        reason: 'unreadable-source',
+        rawCallableNames: new Set(['gitnexus_query']),
+        canonicalServerIds: new Set(['gitnexus']),
+      });
+
+      const proposalsRepo = new AgentOrgProposalsRepository();
+      const proposal = await proposalsRepo.createAsync({
+        kind: 'prune-scope',
+        risk: 'low',
+        status: 'measuring',
+        title: `Prune gitnexus with ${order}`,
+        targetRef: `agent_config:${config.id}`,
+        changeJson: JSON.stringify({
+          agentConfigId: config.id,
+          field: 'allowedMcpsJson',
+          remove: ['gitnexus'],
+        }),
+        beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+        dedupKey: `prune-scope:${config.id}:gitnexus:${order}`,
+      });
+      const outcome = await measureProposal(proposal, { exercisedTools: async () => telemetry });
+      expect(outcome).toBe('reverted');
+      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+      expect(JSON.parse(new AgentConfigsRepository().getById(config.id)!.allowedMcpsJson!)).toEqual([
+        'gitnexus',
+      ]);
+    },
+  );
 });

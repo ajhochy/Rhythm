@@ -320,31 +320,34 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
         mcpRole: 'research',
       });
       sessionsRepo.updateStatus(session.id, 'idle');
-      if (i === 0) {
-        messagesRepo.upsertStructured(
-          session.id,
-          'gitnexus-use',
-          'output',
-          JSON.stringify([
-            {
-              type: 'tool',
-              id: 'part-gitnexus-query',
-              callID: 'call-gitnexus-query',
-              tool: 'gitnexus_query',
-              state: {
-                status: 'completed',
-                input: {},
-                output: 'ok',
-                title: 'gitnexus_query',
-                metadata: {},
-                time: { start: 0, end: 1 },
+      const messageID = `msg_gitnexus_use_${i}`;
+      messagesRepo.upsertStructured(
+        session.id,
+        messageID,
+        'output',
+        i === 0
+          ? JSON.stringify([
+              {
+                type: 'tool',
+                id: 'prt_gitnexus_query',
+                sessionID: 'ses_research',
+                messageID,
+                callID: 'call_gitnexus_query',
+                tool: 'gitnexus_query',
+                state: {
+                  status: 'completed',
+                  input: {},
+                  output: 'ok',
+                  title: 'gitnexus_query',
+                  metadata: {},
+                  time: { start: 0, end: 1 },
+                },
               },
-            },
-          ]),
-          null,
-          null,
-        );
-      }
+            ])
+          : '[]',
+        null,
+        null,
+      );
     }
 
     const { buildOrgAuditSnapshot } = await import('../org_audit_service');
@@ -371,6 +374,7 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
         'denied-research',
       );
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const session = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -380,6 +384,14 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
         mcpRole: 'denied-research',
       });
       sessionsRepo.updateStatus(session.id, 'idle');
+      messagesRepo.upsertStructured(
+        session.id,
+        `msg_denied_research_${i}`,
+        'output',
+        '[]',
+        null,
+        null,
+      );
     }
     await new DeniedToolEventsRepository().recordAsync({
       sessionId: null,
@@ -845,6 +857,150 @@ describe('W2 P1-2: scheduled ownership beats mcp_role for session-count/telemetr
     expect(
       snapshot.gaps.filter((g) => g.kind === 'tighten-scope' && g.evidence.includes('interactive-target')),
     ).toEqual([]);
+  });
+
+  it('uses the scheduled owner exclusively for denied events and prevents a false tighten gap', async () => {
+    // Bug this catches: denied aggregation trusted event.agentConfigId before
+    // the session's scheduled-task owner, splitting activity under owner A
+    // from its denial under B and falsely declaring A's gitnexus grant unused.
+    listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'denied-owner-a',
+      label: 'Denied Owner A',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    configsRepo.insert({
+      id: 'denied-conflict-b',
+      label: 'Denied Conflict B',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id IN (?, ?)`)
+      .run(
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        'denied-owner-a',
+        'denied-conflict-b',
+      );
+    const task = await new AgentScheduledTasksRepository().createAsync({
+      name: 'Denied Owner A Run',
+      scheduleType: 'daily',
+      prompt: 'exercise denied ownership',
+      agentConfigId: 'denied-owner-a',
+    });
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    let deniedSessionId = '';
+    for (let i = 0; i < 10; i++) {
+      const session = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `denied-scheduled-for-a-${i}`,
+        scheduledTaskId: task.id,
+        mcpRole: 'denied-conflict-b',
+        category: 'chat',
+      });
+      getDb()
+        .prepare(`UPDATE agent_sessions SET agent_kind = ? WHERE id = ?`)
+        .run('denied-conflict-b', session.id);
+      if (i === 0) deniedSessionId = session.id;
+      sessionsRepo.updateStatus(session.id, 'idle');
+      messagesRepo.upsertStructured(
+        session.id,
+        `msg_denied_scheduled_a_${i}`,
+        'output',
+        '[]',
+        null,
+        null,
+      );
+    }
+    await new DeniedToolEventsRepository().recordAsync({
+      sessionId: deniedSessionId,
+      agentConfigId: 'denied-conflict-b',
+      toolName: 'gitnexus_query',
+    });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+    expect(snapshot.deniedToolAggregates).toContainEqual({
+      agentConfigId: 'denied-owner-a',
+      toolName: 'gitnexus_query',
+      count: 1,
+    });
+    expect(
+      snapshot.deniedToolAggregates.some((aggregate) => aggregate.agentConfigId === 'denied-conflict-b'),
+    ).toBe(false);
+    expect(
+      snapshot.gaps.filter(
+        (gap) =>
+          gap.kind === 'tighten-scope' &&
+          gap.evidence.includes('denied-owner-a') &&
+          gap.evidence.includes('gitnexus'),
+      ),
+    ).toEqual([]);
+    expect(
+      snapshot.gaps.filter(
+        (gap) => gap.kind === 'tighten-scope' && gap.evidence.includes('denied-conflict-b'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('does not fall through to conflicting explicit or legacy identity when scheduled ownership is unresolved', async () => {
+    // Bug this catches: a scheduled session whose task has no valid owner used
+    // to fall through to event.agentConfigId/mcpRole/agentKind and attribute a
+    // denial to B even though scheduled ownership is exclusive and unknown.
+    listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
+    new AgentConfigsRepository().insert({
+      id: 'unresolved-conflict-b',
+      label: 'Unresolved Conflict B',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    const task = await new AgentScheduledTasksRepository().createAsync({
+      name: 'Unowned scheduled run',
+      scheduleType: 'daily',
+      prompt: 'no profile owner',
+      agentConfigId: null,
+    });
+    const session = new AgentSessionsRepository().insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'unresolved scheduled ownership',
+      scheduledTaskId: task.id,
+      mcpRole: 'unresolved-conflict-b',
+      category: 'chat',
+    });
+    getDb()
+      .prepare(`UPDATE agent_sessions SET agent_kind = ? WHERE id = ?`)
+      .run('unresolved-conflict-b', session.id);
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      'msg_unresolved_owner',
+      'output',
+      '[]',
+      null,
+      null,
+    );
+    await new DeniedToolEventsRepository().recordAsync({
+      sessionId: session.id,
+      agentConfigId: 'unresolved-conflict-b',
+      toolName: 'gitnexus_query',
+    });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+    expect(snapshot.deniedToolAggregates).toContainEqual({
+      agentConfigId: null,
+      toolName: 'gitnexus_query',
+      count: 1,
+    });
+    expect(
+      snapshot.deniedToolAggregates.some((aggregate) => aggregate.agentConfigId === 'unresolved-conflict-b'),
+    ).toBe(false);
   });
 });
 
