@@ -1,3 +1,7 @@
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 /**
  * W5 — the default-dry-run operator script
  * (contract docs/ai/contracts/issue-W5-shadow-reconciler.json).
@@ -191,4 +195,52 @@ describe('W5-c12: neither mode advances the lifecycle CAS token', () => {
 
     expect(proposalRows()).toBe(before);
   });
+
+  it('the SHIPPED script reads the real database instead of an empty fallback', () => {
+    // Regression this guards: the wrapper never called initDb(), so getDb()
+    // threw, AgentOrgProposalsRepository's constructor CAUGHT it and quietly
+    // substituted a fresh in-memory database, and the operator got well-formed
+    // all-zeros JSON with exit 0 — a safety-reporting tool certifying that
+    // nothing is wrong because it was looking at a database it had just made.
+    //
+    // Every other test here imports runReconcileCli directly and calls setDb()
+    // first, which is exactly why none of them could see it. This one executes
+    // the real script in a real child process.
+    const dir = mkdtempSync(join(tmpdir(), 'reconcile-script-'));
+    const dbPath = join(dir, 'rhythm.db');
+    try {
+      const seeded = new Database(dbPath);
+      seeded.pragma('foreign_keys = ON');
+      runMigrations(seeded);
+      seeded.prepare(
+        `INSERT INTO agent_configs (id, label, icon, command, allowed_mcps_json)
+         VALUES ('script-victim', 'Script victim', 'x', 'x', '["rhythm"]')`,
+      ).run();
+      seeded.prepare(
+        `INSERT INTO agent_org_proposals (id, kind, risk, status, title, change_json, before_snapshot_json)
+         VALUES ('script-legacy-1', 'prune-scope', 'high', 'active', 'Legacy row',
+                 '{"agentConfigId":"script-victim","field":"allowedMcpsJson","remove":["rhythm"]}',
+                 '{"allowedMcpsJson":"[\\"rhythm\\"]"}')`,
+      ).run();
+      seeded.close();
+
+      const stdout = execFileSync(
+        'npx',
+        ['tsx', join(__dirname, '..', '..', '..', 'scripts', 'reconcile-org-proposals.ts')],
+        {
+          cwd: join(__dirname, '..', '..', '..'),
+          env: { ...process.env, DB_CLIENT: 'sqlite', DB_PATH: dbPath },
+          encoding: 'utf8',
+        },
+      );
+
+      const report = JSON.parse(stdout);
+      expect(report.activeScope.total).toBe(1);
+      expect(report.activeScope.byClassification['unsafe-legacy-rollback']).toBe(1);
+      expect(report.mode).toBe('dry-run');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
 });

@@ -569,9 +569,13 @@ describe('W5-c11: the W1 recovery sweep still REPORTS under shadow, and still AC
 
     expect(result.recovery).toBeDefined();
     expect(result.recoveryReportOnly).toBe(true);
-    expect(
-      result.recovery!.proposalsReconciled + result.recovery!.projectionsRepaired,
-    ).toBeGreaterThan(0);
+    // The acting counters are ZERO under shadow — nothing was repaired and
+    // nothing was reconciled — and the would-have work is reported under its
+    // own name, so a reader who misses `recoveryReportOnly` cannot mistake one
+    // for the other.
+    expect(result.recovery!.projectionsRepaired).toBe(0);
+    expect(result.recovery!.proposalsReconciled).toBe(0);
+    expect(result.recoveryLagging ?? 0).toBeGreaterThan(0);
 
     const { getDb } = await import('../database/db');
     const db = getDb();

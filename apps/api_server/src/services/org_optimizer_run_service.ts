@@ -177,6 +177,14 @@ export interface RunOrgOptimizerResult {
    * but it must not write either, so the sweep runs with neutered writers.
    */
   recoveryReportOnly?: boolean;
+  /**
+   * Shadow only. Profiles whose file lags the database — what the sweep WOULD
+   * have re-projected. Reported under its own name because reusing
+   * `recovery.projectionsRepaired` claimed repairs that never happened, and
+   * because the report-only stand-in cannot distinguish a projection that would
+   * succeed from one that would fail: it never attempts either.
+   */
+  recoveryLagging?: number;
   /** Non-fatal error message, if the run degraded to a partial result. */
   erroredReason?: string;
 }
@@ -371,15 +379,19 @@ export async function runOrgOptimizer(
 
   const auditRunId = crypto.randomUUID();
 
-  // ── 0. W5 policy. Resolved before anything else, because `off` must not even
-  // build a snapshot and `shadow` decides whether any writer runs at all. ────
-  const policy = options.policy ?? parseOptimizerPolicy({
-    mode: options.mode ?? process.env.RHYTHM_OPTIMIZER_MODE,
-    disabledFamilies: options.disabledFamilies ?? process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
-  });
-  const mode = policy.mode;
+  // ── 0. W5 policy. Resolved first, because `off` must not even build a
+  // snapshot and `shadow` decides whether any writer runs at all. Resolved
+  // INSIDE the try: reading options.mode/options.policy runs caller-supplied
+  // property getters, and this function's contract is that it never throws.
+  let policy = parseOptimizerPolicy({});
+  let mode = policy.mode;
 
   try {
+    policy = options.policy ?? parseOptimizerPolicy({
+      mode: options.mode ?? process.env.RHYTHM_OPTIMIZER_MODE,
+      disabledFamilies: options.disabledFamilies ?? process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
+    });
+    mode = policy.mode;
     if (mode === 'off') {
       logger.info('[org-optimizer-run] skipped — optimizer mode is off');
       return {
@@ -683,8 +695,24 @@ export async function runOrgOptimizer(
         const { runRecoverySweep } = await import('./org_proposal_recovery_service');
         result.recovery = await runRecoverySweep({ proposalsRepo: realProposalsRepo });
       } else {
-        result.recovery = await runRecoverySweepReportOnly(realProposalsRepo);
+        const reported = (await runRecoverySweepReportOnly(realProposalsRepo)) ?? {
+          projectionsRepaired: 0,
+          projectionsUnresolved: 0,
+          proposalsReconciled: 0,
+          proposalsHealthy: 0,
+        };
         result.recoveryReportOnly = true;
+        result.recoveryLagging = reported.projectionsRepaired;
+        // Zero the acting counters: in shadow nothing was repaired and nothing
+        // was reconciled, and a reader who misses `recoveryReportOnly` must not
+        // be told otherwise. `projectionsUnresolved` is unknowable here — the
+        // stand-in never attempts a projection — so it stays 0 rather than
+        // implying every lagging profile would have succeeded.
+        result.recovery = {
+          ...reported,
+          projectionsRepaired: 0,
+          proposalsReconciled: 0,
+        };
       }
     } catch (err) {
       logger.warn(`[org-optimizer-run] recovery sweep failed (non-fatal): ${String(err)}`);
