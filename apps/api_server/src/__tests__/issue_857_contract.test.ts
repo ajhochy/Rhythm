@@ -343,3 +343,60 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
     await expect(repo.updateStatusAsync(p.id, 'active')).rejects.toThrow();
   });
 });
+
+describe('issue-857-c7: the observation floor is not decided by a capped session read', () => {
+  it('a qualifying profile still produces its tighten-scope gap when >1000 newer unrelated sessions exist', async () => {
+    // Bug this catches: buildOrgAuditSnapshot fed the per-profile observation
+    // floor (sessionCount >= 10) from sessionsRepo.listAll(1000, ...), which is
+    // `ORDER BY created_at DESC LIMIT 1000`. Past 1000 sessions the read is
+    // newest-first truncated, so an older-but-qualifying profile's runs fall
+    // outside the read entirely, its count reads 0, the floor is never met, and
+    // the audit returns "no tighten-scope gap" — a confident empty answer that
+    // means "we didn't look", not "nothing to improve". The false negative is
+    // silent: no error, no warning, and c2/c4 stay green because they seed
+    // fewer than 1000 sessions.
+    mockListMcp.mockResolvedValue({ rhythm: { name: 'rhythm' }, 'nfl-mcp': { name: 'nfl-mcp' } });
+
+    const configsRepo = new AgentConfigsRepository();
+    insertProfileWithAge(configsRepo, 'secretary', JSON.stringify(['rhythm', 'nfl-mcp']), 30);
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    for (let i = 0; i < 10; i++) {
+      const s = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `secretary-session-${i}`,
+        mcpRole: 'secretary',
+      });
+      sessionsRepo.updateStatus(s.id, 'idle');
+      messagesRepo.upsertStructured(s.id, `secretary-${i}-msg`, 'output', '[]', null, null);
+    }
+    // Back-date secretary's runs so the newest-first read demonstrably reaches
+    // the noise first — without this the tie on created_at makes order arbitrary.
+    getDb()
+      .prepare(`UPDATE agent_sessions SET created_at = ? WHERE mcp_role = 'secretary'`)
+      .run(new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString());
+
+    // 1001 newer sessions owned by nobody the audit tracks. They contribute
+    // nothing to any profile's count — they only fill the LIMIT.
+    const insertNoise = getDb().prepare(
+      `INSERT INTO agent_sessions (id, agent_kind, cwd, name, status, category, is_system, created_at, updated_at)
+       VALUES (?, 'claude-code', '/tmp', ?, 'idle', 'chat', 0, ?, ?)`,
+    );
+    const noiseAt = new Date().toISOString();
+    for (let i = 0; i < 1001; i++) {
+      insertNoise.run(`noise-${i}`, `noise-session-${i}`, noiseAt, noiseAt);
+    }
+
+    const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    const tightenGap = snapshot.gaps.find(
+      (g) => g.kind === 'tighten-scope' && g.evidence.includes('secretary') && g.evidence.includes('nfl-mcp'),
+    );
+    expect(tightenGap).toBeDefined();
+    expect(tightenGap?.evidence).toContain('sessionCount=10');
+  });
+});

@@ -43,10 +43,13 @@ const TABLES = [
   // only thing standing between an added column and a production-only 500.
   'agent_run_outcomes',
   'agent_run_feedback_events',
-  // W6 — the controlled experiment record. W5's agent_org_proposal_retirements
-  // sidecar is the counter-example this list exists to stop repeating: it is
-  // SQLite-only and still invisible here, so it must not be copied.
+  // W6 — the controlled experiment record.
   'agent_org_experiments',
+  // W5 — the retirement sidecar. Was created lazily at runtime by
+  // org_proposal_reconciler.ts, SQLite-only and invisible to this guard, which
+  // is exactly the drift this list exists to prevent. Now migrated in both
+  // engines and covered here.
+  'agent_org_proposal_retirements',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */
@@ -111,9 +114,14 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       const sqlite = sqliteColumns(table);
       const pg = postgresColumns(pgSource, table);
 
-      // Sanity: the parser actually found a non-trivial column set.
-      expect(sqlite.length).toBeGreaterThan(5);
-      expect(pg.length).toBeGreaterThan(5);
+      // Sanity: both readers actually found the table, so a blind DDL parser
+      // reports as "parser found nothing" rather than as a column mismatch.
+      // (Floor is 1, not an arbitrary width: agent_org_proposal_retirements is
+      // legitimately 5 columns wide, and two engines agreeing on a narrow table
+      // is not a defect. Every real drift is still caught by the equality
+      // below — proven by the mutation run that deletes the Postgres DDL.)
+      expect(sqlite.length).toBeGreaterThan(0);
+      expect(pg.length).toBeGreaterThan(0);
 
       expect(pg).toEqual(sqlite);
     });

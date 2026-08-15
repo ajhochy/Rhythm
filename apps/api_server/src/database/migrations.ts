@@ -3980,4 +3980,28 @@ If someone asks for creative work that needs a local capability:
       SELECT RAISE(ABORT, 'agent org experiment specs are immutable once declared');
     END;
   `);
+
+  // ── W5-c12 — the proposal retirement sidecar ──────────────────────────────
+  //
+  // Records that an operator has been handed a stale proposal. It is a sidecar
+  // rather than a column on agent_org_proposals because that table's AFTER
+  // UPDATE trigger advances `revision`, the lifecycle CAS token held in flight
+  // by approve/apply/revert/measure — so writing "an operator saw this" onto
+  // the row would silently invalidate a concurrent operation's token.
+  //
+  // Previously created lazily at runtime by org_proposal_reconciler.ts, which
+  // put it outside this file and therefore outside skill_schema_parity.test.ts:
+  // the guard cannot see a table it cannot parse, so the two engines diverged
+  // unobserved. Dual-engine now — see postgres_bootstrap.ts for the twin. The
+  // CREATE TABLE body's closing paren must stay immediately before the closing
+  // backtick or that parser goes blind.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposal_retirements (
+      proposal_id TEXT PRIMARY KEY,
+      classification TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      proposal_revision INTEGER NOT NULL,
+      retired_at TEXT NOT NULL
+    );
+  `);
 }
