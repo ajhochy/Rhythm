@@ -1392,6 +1392,38 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_by TEXT;
   `);
+  // Column drift repair: 13 columns shipped in migrations.ts (SQLite) and never
+  // in this file, so every repository read/write naming one of them was a
+  // production 500 against Postgres. Additive only — no backfill, no rewrite.
+  //
+  // INTEGER, not BOOLEAN, for the 0/1 flags. The repository layer compares them
+  // numerically and writes numbers: agent_approvals_repository does
+  // `row.auto_approve_actions === 1`, agent_configs_repository does
+  // `(row.image_generation_enabled ?? 0) !== 0` and `row.schedulable !== 0`,
+  // agent_sessions_repository does `row.fast_mode === 1`. A BOOLEAN column
+  // makes pg return `true`/`false`, and `false !== 0` is TRUE — every flag
+  // would read as SET. INTEGER also matches the neighbouring `is_manager` /
+  // `locked` / `is_system` flags already in this file.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS provider_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS model_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS agent_mode TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS archived_at TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS permission_mode TEXT NOT NULL DEFAULT 'default';
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS thinking_budget INTEGER;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS fast_mode INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_sessions_archived ON agent_sessions(archived_at)`,
+  );
+  await pool.query(`
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_tier_hint TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS default_anthropic_account_id TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS auto_approve_actions INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS schedulable INTEGER;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS image_generation_enabled INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS reasoning_effort TEXT;
+  `);
   // #1135 — append-only application audit log for security lock/reviewed
   // re-enable transitions. Deliberately no cascading FK: deleting a profile
   // must not erase its security evidence.

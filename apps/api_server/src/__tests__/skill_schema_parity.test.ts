@@ -47,6 +47,11 @@ const TABLES = [
   // sidecar is the counter-example this list exists to stop repeating: it is
   // SQLite-only and still invisible here, so it must not be copied.
   'agent_org_experiments',
+  // The two tables that carried 13 columns of shipped SQLite-only drift
+  // (agent_sessions x7, agent_configs x6) precisely because neither was on this
+  // list. They are the hottest dual-engine tables in the app; keep them here.
+  'agent_sessions',
+  'agent_configs',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */
@@ -71,7 +76,11 @@ function postgresColumns(source: string, table: string): string[] {
 
   // 1) CREATE TABLE body.
   const createRe = new RegExp(
-    `CREATE TABLE IF NOT EXISTS ${table}\\s*\\(([\\s\\S]*?)\\)\\s*\``,
+    // Terminate on the statement's `);`, not on `)` + backtick: several
+    // template literals hold more than one statement, so the backtick form
+    // ran past the closing paren and swallowed following JS (`await`, `ALTER`)
+    // as if they were columns.
+    `CREATE TABLE IF NOT EXISTS ${table}\\s*\\(([\\s\\S]*?)\\)\\s*;`,
     'i',
   );
   const createMatch = source.match(createRe);
@@ -87,9 +96,12 @@ function postgresColumns(source: string, table: string): string[] {
     }
   }
 
-  // 2) ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>.
+  // 2) ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>. `\s+` rather than
+  // a literal space: prettier wraps long ALTERs onto a second line, and the
+  // single-space form silently missed every wrapped one (e.g. agent_configs
+  // `revision`).
   const alterRe = new RegExp(
-    `ALTER TABLE ${table} ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*)`,
+    `ALTER TABLE ${table}\\s+ADD COLUMN\\s+(?:IF NOT EXISTS\\s+)?([a-z_][a-z0-9_]*)`,
     'gi',
   );
   let m: RegExpExecArray | null;

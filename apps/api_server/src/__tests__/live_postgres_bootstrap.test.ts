@@ -107,9 +107,11 @@ function assertDisposableLocalPostgres(url: string): void {
  * fix. Everything NOT listed here is locked: any new drift fails the run.
  *
  * This is a characterization baseline, not an exemption policy — shrinking it
- * is the goal. Two entries are intentional, two are genuine unguarded drift
- * that `skill_schema_parity.test.ts` never covered because neither table is on
- * its 10-table list.
+ * is the goal. Both remaining entries are intentional (tsvector vs FTS5). The
+ * `agent_sessions` / `agent_configs` entries that used to sit here were 13
+ * columns of genuine unguarded drift; they are now created by
+ * postgres_bootstrap.ts, and both tables were added to the always-on regex
+ * guard in skill_schema_parity.test.ts so the class cannot silently return.
  */
 const KNOWN_COLUMN_DIVERGENCE: Record<
   string,
@@ -120,30 +122,6 @@ const KNOWN_COLUMN_DIVERGENCE: Record<
   tasks: { postgresOnly: ['search_vector'] },
   // Intentional: same tsvector-vs-FTS5 split (agent_memory_fts).
   agent_memory: { postgresOnly: ['search_vector'] },
-  // DRIFT — these landed in the SQLite migration and never in the Postgres
-  // bootstrap. Reading them on production is a 500 waiting to happen.
-  agent_sessions: {
-    sqliteOnly: [
-      'agent_mode',
-      'archived_at',
-      'fast_mode',
-      'model_id',
-      'permission_mode',
-      'provider_id',
-      'thinking_budget',
-    ],
-  },
-  // DRIFT — same class as agent_sessions above.
-  agent_configs: {
-    sqliteOnly: [
-      'auto_approve_actions',
-      'default_anthropic_account_id',
-      'image_generation_enabled',
-      'model_tier_hint',
-      'reasoning_effort',
-      'schedulable',
-    ],
-  },
 };
 
 function sqliteSchema(): Map<string, string[]> {
