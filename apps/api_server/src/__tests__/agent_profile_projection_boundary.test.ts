@@ -57,10 +57,30 @@ export function rendererAccessReasons(source: string): string[] {
   if (/require\s*\(\s*['"][^'"]*opencode_agent_writer['"]\s*\)/.test(source)) {
     reasons.push('require');
   }
+  // A computed specifier hides the module name from every pattern above. Only
+  // CODE counts here — several modules name the renderer in prose while doing
+  // an unrelated dynamic import, and flagging those would make the guard noise.
+  const code = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const concatenated = code.replace(/['"`]\s*\+\s*['"`]/g, '');
+  if (
+    /import\s*\(|require\s*\(/.test(code) &&
+    /opencode_agent_writer/.test(concatenated) &&
+    !/['"][^'"]*opencode_agent_writer['"]/.test(code)
+  ) {
+    reasons.push('computed module specifier');
+  }
 
   // A re-export hands the renderer to modules that never import it directly.
   if (/export\s+[\s\S]{0,200}?\bwriteAgentProfileFile\b[\s\S]{0,200}?from\s+['"]/.test(source)) {
     reasons.push('re-export');
+  }
+  // A barrel is the same hop with no token to match: `export * from '...'`
+  // carries the renderer onward, and the consumer's specifier no longer names
+  // the writer module at all, so BOTH halves of the guard would miss it.
+  if (/export\s+\*\s+(?:as\s+\w+\s+)?from\s+['"][^'"]*opencode_agent_writer['"]/.test(source)) {
+    reasons.push('barrel re-export');
   }
 
   // And the plain call, for a module that somehow has it in scope already.
@@ -99,6 +119,9 @@ describe('W1 package C: profile projection has exactly one boundary', () => {
     ['require', "const w = require('./opencode_agent_writer');\nw.writeAgentProfileFile(config);"],
     ['re-export hop', "export { writeAgentProfileFile } from './opencode_agent_writer';"],
     ['state-aware alias', "import { syncAgentProfileFileForState as sync } from './opencode_agent_writer';\nsync(config);"],
+    ['barrel re-export', "export * from './opencode_agent_writer';"],
+    ['barrel namespace re-export', "export * as writer from './opencode_agent_writer';"],
+    ['computed specifier', "const m = './opencode' + '_agent_writer';\nconst r = await import(m);\nr.writeAgentProfileFile(config);"],
   ])('detects the %s evasion', (_label, source) => {
     expect(rendererAccessReasons(source)).not.toEqual([]);
   });

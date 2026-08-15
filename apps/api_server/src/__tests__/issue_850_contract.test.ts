@@ -104,11 +104,11 @@ describe('issue-850-c1: runOrgOptimizer executes audit->generate->persist->auto-
     // proposal THROUGH the lane — deleting the autoApplyProposal call left the
     // suite green.
     //
-    // The behavioural half (nothing high-risk reaches the lane) is asserted on
-    // a real run below. The existence half is structural on purpose: every kind
-    // this fixture can generate is now high-risk, so no in-run proposal reaches
-    // the lane, and a structural assertion that genuinely fails on deletion
-    // beats a behavioural one that cannot be written.
+    // Be honest about what this proves: the run below cannot drive anything
+    // THROUGH the lane, because every kind this fixture generates is high-risk.
+    // So the coverage is structural — it fails if the call is deleted, and
+    // nothing more. A behavioural test needs a generator that emits a low-risk
+    // kind, which this fixture has no way to produce.
     const apply = await import('../services/org_proposal_apply');
     const seen: Array<{ kind: string; risk: string }> = [];
     const spy = vi
@@ -126,11 +126,10 @@ describe('issue-850-c1: runOrgOptimizer executes audit->generate->persist->auto-
       spy.mockRestore();
     }
 
-    expect(seen.every((p) => p.risk === 'low')).toBe(true);
-    expect(
-      seen.some((p) =>
-        ['tighten-scope', 'prune-scope', 'refine-scope', 'broaden-scope'].includes(p.kind)),
-    ).toBe(false);
+    // Every kind this fixture can generate is high-risk, so `seen` is empty and
+    // any assertion over it would be vacuous. Assert that fact directly instead
+    // of dressing it up as behavioural coverage.
+    expect(seen).toEqual([]);
 
     const runService = readFileSync(
       path.join(__dirname, '..', 'services', 'org_optimizer_run_service.ts'),

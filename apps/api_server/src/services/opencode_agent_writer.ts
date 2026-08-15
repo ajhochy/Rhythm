@@ -777,6 +777,12 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
 export function agentProfileFileExists(id: string): boolean {
   if (env.dbClient === 'postgres') return false;
   if (isTestEnv()) return false;
+  // Same exclusion `deleteAgentProfileFile` applies: a CLI preset or engine
+  // builtin owns its file, and we neither write nor remove it. Without this the
+  // two disagree — the delete no-ops, the existence check says the file is
+  // still there, and the caller reports `failed` forever for a file that was
+  // never ours to touch.
+  if (CLI_MODEL_PRESETS.has(id) || BUILTIN_OPENCODE.has(id)) return false;
   try {
     return existsSync(agentFilePath(id));
   } catch {
