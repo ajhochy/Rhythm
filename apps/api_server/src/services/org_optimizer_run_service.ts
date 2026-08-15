@@ -122,6 +122,13 @@ export interface RunOrgOptimizerResult {
      */
     reconciliationRequired: number;
   };
+  /** W1 package C — what the bounded recovery sweep repaired or flagged. */
+  recovery?: {
+    projectionsRepaired: number;
+    projectionsUnresolved: number;
+    proposalsReconciled: number;
+    proposalsHealthy: number;
+  };
   /** Non-fatal error message, if the run degraded to a partial result. */
   erroredReason?: string;
 }
@@ -497,8 +504,22 @@ export async function runOrgOptimizer(
       logger.warn(`[org-optimizer-run] measuring-row sweep failed (non-fatal): ${String(err)}`);
     }
 
+    // ── 10. Bounded recovery sweep. The database commit, the profile file and
+    // the engine reload cannot be committed together, so a crash between them
+    // leaves a detectable lag. This is the thing that acts on that detection.
+    // Bounded and never-throwing: a reconciler that can stall or crash the run
+    // is worse than a lagging file. ───────────────────────────────────────────
+    try {
+      const { runRecoverySweep } = await import('./org_proposal_recovery_service');
+      result.recovery = await runRecoverySweep({ proposalsRepo: realProposalsRepo });
+    } catch (err) {
+      logger.warn(`[org-optimizer-run] recovery sweep failed (non-fatal): ${String(err)}`);
+    }
+
     logger.info(
-      `[org-optimizer-run] run ${auditRunId} complete: created=${result.proposalsCreated} capped=${result.capped} byOutcome=${JSON.stringify(result.byOutcome)}`,
+      `[org-optimizer-run] run ${auditRunId} complete: created=${result.proposalsCreated} ` +
+      `capped=${result.capped} byOutcome=${JSON.stringify(result.byOutcome)} ` +
+      `recovery=${JSON.stringify(result.recovery ?? null)}`,
     );
 
     return result;

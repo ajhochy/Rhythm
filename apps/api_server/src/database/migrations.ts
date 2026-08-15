@@ -2323,6 +2323,29 @@ export function runMigrations(db: Database.Database): void {
 
   installRevisionInvariants(db, 'agent_org_proposals');
 
+  // W1 package C — the durable projection ledger.
+  //
+  // Deliberately its OWN table rather than columns on agent_configs: that table
+  // carries the raw-writer auto-bump trigger, so recording projection progress
+  // there would increment the lifecycle CAS token on every projection and
+  // invalidate live tokens for a fact that is not a domain change at all.
+  //
+  // `file_projected_revision` lagging `agent_configs.revision` is exactly what
+  // makes a crash between the database commit and the file write sweepable.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_profile_projections (
+      profile_id             TEXT PRIMARY KEY,
+      file_projected_revision INTEGER,
+      projection_state       TEXT NOT NULL DEFAULT 'pending',
+      last_error_code        TEXT,
+      last_attempt_at        TEXT,
+      attempt_count          INTEGER NOT NULL DEFAULT 0,
+      updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_profile_projections_state
+      ON agent_profile_projections(projection_state);
+  `);
+
   // W1 package C — durable evidence for `status = 'reconciliation-required'`.
   // Kept out of `measure_reason` so measurement prose and an unresolved
   // operation can never be mistaken for one another.

@@ -22,6 +22,9 @@
  * DETECTION: a caller learns `stale`/`blocked`/`failed` and can reconcile.
  */
 
+import { getDb } from '../database/db';
+import { env } from '../config/env';
+import { logger } from '../utils/logger';
 import {
   AgentConfigsRepository,
   agentConfigExecutionBlockReason,
@@ -72,6 +75,70 @@ export interface ProjectLatestAgentProfileInput {
   writeProfile?: (config: Parameters<typeof writeAgentProfileFile>[0]) => AgentProfileWriteResult;
 }
 
+/**
+ * The durable half of the boundary's promise. The file write is not atomic
+ * with the database, so the ONLY honest guarantee is that a lag is detectable:
+ * `file_projected_revision` behind `agent_configs.revision` is exactly what a
+ * recovery sweep looks for after a crash between the commit and the write.
+ *
+ * Never throws, and never touches `agent_configs` — recording projection
+ * progress there would trip the raw-writer auto-bump and advance the lifecycle
+ * CAS token for something that is not a domain change.
+ */
+function recordProjection(
+  profileId: string,
+  outcome: ProjectionOutcome,
+): void {
+  if (env.dbClient === 'postgres') return;
+  const state = outcome.kind === 'projected'
+    ? 'projected'
+    : outcome.kind === 'not-applicable'
+      ? 'not-applicable'
+      : 'pending';
+  const projectedRevision = outcome.kind === 'projected'
+    ? outcome.revision
+    : outcome.kind === 'not-applicable'
+      ? outcome.revision
+      : null;
+  const errorCode = outcome.kind === 'projected' || outcome.kind === 'not-applicable'
+    ? null
+    : outcome.kind;
+  try {
+    getDb().prepare(
+      `INSERT INTO agent_profile_projections
+         (profile_id, file_projected_revision, projection_state, last_error_code,
+          last_attempt_at, attempt_count, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(profile_id) DO UPDATE SET
+         file_projected_revision =
+           COALESCE(excluded.file_projected_revision, agent_profile_projections.file_projected_revision),
+         projection_state = excluded.projection_state,
+         last_error_code = excluded.last_error_code,
+         last_attempt_at = excluded.last_attempt_at,
+         attempt_count = CASE
+           WHEN excluded.projection_state = 'pending'
+             THEN agent_profile_projections.attempt_count + 1
+           ELSE 0
+         END,
+         updated_at = excluded.updated_at`,
+    ).run(
+      profileId,
+      projectedRevision,
+      state,
+      errorCode,
+      new Date().toISOString(),
+      state === 'pending' ? 1 : 0,
+      new Date().toISOString(),
+    );
+  } catch (error) {
+    // A ledger write that fails must not turn a successful projection into a
+    // failure — it only costs the sweep its hint.
+    logger.warn(
+      `[agent-profile-projection] could not record projection for '${profileId}': ${String(error)}`,
+    );
+  }
+}
+
 export function projectLatestAgentProfile(
   input: ProjectLatestAgentProfileInput,
 ): ProjectionOutcome {
@@ -84,6 +151,10 @@ export function projectLatestAgentProfile(
   // ── critical section: latest read → render → replace, with no await ──
   const current = configsRepo.getById(input.profileId);
   if (!current) return { kind: 'missing' };
+  const record = (outcome: ProjectionOutcome): ProjectionOutcome => {
+    recordProjection(input.profileId, outcome);
+    return outcome;
+  };
   // A blocked/disabled/locked profile must not simply be left alone: its old
   // file would keep serving the PRE-mutation scope to the engine, which for a
   // tightening is strictly wider than what was just approved.
@@ -97,16 +168,19 @@ export function projectLatestAgentProfile(
     // serves the pre-mutation (wider) scope to the engine, which is exactly the
     // incoherence `not-applicable` claims to have removed.
     if (agentProfileFileExists(current.id)) {
-      return { kind: 'failed', revision: current.revision };
+      return record({ kind: 'failed', revision: current.revision });
     }
-    return { kind: 'not-applicable', revision: current.revision };
+    return record({ kind: 'not-applicable', revision: current.revision });
   }
   const result = write(current);
   // ────────────────────────────────────────────────────────────────────
 
-  if (result === 'blocked') return { kind: 'blocked', revision: current.revision };
-  if (result === 'failed') return { kind: 'failed', revision: current.revision };
-  if (result === 'skipped') return { kind: 'not-applicable', revision: current.revision };
+  if (result === 'blocked') return record({ kind: 'blocked', revision: current.revision });
+  if (result === 'failed') return record({ kind: 'failed', revision: current.revision });
+  if (result === 'skipped') return record({ kind: 'not-applicable', revision: current.revision });
+  // A `stale` outcome still PROJECTED the latest row — the caller's intent was
+  // behind, the file is not — so the ledger records the revision on disk.
+  recordProjection(input.profileId, { kind: 'projected', revision: current.revision, write: result });
   if (current.revision !== input.expectedRevision) {
     return {
       kind: 'stale',

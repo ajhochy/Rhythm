@@ -1450,6 +1450,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
   `);
 
+  // W1 package C — the durable projection ledger. Its own table, not columns on
+  // agent_configs: that table's auto-bump trigger would advance the lifecycle
+  // CAS token for a fact that is not a domain change at all.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_profile_projections (
+      profile_id              TEXT PRIMARY KEY,
+      file_projected_revision INTEGER,
+      projection_state        TEXT NOT NULL DEFAULT 'pending',
+      last_error_code         TEXT,
+      last_attempt_at         TIMESTAMPTZ,
+      attempt_count           INTEGER NOT NULL DEFAULT 0,
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_profile_projections_state
+       ON agent_profile_projections(projection_state)`,
+  );
+
   // W1 corrective-6 package B — monotonic persistence revisions. Existing
   // rows receive the same revision-zero baseline as rows from the fresh DDL.
   await pool.query(`
