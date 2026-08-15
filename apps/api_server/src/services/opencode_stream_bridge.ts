@@ -1735,6 +1735,19 @@ export class OpencodeStreamBridge {
                 err,
               ),
             );
+          // Import lazily: the continuation service itself imports this bridge
+          // so it can attach a stream before waking a session. A static import
+          // here creates a module cycle that can stall test workers/startup.
+          void import('./agent_approval_continuation_service')
+            .then(({ agentApprovalContinuationService }) =>
+              agentApprovalContinuationService.onSessionIdle(localSessionId),
+            )
+            .catch((err) =>
+              logger.error(
+                `[OpencodeStreamBridge] approval continuation idle callback failed for ${localSessionId}:`,
+                err,
+              ),
+            );
 
           // Specialist reports are discovered from persisted session output; indexing
           // is deliberately detached from event relay and can never delay a turn.

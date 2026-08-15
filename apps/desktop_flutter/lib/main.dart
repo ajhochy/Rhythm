@@ -416,18 +416,12 @@ class _RhythmAppContent extends StatelessWidget {
               NotificationsRepository(
                 NotificationsDataSource(baseUrl: baseUrl),
               ),
+              nativeNotifications: localNotificationService,
             );
-            // #815: route a native ask-notification tap into pending navigation
-            // so AppShell focuses the window and opens the asking session.
-            localNotificationService.onTap = (payload) {
-              const prefix = 'agentSession:';
-              if (payload.startsWith(prefix)) {
-                final sessionId = payload.substring(prefix.length);
-                if (sessionId.isNotEmpty) {
-                  controller.navigateTo('agentSession', sessionId);
-                }
-              }
-            };
+            // Route every native notification tap through the same pending
+            // navigation path used by bell items and approval cards.
+            localNotificationService.onTap = controller.navigateFromPayload;
+            unawaited(localNotificationService.replayLaunchNotification());
             return controller;
           },
         ),
@@ -613,6 +607,7 @@ class _RhythmAppContent extends StatelessWidget {
           create: (ctx) {
             final controller = AgentApprovalsController(
               AgentApprovalsDataSource(),
+              notifications: localNotificationService,
             );
             void onAgentServerChanged() {
               if (agentServerController.isReady) {

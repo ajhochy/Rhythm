@@ -1320,6 +1320,13 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionColsPerm.includes('permission_mode')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'`);
   }
+  // Separate provenance from operational permission mode. Existing sessions,
+  // AgentRunner rows, forks, and delegated children fail closed by default.
+  if (!agentSessionColsPerm.includes('approval_bypass_explicit')) {
+    db.exec(
+      `ALTER TABLE agent_sessions ADD COLUMN approval_bypass_explicit INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
 
   // Issue #604 — reasoning effort (thinking_budget) and fast-mode columns for agent_sessions.
   // Both are additive and idempotent via pragma check.
@@ -2741,6 +2748,12 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
   // Existing pending rows intentionally receive no backfill: they fail closed
   // and must be re-requested after upgrade rather than becoming unsigned.
   addAgentApprovalColumn('decision_nonce', 'TEXT');
+  // #1392 — durable handoff from a signed human decision back to the exact
+  // originating agent session. Null means no continuation is required (for
+  // example a legacy approval without a session); queued/waking/delivered is
+  // the crash-recoverable delivery lifecycle.
+  addAgentApprovalColumn('continuation_state', 'TEXT');
+  addAgentApprovalColumn('continuation_updated_at', 'TEXT');
 
   // The current row is the active session taint epoch. Every external read
   // rotates taint_id, invalidating approvals created before newer untrusted

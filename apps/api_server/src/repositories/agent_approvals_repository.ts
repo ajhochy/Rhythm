@@ -28,6 +28,7 @@ export interface AgentApproval {
   expiresAt: string | null;
   consumedAt: string | null;
   decisionNonce: string | null;
+  continuationState?: string | null;
   createdAt: string;
 }
 
@@ -67,6 +68,7 @@ function rowToModel(row: Record<string, unknown>): AgentApproval {
     expiresAt: (row.expires_at as string | null) ?? null,
     consumedAt: (row.consumed_at as string | null) ?? null,
     decisionNonce: (row.decision_nonce as string | null) ?? null,
+    continuationState: (row.continuation_state as string | null) ?? null,
     createdAt: row.created_at as string,
   };
 }
@@ -162,12 +164,78 @@ export class AgentApprovalsRepository {
     const updated = getDb()
       .prepare(
         `UPDATE agent_approvals
-         SET status = ?, actor = ?, decided_at = ?, decision_nonce = NULL
+         SET status = ?, actor = ?, decided_at = ?, decision_nonce = NULL,
+             continuation_state = CASE
+               WHEN session_id IS NOT NULL THEN 'queued'
+               ELSE NULL
+             END,
+             continuation_updated_at = CASE
+               WHEN session_id IS NOT NULL THEN ?
+               ELSE NULL
+             END
          WHERE id = ? AND status = 'pending' AND decision_nonce = ?`,
       )
-      .run(status, actor, new Date().toISOString(), id, decisionNonce);
+      .run(
+        status,
+        actor,
+        new Date().toISOString(),
+        new Date().toISOString(),
+        id,
+        decisionNonce,
+      );
     if (updated.changes !== 1) return null;
 
     return this.getById(id);
+  }
+
+  listContinuations(sessionId?: string): AgentApproval[] {
+    const rows = sessionId
+      ? getDb()
+          .prepare(
+            `SELECT * FROM agent_approvals
+             WHERE session_id = ?
+               AND continuation_state IN ('queued', 'waking')
+             ORDER BY decided_at ASC`,
+          )
+          .all(sessionId)
+      : getDb()
+          .prepare(
+            `SELECT * FROM agent_approvals
+             WHERE continuation_state IN ('queued', 'waking')
+             ORDER BY decided_at ASC
+             LIMIT 100`,
+          )
+          .all();
+    return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
+
+  claimContinuation(id: string): boolean {
+    return getDb()
+      .prepare(
+        `UPDATE agent_approvals
+         SET continuation_state = 'waking', continuation_updated_at = ?
+         WHERE id = ? AND continuation_state = 'queued'`,
+      )
+      .run(new Date().toISOString(), id).changes === 1;
+  }
+
+  markContinuationDelivered(id: string): void {
+    getDb()
+      .prepare(
+        `UPDATE agent_approvals
+         SET continuation_state = 'delivered', continuation_updated_at = ?
+         WHERE id = ? AND continuation_state IN ('queued', 'waking')`,
+      )
+      .run(new Date().toISOString(), id);
+  }
+
+  releaseContinuation(id: string): void {
+    getDb()
+      .prepare(
+        `UPDATE agent_approvals
+         SET continuation_state = 'queued', continuation_updated_at = ?
+         WHERE id = ? AND continuation_state = 'waking'`,
+      )
+      .run(new Date().toISOString(), id);
   }
 }
