@@ -33,6 +33,8 @@
  */
 
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import { containsScopeBearingPayload } from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -179,6 +181,48 @@ validators['create-agent'] = validateCreateAgent;
 validators['external-adoption'] = validateExternalAdoption;
 validators['webhook-wiring'] = validateWebhookWiring;
 
+const SCOPE_PROPOSAL_KINDS = new Set([
+  'tighten-scope',
+  'prune-scope',
+  'refine-scope',
+  'broaden-scope',
+]);
+const PROTECTED_SCOPE_FIELDS = new Set([
+  'allowedMcpsJson',
+  'allowedSkillsJson',
+  'corePermissionsJson',
+]);
+
+function strictChangeJsonPreflight(proposal: AgentOrgProposal): void {
+  if (proposal.changeJson === null || proposal.changeJson === undefined) return;
+  const parsed = parseStrictJson(proposal.changeJson, 'proposal change_json');
+  if (SCOPE_PROPOSAL_KINDS.has(proposal.kind)) return;
+
+  if (proposal.kind === 'refine-config') {
+    const change = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+    const configPatch = change?.configPatch;
+    const field = configPatch && typeof configPatch === 'object' && !Array.isArray(configPatch)
+      ? (configPatch as Record<string, unknown>).field
+      : undefined;
+    if (PROTECTED_SCOPE_FIELDS.has(String(field))) {
+      throw new Error(`proposal kind 'refine-config' cannot mutate protected scope field '${String(field)}'`);
+    }
+    const outsideConfigPatch = change
+      ? Object.fromEntries(Object.entries(change).filter(([key]) => key !== 'configPatch'))
+      : parsed;
+    if (containsScopeBearingPayload(outsideConfigPatch)) {
+      throw new Error("proposal kind 'refine-config' cannot carry a protected scope mutation");
+    }
+    return;
+  }
+
+  if (containsScopeBearingPayload(parsed)) {
+    throw new Error(`proposal kind '${proposal.kind}' cannot carry a protected scope mutation`);
+  }
+}
+
 /**
  * Re-validate a proposal's `change_json` at apply time. Fail-closed: a kind
  * with no registered validator is refused (never silently applied) so a new
@@ -188,6 +232,14 @@ validators['webhook-wiring'] = validateWebhookWiring;
 export async function validateProposalChange(
   proposal: AgentOrgProposal,
 ): Promise<ProposalValidationResult> {
+  try {
+    strictChangeJsonPreflight(proposal);
+  } catch (error) {
+    return {
+      valid: false,
+      reason: error instanceof Error ? error.message : 'proposal change_json is invalid',
+    };
+  }
   const validator = validators[proposal.kind];
   if (!validator) {
     return {
@@ -228,6 +280,7 @@ function defaultApplier(): ProposalApplyResult {
  * this function gets the same fail-closed guarantee).
  */
 export async function applyProposal(proposal: AgentOrgProposal): Promise<ProposalApplyResult> {
+  strictChangeJsonPreflight(proposal);
   const validation = await validateProposalChange(proposal);
   if (!validation.valid) {
     throw new Error(validation.reason ?? `Proposal ${proposal.id} failed re-validation`);

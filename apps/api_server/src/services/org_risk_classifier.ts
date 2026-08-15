@@ -141,7 +141,7 @@ export function classifyProposalRisk(input: ProposalRiskInput): ProposalRisk {
     return 'high';
   }
 
-  const kind = (input.kind ?? '').trim();
+  const kind = input.kind ?? '';
 
   if (LOW_RISK_KINDS.has(kind)) {
     return 'low';
@@ -162,5 +162,5 @@ export function classifyProposalRisk(input: ProposalRiskInput): ProposalRisk {
  * target agent/recipe scope, HMAC setup, SSRF/allowlist constraints).
  */
 export function requiresSecurityNote(kind: string): boolean {
-  return SECURITY_NOTE_KINDS.has((kind ?? '').trim());
+  return SECURITY_NOTE_KINDS.has(kind ?? '');
 }

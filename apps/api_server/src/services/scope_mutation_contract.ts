@@ -6,6 +6,7 @@ import {
   SCOPE_ALLOWLIST_FIELDS,
   SCOPE_PATCH_FIELDS,
 } from './org_diagnosis_types';
+import { withHardlineBashEscalation } from './profile_capability_surface';
 import { parseStrictJson } from './strict_json';
 
 export type ScopeProposalKind =
@@ -56,36 +57,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * opaque: prose mentioning a scope word is not itself an operation.
  */
 export function containsScopeBearingPayload(value: unknown): boolean {
+  type Evidence = { target: boolean; operation: boolean; detected: boolean };
+  const safe: Evidence = { target: false, operation: false, detected: false };
+  const unsafe: Evidence = { target: true, operation: true, detected: true };
   const seen = new WeakSet<object>();
-  const inspect = (candidate: unknown, depth: number, agentConfigContext = false): boolean => {
-    if (depth > 24) return true;
-    if (!candidate || typeof candidate !== 'object') return false;
-    if (seen.has(candidate)) return true;
+  const inspect = (candidate: unknown, depth: number): Evidence => {
+    if (depth > 24) return unsafe;
+    if (!candidate || typeof candidate !== 'object') return safe;
+    if (seen.has(candidate)) return unsafe;
     seen.add(candidate);
-    if (Array.isArray(candidate)) {
-      return candidate.some((entry) => inspect(entry, depth + 1, agentConfigContext));
-    }
+
+    const combine = (entries: unknown[], ownTarget = false, ownOperation = false): Evidence => {
+      let target = ownTarget;
+      let operation = ownOperation;
+      for (const entry of entries) {
+        const child = inspect(entry, depth + 1);
+        if (child.detected) return unsafe;
+        target ||= child.target;
+        operation ||= child.operation;
+      }
+      return { target, operation, detected: target && operation };
+    };
+
+    if (Array.isArray(candidate)) return combine(candidate);
 
     const record = candidate as Record<string, unknown>;
     const keys = Object.keys(record);
-    if (keys.includes('scopePatch')) return true;
-    if (keys.some((key) => SCOPE_FIELD_SET.has(key) || SCOPE_ALIASES.has(key))) return true;
-    if (SCOPE_FIELD_SET.has(String(record.field))) return true;
+    if (keys.includes('scopePatch')) return unsafe;
+    if (keys.some((key) => SCOPE_FIELD_SET.has(key) || SCOPE_ALIASES.has(key))) return unsafe;
+    if (SCOPE_FIELD_SET.has(String(record.field))) return unsafe;
 
     const target = record.target;
-    const tiedToAgentConfig = agentConfigContext ||
-      typeof record.agentConfigId === 'string' ||
+    const ownTarget = Object.prototype.hasOwnProperty.call(record, 'agentConfigId') ||
       record.targetType === 'agent_config' ||
       record.target === 'agent_config' ||
       (isRecord(target) && (target.type === 'agent_config' || target.kind === 'agent_config'));
-    if (
-      tiedToAgentConfig &&
-      keys.some((key) => ['field', 'operation', 'add', 'remove', 'set', 'unset', 'value'].includes(key))
-    ) return true;
+    const ownOperation = keys.some((key) =>
+      ['field', 'operation', 'add', 'remove', 'set', 'unset', 'value'].includes(key));
 
-    return Object.values(record).some((entry) => inspect(entry, depth + 1, tiedToAgentConfig));
+    return combine(Object.values(record), ownTarget, ownOperation);
   };
-  return inspect(value, 0);
+  return inspect(value, 0).detected;
 }
 
 function exactName(value: unknown, label: string): string {
@@ -118,7 +130,11 @@ type ParsedAllowlist =
   | { shape: 'array'; names: string[] }
   | { shape: 'map'; entries: [string, unknown][] };
 
-function parseAllowlistBytes(value: string | null, label: string): ParsedAllowlist {
+function parseAllowlistBytes(
+  value: string | null,
+  label: string,
+  allowToolsMap: boolean,
+): ParsedAllowlist {
   if (value === null) return { shape: 'array', names: [] };
   let parsed: unknown;
   try {
@@ -132,7 +148,9 @@ function parseAllowlistBytes(value: string | null, label: string): ParsedAllowli
     if (new Set(names).size !== names.length) throw new Error(`${label} contains duplicate current entries`);
     return { shape: 'array', names };
   }
-  if (!isRecord(parsed)) throw new Error(`${label} must be a string array or supported tools map`);
+  if (!isRecord(parsed) || !allowToolsMap) {
+    throw new Error(`${label} must be a string array${allowToolsMap ? ' or supported tools map' : ''}`);
+  }
   const entries = Object.entries(parsed);
   for (const [name, tools] of entries) {
     exactName(name, `${label} map key`);
@@ -364,7 +382,11 @@ export function prepareScopeMutation(
     if (priorValue === null) {
       throw new Error(`${mutation.field} is unrestricted and cannot be mutated with add/remove operations`);
     }
-    const current = parseAllowlistBytes(priorValue, mutation.field);
+    const current = parseAllowlistBytes(
+      priorValue,
+      mutation.field,
+      mutation.field === 'allowedMcpsJson',
+    );
     const currentNames = current.shape === 'array'
       ? current.names
       : current.entries.map(([name]) => name);
@@ -402,7 +424,11 @@ export function prepareScopeMutation(
       });
       expectedAppliedValue = JSON.stringify(next);
     }
-    parseAllowlistBytes(expectedAppliedValue, `${mutation.field} applied value`);
+    parseAllowlistBytes(
+      expectedAppliedValue,
+      `${mutation.field} applied value`,
+      mutation.field === 'allowedMcpsJson',
+    );
   } else {
     const current = parseCoreBytes(priorValue, mutation.field);
     const next = Object.create(null) as Record<string, unknown>;
@@ -429,7 +455,16 @@ export function prepareScopeMutation(
       });
     }
     expectedAppliedValue = JSON.stringify(next);
-    parseCoreBytes(expectedAppliedValue, 'corePermissionsJson applied value');
+    const applied = parseCoreBytes(expectedAppliedValue, 'corePermissionsJson applied value');
+    const priorEffective = withHardlineBashEscalation(
+      current as Record<string, string | Record<string, string>>,
+    );
+    const appliedEffective = withHardlineBashEscalation(
+      applied as Record<string, string | Record<string, string>>,
+    );
+    if (JSON.stringify(priorEffective) === JSON.stringify(appliedEffective)) {
+      throw new Error(`${proposalKind} must produce a real effective runtime mutation`);
+    }
   }
 
   if (expectedAppliedValue === priorValue) throw new Error(`${proposalKind} must produce a real exact mutation`);

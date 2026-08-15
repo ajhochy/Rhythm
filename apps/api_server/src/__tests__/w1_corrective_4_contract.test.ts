@@ -521,20 +521,22 @@ describe('issue-W1-corrective-4-c5: normal exact scope mutations stay supported'
   it.each([
     {
       label: 'array add/remove',
+      field: 'allowedSkillsJson' as const,
       prior: '["a","b"]',
       change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'allowedSkillsJson', add: ['c'], remove: ['a'] } }),
       expected: '["b","c"]',
     },
     {
       label: 'ordinary-key tools map',
+      field: 'allowedMcpsJson' as const,
       prior: '{"toString":["read"],"hasOwnProperty":null}',
-      change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'allowedSkillsJson', add: ['next'], remove: ['toString'] } }),
+      change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'allowedMcpsJson', add: ['next'], remove: ['toString'] } }),
       expected: '{"hasOwnProperty":null,"next":[]}',
     },
-  ])('prepares an unambiguous $label mutation exactly', async ({ label, prior, change, expected }) => {
+  ])('prepares an unambiguous $label mutation exactly', async ({ label, field, prior, change, expected }) => {
     const service = await import('../services/org_proposal_apply_service');
     const configs = new AgentConfigsRepository();
-    const config = configs.insert({ label: `C4 green ${label}`, icon: 'shield', allowedSkillsJson: prior });
+    const config = configs.insert({ label: `C4 green ${label}`, icon: 'shield', [field]: prior });
     const proposals = new AgentOrgProposalsRepository();
     const proposal = await proposals.createAsync({
       kind: 'refine-scope', risk: 'high', title: `C4 green ${label}`,
@@ -546,7 +548,7 @@ describe('issue-W1-corrective-4-c5: normal exact scope mutations stay supported'
     expect(JSON.parse(prepared.beforeSnapshotJson ?? 'null')).toMatchObject({
       proposalKind: 'refine-scope', expectedAppliedValue: expected,
     });
-    expect(configs.getById(config.id)?.allowedSkillsJson).toBe(prior);
+    expect(configs.getById(config.id)?.[field]).toBe(prior);
   });
 
   it('prepares an unambiguous core set/unset mutation exactly', async () => {

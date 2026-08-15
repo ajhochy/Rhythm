@@ -57,6 +57,12 @@ import { logger } from '../utils/logger';
 import { revertProposal, type ApplyDeps, type RevertPatch } from './org_proposal_apply';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { TASK_PATCH_TEXT_FIELDS } from './org_diagnosis_types';
+import {
+  parseScopeMutation,
+  verifyScopeSnapshotForRevert,
+  type ScopeRemovalKind,
+} from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { ScoreCall, SkillPurpose } from './skill_refiner';
 
@@ -86,23 +92,6 @@ export interface RerunContext {
 }
 
 export type RerunScenario = (proposal: AgentOrgProposal, ctx: RerunContext) => Promise<RerunOutcome>;
-
-/** Shape of the `changeJson` payload for an `agent_configs` scope mutation (mirrors org_proposal_apply.ts). */
-interface AgentConfigScopeChange {
-  agentConfigId: string;
-  field: 'allowedMcpsJson' | 'allowedSkillsJson';
-  remove?: string[];
-  add?: string[];
-}
-
-function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
-  if (!v || typeof v !== 'object') return false;
-  const c = v as Record<string, unknown>;
-  return (
-    typeof c.agentConfigId === 'string' &&
-    (c.field === 'allowedMcpsJson' || c.field === 'allowedSkillsJson')
-  );
-}
 
 /** Shape of the `changeJson` payload for a body-scored kind (refine-skill etc). */
 interface BodyRefinementChange {
@@ -166,6 +155,17 @@ export async function measureProposal(
         `[org-proposal-measure] '${proposal.id}' is not in status=measuring (got '${proposal.status}') — skipping`,
       );
       return 'skipped';
+    }
+
+    if (proposal.changeJson !== null && proposal.changeJson !== undefined) {
+      try {
+        parseStrictJson(proposal.changeJson, 'proposal change_json');
+      } catch (error) {
+        logger.warn(
+          `[org-proposal-measure] invalid strict changeJson for '${proposal.id}': ${String(error)}`,
+        );
+        return 'skipped';
+      }
     }
 
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
@@ -255,16 +255,38 @@ async function measureScopeChange(
 ): Promise<MeasureOutcome> {
   const proposalsRepo = deps.proposalsRepo!;
 
-  let change: unknown;
-  try {
-    change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
-  } catch (err) {
-    logger.warn(`[org-proposal-measure] malformed changeJson for '${proposal.id}': ${String(err)}`);
+  // Corrective-6 package A deliberately leaves invalid measurement rows in
+  // status=measuring. Package C owns durable reconciliation outcome/status
+  // propagation; this boundary must not activate or revert unbound bytes.
+  const exactChangeJson = proposal.changeJson;
+  const exactSnapshotJson = proposal.beforeSnapshotJson;
+  if (!exactChangeJson || !exactSnapshotJson) {
+    logger.warn(`[org-proposal-measure] '${proposal.id}' lacks bound scope change/snapshot bytes — skipping`);
     return 'skipped';
   }
 
-  if (!isAgentConfigScopeChange(change)) {
-    logger.warn(`[org-proposal-measure] '${proposal.id}' changeJson is not a scope change — skipping`);
+  let change;
+  let snapshot: unknown;
+  try {
+    change = parseScopeMutation(proposal.kind as ScopeRemovalKind, exactChangeJson);
+    snapshot = parseStrictJson(exactSnapshotJson, 'proposal before_snapshot_json');
+  } catch (err) {
+    logger.warn(`[org-proposal-measure] invalid scope measurement bytes for '${proposal.id}': ${String(err)}`);
+    return 'skipped';
+  }
+
+  const verified = verifyScopeSnapshotForRevert(
+    snapshot,
+    proposal.kind,
+    exactChangeJson,
+  );
+  if (
+    !verified ||
+    verified.prepared.agentConfigId !== change.agentConfigId ||
+    verified.prepared.field !== change.field ||
+    JSON.stringify(verified.prepared.remove) !== JSON.stringify(change.remove)
+  ) {
+    logger.warn(`[org-proposal-measure] '${proposal.id}' scope snapshot is invalid or unbound — skipping`);
     return 'skipped';
   }
 

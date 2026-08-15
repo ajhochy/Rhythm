@@ -518,6 +518,19 @@ function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch
   return { agentConfigId: o.agentConfigId, field: o.field as ConfigPatch['field'], value: o.value };
 }
 
+const PROTECTED_GENERIC_CONFIG_FIELDS = new Set([
+  'allowedMcpsJson',
+  'allowedSkillsJson',
+  'corePermissionsJson',
+]);
+
+function protectedGenericConfigField(change: Record<string, unknown> | null): string | null {
+  const patch = change?.configPatch;
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return null;
+  const field = (patch as Record<string, unknown>).field;
+  return PROTECTED_GENERIC_CONFIG_FIELDS.has(String(field)) ? String(field) : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -821,7 +834,15 @@ function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): Proposa
 
 // ── refine-config ──
 function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationResult {
-  const patch = extractConfigPatch(parseChange(proposal.changeJson));
+  const change = parseChange(proposal.changeJson);
+  const protectedField = protectedGenericConfigField(change);
+  if (protectedField) {
+    return {
+      valid: false,
+      reason: `refine-config cannot mutate protected scope field '${protectedField}'`,
+    };
+  }
+  const patch = extractConfigPatch(change);
   if (!patch) {
     return {
       valid: false,
@@ -836,7 +857,12 @@ function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationRes
 }
 
 const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractConfigPatch(parseChange(proposal.changeJson));
+  const change = parseChange(proposal.changeJson);
+  const protectedField = protectedGenericConfigField(change);
+  if (protectedField) {
+    throw AppError.badRequest(`refine-config cannot mutate protected scope field '${protectedField}'`);
+  }
+  const patch = extractConfigPatch(change);
   if (!patch) throw AppError.badRequest('refine-config change_json is missing its configPatch at apply time');
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
