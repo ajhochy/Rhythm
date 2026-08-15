@@ -38,19 +38,33 @@
  *     producer is the live engine's stream bridge, and the observation floors
  *     (>= 10 executed sessions, >= 7 days of profile age) cannot be reached by
  *     a test running against a freshly created profile.
+ *   • one `agent_run_feedback_events` row with `source='inferred'` — the
+ *     feedback route hard-codes `source: 'explicit_user'`, and the only
+ *     inferred writer is W6, which has not landed. Everything the test then
+ *     asserts is read back through `GET /agent-run-outcomes/:sessionId`.
  *
  * Every test cleans up what it seeded and is safe to run twice in a row: all
  * fixture ids are freshly randomized per run, and optimizer output is deleted
  * by the `audit_run_id` the run itself reports.
  *
  * ── Known limits, stated plainly ────────────────────────────────────────────
- * As committed, this suite has NEVER BEEN EXECUTED. It was written under a
- * hard no-server constraint, so its fixture shapes are validated only against
- * the producer/validator source, not against a running backend.
+ * As committed, this suite has NEVER BEEN EXECUTED — not one case, including
+ * the six that shipped before W7-2 and W7-7 were unskipped. Every author so far
+ * has worked under a hard no-server constraint, so fixture shapes are validated
+ * against the producer/validator source only, never against a running backend.
+ *
+ * That is not a theoretical caveat. Two defects of exactly this kind were found
+ * by reading source and are fixed here: every `POST /agent-sessions` assertion
+ * expected 200 where the controller returns 201 (so the case died on its first
+ * HTTP call), and W7-8 drove its "real production trigger" through
+ * `/agent-sessions/:id/resume`, which rejects a non-resumable session and never
+ * prompts even when it succeeds — its central assertion was vacuous. Assume the
+ * same class of defect remains until a run proves otherwise.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 
@@ -95,6 +109,46 @@ function proposalStatus(id: string): string | null {
     .prepare(`SELECT status FROM agent_org_proposals WHERE id = ?`)
     .get(id) as { status: string } | undefined;
   return row?.status ?? null;
+}
+
+/**
+ * Every profile's scope column, keyed by profile id — the exact bytes W7-2
+ * compares before and after a shadow run. Read from `agent_configs` rather than
+ * from `/agent-configs` because the column IS the authority: a route could
+ * normalise, reorder or re-serialize on the way out and hide a real write.
+ */
+function allScopeBytes(): Record<string, string | null> {
+  const rows = db
+    .prepare(`SELECT id, allowed_mcps_json AS v FROM agent_configs ORDER BY id`)
+    .all() as Array<{ id: string; v: string | null }>;
+  return Object.fromEntries(rows.map((row) => [row.id, row.v]));
+}
+
+function allProposalStatuses(): Record<string, string> {
+  const rows = db
+    .prepare(`SELECT id, status FROM agent_org_proposals ORDER BY id`)
+    .all() as Array<{ id: string; status: string }>;
+  return Object.fromEntries(rows.map((row) => [row.id, row.status]));
+}
+
+/**
+ * Poll until `predicate` holds, or fail with a message naming what never
+ * happened. Used only where the production path is deliberately
+ * fire-and-forget (the W4 terminal hook) and there is nothing to await.
+ */
+async function waitFor(
+  label: string,
+  timeoutMs: number,
+  predicate: () => boolean,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() > deadline) {
+      throw new Error(`timed out after ${timeoutMs}ms waiting for ${label}`);
+    }
+    await new Promise((wait) => setTimeout(wait, 500));
+  }
 }
 
 async function createProfile(role: string, allowedMcpsJson: string): Promise<string> {
@@ -265,6 +319,9 @@ const OBSERVED_PROFILE_AGE_DAYS = 30;
 
 interface OptimizerRun {
   auditRunId: string;
+  /** W5 — the mode the run actually operated under, as the run itself reports it. */
+  mode: string;
+  proposalsCreated: number;
 }
 
 /**
@@ -281,14 +338,24 @@ async function runOptimizer(): Promise<OptimizerRun> {
     body: JSON.stringify({ maxProposalsPerRun: 500, maxLlmCallsPerRun: 0 }),
   });
   expect(response.status).toBe(200);
-  const result = (await response.json()) as { auditRunId?: string; skipped?: boolean; skippedReason?: string };
+  const result = (await response.json()) as {
+    auditRunId?: string;
+    mode?: string;
+    proposalsCreated?: number;
+    skipped?: boolean;
+    skippedReason?: string;
+  };
   expect(
     result.skipped ?? false,
     `optimizer refused to run: ${result.skippedReason ?? '(no reason given)'} — ` +
       'the engine cold-start window must have elapsed before this gate runs',
   ).toBe(false);
   expect(typeof result.auditRunId).toBe('string');
-  return { auditRunId: result.auditRunId as string };
+  return {
+    auditRunId: result.auditRunId as string,
+    mode: String(result.mode),
+    proposalsCreated: Number(result.proposalsCreated ?? 0),
+  };
 }
 
 /** Proposals this exact run created, read back from the durable row. */
@@ -334,17 +401,134 @@ function mentionsProfile(
  * sandbox engine actually has them, because they are the exact identities the
  * live audit found being compared against full tool names.
  */
-async function liveMcpServerIds(): Promise<string[]> {
+async function liveMcpServerNames(): Promise<string[]> {
   const response = await api('/opencode/mcp');
   expect(response.status).toBe(200);
   const body = (await response.json()) as unknown;
-  const names = Array.isArray(body)
+  return Array.isArray(body)
     ? body
         .map((entry) => (entry && typeof entry === 'object' ? (entry as { name?: unknown }).name : null))
         .filter((name): name is string => typeof name === 'string' && name.length > 0)
     : Object.keys((body ?? {}) as Record<string, unknown>);
+}
+
+async function liveMcpServerIds(): Promise<string[]> {
+  const names = await liveMcpServerNames();
   const preferred = ['gitnexus', 'pco-services'].filter((id) => names.includes(id));
   return preferred.length > 0 ? preferred : names;
+}
+
+/**
+ * WHICH servers the live engine has — the observable that changes if anything
+ * were installed or removed. Deliberately the id set and nothing else: the same
+ * payload also carries each server's live CONNECTION state (`connected`,
+ * `needs_auth`, …), which flips on its own as the engine connects, so a
+ * byte-for-byte diff of the whole response would report a colour change as an
+ * installation.
+ */
+async function mcpCatalogFingerprint(): Promise<string> {
+  return JSON.stringify((await liveMcpServerNames()).slice().sort());
+}
+
+// ── W4 run-outcome ledger observation ──────────────────────────────────────
+
+/** A real turn against the live engine, generously. */
+const TURN_TIMEOUT_MS = 180_000;
+
+function outcomeRows(rootSessionId: string): Array<Record<string, unknown>> {
+  return db
+    .prepare(`SELECT * FROM agent_run_outcomes WHERE root_session_id = ? ORDER BY id`)
+    .all(rootSessionId) as Array<Record<string, unknown>>;
+}
+
+function feedbackRows(rootSessionId: string): Array<{ id: string; source: string; verdict: string }> {
+  return db
+    .prepare(
+      `SELECT id, source, verdict FROM agent_run_feedback_events
+        WHERE root_session_id = ? ORDER BY seq, created_at, id`,
+    )
+    .all(rootSessionId) as Array<{ id: string; source: string; verdict: string }>;
+}
+
+/**
+ * Terminal turn boundaries seen on the socket, per local session id.
+ *
+ * The witness is `{type:'session.status', working:false}`, which the bridge
+ * broadcasts at the TOP of its `session.idle` case — unconditionally, before
+ * the DB status check, so an errored turn emits it too (the engine still goes
+ * idle; only the status WRITE is suppressed). It is the one frame that marks a
+ * real turn boundary and nothing else: ws_gateway's own `catch` sends a
+ * `type:'error'` frame when the prompt never reaches the engine, which is NOT a
+ * terminal event, so error frames are deliberately not counted.
+ *
+ * A persisted message row is NOT a usable witness: upsertPart INSERTs the
+ * role='output' row when the FIRST streamed part arrives — the START of the
+ * response — and the session.idle append only runs for legacy sessions with no
+ * structured messages. Counting rows returns mid-turn.
+ */
+const turnBoundaries = new Map<string, number>();
+
+function boundaryCount(sessionId: string): number {
+  return turnBoundaries.get(sessionId) ?? 0;
+}
+
+async function openAgentSocket(): Promise<WebSocket> {
+  const socket = new WebSocket(`${baseUrl().replace(/^http/, 'ws')}/ws/agents`);
+  socket.on('message', (raw) => {
+    let frame: { type?: unknown; id?: unknown; working?: unknown };
+    try {
+      frame = JSON.parse(raw.toString()) as typeof frame;
+    } catch {
+      return;
+    }
+    if (frame.type === 'session.status' && frame.working === false && typeof frame.id === 'string') {
+      turnBoundaries.set(frame.id, boundaryCount(frame.id) + 1);
+    }
+  });
+  await new Promise<void>((ready, fail) => {
+    socket.once('open', () => ready());
+    socket.once('error', (err) => fail(err));
+  });
+  return socket;
+}
+
+/**
+ * One real interactive turn: the exact `session.input` frame the Flutter
+ * composer sends, through the WS gateway, into the engine. This is the only
+ * production entry point that drives a session to a terminal state — there is
+ * no HTTP prompt route, and `/agent-sessions/:id/resume` rejects anything not
+ * already `resumable` with a live session token (and re-attaches rather than
+ * prompting even then).
+ */
+async function driveTurn(socket: WebSocket, sessionId: string, text: string): Promise<void> {
+  const before = boundaryCount(sessionId);
+  socket.send(JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: text }));
+  await waitFor(
+    `session ${sessionId} to reach a terminal turn boundary`,
+    TURN_TIMEOUT_MS,
+    () => boundaryCount(sessionId) > before,
+  );
+}
+
+/**
+ * Direct SQLite: the ONLY inferred-feedback writer is W6, which does not exist
+ * yet, and `POST /agent-run-outcomes/:id/feedback` hard-codes
+ * `source: 'explicit_user'` (run_outcome_routes.ts) — so no HTTP surface on
+ * this branch can append an inferred verdict. The row is written exactly as
+ * AgentRunOutcomesRepository.appendFeedbackAsync writes one, including its
+ * derived `seq`, so the read model under test sees nothing unusual.
+ */
+function seedInferredFeedback(rootSessionId: string, verdict: string): string {
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO agent_run_feedback_events
+       (id, root_session_id, seq, source, verdict, confidence, actor, reason, created_at)
+     VALUES (?, ?,
+       (SELECT COALESCE(MAX(f.seq), 0) + 1 FROM agent_run_feedback_events f
+         WHERE f.root_session_id = ?),
+       'inferred', ?, 0.5, 'w7-live-inference', NULL, ?)`,
+  ).run(id, rootSessionId, rootSessionId, verdict, new Date().toISOString());
+  return id;
 }
 
 describeLive('W7 — self-improvement engine foundation, live behaviour', () => {
@@ -380,23 +564,86 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
   });
 
   // ── Plan step 2 ──────────────────────────────────────────────────────────
-  it.skip(
-    'W7-2: a shadow optimizer run creates proposals without changing target config, installing tools, or changing proposal target state',
-    async () => {
-      // BLOCKED ON W5 (`self-improvement/shadow-mode-reconciler`), which
-      // introduces org_optimizer_policy.ts and the shadow gate on the
-      // mutation/sweep phases. On this branch `runOrgOptimizer` still enters
-      // the auto-apply lane, so there is no shadow mode to observe: the
-      // assertion "target config bytes are identical before and after a
-      // generating run" has no shipped behaviour to bind to yet.
+  it('W7-2: a shadow optimizer run creates proposals without changing target config, installing tools, or changing proposal target state', async () => {
+    const servers = await liveMcpServerIds();
+    expect(
+      servers.length,
+      'the sandbox engine reports no MCP servers; there is no grant for scope hygiene to find',
+    ).toBeGreaterThan(0);
+    const server = servers[0];
+
+    // A profile that HAS a grant and demonstrably never used it, so the
+    // deterministic scope-hygiene lane has something to propose. Without a
+    // guaranteed candidate, `proposalsCreated > 0` would be a coin flip and the
+    // three "nothing changed" assertions below would be vacuous — a run that
+    // generated nothing trivially mutates nothing.
+    const unusedId = await createProfile('shadow', JSON.stringify([server]));
+    let auditRunId: string | null = null;
+
+    try {
+      backdateProfile(unusedId, OBSERVED_PROFILE_AGE_DAYS);
+      const start = Date.now() - 3_600_000;
+      for (let i = 0; i < OBSERVED_SESSION_COUNT; i++) {
+        seedSession(unusedId, [
+          { tool: 'read', status: 'completed', startedAt: start + i * 1_000, durationMs: 10, input: { i } },
+        ]);
+      }
+
+      const scopeBefore = allScopeBytes();
+      const statusBefore = allProposalStatuses();
+      const catalogBefore = await mcpCatalogFingerprint();
+
+      const run = await runOptimizer();
+      auditRunId = run.auditRunId;
+
+      // The precondition, asserted rather than assumed: with RHYTHM_OPTIMIZER_MODE
+      // unset the policy resolves to `shadow`, and only a shadow run is evidence
+      // for the shadow gate. Under `auto` the same three assertions would be
+      // testing the wrong lane, so this must fail loudly instead.
+      expect(
+        run.mode,
+        'this gate observes the SHADOW lane; the sandbox api_server must not run with RHYTHM_OPTIMIZER_MODE=auto/human_only',
+      ).toBe('shadow');
+
+      // (a) The run really generated.
+      expect(
+        run.proposalsCreated,
+        'a shadow run that generated nothing proves nothing about the shadow gate',
+      ).toBeGreaterThan(0);
+      const created = proposalsFromRun(auditRunId);
+      expect(created.length).toBeGreaterThan(0);
+
+      // (b) Not one profile's scope bytes moved — including the profile this
+      // run just proposed to tighten.
+      expect(allScopeBytes()).toEqual(scopeBefore);
+
+      // (c) No proposal changed lifecycle state. Shadow runs no lifecycle
+      // writer at all, so the strict form is the honest one: every pre-existing
+      // row is byte-identical, and every row this run created is still awaiting
+      // a human in 'proposed'.
+      const statusAfter = allProposalStatuses();
+      for (const [id, status] of Object.entries(statusBefore)) {
+        expect(statusAfter[id], `proposal ${id} changed state during a shadow run`).toBe(status);
+      }
+      expect(
+        created.filter((row) => proposalStatus(row.id) !== 'proposed').map((row) => row.id),
+      ).toEqual([]);
+
+      // (d) Nothing was installed into the live engine.
       //
-      // Shape once W5 lands: snapshot every agent_configs scope byte string,
-      // POST /agent-org-optimizer/run, then assert (a) proposalsCreated > 0,
-      // (b) every scope byte string is unchanged, (c) no proposal moved out of
-      // 'proposed', and (d) the live MCP catalog from GET /opencode/mcp is
-      // unchanged (nothing was installed).
-    },
-  );
+      // Cheap smoke, NOT load-bearing, and the comment says so on purpose: no
+      // optimizer lane installs an MCP server under any mode. External
+      // adoption is classified HIGH risk and stays human-gated, and the
+      // auto-apply lane only ever touches risk==='low'. This would go red only
+      // if a future generator learned to install — which is precisely the
+      // change worth catching, so it stays.
+      expect(await mcpCatalogFingerprint()).toBe(catalogBefore);
+    } finally {
+      if (auditRunId) deleteRunProposals(auditRunId);
+      deleteSeededSessions();
+      await deleteProfile(unusedId);
+    }
+  }, OPTIMIZER_RUN_TIMEOUT_MS);
 
   // ── Plan step 3 ──────────────────────────────────────────────────────────
   it('W7-3: a legacy whole-field scope snapshot cannot be reverted, and the config bytes are byte-for-byte unchanged', async () => {
@@ -625,26 +872,129 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
   }, OPTIMIZER_RUN_TIMEOUT_MS);
 
   // ── Plan step 7 ──────────────────────────────────────────────────────────
-  it.skip(
-    'W7-7: a completed user session yields exactly one terminal outcome plus append-only feedback events',
-    async () => {
-      // BLOCKED ON W4 (`self-improvement/outcome-ledger`), which adds the
-      // agent_run_outcomes table, the append-only feedback events table, and
-      // the run-outcome routes. Neither the table nor the route exists on this
-      // branch, so there is nothing to observe.
+  it('W7-7: a completed user session yields exactly one terminal outcome plus append-only feedback events', async () => {
+    const profileId = await createProfile('outcome', '[]');
+    let sessionId: string | null = null;
+    let socket: WebSocket | null = null;
+
+    try {
+      const create = await api('/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          profileId,
+          cwd: '/tmp',
+          name: `W7 live outcome ${profileId}`,
+        }),
+      });
+      // 201 — agent_sessions_controller.create ends in res.status(201).
+      expect(create.status).toBe(201);
+      sessionId = ((await create.json()) as { id: string }).id;
+      // A freshly created session has no parent, so it IS its own root run —
+      // which is what makes `root_session_id = sessionId` the right key below.
+      const rootSessionId = sessionId;
+
+      socket = await openAgentSocket();
+
+      // ── Terminal event #1 ────────────────────────────────────────────────
+      await driveTurn(socket, sessionId, 'Reply with the single word: done.');
+      await waitFor(
+        `the W4 terminal hook to finalize an outcome for ${rootSessionId}`,
+        60_000,
+        () => outcomeRows(rootSessionId).length > 0,
+      );
+      const afterFirst = outcomeRows(rootSessionId);
+      expect(afterFirst.length).toBe(1);
+
+      // ── Terminal event #2, same run ──────────────────────────────────────
+      // A second turn ends at the same production hook with the same root run
+      // id. That is the duplicate terminal event: it must find the ledger row
+      // already there and neither add a second nor rewrite the first.
       //
-      // Shape once W4 lands: run a real session to a terminal state, then
-      // assert exactly ONE outcome row for the root run id (a duplicate
-      // terminal event must not create a second), POST an explicit user
-      // verdict, POST a contradicting inferred verdict, and assert BOTH
-      // feedback events are readable and the explicit one still wins.
-    },
-  );
+      // Read this pair for exactly what it is: an end-to-end confirmation that
+      // a SCHEMA guarantee survives the real path. `root_session_id UNIQUE` and
+      // the BEFORE UPDATE immutability trigger (migrations.ts) are what enforce
+      // it, and recordTerminalOutcome swallows every error it meets, so no
+      // application-layer mutation can turn these two assertions red — deleting
+      // `ON CONFLICT DO NOTHING` makes the insert throw and be swallowed, and
+      // the test stays green. Only dropping the unique index reddens it. The
+      // idempotency of finalizeAsync itself is a unit-test job, not this one's.
+      await driveTurn(socket, sessionId, 'Reply with the single word: again.');
+      const afterSecond = outcomeRows(rootSessionId);
+      expect(
+        afterSecond.length,
+        'a second terminal event on the same run minted a second outcome row',
+      ).toBe(1);
+      expect(afterSecond).toEqual(afterFirst);
+
+      // ── Feedback: explicit first, contradicting inference after ──────────
+      const explicit = await api(
+        `/agent-run-outcomes/${encodeURIComponent(sessionId)}/feedback`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            verdict: 'success',
+            reason: 'operator confirmed the run did what was asked',
+            actor: 'w7-live-operator',
+          }),
+        },
+      );
+      expect(explicit.status).toBe(201);
+      const explicitEvent = (await explicit.json()) as { id: string };
+
+      const inferredId = seedInferredFeedback(rootSessionId, 'failure');
+
+      const view = await api(`/agent-run-outcomes/${encodeURIComponent(sessionId)}`);
+      expect(view.status).toBe(200);
+      const body = (await view.json()) as {
+        explicitUserVerdict: string | null;
+        inferredVerdict: string | null;
+        authoritativeVerdict: string;
+        feedback: Array<{ id: string; source: string; verdict: string }>;
+      };
+
+      // BOTH events are readable — neither writer clobbered the other.
+      expect(body.feedback.map((event) => event.id)).toEqual(
+        expect.arrayContaining([explicitEvent.id, inferredId]),
+      );
+      expect(body.feedback.find((event) => event.id === explicitEvent.id)).toMatchObject({
+        source: 'explicit_user',
+        verdict: 'success',
+      });
+      expect(body.feedback.find((event) => event.id === inferredId)).toMatchObject({
+        source: 'inferred',
+        verdict: 'failure',
+      });
+      expect(feedbackRows(rootSessionId).map((row) => row.id)).toEqual(
+        expect.arrayContaining([explicitEvent.id, inferredId]),
+      );
+
+      // …and the human still wins, even though the inference arrived last.
+      expect(body.explicitUserVerdict).toBe('success');
+      expect(body.inferredVerdict).toBe('failure');
+      expect(body.authoritativeVerdict).toBe('success');
+
+      // Neither verdict edited the objective record.
+      expect(outcomeRows(rootSessionId)).toEqual(afterFirst);
+    } finally {
+      socket?.close();
+      if (sessionId) {
+        db.prepare(`DELETE FROM agent_session_messages WHERE session_id = ?`).run(sessionId);
+        db.prepare(`DELETE FROM agent_sessions WHERE id = ?`).run(sessionId);
+      }
+      await deleteProfile(profileId);
+      // The ledger rows are deliberately NOT cleaned up: both tables carry
+      // BEFORE DELETE triggers (migrations.ts) precisely so history cannot be
+      // erased, and a test that could delete them would be evidence the
+      // append-only guarantee is broken. Ids are fresh per run, so the leftover
+      // rows never collide with a re-run.
+    }
+  }, 600_000);
 
   // ── Plan step 8 ──────────────────────────────────────────────────────────
   it('W7-8: a self-improvement session that clears every other harvest gate still produces no harvested skill', async () => {
     const profileId = await createProfile('harvest', '[]');
     let sessionId: string | null = null;
+    let socket: WebSocket | null = null;
 
     try {
       const create = await api('/agent-sessions', {
@@ -655,7 +1005,8 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
           name: `W7 live harvest ${profileId}`,
         }),
       });
-      expect(create.status).toBe(200);
+      // 201 — agent_sessions_controller.create ends in res.status(201).
+      expect(create.status).toBe(201);
       sessionId = ((await create.json()) as { id: string }).id;
 
       // Direct SQLite: no API surface sets a session's harvest-relevant
@@ -702,15 +1053,18 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
       ).length;
       expect(rounds, 'the rounds gate must not be the reason nothing was harvested').toBeGreaterThanOrEqual(2);
 
-      // Drive the REAL production trigger: a resumed turn ends by calling the
-      // extraction queue. If the W3 eligibility gate were removed, this is
-      // where a self-improvement session would feed itself back into the
-      // harvester.
-      const resume = await api(`/agent-sessions/${encodeURIComponent(sessionId)}/resume`, {
-        method: 'POST',
-        body: JSON.stringify({ profileId, message: 'Summarize what we just did in one sentence.' }),
-      });
-      expect([200, 202]).toContain(resume.status);
+      // Drive the REAL production trigger: a completed interactive turn ends by
+      // calling the extraction queue (opencode_stream_bridge's session.idle
+      // handler). If the W3 eligibility gate were removed, this is where a
+      // self-improvement session would feed itself back into the harvester.
+      //
+      // NOT `/agent-sessions/:id/resume`: it rejects anything whose status is
+      // not already 'resumable' with a live session token, and even then it
+      // re-attaches and streams rather than prompting — it never reads the
+      // `message` body field. A resume-driven version of this test never ran a
+      // turn, so its "nothing was harvested" assertion was vacuous.
+      socket = await openAgentSocket();
+      await driveTurn(socket, sessionId, 'Summarize what we just did in one sentence.');
 
       // Harvesting is fire-and-forget; give it room to have happened.
       await new Promise((wait) => setTimeout(wait, 30_000));
@@ -720,13 +1074,15 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
       ).n;
       expect(skillsAfter).toBe(skillsBefore);
     } finally {
+      socket?.close();
       if (sessionId) {
         db.prepare(`DELETE FROM agent_session_messages WHERE session_id = ?`).run(sessionId);
         db.prepare(`DELETE FROM agent_sessions WHERE id = ?`).run(sessionId);
       }
       await deleteProfile(profileId);
     }
-  }, 180_000);
+    // Room for a real turn (TURN_TIMEOUT_MS) plus the 30s harvest window.
+  }, 600_000);
 
   // ── Plan step 9 ──────────────────────────────────────────────────────────
   it('W7-9: retry-policy prose creates no retry-loop proposal, while a materially repeated failed operation does', async () => {
