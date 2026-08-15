@@ -4,7 +4,7 @@ repo: Rhythm
 branch: agent-stack/si-scope-safety
 pr: null
 issues: [W1]
-status: corrective-in-progress
+status: verification-pending
 tags: [run, Rhythm, optimizer, scope-safety]
 ---
 
@@ -139,3 +139,10 @@ tags: [run, Rhythm, optimizer, scope-safety]
 - No live Rhythm/OpenCode DB, persistent server, network, W2/W3, integration, or raw scope/profile
   logging was used. Status remains corrective-in-progress pending the external Node 22 route rerun
   and independent review.
+- Parent external verification under Node 22 passed the expanded complete gate: 13 files, 323 tests
+  passed, 1 existing skip, including 23/23 real HTTP route tests and 39/39 corrective-4 tests;
+  `npm run build` passed. The route assertion was corrected to test the duplicate-current condition
+  it actually constructs; production validation was not weakened.
+- Parent lifecycle review added and passed an after-durable-commit regression: if a status writer
+  throws after `reverted` is already durable, reversion remains successful and target compensation
+  is not run. Status is verification-pending until fresh independent review.

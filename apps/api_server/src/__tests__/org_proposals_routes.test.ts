@@ -669,7 +669,7 @@ describe('issue-826: human-gate review queue API', () => {
     expect(snapshot.removedEntries).toEqual([{ name: 'x', priorValue: 'x', priorIndex: 0 }]);
   });
 
-  it('W1: duplicate requested array member is actionable 400 before claim/config/profile writes', async () => {
+  it('W1: duplicate current array member is actionable 400 before claim/config/profile writes', async () => {
     const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
     registerAllProposalAppliers();
     const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
@@ -689,7 +689,7 @@ describe('issue-826: human-gate review queue API', () => {
     const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, { method: 'POST' });
 
     expect(res.status).toBe(400);
-    expect(await res.text()).toMatch(/duplicate.*x/i);
+    expect(await res.text()).toMatch(/duplicate current entries/i);
     expect(claimSpy).not.toHaveBeenCalled();
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(before);
     expect((await repo.findByIdAsync(proposal.id))?.status).toBe('proposed');

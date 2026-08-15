@@ -72,12 +72,12 @@ requires it, then install that exact TestFlight artifact and perform the focused
 ### 2026-08-14 — W1 corrective cycle 4
 - Files modified: one strict scope mutation/snapshot contract, human approval wiring, scope revert
   lifecycle/risk classification, focused API tests, and W1 contract/run evidence.
-- Checks run under Node 22: corrective-4 regressions passed 38/38; the exact parent gate excluding
-  the listener-bound route file passed 261 tests with 1 existing skip; API build passed.
+- Checks run under Node 22: parent complete 13-file gate passed 323 tests with 1 existing skip,
+  including 23/23 real HTTP route tests and 39/39 corrective-4 regressions; API build passed.
 - Decisions made: bind both v2 snapshots to allowed kind and exact `change_json` bytes, independently
   replay prior/change/applied semantics at revert, and compensate failed final status transitions by
   exact CAS plus reprojection without overwriting concurrent target bytes.
 - Deviations from spec: all five temporary reviewer probes were replaced by equivalent committed
   in-memory SQLite regressions; no live DB, persistent server, network, W2/W3, or integration work ran.
-- Concerns: the exact route suite remains blocked by sandbox `listen EPERM` before route code runs.
-  Status remains corrective-in-progress; an external Node 22 route rerun and review are still required.
+- Concerns: fresh independent review is still required. Status is verification-pending; W1 remains
+  unaccepted and unmerged until that review passes.

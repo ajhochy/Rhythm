@@ -739,6 +739,26 @@ export async function revertProposal(
           throw new Error('proposal did not durably transition to reverted');
         }
       } catch (statusError) {
+        // A repository/client can throw after the UPDATE has already committed
+        // (for example, while decoding a response). Re-read before compensating:
+        // if `reverted` is durable, the restored target and proposal already
+        // agree and rolling the target forward would create the inverse split.
+        let durableAfterError: AgentOrgProposal | null = null;
+        try {
+          durableAfterError = await proposalsRepo.findByIdAsync(proposal.id);
+        } catch (readError) {
+          logger.warn(
+            `[org-proposal-apply] could not verify scope revert status after transition error for ` +
+            `'${proposal.id}': ${String(readError)}`,
+          );
+        }
+        if (durableAfterError?.status === 'reverted') {
+          logger.warn(
+            `[org-proposal-apply] scope revert transition reported an error after durable success for ` +
+            `'${proposal.id}': ${String(statusError)}`,
+          );
+          return 'reverted';
+        }
         const compensated = configsRepo.compareAndSetScopeField(
           scopeSnapshot.target.id,
           scopeSnapshot.field,

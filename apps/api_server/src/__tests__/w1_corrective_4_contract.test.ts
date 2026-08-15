@@ -463,6 +463,38 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
     expect((await new AgentOrgProposalsRepository().findByIdAsync(active.id))?.status).toBe('active');
   });
 
+  it('does not compensate when the status writer throws after a durable reverted transition', async () => {
+    // Regression caught in parent review: a transport/decoder error can occur
+    // after the status UPDATE commits. Compensating in that state would put
+    // applied target bytes under an already-reverted proposal.
+    const apply = await import('../services/org_proposal_apply');
+    const writer = await import('../services/opencode_agent_writer');
+    const projection = vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('written');
+    const configs = new AgentConfigsRepository();
+    const prior = '["a"]';
+    const applied = '["a","b"]';
+    const config = configs.insert({ label: 'C4 durable status throw', icon: 'shield', allowedSkillsJson: applied });
+    const changeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedSkillsJson', add: ['b'] });
+    const snapshot = (apply.createScopeStateV2Snapshot as any)(
+      config.id, 'allowedSkillsJson', prior, applied, changeJson, 'broaden-scope',
+    );
+    const active = await activateProposal({
+      kind: 'broaden-scope', changeJson, beforeSnapshotJson: JSON.stringify(snapshot),
+    });
+    const proposals = new AgentOrgProposalsRepository();
+    const original = proposals.updateStatusAsync.bind(proposals);
+    vi.spyOn(proposals, 'updateStatusAsync').mockImplementation(async (id, status, patch) => {
+      const transitioned = await original(id, status, patch);
+      if (status === 'reverted') throw new Error('transport failed after commit');
+      return transitioned;
+    });
+
+    expect(await apply.revertProposal(active, { proposalsRepo: proposals, configsRepo: configs })).toBe('reverted');
+    expect(configs.getById(config.id)?.allowedSkillsJson).toBe(prior);
+    expect((await new AgentOrgProposalsRepository().findByIdAsync(active.id))?.status).toBe('reverted');
+    expect(projection).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves concurrent bytes when final-status compensation loses CAS', async () => {
     const apply = await import('../services/org_proposal_apply');
     const writer = await import('../services/opencode_agent_writer');
