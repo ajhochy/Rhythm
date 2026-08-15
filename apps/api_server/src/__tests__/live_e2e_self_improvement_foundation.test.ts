@@ -165,7 +165,11 @@ async function createProfile(role: string, allowedMcpsJson: string): Promise<str
       schedulable: false,
     }),
   });
-  expect(created.status).toBe(200);
+  // POST /agent-configs returns 201 (agent_configs_controller.ts:409), the same
+  // create-returns-201 shape as POST /agent-sessions. Found by the first real
+  // execution of this suite: every one of the eight cases died here, because
+  // this helper is shared by all of them.
+  expect(created.status).toBe(201);
   return id;
 }
 
