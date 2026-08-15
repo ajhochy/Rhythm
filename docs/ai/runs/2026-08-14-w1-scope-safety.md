@@ -1,7 +1,7 @@
 ---
 date: 2026-08-14
 repo: Rhythm
-branch: agent-stack/si-scope-safety
+branch: self-improvement/scope-lifecycle-safety
 pr: null
 issues: [W1]
 status: corrective-in-progress
@@ -199,7 +199,7 @@ tags: [run, Rhythm, optimizer, scope-safety]
   `w1_corrective_5_contract.test.ts` and adjacent repository tests.
 - GitNexus `detect-changes --scope compare --base-ref main` was attempted. The registry first
   required disambiguation between two `Rhythm` indexes; the disambiguated integration index then
-  refused because `agent-stack/si-scope-safety` is not an indexed branch. Pre-edit impact checks
+  refused because `self-improvement/scope-lifecycle-safety` is not an indexed branch. Pre-edit impact checks
   still ran against the indexed integration graph, including the HIGH-risk lifecycle/classifier
   symbols and the final HIGH `computeScopeList` audit. The parent must rerun change detection from
   an environment that can index this linked-worktree branch.

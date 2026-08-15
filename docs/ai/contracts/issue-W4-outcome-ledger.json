@@ -6,8 +6,8 @@
     "section": "Work package W4 — Immutable outcome and feedback ledger",
     "note": "Refinement of the approved plan section into machine-readable criteria. No product scope is added, removed, or reinterpreted; every criterion traces to a plan line."
   },
-  "branch": "agent-stack/si-outcome-ledger",
-  "base": "integrated W1-W3 head on agent-stack/self-improvement-foundation",
+  "branch": "self-improvement/outcome-ledger",
+  "base": "integrated W1-W3 head on self-improvement-engine-foundation",
   "commit": "feat(optimizer): add immutable outcomes and append-only feedback",
   "owned_production_files": [
     "apps/api_server/src/database/migrations.ts",

@@ -6,8 +6,8 @@
     "section": "Work package W5 — Shadow policy and lifecycle reconciliation",
     "note": "Refinement of the approved plan section into machine-readable criteria. No product scope is added, removed, or reinterpreted; every criterion traces to a plan line."
   },
-  "branch": "agent-stack/si-shadow-reconciler",
-  "base": "integrated W1-W3 head on agent-stack/self-improvement-foundation",
+  "branch": "self-improvement/shadow-mode-reconciler",
+  "base": "integrated W1-W3 head on self-improvement-engine-foundation",
   "commit": "feat(optimizer): default to shadow mode and reconcile stale lifecycle rows",
   "owned_production_files": [
     "apps/api_server/src/services/org_optimizer_policy.ts",

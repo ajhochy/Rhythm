@@ -1,7 +1,7 @@
 ---
 date: 2026-08-14
 repo: Rhythm
-branch: agent-stack/si-c6-revisions
+branch: self-improvement/revision-lifecycle-corrections
 pr: null
 issues: [W1-corrective-6]
 status: pending

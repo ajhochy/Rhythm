@@ -1,10 +1,10 @@
 ---
 date: 2026-08-14
 repo: Rhythm
-branch: agent-stack/self-improvement-foundation
+branch: self-improvement-engine-foundation
 base: 9d8c4443f076756cec919e182222fdb45c39abcc
 status: in-progress
-tags: [plan, rhythm, self-improvement, agent-stack, safety]
+tags: [plan, rhythm, self-improvement, safety]
 ---
 
 # Rhythm Self-Improvement Engine Foundation — Atomic Implementation Plan
@@ -51,7 +51,7 @@ The LLM may diagnose and draft. Deterministic services decide whether evidence e
 - Strict TDD: write one failing test, run it, implement only enough to pass, rerun.
 - No production DB writes. Migrations run only against disposable/test DBs and the dev sandbox's copied DB.
 - Do not start an api_server manually. Use `tools/dev/sandbox.sh` only.
-- Do not merge to `main`. Merge worker commits only into `agent-stack/self-improvement-foundation`.
+- Do not merge to `main`. Merge worker commits only into `self-improvement-engine-foundation`.
 - Do not push or open a PR until the integrated branch passes review and live sandbox verification.
 - Run GitNexus impact before editing and `detect_changes --base main` before each merge-ready commit.
 - Independently review every worker diff; a worker never approves its own code.
@@ -102,7 +102,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W1 — Scope containment and safe rollback
 
-**Branch:** `agent-stack/si-scope-safety`
+**Branch:** `self-improvement/scope-lifecycle-safety`
 
 **Owned production files:**
 
@@ -156,7 +156,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W2 — Canonical and fail-closed capability telemetry
 
-**Branch:** `agent-stack/si-capability-telemetry`
+**Branch:** `self-improvement/capability-telemetry`
 
 **Owned production files:**
 
@@ -210,7 +210,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W3 — Learning eligibility and behavioral retry evidence
 
-**Branch:** `agent-stack/si-learning-signals`
+**Branch:** `self-improvement/learning-signals`
 
 **Owned production files:**
 
@@ -277,7 +277,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W4 — Immutable outcome and feedback ledger
 
-**Branch:** `agent-stack/si-outcome-ledger`
+**Branch:** `self-improvement/outcome-ledger`
 
 **Owned production files:**
 
@@ -326,7 +326,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W5 — Shadow policy and lifecycle reconciliation
 
-**Branch:** `agent-stack/si-shadow-reconciler`
+**Branch:** `self-improvement/shadow-mode-reconciler`
 
 **Owned production files:**
 
@@ -369,7 +369,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W6 — Proposal evidence and experiment contracts
 
-**Branch:** `agent-stack/si-experiment-contracts`
+**Branch:** `self-improvement/experiment-contracts`
 
 **Starts from:** integrated W1–W5 branch.
 
@@ -409,7 +409,7 @@ W1–W3 are parallel. W4–W5 are parallel after W1–W3 merge. W6 starts only a
 
 # Work package W7 — Integrated live behavior and documentation gate
 
-**Runs only on:** `agent-stack/self-improvement-foundation`
+**Runs only on:** `self-improvement-engine-foundation`
 
 ## Atomic steps
 

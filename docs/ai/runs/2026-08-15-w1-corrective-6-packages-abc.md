@@ -1,7 +1,7 @@
 ---
 date: 2026-08-15
 repo: Rhythm
-branch: agent-stack/si-c6-lifecycle
+branch: self-improvement/scope-lifecycle-composition
 pr: none
 issues: [W1-corrective-6]
 status: reviewed-clean
@@ -12,7 +12,7 @@ tags: [run, Rhythm]
 
 ## Files
 
-### Package A — boundary corrections (`agent-stack/si-c6-boundaries`, `0ddf82fd`)
+### Package A — boundary corrections (`self-improvement/scope-boundary-corrections`, `0ddf82fd`)
 - `services/scope_mutation_contract.ts` — canonical grant-delegation `add` is no
   longer generic scope evidence; every other subtree is still recursively
   inspected.
@@ -29,7 +29,7 @@ tags: [run, Rhythm]
   mirrors the engine: default-ask, insertion order, last-match-wins, hardline
   projection.
 
-### Package B — revision/persistence corrections (`agent-stack/si-c6-revisions`, `d1a09338`)
+### Package B — revision/persistence corrections (`self-improvement/revision-lifecycle-corrections`, `d1a09338`)
 - `repositories/agent_org_proposals_repository.ts` — the atomic transition
   derives target id, field, prior and applied bytes from the verified canonical
   v2 snapshot instead of trusting the caller; the generic status CAS refuses
@@ -46,7 +46,7 @@ tags: [run, Rhythm]
 - `repositories/agent_configs_repository.ts` — `readPersistedRevision` refuses to
   hand out a corrupt persisted revision.
 
-### Package C slice 1 — lifecycle rewire (`agent-stack/si-c6-lifecycle`, `3c27a728`)
+### Package C slice 1 — lifecycle rewire (`self-improvement/scope-lifecycle-composition`, `3c27a728`)
 - NEW `services/agent_profile_projection_service.ts` — the one projection
   boundary. Callers pass a profile id plus the revision they believe they are
   projecting; the boundary re-reads the latest row itself. No await between the
