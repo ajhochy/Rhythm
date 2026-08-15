@@ -58,8 +58,13 @@ done: hosted API/relay and desktop `v0.18.58` released, iOS `1.0.8 (6)` uploaded
 
 ## Next step
 
-Manual smoke of #1398: approve and revert an optimizer proposal on a real machine. Then the human
-merge decision. Full detail in `docs/ai/runs/2026-08-14-self-improvement-engine-foundation.md`.
+**Live desktop smoke PASSED** on real data — see `docs/ai/runs/2026-08-15-live-desktop-smoke.md`.
+Shadow generated 5 proposals and mutated nothing; a legacy revert refused without touching
+permissions; a full approve→revert loop on a new-engine proposal restored the scope byte-for-byte;
+and a revert that lost a CAS race to a concurrent human edit refused rather than clobbering it.
+
+Remaining for a human: (1) decide whether the desktop UI should have a Revert control — today
+approve is in the app but revert is API-only; (2) the merge decision on #1398; (3) the release. Full detail in `docs/ai/runs/2026-08-14-self-improvement-engine-foundation.md`.
 
 ## Recent coding-agent runs
 
