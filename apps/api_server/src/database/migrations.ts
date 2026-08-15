@@ -843,6 +843,25 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (artifact_id, revision)
     );
+
+    -- Artifact content bytes. Previously these lived only on the filesystem
+    -- under LIVE_ARTIFACT_STORAGE_DIR while the revision tables above held the
+    -- hashes. That split lost every artifact whenever the container was
+    -- recreated without a persistent mount (observed 2026-08-15: metadata
+    -- intact, every artifact returning "Live artifact content unavailable").
+    -- Content is addressed by (artifact, kind, hash) exactly as the on-disk
+    -- layout was, so identical content still stores once per artifact.
+    -- No FK to live_artifacts: content is written BEFORE the metadata row so a
+    -- revision is never advertised without its bytes (see
+    -- live_artifacts_controller.create). Cleanup is explicit in removeArtifact.
+    CREATE TABLE IF NOT EXISTS live_artifact_contents (
+      artifact_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('bundle', 'state')),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (artifact_id, kind, hash)
+    );
   `);
 
   const userColsLiveArtifacts = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
