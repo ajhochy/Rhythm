@@ -24,6 +24,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { createScopeDeltaV2Snapshot } from '../services/org_proposal_apply';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -35,6 +36,34 @@ function makeDb() {
 beforeEach(() => {
   setDb(makeDb());
 });
+
+/**
+ * W1 requires measurement to act only on a canonical scope-delta-v2 snapshot
+ * that is bound to the exact change bytes AND still matches the live target,
+ * so stage each proposal exactly the way the production apply step leaves it:
+ * target already holding the post-removal value, snapshot describing the exact
+ * entry that was taken out. The telemetry behaviour under test is unchanged.
+ */
+function stageRemoval(configId: string, removed: string): { changeJson: string; beforeSnapshotJson: string } {
+  const configsRepo = new AgentConfigsRepository();
+  const priorMcps = JSON.stringify([removed]);
+  configsRepo.update(configId, { allowedMcpsJson: priorMcps });
+  const exactChangeJson = JSON.stringify({
+    agentConfigId: configId,
+    field: 'allowedMcpsJson',
+    remove: [removed],
+  });
+  const snapshot = createScopeDeltaV2Snapshot(
+    configId,
+    'allowedMcpsJson',
+    priorMcps,
+    [removed],
+    'prune-scope',
+    exactChangeJson,
+  );
+  configsRepo.update(configId, { allowedMcpsJson: snapshot.expectedAppliedValue });
+  return { changeJson: exactChangeJson, beforeSnapshotJson: JSON.stringify(snapshot) };
+}
 
 describe('canonical scope-measurement telemetry', () => {
   it('reverts removal of gitnexus when canonical telemetry records gitnexus_query use', async () => {
@@ -52,12 +81,7 @@ describe('canonical scope-measurement telemetry', () => {
       status: 'measuring',
       title: 'Prune gitnexus scope (actually in use)',
       targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['gitnexus'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      ...stageRemoval(config.id, 'gitnexus'),
       dedupKey: `prune-scope:${config.id}:gitnexus:canonical-revert`,
     });
 
@@ -90,12 +114,7 @@ describe('canonical scope-measurement telemetry', () => {
       status: 'measuring',
       title: 'Prune gitnexus without telemetry',
       targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['gitnexus'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      ...stageRemoval(config.id, 'gitnexus'),
       dedupKey: `prune-scope:${config.id}:gitnexus:unavailable`,
     });
 
@@ -136,12 +155,7 @@ describe('W2 P1-1: alias-form removal names canonicalize against the live catalo
       status: 'measuring',
       title: 'Prune nfl-mcp (alias for the actually-used nfl_mcp)',
       targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['nfl-mcp'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['nfl-mcp']) }),
+      ...stageRemoval(config.id, 'nfl-mcp'),
       dedupKey: `prune-scope:${config.id}:nfl-mcp:alias-revert`,
     });
 
@@ -176,12 +190,7 @@ describe('W2 P1-1: alias-form removal names canonicalize against the live catalo
       status: 'measuring',
       title: 'Prune an unrelated dead server',
       targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['totally-unrelated-server'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['totally-unrelated-server']) }),
+      ...stageRemoval(config.id, 'totally-unrelated-server'),
       dedupKey: `prune-scope:${config.id}:totally-unrelated-server`,
     });
 
@@ -220,12 +229,7 @@ describe('W2 P1-3: a proven positive vetoes a revert even while telemetry is oth
       status: 'measuring',
       title: 'Prune gitnexus under partial telemetry',
       targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['gitnexus'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      ...stageRemoval(config.id, 'gitnexus'),
       dedupKey: `prune-scope:${config.id}:gitnexus:partial-positive-veto`,
     });
 

@@ -62,7 +62,14 @@ function mcps(json: string | null | undefined): string[] {
 describe('issue-1139-c1: broaden-scope has a registered re-validation', () => {
   it('validateProposalChange no longer returns "No re-validation is registered" for broaden-scope', async () => {
     const configsRepo = new AgentConfigsRepository();
-    const target = configsRepo.insert({ label: 'Workflow Orchestrator', icon: 'flow' });
+    // W1: a null allowlist means UNRESTRICTED and cannot be mutated with
+    // add/remove, so a profile with real scope is the case where a registered
+    // broaden-scope re-validation is observable at all.
+    const target = configsRepo.insert({
+      label: 'Workflow Orchestrator',
+      icon: 'flow',
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+    });
 
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
@@ -105,10 +112,22 @@ describe('issue-1139-c2: approving a broaden-scope appends the tool to allowedMc
       dedupKey: `broaden-scope:${target.id}:mcp:gitnexus`,
     });
 
+    // W1 package C: preparation snapshots and describes the pair but must NOT
+    // touch the target; the atomic claim+pair transaction commits it.
     const result = await applyProposal(proposal);
     expect(result.measurable).toBe(false);
-    // A reversible apply must snapshot the prior value before mutating.
     expect(result.beforeSnapshotJson).toBeTruthy();
+    expect(mcps(configsRepo.getById(target.id)?.allowedMcpsJson)).not.toContain('gitnexus');
+
+    const { applyApprovedScopeProposal } = await import('../services/org_proposal_scope_lifecycle');
+    const outcome = await applyApprovedScopeProposal({
+      proposal,
+      decidedByUserId: 0,
+      changeJson: result.changeJson ?? proposal.changeJson!,
+      beforeSnapshotJson: result.beforeSnapshotJson!,
+      pair: result.scopePair!,
+    });
+    expect(outcome.kind).toBe('measuring');
 
     const after = configsRepo.getById(target.id);
     const list = mcps(after?.allowedMcpsJson);
@@ -131,7 +150,9 @@ describe('issue-1139-c2: approving a broaden-scope appends the tool to allowedMc
       changeJson: JSON.stringify({ agentConfigId: target.id, field: 'allowedMcpsJson', add: ['gitnexus'] }),
       dedupKey: `broaden-scope:${target.id}:mcp:gitnexus2`,
     });
-    await applyProposal(proposal);
+    // W1: a byte change that is a runtime no-op is refused, rather than applied
+    // and then de-duplicated — the target must be left exactly as found.
+    await expect(applyProposal(proposal)).rejects.toThrow(/already present/i);
     const list = mcps(configsRepo.getById(target.id)?.allowedMcpsJson);
     expect(list.filter((n) => n === 'gitnexus')).toHaveLength(1);
   });

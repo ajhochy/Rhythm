@@ -219,8 +219,13 @@ function assertExactKeys(record: Record<string, unknown>, allowed: readonly stri
   if (extras.length > 0) throw new Error(`${label} contains unsupported key(s): ${extras.join(', ')}`);
 }
 
-function targetId(value: unknown): string {
-  return exactName(value, 'agentConfigId');
+/**
+ * The proposal kind is carried into the message because this reason is shown
+ * verbatim to the human reviewing the proposal — "agentConfigId must contain…"
+ * on its own does not tell them WHICH proposal to go fix.
+ */
+function targetId(value: unknown, proposalKind: ScopeProposalKind): string {
+  return exactName(value, `${proposalKind} agentConfigId`);
 }
 
 export interface ParsedScopeMutation {
@@ -270,7 +275,7 @@ export function parseScopeMutation(
     }
     return {
       proposalKind,
-      agentConfigId: targetId(parsed.agentConfigId),
+      agentConfigId: targetId(parsed.agentConfigId, proposalKind),
       field,
       remove,
     };
@@ -289,7 +294,7 @@ export function parseScopeMutation(
     }
     return {
       proposalKind,
-      agentConfigId: targetId(parsed.agentConfigId),
+      agentConfigId: targetId(parsed.agentConfigId, proposalKind),
       field,
       add,
     };
@@ -321,7 +326,7 @@ export function parseScopeMutation(
   if (field !== 'allowedMcpsJson' && field !== 'allowedSkillsJson' && field !== 'corePermissionsJson') {
     throw new Error('refine-scope field is unsupported');
   }
-  const base = { proposalKind, agentConfigId: targetId(patch.agentConfigId), field } as const;
+  const base = { proposalKind, agentConfigId: targetId(patch.agentConfigId, proposalKind), field } as const;
 
   if (field === 'allowedMcpsJson' || field === 'allowedSkillsJson') {
     if (Object.prototype.hasOwnProperty.call(patch, 'set') || Object.prototype.hasOwnProperty.call(patch, 'unset')) {

@@ -1260,6 +1260,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       measure_reason TEXT,
       decided_by_user_id INTEGER,
       revision      INTEGER NOT NULL DEFAULT 0,
+      reconciliation_reason TEXT,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
