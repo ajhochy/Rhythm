@@ -205,6 +205,45 @@ function liveBoundScope(
 }
 
 /**
+ * W6-c7 — the demotion.
+ *
+ * The three sites below where this module used to establish "the change
+ * worked" — scope hygiene, the LLM body score and the behavioral re-run — keep
+ * their DEPLOYMENT transition, their measureReason prose and every safety exit
+ * (revert on a failed functional guard, revert on an unknown/non-improved
+ * score, `skipped` on infra error, reconciliation-required via
+ * markMeasuringUnresolvable). What they lose is authority over the OUTCOME
+ * field: a keep here records `inconclusive`, never `verified`. Only
+ * org_proposal_experiment_service, judging a predeclared experiment against
+ * paired cohorts, may write `verified`.
+ *
+ * NEVER throws and never changes the returned MeasureOutcome: measureProposal
+ * has four call sites, two of them fire-and-forget on the human-approved lane
+ * that is deliberately NOT policy-gated. A failed outcome stamp is a logged
+ * gap, not a broken human apply — and the row still reaches its terminal
+ * deployment status either way, so nothing is stranded in `measuring`.
+ */
+async function recordDiagnosticOutcome(
+  proposalId: string,
+  deps: MeasureDeps,
+): Promise<void> {
+  try {
+    const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+    const current = await proposalsRepo.findByIdAsync(proposalId);
+    if (!current || current.outcomeStatus === 'verified') return;
+    await proposalsRepo.setOutcomeStatusAtRevisionAsync({
+      proposalId,
+      expectedRevision: current.revision,
+      outcomeStatus: 'inconclusive',
+    });
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-measure] could not record diagnostic outcome for '${proposalId}': ${String(error)}`,
+    );
+  }
+}
+
+/**
  * Measure a `measuring` proposal and KEEP or REVERT it. NEVER throws.
  */
 export async function measureProposal(
@@ -419,6 +458,9 @@ async function measureScopeChange(
   await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
     measureReason: `scope-hygiene: removed ${removed.length} dead/unused entr${removed.length === 1 ? 'y' : 'ies'}; functional guard passed`,
   });
+  // W6-c7 — a shorter allowlist is tidiness, not measured improvement. The
+  // final acceptance gate names allowlist shrink explicitly.
+  await recordDiagnosticOutcome(proposal.id, deps);
   logger.info(`[org-proposal-measure] KEPT scope change for '${proposal.id}'`);
   return 'kept';
 }
@@ -481,6 +523,8 @@ async function measureBodyRefinement(
       postScore: post.score,
       measureReason: reason,
     });
+    // W6-c7 — one LLM score is a proxy. It deploys; it does not verify.
+    await recordDiagnosticOutcome(proposal.id, deps);
     logger.info(`[org-proposal-measure] KEPT '${proposal.id}' (post ${post.score} > baseline ${baseline.score})`);
     return 'kept';
   }
@@ -648,6 +692,8 @@ async function measureBehavioralRerun(
   await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
     measureReason: `behavioral re-run completed without the original failure signature: ${outcome.reason}`,
   });
+  // W6-c7 — one replay is a proxy. It deploys; it does not verify.
+  await recordDiagnosticOutcome(proposal.id, deps);
 
   // Stage B — an adopted external skill that measured clean RESOLVES its
   // originating capability-gap (signalRef carries `gapId:<dedup_key>`). On a

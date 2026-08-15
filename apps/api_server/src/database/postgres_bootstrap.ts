@@ -1771,4 +1771,74 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       BEFORE UPDATE OR DELETE ON agent_run_feedback_events
       FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent run feedback is append-only');
   `);
+
+  // ── W6 — experiment contracts (Postgres twin) ─────────────────────────────
+  //
+  // W6-c5: the cohort read's supporting index. No column is added to the W4
+  // ledger and no update path exists.
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_experiment
+       ON agent_run_outcomes(proposal_id, experiment_variant)`,
+  );
+
+  // W6-c8: outcome status, separate from the deployment status. Single-line
+  // ALTER on purpose — skill_schema_parity.test.ts's parser only reads
+  // single-line `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS outcome_status TEXT NOT NULL DEFAULT 'unproven';
+  `);
+
+  // W6-c3: column set MUST stay identical to the SQLite migration in
+  // migrations.ts — enforced by skill_schema_parity.test.ts. Table in its own
+  // pool.query with the closing paren immediately before the backtick, indexes
+  // in separate calls, or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiments (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      evidence_bundle_json TEXT NOT NULL,
+      baseline_spec_json TEXT NOT NULL,
+      candidate_spec_json TEXT NOT NULL,
+      assignment_key TEXT NOT NULL,
+      stopping_rule_json TEXT NOT NULL,
+      max_exposure INTEGER NOT NULL,
+      results_json TEXT,
+      decision TEXT,
+      decision_reason TEXT,
+      declared_at TEXT NOT NULL,
+      results_recorded_at TEXT,
+      decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiments_proposal
+       ON agent_org_experiments(proposal_id, declared_at)`,
+  );
+  // Behavioural twin of the SQLite spec-immutability triggers: the same guarded
+  // column list and the same message text, reusing rhythm_reject_ledger_write
+  // so a caller sees one wording regardless of engine. Results and decision
+  // writes are deliberately outside the WHEN clause.
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiments_spec_immutable ON agent_org_experiments;
+    CREATE TRIGGER trg_agent_org_experiments_spec_immutable
+      BEFORE UPDATE ON agent_org_experiments
+      FOR EACH ROW WHEN (
+        NEW.proposal_id IS DISTINCT FROM OLD.proposal_id
+        OR NEW.adapter IS DISTINCT FROM OLD.adapter
+        OR NEW.evidence_bundle_json IS DISTINCT FROM OLD.evidence_bundle_json
+        OR NEW.baseline_spec_json IS DISTINCT FROM OLD.baseline_spec_json
+        OR NEW.candidate_spec_json IS DISTINCT FROM OLD.candidate_spec_json
+        OR NEW.assignment_key IS DISTINCT FROM OLD.assignment_key
+        OR NEW.stopping_rule_json IS DISTINCT FROM OLD.stopping_rule_json
+        OR NEW.max_exposure IS DISTINCT FROM OLD.max_exposure
+        OR NEW.declared_at IS DISTINCT FROM OLD.declared_at
+      )
+      EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
+    DROP TRIGGER IF EXISTS trg_agent_org_experiments_no_delete ON agent_org_experiments;
+    CREATE TRIGGER trg_agent_org_experiments_no_delete
+      BEFORE DELETE ON agent_org_experiments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
+  `);
 }
