@@ -185,6 +185,26 @@ export interface RunOrgOptimizerResult {
    * succeed from one that would fail: it never attempts either.
    */
   recoveryLagging?: number;
+  /**
+   * W6 experiment sweep — undecided experiments this run judged, by verdict.
+   * `promoted` is the ONLY thing in the system that can set a proposal's
+   * outcome_status to `verified`.
+   */
+  experiments?: {
+    judged: number;
+    promoted: number;
+    regressed: number;
+    inconclusive: number;
+  };
+  /**
+   * True when `experiments` counts what the sweep WOULD have decided rather
+   * than what it recorded. Same posture as `recoveryReportOnly`: judging writes
+   * results, a decision, and the proposal's outcome_status (advancing its
+   * lifecycle CAS token), so it belongs to the acting modes. Shadow still
+   * computes and reports the verdict, because a shadow run that cannot say
+   * "this experiment would promote" is blind rather than safe.
+   */
+  experimentsReportOnly?: boolean;
   /** Non-fatal error message, if the run degraded to a partial result. */
   erroredReason?: string;
 }
@@ -683,6 +703,47 @@ export async function runOrgOptimizer(
       }
     } catch (err) {
       logger.warn(`[org-optimizer-run] measuring-row sweep failed (non-fatal): ${String(err)}`);
+    }
+
+    // ── 9b. W6 experiment sweep. The controlled-experiment gate is the ONLY
+    // thing that may establish verified improvement, and before this it had no
+    // production caller at all. Judge every undecided experiment; the gate
+    // itself decides promote | inconclusive | regress and refuses on an invalid
+    // bundle, a non-promoting adapter, an empty cohort or an unmet stopping
+    // rule. Never throws. ────────────────────────────────────────────────────
+    try {
+      const { AgentOrgExperimentsRepository } = await import(
+        '../repositories/agent_org_experiments_repository'
+      );
+      const { computeDecisionAsync, judgeExperimentAsync } = await import(
+        './org_proposal_experiment_service'
+      );
+      const undecided = await new AgentOrgExperimentsRepository().listUndecidedAsync();
+      const acting = mayMutateLifecycle(policy);
+      const tally = { judged: 0, promoted: 0, regressed: 0, inconclusive: 0 };
+      for (const experiment of undecided) {
+        // Acting modes RECORD the verdict (results, decision, and the
+        // proposal's outcome_status). Shadow computes the identical verdict
+        // through the shared code path and persists nothing, so a default
+        // install can never auto-promote.
+        const decided = acting
+          ? await judgeExperimentAsync(experiment.id)
+          : await computeDecisionAsync(experiment);
+        tally.judged += 1;
+        if (decided.decision === 'promote') tally.promoted += 1;
+        else if (decided.decision === 'regress') tally.regressed += 1;
+        else tally.inconclusive += 1;
+        logger.info(
+          `[org-optimizer-run] experiment '${experiment.id}' (proposal '${experiment.proposalId}') ` +
+          `${acting ? 'decided' : 'WOULD decide'} ${decided.decision}: ${decided.reason}`,
+        );
+      }
+      if (tally.judged > 0) {
+        result.experiments = tally;
+        if (!acting) result.experimentsReportOnly = true;
+      }
+    } catch (err) {
+      logger.warn(`[org-optimizer-run] experiment sweep failed (non-fatal): ${String(err)}`);
     }
 
     // ── 10. Bounded recovery sweep. The database commit, the profile file and

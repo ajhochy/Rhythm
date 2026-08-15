@@ -10,32 +10,42 @@
  * `regress`: an absent cohort or an invalid bundle is a failure to measure, not
  * evidence of harm.
  *
- * ── SHIPPED LIMITATION, stated rather than left as a silently-passing test ──
+ * ── WIRED (post-W6). What runs in production, and what still does not ──
  *
- * NO PRODUCTION CALLER DECLARES, ASSIGNS, OR JUDGES AN EXPERIMENT. Every
- * function in this module is reachable only from its own tests: no route, no
- * controller and no path in org_optimizer_run_service.ts calls declareAsync,
- * assignSubjectAsync or judgeExperimentAsync. Consequently, in production
- * `agent_org_proposals.outcome_status` can only ever hold `unproven`,
- * `inconclusive` or `regressed` — the values the demoted measure path writes.
- * `verified` is unreachable outside the test suite until the wiring lands.
+ * The lifecycle now has real production callers:
  *
- * That is BROADER than the limitation W6-c5 records (nothing populates
- * agent_run_outcomes.experiment_variant, so every cohort is empty in
- * production). Both are true; this one is the one that decides whether this
- * file is a live gate or a correct mechanism waiting to be plugged in. It is
- * currently the second, and W6-c12's positive control proves the mechanism
- * works, not that it runs.
+ *   declare  — POST /agent-org-proposals/:id/experiment. An OPERATOR supplies
+ *              the evidence bundle. Nothing auto-declares, because a bundle
+ *              requires a counter-evidence search and source event IDs that no
+ *              generator produces today; synthesising them would be fabricated
+ *              evidence, which is worse than no experiment.
+ *   assign   — {@link resolveRunEnrollment}, called by run_outcome_service's
+ *              terminal hook BEFORE the ledger row is inserted (see below).
+ *   judge    — the optimizer run loop's experiment sweep: persisted under the
+ *              acting modes, computed REPORT-ONLY under `shadow`.
  *
- * Wiring cohort assignment into run creation, and the experiment lifecycle into
- * the optimizer run service, is explicitly out of W6's scope — see the
- * contract's explicitly_out_of_scope list. W7's live gate is where this becomes
- * observable against a real sandbox.
+ * `agent_org_proposals.outcome_status` can therefore now reach `verified` in
+ * production, which it could not before.
+ *
+ * ── REMAINING LIMITATION, stated rather than left to be discovered ──
+ *
+ * NOTHING APPLIES `baseline_spec_json` / `candidate_spec_json` PER RUN. The two
+ * arms are randomly split but they are not differentially TREATED: the
+ * proposal's change is already deployed to the whole population by the time any
+ * run is enrolled. So a `promote` today attests that a randomised split of the
+ * run population differed past the predeclared stopping rule — not that the
+ * candidate arm received the change and the baseline arm did not.
+ *
+ * That is why judging is gated to the acting optimizer modes: on a default
+ * (`shadow`) install nothing is ever promoted automatically. Per-run spec
+ * application is the follow-up that turns this from an A/A split into a real
+ * controlled experiment; the enrollment point below is where it plugs in.
  */
 
 import { createHash } from 'node:crypto';
 
 import { logger } from '../utils/logger';
+import { parseOptimizerPolicy, type OptimizerPolicy } from './org_optimizer_policy';
 import {
   EXPERIMENT_ADAPTERS,
   PRIMARY_METRICS,
@@ -118,6 +128,85 @@ export async function assignSubjectAsync(
     currentExposure: enrolled.length,
     subjectId,
   });
+}
+
+/** What a finishing run carries into the ledger when it is enrolled. */
+export interface RunEnrollment {
+  proposalId: string;
+  experimentVariant: Cohort;
+}
+
+/**
+ * Decide whether a run that is about to be FINALIZED belongs to an experiment.
+ *
+ * ── Why here, and why this satisfies "assignment precedes finalization" ──
+ *
+ * agent_run_outcomes is UPDATE/DELETE-blocked in both engines, so a label that
+ * is not present in the INSERT can never be added afterwards. This resolves the
+ * cohort before that INSERT, so the label is part of the row from birth and no
+ * retro-labelling path is ever needed — the constraint is satisfied
+ * structurally, not by convention.
+ *
+ * Moving the call earlier (to run START) would produce the IDENTICAL label:
+ * {@link assignCohort} is a pure hash of (assignmentKey, subjectId) and the
+ * subject is the root session id, which is fixed for the whole run. The only
+ * thing the call site changes is the moment the exposure cap is evaluated. That
+ * is deliberate — when per-run spec application lands, the assignment has to
+ * move to run start so the arm can actually be applied, and this function moves
+ * with it unchanged.
+ *
+ * Never throws: the terminal hook is fire-and-forget, and a run must never fail
+ * to be recorded because the experiment lookup did.
+ */
+export async function resolveRunEnrollment(
+  subjectId: string,
+  deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
+): Promise<RunEnrollment | null> {
+  try {
+    // W5's kill switch. `off` means the optimizer does not run at all, and
+    // enrolling subjects is optimizer machinery. Every other mode enrolls:
+    // labelling a row that is being written anyway mutates nothing that exists,
+    // and shadow is supposed to observe rather than be blind (the W5-c11
+    // precedent). What shadow does NOT do is act on those observations — see
+    // the judging sweep.
+    const policy =
+      deps.policy ??
+      parseOptimizerPolicy({
+        mode: process.env.RHYTHM_OPTIMIZER_MODE,
+        disabledFamilies: process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
+      });
+    if (policy.mode === 'off') return null;
+
+    const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
+    const undecided = await experimentsRepo.listUndecidedAsync();
+    if (undecided.length === 0) return null;
+
+    // A ledger row holds ONE proposal_id and ONE variant, so a run can be in at
+    // most one experiment. The oldest undecided one wins: deterministic, and it
+    // lets an experiment finish rather than starving behind a newer one.
+    const experiment = undecided[0];
+
+    const assignment = await assignSubjectAsync(experiment.id, subjectId, {
+      experimentsRepo,
+      outcomesRepo: deps.outcomesRepo,
+    });
+    if (assignment.status === 'refused') {
+      // W6-c14 — a refused subject is recorded as NOT in the experiment. The
+      // row is still written; it just carries no proposal_id and no variant, so
+      // it can never be counted into a cohort.
+      logger.info(
+        `[org-proposal-experiment] '${subjectId}' not enrolled in experiment ` +
+          `'${experiment.id}': ${assignment.reason}`,
+      );
+      return null;
+    }
+    return { proposalId: experiment.proposalId, experimentVariant: assignment.cohort };
+  } catch (err) {
+    logger.warn(
+      `[org-proposal-experiment] run enrollment skipped for '${subjectId}' (non-fatal): ${String(err)}`,
+    );
+    return null;
+  }
 }
 
 export interface DecisionResult {
@@ -234,6 +323,25 @@ const OUTCOME_BY_DECISION = {
 } as const;
 
 /**
+ * Read the cohorts from W4's ledger and decide. Writes NOTHING — this is the
+ * whole of the computation, shared by the persisting path below and by the
+ * optimizer's shadow-mode report-only sweep, so the two can never drift into
+ * disagreeing about what the verdict would have been.
+ */
+export async function computeDecisionAsync(
+  experiment: AgentOrgExperiment,
+  deps: ExperimentDeps = {},
+): Promise<DecisionResult> {
+  const outcomesRepo = deps.outcomesRepo ?? new AgentRunOutcomesRepository();
+  const enrolled = await outcomesRepo.listByExperimentAsync(experiment.proposalId);
+  return decideExperiment({
+    experiment,
+    baseline: enrolled.filter((o) => o.experimentVariant === 'baseline'),
+    candidate: enrolled.filter((o) => o.experimentVariant === 'candidate'),
+  });
+}
+
+/**
  * Read the cohorts from W4's ledger, decide, and record durably: the results
  * and the decision on the experiment row, and the resulting outcome_status on
  * the proposal through the revision-fenced write.
@@ -261,12 +369,7 @@ export async function judgeExperimentAsync(
     };
   }
 
-  const outcomesRepo = deps.outcomesRepo ?? new AgentRunOutcomesRepository();
-  const enrolled = await outcomesRepo.listByExperimentAsync(experiment.proposalId);
-  const baseline = enrolled.filter((o) => o.experimentVariant === 'baseline');
-  const candidate = enrolled.filter((o) => o.experimentVariant === 'candidate');
-
-  const decided = decideExperiment({ experiment, baseline, candidate });
+  const decided = await computeDecisionAsync(experiment, deps);
 
   if (decided.results && !experiment.results) {
     await experimentsRepo.recordResultsAsync(experiment.id, decided.results);
