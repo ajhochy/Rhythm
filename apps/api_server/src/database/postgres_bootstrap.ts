@@ -1065,7 +1065,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
       ON agent_research_qa_links(project_id, created_at)
   `);
-  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  // NOTE: the agent_session_id FK on this table is added further down, right
+  // after `agent_sessions` is created — adding it here referenced a table that
+  // does not exist yet, which aborted the whole bootstrap on a FRESH database.
   await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_snapshot_json TEXT NOT NULL DEFAULT '{}'`);
   await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_hash TEXT`);
   await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS model_usage_json TEXT NOT NULL DEFAULT '{}'`);
@@ -1369,6 +1371,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS profile_id TEXT;
   `);
+  // Deferred from the agent_research_qa_links block above: this FK cannot be
+  // declared before agent_sessions exists.
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
 
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`
