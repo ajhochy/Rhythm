@@ -298,26 +298,27 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
   });
 
   /**
-   * KNOWN DIVERGENCE, executably documented. `it.fails` asserts this test does
-   * NOT pass — so the day someone fixes the SQLite default, THIS LINE GOES RED
-   * and forces them to promote it back to a plain `it`. It is not a skip and
-   * not a weakened assertion: the body below is the real invariant, unmodified.
+   * FIXED 2026-08-15 — promoted from `it.fails` to a real `it`.
    *
-   * The divergence, measured 2026-08-15 on this branch:
+   * The divergence this used to characterize:
    *   Postgres  "2026-08-15T20:08:04.829Z"  -> 2026-08-15T20:08:04.829Z
    *   SQLite    "2026-08-15 20:08:05"       -> 2026-08-16T03:08:05.000Z
    *
-   * Same column name — `skill_schema_parity.test.ts` is green on both — but a
-   * SEVEN HOUR skew once `new Date(...)` parses the naive SQLite string as
-   * LOCAL time. This repo has already shipped a bug of exactly this species.
+   * Same column name — `skill_schema_parity.test.ts` was green on both — but a
+   * SEVEN HOUR skew once `new Date(...)` parsed the naive SQLite string as
+   * LOCAL time.
    *
-   * Not fixed here on purpose: `migrations.ts` has 98 `DEFAULT (datetime('now'))`
-   * sites, and because every table is `CREATE TABLE IF NOT EXISTS`, changing
-   * them would leave ALREADY-MIGRATED local databases with two formats mixed in
-   * one column — where ' ' < 'T' also breaks lexicographic ordering. That needs
-   * its own change with a backfill, not a drive-by edit inside a test PR.
+   * All 100 SQLite timestamp DEFAULTs now emit `strftime('%Y-%m-%dT%H:%M:%fZ',
+   * 'now')`, so a FRESH database matches Postgres byte for byte — which is what
+   * this test exercises (`:memory:`).
+   *
+   * STILL OWED (Stage 2): already-migrated databases. `CREATE TABLE IF NOT
+   * EXISTS` cannot alter an existing table's DEFAULT, so existing installs keep
+   * writing the naive format until a table-rebuild + backfill migration lands.
+   * That boundary — and the mixed-format ordering hazard it implies — is
+   * executably documented in `created_at_utc_parity.test.ts`.
    */
-  it.fails('SEMANTIC: created_at DEFAULT yields the same instant in both engines', async () => {
+  it('SEMANTIC: created_at DEFAULT yields the same instant in both engines', async () => {
     // The column-name guard cannot see this. Postgres defaults to
     // to_char(timezone('utc', now()), ...); SQLite to datetime('now'). Same
     // column name, different value shape.
@@ -333,6 +334,11 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
       stopping_rule_json: '{}',
       max_exposure: 1,
       declared_at: '2026-01-01T00:00:00.000Z',
+      // `idx_agent_org_experiments_one_undecided` is a partial unique index
+      // admitting exactly one undecided experiment, and a sibling test above
+      // already parks one. Declaring a decision keeps this test independent of
+      // execution order without relaxing anything it asserts.
+      decision: 'ship',
     };
     const cols = Object.keys(row);
     const pg = await pool.query<{ created_at: string }>(
