@@ -219,6 +219,24 @@ export class AgentOrgExperimentsRepository {
     return rows.map(rowToModel);
   }
 
+  /**
+   * Every experiment still awaiting a decision, oldest declaration first.
+   *
+   * Read-only. The cohort wiring uses this to answer "is there an active,
+   * undecided experiment a finishing run may be enrolled into?", and the
+   * optimizer's judging sweep uses it to answer "is there anything to judge?".
+   * A decided experiment is history and never appears here, so neither caller
+   * can re-open one.
+   */
+  async listUndecidedAsync(): Promise<AgentOrgExperiment[]> {
+    const sql = `SELECT * FROM agent_org_experiments WHERE decision IS NULL ORDER BY declared_at`;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql);
+      return (r.rows as ExperimentRow[]).map(rowToModel);
+    }
+    return (this.db!.prepare(sql).all() as ExperimentRow[]).map(rowToModel);
+  }
+
   async recordResultsAsync(
     id: string,
     results: ExperimentResults,

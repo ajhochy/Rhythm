@@ -221,12 +221,28 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
       errorCount: telemetry?.errorCount ?? null,
       approvalDenied: null,
     };
+    // W6 cohort wiring. agent_run_outcomes is UPDATE/DELETE-blocked in both
+    // engines, so a cohort label absent from THIS insert can never be added
+    // later — assignment has to happen before finalization or the run can never
+    // be paired. It happens here, on the root session, which is the subject the
+    // deterministic assignment key is computed over.
+    //
+    // An explicit label on the event always wins: a caller that already knows
+    // which arm it ran is authoritative over the lookup.
+    const enrollment =
+      event.proposalId || event.experimentVariant
+        ? null
+        : await (async () => {
+            const { resolveRunEnrollment } = await import('./org_proposal_experiment_service');
+            return resolveRunEnrollment(rootSessionId);
+          })();
+
     await repo.finalizeAsync({
       rootSessionId,
       sessionId: event.sessionId,
       scheduledOccurrenceId: event.scheduledOccurrenceId ?? null,
-      experimentVariant: event.experimentVariant ?? null,
-      proposalId: event.proposalId ?? null,
+      experimentVariant: event.experimentVariant ?? enrollment?.experimentVariant ?? null,
+      proposalId: event.proposalId ?? enrollment?.proposalId ?? null,
       profileId: event.profileId ?? null,
       configRevision: event.configRevision ?? null,
       terminalStatus: event.terminalStatus,

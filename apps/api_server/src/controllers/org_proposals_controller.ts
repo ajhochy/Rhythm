@@ -30,6 +30,7 @@ import { logger } from '../utils/logger';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { revertProposal } from '../services/org_proposal_apply';
 import { measureProposal } from '../services/org_proposal_measure';
+import { validateEvidenceBundle } from '../services/proposal_evidence_validator';
 import {
   applyProposal,
   hasSecurityNote,
@@ -55,6 +56,67 @@ function repo(): AgentOrgProposalsRepository {
 export const LOCAL_OPERATOR_ACTOR_ID = 0;
 
 export class OrgProposalsController {
+  /**
+   * W6 wiring — POST /:id/experiment. The production DECLARER.
+   *
+   * An operator supplies the evidence bundle, the two specs, the stopping rule
+   * and the exposure cap; this validates the bundle before anything is stored,
+   * so an invalid bundle is a 400 here rather than an `inconclusive` discovered
+   * a thousand runs later.
+   *
+   * Deliberately a human path, and deliberately not policy-gated — same
+   * authority as approve/revert. Nothing auto-declares: a bundle requires a
+   * counter-evidence search and source event IDs that no generator produces
+   * today, and synthesising those would be fabricated evidence.
+   */
+  async declareExperiment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const proposal = await repo().findByIdAsync(id);
+      if (!proposal) throw AppError.notFound('AgentOrgProposal');
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const validation = validateEvidenceBundle(body.evidenceBundle);
+      if (!validation.valid) {
+        throw AppError.badRequest(
+          `Proposal ${id}: the evidence bundle is not valid: ${validation.reasons.join('; ')}`,
+        );
+      }
+
+      const { AgentOrgExperimentsRepository } = await import(
+        '../repositories/agent_org_experiments_repository'
+      );
+      let experiment;
+      try {
+        experiment = await new AgentOrgExperimentsRepository().declareAsync({
+          proposalId: id,
+          adapter: validation.bundle.experimentAdapter,
+          evidenceBundleJson: JSON.stringify(validation.bundle),
+          baselineSpecJson: JSON.stringify(body.baselineSpec ?? null),
+          candidateSpecJson: JSON.stringify(body.candidateSpec ?? null),
+          // The assignment key is what makes the split reproducible, so it is
+          // recorded input, never a fresh random value invented per call.
+          assignmentKey: String(body.assignmentKey ?? ''),
+          stoppingRule: body.stoppingRule as never,
+          maxExposure: Number(body.maxExposure),
+        });
+      } catch (err) {
+        // Every throw out of declareAsync is a rejected declaration (a missing
+        // field, an unusable stopping rule, a duplicate undecided experiment),
+        // not a server fault.
+        throw AppError.badRequest(`Proposal ${id}: ${String((err as Error).message ?? err)}`);
+      }
+
+      logger.info(
+        `[OrgProposalsController] experiment '${experiment.id}' declared for proposal ${id} ` +
+        `(adapter=${experiment.adapter}, maxExposure=${experiment.maxExposure})`,
+      );
+      res.status(201).json(experiment);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const status = typeof req.query.status === 'string' ? req.query.status : 'proposed';
