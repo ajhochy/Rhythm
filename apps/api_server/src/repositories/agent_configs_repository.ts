@@ -400,7 +400,7 @@ export class AgentConfigsRepository {
         `UPDATE agent_configs
             SET ${column} = ?,
                 revision = revision + 1,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
           WHERE id = ? AND ${column} IS ?
           RETURNING *`,
       )
@@ -435,7 +435,7 @@ export class AgentConfigsRepository {
         `UPDATE agent_configs
             SET ${column} = ?,
                 revision = revision + 1,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
           WHERE id = ?
             AND ${column} IS ?
             AND revision = ?
@@ -601,7 +601,7 @@ export class AgentConfigsRepository {
     // rollback compatibility but new writes never touch them here.
 
     fields.push('revision = revision + 1');
-    fields.push('updated_at = CURRENT_TIMESTAMP');
+    fields.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
 
     if (fields.length === 1) {
       // Only updated_at was going to change — still apply it
@@ -632,7 +632,7 @@ export class AgentConfigsRepository {
                   locked_at = ?,
                   locked_by = ?,
                   revision = revision + 1,
-                  updated_at = CURRENT_TIMESTAMP
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
             WHERE id = ? AND COALESCE(locked, 0) = 0`,
         )
         .run(reason, lockedAt, actor, id);
@@ -665,7 +665,7 @@ export class AgentConfigsRepository {
                   locked_at = NULL,
                   locked_by = NULL,
                   revision = revision + 1,
-                  updated_at = CURRENT_TIMESTAMP
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
             WHERE id = ?
               AND locked = 1
               AND locked_at = ?

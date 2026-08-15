@@ -150,7 +150,7 @@ export class WorkspaceRepository {
     getDb()
       .prepare(
         `INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, joined_at)
-         VALUES (?, ?, 'staff', datetime('now'))`,
+         VALUES (?, ?, 'staff', strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
       )
       .run(workspaceId, userId);
   }

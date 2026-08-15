@@ -178,13 +178,20 @@ describe('live-artifact schema parity (AV-01)', () => {
 
       // Timestamp defaults use each dialect's own now-expression, so assert the
       // column stays NOT NULL with a default rather than a literal expression.
+      //
+      // The SQLite side additionally pins the ZONE-SAFE expression. It used to
+      // accept `datetime('now')`, which yields a designator-less
+      // "YYYY-MM-DD HH:MM:SS" that `new Date()`/`DateTime.parse` read as LOCAL
+      // time — a 7-hour skew against the Postgres column of the same name.
+      // Asserting the exact expression is what keeps the two engines agreeing
+      // on the INSTANT, not merely on the column name.
       for (const column of spec.timestampDefaults) {
         expect(squash(postgresBody), `Postgres ${table}.${column} lost its default`)
           .toMatch(new RegExp(`${column} TEXT NOT NULL DEFAULT \\(`));
         const sqliteColumn = sqliteColumns.find(({ name }) => name === column);
         expect(sqliteColumn, `SQLite ${table}.${column} missing`).toMatchObject({ notnull: 1 });
-        expect(sqliteColumn?.dflt_value, `SQLite ${table}.${column} lost its default`)
-          .toContain("datetime('now')");
+        expect(sqliteColumn?.dflt_value, `SQLite ${table}.${column} lost its UTC default`)
+          .toContain("strftime('%Y-%m-%dT%H:%M:%fZ','now')");
       }
 
       // Nullability and primary-key ordinals, structurally introspected.

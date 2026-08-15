@@ -133,7 +133,7 @@ export function runMigrations(db: Database.Database): void {
       op TEXT NOT NULL,
       pk TEXT NOT NULL,
       row_json TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS relay_sync_state (
@@ -162,8 +162,8 @@ export function runMigrations(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'open',
       source_type TEXT,
       source_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS recurring_task_rules (
@@ -174,7 +174,7 @@ export function runMigrations(db: Database.Database): void {
       day_of_month INTEGER,
       month INTEGER,
       steps_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS project_templates (
@@ -183,7 +183,7 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       anchor_type TEXT NOT NULL DEFAULT 'date',
       owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS project_template_steps (
@@ -202,7 +202,7 @@ export function runMigrations(db: Database.Database): void {
       anchor_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS project_milestones (
@@ -212,8 +212,8 @@ export function runMigrations(db: Database.Database): void {
       due_date TEXT,
       color TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(instance_id, id)
     );
 
@@ -233,7 +233,7 @@ export function runMigrations(db: Database.Database): void {
       week_label TEXT NOT NULL UNIQUE,
       week_start_date TEXT NOT NULL,
       locked INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS integration_accounts (
@@ -251,8 +251,8 @@ export function runMigrations(db: Database.Database): void {
       expires_at TEXT,
       last_synced_at TEXT,
       error_message TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(owner_id, provider)
     );
 
@@ -269,8 +269,8 @@ export function runMigrations(db: Database.Database): void {
       start_at TEXT NOT NULL,
       end_at TEXT,
       is_all_day INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(owner_id, external_id)
     );
 
@@ -285,8 +285,8 @@ export function runMigrations(db: Database.Database): void {
       snippet TEXT,
       received_at TEXT,
       is_unread INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(owner_id, external_id)
     );
 
@@ -306,8 +306,8 @@ export function runMigrations(db: Database.Database): void {
       action_type TEXT NOT NULL,
       action_config TEXT,
       enabled INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS automation_signals (
@@ -321,8 +321,8 @@ export function runMigrations(db: Database.Database): void {
       source_account_id TEXT,
       source_label TEXT,
       payload_json TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -335,14 +335,14 @@ export function runMigrations(db: Database.Database): void {
       is_facilities_manager INTEGER NOT NULL DEFAULT 0,
       email_notifications_enabled INTEGER NOT NULL DEFAULT 1,
       password_hash TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       expires_at TEXT
     );
 
@@ -350,8 +350,8 @@ export function runMigrations(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
       created_by INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -360,7 +360,7 @@ export function runMigrations(db: Database.Database): void {
       sender_id INTEGER REFERENCES users(id),
       sender_name TEXT NOT NULL,
       body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS facilities (
@@ -370,8 +370,8 @@ export function runMigrations(db: Database.Database): void {
       capacity INTEGER,
       location TEXT,
       building TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS reservation_groups (
@@ -385,8 +385,8 @@ export function runMigrations(db: Database.Database): void {
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       occurrence_date TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS reservations (
@@ -406,8 +406,8 @@ export function runMigrations(db: Database.Database): void {
       created_by_rhythm INTEGER NOT NULL DEFAULT 1,
       is_conflicted INTEGER NOT NULL DEFAULT 0,
       conflict_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS reservation_series (
@@ -424,8 +424,8 @@ export function runMigrations(db: Database.Database): void {
       custom_dates_json TEXT NOT NULL DEFAULT '[]',
       start_date TEXT NOT NULL,
       end_date TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS thread_participants (
@@ -579,7 +579,7 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!reservationCols.includes('updated_at')) {
     db.exec(
-      `ALTER TABLE reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+      `ALTER TABLE reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
     );
   }
 
@@ -607,7 +607,7 @@ export function runMigrations(db: Database.Database): void {
     }
     if (!reservationSeriesCols.includes('updated_at')) {
       db.exec(
-        `ALTER TABLE reservation_series ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+        `ALTER TABLE reservation_series ADD COLUMN updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
       );
     }
   }
@@ -631,8 +631,8 @@ export function runMigrations(db: Database.Database): void {
         expires_at TEXT,
         last_synced_at TEXT,
         error_message TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(owner_id, provider)
       );
     `);
@@ -668,8 +668,8 @@ export function runMigrations(db: Database.Database): void {
         start_at TEXT NOT NULL,
         end_at TEXT,
         is_all_day INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(owner_id, external_id)
       );
     `);
@@ -721,8 +721,8 @@ export function runMigrations(db: Database.Database): void {
         snippet TEXT,
         received_at TEXT,
         is_unread INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(owner_id, external_id)
       );
     `);
@@ -786,8 +786,8 @@ export function runMigrations(db: Database.Database): void {
         action_type TEXT NOT NULL,
         action_config TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         owner_id INTEGER REFERENCES users(id),
         source TEXT,
         trigger_key TEXT,
@@ -842,28 +842,28 @@ export function runMigrations(db: Database.Database): void {
       name TEXT NOT NULL,
       join_code TEXT NOT NULL UNIQUE,
       created_by INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS workspace_members (
       workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       role TEXT NOT NULL DEFAULT 'staff',
-      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (workspace_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS task_collaborators (
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (task_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS project_collaborators (
       project_instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (project_instance_id, user_id)
     );
 
@@ -882,8 +882,8 @@ export function runMigrations(db: Database.Database): void {
       current_state_revision INTEGER NOT NULL CHECK (current_state_revision > 0),
       current_state_hash TEXT NOT NULL CHECK (length(current_state_hash) = 64),
       declared_capabilities_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       updated_by_user_id INTEGER NOT NULL REFERENCES users(id),
       deleted_at TEXT,
       deleted_by_user_id INTEGER REFERENCES users(id)
@@ -896,7 +896,7 @@ export function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS live_artifact_collaborators (
       artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
       user_id INTEGER NOT NULL REFERENCES users(id),
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       added_by_user_id INTEGER NOT NULL REFERENCES users(id),
       PRIMARY KEY (artifact_id, user_id)
     );
@@ -908,7 +908,7 @@ export function runMigrations(db: Database.Database): void {
       revision INTEGER NOT NULL CHECK (revision > 0),
       hash TEXT NOT NULL CHECK (length(hash) = 64),
       actor_user_id INTEGER NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (artifact_id, revision)
     );
 
@@ -917,7 +917,7 @@ export function runMigrations(db: Database.Database): void {
       revision INTEGER NOT NULL CHECK (revision > 0),
       hash TEXT NOT NULL CHECK (length(hash) = 64),
       actor_user_id INTEGER NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (artifact_id, revision)
     );
   `);
@@ -961,7 +961,7 @@ export function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS rhythm_collaborators (
       rhythm_id TEXT NOT NULL REFERENCES recurring_task_rules(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (rhythm_id, user_id)
     );
   `);
@@ -976,7 +976,7 @@ export function runMigrations(db: Database.Database): void {
       entity_id TEXT NOT NULL,
       message TEXT NOT NULL,
       read_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_notifications_recipient
       ON notifications(recipient_user_id, read_at);
@@ -991,7 +991,7 @@ export function runMigrations(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
       triggered_by_user_id INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(task_id)
     )
   `);
@@ -1013,8 +1013,8 @@ export function runMigrations(db: Database.Database): void {
       name TEXT NOT NULL,
       last_preview TEXT,
       last_activity_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_task_id ON agent_sessions(task_id);
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_status ON agent_sessions(status);
@@ -1025,7 +1025,7 @@ export function runMigrations(db: Database.Database): void {
       role TEXT NOT NULL,
       raw_text TEXT NOT NULL,
       stripped_text TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_session_messages_session_id
       ON agent_session_messages(session_id, created_at);
@@ -1065,8 +1065,8 @@ export function runMigrations(db: Database.Database): void {
       preset_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       revision INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled);
   `);
@@ -1198,7 +1198,7 @@ export function runMigrations(db: Database.Database): void {
         resume_command = NULL,
         session_id_pattern = NULL,
         output_marker  = '✦',
-        updated_at     = datetime('now')
+        updated_at     = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id = 'gemini-cli';
     `);
   });
@@ -1233,7 +1233,7 @@ export function runMigrations(db: Database.Database): void {
         resume_command     = 'opencode --session {{sessionId}}',
         session_id_pattern = '(ses_[a-zA-Z0-9]{10,})',
         output_marker      = '│',
-        updated_at         = datetime('now')
+        updated_at         = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id = 'opencode';
     `);
   });
@@ -1248,7 +1248,7 @@ export function runMigrations(db: Database.Database): void {
     UPDATE agent_configs
     SET
       label      = 'OpenRouter',
-      updated_at = datetime('now')
+      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
     WHERE id = 'opencode' AND label = 'OpenCode';
   `);
 
@@ -1259,7 +1259,7 @@ export function runMigrations(db: Database.Database): void {
       title TEXT NOT NULL,
       body TEXT NOT NULL,
       read_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     )
   `);
 
@@ -1522,8 +1522,8 @@ export function runMigrations(db: Database.Database): void {
       last_run_status TEXT,       -- 'success' | 'error' | 'running' | NULL
       last_error TEXT,
       created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_next_run
       ON agent_scheduled_tasks(next_run_at)
@@ -1540,7 +1540,7 @@ export function runMigrations(db: Database.Database): void {
          SET prompt = ?,
              allowed_mcps_json = ?,
              allowed_skills_json = ?,
-             updated_at = datetime('now')
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE name = ?
          AND prompt = ?
          AND allowed_mcps_json = ?
@@ -1584,8 +1584,8 @@ export function runMigrations(db: Database.Database): void {
       trust_tier TEXT NOT NULL DEFAULT 'unverified',
       auto_injectable INTEGER NOT NULL DEFAULT 0,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_kind ON agent_memory(kind);
@@ -1710,8 +1710,8 @@ export function runMigrations(db: Database.Database): void {
       status TEXT DEFAULT 'draft',
       source TEXT,
       uses INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skills_title ON agent_skills(title);
   `);
@@ -1794,7 +1794,7 @@ export function runMigrations(db: Database.Database): void {
       body TEXT,
       confidence REAL DEFAULT 0,
       source TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id
       ON agent_skill_versions(skill_id);
@@ -1818,8 +1818,8 @@ export function runMigrations(db: Database.Database): void {
       sample_session_id TEXT,
       agent_config_id   TEXT,
       status            TEXT NOT NULL DEFAULT 'open',
-      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_capability_gaps_status ON agent_capability_gaps(status);
   `);
@@ -1841,8 +1841,8 @@ export function runMigrations(db: Database.Database): void {
       last_triggered_at TEXT,
       trigger_count INTEGER NOT NULL DEFAULT 0,
       created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_enabled
       ON agent_webhook_endpoints(enabled);
@@ -1866,8 +1866,8 @@ export function runMigrations(db: Database.Database): void {
       schedule_ref TEXT,
       budget_json TEXT NOT NULL DEFAULT '{}',
       archived_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_projects_owner_activity
       ON agent_research_projects(owner_user_id, archived_at, updated_at);
@@ -1883,7 +1883,7 @@ export function runMigrations(db: Database.Database): void {
       diagnostics_json TEXT NOT NULL DEFAULT '{}',
       started_at TEXT,
       completed_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_project_runs_project_activity
       ON agent_research_project_runs(project_id, created_at);
@@ -1913,8 +1913,8 @@ export function runMigrations(db: Database.Database): void {
       run_config_json TEXT,
       progress_json TEXT,
       classification_json TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status
       ON agent_research_jobs(status);
@@ -1949,7 +1949,7 @@ export function runMigrations(db: Database.Database): void {
       vault_path TEXT NOT NULL,
       content_hash TEXT,
       metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_artifacts_run_role
       ON agent_research_artifacts(project_run_id, artifact_role);
@@ -1968,7 +1968,7 @@ export function runMigrations(db: Database.Database): void {
       full_text_vault_path TEXT,
       content_hash TEXT,
       metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_curated_sources_project_url
       ON agent_research_curated_sources(project_id, canonical_url);
@@ -1982,7 +1982,7 @@ export function runMigrations(db: Database.Database): void {
       answer TEXT,
       artifact_id TEXT REFERENCES agent_research_artifacts(id) ON DELETE SET NULL,
       source_ids_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
       ON agent_research_qa_links(project_id, created_at);
@@ -1992,7 +1992,7 @@ export function runMigrations(db: Database.Database): void {
       parent_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
       child_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
       relationship_type TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(parent_job_id, child_job_id, relationship_type)
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_pass_relationships_child
@@ -2059,7 +2059,7 @@ export function runMigrations(db: Database.Database): void {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
           triggered_by_user_id INTEGER REFERENCES users(id),
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
           scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
           prompt TEXT,
           allowed_mcps_json TEXT,
@@ -2091,8 +2091,8 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       steps_json TEXT NOT NULL DEFAULT '[]',
       bound_config_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at);
   `);
@@ -2111,7 +2111,7 @@ export function runMigrations(db: Database.Database): void {
       file_path TEXT,
       thumbnail_url TEXT,
       session_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at);
   `);
@@ -2314,8 +2314,8 @@ export function runMigrations(db: Database.Database): void {
       measure_reason TEXT,
       decided_by_user_id INTEGER,
       revision      INTEGER NOT NULL DEFAULT 0,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_org_proposals_status ON agent_org_proposals(status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
@@ -2340,7 +2340,7 @@ export function runMigrations(db: Database.Database): void {
       last_error_code        TEXT,
       last_attempt_at        TEXT,
       attempt_count          INTEGER NOT NULL DEFAULT 0,
-      updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_profile_projections_state
       ON agent_profile_projections(projection_state);
@@ -2378,8 +2378,8 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       content     TEXT NOT NULL,
       published   INTEGER NOT NULL DEFAULT 1,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_org_skills_published ON org_skills(published);
   `);
@@ -2405,7 +2405,7 @@ export function runMigrations(db: Database.Database): void {
       session_id TEXT,
       agent_config_id TEXT,
       tool_name TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_denied_tool_events_created_at ON denied_tool_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_denied_tool_events_agent_config_id ON denied_tool_events(agent_config_id);
@@ -2459,7 +2459,7 @@ export function runMigrations(db: Database.Database): void {
       memory_ids_json TEXT NOT NULL DEFAULT '[]',
       note_paths_json TEXT NOT NULL DEFAULT '[]',
       items_json TEXT NOT NULL DEFAULT '[]',
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
   const memoryProvenanceCols = (
@@ -2834,7 +2834,7 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
       status TEXT NOT NULL DEFAULT 'pending',
       actor TEXT,
       decided_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, created_at);
   `);
@@ -3420,7 +3420,7 @@ If someone asks for creative work that needs a local capability:
     CREATE TABLE IF NOT EXISTS org_settings (
       id         TEXT PRIMARY KEY,
       content    TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     )
   `);
   runOnce('issue_1072_org_settings', () => {
@@ -3667,7 +3667,7 @@ If someone asks for creative work that needs a local capability:
       status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op'
       error TEXT,
       root_session_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
       ON agent_scheduled_task_runs(task_id, started_at DESC);
@@ -3727,8 +3727,8 @@ If someone asks for creative work that needs a local capability:
       due_date TEXT,
       color TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(instance_id, id)
     );
     CREATE INDEX IF NOT EXISTS idx_project_milestones_instance_order
@@ -3797,7 +3797,7 @@ If someone asks for creative work that needs a local capability:
       objective_evidence_json TEXT NOT NULL DEFAULT '{}',
       attribution_json TEXT NOT NULL DEFAULT '{}',
       finalized_at TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
   db.exec(
@@ -3855,7 +3855,7 @@ If someone asks for creative work that needs a local capability:
       confidence REAL NOT NULL,
       actor TEXT,
       reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
   db.exec(
@@ -3931,7 +3931,7 @@ If someone asks for creative work that needs a local capability:
       declared_at TEXT NOT NULL,
       results_recorded_at TEXT,
       decided_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
   db.exec(

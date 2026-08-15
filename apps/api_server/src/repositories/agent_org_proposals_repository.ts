@@ -765,7 +765,7 @@ export class AgentOrgProposalsRepository {
           `UPDATE agent_configs
               SET ${column} = ?,
                   revision = revision + 1,
-                  updated_at = CURRENT_TIMESTAMP
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
             WHERE id = ?
               AND ${column} IS ?
               AND revision = ?
