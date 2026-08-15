@@ -2,11 +2,11 @@ import Database from 'better-sqlite3';
 import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
 import { runMigrations } from '../database/migrations';
-import type { AgentOrgProposal, AgentOrgProposalInput } from '../models/agent_org_proposal';
+import type { AgentOrgProposalInput, RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
 import {
   mapAgentConfigRow,
-  type AgentConfig,
   type AgentConfigRow,
+  type RevisionedAgentConfig,
 } from './agent_configs_repository';
 
 /**
@@ -52,6 +52,7 @@ interface AgentOrgProposalRow {
   post_score: number | null;
   measure_reason: string | null;
   decided_by_user_id: number | null;
+  revision: number;
   // created_at/updated_at come back as a plain string from SQLite (TEXT) but
   // as a native Date from the `pg` driver (Postgres columns are TIMESTAMPTZ,
   // matching every other agent_* table in postgres_bootstrap.ts) — rowToModel
@@ -105,13 +106,14 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
  */
 export interface OrgProposalAttempt {
   attempt: number;
-  proposal: AgentOrgProposal;
+  proposal: RevisionedAgentOrgProposal;
 }
 
 export interface AtomicScopeTransitionInput {
   proposalId: string;
-  expectedProposalStatus: 'active' | 'measuring' | 'reverted';
-  nextProposalStatus: 'active' | 'measuring' | 'reverted';
+  expectedProposalStatus: 'approved' | 'applied' | 'active' | 'measuring' | 'reverted';
+  nextProposalStatus: 'approved' | 'applied' | 'active' | 'measuring' | 'reverted';
+  expectedProposalRevision: number;
   expectedKind: string;
   expectedChangeJson: string;
   expectedBeforeSnapshotJson: string;
@@ -119,14 +121,48 @@ export interface AtomicScopeTransitionInput {
   field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson';
   expectedTargetValue: string | null;
   nextTargetValue: string | null;
+  expectedTargetRevision: number;
   nextBaselineScore: number | null;
   nextPostScore: number | null;
   nextMeasureReason: string | null;
 }
 
+/** @deprecated Package-C compatibility only; new callers must bind revisions. */
+type LegacyAtomicScopeTransitionInput = Omit<
+  AtomicScopeTransitionInput,
+  'expectedProposalRevision' | 'expectedTargetRevision'
+> & {
+  expectedProposalRevision?: number;
+  expectedTargetRevision?: number;
+};
+
 export interface AtomicScopeTransitionResult {
-  proposal: AgentOrgProposal;
-  target: AgentConfig;
+  proposal: RevisionedAgentOrgProposal;
+  target: RevisionedAgentConfig;
+}
+
+export type ScopeProposalKind =
+  | 'tighten-scope'
+  | 'prune-scope'
+  | 'refine-scope'
+  | 'broaden-scope';
+
+export interface ScopeClaimValidationMaterial {
+  expectedKind: ScopeProposalKind;
+  expectedChangeJson: string;
+  beforeSnapshotJson: string;
+}
+
+export interface ScopeApprovedClaimInput extends ScopeClaimValidationMaterial {
+  id: string;
+  decidedByUserId: number;
+  expectedRevision: number;
+  /**
+   * Package C supplies the canonical v2 verifier here. Keeping validation as
+   * a callback preserves repository layering while making verification a
+   * mandatory runtime step before the conditional SQL primitive can run.
+   */
+  validateSnapshot: (material: ScopeClaimValidationMaterial) => boolean;
 }
 
 class AtomicScopeConflict extends Error {}
@@ -140,7 +176,7 @@ function toIso(value: string | Date): string {
   return typeof value === 'string' ? value : value.toISOString();
 }
 
-function rowToModel(row: AgentOrgProposalRow): AgentOrgProposal {
+function rowToModel(row: AgentOrgProposalRow): RevisionedAgentOrgProposal {
   return {
     id: row.id,
     auditRunId: row.audit_run_id ?? null,
@@ -160,6 +196,7 @@ function rowToModel(row: AgentOrgProposalRow): AgentOrgProposal {
     postScore: row.post_score ?? null,
     measureReason: row.measure_reason ?? null,
     decidedByUserId: row.decided_by_user_id ?? null,
+    revision: row.revision ?? 0,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -195,12 +232,12 @@ export class AgentOrgProposalsRepository {
     }
   }
 
-  private async findByIdPg(id: string): Promise<AgentOrgProposal | null> {
+  private async findByIdPg(id: string): Promise<RevisionedAgentOrgProposal | null> {
     const r = await getPostgresPool().query(`SELECT * FROM agent_org_proposals WHERE id = $1`, [id]);
     return r.rows.length > 0 ? rowToModel(r.rows[0]) : null;
   }
 
-  async findByIdAsync(id: string): Promise<AgentOrgProposal | null> {
+  async findByIdAsync(id: string): Promise<RevisionedAgentOrgProposal | null> {
     if (env.dbClient === 'postgres') return this.findByIdPg(id);
     const row = this.db!
       .prepare(`SELECT * FROM agent_org_proposals WHERE id = ?`)
@@ -208,7 +245,7 @@ export class AgentOrgProposalsRepository {
     return row ? rowToModel(row) : null;
   }
 
-  async listByStatusAsync(status: string): Promise<AgentOrgProposal[]> {
+  async listByStatusAsync(status: string): Promise<RevisionedAgentOrgProposal[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `SELECT * FROM agent_org_proposals WHERE status = $1 ORDER BY created_at DESC`,
@@ -223,7 +260,7 @@ export class AgentOrgProposalsRepository {
   }
 
   /** Convenience wrapper — the review queue's primary read. */
-  async listProposedAsync(): Promise<AgentOrgProposal[]> {
+  async listProposedAsync(): Promise<RevisionedAgentOrgProposal[]> {
     return this.listByStatusAsync('proposed');
   }
 
@@ -272,14 +309,14 @@ export class AgentOrgProposalsRepository {
     return attempts.sort((a, b) => a.attempt - b.attempt);
   }
 
-  private findByDedupKeySync(key: string): AgentOrgProposal | null {
+  private findByDedupKeySync(key: string): RevisionedAgentOrgProposal | null {
     const row = this.db!
       .prepare(`SELECT * FROM agent_org_proposals WHERE dedup_key = ? LIMIT 1`)
       .get(key) as AgentOrgProposalRow | undefined;
     return row ? rowToModel(row) : null;
   }
 
-  private async findByDedupKeyPg(key: string): Promise<AgentOrgProposal | null> {
+  private async findByDedupKeyPg(key: string): Promise<RevisionedAgentOrgProposal | null> {
     const r = await getPostgresPool().query(
       `SELECT * FROM agent_org_proposals WHERE dedup_key = $1 LIMIT 1`,
       [key],
@@ -287,7 +324,7 @@ export class AgentOrgProposalsRepository {
     return r.rows.length > 0 ? rowToModel(r.rows[0]) : null;
   }
 
-  private async findByDedupKeyAny(key: string): Promise<AgentOrgProposal | null> {
+  private async findByDedupKeyAny(key: string): Promise<RevisionedAgentOrgProposal | null> {
     return env.dbClient === 'postgres' ? this.findByDedupKeyPg(key) : this.findByDedupKeySync(key);
   }
 
@@ -300,7 +337,7 @@ export class AgentOrgProposalsRepository {
    * `idx_org_proposals_dedup` UNIQUE index is defense-in-depth for any
    * concurrent-writer race.
    */
-  async createAsync(input: AgentOrgProposalInput): Promise<AgentOrgProposal> {
+  async createAsync(input: AgentOrgProposalInput): Promise<RevisionedAgentOrgProposal> {
     if (input.dedupKey) {
       const existing = await this.findByDedupKeyAny(input.dedupKey);
       if (existing) return existing;
@@ -419,9 +456,21 @@ export class AgentOrgProposalsRepository {
     id: string,
     status: string,
     patch?: Partial<AgentOrgProposalInput>,
-  ): Promise<AgentOrgProposal | null> {
+    expectedRevision?: number,
+  ): Promise<RevisionedAgentOrgProposal | null> {
+    if (expectedRevision !== undefined &&
+        (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) {
+      throw new Error('Proposal status CAS requires a non-negative integer revision');
+    }
     const existing = await this.findByIdAsync(id);
     if (!existing) return null;
+    if (expectedRevision !== undefined && existing.revision !== expectedRevision) {
+      throw new Error(
+        `Concurrent agent_org_proposals status conflict: expected revision ${expectedRevision} ` +
+        `but found revision ${existing.revision} (proposal ${id})`,
+      );
+    }
+    const sourceRevision = expectedRevision ?? existing.revision;
 
     const allowedNext = ALLOWED_TRANSITIONS[existing.status];
     if (!allowedNext || !allowedNext.includes(status)) {
@@ -480,22 +529,32 @@ export class AgentOrgProposalsRepository {
       }
     }
 
+    fields.push('revision = revision + 1');
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
     values.push(id);
     values.push(existing.status);
+    values.push(sourceRevision);
 
     if (env.dbClient === 'postgres') {
       // Same fields/values built above (shared between engines) — only the
       // placeholder syntax differs. `values` has exactly fields.length + 1
-      // entries (the trailing id/source status are for the WHERE clause).
-      const pgSetClause = fields.map((f, i) => f.replace('?', `$${i + 1}`)).join(', ');
-      const idParam = `$${fields.length + 1}`;
-      const sourceStatusParam = `$${fields.length + 2}`;
+      // entries (the trailing id/source status/source revision are for WHERE).
+      let pgValueIndex = 0;
+      const pgSetClause = fields
+        .map((field) => field.includes('?')
+          ? field.replace('?', `$${++pgValueIndex}`)
+          : field)
+        .join(', ');
+      const idParam = `$${pgValueIndex + 1}`;
+      const sourceStatusParam = `$${pgValueIndex + 2}`;
+      const sourceRevisionParam = `$${pgValueIndex + 3}`;
       const result = await getPostgresPool().query(
         `UPDATE agent_org_proposals
             SET ${pgSetClause}
-          WHERE id = ${idParam} AND status = ${sourceStatusParam}
+          WHERE id = ${idParam}
+            AND status = ${sourceStatusParam}
+            AND revision = ${sourceRevisionParam}
           RETURNING *`,
         values,
       );
@@ -504,7 +563,8 @@ export class AgentOrgProposalsRepository {
       if (!current) return null;
       throw new Error(
         `Concurrent agent_org_proposals status conflict: expected '${existing.status}' ` +
-        `but found '${current.status}' (proposal ${id})`,
+        `at revision ${sourceRevision}, but found '${current.status}' ` +
+        `at revision ${current.revision} (proposal ${id})`,
       );
     }
 
@@ -512,7 +572,7 @@ export class AgentOrgProposalsRepository {
       .prepare(
         `UPDATE agent_org_proposals
             SET ${fields.join(', ')}
-          WHERE id = ? AND status = ?
+          WHERE id = ? AND status = ? AND revision = ?
           RETURNING *`,
       )
       .get(...values) as AgentOrgProposalRow | undefined;
@@ -521,8 +581,19 @@ export class AgentOrgProposalsRepository {
     if (!current) return null;
     throw new Error(
       `Concurrent agent_org_proposals status conflict: expected '${existing.status}' ` +
-      `but found '${current.status}' (proposal ${id})`,
+      `at revision ${sourceRevision}, but found '${current.status}' ` +
+      `at revision ${current.revision} (proposal ${id})`,
     );
+  }
+
+  /** Explicit revision-bound status primitive for package-C lifecycle callers. */
+  async updateStatusAtRevisionAsync(
+    id: string,
+    expectedRevision: number,
+    status: string,
+    patch?: Partial<AgentOrgProposalInput>,
+  ): Promise<RevisionedAgentOrgProposal | null> {
+    return this.updateStatusAsync(id, status, patch, expectedRevision);
   }
 
   /**
@@ -531,10 +602,18 @@ export class AgentOrgProposalsRepository {
    * either write because the current scope target store is SQLite-only.
    */
   async transitionScopeAtomicallyAsync(
-    input: AtomicScopeTransitionInput,
+    input: AtomicScopeTransitionInput | LegacyAtomicScopeTransitionInput,
   ): Promise<AtomicScopeTransitionResult | null> {
     if (env.dbClient === 'postgres' || !this.db) {
       throw new Error('Atomic scope transition is unavailable for PostgreSQL split-store runtime');
+    }
+    if (input.expectedProposalRevision !== undefined &&
+        (!Number.isSafeInteger(input.expectedProposalRevision) || input.expectedProposalRevision < 0)) {
+      throw new Error('Atomic scope transition requires a non-negative proposal revision');
+    }
+    if (input.expectedTargetRevision !== undefined &&
+        (!Number.isSafeInteger(input.expectedTargetRevision) || input.expectedTargetRevision < 0)) {
+      throw new Error('Atomic scope transition requires a non-negative target revision');
     }
     const forward =
       (input.expectedProposalStatus === 'active' || input.expectedProposalStatus === 'measuring') &&
@@ -542,7 +621,13 @@ export class AgentOrgProposalsRepository {
     const inverse =
       input.expectedProposalStatus === 'reverted' &&
       (input.nextProposalStatus === 'active' || input.nextProposalStatus === 'measuring');
-    if (!forward && !inverse) throw new Error('Unsupported atomic scope proposal transition');
+    const apply =
+      input.expectedProposalStatus === 'approved' && input.nextProposalStatus === 'applied';
+    const compensate =
+      input.expectedProposalStatus === 'applied' && input.nextProposalStatus === 'approved';
+    if (!forward && !inverse && !apply && !compensate) {
+      throw new Error('Unsupported atomic scope proposal transition');
+    }
 
     const columnByField = {
       allowedMcpsJson: 'allowed_mcps_json',
@@ -553,14 +638,34 @@ export class AgentOrgProposalsRepository {
     if (!column) throw new Error(`Unsupported atomic scope field: ${String(input.field)}`);
 
     const execute = this.db.transaction((): AtomicScopeTransitionResult => {
+      const expectedProposalRevision = input.expectedProposalRevision ?? (
+        this.db!.prepare(`SELECT revision FROM agent_org_proposals WHERE id = ?`)
+          .get(input.proposalId) as { revision: number } | undefined
+      )?.revision;
+      const expectedTargetRevision = input.expectedTargetRevision ?? (
+        this.db!.prepare(`SELECT revision FROM agent_configs WHERE id = ?`)
+          .get(input.targetId) as { revision: number } | undefined
+      )?.revision;
+      if (expectedProposalRevision === undefined || expectedTargetRevision === undefined) {
+        throw new AtomicScopeConflict('scope revision source missing');
+      }
       const target = this.db!
         .prepare(
           `UPDATE agent_configs
-              SET ${column} = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND ${column} IS ?
+              SET ${column} = ?,
+                  revision = revision + 1,
+                  updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND ${column} IS ?
+              AND revision = ?
             RETURNING *`,
         )
-        .get(input.nextTargetValue, input.targetId, input.expectedTargetValue) as
+        .get(
+          input.nextTargetValue,
+          input.targetId,
+          input.expectedTargetValue,
+          expectedTargetRevision,
+        ) as
         | AgentConfigRow
         | undefined;
       if (!target) throw new AtomicScopeConflict('scope target CAS conflict');
@@ -572,12 +677,14 @@ export class AgentOrgProposalsRepository {
                   baseline_score = ?,
                   post_score = ?,
                   measure_reason = ?,
+                  revision = revision + 1,
                   updated_at = ?
             WHERE id = ?
               AND status = ?
               AND kind = ?
               AND change_json IS ?
               AND before_snapshot_json IS ?
+              AND revision = ?
             RETURNING *`,
         )
         .get(
@@ -591,6 +698,7 @@ export class AgentOrgProposalsRepository {
           input.expectedKind,
           input.expectedChangeJson,
           input.expectedBeforeSnapshotJson,
+          expectedProposalRevision,
         ) as AgentOrgProposalRow | undefined;
       if (!proposal) throw new AtomicScopeConflict('scope proposal CAS conflict');
       return { proposal: rowToModel(proposal), target: mapAgentConfigRow(target) };
@@ -604,68 +712,242 @@ export class AgentOrgProposalsRepository {
     }
   }
 
+  /** Strongly typed revision-bound seam for package-C lifecycle callers. */
+  transitionScopeAtomicallyAtRevisionsAsync(
+    input: AtomicScopeTransitionInput,
+  ): Promise<AtomicScopeTransitionResult | null> {
+    return this.transitionScopeAtomicallyAsync(input);
+  }
+
+  /**
+   * Claims one exact scope proposal for a human actor without exposing it as
+   * applied. Package C must follow this with the revision-bound atomic target
+   * + approved-to-applied transition.
+   */
+  async claimScopeApprovedWithSnapshotAsync(
+    input: ScopeApprovedClaimInput,
+  ): Promise<RevisionedAgentOrgProposal | null> {
+    if (!Number.isSafeInteger(input.decidedByUserId) || input.decidedByUserId < 0) {
+      throw new Error('Scope proposal claim requires a non-negative integer audit actor');
+    }
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+      throw new Error('Scope proposal claim requires a non-negative integer revision');
+    }
+    const scopeKinds = new Set<string>([
+      'tighten-scope',
+      'prune-scope',
+      'refine-scope',
+      'broaden-scope',
+    ]);
+    if (!scopeKinds.has(input.expectedKind)) {
+      throw new Error('Scope proposal claim requires an exact scope kind');
+    }
+    if (typeof input.expectedChangeJson !== 'string' || input.expectedChangeJson.length === 0) {
+      throw new Error('Scope proposal claim requires exact non-null change bytes');
+    }
+    if (typeof input.beforeSnapshotJson !== 'string' || input.beforeSnapshotJson.length === 0) {
+      throw new Error('Scope proposal claim requires exact non-null snapshot bytes');
+    }
+    if (typeof input.validateSnapshot !== 'function' || !input.validateSnapshot({
+      expectedKind: input.expectedKind,
+      expectedChangeJson: input.expectedChangeJson,
+      beforeSnapshotJson: input.beforeSnapshotJson,
+    })) {
+      throw new Error('Scope proposal claim snapshot validation failed');
+    }
+
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_org_proposals
+            SET status = 'approved',
+                decided_by_user_id = $1,
+                before_snapshot_json = $2,
+                revision = revision + 1,
+                updated_at = $3
+          WHERE id = $4
+            AND status IN ('proposed', 'failed')
+            AND revision = $5
+            AND kind = $6
+            AND change_json = $7
+          RETURNING *`,
+        [
+          input.decidedByUserId,
+          input.beforeSnapshotJson,
+          now,
+          input.id,
+          input.expectedRevision,
+          input.expectedKind,
+          input.expectedChangeJson,
+        ],
+      );
+      return result.rows.length === 1 ? rowToModel(result.rows[0]) : null;
+    }
+
+    const row = this.db!
+      .prepare(
+        `UPDATE agent_org_proposals
+            SET status = 'approved',
+                decided_by_user_id = ?,
+                before_snapshot_json = ?,
+                revision = revision + 1,
+                updated_at = ?
+          WHERE id = ?
+            AND status IN ('proposed', 'failed')
+            AND revision = ?
+            AND kind = ?
+            AND change_json = ?
+          RETURNING *`,
+      )
+      .get(
+        input.decidedByUserId,
+        input.beforeSnapshotJson,
+        now,
+        input.id,
+        input.expectedRevision,
+        input.expectedKind,
+        input.expectedChangeJson,
+      ) as AgentOrgProposalRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
   /**
    * Atomically wins a human approval and stores its rollback snapshot in the
-   * same conditional UPDATE. There is deliberately no read-before-write:
-   * concurrent approvers race on status and exactly one can move a proposed
-   * or retryable failed row to applied.
+   * same conditional UPDATE. This compatibility path pre-reads the source
+   * revision/kind; scope rows additionally bind exact stored change bytes.
+   * Package C should use claimScopeApprovedWithSnapshotAsync instead.
    */
   async claimAppliedWithSnapshotAsync(
     id: string,
     decidedByUserId: number,
     beforeSnapshotJson: string | null,
     changeJson?: string | null,
-  ): Promise<AgentOrgProposal | null> {
+  ): Promise<RevisionedAgentOrgProposal | null> {
     if (!Number.isSafeInteger(decidedByUserId) || decidedByUserId < 0) {
       throw new Error('Scope proposal claim requires a non-negative integer audit actor');
+    }
+    const existing = await this.findByIdAsync(id);
+    if (!existing) return null;
+    const scopeKinds = new Set<string>([
+      'tighten-scope',
+      'prune-scope',
+      'refine-scope',
+      'broaden-scope',
+    ]);
+    const isScope = scopeKinds.has(existing.kind);
+    if (isScope) {
+      if (typeof changeJson !== 'string' || changeJson.length === 0) {
+        throw new Error('Legacy scope claim requires exact non-null change binding');
+      }
+      if (typeof beforeSnapshotJson !== 'string' || beforeSnapshotJson.length === 0) {
+        throw new Error('Legacy scope claim requires exact non-null snapshot binding');
+      }
+      if (existing.changeJson !== changeJson) return null;
     }
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {
       const values: unknown[] = [decidedByUserId, beforeSnapshotJson];
-      const changeSet = changeJson === undefined ? '' : ', change_json = $3';
-      if (changeJson !== undefined) values.push(changeJson);
-      values.push(now, id);
-      const updatedAtParam = `$${values.length - 1}`;
-      const idParam = `$${values.length}`;
+      const writesChange = !isScope && changeJson !== undefined;
+      const changeSet = writesChange ? ', change_json = $3' : '';
+      if (writesChange) values.push(changeJson);
+      values.push(now, id, existing.revision, existing.kind);
+      const updatedAtParam = `$${writesChange ? 4 : 3}`;
+      const idParam = `$${writesChange ? 5 : 4}`;
+      const revisionParam = `$${writesChange ? 6 : 5}`;
+      const kindParam = `$${writesChange ? 7 : 6}`;
+      let scopeChangeCondition = '';
+      if (isScope) {
+        values.push(existing.changeJson);
+        scopeChangeCondition = `\n            AND change_json IS NOT DISTINCT FROM $7`;
+      }
       const result = await getPostgresPool().query(
         `UPDATE agent_org_proposals
             SET status = 'applied',
                 decided_by_user_id = $1,
                 before_snapshot_json = $2${changeSet},
+                revision = revision + 1,
                 updated_at = ${updatedAtParam}
           WHERE id = ${idParam}
             AND status IN ('proposed', 'failed')
+            AND revision = ${revisionParam}
+            AND kind = ${kindParam}${scopeChangeCondition}
           RETURNING *`,
         values,
       );
       return result.rows.length === 1 ? rowToModel(result.rows[0]) : null;
     }
 
-    const statement = changeJson === undefined
+    const statement = !isScope && changeJson === undefined
       ? this.db!.prepare(
           `UPDATE agent_org_proposals
               SET status = 'applied',
                   decided_by_user_id = ?,
                   before_snapshot_json = ?,
+                  revision = revision + 1,
                   updated_at = ?
             WHERE id = ?
               AND status IN ('proposed', 'failed')
+              AND revision = ?
+              AND kind = ?
             RETURNING *`,
         )
-      : this.db!.prepare(
+      : !isScope
+        ? this.db!.prepare(
           `UPDATE agent_org_proposals
               SET status = 'applied',
                   decided_by_user_id = ?,
                   before_snapshot_json = ?,
                   change_json = ?,
+                  revision = revision + 1,
                   updated_at = ?
             WHERE id = ?
               AND status IN ('proposed', 'failed')
+              AND revision = ?
+              AND kind = ?
+            RETURNING *`,
+        )
+        : this.db!.prepare(
+          `UPDATE agent_org_proposals
+              SET status = 'applied',
+                  decided_by_user_id = ?,
+                  before_snapshot_json = ?,
+                  revision = revision + 1,
+                  updated_at = ?
+            WHERE id = ?
+              AND status IN ('proposed', 'failed')
+              AND revision = ?
+              AND kind = ?
+              AND change_json IS ?
             RETURNING *`,
         );
-    const row = (changeJson === undefined
-      ? statement.get(decidedByUserId, beforeSnapshotJson, now, id)
-      : statement.get(decidedByUserId, beforeSnapshotJson, changeJson, now, id)) as
+    const row = (isScope
+      ? statement.get(
+          decidedByUserId,
+          beforeSnapshotJson,
+          now,
+          id,
+          existing.revision,
+          existing.kind,
+          existing.changeJson,
+        )
+      : changeJson === undefined
+        ? statement.get(
+            decidedByUserId,
+            beforeSnapshotJson,
+            now,
+            id,
+            existing.revision,
+            existing.kind,
+          )
+        : statement.get(
+            decidedByUserId,
+            beforeSnapshotJson,
+            changeJson,
+            now,
+            id,
+            existing.revision,
+            existing.kind,
+          )) as
       | AgentOrgProposalRow
       | undefined;
     return row ? rowToModel(row) : null;

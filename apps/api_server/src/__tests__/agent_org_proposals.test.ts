@@ -62,6 +62,7 @@ describe('issue-817-c1: agent_org_proposals table exists in SQLite with the spec
       'post_score',
       'measure_reason',
       'decided_by_user_id',
+      'revision',
       'owner_user_id',
       'created_at',
       'updated_at',
@@ -144,6 +145,7 @@ describe('issue-817-c4: AgentOrgProposal model has fromJson/toJson matching all 
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      revision: 0,
       createdAt: '2026-07-02T00:00:00.000Z',
       updatedAt: '2026-07-02T00:00:00.000Z',
     };
@@ -260,21 +262,21 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
     expect(await repo.existsByDedupKeyAsync('seen-key')).toBe(true);
   });
 
-  it('claimAppliedWithSnapshotAsync is a one-statement, one-winner SQLite claim', async () => {
+  it('claimAppliedWithSnapshotAsync is a revision-bound, one-winner SQLite claim', async () => {
     const { AgentOrgProposalsRepository } = await import(
       '../repositories/agent_org_proposals_repository'
     );
     const repo = new AgentOrgProposalsRepository();
+    const exactChangeJson = ' { "agentConfigId": "config-1", "remove": ["x"] } ';
     const proposal = await repo.createAsync({
       kind: 'prune-scope',
       risk: 'high',
       title: 'Atomic claim',
-      changeJson: JSON.stringify({ remove: ['x'] }),
+      changeJson: exactChangeJson,
       dedupKey: 'w1:atomic-claim',
     });
 
     const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
-    const exactChangeJson = ' { "agentConfigId": "config-1", "remove": ["x"] } ';
     const [first, second] = await Promise.all([
       repo.claimAppliedWithSnapshotAsync(proposal.id, 7, snapshot, exactChangeJson),
       repo.claimAppliedWithSnapshotAsync(proposal.id, 8, snapshot, exactChangeJson),

@@ -1259,6 +1259,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
+      revision      INTEGER NOT NULL DEFAULT 0,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1323,6 +1324,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       output_marker TEXT,
       preset_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -1445,6 +1447,15 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
+
+  // W1 corrective-6 package B — monotonic persistence revisions. Existing
+  // rows receive the same revision-zero baseline as rows from the fresh DDL.
+  await pool.query(`
+    ALTER TABLE agent_configs
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
   `);
 
   // #1175 — Activity schema + owner-index parity. All changes are additive and

@@ -987,6 +987,7 @@ export function runMigrations(db: Database.Database): void {
       output_marker TEXT,
       preset_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -2230,6 +2231,7 @@ export function runMigrations(db: Database.Database): void {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
+      revision      INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -3359,6 +3361,26 @@ If someone asks for creative work that needs a local capability:
       ).run(repaired, row.id, row.value);
     }
   });
+
+  // W1 corrective-6 package B — monotonic persistence revisions. Keep these
+  // structural upgrades together and idempotent so databases created before
+  // either column existed receive the same safe revision-zero baseline as a
+  // fresh database.
+  const agentConfigRevisionCols = (
+    db.pragma('table_info(agent_configs)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentConfigRevisionCols.includes('revision')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`);
+  }
+  const agentOrgProposalRevisionCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentOrgProposalRevisionCols.includes('revision')) {
+    db.exec(
+      `ALTER TABLE agent_org_proposals
+         ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
 
   // #1175 — Mobile Activity is an authenticated, per-user projection. Recipes
   // and optimizer proposals predate user ownership, so add nullable ownership

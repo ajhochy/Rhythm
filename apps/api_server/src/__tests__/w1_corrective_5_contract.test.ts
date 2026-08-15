@@ -668,7 +668,7 @@ describe('issue-W1-corrective-5-c6: direct claim actor binding', () => {
       kind: 'broaden-scope',
       risk: 'high',
       title: 'C5 actor zero',
-      changeJson: '{"original":true}',
+      changeJson: '{"exact":true}',
       dedupKey: `w1-c5:actor-zero:${crypto.randomUUID()}`,
     });
     const claimed = await proposals.claimAppliedWithSnapshotAsync(

@@ -52,6 +52,7 @@ function pgRow(overrides: Record<string, unknown> = {}) {
     post_score: null,
     measure_reason: null,
     decided_by_user_id: null,
+    revision: 0,
     created_at: new Date('2026-07-16T00:00:00.000Z'),
     updated_at: new Date('2026-07-16T00:00:00.000Z'),
     ...overrides,
@@ -187,7 +188,7 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
   it('updateStatusAsync performs source-status CAS with RETURNING and returns that row directly', async () => {
     mockPoolQuery
       .mockResolvedValueOnce({ rows: [pgRow()] }) // findByIdAsync (existing check)
-      .mockResolvedValueOnce({ rows: [pgRow({ status: 'approved' })] }); // UPDATE RETURNING
+      .mockResolvedValueOnce({ rows: [pgRow({ status: 'approved', revision: 1 })] }); // UPDATE RETURNING
 
     const { AgentOrgProposalsRepository } = await import(
       '../repositories/agent_org_proposals_repository'
@@ -198,15 +199,88 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
     expect(mockGetDb).not.toHaveBeenCalled();
     expect(mockPoolQuery).toHaveBeenCalledTimes(2);
     expect(mockPoolQuery.mock.calls[1][0]).toMatch(
-      /UPDATE agent_org_proposals\s+SET[\s\S]*WHERE id = \$\d+ AND status = \$\d+[\s\S]*RETURNING \*/i,
+      /UPDATE agent_org_proposals\s+SET[\s\S]*revision = revision \+ 1[\s\S]*WHERE id = \$\d+[\s\S]*status = \$\d+[\s\S]*revision = \$\d+[\s\S]*RETURNING \*/i,
     );
     expect(mockPoolQuery.mock.calls[1][1]).toEqual([
       'approved',
       expect.any(String),
       'p-1',
       'proposed',
+      0,
     ]);
     expect(updated?.status).toBe('approved');
+    expect(updated?.revision).toBe(1);
+  });
+
+  it('maps proposal revisions on PostgreSQL reads', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [pgRow({ revision: 17 })] });
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    expect((await repo.findByIdAsync('p-1'))?.revision).toBe(17);
+  });
+
+  it('claimScopeApprovedWithSnapshotAsync binds revision/kind/change in placeholder order', async () => {
+    const changeJson = ' { "agentConfigId": "config-1" } ';
+    const snapshot = '{"version":"scope-state-v2"}';
+    mockPoolQuery.mockResolvedValueOnce({
+      rows: [pgRow({
+        kind: 'broaden-scope',
+        change_json: changeJson,
+        status: 'approved',
+        before_snapshot_json: snapshot,
+        decided_by_user_id: 42,
+        revision: 1,
+      })],
+    });
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    const claimed = await repo.claimScopeApprovedWithSnapshotAsync({
+      id: 'p-1',
+      decidedByUserId: 42,
+      expectedRevision: 0,
+      expectedKind: 'broaden-scope',
+      expectedChangeJson: changeJson,
+      beforeSnapshotJson: snapshot,
+      validateSnapshot: () => true,
+    });
+
+    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+    expect(mockPoolQuery.mock.calls[0][0]).toMatch(
+      /SET status = 'approved'[\s\S]*revision = revision \+ 1[\s\S]*WHERE id = \$4[\s\S]*status IN \('proposed', 'failed'\)[\s\S]*revision = \$5[\s\S]*kind = \$6[\s\S]*change_json = \$7[\s\S]*RETURNING \*/i,
+    );
+    expect(mockPoolQuery.mock.calls[0][1]).toEqual([
+      42,
+      snapshot,
+      expect.any(String),
+      'p-1',
+      0,
+      'broaden-scope',
+      changeJson,
+    ]);
+    expect(claimed).toMatchObject({ status: 'approved', revision: 1 });
+  });
+
+  it('claimScopeApprovedWithSnapshotAsync returns null on a zero-row stale claim', async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    const claimed = await repo.claimScopeApprovedWithSnapshotAsync({
+      id: 'p-1',
+      decidedByUserId: 42,
+      expectedRevision: 9,
+      expectedKind: 'broaden-scope',
+      expectedChangeJson: '{}',
+      beforeSnapshotJson: '{}',
+      validateSnapshot: () => true,
+    });
+    expect(claimed).toBeNull();
+    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
   });
 
   it('distinguishes a zero-row source-status conflict from a missing id', async () => {
@@ -234,11 +308,18 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
     expect(mockPoolQuery).toHaveBeenCalledTimes(1); // only the findByIdAsync read
   });
 
-  it('claimAppliedWithSnapshotAsync uses one conditional UPDATE RETURNING with no pre-read', async () => {
+  it('claimAppliedWithSnapshotAsync pre-reads then binds source revision and kind', async () => {
     const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
-    mockPoolQuery.mockResolvedValueOnce({
-      rows: [pgRow({ status: 'applied', before_snapshot_json: snapshot, decided_by_user_id: 42 })],
-    });
+    mockPoolQuery
+      .mockResolvedValueOnce({ rows: [pgRow()] })
+      .mockResolvedValueOnce({
+        rows: [pgRow({
+          status: 'applied',
+          before_snapshot_json: snapshot,
+          decided_by_user_id: 42,
+          revision: 1,
+        })],
+      });
     const { AgentOrgProposalsRepository } = await import(
       '../repositories/agent_org_proposals_repository'
     );
@@ -246,14 +327,18 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
 
     const claimed = await repo.claimAppliedWithSnapshotAsync('p-1', 42, snapshot, '{"normalized":true}');
 
-    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
-    expect(mockPoolQuery.mock.calls[0][0]).toMatch(/UPDATE agent_org_proposals[\s\S]*status IN \('proposed', 'failed'\)[\s\S]*RETURNING \*/i);
-    expect(mockPoolQuery.mock.calls[0][1]).toEqual([
+    expect(mockPoolQuery).toHaveBeenCalledTimes(2);
+    expect(mockPoolQuery.mock.calls[1][0]).toMatch(
+      /UPDATE agent_org_proposals[\s\S]*revision = revision \+ 1[\s\S]*status IN \('proposed', 'failed'\)[\s\S]*revision = \$6[\s\S]*kind = \$7[\s\S]*RETURNING \*/i,
+    );
+    expect(mockPoolQuery.mock.calls[1][1]).toEqual([
       42,
       snapshot,
       '{"normalized":true}',
       expect.any(String),
       'p-1',
+      0,
+      'external-adoption',
     ]);
     expect(claimed).toMatchObject({ status: 'applied', beforeSnapshotJson: snapshot, decidedByUserId: 42 });
   });
