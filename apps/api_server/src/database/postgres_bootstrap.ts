@@ -1816,6 +1816,12 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_org_experiments_proposal
        ON agent_org_experiments(proposal_id, declared_at)`,
   );
+  // Twin of the SQLite partial unique index: at most one UNDECIDED experiment
+  // per proposal, so two stopping rules can never judge one cohort pool.
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiments_one_undecided
+       ON agent_org_experiments(proposal_id) WHERE decision IS NULL`,
+  );
   // Behavioural twin of the SQLite spec-immutability triggers: the same guarded
   // column list and the same message text, reusing rhythm_reject_ledger_write
   // so a caller sees one wording regardless of engine. Results and decision

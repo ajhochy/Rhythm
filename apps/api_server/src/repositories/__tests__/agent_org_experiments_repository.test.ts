@@ -111,6 +111,44 @@ describe('W6-c3 experiment record', () => {
   });
 });
 
+describe('P2-2 / P2-3 declaration guards', () => {
+  it('refuses a declared adapter that contradicts the bundle it carries', async () => {
+    const repo = new AgentOrgExperimentsRepository();
+    await expect(
+      repo.declareAsync(
+        declareInput({
+          adapter: 'llm-body-score',
+          evidenceBundleJson: JSON.stringify({
+            version: 'proposal-evidence-v1',
+            experimentAdapter: 'paired-cohort-outcome',
+          }),
+        }),
+      ),
+    ).rejects.toThrow(/adapter/i);
+  });
+
+  it('refuses a SECOND undecided experiment on the same proposal', async () => {
+    const repo = new AgentOrgExperimentsRepository();
+    await repo.declareAsync(declareInput());
+    // Two undecided experiments would read the SAME ledger cohort pool through
+    // different stopping rules and both stamp outcome_status; last writer wins.
+    await expect(repo.declareAsync(declareInput())).rejects.toThrow(/undecided experiment/i);
+  });
+
+  it('permits a NEW experiment once the previous one is decided', async () => {
+    const repo = new AgentOrgExperimentsRepository();
+    const first = await repo.declareAsync(declareInput());
+    await repo.recordResultsAsync(first.id, {
+      baseline: { sampleCount: 12, primaryMetricValue: 0.5 },
+      candidate: { sampleCount: 11, primaryMetricValue: 0.7 },
+    });
+    await repo.recordDecisionAsync(first.id, 'inconclusive', 'not enough signal');
+
+    const second = await repo.declareAsync(declareInput());
+    expect(second.id).not.toBe(first.id);
+  });
+});
+
 describe('W6-c3 spec immutability, scoped honestly', () => {
   it('blocks every UPDATE of a baseline or candidate spec', async () => {
     const repo = new AgentOrgExperimentsRepository();
@@ -155,6 +193,8 @@ describe('W6-c3 spec immutability, scoped honestly', () => {
   it('pins the REPLACE boundary in BOTH directions rather than overclaiming', async () => {
     const repo = new AgentOrgExperimentsRepository();
     const exp = await repo.declareAsync(declareInput());
+    // Same id and same proposal, so the partial unique index is untouched.
+
 
     // Direction 1 — the pragma this claim depends on really is OFF.
     expect(db.pragma('recursive_triggers', { simple: true })).toBe(0);

@@ -147,6 +147,10 @@ describe('W6-c7 the LLM body score is diagnostic only', () => {
     expect(outcome).toBe('reverted');
     const after = (await repo().findByIdAsync('p-unknown'))!;
     expect(after.status).toBe('reverted');
+    // P1-2 — a revert is the record that something was CAUGHT. It must be
+    // distinguishable from the `unproven` default, which means "nobody looked".
+    expect(after.outcomeStatus).toBe('regressed');
+    expect(after.outcomeStatus).not.toBe('unproven');
     expect(after.outcomeStatus).not.toBe('verified');
   });
 });
@@ -177,7 +181,9 @@ describe('W6-c7 scope hygiene is diagnostic only — allowlist shrink cannot ver
     });
 
     expect(outcome).toBe('reverted');
-    expect((await repo().findByIdAsync('p-scope-bad'))!.outcomeStatus).not.toBe('verified');
+    const after = (await repo().findByIdAsync('p-scope-bad'))!;
+    expect(after.outcomeStatus).toBe('regressed');
+    expect(after.outcomeStatus).not.toBe('unproven');
   });
 });
 
@@ -194,6 +200,30 @@ describe('W6-c7 the behavioral re-run is diagnostic only', () => {
     const after = (await repo().findByIdAsync('p-rerun'))!;
     expect(after.status).toBe('active');
     expect(after.outcomeStatus).toBe('inconclusive');
+  });
+
+  it('a reproduced failure reverts AND records regressed, not the unproven default', async () => {
+    await seedMeasuring({
+      id: 'p-rerun-bad',
+      kind: 'refine-config',
+      changeJson: RERUN_CHANGE,
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: 'cfg-1',
+        field: 'model',
+        priorValue: 'old-model',
+      }),
+    });
+    new AgentConfigsRepository().insert({ id: 'cfg-1', label: 'cfg-1', icon: 'x' });
+    const proposal = (await repo().findByIdAsync('p-rerun-bad'))!;
+
+    const outcome = await measureProposal(proposal, {
+      rerunScenario: async () => ({ status: 'failed', reason: 'the original failure reproduced' }),
+    });
+
+    expect(outcome).toBe('reverted');
+    const after = (await repo().findByIdAsync('p-rerun-bad'))!;
+    expect(after.status).toBe('reverted');
+    expect(after.outcomeStatus).toBe('regressed');
   });
 
   it('an infra error still SKIPS and leaves the row measuring for a later pass', async () => {

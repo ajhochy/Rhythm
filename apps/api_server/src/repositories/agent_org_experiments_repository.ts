@@ -130,6 +130,23 @@ export class AgentOrgExperimentsRepository {
     if (!Number.isSafeInteger(input.maxExposure) || input.maxExposure <= 0) {
       throw new Error('agent org experiment: a positive maximum exposure is required');
     }
+    // P2-2 — the adapter is stored in its own column but the decision path reads
+    // the BUNDLE's adapter. If the two may diverge, an experiment declared
+    // `llm-body-score` carrying a promotion-capable bundle promotes. They must
+    // agree at declaration or the column is a lie.
+    let declaredBundleAdapter: unknown;
+    try {
+      declaredBundleAdapter = (JSON.parse(input.evidenceBundleJson) as Record<string, unknown>)
+        ?.experimentAdapter;
+    } catch {
+      throw new Error('agent org experiment: the evidence bundle is not parseable JSON');
+    }
+    if (declaredBundleAdapter !== undefined && declaredBundleAdapter !== input.adapter) {
+      throw new Error(
+        `agent org experiment: declared adapter '${input.adapter}' contradicts the bundle's ` +
+        `adapter '${String(declaredBundleAdapter)}'`,
+      );
+    }
 
     const row = {
       id: input.id ?? crypto.randomUUID(),
@@ -144,23 +161,29 @@ export class AgentOrgExperimentsRepository {
       declared_at: new Date().toISOString(),
     };
 
-    if (env.dbClient === 'postgres') {
-      await getPostgresPool().query(
-        `INSERT INTO agent_org_experiments
-           (id, proposal_id, adapter, evidence_bundle_json, baseline_spec_json,
-            candidate_spec_json, assignment_key, stopping_rule_json, max_exposure, declared_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        Object.values(row),
-      );
-    } else {
-      this.db!
-        .prepare(
-          `INSERT INTO agent_org_experiments
-             (id, proposal_id, adapter, evidence_bundle_json, baseline_spec_json,
-              candidate_spec_json, assignment_key, stopping_rule_json, max_exposure, declared_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`,
-        )
-        .run(...Object.values(row));
+    const insertSql = (ph: string) =>
+      `INSERT INTO agent_org_experiments
+         (id, proposal_id, adapter, evidence_bundle_json, baseline_spec_json,
+          candidate_spec_json, assignment_key, stopping_rule_json, max_exposure, declared_at)
+       VALUES (${ph})`;
+    try {
+      if (env.dbClient === 'postgres') {
+        await getPostgresPool().query(
+          insertSql('$1,$2,$3,$4,$5,$6,$7,$8,$9,$10'),
+          Object.values(row),
+        );
+      } else {
+        this.db!.prepare(insertSql('?,?,?,?,?,?,?,?,?,?')).run(...Object.values(row));
+      }
+    } catch (err) {
+      // The partial unique index is the real enforcement (both engines); this
+      // only translates it into the reason an operator needs.
+      if (/unique/i.test(String(err))) {
+        throw new Error(
+          `agent org experiment: proposal '${input.proposalId}' already has an undecided experiment`,
+        );
+      }
+      throw err;
     }
 
     const stored = await this.findByIdAsync(row.id);

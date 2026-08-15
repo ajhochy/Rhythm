@@ -140,7 +140,8 @@
     "Backfilling evidence bundles for historical proposals.",
     "Wiring cohort assignment into run creation so experiment_variant is populated in production — see W6-c5.",
     "CONSUMING guardrails and the rollback rule. W6 requires them present and valid (W6-c1) and stores them; enforcing them at runtime is not specified by any W6 step. Declared here rather than left silent.",
-    "Rejecting a stale generator version or confidence-calibration version. Captured by W6-c1, consumed by nothing in W6."
+    "Rejecting a stale generator version or confidence-calibration version. Captured by W6-c1, consumed by nothing in W6.",
+    "Wiring the experiment lifecycle into any production caller. No route, controller, or org_optimizer_run_service.ts path declares, assigns, or judges an experiment: declareAsync, assignSubjectAsync, judgeExperimentAsync and decideExperiment are reachable only from the test suite. In production outcome_status can therefore only ever hold unproven, inconclusive or regressed — `verified` is unreachable outside the suite until that wiring lands. This is BROADER than the experiment_variant limitation recorded in W6-c5, and is stated here per W6-c12's requirement that unreachable promotion be declared rather than left as a silently-passing test."
   ],
   "prior_art_to_reuse_not_duplicate": {
     "agent_run_outcomes_repository.ts": "W4 owns the outcome ledger. W6 READS it and adds no update path. The tables are UPDATE/DELETE-blocked in both engines.",
@@ -197,6 +198,11 @@
       "ambiguity": "Three criteria (W6-c2's version-rejection and totality, W6-c10, W6-c11) do not trace to plan text.",
       "reconciled_as": "They are retained, because each encodes a real constraint of this codebase, but their authority is recorded honestly here: W6-c10 comes from the repo's Postgres/SQLite drift hazard and W4's contract; W6-c11 from the migrations revision-invariant preamble and W5-c12; W6-c2's additions from the same fail-closed posture W1 adopted for legacy snapshots.",
       "authority": "campaign invariants + repo hazards, not plan section W6"
+    },
+    {
+      "ambiguity": "W6-c1 requires the bundle to carry a 'primary metric', and W6-c12 requires a candidate to beat baseline 'on the predeclared primary metric'. Neither the plan nor the contract says what a metric IS, or who computes it.",
+      "reconciled_as": "A closed, code-defined registry of computable metrics (PRIMARY_METRICS in models/proposal_evidence_bundle.ts), each a pure function over a cohort of W4 ledger outcomes; the bundle may only name a registered one, and the validator rejects an unknown name. Two are registered today: objective-success-rate and terminal-error-rate. The bundle also declares the DIRECTION that counts as better, so a falling error rate reads as an improvement.",
+      "authority": "Same reasoning W6-c13 applies to adapters, applied to metrics: 'unsupported adapter' only has meaning against a closed set, and a primary metric that nothing can compute cannot govern a promotion — it would leave W6-c12's comparison undefined. RECORDED HONESTLY AS SCOPE THE PLAN DID NOT SPECIFY: this materially narrows what W6 can ever measure to those two metrics, and widening it is a follow-up, not a redesign."
     }
   ],
   "handoff_to_w7": "W7's live gate must exercise, against a real sandbox: (a) a complete-bundle promote and its mirror regress — the W6-c12 positive control, which is the only thing distinguishing a working gate from a brick; (b) a proxy-only candidate refused with the proxy named in the reason; (c) a proposal simultaneously deployed and outcome-inconclusive, proving W6-c8's field separation survives a real run; and (d) a human-approved apply and revert still working end to end under shadow mode.",

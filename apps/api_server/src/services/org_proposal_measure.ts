@@ -226,6 +226,7 @@ function liveBoundScope(
 async function recordDiagnosticOutcome(
   proposalId: string,
   deps: MeasureDeps,
+  outcomeStatus: 'inconclusive' | 'regressed' = 'inconclusive',
 ): Promise<void> {
   try {
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
@@ -234,7 +235,7 @@ async function recordDiagnosticOutcome(
     await proposalsRepo.setOutcomeStatusAtRevisionAsync({
       proposalId,
       expectedRevision: current.revision,
-      outcomeStatus: 'inconclusive',
+      outcomeStatus,
     });
   } catch (error) {
     logger.warn(
@@ -583,7 +584,15 @@ async function doRevert(
   patch?: RevertPatch,
 ): Promise<MeasureOutcome> {
   const outcome = await revertProposal(proposal, deps, patch);
-  if (outcome === 'reverted') return 'reverted';
+  if (outcome === 'reverted') {
+    // W6-c7 / P1-2 — a completed revert is the record that a guard CAUGHT
+    // something, and it must be distinguishable from the `unproven` default,
+    // which means nobody ever looked. `regressed` is not a promotion, so a
+    // proxy may establish it; only `verified` is fenced behind an experiment.
+    // Every revert path routes through here, so this is the one place it goes.
+    await recordDiagnosticOutcome(proposal.id, deps, 'regressed');
+    return 'reverted';
+  }
   // Never collapse a durable unresolved state into the retryable one.
   if (outcome === 'reconciliation-required') return 'reconciliation-required';
   return 'skipped';

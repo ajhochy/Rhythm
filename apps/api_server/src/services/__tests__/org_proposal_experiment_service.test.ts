@@ -29,6 +29,7 @@ import {
   assignSubjectAsync,
   decideExperiment,
   judgeExperimentAsync,
+  writeOutcomeStatus,
 } from '../org_proposal_experiment_service';
 
 let db: Database.Database;
@@ -78,6 +79,14 @@ function cohort(n: number, successes: number, variant: string): AgentRunOutcome[
     attribution: { v: 1, tools: [], skills: [], configRevision: 'unknown' },
     finalizedAt: '2026-08-15T00:00:00.000Z',
     createdAt: '2026-08-15T00:00:00.000Z',
+  })) as AgentRunOutcome[];
+}
+
+/** A cohort of `n` ledger outcomes of which `errors` ended in a terminal error. */
+function errorCohort(n: number, errors: number, variant: string): AgentRunOutcome[] {
+  return cohort(n, n, variant).map((o, i) => ({
+    ...o,
+    terminalStatus: i < errors ? 'error' : 'completed',
   })) as AgentRunOutcome[];
 }
 
@@ -218,6 +227,31 @@ const CASES: Case[] = [
     candidate: cohort(20, 10, 'candidate'),
     expected: 'regress',
     reasonMatches: /objective-success-rate/,
+  },
+  {
+    // P1-3 — `direction` must actually execute. With `decrease`, a FALLING
+    // metric is the improvement. If the direction ternary were dropped or
+    // inverted, this candidate's lower error rate would read as a regression.
+    name: 'c12 promote on a decrease-direction metric: the candidate errors less',
+    bundle: {
+      ...makeValidBundle(),
+      primaryMetric: { name: 'terminal-error-rate', direction: 'decrease' },
+    },
+    baseline: errorCohort(20, 10, 'baseline'),
+    candidate: errorCohort(20, 2, 'candidate'),
+    expected: 'promote',
+    reasonMatches: /terminal-error-rate/,
+  },
+  {
+    name: 'c12 regress on a decrease-direction metric: the candidate errors MORE',
+    bundle: {
+      ...makeValidBundle(),
+      primaryMetric: { name: 'terminal-error-rate', direction: 'decrease' },
+    },
+    baseline: errorCohort(20, 2, 'baseline'),
+    candidate: errorCohort(20, 10, 'candidate'),
+    expected: 'regress',
+    reasonMatches: /terminal-error-rate/,
   },
   // ── W6-c6 PROXY REFUSALS ───────────────────────────────────────────────
   ...PROXY_ADAPTERS.map((adapter) => ({
@@ -379,6 +413,109 @@ describe('W6-c12 promote and regress are reachable END TO END, through the ledge
 
     const proposal = await new AgentOrgProposalsRepository().findByIdAsync('prop-1');
     expect(proposal!.outcomeStatus).toBe('inconclusive');
+  });
+});
+
+describe('W6-c13 a result may not be judged by a rule that did not predate it', () => {
+  it('refuses an experiment whose declaration postdates its own results', async () => {
+    // Not reachable through the repository — recordResultsAsync always stamps
+    // results_recorded_at after declared_at, and both columns are
+    // trigger-immutable. The guard exists for a RAW writer, so the test plants
+    // exactly that: a row inserted directly with the timestamps inverted.
+    // INSERT is the one write the immutability triggers do not cover.
+    db.prepare(
+      `INSERT INTO agent_org_experiments
+         (id, proposal_id, adapter, evidence_bundle_json, baseline_spec_json,
+          candidate_spec_json, assignment_key, stopping_rule_json, max_exposure,
+          results_json, declared_at, results_recorded_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      'exp-retro',
+      'prop-1',
+      'paired-cohort-outcome',
+      JSON.stringify(makeValidBundle()),
+      '{}',
+      '{}',
+      'exp-key-1',
+      JSON.stringify({ minSamplesPerCohort: 10, minEffect: 0.05 }),
+      100,
+      JSON.stringify({
+        baseline: { sampleCount: 20, primaryMetricValue: 0.5 },
+        candidate: { sampleCount: 20, primaryMetricValue: 0.9 },
+      }),
+      '2026-08-15T12:00:00.000Z', // declared AFTER
+      '2026-08-15T09:00:00.000Z', // the results it judges
+    );
+
+    const experiment = (await new AgentOrgExperimentsRepository().findByIdAsync('exp-retro'))!;
+    const result = decideExperiment({
+      experiment,
+      baseline: cohort(20, 10, 'baseline'),
+      candidate: cohort(20, 18, 'candidate'),
+    });
+    expect(result.decision).toBe('inconclusive');
+    expect(result.reason).toMatch(/declared after/i);
+  });
+});
+
+describe('P2-4 an established outcome is never downgraded by a re-judge', () => {
+  it('judging twice leaves `verified` alone and does not churn the CAS revision', async () => {
+    const proposals = new AgentOrgProposalsRepository();
+    await proposals.createAsync({
+      id: 'prop-1',
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'a candidate worth measuring',
+    });
+    const outcomes = new AgentRunOutcomesRepository();
+    for (let i = 0; i < 20; i += 1) {
+      await outcomes.finalizeAsync({
+        rootSessionId: `ses-b-${i}`,
+        proposalId: 'prop-1',
+        experimentVariant: 'baseline',
+        terminalStatus: 'completed',
+        objectiveVerdict: i < 10 ? 'success' : 'failure',
+        objectiveEvidence: { producedArtifact: null, errorCount: null, approvalDenied: null },
+      });
+      await outcomes.finalizeAsync({
+        rootSessionId: `ses-c-${i}`,
+        proposalId: 'prop-1',
+        experimentVariant: 'candidate',
+        terminalStatus: 'completed',
+        objectiveVerdict: i < 18 ? 'success' : 'failure',
+        objectiveEvidence: { producedArtifact: null, errorCount: null, approvalDenied: null },
+      });
+    }
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle());
+
+    expect((await judgeExperimentAsync(exp.id)).decision).toBe('promote');
+    const afterFirst = (await proposals.findByIdAsync('prop-1'))!;
+    expect(afterFirst.outcomeStatus).toBe('verified');
+
+    // Re-entrant call: same verdict, no downgrade, no extra revision bump.
+    expect((await judgeExperimentAsync(exp.id)).decision).toBe('promote');
+    const afterSecond = (await proposals.findByIdAsync('prop-1'))!;
+    expect(afterSecond.outcomeStatus).toBe('verified');
+    expect(afterSecond.revision).toBe(afterFirst.revision);
+  });
+
+  it('writeOutcomeStatus refuses to demote a verified proposal', async () => {
+    const proposals = new AgentOrgProposalsRepository();
+    const created = await proposals.createAsync({
+      id: 'prop-v',
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'already verified',
+    });
+    await proposals.setOutcomeStatusAtRevisionAsync({
+      proposalId: created.id,
+      expectedRevision: created.revision,
+      outcomeStatus: 'verified',
+    });
+
+    expect(await writeOutcomeStatus('prop-v', 'inconclusive')).toBe(false);
+    expect((await proposals.findByIdAsync('prop-v'))!.outcomeStatus).toBe('verified');
   });
 });
 

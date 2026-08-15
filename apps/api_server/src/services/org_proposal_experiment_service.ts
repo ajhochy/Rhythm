@@ -9,6 +9,28 @@
  * Every refusal lands on `inconclusive`, never on a silent skip and never on
  * `regress`: an absent cohort or an invalid bundle is a failure to measure, not
  * evidence of harm.
+ *
+ * ── SHIPPED LIMITATION, stated rather than left as a silently-passing test ──
+ *
+ * NO PRODUCTION CALLER DECLARES, ASSIGNS, OR JUDGES AN EXPERIMENT. Every
+ * function in this module is reachable only from its own tests: no route, no
+ * controller and no path in org_optimizer_run_service.ts calls declareAsync,
+ * assignSubjectAsync or judgeExperimentAsync. Consequently, in production
+ * `agent_org_proposals.outcome_status` can only ever hold `unproven`,
+ * `inconclusive` or `regressed` — the values the demoted measure path writes.
+ * `verified` is unreachable outside the test suite until the wiring lands.
+ *
+ * That is BROADER than the limitation W6-c5 records (nothing populates
+ * agent_run_outcomes.experiment_variant, so every cohort is empty in
+ * production). Both are true; this one is the one that decides whether this
+ * file is a live gate or a correct mechanism waiting to be plugged in. It is
+ * currently the second, and W6-c12's positive control proves the mechanism
+ * works, not that it runs.
+ *
+ * Wiring cohort assignment into run creation, and the experiment lifecycle into
+ * the optimizer run service, is explicitly out of W6's scope — see the
+ * contract's explicitly_out_of_scope list. W7's live gate is where this becomes
+ * observable against a real sandbox.
  */
 
 import { createHash } from 'node:crypto';
@@ -228,6 +250,17 @@ export async function judgeExperimentAsync(
     return inconclusive(`experiment '${experimentId}' does not exist`);
   }
 
+  // A decided experiment is history. Re-judging it would recompute against a
+  // ledger that has moved on, and every re-run bumped the proposal's CAS
+  // revision for a fact that did not change.
+  if (experiment.decision) {
+    return {
+      decision: experiment.decision,
+      reason: experiment.decisionReason ?? 'already decided',
+      results: experiment.results,
+    };
+  }
+
   const outcomesRepo = deps.outcomesRepo ?? new AgentRunOutcomesRepository();
   const enrolled = await outcomesRepo.listByExperimentAsync(experiment.proposalId);
   const baseline = enrolled.filter((o) => o.experimentVariant === 'baseline');
@@ -266,6 +299,9 @@ export async function writeOutcomeStatus(
   try {
     const current = await repo.findByIdAsync(proposalId);
     if (!current) return false;
+    // An established verdict is never downgraded by a later, weaker one — the
+    // same guard recordDiagnosticOutcome applies on the measure side.
+    if (current.outcomeStatus === 'verified' && outcomeStatus !== 'verified') return false;
     const written = await repo.setOutcomeStatusAtRevisionAsync({
       proposalId,
       expectedRevision: current.revision,

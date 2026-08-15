@@ -3938,6 +3938,14 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_agent_org_experiments_proposal
        ON agent_org_experiments(proposal_id, declared_at)`,
   );
+  // At most ONE undecided experiment per proposal. Two would read the same
+  // ledger cohort pool through different stopping rules and both stamp
+  // outcome_status — last writer wins. A decided experiment is history and does
+  // not block the next one.
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiments_one_undecided
+       ON agent_org_experiments(proposal_id) WHERE decision IS NULL`,
+  );
 
   // The SPEC is immutable; the results and the decision are not — an experiment
   // that could never record a result would be a museum piece. The trigger fires
