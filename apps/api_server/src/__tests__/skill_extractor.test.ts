@@ -36,9 +36,12 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { env } from '../config/env';
 import {
+  _resetHarvestGuardForTests,
   _setCuratorExtractRunning,
   distillFromSession,
   getCuratorExtractStatus,
+  queueSkillExtraction,
+  type DistillFn,
   type LlmCall,
 } from '../services/skill_extractor';
 import { draftSkillExists, draftsRoot } from '../services/rhythm_managed_skills';
@@ -70,6 +73,22 @@ function seedSession(id: string): void {
        VALUES (?, 'claude-code', 'idle', '/tmp', 'extract-test')`,
     )
     .run(id);
+}
+
+/** W3 — mark a seeded session ineligible for skill harvesting via a raw column update. */
+function markSessionAttrs(
+  id: string,
+  attrs: { isSystem?: boolean; category?: string; mcpRole?: string },
+): void {
+  if (attrs.isSystem !== undefined) {
+    getDb().prepare(`UPDATE agent_sessions SET is_system = ? WHERE id = ?`).run(attrs.isSystem ? 1 : 0, id);
+  }
+  if (attrs.category !== undefined) {
+    getDb().prepare(`UPDATE agent_sessions SET category = ? WHERE id = ?`).run(attrs.category, id);
+  }
+  if (attrs.mcpRole !== undefined) {
+    getDb().prepare(`UPDATE agent_sessions SET mcp_role = ? WHERE id = ?`).run(attrs.mcpRole, id);
+  }
 }
 
 /** Seed `rounds` assistant ('output') messages interleaved with user input. */
@@ -406,6 +425,166 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
 
     expect(result).toBeNull();
     expect(getCuratorExtractStatus().running).toBe(false);
+  });
+
+  // ── W3 (self-improvement-engine-foundation) — learning eligibility, enforced
+  // directly inside distillFromSession (defense in depth: queueSkillExtraction
+  // checks the SAME predicate before ever dispatching a distill, but a direct
+  // call must not rely on its caller having done so). ────────────────────────
+  describe('W3 — distillFromSession independently enforces learning eligibility', () => {
+    it('never calls the LLM for an isSystem=1 session', async () => {
+      seedRounds(SESSION_ID, 2);
+      seedScopedAgentConfig();
+      markSessionAttrs(SESSION_ID, { isSystem: true });
+      let called = false;
+      const llmCall: LlmCall = async () => {
+        called = true;
+        return VALID_SKILL_JSON;
+      };
+
+      const result = await distillFromSession(SESSION_ID, { llmCall });
+
+      expect(result).toBeNull();
+      expect(called).toBe(false);
+      expect(draftSkillExists(EXPECTED_SKILL_NAME)).toBe(false);
+    });
+
+    it('never calls the LLM for a category=self_improvement session', async () => {
+      seedRounds(SESSION_ID, 2);
+      seedScopedAgentConfig();
+      markSessionAttrs(SESSION_ID, { category: 'self_improvement' });
+      let called = false;
+      const llmCall: LlmCall = async () => {
+        called = true;
+        return VALID_SKILL_JSON;
+      };
+
+      const result = await distillFromSession(SESSION_ID, { llmCall });
+
+      expect(result).toBeNull();
+      expect(called).toBe(false);
+    });
+
+    it('never calls the LLM for a category=scheduled session', async () => {
+      seedRounds(SESSION_ID, 2);
+      seedScopedAgentConfig();
+      markSessionAttrs(SESSION_ID, { category: 'scheduled' });
+      let called = false;
+      const llmCall: LlmCall = async () => {
+        called = true;
+        return VALID_SKILL_JSON;
+      };
+
+      const result = await distillFromSession(SESSION_ID, { llmCall });
+
+      expect(result).toBeNull();
+      expect(called).toBe(false);
+    });
+
+    it('never calls the LLM for a curator mcpRole (e.g. skill-extract) session', async () => {
+      seedRounds(SESSION_ID, 2);
+      seedScopedAgentConfig();
+      markSessionAttrs(SESSION_ID, { mcpRole: 'skill-extract' });
+      let called = false;
+      const llmCall: LlmCall = async () => {
+        called = true;
+        return VALID_SKILL_JSON;
+      };
+
+      const result = await distillFromSession(SESSION_ID, { llmCall });
+
+      expect(result).toBeNull();
+      expect(called).toBe(false);
+    });
+
+    it('fails closed (no LLM call) when the session does not exist', async () => {
+      // Deliberately do NOT seedSession — the id is unknown to the repo.
+      let called = false;
+      const llmCall: LlmCall = async () => {
+        called = true;
+        return VALID_SKILL_JSON;
+      };
+
+      const result = await distillFromSession('sess-does-not-exist', { llmCall });
+
+      expect(result).toBeNull();
+      expect(called).toBe(false);
+    });
+  });
+
+  // ── W3 — queueSkillExtraction checks eligibility BEFORE round counting, the
+  // #1109 lifetime guard, the cooldown, or dispatching a distill. An
+  // ineligible session must never consume the guard/cooldown either — if it
+  // did, an unrelated ELIGIBLE session queued right after would be starved by
+  // a cooldown the ineligible session had no business starting. ─────────────
+  describe('W3 — queueSkillExtraction enforces learning eligibility before any gate/dispatch', () => {
+    beforeEach(() => {
+      _resetHarvestGuardForTests();
+    });
+
+    it('never dispatches distill for an ineligible (isSystem) session, even with enough rounds', async () => {
+      seedRounds(SESSION_ID, 5);
+      markSessionAttrs(SESSION_ID, { isSystem: true });
+      let called = false;
+      const distill: DistillFn = async () => {
+        called = true;
+        return null;
+      };
+
+      queueSkillExtraction(SESSION_ID, distill);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(called).toBe(false);
+    });
+
+    it('never dispatches distill for a category=scheduled session, even with enough rounds', async () => {
+      seedRounds(SESSION_ID, 5);
+      markSessionAttrs(SESSION_ID, { category: 'scheduled' });
+      let called = false;
+      const distill: DistillFn = async () => {
+        called = true;
+        return null;
+      };
+
+      queueSkillExtraction(SESSION_ID, distill);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(called).toBe(false);
+    });
+
+    it('does not consume the lifetime guard or global cooldown for an ineligible session — a later eligible session still fires', async () => {
+      const ineligibleId = 'sess-ineligible-q';
+      seedSession(ineligibleId);
+      seedRounds(ineligibleId, 5);
+      markSessionAttrs(ineligibleId, { category: 'self_improvement' });
+      seedRounds(SESSION_ID, 5); // SESSION_ID is eligible (ordinary chat session)
+
+      const calledWith: string[] = [];
+      const distill: DistillFn = async (id) => {
+        calledWith.push(id);
+        return null;
+      };
+
+      queueSkillExtraction(ineligibleId, distill);
+      await Promise.resolve();
+      queueSkillExtraction(SESSION_ID, distill);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(calledWith).toEqual([SESSION_ID]);
+    });
+
+    it('fails closed (never dispatches) when the session does not exist', async () => {
+      let called = false;
+      const distill: DistillFn = async () => {
+        called = true;
+        return null;
+      };
+
+      queueSkillExtraction('sess-does-not-exist-queue', distill);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(called).toBe(false);
+    });
   });
 });
 
