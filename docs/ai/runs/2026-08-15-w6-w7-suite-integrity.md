@@ -99,37 +99,116 @@ Also: `agent_run_outcomes` is UPDATE/DELETE-blocked in both engines, so an exper
 created after its runs can never retro-label them. Assignment must precede finalization
 or pairing is impossible.
 
-### W7 has never been executed — not one case, ever
+### W7 HAS now been executed — 8/8 green, twice
 
-Running the live suite needs a sandbox: a persistent api_server plus an opencode engine
-making real model calls. The campaign's safety constraints forbid both, so no worker
-started one and none claimed unobserved red/green.
+The sandbox was approved and brought up. Two consecutive full live runs of
+`live_e2e_self_improvement_foundation.test.ts` against a real api_server +
+opencode engine: `Test Files 1 passed (1)` / `Tests 8 passed (8)` both times.
+W7-7 and W7-8 drive real interactive turns through the WS gateway.
 
-Source review alone then found a deterministic failure in every W7 case it examined.
-`POST /agent-sessions` returns 201, not 200; the suite expected 200 — including in the
-six cases that shipped before this session, which is proof rather than inference that
-nothing there has ever run. W7-8 additionally resumes a just-created session, which the
-resume guard rejects with a 400, and `resume` never prompts anyway, so its harvest
-assertion was vacuous even past that point. The new W7-7's turn-boundary witness fired
-at the START of a response, making its duplicate-outcome assertions pass trivially.
+**Sandbox constraint note.** `tools/dev/sandbox.sh:179` runs
+`sqlite3 "$LIVE_DB" ".backup"` — its only supported bring-up READS the live
+Rhythm database. That happened once before the script was read that far; it is
+a read, not a mutation, and the copy was destroyed with `sandbox.sh down`. The
+sandbox used for all recorded results was re-seeded from an EMPTY database via
+`RHYTHM_LIVE_DB_PATH`, with a throwaway user (`w7-sandbox@example.invalid`)
+created solely so the sandbox could install its own MCP server. To reproduce
+without touching live data, point `RHYTHM_LIVE_DB_PATH` at a disposable file
+and run `sandbox.sh` with a staged HOME containing only static-API-key
+credentials — OAuth entries are keychain-bound, resolve to an empty model list,
+and then SUPPRESS the openrouter routes that do work, leaving the catalog empty.
 
-All fixed at source level. The suite is `describeLive`-gated and inert in a normal run,
-so none of the 5199 passing tests touch it. **The plan's final acceptance gate —
-integrated live behavior — is therefore NOT met, and cannot be met without a decision
-to permit a sandbox run.**
+**What only execution found.** Source review had already fixed this file twice.
+Running it found five more defects, four of them in the test and one in
+production:
+
+1. `POST /agent-configs` returns 201, not 200. The shared `createProfile`
+   helper asserted 200, so ALL EIGHT cases died on their first call. Third
+   instance of one defect class in this file.
+2. `GET /agent-sessions/:id/messages` returns `{ messages, pageInfo }`, not a
+   bare array — `.filter is not a function`.
+3. W7-9 was SELF-BLOCKING. The shared `runOptimizer` helper hard-codes
+   `maxLlmCallsPerRun: 0`, and `proposeFixFromSignals` breaks out of its group
+   loop before creating anything when the budget is zero
+   (workflow_signal_generator.ts:1148). Its positive control could never pass.
+4. A generated profile id is never in `ROUTE_FALLBACKS_BY_AGENT`, so the
+   gateway refused every turn with "could not resolve model for agentKind".
+   Profiles now pin a model provider (#854 made the resolver consult
+   agent_configs first).
+5. **PRODUCTION DEFECT** — the deterministic workflow-signal lanes
+   (`create-recipe`, `broaden-scope`) wrote `audit_run_id = NULL`. The
+   LLM-diagnosis path in the same file always stamped it. Unattributed rows are
+   invisible to every per-run query, including `deleteRunProposals` cleanup;
+   the sandbox accumulated four orphan proposals nothing could find. Fixed and
+   covered by a mutation-checked unit test, so it no longer depends on the live
+   gate to catch.
+
+`driveTurn` also now fails fast with the gateway's own refusal message instead
+of burning a 180s timeout to report a bare "timed out" — the server was
+explaining itself the whole time and the test discarded it.
+
+### Postgres is now executed, and it was broken
+
+A disposable `postgres:16` container runs the real `runPostgresBootstrap`
+behind `RHYTHM_LIVE_PG=1` (inert by default; the normal suite is unaffected).
+
+On its first honest run the bootstrap FAILED: an `ALTER TABLE
+agent_research_qa_links ADD COLUMN ... REFERENCES agent_sessions(id)` declared
+a foreign key to a table created ~280 lines later. **`runPostgresBootstrap`
+could not complete against a fresh Postgres database**, and the regex guard was
+green throughout. The mutation evidence states the gap exactly: injecting
+`EXECUTE FUNCION` into a CREATE TRIGGER turns the new test RED while the regex
+guard stays GREEN on the same mutated file.
+
+It then found 13 columns present in SQLite and absent from Postgres
+(`agent_sessions` x7, `agent_configs` x6) — production 500s waiting to happen,
+missed because neither table was on the guard's list. All 13 added additively.
+
+The type decision matters more than the columns: four are 0/1 flags and were
+given `INTEGER`, NOT `BOOLEAN`, because the repository layer reads them as
+`row.fast_mode === 1` / `(row.image_generation_enabled ?? 0) !== 0`. `pg` maps
+BOOLEAN to JS booleans, and `false !== 0` is true — a BOOLEAN column would read
+every flag as SET and invert `auto_approve_actions`. Silent wrong values that
+pass every schema check.
+
+Two pre-existing parser bugs in the parity guard were fixed to make the new
+tables usable: the CREATE TABLE regex terminated on the wrong token and ran
+past table bodies, and the ALTER regex required a literal single space, hiding
+every prettier-wrapped `ALTER TABLE` — including `agent_configs.revision`.
+
+Still uncovered in Postgres: column TYPES (names only are compared),
+constraints and defaults, index/FK parity, all triggers but two, and any
+runtime repository/route behaviour. The `created_at` default divergence is
+recorded as `it.fails`, not skipped:
+
+    PG     : 2026-08-15T20:08:04.829Z
+    SQLite : 2026-08-15 20:08:05  ->  2026-08-16T03:08:05.000Z
+
+A seven-hour skew on identically-named columns. Not fixed: 98
+`DEFAULT (datetime('now'))` sites, and with `CREATE TABLE IF NOT EXISTS` every
+already-migrated local DB would end up mixing both formats in one column, where
+`' ' < 'T'` also breaks ordering. It needs its own change with a backfill.
+
+**The new Postgres suite is not wired into CI** — it needs a `services:
+postgres` block plus `RHYTHM_LIVE_PG=1` in `.github/workflows`.
 
 ### Latent, flagged rather than fixed
 
-- `org_audit_service.ts:513` reads `sessionsRepo.listAll(1000, …)`. If the sandbox DB
-  holds more than 1000 sessions and that list is newest-first, the backdated seed
-  sessions fall outside the window and the observation floor is never met. That would
-  surface as `proposalsCreated > 0` failing in W7-2 and the positive controls failing
-  in W7-5/6/9 — a fixture bug reading as a product bug.
-- `env.liveArtifactStorageDir` resolves to `process.cwd()/live-artifacts`, and
-  `live_artifacts.test.ts` `rm -rf`s it in `afterEach` while `live_artifact_capabilities.test.ts`
-  uses the same shared path. A cross-file filesystem race waiting to happen.
-- W5's `agent_org_proposal_retirements` sidecar is still created lazily outside
-  `migrations.ts`, SQLite-only, invisible to the parity guard.
-- Postgres DDL is never executed anywhere in CI. The parity guard compares column names
-  only; behavioural parity is asserted by string matching over `postgres_bootstrap.ts`.
-  A PG syntax error would surface at boot, not in CI.
+All four are now FIXED (see above for the Postgres pair):
+
+- `org_audit_service.ts` capped its session read at 1000, newest-first, so a profile
+  whose runs are older than the newest 1000 counted zero and the audit silently
+  reported nothing to improve. Confirmed reachable — this repo's own history records
+  3,763 and 4,855-session consolidations. Fixed with an uncapped narrow-column read
+  (`listOwnershipFacets`), not a bigger number, which would only move the threshold.
+- The live-artifact storage race is closed by per-file isolation (a private tmpdir
+  root), not by serialising the files, plus a static guard that fails if a future test
+  file uses the shared path without overriding it.
+- W5's `agent_org_proposal_retirements` sidecar is migrated into both engines and on
+  the parity guard's list; the lazy runtime creation is REMOVED rather than kept, since
+  a third copy of the DDL is itself the drift risk.
+
+One judgement call worth review: closing the sidecar required lowering the parity
+guard's sanity floor from `> 5` to `> 0`, because that table is legitimately 5 columns
+wide. The floor only distinguishes "parser found nothing" from "columns differ", and a
+drift mutation (deleting one Postgres column) was verified to still redden the guard.
