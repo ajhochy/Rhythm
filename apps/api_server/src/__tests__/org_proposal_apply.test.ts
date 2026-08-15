@@ -162,14 +162,6 @@ describe('W1 corrective 3: exact-state scope revert', () => {
       changeJson: '{"agentConfigId":"TARGET","field":"allowedSkillsJson","add":["skill-b"]}',
     },
     {
-      label: 'null allowlist bytes',
-      kind: 'broaden-scope',
-      field: 'allowedSkillsJson' as const,
-      priorValue: null,
-      expectedAppliedValue: '["skill-b"]',
-      changeJson: '{"agentConfigId":"TARGET","field":"allowedSkillsJson","add":["skill-b"]}',
-    },
-    {
       label: 'null core permissions',
       kind: 'refine-scope',
       field: 'corePermissionsJson' as const,
@@ -226,6 +218,18 @@ describe('W1 corrective 3: exact-state scope revert', () => {
         : configsRepo.getById(config.id)?.corePermissionsJson,
     ).toBe(priorValue);
     expect(profileSpy).toHaveBeenCalledOnce();
+  });
+
+  it('refuses to construct an allowlist add from unrestricted null bytes', async () => {
+    const { createScopeStateV2Snapshot } = await import('../services/org_proposal_apply');
+    expect(() => createScopeStateV2Snapshot(
+      'config-null-unrestricted',
+      'allowedSkillsJson',
+      null,
+      '["skill-b"]',
+      '{"agentConfigId":"config-null-unrestricted","field":"allowedSkillsJson","add":["skill-b"]}',
+      'broaden-scope',
+    )).toThrow(/unrestricted/i);
   });
 
   it.each(['allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson'] as const)(
@@ -695,25 +699,29 @@ describe('W1: conflict-safe scope revert', () => {
   });
 
   it.each([
-    { label: 'missing', changeJson: null },
-    { label: 'malformed', changeJson: 'not-json' },
+    { label: 'missing', changeJson: null, expectedOutcome: 'conflict' },
+    { label: 'malformed', changeJson: 'not-json', expectedOutcome: 'unsafe-legacy-scope' },
     {
       label: 'wrong target',
       changeJson: JSON.stringify({ agentConfigId: 'other', field: 'allowedMcpsJson', remove: ['x'] }),
+      expectedOutcome: 'conflict',
     },
     {
       label: 'wrong field',
       changeJson: JSON.stringify({ agentConfigId: 'TARGET', field: 'allowedSkillsJson', remove: ['x'] }),
+      expectedOutcome: 'conflict',
     },
     {
       label: 'wrong removal',
       changeJson: JSON.stringify({ agentConfigId: 'TARGET', field: 'allowedMcpsJson', remove: ['z'] }),
+      expectedOutcome: 'conflict',
     },
     {
       label: 'extra add',
       changeJson: JSON.stringify({ agentConfigId: 'TARGET', field: 'allowedMcpsJson', remove: ['x'], add: ['z'] }),
+      expectedOutcome: 'conflict',
     },
-  ])('requires exact V2 snapshot/change binding: $label', async ({ changeJson }) => {
+  ])('requires exact V2 snapshot/change binding: $label', async ({ changeJson, expectedOutcome }) => {
     const { createScopeDeltaV2Snapshot, revertProposal } = await import('../services/org_proposal_apply');
     const configsRepo = new AgentConfigsRepository();
     const prior = JSON.stringify(['x', 'y']);
@@ -735,7 +743,7 @@ describe('W1: conflict-safe scope revert', () => {
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
-    expect(await revertProposal(active!)).toBe('conflict');
+    expect(await revertProposal(active!)).toBe(expectedOutcome);
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(snapshot.expectedAppliedValue);
     expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
   });
@@ -1324,7 +1332,7 @@ describe('W1: deferred human scope apply CAS', () => {
 
 describe('W1: scope projection is a revert gate', () => {
   it.each(['blocked', 'failed'] as const)(
-    'compensates revert when profile projection returns %s and keeps the proposal active',
+    'restores the DB pair but reports reconciliation when both profile projections return %s',
     async (writerResult) => {
       const { createScopeDeltaV2Snapshot, revertProposal } = await import('../services/org_proposal_apply');
       const writer = await import('../services/opencode_agent_writer');
@@ -1346,7 +1354,7 @@ describe('W1: scope projection is a revert gate', () => {
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
-      expect(await revertProposal(active!)).toBe('conflict');
+      expect(await revertProposal(active!)).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(snapshot.expectedAppliedValue);
       expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
     },
@@ -1372,23 +1380,23 @@ describe('W1: scope projection is a revert gate', () => {
     await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
-    const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
-    let casCalls = 0;
-    vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
-      .mockImplementation(function (this: AgentConfigsRepository, ...args) {
-        casCalls += 1;
-        if (casCalls === 2) configsRepo.update(config.id, { allowedMcpsJson: concurrent });
-        return originalCas.apply(this, args);
+    const originalTransition = AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAsync;
+    let transitionCalls = 0;
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'transitionScopeAtomicallyAsync')
+      .mockImplementation(async function (this: AgentOrgProposalsRepository, input) {
+        transitionCalls += 1;
+        if (transitionCalls === 2) configsRepo.update(config.id, { allowedMcpsJson: concurrent });
+        return originalTransition.call(this, input);
       });
 
-    expect(await revertProposal(active!)).toBe('conflict');
+    expect(await revertProposal(active!)).toBe('reconciliation-required');
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(concurrent);
-    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
   });
 
   for (const field of ['allowedSkillsJson', 'corePermissionsJson'] as const) {
     it.each(['blocked', 'failed'] as const)(
-      `uses actual %s writer outcome when reverting refine-scope ${field}`,
+      `reports reconciliation for repeated actual %s writer outcomes when reverting refine-scope ${field}`,
       async (writerResult) => {
         const { createScopeStateV2Snapshot, revertProposal } = await import('../services/org_proposal_apply');
         const originalVitest = process.env.VITEST;
@@ -1431,7 +1439,7 @@ describe('W1: scope projection is a revert gate', () => {
           await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
           const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
 
-          expect(await revertProposal(active!)).toBe('conflict');
+          expect(await revertProposal(active!)).toBe('reconciliation-required');
           expect(readScopeField(configsRepo, config.id, field)).toBe(applied);
           expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
         } finally {
@@ -1479,18 +1487,18 @@ describe('W1: scope projection is a revert gate', () => {
       await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
       await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
       const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
-      const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
-      let casCalls = 0;
-      vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
-        .mockImplementation(function (this: AgentConfigsRepository, ...args) {
-          casCalls += 1;
-          if (casCalls === 2) configsRepo.update(config.id, { allowedSkillsJson: concurrent });
-          return originalCas.apply(this, args);
+      const originalTransition = AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAsync;
+      let transitionCalls = 0;
+      vi.spyOn(AgentOrgProposalsRepository.prototype, 'transitionScopeAtomicallyAsync')
+        .mockImplementation(async function (this: AgentOrgProposalsRepository, input) {
+          transitionCalls += 1;
+          if (transitionCalls === 2) configsRepo.update(config.id, { allowedSkillsJson: concurrent });
+          return originalTransition.call(this, input);
         });
 
-      expect(await revertProposal(active!)).toBe('conflict');
+      expect(await revertProposal(active!)).toBe('reconciliation-required');
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(concurrent);
-      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('active');
+      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
     } finally {
       process.env.VITEST = originalVitest;
       process.env.NODE_ENV = originalNodeEnv;

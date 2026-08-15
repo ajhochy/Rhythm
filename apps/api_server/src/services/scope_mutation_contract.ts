@@ -6,6 +6,7 @@ import {
   SCOPE_ALLOWLIST_FIELDS,
   SCOPE_PATCH_FIELDS,
 } from './org_diagnosis_types';
+import { parseStrictJson } from './strict_json';
 
 export type ScopeProposalKind =
   | 'tighten-scope'
@@ -20,6 +21,23 @@ export type ScopeStateField = (typeof SCOPE_PATCH_FIELDS)[number];
 const RESERVED_SCOPE_IDENTIFIERS = new Set(['__proto__', 'constructor', 'prototype']);
 const CORE_PERMISSION_NAME_SET = new Set<string>(CORE_PERMISSION_NAMES);
 const CORE_PERMISSION_ACTION_SET = new Set<string>(CORE_PERMISSION_ACTIONS);
+const SCOPE_FIELD_SET = new Set<string>(SCOPE_PATCH_FIELDS);
+const SCOPE_ALIASES = new Set([
+  'removeMcps',
+  'removedMcps',
+  'removeSkills',
+  'removedSkills',
+  'removeAllowedMcps',
+  'removeAllowedSkills',
+  'addMcps',
+  'addedMcps',
+  'addSkills',
+  'addedSkills',
+  'addAllowedMcps',
+  'addAllowedSkills',
+  'setCorePermissions',
+  'unsetCorePermissions',
+]);
 
 export function isReservedScopeIdentifier(name: unknown): name is string {
   return typeof name === 'string' && RESERVED_SCOPE_IDENTIFIERS.has(name.trim());
@@ -31,6 +49,43 @@ function hash(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Duplicate-aware callers pass parsed values here. Strings are deliberately
+ * opaque: prose mentioning a scope word is not itself an operation.
+ */
+export function containsScopeBearingPayload(value: unknown): boolean {
+  const seen = new WeakSet<object>();
+  const inspect = (candidate: unknown, depth: number, agentConfigContext = false): boolean => {
+    if (depth > 24) return true;
+    if (!candidate || typeof candidate !== 'object') return false;
+    if (seen.has(candidate)) return true;
+    seen.add(candidate);
+    if (Array.isArray(candidate)) {
+      return candidate.some((entry) => inspect(entry, depth + 1, agentConfigContext));
+    }
+
+    const record = candidate as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.includes('scopePatch')) return true;
+    if (keys.some((key) => SCOPE_FIELD_SET.has(key) || SCOPE_ALIASES.has(key))) return true;
+    if (SCOPE_FIELD_SET.has(String(record.field))) return true;
+
+    const target = record.target;
+    const tiedToAgentConfig = agentConfigContext ||
+      typeof record.agentConfigId === 'string' ||
+      record.targetType === 'agent_config' ||
+      record.target === 'agent_config' ||
+      (isRecord(target) && (target.type === 'agent_config' || target.kind === 'agent_config'));
+    if (
+      tiedToAgentConfig &&
+      keys.some((key) => ['field', 'operation', 'add', 'remove', 'set', 'unset', 'value'].includes(key))
+    ) return true;
+
+    return Object.values(record).some((entry) => inspect(entry, depth + 1, tiedToAgentConfig));
+  };
+  return inspect(value, 0);
 }
 
 function exactName(value: unknown, label: string): string {
@@ -67,8 +122,9 @@ function parseAllowlistBytes(value: string | null, label: string): ParsedAllowli
   if (value === null) return { shape: 'array', names: [] };
   let parsed: unknown;
   try {
-    parsed = JSON.parse(value);
-  } catch {
+    parsed = parseStrictJson(value, label);
+  } catch (error) {
+    if (error instanceof Error && /duplicate JSON member/.test(error.message)) throw error;
     throw new Error(`${label} contains malformed JSON`);
   }
   if (Array.isArray(parsed)) {
@@ -100,8 +156,9 @@ function parseCoreBytes(value: string | null, label: string): Record<string, unk
   if (value === null) return Object.create(null) as Record<string, unknown>;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(value);
-  } catch {
+    parsed = parseStrictJson(value, label);
+  } catch (error) {
+    if (error instanceof Error && /duplicate JSON member/.test(error.message)) throw error;
     throw new Error(`${label} contains malformed JSON`);
   }
   if (!isRecord(parsed)) throw new Error(`${label} must be a semantically valid object`);
@@ -146,13 +203,22 @@ export function parseScopeMutation(
   proposalKind: ScopeProposalKind,
   exactChangeJson: string,
 ): ParsedScopeMutation {
+  if (
+    proposalKind !== 'tighten-scope' &&
+    proposalKind !== 'prune-scope' &&
+    proposalKind !== 'refine-scope' &&
+    proposalKind !== 'broaden-scope'
+  ) {
+    throw new Error(`Unsupported scope proposal kind: ${String(proposalKind)}`);
+  }
   if (typeof exactChangeJson !== 'string' || !exactChangeJson.trim()) {
     throw new Error(`${proposalKind} requires exact non-empty change_json bytes`);
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(exactChangeJson);
-  } catch {
+    parsed = parseStrictJson(exactChangeJson, `${proposalKind} change_json`);
+  } catch (error) {
+    if (error instanceof Error && /duplicate JSON member/.test(error.message)) throw error;
     throw new Error(`${proposalKind} change_json is malformed`);
   }
   if (!isRecord(parsed)) throw new Error(`${proposalKind} change_json must be an object`);
@@ -197,6 +263,18 @@ export function parseScopeMutation(
 
   if (!Object.prototype.hasOwnProperty.call(parsed, 'scopePatch') || !isRecord(parsed.scopePatch)) {
     throw new Error('refine-scope requires a nested scopePatch object');
+  }
+  const outsideScopePatch = Object.create(null) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (key !== 'scopePatch') Object.defineProperty(outsideScopePatch, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (containsScopeBearingPayload(outsideScopePatch)) {
+    throw new Error('refine-scope contains a scope-bearing operation outside the canonical scopePatch');
   }
   const smuggledRootOperation = ['agentConfigId', 'field', 'add', 'remove', 'set', 'unset']
     .find((key) => Object.prototype.hasOwnProperty.call(parsed, key));
@@ -283,6 +361,9 @@ export function prepareScopeMutation(
   let expectedAppliedValue: string;
 
   if (mutation.field === 'allowedMcpsJson' || mutation.field === 'allowedSkillsJson') {
+    if (priorValue === null) {
+      throw new Error(`${mutation.field} is unrestricted and cannot be mutated with add/remove operations`);
+    }
     const current = parseAllowlistBytes(priorValue, mutation.field);
     const currentNames = current.shape === 'array'
       ? current.names
@@ -406,6 +487,9 @@ export function createScopeStateV2Snapshot(
   exactChangeJson: string,
   proposalKind: ScopeStateKind,
 ): ScopeStateV2Snapshot {
+  if (proposalKind !== 'refine-scope' && proposalKind !== 'broaden-scope') {
+    throw new Error(`scope-state-v2 does not support proposal kind '${String(proposalKind)}'`);
+  }
   const prepared = prepareScopeMutation(proposalKind, exactChangeJson, priorValue);
   if (
     prepared.agentConfigId !== agentConfigId ||
@@ -435,6 +519,9 @@ export function createScopeDeltaV2Snapshot(
   proposalKind: ScopeRemovalKind,
   exactChangeJson: string,
 ): ScopeDeltaV2Snapshot {
+  if (proposalKind !== 'tighten-scope' && proposalKind !== 'prune-scope') {
+    throw new Error(`scope-delta-v2 does not support proposal kind '${String(proposalKind)}'`);
+  }
   const prepared = prepareScopeMutation(proposalKind, exactChangeJson, priorValue);
   if (
     prepared.agentConfigId !== agentConfigId ||

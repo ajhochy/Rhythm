@@ -721,6 +721,60 @@ describe('issue-826: human-gate review queue API', () => {
     expect((await repo.findByIdAsync(proposal.id))?.status).toBe('reverted');
   });
 
+  it('W1: reconciliation response does not falsely claim an ambiguous durable commit made no changes', async () => {
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
+    const { createScopeStateV2Snapshot } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const prior = JSON.stringify(['base']);
+    const applied = JSON.stringify(['base', 'grant']);
+    const config = configsRepo.insert({
+      label: 'Route ambiguous durable commit',
+      icon: 'shield',
+      allowedSkillsJson: applied,
+    });
+    const exactChangeJson = JSON.stringify({
+      agentConfigId: config.id,
+      field: 'allowedSkillsJson',
+      add: ['grant'],
+    });
+    const snapshot = createScopeStateV2Snapshot(
+      config.id,
+      'allowedSkillsJson',
+      prior,
+      applied,
+      exactChangeJson,
+      'broaden-scope',
+    );
+    const proposal = await repo.createAsync({
+      kind: 'broaden-scope',
+      risk: 'high',
+      title: 'Route ambiguous durable commit',
+      changeJson: exactChangeJson,
+      beforeSnapshotJson: JSON.stringify(snapshot),
+      dedupKey: `w1:route-ambiguous:${crypto.randomUUID()}`,
+    });
+    await repo.updateStatusAsync(proposal.id, 'applied');
+    await repo.updateStatusAsync(proposal.id, 'measuring');
+    await repo.updateStatusAsync(proposal.id, 'active');
+
+    const original = AgentOrgProposalsRepository.prototype.transitionScopeAtomicallyAsync;
+    vi.spyOn(AgentOrgProposalsRepository.prototype, 'transitionScopeAtomicallyAsync')
+      .mockImplementation(async function (this: AgentOrgProposalsRepositoryType, input) {
+        const result = await original.call(this, input);
+        throw new Error(`simulated transport failure after commit: ${Boolean(result)}`);
+      });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/revert`, { method: 'POST' });
+    const text = await res.text();
+
+    expect(res.status).toBe(409);
+    expect(text).toMatch(/may have committed|durable state.*inspect|state.*uncertain/i);
+    expect(text).not.toMatch(/no changes were made/i);
+    expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(prior);
+    expect((await repo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+  });
+
   it('#1056: approve accepts a failed proposal for retry, not just proposed', async () => {
     // Bug this catches: publish-skill-to-org's applier marks a prod-down
     // proposal 'failed' (see issue_1056_publish_skill_to_org.test.ts); if

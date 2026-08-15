@@ -69,6 +69,7 @@ import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import {
   createScopeDeltaV2Snapshot as createStrictScopeDeltaV2Snapshot,
   createScopeStateV2Snapshot as createStrictScopeStateV2Snapshot,
+  containsScopeBearingPayload,
   isReservedScopeIdentifier as isStrictReservedScopeIdentifier,
   isScopeSnapshotVersion,
   verifyScopeSnapshotForRevert,
@@ -78,6 +79,7 @@ import {
   type ScopeStateKind,
   type ScopeRemovalKind,
 } from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
 
 export type ApplyOutcome = 'applied-ok' | 'refused-high-risk' | 'skipped';
 
@@ -443,7 +445,7 @@ export async function applyProposal(
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
     let change: unknown;
     try {
-      change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
+      change = proposal.changeJson ? parseStrictJson(proposal.changeJson, 'proposal change_json') : null;
     } catch (err) {
       logger.warn(
         `[org-proposal-apply] malformed changeJson for '${proposal.id}' (non-fatal): ${String(err)}`,
@@ -451,7 +453,7 @@ export async function applyProposal(
       return { status: 'skipped', reason: 'malformed-change-json' };
     }
 
-    if (isDirectAgentConfigScopePayload(change)) {
+    if (containsScopeBearingPayload(change)) {
       logger.info(
         `[org-proposal-apply] refused direct scope payload for '${proposal.id}' — human approval required`,
       );
@@ -531,23 +533,15 @@ function isExternalAdoptionRevertSnapshot(v: unknown): v is ExternalAdoptionReve
  */
 function parseScopeMap(json: string | null): Record<string, unknown> | null {
   if (!json) return null;
-  try {
-    const parsed: unknown = JSON.parse(json);
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
+  const parsed = parseStrictJson(json, 'scope tools-map bytes');
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
 }
 
 function safeParseStringArray(json: string): string[] {
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
-  } catch {
-    return [];
-  }
+  const parsed = parseStrictJson(json, 'scope allowlist bytes');
+  return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
 }
 
 /**
@@ -641,7 +635,12 @@ async function applyConsolidateSkillChange(
   return { status: 'applied-ok' };
 }
 
-export type RevertOutcome = 'reverted' | 'skipped' | 'conflict' | 'unsafe-legacy-scope';
+export type RevertOutcome =
+  | 'reverted'
+  | 'skipped'
+  | 'conflict'
+  | 'unsafe-legacy-scope'
+  | 'reconciliation-required';
 
 /** Audit fields the measure step may want persisted alongside the revert transition. */
 export interface RevertPatch {
@@ -679,7 +678,7 @@ export async function revertProposal(
 
     let snapshot: unknown;
     try {
-      snapshot = JSON.parse(proposal.beforeSnapshotJson);
+      snapshot = parseStrictJson(proposal.beforeSnapshotJson, 'proposal before_snapshot_json');
     } catch (err) {
       logger.warn(`[org-proposal-apply] unparseable snapshot for '${proposal.id}': ${String(err)}`);
       return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
@@ -687,13 +686,15 @@ export async function revertProposal(
 
     let change: unknown = null;
     try {
-      change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
-    } catch {
-      change = null;
+      change = proposal.changeJson ? parseStrictJson(proposal.changeJson, 'proposal change_json') : null;
+    } catch (error) {
+      logger.warn(`[org-proposal-apply] invalid change_json for revert '${proposal.id}': ${String(error)}`);
+      return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
+    const isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(change);
     const hasScopeSnapshotVersion = isScopeSnapshotVersion(snapshot);
-    if (isScopeMutationKind && !hasScopeSnapshotVersion) {
+    if (isScopeBearing && !hasScopeSnapshotVersion) {
       logger.warn(`[org-proposal-apply] refusing invalid/legacy scope revert for '${proposal.id}'`);
       return 'unsafe-legacy-scope';
     }
@@ -705,78 +706,93 @@ export async function revertProposal(
         return 'conflict';
       }
       const scopeSnapshot = verified.snapshot;
-      const restored = configsRepo.compareAndSetScopeField(
-        scopeSnapshot.target.id,
-        scopeSnapshot.field,
-        scopeSnapshot.expectedAppliedValue,
-        scopeSnapshot.priorValue,
-      );
-      if (!restored) {
-        logger.warn(`[org-proposal-apply] scope CAS conflict for '${proposal.id}'`);
+      if (proposal.status !== 'active' && proposal.status !== 'measuring') {
+        logger.warn(`[org-proposal-apply] invalid scope revert source status for '${proposal.id}'`);
         return 'conflict';
       }
-      const projection = writeAgentProfileFile(restored);
-      if (projection === 'blocked' || projection === 'failed') {
-        const compensated = configsRepo.compareAndSetScopeField(
-          scopeSnapshot.target.id,
-          scopeSnapshot.field,
-          scopeSnapshot.priorValue,
-          scopeSnapshot.expectedAppliedValue,
-        );
+      const nextBaselineScore = patch?.baselineScore !== undefined
+        ? patch.baselineScore
+        : proposal.baselineScore;
+      const nextPostScore = patch?.postScore !== undefined ? patch.postScore : proposal.postScore;
+      const nextMeasureReason = patch?.measureReason !== undefined
+        ? patch.measureReason
+        : proposal.measureReason;
+
+      let transitioned;
+      try {
+        transitioned = await proposalsRepo.transitionScopeAtomicallyAsync({
+          proposalId: proposal.id,
+          expectedProposalStatus: proposal.status,
+          nextProposalStatus: 'reverted',
+          expectedKind: proposal.kind,
+          expectedChangeJson: proposal.changeJson!,
+          expectedBeforeSnapshotJson: proposal.beforeSnapshotJson,
+          targetId: scopeSnapshot.target.id,
+          field: scopeSnapshot.field,
+          expectedTargetValue: scopeSnapshot.expectedAppliedValue,
+          nextTargetValue: scopeSnapshot.priorValue,
+          nextBaselineScore,
+          nextPostScore,
+          nextMeasureReason,
+        });
+      } catch (error) {
         logger.warn(
-          `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
-          (compensated
-            ? 'restored the exact applied scope'
-            : 'compensation lost a concurrent update; reconciliation required'),
+          `[org-proposal-apply] atomic scope revert reported an ambiguous error for ` +
+          `'${proposal.id}'; reconciliation required: ${String(error)}`,
         );
+        return 'reconciliation-required';
+      }
+      if (!transitioned) {
+        logger.warn(`[org-proposal-apply] atomic scope revert CAS conflict for '${proposal.id}'`);
         return 'conflict';
       }
 
-      try {
-        const transitioned = await proposalsRepo.updateStatusAsync(proposal.id, 'reverted', patch);
-        const durable = await proposalsRepo.findByIdAsync(proposal.id);
-        if (!transitioned || transitioned.status !== 'reverted' || durable?.status !== 'reverted') {
-          throw new Error('proposal did not durably transition to reverted');
-        }
-      } catch (statusError) {
-        // A repository/client can throw after the UPDATE has already committed
-        // (for example, while decoding a response). Re-read before compensating:
-        // if `reverted` is durable, the restored target and proposal already
-        // agree and rolling the target forward would create the inverse split.
-        let durableAfterError: AgentOrgProposal | null = null;
+      const projection = writeAgentProfileFile(transitioned.target);
+      if (projection === 'blocked' || projection === 'failed') {
+        let inverse;
         try {
-          durableAfterError = await proposalsRepo.findByIdAsync(proposal.id);
-        } catch (readError) {
+          inverse = await proposalsRepo.transitionScopeAtomicallyAsync({
+            proposalId: proposal.id,
+            expectedProposalStatus: 'reverted',
+            nextProposalStatus: proposal.status,
+            expectedKind: proposal.kind,
+            expectedChangeJson: proposal.changeJson!,
+            expectedBeforeSnapshotJson: proposal.beforeSnapshotJson,
+            targetId: scopeSnapshot.target.id,
+            field: scopeSnapshot.field,
+            expectedTargetValue: scopeSnapshot.priorValue,
+            nextTargetValue: scopeSnapshot.expectedAppliedValue,
+            nextBaselineScore: proposal.baselineScore,
+            nextPostScore: proposal.postScore,
+            nextMeasureReason: proposal.measureReason,
+          });
+        } catch (error) {
           logger.warn(
-            `[org-proposal-apply] could not verify scope revert status after transition error for ` +
-            `'${proposal.id}': ${String(readError)}`,
+            `[org-proposal-apply] atomic scope inverse reported an ambiguous error for ` +
+            `'${proposal.id}'; reconciliation required: ${String(error)}`,
           );
+          return 'reconciliation-required';
         }
-        if (durableAfterError?.status === 'reverted') {
+        if (!inverse) {
           logger.warn(
-            `[org-proposal-apply] scope revert transition reported an error after durable success for ` +
-            `'${proposal.id}': ${String(statusError)}`,
+            `[org-proposal-apply] atomic scope inverse lost a target/status CAS for ` +
+            `'${proposal.id}'; reconciliation required`,
           );
-          return 'reverted';
+          return 'reconciliation-required';
         }
-        const compensated = configsRepo.compareAndSetScopeField(
-          scopeSnapshot.target.id,
-          scopeSnapshot.field,
-          scopeSnapshot.priorValue,
-          scopeSnapshot.expectedAppliedValue,
+        const inverseProjection = writeAgentProfileFile(inverse.target);
+        if (inverseProjection === 'blocked' || inverseProjection === 'failed') {
+          logger.warn(
+            `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
+            `the database pair was atomically restored but compensating projection ` +
+            `${inverseProjection}; reconciliation required`,
+          );
+          return 'reconciliation-required';
+        }
+        logger.warn(
+          `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
+          `atomically restored proposal and applied scope, projection=${inverseProjection}`,
         );
-        if (compensated) {
-          const compensationProjection = writeAgentProfileFile(compensated);
-          logger.warn(
-            `[org-proposal-apply] scope revert status transition failed for '${proposal.id}'; ` +
-            `restored exact applied scope and projection=${compensationProjection}: ${String(statusError)}`,
-          );
-        } else {
-          logger.warn(
-            `[org-proposal-apply] scope revert status transition failed for '${proposal.id}'; ` +
-            `compensation lost a concurrent update and reconciliation is required: ${String(statusError)}`,
-          );
-        }
         return 'conflict';
       }
 
@@ -822,7 +838,7 @@ export async function revertProposal(
         snapshot.scheduledTaskId,
         scheduledTaskFieldPatch(snapshot.field, snapshot.priorValue),
       );
-    } else if (isDirectAgentConfigScopePayload(change)) {
+    } else if (containsScopeBearingPayload(change)) {
       // Legacy auto-scope snapshots replayed a whole field. Without an exact
       // post-apply value they cannot distinguish safe rollback from clobbering
       // a later operator edit, so they fail closed.

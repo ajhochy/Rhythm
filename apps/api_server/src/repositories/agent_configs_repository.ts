@@ -164,7 +164,7 @@ export interface AgentConfigInput {
   outputMarker?: string | null;
 }
 
-interface AgentConfigRow {
+export interface AgentConfigRow {
   id: string;
   label: string;
   icon: string;
@@ -307,6 +307,11 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     lockedBy: row.locked_by ?? null,
     autoApproveActions: (row.auto_approve_actions ?? 0) !== 0,
   };
+}
+
+/** Internal row mapper shared by fixed, cross-table SQLite transactions. */
+export function mapAgentConfigRow(row: AgentConfigRow): AgentConfig {
+  return rowToModel(row);
 }
 
 function securityEventRowToModel(row: AgentConfigSecurityEventRow): AgentConfigSecurityEvent {

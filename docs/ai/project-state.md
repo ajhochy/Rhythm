@@ -81,3 +81,18 @@ requires it, then install that exact TestFlight artifact and perform the focused
   in-memory SQLite regressions; no live DB, persistent server, network, W2/W3, or integration work ran.
 - Concerns: fresh independent review is still required. Status is verification-pending; W1 remains
   unaccepted and unmerged until that review passes.
+
+### 2026-08-14 — W1 corrective cycle 5
+- Both independent corrective-4 review lanes failed at exact head `db78072b`: semantic review found
+  seven P1/spec blockers and lifecycle review found three P1/spec blockers.
+- Parent reproduced the duplicate-key, scope-smuggling, null-unrestricted, mislabeled-gating,
+  stale-status-race, and ambiguous-commit split-brain probes under Node 22.
+- Decision: stop patching one-sided compensation. Corrective 5 requires duplicate-aware JSON,
+  one shared scope-bearing detector, source-status CAS for SQLite/Postgres proposal transitions, and
+  an atomic scope target/status revert primitive with fail-closed projection compensation.
+- Status is verification-pending-independent-review; W1 remains unaccepted and unmerged.
+- Implementation now has strict duplicate-aware JSON, shared recursive scope detection, source-status
+  CAS, an atomic SQLite scope revert/inverse primitive, PostgreSQL split-store refusal, and runtime
+  actor binding. Parent Node 22 verification passed the exact 14-file matrix with 396 tests and 1
+  existing skip, including the real HTTP route suite; API build, adversarial reproducers, and diff
+  checks passed. Two fresh independent reviews are still required before W1 can be accepted/merged.

@@ -28,6 +28,9 @@
  * a buggy or malicious generator mislabeling its own proposal kind.
  */
 
+import { containsScopeBearingPayload } from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
+
 /** Kinds that auto-apply behind measure/revert (proposed -> applied directly). */
 const LOW_RISK_KINDS = new Set<string>([
   'refine-skill',
@@ -85,7 +88,7 @@ type ParsedChange = Record<string, unknown> | unknown[];
 function safeParseChange(changeJson: string | null | undefined): ParsedChange | 'ambiguous' | null {
   if (!changeJson) return null;
   try {
-    const parsed: unknown = JSON.parse(changeJson);
+    const parsed: unknown = parseStrictJson(changeJson, 'proposal change_json');
     return parsed && typeof parsed === 'object' ? (parsed as ParsedChange) : 'ambiguous';
   } catch {
     return 'ambiguous';
@@ -99,19 +102,10 @@ function safeParseChange(changeJson: string | null | undefined): ParsedChange | 
 function changeShapeIsHardRuledHigh(change: ParsedChange | 'ambiguous' | null): boolean {
   if (!change) return false;
   if (change === 'ambiguous') return true;
+  if (containsScopeBearingPayload(change)) return true;
 
   const maxDepth = 24;
   const seen = new WeakSet<object>();
-  const removalAliases = new Set([
-    'remove',
-    'removed',
-    'removeMcps',
-    'removedMcps',
-    'removeSkills',
-    'removedSkills',
-    'removeAllowedMcps',
-    'removeAllowedSkills',
-  ]);
   const inspect = (value: unknown, depth: number): boolean => {
     if (depth > maxDepth) return true;
     if (!value || typeof value !== 'object') return false;
@@ -123,24 +117,6 @@ function changeShapeIsHardRuledHigh(change: ParsedChange | 'ambiguous' | null): 
     if (record.allowed_delegates_json !== undefined) return true;
     if (record.insertAgentConfig !== undefined) return true;
     if (record.createWebhookEndpoint !== undefined) return true;
-    if (record.add !== undefined) return true;
-    if (Object.prototype.hasOwnProperty.call(record, 'corePermissionsJson')) return true;
-    if (
-      typeof record.agentConfigId === 'string' &&
-      (record.field === 'allowedMcpsJson' ||
-        record.field === 'allowedSkillsJson' ||
-        record.field === 'corePermissionsJson')
-    ) {
-      return true;
-    }
-    if (
-      record.field === 'corePermissionsJson' &&
-      (Object.prototype.hasOwnProperty.call(record, 'set') ||
-        Object.prototype.hasOwnProperty.call(record, 'unset'))
-    ) return true;
-    for (const alias of removalAliases) {
-      if (Object.prototype.hasOwnProperty.call(record, alias)) return true;
-    }
     return Object.values(record).some((entry) => inspect(entry, depth + 1));
   };
   return inspect(change, 0);

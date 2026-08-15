@@ -412,9 +412,9 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
   it.each([
     { kind: 'broaden-scope', version: 'state' as const },
     { kind: 'prune-scope', version: 'delta' as const },
-  ])('re-applies exact target bytes when $version status transition throws', async ({ kind, version }) => {
-    // Regression caught: target restore succeeded, final status update threw,
-    // and the proposal stayed active against the wrong target bytes.
+  ])('rolls back both rows when the $version proposal transition throws before commit', async ({ kind, version }) => {
+    // The old target-first seam could split target and proposal state here.
+    // The authoritative transaction now rolls both updates back together.
     const apply = await import('../services/org_proposal_apply');
     const writer = await import('../services/opencode_agent_writer');
     const projection = vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('written');
@@ -432,13 +432,13 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
     getDb().exec(`CREATE TRIGGER fail_reverted_status BEFORE UPDATE ON agent_org_proposals
       WHEN NEW.status = 'reverted' BEGIN SELECT RAISE(ABORT, 'forced reverted-status failure'); END;`);
 
-    expect(await apply.revertProposal(active)).toBe('conflict');
+    expect(await apply.revertProposal(active)).toBe('reconciliation-required');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(applied);
     expect((await new AgentOrgProposalsRepository().findByIdAsync(active.id))?.status).toBe('active');
-    expect(projection).toHaveBeenCalledTimes(2);
+    expect(projection).not.toHaveBeenCalled();
   });
 
-  it('treats a null final status result as failure and compensates', async () => {
+  it('treats a null atomic transition result as a conflict without either write', async () => {
     const apply = await import('../services/org_proposal_apply');
     const writer = await import('../services/opencode_agent_writer');
     vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('written');
@@ -454,9 +454,7 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
       kind: 'broaden-scope', changeJson, beforeSnapshotJson: JSON.stringify(snapshot),
     });
     const proposals = new AgentOrgProposalsRepository();
-    const original = proposals.updateStatusAsync.bind(proposals);
-    vi.spyOn(proposals, 'updateStatusAsync').mockImplementation(async (id, status, patch) =>
-      status === 'reverted' ? null : original(id, status, patch));
+    vi.spyOn(proposals, 'transitionScopeAtomicallyAsync').mockResolvedValue(null);
 
     expect(await apply.revertProposal(active, { proposalsRepo: proposals, configsRepo: configs })).toBe('conflict');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(applied);
@@ -482,20 +480,20 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
       kind: 'broaden-scope', changeJson, beforeSnapshotJson: JSON.stringify(snapshot),
     });
     const proposals = new AgentOrgProposalsRepository();
-    const original = proposals.updateStatusAsync.bind(proposals);
-    vi.spyOn(proposals, 'updateStatusAsync').mockImplementation(async (id, status, patch) => {
-      const transitioned = await original(id, status, patch);
-      if (status === 'reverted') throw new Error('transport failed after commit');
-      return transitioned;
+    const original = proposals.transitionScopeAtomicallyAsync.bind(proposals);
+    vi.spyOn(proposals, 'transitionScopeAtomicallyAsync').mockImplementation(async (input) => {
+      const transitioned = await original(input);
+      throw new Error(`transport failed after commit: ${Boolean(transitioned)}`);
     });
 
-    expect(await apply.revertProposal(active, { proposalsRepo: proposals, configsRepo: configs })).toBe('reverted');
+    expect(await apply.revertProposal(active, { proposalsRepo: proposals, configsRepo: configs }))
+      .toBe('reconciliation-required');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(prior);
     expect((await new AgentOrgProposalsRepository().findByIdAsync(active.id))?.status).toBe('reverted');
-    expect(projection).toHaveBeenCalledTimes(1);
+    expect(projection).not.toHaveBeenCalled();
   });
 
-  it('preserves concurrent bytes when final-status compensation loses CAS', async () => {
+  it('preserves concurrent bytes when the authoritative target CAS loses', async () => {
     const apply = await import('../services/org_proposal_apply');
     const writer = await import('../services/opencode_agent_writer');
     vi.spyOn(writer, 'writeAgentProfileFile').mockReturnValue('written');
@@ -511,16 +509,7 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
     const active = await activateProposal({
       kind: 'broaden-scope', changeJson, beforeSnapshotJson: JSON.stringify(snapshot),
     });
-    getDb().exec(`CREATE TRIGGER fail_reverted_status BEFORE UPDATE ON agent_org_proposals
-      WHEN NEW.status = 'reverted' BEGIN SELECT RAISE(ABORT, 'forced reverted-status failure'); END;`);
-    const originalCas = AgentConfigsRepository.prototype.compareAndSetScopeField;
-    let calls = 0;
-    vi.spyOn(AgentConfigsRepository.prototype, 'compareAndSetScopeField')
-      .mockImplementation(function (this: AgentConfigsRepository, ...args) {
-        calls += 1;
-        if (calls === 2) configs.update(config.id, { allowedSkillsJson: concurrent });
-        return originalCas.apply(this, args);
-      });
+    configs.update(config.id, { allowedSkillsJson: concurrent });
 
     expect(await apply.revertProposal(active)).toBe('conflict');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(concurrent);

@@ -184,11 +184,10 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
     expect(attempts.map((a) => a.attempt)).toEqual([1, 2]);
   });
 
-  it('updateStatusAsync updates via the Postgres pool then re-reads the row', async () => {
+  it('updateStatusAsync performs source-status CAS with RETURNING and returns that row directly', async () => {
     mockPoolQuery
       .mockResolvedValueOnce({ rows: [pgRow()] }) // findByIdAsync (existing check)
-      .mockResolvedValueOnce({ rows: [] }) // UPDATE
-      .mockResolvedValueOnce({ rows: [pgRow({ status: 'approved' })] }); // findByIdAsync (return)
+      .mockResolvedValueOnce({ rows: [pgRow({ status: 'approved' })] }); // UPDATE RETURNING
 
     const { AgentOrgProposalsRepository } = await import(
       '../repositories/agent_org_proposals_repository'
@@ -197,9 +196,31 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
     const updated = await repo.updateStatusAsync('p-1', 'approved');
 
     expect(mockGetDb).not.toHaveBeenCalled();
-    expect(mockPoolQuery.mock.calls[1][0]).toMatch(/UPDATE agent_org_proposals SET/i);
-    expect(mockPoolQuery.mock.calls[1][1]).toContain('p-1');
+    expect(mockPoolQuery).toHaveBeenCalledTimes(2);
+    expect(mockPoolQuery.mock.calls[1][0]).toMatch(
+      /UPDATE agent_org_proposals\s+SET[\s\S]*WHERE id = \$\d+ AND status = \$\d+[\s\S]*RETURNING \*/i,
+    );
+    expect(mockPoolQuery.mock.calls[1][1]).toEqual([
+      'approved',
+      expect.any(String),
+      'p-1',
+      'proposed',
+    ]);
     expect(updated?.status).toBe('approved');
+  });
+
+  it('distinguishes a zero-row source-status conflict from a missing id', async () => {
+    mockPoolQuery
+      .mockResolvedValueOnce({ rows: [pgRow()] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [pgRow({ status: 'rejected' })] });
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+
+    await expect(repo.updateStatusAsync('p-1', 'approved')).rejects.toThrow(/concurrent|conflict/i);
+    expect(mockPoolQuery).toHaveBeenCalledTimes(3);
   });
 
   it('updateStatusAsync throws on an illegal transition without ever calling UPDATE', async () => {
@@ -237,14 +258,38 @@ describe('AgentOrgProposalsRepository Postgres branch (#1113 sibling)', () => {
     expect(claimed).toMatchObject({ status: 'applied', beforeSnapshotJson: snapshot, decidedByUserId: 42 });
   });
 
-  it('claimAppliedWithSnapshotAsync returns null when the conditional UPDATE loses', async () => {
-    mockPoolQuery.mockResolvedValueOnce({ rows: [] });
+  it('claimAppliedWithSnapshotAsync rejects a null actor before issuing SQL', async () => {
     const { AgentOrgProposalsRepository } = await import(
       '../repositories/agent_org_proposals_repository'
     );
     const repo = new AgentOrgProposalsRepository();
 
-    expect(await repo.claimAppliedWithSnapshotAsync('p-1', null, '{}')).toBeNull();
-    expect(mockPoolQuery).toHaveBeenCalledTimes(1);
+    await expect((repo.claimAppliedWithSnapshotAsync as any)('p-1', null, '{}')).rejects.toThrow(/actor|user/i);
+    expect(mockPoolQuery).not.toHaveBeenCalled();
+  });
+
+  it('refuses split-store atomic scope transitions before issuing PostgreSQL or SQLite writes', async () => {
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+
+    await expect(repo.transitionScopeAtomicallyAsync({
+      proposalId: 'p-1',
+      expectedProposalStatus: 'active',
+      nextProposalStatus: 'reverted',
+      expectedKind: 'broaden-scope',
+      expectedChangeJson: '{"agentConfigId":"config-1"}',
+      expectedBeforeSnapshotJson: '{"version":"scope-state-v2"}',
+      targetId: 'config-1',
+      field: 'allowedSkillsJson',
+      expectedTargetValue: '["x"]',
+      nextTargetValue: null,
+      nextBaselineScore: null,
+      nextPostScore: null,
+      nextMeasureReason: null,
+    })).rejects.toThrow(/unavailable.*PostgreSQL|PostgreSQL.*split-store/i);
+    expect(mockPoolQuery).not.toHaveBeenCalled();
+    expect(mockGetDb).not.toHaveBeenCalled();
   });
 });

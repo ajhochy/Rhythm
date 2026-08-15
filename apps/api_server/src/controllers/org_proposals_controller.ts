@@ -177,6 +177,11 @@ export class OrgProposalsController {
           `Proposal ${id} no longer matches its exact post-apply scope; no changes were made and operator reconciliation is required`,
         );
       }
+      if (outcome === 'reconciliation-required') {
+        throw AppError.conflict(
+          `Proposal ${id} encountered an indeterminate revert result; the durable database transition may have committed, so the proposal, target scope, and projected profile must be inspected before retrying`,
+        );
+      }
       if (outcome !== 'reverted') {
         throw AppError.conflict(
           `Proposal ${id} could not be reverted safely; no changes were made and operator reconciliation is required`,

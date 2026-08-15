@@ -395,6 +395,50 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     expect(updated?.status).toBe('reverted');
   });
 
+  it('uses the validated source status as a CAS so one stale measuring writer cannot overwrite the winner', async () => {
+    // Regression caught: measuring -> active paused after its validation read,
+    // measuring -> reverted committed, then the stale active write won by id.
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const setup = new AgentOrgProposalsRepository();
+    const p = await setup.createAsync({
+      kind: 'tighten-scope',
+      risk: 'high',
+      title: 'Status CAS race',
+      dedupKey: `status-cas-race:${crypto.randomUUID()}`,
+    });
+    await setup.updateStatusAsync(p.id, 'applied');
+    await setup.updateStatusAsync(p.id, 'measuring');
+    expect((await setup.findByIdAsync(p.id))?.status).toBe('measuring');
+
+    const stale = new AgentOrgProposalsRepository();
+    const originalFind = stale.findByIdAsync.bind(stale);
+    let release!: () => void;
+    let captured!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const read = new Promise<void>((resolve) => { captured = resolve; });
+    let firstRead = true;
+    stale.findByIdAsync = async (id: string) => {
+      const row = await originalFind(id);
+      if (firstRead) {
+        firstRead = false;
+        captured();
+        await gate;
+      }
+      return row;
+    };
+
+    const staleActive = stale.updateStatusAsync(p.id, 'active');
+    await read;
+    const winner = await setup.updateStatusAsync(p.id, 'reverted');
+    release();
+
+    expect(winner?.status).toBe('reverted');
+    await expect(staleActive).rejects.toThrow(/concurrent|conflict/i);
+    expect((await setup.findByIdAsync(p.id))?.status).toBe('reverted');
+  });
+
   it('rejects proposed -> active (skipping the whole apply/measure lifecycle)', async () => {
     // Bug this catches: updateStatusAsync writes whatever status string it is
     // given with no validation, letting a proposal jump straight from

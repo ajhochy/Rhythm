@@ -1,0 +1,92 @@
+{
+  "issue": "W1-corrective-5",
+  "generated": "2026-08-14",
+  "base_head": "db78072b411d32c3f493387443e80e245afdcd6e",
+  "review_status": "verification-pending-independent-review",
+  "prior_reviews": [
+    "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-0-20260814_203941_736647.txt",
+    "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-1-20260814_203941_737447.txt"
+  ],
+  "red_reproducers": [
+    "/tmp/w1-adversarial-probes.ts",
+    "/tmp/w1-final-adversarial-probes.ts"
+  ],
+  "criteria": [
+    {
+      "criterion_id": "issue-W1-corrective-5-c1",
+      "text": "All security-relevant JSON boundaries use one strict duplicate-member-aware parser. Duplicate decoded object keys at any depth, including escape-equivalent keys, are rejected for change_json, scope prior/applied bytes, and before_snapshot_json before validation, claim, target mutation, projection, or status change.",
+      "mode": "integration",
+      "status": "local-green",
+      "red_evidence": "Node 22 reviewer probes accepted duplicate scopePatch/add/current-map/snapshot keys and applied last-member-wins semantics at db78072b. The first permanent slice failed 13/13 before production changes.",
+      "green_evidence": "A shared lexical validator plus JSON.parse rejects decoded duplicate members at every depth while preserving exact raw bytes. The focused slice passed 13/13."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-5-c2",
+      "text": "Scope semantics fail closed: null allowlist bytes retain their unrestricted meaning and cannot be treated as empty; smuggled sibling/alias operations are rejected; state/delta constructors enforce runtime kind families; normal array, tools-map, and core-permission mutations remain supported.",
+      "mode": "integration",
+      "status": "local-green",
+      "red_evidence": "Node 22 probes narrowed null unrestricted allowlists, accepted nested/alias operations, and constructed snapshots with unsupported runtime kinds at db78072b. The permanent slice initially failed 10 cases with one valid control passing.",
+      "green_evidence": "Null allowlist add/remove, runtime kind mismatch, and refine-scope smuggling now reject before side effects; focused slice passed 11/11."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-5-c3",
+      "text": "One shared duplicate-aware recursive scope-bearing detector is used by risk classification, unattended apply, human validation, snapshot/revert safety, and mislabeled payload handling. ScopePatch presence, canonical scope fields, malformed/split scope targets, and scope aliases are human-gated regardless of nesting; unrelated prose and unrelated recipePatch.add/set/unset remain low risk.",
+      "mode": "integration",
+      "status": "local-green",
+      "red_evidence": "Node 22 probes classified empty/null/malformed/nested/direct/split scope payloads low, auto-applied one, and marked unrelated recipePatch.add high at db78072b. The permanent detector/gate slice initially failed 10 cases.",
+      "green_evidence": "One shared recursive detector now gates classifier, unattended apply, human preparation, and revert, including operations nested below an agent-config id or typed target while leaving unrelated recipe operations low risk."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-5-c4",
+      "text": "Every generic proposal status transition is a source-status compare-and-set with RETURNING and zero-row conflict handling in SQLite and PostgreSQL. A stale measuring-to-active writer cannot overwrite a completed measuring-to-reverted transition or vice versa.",
+      "mode": "integration",
+      "status": "local-green",
+      "red_evidence": "The Node 22 race probe paused measuring-to-active after its read, completed revert, then observed the stale writer restore active under reverted target bytes at db78072b. The permanent repository slice initially failed 3 cases.",
+      "green_evidence": "SQLite and PostgreSQL UPDATE statements bind the observed source status and RETURNING row. Real SQLite race coverage proves exactly one writer wins; focused slice passed 3/3."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-5-c5",
+      "text": "Scope target CAS and proposal reverted transition, including measurement patch fields, commit in one authoritative database transaction. Transaction failure leaves active/measuring plus applied bytes; durable commit leaves reverted plus prior bytes. Ambiguous post-commit errors never trigger one-sided compensation. Projection failure uses an exact atomic inverse transaction restoring both target and proposal state, or preserves concurrent bytes and reports reconciliation required.",
+      "mode": "integration",
+      "status": "local-green",
+      "red_evidence": "Persistent verification-read failure produced durable reverted plus applied target bytes at db78072b. Generic status and target writes were separate operations. The initial lifecycle slice failed 9 cases while 3 controls passed.",
+      "green_evidence": "The SQLite fixed-column primitive commits target and bound proposal CAS in one transaction, refuses PostgreSQL split-store operation before writes, and atomically inverses both rows after blocked/failed projection. Target/status CAS misses, trigger rollback, read outage, pre/post-commit throws, both snapshot versions, all projection outcomes, measurement patches, and repeated compensating-projection failure with reconciliation-required are covered."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-5-c6",
+      "text": "Direct human claim primitives reject null, non-safe-integer, non-finite, and negative actors at runtime while preserving the documented local operator actor 0. Mislabeled scope payloads with missing, malformed, duplicate-key, legacy, or kind-incompatible snapshots cannot mutate, project, or change status.",
+      "mode": "integration",
+      "status": "local-green",
+      "red_evidence": "The direct claim probe persisted a null actor, and nested scope payloads under refine-recipe transitioned to reverted with null/scalar/empty snapshots at db78072b. The actor slice initially failed 6 invalid actors while actor 0 passed.",
+      "green_evidence": "The direct claim primitive requires a numeric actor in TypeScript and Number.isSafeInteger at runtime before SQL; NaN, infinity, oversized integers, fractions, negative values, strings, and null reject while actor 0 remains valid."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-5-c7",
+      "text": "All prior W1 claim-first, exact snapshot, CAS, projection, compensation, legacy refusal, real route, SQLite/PostgreSQL parity, and build contracts remain green. The two reviewer scripts become green or are superseded by equivalent permanent tests whose preconditions prove the intended attack path.",
+      "mode": "integration",
+      "status": "parent-green-review-pending",
+      "green_evidence": "Parent Node 22 external verification passed the exact requested 14-file matrix: 14/14 files, 396 passed, 1 existing skip, including the real ephemeral HTTP route suite. npm run build and git diff --check db78072b passed. The two original reviewer scripts now stop at the first newly fail-closed duplicate-member rejection and stale source-status conflict; equivalent attacks plus side-effect assertions are permanent tests."
+    }
+  ],
+  "parent_verification": {
+    "runtime": "Node v22.23.1",
+    "exact_gate_script": "/tmp/run-rhythm-w1-gate.sh",
+    "test_files": 14,
+    "tests_passed": 396,
+    "tests_skipped_existing": 1,
+    "build": "pass",
+    "diff_check": "pass",
+    "focused_parent_follow_up": "Six new RED failures for nested contextual scope detection, compensating projection reconciliation, safe-integer actor binding, and truthful ambiguous-commit route reporting; 93/93 focused tests passed after minimal fixes.",
+    "reviewer_reproducers": "w1-adversarial-probes.ts stops at duplicate add rejection; w1-final-adversarial-probes.ts stops at stale source-status conflict.",
+    "acceptance": "pending two fresh independent review lanes"
+  },
+  "constraints": [
+    "Use Node v22.23.1 from /opt/homebrew/opt/node@22/bin.",
+    "Strict RED-GREEN-REFACTOR: permanent tests must fail at base_head before production changes.",
+    "No live Rhythm/OpenCode database access or mutation.",
+    "Use only in-memory SQLite, mocks, fixtures, and ephemeral listeners.",
+    "No persistent servers, external network actions, W2/W3/integration edits, or raw payload logging.",
+    "No dynamic eval or shell execution. SQL field names must come from fixed internal maps.",
+    "Do not claim acceptance; parent verification and two fresh independent reviews are mandatory."
+  ]
+}

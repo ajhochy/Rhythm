@@ -1,7 +1,7 @@
 {
   "issue": "W1-corrective-4",
   "generated": "2026-08-14",
-  "review_status": "verification-pending-independent-review",
+  "review_status": "failed-independent-review-superseded-by-corrective-5",
   "criteria": [
     {
       "criterion_id": "issue-W1-corrective-4-c1",
@@ -54,5 +54,22 @@
     }
   ],
   "stack": "typescript",
-  "not_tested": []
+  "not_tested": [],
+  "independent_review": {
+    "reviewed_head": "db78072b411d32c3f493387443e80e245afdcd6e",
+    "passed": false,
+    "semantic_lane": {
+      "p1_findings": 7,
+      "security_findings": 1,
+      "spec_blockers": 7,
+      "report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-0-20260814_203941_736647.txt"
+    },
+    "lifecycle_lane": {
+      "p1_findings": 3,
+      "security_findings": 1,
+      "spec_blockers": 3,
+      "report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-1-20260814_203941_737447.txt"
+    },
+    "summary": "Parent gates were green, but adversarial review reproduced duplicate-key and smuggled-scope acceptance, null-unrestricted narrowing, incomplete shared gating, runtime kind gaps, mislabeled revert status changes, a stale status race, and one-sided compensation after an ambiguous durable commit."
+  }
 }

@@ -3,6 +3,11 @@ import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import type { AgentOrgProposal, AgentOrgProposalInput } from '../models/agent_org_proposal';
+import {
+  mapAgentConfigRow,
+  type AgentConfig,
+  type AgentConfigRow,
+} from './agent_configs_repository';
 
 /**
  * Dual-engine (proposals-parity fix, #1113 sibling): every method branches on
@@ -102,6 +107,29 @@ export interface OrgProposalAttempt {
   attempt: number;
   proposal: AgentOrgProposal;
 }
+
+export interface AtomicScopeTransitionInput {
+  proposalId: string;
+  expectedProposalStatus: 'active' | 'measuring' | 'reverted';
+  nextProposalStatus: 'active' | 'measuring' | 'reverted';
+  expectedKind: string;
+  expectedChangeJson: string;
+  expectedBeforeSnapshotJson: string;
+  targetId: string;
+  field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson';
+  expectedTargetValue: string | null;
+  nextTargetValue: string | null;
+  nextBaselineScore: number | null;
+  nextPostScore: number | null;
+  nextMeasureReason: string | null;
+}
+
+export interface AtomicScopeTransitionResult {
+  proposal: AgentOrgProposal;
+  target: AgentConfig;
+}
+
+class AtomicScopeConflict extends Error {}
 
 /** Escape SQLite LIKE wildcards so a literal key fragment matches literally. */
 function escapeLikePattern(s: string): string {
@@ -455,26 +483,125 @@ export class AgentOrgProposalsRepository {
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
     values.push(id);
+    values.push(existing.status);
 
     if (env.dbClient === 'postgres') {
       // Same fields/values built above (shared between engines) — only the
       // placeholder syntax differs. `values` has exactly fields.length + 1
-      // entries (the trailing `id` is for the WHERE clause), so position N+1
-      // is always the WHERE parameter.
+      // entries (the trailing id/source status are for the WHERE clause).
       const pgSetClause = fields.map((f, i) => f.replace('?', `$${i + 1}`)).join(', ');
       const idParam = `$${fields.length + 1}`;
-      await getPostgresPool().query(
-        `UPDATE agent_org_proposals SET ${pgSetClause} WHERE id = ${idParam}`,
+      const sourceStatusParam = `$${fields.length + 2}`;
+      const result = await getPostgresPool().query(
+        `UPDATE agent_org_proposals
+            SET ${pgSetClause}
+          WHERE id = ${idParam} AND status = ${sourceStatusParam}
+          RETURNING *`,
         values,
       );
-      return this.findByIdAsync(id);
+      if (result.rows.length === 1) return rowToModel(result.rows[0]);
+      const current = await this.findByIdAsync(id);
+      if (!current) return null;
+      throw new Error(
+        `Concurrent agent_org_proposals status conflict: expected '${existing.status}' ` +
+        `but found '${current.status}' (proposal ${id})`,
+      );
     }
 
-    this.db!
-      .prepare(`UPDATE agent_org_proposals SET ${fields.join(', ')} WHERE id = ?`)
-      .run(...values);
+    const row = this.db!
+      .prepare(
+        `UPDATE agent_org_proposals
+            SET ${fields.join(', ')}
+          WHERE id = ? AND status = ?
+          RETURNING *`,
+      )
+      .get(...values) as AgentOrgProposalRow | undefined;
+    if (row) return rowToModel(row);
+    const current = await this.findByIdAsync(id);
+    if (!current) return null;
+    throw new Error(
+      `Concurrent agent_org_proposals status conflict: expected '${existing.status}' ` +
+      `but found '${current.status}' (proposal ${id})`,
+    );
+  }
 
-    return this.findByIdAsync(id);
+  /**
+   * Atomically transitions one fixed agent-config scope column and the bound
+   * proposal row on the same SQLite transaction. PostgreSQL is refused before
+   * either write because the current scope target store is SQLite-only.
+   */
+  async transitionScopeAtomicallyAsync(
+    input: AtomicScopeTransitionInput,
+  ): Promise<AtomicScopeTransitionResult | null> {
+    if (env.dbClient === 'postgres' || !this.db) {
+      throw new Error('Atomic scope transition is unavailable for PostgreSQL split-store runtime');
+    }
+    const forward =
+      (input.expectedProposalStatus === 'active' || input.expectedProposalStatus === 'measuring') &&
+      input.nextProposalStatus === 'reverted';
+    const inverse =
+      input.expectedProposalStatus === 'reverted' &&
+      (input.nextProposalStatus === 'active' || input.nextProposalStatus === 'measuring');
+    if (!forward && !inverse) throw new Error('Unsupported atomic scope proposal transition');
+
+    const columnByField = {
+      allowedMcpsJson: 'allowed_mcps_json',
+      allowedSkillsJson: 'allowed_skills_json',
+      corePermissionsJson: 'core_permissions_json',
+    } as const;
+    const column = columnByField[input.field];
+    if (!column) throw new Error(`Unsupported atomic scope field: ${String(input.field)}`);
+
+    const execute = this.db.transaction((): AtomicScopeTransitionResult => {
+      const target = this.db!
+        .prepare(
+          `UPDATE agent_configs
+              SET ${column} = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND ${column} IS ?
+            RETURNING *`,
+        )
+        .get(input.nextTargetValue, input.targetId, input.expectedTargetValue) as
+        | AgentConfigRow
+        | undefined;
+      if (!target) throw new AtomicScopeConflict('scope target CAS conflict');
+
+      const proposal = this.db!
+        .prepare(
+          `UPDATE agent_org_proposals
+              SET status = ?,
+                  baseline_score = ?,
+                  post_score = ?,
+                  measure_reason = ?,
+                  updated_at = ?
+            WHERE id = ?
+              AND status = ?
+              AND kind = ?
+              AND change_json IS ?
+              AND before_snapshot_json IS ?
+            RETURNING *`,
+        )
+        .get(
+          input.nextProposalStatus,
+          input.nextBaselineScore,
+          input.nextPostScore,
+          input.nextMeasureReason,
+          new Date().toISOString(),
+          input.proposalId,
+          input.expectedProposalStatus,
+          input.expectedKind,
+          input.expectedChangeJson,
+          input.expectedBeforeSnapshotJson,
+        ) as AgentOrgProposalRow | undefined;
+      if (!proposal) throw new AtomicScopeConflict('scope proposal CAS conflict');
+      return { proposal: rowToModel(proposal), target: mapAgentConfigRow(target) };
+    });
+
+    try {
+      return execute();
+    } catch (error) {
+      if (error instanceof AtomicScopeConflict) return null;
+      throw error;
+    }
   }
 
   /**
@@ -485,10 +612,13 @@ export class AgentOrgProposalsRepository {
    */
   async claimAppliedWithSnapshotAsync(
     id: string,
-    decidedByUserId: number | null,
+    decidedByUserId: number,
     beforeSnapshotJson: string | null,
     changeJson?: string | null,
   ): Promise<AgentOrgProposal | null> {
+    if (!Number.isSafeInteger(decidedByUserId) || decidedByUserId < 0) {
+      throw new Error('Scope proposal claim requires a non-negative integer audit actor');
+    }
     const now = new Date().toISOString();
     if (env.dbClient === 'postgres') {
       const values: unknown[] = [decidedByUserId, beforeSnapshotJson];

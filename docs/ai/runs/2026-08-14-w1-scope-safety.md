@@ -4,7 +4,7 @@ repo: Rhythm
 branch: agent-stack/si-scope-safety
 pr: null
 issues: [W1]
-status: verification-pending
+status: corrective-in-progress
 tags: [run, Rhythm, optimizer, scope-safety]
 ---
 
@@ -146,3 +146,79 @@ tags: [run, Rhythm, optimizer, scope-safety]
 - Parent lifecycle review added and passed an after-durable-commit regression: if a status writer
   throws after `reverted` is already durable, reversion remains successful and target compensation
   is not run. Status is verification-pending until fresh independent review.
+
+## Corrective cycle 5
+
+- Independent semantic and lifecycle reviewers both failed `db78072b`. Their complete reports are
+  `subagent-summary-0-20260814_203941_736647.txt` and
+  `subagent-summary-1-20260814_203941_737447.txt` under the Hermes delegation cache.
+- Parent reproduced the RED reviewer scripts under Node 22. Confirmed blockers include duplicate raw
+  JSON members, smuggled sibling scope operations, null unrestricted allowlists narrowed as empty,
+  runtime snapshot-kind gaps, incomplete shared scope detection, mislabeled scope status changes,
+  nullable direct claim actors, stale source-status writes, and one-sided compensation after an
+  ambiguous durable revert commit.
+- Corrective 5 replaces catch-path compensation as the source of truth: generic status transitions
+  become source-status CAS, and scope target/status reversion becomes one atomic database transition.
+  Duplicate-aware parsing and one shared scope-bearing detector guard validation, risk, unattended
+  apply, snapshot construction/verification, and revert before any side effect.
+- Status remains corrective-in-progress. W1 is unaccepted and unmerged.
+
+### Corrective cycle 5 implementation evidence
+
+- Added one strict raw-JSON boundary that lexically rejects duplicate decoded member names before
+  ordinary parsing, including nested, array-contained, and escape-equivalent keys. It now guards
+  proposal changes, scope prior/applied bytes, and raw snapshots without changing hash input bytes.
+- Unified recursive scope-bearing detection across risk, unattended apply, human preparation, and
+  revert; preserved low risk for unrelated recipe operations and opaque prose. Null MCP/skill
+  allowlists remain unrestricted and reject add/remove. Runtime proposal-kind families and
+  refine-scope's single canonical root patch are enforced.
+- Generic status writes now use exact source-status CAS plus `RETURNING *` in SQLite and PostgreSQL.
+  Scope revert now uses one fixed-column SQLite transaction for target and bound proposal rows;
+  PostgreSQL split-store scope revert refuses before either write. Failed projection invokes one
+  exact atomic inverse, and ambiguous errors return `reconciliation-required` without one-sided
+  compensation.
+- Strict RED→GREEN slices under Node `v22.23.1`: parser 13 failed → 13 passed; null/kind/smuggling
+  10 failed with 1 control passing → 11 passed; shared detector 10 failed → combined risk 43 passed;
+  source-status CAS 3 failed → 3 passed; lifecycle 9 failed with 3 controls passing → lifecycle
+  matrix green; actor guard 6 failed with actor 0 passing → 7 passed.
+- Focused corrective-5 plus PostgreSQL parity: 2 files, 75/75 passed. Migrated corrective-4/#831
+  tests: 2 files, 63 passed with 1 existing skip. The final legacy-helper boundary audit found
+  `computeScopeList` still used ordinary parsing; GitNexus rated it HIGH (3 direct/7 upstream), so
+  its map/array parsing was switched to the same strict parser and its focused controls passed
+  78/78. Requested non-route matrix then passed 13 files, 366 tests with 1 existing skip.
+  `npm run build` passed; `git diff --check db78072b` passed.
+- Exact 14-file command was attempted unchanged. The sandbox denied `app.listen(0)` with exactly
+  `listen EPERM: operation not permitted 0.0.0.0`; all 23 route hooks timed out, while the first
+  attempt also exposed six obsolete adjacent-test assumptions that were migrated and then passed.
+  Parent must rerun the route suite externally. No persistent server was started.
+- `npx tsx` itself is unavailable here because its IPC listener is denied. With the safe equivalent
+  `node --import tsx`, `w1-adversarial-probes.ts` now stops at the formerly accepted duplicate `add`
+  with a duplicate-member rejection, and `w1-final-adversarial-probes.ts` stops at the formerly
+  unsafe stale writer with a source-status conflict. The scripts do not catch these newly thrown
+  fail-closed results, so the equivalent attacks and side-effect assertions live permanently in
+  `w1_corrective_5_contract.test.ts` and adjacent repository tests.
+- GitNexus `detect-changes --scope compare --base-ref main` was attempted. The registry first
+  required disambiguation between two `Rhythm` indexes; the disambiguated integration index then
+  refused because `agent-stack/si-scope-safety` is not an indexed branch. Pre-edit impact checks
+  still ran against the indexed integration graph, including the HIGH-risk lifecycle/classifier
+  symbols and the final HIGH `computeScopeList` audit. The parent must rerun change detection from
+  an environment that can index this linked-worktree branch.
+- No live database, network, persistent server, W2/W3/integration checkout, raw payload logging,
+  commit, push, or PR action occurred. Status remains `corrective-in-progress`; acceptance is not
+  claimed.
+
+### Parent corrective-5 verification
+
+- Parent review added six RED regressions beyond the worker result: nested operations below an
+  agent-config id/typed target, repeated compensating-projection failure, oversized actor ids, and
+  truthful HTTP reporting after an indeterminate post-commit exception. All six failed before the
+  production follow-up and the focused real-route matrix then passed 93/93.
+- Authoritative Node `v22.23.1` exact requested gate passed: 14/14 files, 396 tests passed, 1
+  existing skip, including the ephemeral real HTTP route suite. `npm run build` and
+  `git diff --check db78072b` passed.
+- Both original independent-review scripts were rerun with `node --import tsx`: the first now stops
+  at the formerly accepted duplicate `add` with a duplicate-member rejection; the second now stops
+  at the formerly unsafe stale writer with a source-status conflict. Their complete attack paths and
+  side-effect assertions are retained in permanent tests.
+- No live database, persistent server, external network, W2/W3, or integration checkout was used.
+  Corrective 5 is verification-pending, not accepted; two fresh independent review lanes are next.

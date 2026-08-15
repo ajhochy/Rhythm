@@ -125,7 +125,7 @@ describe('issue-831-c1/W1: the human-approved path REVERTS on a forced regressio
     expect(applyResult.measurable).toBe(true);
     const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
       proposal.id,
-      null,
+      0, // explicit local operator actor
       applyResult.beforeSnapshotJson ?? null,
       applyResult.changeJson,
     );
@@ -187,7 +187,7 @@ describe('issue-831-c1/W1: the human-approved path REVERTS on a forced regressio
     const applyResult = await applyApprovedProposal(proposal);
     const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
       proposal.id,
-      null,
+      0, // explicit local operator actor
       applyResult.beforeSnapshotJson ?? null,
       applyResult.changeJson,
     );
