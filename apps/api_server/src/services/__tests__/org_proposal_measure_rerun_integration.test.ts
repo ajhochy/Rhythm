@@ -206,4 +206,59 @@ describe('classifyRerunFailure — integration (real extractor + real DB)', () =
       expect(result.status).toBe('inconclusive');
     });
   });
+
+  describe('W3 PARSER BOUNDARY CORRECTIVE — RED probes: malformed containers & conflicting duplicate callIDs', () => {
+    it('RED: an invalid JSON persisted container alongside a real terminal success must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-bad-json', mcpRole: 'secretary' });
+      // A malformed persisted container (unparseable JSON) sits alongside an
+      // otherwise-genuine terminal success for a DIFFERENT call.
+      messagesRepo.upsertStructured(s.id, 'msg-bad', 'output', '{not-json', null, null);
+      seedToolAttempt(messagesRepo, s.id, 'msg-1', { callId: 'call-1', tool: 'bash', status: 'completed', startedAt: Date.now() - 60_000, input: { cmd: 'npm test' } });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: a root ToolPart object persisted directly (not wrapped in an array) must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-root-object', mcpRole: 'secretary' });
+      const rootToolPart = {
+        id: 'prt-call-1', type: 'tool', sessionID: 'ses-test', messageID: 'msg-bad', callID: 'call-1', tool: 'bash',
+        state: {
+          status: 'completed', input: { cmd: 'npm test' }, output: 'ok', title: 't', metadata: {},
+          time: { start: Date.now() - 60_000, end: Date.now() - 59_000 },
+        },
+      };
+      messagesRepo.upsertStructured(s.id, 'msg-bad', 'output', JSON.stringify(rootToolPart), null, null);
+      seedToolAttempt(messagesRepo, s.id, 'msg-1', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: Date.now() - 60_000, input: { cmd: 'npm test' } });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+
+    it('RED: a conflicting duplicate callID (differing output) alongside another real success must be inconclusive, never clean', async () => {
+      const sessionsRepo = new AgentSessionsRepository();
+      const messagesRepo = new AgentSessionMessagesRepository();
+      const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'rerun-conflicting-dup', mcpRole: 'secretary' });
+      const t0 = Date.now() - 60_000;
+      // Two records sharing callID='call-1' but disagreeing on output — a
+      // conflict, not an exact duplicate — plus a genuinely clean, distinct
+      // successful call.
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1a', type: 'tool', sessionID: 'ses-test-session', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+        state: { status: 'completed', input: { cmd: 'npm test' }, output: 'first output', title: 't', metadata: {}, time: { start: t0, end: t0 + 1000 } },
+      });
+      messagesRepo.upsertPart(s.id, 'msg-1', {
+        id: 'prt-call-1b', type: 'tool', sessionID: 'ses-test-session', messageID: 'msg-1', callID: 'call-1', tool: 'bash',
+        state: { status: 'completed', input: { cmd: 'npm test' }, output: 'a DIFFERENT output', title: 't', metadata: {}, time: { start: t0, end: t0 + 1000 } },
+      });
+      seedToolAttempt(messagesRepo, s.id, 'msg-2', { callId: 'call-2', tool: 'bash', status: 'completed', startedAt: t0, input: { cmd: 'npm test' } });
+
+      const result = await classifyRerunFailure(s.id, 'secretary', ['retry-loop'], messagesRepo);
+      expect(result.status).toBe('inconclusive');
+    });
+  });
 });

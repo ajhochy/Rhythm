@@ -133,12 +133,23 @@ describe('parsePersistedToolEvidence — duplicate/ambiguous identity', () => {
     expect(result.attempts).toHaveLength(0);
   });
 
-  it('an exact duplicate record of the SAME call (different part id, different message row) collapses to one attempt', () => {
+  it('W3 corrective: a same-call record differing ONLY by part id/message row (producer identity) is now a conflict, not an exact duplicate — the full canonical includes id/sessionID/messageID', () => {
     const first = validTool({ id: 'prt-a', messageID: 'msg-1' });
     const second = validTool({ id: 'prt-b', messageID: 'msg-2' });
     const result = parsePersistedToolEvidence([message('msg-1', [first]), message('msg-2', [second])]);
-    expect(result.integrity).toBe('valid');
-    expect(result.attempts).toHaveLength(1);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('a literal byte-identical duplicate record of the SAME call (same id/sessionID/messageID/everything) collapses to one attempt, in both orders', () => {
+    const dup = validTool();
+    const orderA = parsePersistedToolEvidence([message('msg-1', [dup]), message('msg-1', [dup])]);
+    const orderB = parsePersistedToolEvidence([message('msg-1', [dup]), message('msg-1', [dup])].slice().reverse());
+    for (const result of [orderA, orderB]) {
+      expect(result.integrity).toBe('valid');
+      expect(result.attempts).toHaveLength(1);
+      expect(result.attempts[0].partId).toBe('prt-1');
+    }
   });
 
   it('conflicting records sharing one callID are invalid, never resolved by persistence order', () => {
@@ -152,6 +163,160 @@ describe('parsePersistedToolEvidence — duplicate/ambiguous identity', () => {
     const orderB = parsePersistedToolEvidence([message('msg-2', [second]), message('msg-1', [first])]);
     expect(orderA.integrity).toBe('invalid');
     expect(orderB.integrity).toBe('invalid');
+  });
+});
+
+describe('parsePersistedToolEvidence — malformed persisted containers (W3 corrective P1 #1)', () => {
+  it('a null partsJson row is skippable — a legacy row makes no structured claim at all', () => {
+    const legacyRow: PersistedMessageLike = { sdkMessageId: 'msg-legacy', partsJson: null };
+    const result = parsePersistedToolEvidence([legacyRow, message('msg-1', [validTool()])]);
+    expect(result.integrity).toBe('valid');
+    expect(result.attempts).toHaveLength(1);
+  });
+
+  it('invalid JSON partsJson invalidates integrity even alongside another row with a valid terminal success', () => {
+    const badRow: PersistedMessageLike = { sdkMessageId: 'msg-bad', partsJson: '{not-json' };
+    const result = parsePersistedToolEvidence([badRow, message('msg-1', [validTool()])]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('an empty string partsJson invalidates integrity (must parse as a JSON array, not be skipped)', () => {
+    const badRow: PersistedMessageLike = { sdkMessageId: 'msg-bad', partsJson: '' };
+    const result = parsePersistedToolEvidence([badRow, message('msg-1', [validTool()])]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('a scalar JSON partsJson (valid JSON, not an array) invalidates integrity', () => {
+    const badRow: PersistedMessageLike = { sdkMessageId: 'msg-bad', partsJson: '42' };
+    const result = parsePersistedToolEvidence([badRow, message('msg-1', [validTool()])]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('a root producer-valid ToolPart object (not wrapped in an array) invalidates integrity', () => {
+    const badRow: PersistedMessageLike = { sdkMessageId: 'msg-1', partsJson: JSON.stringify(validTool()) };
+    const successRow = message('msg-2', [validTool({ id: 'prt-2', callID: 'call-2', messageID: 'msg-2' })]);
+    const result = parsePersistedToolEvidence([badRow, successRow]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('a non-record array entry (number/string/null) invalidates integrity', () => {
+    const badRow: PersistedMessageLike = { sdkMessageId: 'msg-bad', partsJson: JSON.stringify([42, 'x', null]) };
+    const result = parsePersistedToolEvidence([badRow, message('msg-1', [validTool()])]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('an array entry that is a plain record with no string type invalidates integrity', () => {
+    const badRow: PersistedMessageLike = { sdkMessageId: 'msg-bad', partsJson: JSON.stringify([{ id: 'prt-x', foo: 'bar' }]) };
+    const result = parsePersistedToolEvidence([badRow, message('msg-1', [validTool()])]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('a well-shaped record with a non-tool string type remains ignored, not invalid', () => {
+    const result = parsePersistedToolEvidence([
+      message('msg-bad', [{ id: 'prt-x', type: 'text', text: 'hi' }]),
+      message('msg-1', [validTool()]),
+    ]);
+    expect(result.integrity).toBe('valid');
+    expect(result.attempts).toHaveLength(1);
+  });
+});
+
+describe('parsePersistedToolEvidence — exact FULL canonical callID dedupe (W3 corrective P1 #2)', () => {
+  /** Two producer-valid completed records sharing one callID, but differing in exactly one field. */
+  function conflictingPair(overrideSecond: Record<string, unknown>) {
+    const first = validTool({ id: 'prt-a', callID: 'call-shared' });
+    const second = validTool({ id: 'prt-b', callID: 'call-shared', ...overrideSecond });
+    return [first, second];
+  }
+
+  it('differing in output AND tool metadata => invalid, in both persistence orders', () => {
+    const [first, second] = conflictingPair({
+      metadata: { providerExecuted: true },
+      state: { ...VALID_COMPLETED_STATE, output: 'a different output' },
+    });
+    const orderA = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    const orderB = parsePersistedToolEvidence([message('msg-1', [second, first])]);
+    expect(orderA.integrity).toBe('invalid');
+    expect(orderA.attempts).toHaveLength(0);
+    expect(orderB.integrity).toBe('invalid');
+    expect(orderB.attempts).toHaveLength(0);
+  });
+
+  it('differing only in producer identity (raw.sessionID) invalidates', () => {
+    const [first, second] = conflictingPair({ sessionID: 'ses-a-different-engine-session' });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+    expect(result.attempts).toHaveLength(0);
+  });
+
+  it('differing only in state metadata invalidates', () => {
+    const [first, second] = conflictingPair({ state: { ...VALID_COMPLETED_STATE, metadata: { extra: 'field' } } });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+  });
+
+  it('differing only in mcpResult._meta invalidates', () => {
+    const [first, second] = conflictingPair({
+      state: { ...VALID_COMPLETED_STATE, mcpResult: { _meta: { key: 'value' } } },
+    });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+  });
+
+  it('differing only in mcpResult.structuredContent invalidates', () => {
+    const [first, second] = conflictingPair({
+      state: { ...VALID_COMPLETED_STATE, mcpResult: { structuredContent: { a: 1 } } },
+    });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+  });
+
+  it('differing only in mcpAppResource invalidates', () => {
+    const [first, second] = conflictingPair({
+      state: {
+        ...VALID_COMPLETED_STATE,
+        mcpAppResource: {
+          sessionID: 'x', callID: 'y', serverName: 'z', cwd: '/tmp',
+          resourceUri: 'uri', advertisedAt: 'now', expiresAt: 'later',
+        },
+      },
+    });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+  });
+
+  it('differing only in attachments invalidates', () => {
+    const [first, second] = conflictingPair({
+      state: {
+        ...VALID_COMPLETED_STATE,
+        attachments: [{ id: 'prt-file-1', sessionID: 'ses-x', messageID: 'msg-1', type: 'file', mime: 'text/plain', url: 'file:///x' }],
+      },
+    });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+  });
+
+  it('differing only in input invalidates', () => {
+    const [first, second] = conflictingPair({ state: { ...VALID_COMPLETED_STATE, input: { cmd: 'different command' } } });
+    const result = parsePersistedToolEvidence([message('msg-1', [first, second])]);
+    expect(result.integrity).toBe('invalid');
+  });
+
+  it('an exact byte/semantic duplicate full record repeated in both orders => one identical attempt, valid integrity', () => {
+    const dup = validTool();
+    const orderA = parsePersistedToolEvidence([message('msg-1', [dup, dup])]);
+    const orderB = parsePersistedToolEvidence([message('msg-1', [dup, dup])]);
+    for (const result of [orderA, orderB]) {
+      expect(result.integrity).toBe('valid');
+      expect(result.attempts).toHaveLength(1);
+      expect(result.attempts[0].partId).toBe('prt-1');
+    }
   });
 });
 

@@ -27,6 +27,14 @@
  * one callID). In either case the WHOLE evidence set for that session/rerun
  * is untrustworthy — callers must never quietly keep the well-formed subset
  * and certify it clean; malformed evidence is ambiguous, not absent.
+ *
+ * That includes the persisted CONTAINER itself: a non-null `partsJson` makes
+ * a structural claim (a JSON array of parts) and is held to it — a parse
+ * failure, a parsed non-array (e.g. a bare root `ToolPart` object), or an
+ * array entry that isn't a record with a string `type` is malformed
+ * producer-container evidence, not something to skip past. Only a literal
+ * `partsJson === null` row (no persisted container at all) makes no claim
+ * and may be skipped.
  */
 
 import { createHash } from 'crypto';
@@ -273,18 +281,33 @@ export function parsePersistedToolEvidence(messages: PersistedMessageLike[]): Pe
   const validParts: Array<{ partId: string; callId: string; canonical: string; attempt: ToolAttempt }> = [];
 
   for (const m of messages) {
-    if (!m.partsJson) continue;
+    // `partsJson === null` is the ONLY shape that makes no structured claim at
+    // all (legacy row / no persisted container) and may be skipped outright.
+    // Any other present value — including '' — asserts a structured
+    // container and MUST parse as a JSON array; a parse failure or a parsed
+    // non-array value is malformed producer-container evidence, not absence.
+    if (m.partsJson === null) continue;
     let parts: unknown;
     try {
       parts = JSON.parse(m.partsJson);
     } catch {
+      integrity = 'invalid';
       continue;
     }
-    if (!Array.isArray(parts)) continue;
+    if (!Array.isArray(parts)) {
+      integrity = 'invalid';
+      continue;
+    }
 
     for (const raw of parts) {
-      if (!isPlainRecord(raw)) continue;
-      if (raw.type !== 'tool') continue; // non-tool parts are ignored, never evidence
+      // A non-record entry, or a record with no string `type` at all, is
+      // malformed producer-container evidence — it makes no legible claim
+      // about what kind of part it is, so it can never be safely ignored.
+      if (!isPlainRecord(raw) || typeof raw.type !== 'string') {
+        integrity = 'invalid';
+        continue;
+      }
+      if (raw.type !== 'tool') continue; // well-shaped non-tool parts are ignored, never evidence
 
       if (!isTrustedToolPartIdentity(raw, m.sdkMessageId)) {
         integrity = 'invalid';
@@ -308,19 +331,17 @@ export function parsePersistedToolEvidence(messages: PersistedMessageLike[]): Pe
         mcpIsError: validatedState.mcpIsError,
         inputHash: hashInput(input),
       };
-      // Duplicate/conflict comparisons are based on the SUBSTANTIVE attempt
-      // content (never partId/sessionID/messageID — those legitimately differ
-      // across persisted records of the very same call, e.g. a reconnect
-      // writing it into a different message row).
-      const canonical = canonicalJson({
-        tool: attempt.tool,
-        callId: attempt.callId,
-        status: attempt.status,
-        startedAt: attempt.startedAt,
-        endedAt: attempt.endedAt,
-        mcpIsError: attempt.mcpIsError,
-        inputHash: attempt.inputHash,
-      });
+      // Duplicate/conflict comparisons are based on the COMPLETE validated
+      // raw ToolPart representation — id/sessionID/messageID/type/callID/tool
+      // /tool metadata and the full state object (input/output/title/state
+      // metadata/time/compacted/mcpResult incl. _meta+structuredContent/
+      // mcpAppResource/attachments) — never a lossy derived subset. This
+      // canonical exists only in-memory for equality; it is never logged,
+      // returned, or persisted. Any field difference at all, including
+      // producer identity, makes same-callID records a conflict rather than
+      // an exact duplicate — there is no field this parser trusts itself to
+      // discard as "safe to ignore".
+      const canonical = canonicalJson(raw);
       validParts.push({ partId: attempt.partId, callId: attempt.callId, canonical, attempt });
     }
   }
@@ -355,7 +376,11 @@ export function parsePersistedToolEvidence(messages: PersistedMessageLike[]): Pe
       integrity = 'invalid';
       continue;
     }
-    attempts.push(records[0].attempt);
+    // Full identity already guarantees every record here is identical; sort
+    // by canonical anyway so selection is visibly deterministic and never
+    // silently dependent on persistence/iteration order.
+    const sorted = [...records].sort((a, b) => a.canonical.localeCompare(b.canonical));
+    attempts.push(sorted[0].attempt);
   }
 
   if (integrity === 'invalid') {
