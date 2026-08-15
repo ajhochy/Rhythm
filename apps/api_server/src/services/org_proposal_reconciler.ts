@@ -276,7 +276,7 @@ export async function reconcileStuckMeasurements(
   return { total: rows.length, withinBudget, inconclusive };
 }
 
-/**
+/*
  * W5-c12 — the retirement sidecar.
  *
  * `agent_org_proposals` carries an AFTER UPDATE trigger that advances
@@ -287,21 +287,15 @@ export async function reconcileStuckMeasurements(
  * instead — the same shape `agent_profile_projections` uses for the same
  * reason.
  *
- * Created lazily rather than in `migrations.ts` because that file belongs to a
- * package running in parallel. Local SQLite only; the table is a local
- * operator aid and is never part of the hosted store.
+ * The table used to be created lazily here (`ensureReconciliationSidecar`),
+ * outside migrations.ts and SQLite-only. That put it outside
+ * skill_schema_parity.test.ts, whose DDL parser only reads migrations.ts and
+ * postgres_bootstrap.ts — so the guard could not see the table and the two
+ * engines diverged unobserved, the exact drift class this repo has already
+ * shipped a production bug for. The DDL now lives in migrations.ts with a
+ * Postgres twin in postgres_bootstrap.ts, and the lazy creation is gone: every
+ * caller reaches this module through a DB that has run runMigrations().
  */
-export function ensureReconciliationSidecar(): void {
-  getDb().exec(`
-    CREATE TABLE IF NOT EXISTS agent_org_proposal_retirements (
-      proposal_id TEXT PRIMARY KEY,
-      classification TEXT NOT NULL,
-      detail TEXT NOT NULL,
-      proposal_revision INTEGER NOT NULL,
-      retired_at TEXT NOT NULL
-    )
-  `);
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // The operator entry point. Lives here rather than in scripts/ because
@@ -342,7 +336,6 @@ export async function runReconcileCli(
 
   const retired: string[] = [];
   if (apply) {
-    ensureReconciliationSidecar();
     const db = getDb();
     const insert = db.prepare(
       `INSERT OR IGNORE INTO agent_org_proposal_retirements

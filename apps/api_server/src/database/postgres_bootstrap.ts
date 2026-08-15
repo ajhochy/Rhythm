@@ -1847,4 +1847,18 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       BEFORE DELETE ON agent_org_experiments
       FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
   `);
+
+  // W5-c12: the proposal retirement sidecar. Column set MUST stay identical to
+  // the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Table in its own pool.query with the closing
+  // paren immediately before the backtick or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposal_retirements (
+      proposal_id TEXT PRIMARY KEY,
+      classification TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      proposal_revision INTEGER NOT NULL,
+      retired_at TEXT NOT NULL
+    )
+  `);
 }
