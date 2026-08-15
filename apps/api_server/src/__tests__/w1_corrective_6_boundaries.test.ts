@@ -711,6 +711,11 @@ async function makeMeasuringRefineScopeRow(
   return { configs, proposals, config, prior, applied, exactChangeJson, snapshotJson, measuring };
 }
 
+// Package A parked an unprovable measurement in `measuring`; package C makes
+// that state DURABLE (reconciliation-required) because it can never become
+// provable on its own and the sweep would otherwise retry it forever. The
+// zero-effect guarantees below — no target mutation, no telemetry call, no
+// projection — are unchanged.
 describe('W1 corrective 6 A6: strict measurement boundary', () => {
   it.each([
     {
@@ -742,11 +747,11 @@ describe('W1 corrective 6 A6: strict measurement boundary', () => {
         rerunCalls += 1;
         return { status: 'completed', reason: 'must not run' };
       },
-    })).resolves.toBe('skipped');
+    })).resolves.toBe('reconciliation-required');
     expect(rerunCalls).toBe(0);
     expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(fixture.applied);
     expect(await fixture.proposals.findByIdAsync(fixture.measuring.id)).toMatchObject({
-      status: 'measuring',
+      status: 'reconciliation-required',
       beforeSnapshotJson: fixture.measuring.beforeSnapshotJson,
     });
     expect(projection).not.toHaveBeenCalled();
@@ -783,9 +788,9 @@ describe('W1 corrective 6 A6: strict measurement boundary', () => {
         fixture.configs.update(fixture.config.id, { allowedSkillsJson: operatorValue });
         return { status: 'completed', reason: 'stale result must not activate' };
       },
-    })).resolves.toBe('skipped');
+    })).resolves.toBe('reconciliation-required');
     expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(operatorValue);
-    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('measuring');
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('reconciliation-required');
   });
 
   it.each([
@@ -837,10 +842,10 @@ describe('W1 corrective 6 A6: strict measurement boundary', () => {
       proposalsRepo: fixture.proposals,
       configsRepo: fixture.configs,
       exercisedTools: async () => new Set<string>(),
-    })).resolves.toBe('skipped');
+    })).resolves.toBe('reconciliation-required');
     expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(fixture.applied);
     expect(await fixture.proposals.findByIdAsync(fixture.measuring.id)).toMatchObject({
-      status: 'measuring',
+      status: 'reconciliation-required',
       beforeSnapshotJson: fixture.measuring.beforeSnapshotJson,
       changeJson: fixture.measuring.changeJson,
     });
@@ -863,10 +868,10 @@ describe('W1 corrective 6 A6: strict measurement boundary', () => {
         exercisedCalls += 1;
         return new Set<string>();
       },
-    })).resolves.toBe('skipped');
+    })).resolves.toBe('reconciliation-required');
     expect(exercisedCalls).toBe(0);
     expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(operatorValue);
-    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('measuring');
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('reconciliation-required');
     expect(projection).not.toHaveBeenCalled();
   });
 
@@ -882,9 +887,9 @@ describe('W1 corrective 6 A6: strict measurement boundary', () => {
         fixture.configs.update(fixture.config.id, { allowedSkillsJson: operatorValue });
         return new Set<string>();
       },
-    })).resolves.toBe('skipped');
+    })).resolves.toBe('reconciliation-required');
     expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(operatorValue);
-    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('measuring');
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('reconciliation-required');
   });
 
   it('keeps a strictly valid bound v2 scope measurement', async () => {

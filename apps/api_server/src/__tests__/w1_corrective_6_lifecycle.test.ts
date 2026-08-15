@@ -29,6 +29,7 @@ import { registerAllProposalAppliers } from '../services/org_proposal_appliers_w
 import { applyProposal } from '../services/org_proposal_apply_service';
 import { applyApprovedScopeProposal } from '../services/org_proposal_scope_lifecycle';
 import { revertProposal } from '../services/org_proposal_apply';
+import { measureProposal } from '../services/org_proposal_measure';
 import { projectLatestAgentProfile } from '../services/agent_profile_projection_service';
 
 function makeDb(): Database.Database {
@@ -191,6 +192,43 @@ describe('W1 corrective 6 package C — scope lifecycle safety', () => {
     expect(rerun.kind).toBe('measuring');
     expect(configsRepo.getById(config.id)?.allowedSkillsJson)
       .toBe(reprepared.scopePair!.nextValue);
+  });
+
+  it('propagates an unresolvable measurement instead of collapsing it into skipped', async () => {
+    // Regression caught: doRevert mapped every non-'reverted' outcome to
+    // 'skipped', and an unbound measuring row was left at `measuring`. The
+    // optimizer sweep then retried it forever while the operator saw a healthy
+    // row and a `skipped` counter that means "a later pass may decide".
+    const configsRepo = new AgentConfigsRepository();
+    const proposalsRepo = new AgentOrgProposalsRepository(db);
+    const config = configsRepo.insert({
+      id: 'lifecycle-unbound-target',
+      label: 'Lifecycle unbound target',
+      icon: 'shield',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'prune-scope',
+      risk: 'low',
+      status: 'measuring',
+      title: 'Legacy snapshot prune',
+      changeJson: JSON.stringify({
+        agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['gitnexus'],
+      }),
+      // A legacy whole-field snapshot: unbound, and it can never become bound.
+      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      dedupKey: 'w1-c6:unbound-measuring',
+    });
+
+    const outcome = await measureProposal(proposal, { proposalsRepo });
+    expect(outcome).toBe('reconciliation-required');
+    const settled = await proposalsRepo.findByIdAsync(proposal.id);
+    expect(settled?.status).toBe('reconciliation-required');
+    expect(settled?.reconciliationReason).toBeTruthy();
+    // Target bytes are never touched by an unresolvable measurement.
+    expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(JSON.stringify(['gitnexus']));
+    // And re-measuring reports the same durable state rather than re-deciding.
+    expect(await measureProposal(settled!, { proposalsRepo })).toBe('reconciliation-required');
   });
 
   it('does not terminalize a healthy row when the revert transaction rolled back', async () => {

@@ -115,6 +115,12 @@ export interface RunOrgOptimizerResult {
     reverted: number;
     queued: number;
     skipped: number;
+    /**
+     * Durably unresolved measurements. Deliberately NOT folded into `skipped`:
+     * `skipped` means "a later pass may decide", and an operator watching that
+     * counter would never learn a proposal needs hands on it.
+     */
+    reconciliationRequired: number;
   };
   /** Non-fatal error message, if the run degraded to a partial result. */
   erroredReason?: string;
@@ -128,7 +134,7 @@ function emptySummary(auditRunId: string): RunOrgOptimizerResult {
     proposalsCreated: 0,
     byKind: {},
     byRisk: { low: 0, high: 0 },
-    byOutcome: { autoApplied: 0, kept: 0, reverted: 0, queued: 0, skipped: 0 },
+    byOutcome: { autoApplied: 0, kept: 0, reverted: 0, queued: 0, skipped: 0, reconciliationRequired: 0 },
   };
 }
 
@@ -461,6 +467,8 @@ export async function runOrgOptimizer(
         result.byOutcome.kept += 1;
       } else if (measureOutcome === 'reverted') {
         result.byOutcome.reverted += 1;
+      } else if (measureOutcome === 'reconciliation-required') {
+        result.byOutcome.reconciliationRequired += 1;
       } else {
         result.byOutcome.skipped += 1;
       }
@@ -482,6 +490,7 @@ export async function runOrgOptimizer(
         const outcome = await measureProposal(row, { proposalsRepo: realProposalsRepo });
         if (outcome === 'kept') result.byOutcome.kept += 1;
         else if (outcome === 'reverted') result.byOutcome.reverted += 1;
+        else if (outcome === 'reconciliation-required') result.byOutcome.reconciliationRequired += 1;
         else result.byOutcome.skipped += 1;
       }
     } catch (err) {

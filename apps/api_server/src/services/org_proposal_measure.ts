@@ -73,7 +73,20 @@ import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { ScoreCall, SkillPurpose } from './skill_refiner';
 import type { ExercisedToolsTelemetry } from './org_exercised_tools_resolver';
 
-export type MeasureOutcome = 'kept' | 'reverted' | 'skipped';
+export type MeasureOutcome =
+  | 'kept'
+  | 'reverted'
+  /** Retryable: nothing is durably wrong, a later pass may decide. */
+  | 'skipped'
+  /**
+   * Durably unresolvable by measurement. A row whose scope binding cannot be
+   * proven will never become provable on its own, so leaving it `measuring`
+   * makes the sweep retry it forever while an operator sees a healthy-looking
+   * row. It is CAS-transitioned to `reconciliation-required` instead, and this
+   * outcome must be propagated verbatim — collapsing it into `skipped` is what
+   * hid the condition in the first place.
+   */
+  | 'reconciliation-required';
 
 /**
  * #971-3 — outcome of a BEHAVIORAL re-run (refine-config / refine-scope). The
@@ -199,6 +212,7 @@ export async function measureProposal(
   deps: MeasureDeps = {},
 ): Promise<MeasureOutcome> {
   try {
+    if (proposal.status === 'reconciliation-required') return 'reconciliation-required';
     if (proposal.status !== 'measuring') {
       logger.warn(
         `[org-proposal-measure] '${proposal.id}' is not in status=measuring (got '${proposal.status}') — skipping`,
@@ -210,10 +224,16 @@ export async function measureProposal(
       try {
         parseStrictJson(proposal.changeJson, 'proposal change_json');
       } catch (error) {
+        // Stored bytes that do not parse strictly will never start parsing, so
+        // this is durably unresolvable rather than "try again next sweep".
         logger.warn(
           `[org-proposal-measure] invalid strict changeJson for '${proposal.id}': ${String(error)}`,
         );
-        return 'skipped';
+        return await markMeasuringUnresolvable(
+          proposal,
+          deps,
+          `the stored change_json is not strictly parseable: ${String(error)}`,
+        );
       }
     }
 
@@ -227,9 +247,12 @@ export async function measureProposal(
       const verified = liveBoundScope(proposal, deps);
       if (!verified || verified.snapshot.version !== 'scope-state-v2') {
         logger.warn(
-          `[org-proposal-measure] '${proposal.id}' refine-scope snapshot is invalid, unbound, or no longer live — skipping`,
+          `[org-proposal-measure] '${proposal.id}' refine-scope snapshot is invalid, unbound, or no longer live`,
         );
-        return 'skipped';
+        return await markMeasuringUnresolvable(
+          proposal, { ...deps, proposalsRepo },
+          'the measuring refine-scope snapshot is invalid, unbound, or no longer matches the live target',
+        );
       }
       return await measureBehavioralRerun(
         proposal,
@@ -324,17 +347,20 @@ async function measureScopeChange(
   const verified = liveBoundScope(proposal, deps);
   if (!verified || verified.snapshot.version !== 'scope-delta-v2') {
     logger.warn(
-      `[org-proposal-measure] '${proposal.id}' scope snapshot is invalid, unbound, or no longer live — skipping`,
+      `[org-proposal-measure] '${proposal.id}' scope snapshot is invalid, unbound, or no longer live`,
     );
-    return 'skipped';
+    return await markMeasuringUnresolvable(
+      proposal, deps,
+      'the measuring scope snapshot is invalid, unbound, or no longer matches the live target',
+    );
   }
 
   const change = verified.prepared;
+  // `remove` is non-empty by construction: exactNameArray rejects an empty or
+  // absent list, so liveBoundScope above would have returned null first. The
+  // old "nothing was removed -> revert" branch here could no longer fire and
+  // read as a live path that could.
   const removed = change.remove ?? [];
-  if (removed.length === 0) {
-    // Nothing was actually removed — no hygiene improvement to speak of.
-    return await doRevert(proposal, deps);
-  }
 
   const exercisedTools = deps.exercisedTools ?? defaultExercisedTools;
   const exercised = await exercisedTools(change.agentConfigId);
@@ -343,9 +369,11 @@ async function measureScopeChange(
   // under us. Re-prove the exact bound scope before any keep/revert effect.
   if (liveBoundScope(proposal, deps)?.snapshot.version !== 'scope-delta-v2') {
     logger.warn(
-      `[org-proposal-measure] '${proposal.id}' scope target drifted during measurement — skipping`,
+      `[org-proposal-measure] '${proposal.id}' scope target drifted during measurement`,
     );
-    return 'skipped';
+    return await markMeasuringUnresolvable(
+      proposal, deps, 'the scope target drifted while the measurement was running',
+    );
   }
 
   // W2 governing rule: positive usage evidence is monotonic and canonical —
@@ -464,13 +492,47 @@ async function measureBodyRefinement(
  * transition, since the repository only accepts patch fields alongside a
  * real status change.
  */
+/**
+ * A measuring row whose scope binding cannot be proven will never become
+ * provable on its own — the snapshot is invalid, or an operator moved the
+ * target. Leaving it `measuring` makes the sweep retry it forever while the
+ * operator sees a row that still looks healthy. Record it durably instead,
+ * fenced on the exact status and revision observed.
+ */
+async function markMeasuringUnresolvable(
+  proposal: AgentOrgProposal,
+  deps: MeasureDeps,
+  reason: string,
+): Promise<MeasureOutcome> {
+  const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+  try {
+    const current = await proposalsRepo.findByIdAsync(proposal.id);
+    if (current && current.status === 'measuring') {
+      await proposalsRepo.markReconciliationRequiredAsync({
+        proposalId: proposal.id,
+        expectedStatus: 'measuring',
+        expectedRevision: current.revision,
+        reason,
+      });
+    }
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-measure] could not persist reconciliation for '${proposal.id}': ${String(error)}`,
+    );
+  }
+  return 'reconciliation-required';
+}
+
 async function doRevert(
   proposal: AgentOrgProposal,
   deps: MeasureDeps,
   patch?: RevertPatch,
 ): Promise<MeasureOutcome> {
   const outcome = await revertProposal(proposal, deps, patch);
-  return outcome === 'reverted' ? 'reverted' : 'skipped';
+  if (outcome === 'reverted') return 'reverted';
+  // Never collapse a durable unresolved state into the retryable one.
+  if (outcome === 'reconciliation-required') return 'reconciliation-required';
+  return 'skipped';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -558,9 +620,11 @@ async function measureBehavioralRerun(
 
   if (preFinalize && !preFinalize()) {
     logger.warn(
-      `[org-proposal-measure] '${proposal.id}' target drifted during behavioral re-run — skipping`,
+      `[org-proposal-measure] '${proposal.id}' target drifted during behavioral re-run`,
     );
-    return 'skipped';
+    return await markMeasuringUnresolvable(
+      proposal, deps, 'the scope target drifted while the behavioral re-run was in flight',
+    );
   }
 
   if (outcome.status === 'failed') {

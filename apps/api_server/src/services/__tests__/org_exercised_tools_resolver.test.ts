@@ -75,6 +75,32 @@ function toolPart(
   };
 }
 
+/**
+ * W1 requires measurement to act only on a canonical scope-delta-v2 snapshot
+ * still bound to the live target. A legacy whole-field snapshot is now
+ * durably unresolvable, so a test about TELEMETRY behaviour has to be staged
+ * the way the production apply step leaves the row — otherwise it passes (or
+ * fails) for a reason that has nothing to do with telemetry.
+ */
+function stageRemoval(configId: string, removed: string): {
+  changeJson: string;
+  beforeSnapshotJson: string;
+} {
+  const repo = new AgentConfigsRepository();
+  const priorMcps = JSON.stringify([removed]);
+  repo.update(configId, { allowedMcpsJson: priorMcps });
+  const changeJson = JSON.stringify({
+    agentConfigId: configId,
+    field: 'allowedMcpsJson',
+    remove: [removed],
+  });
+  const snapshot = createScopeDeltaV2Snapshot(
+    configId, 'allowedMcpsJson', priorMcps, [removed], 'prune-scope', changeJson,
+  );
+  repo.update(configId, { allowedMcpsJson: snapshot.expectedAppliedValue });
+  return { changeJson, beforeSnapshotJson: JSON.stringify(snapshot) };
+}
+
 describe('known-catalog MCP callable identity', () => {
   const catalog = ['pco-services', 'gitnexus', 'git', 'gitnexus-admin'];
 
@@ -262,12 +288,7 @@ describe('exercised telemetry availability', () => {
       status: 'measuring',
       title: 'Prune gitnexus under malformed capture',
       targetRef: `agent_config:${config.id}`,
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['gitnexus'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      ...stageRemoval(config.id, 'gitnexus'),
       dedupKey: `prune-scope:${config.id}:gitnexus:null-part`,
     });
     const outcome = await measureProposal(proposal, { exercisedTools: async () => telemetry });
@@ -734,12 +755,7 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
       risk: 'low',
       status: 'measuring',
       title: 'Prune gitnexus',
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['gitnexus'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['gitnexus']) }),
+      ...stageRemoval(config.id, 'gitnexus'),
       dedupKey: `prune-scope:${config.id}:gitnexus`,
     });
 
