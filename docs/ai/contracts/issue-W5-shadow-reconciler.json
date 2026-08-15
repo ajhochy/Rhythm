@@ -3,11 +3,11 @@
   "generated": "2026-08-15",
   "derived_from": {
     "plan": "docs/ai/plans/2026-08-14-self-improvement-engine-foundation.md",
-    "section": "Work package W5 — Shadow policy and lifecycle reconciliation",
+    "section": "Work package W5 \u2014 Shadow policy and lifecycle reconciliation",
     "note": "Refinement of the approved plan section into machine-readable criteria. No product scope is added, removed, or reinterpreted; every criterion traces to a plan line."
   },
-  "branch": "agent-stack/si-shadow-reconciler",
-  "base": "integrated W1-W3 head on agent-stack/self-improvement-foundation",
+  "branch": "self-improvement/shadow-mode-reconciler",
+  "base": "integrated W1-W3 head on self-improvement-engine-foundation",
   "commit": "feat(optimizer): default to shadow mode and reconcile stale lifecycle rows",
   "owned_production_files": [
     "apps/api_server/src/services/org_optimizer_policy.ts",
@@ -19,7 +19,9 @@
   "owned_test_files": [
     "apps/api_server/src/services/__tests__/org_optimizer_policy.test.ts",
     "apps/api_server/src/services/__tests__/org_proposal_reconciler.test.ts",
-    "apps/api_server/src/__tests__/issue_850_contract.test.ts"
+    "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+    "apps/api_server/src/services/__tests__/reconcile_org_proposals_script.test.ts",
+    "apps/api_server/src/__tests__/org_optimizer_run_controller.test.ts"
   ],
   "prior_art_to_reuse_not_duplicate": {
     "org_proposal_recovery_service.ts": "W1 package C already ships a bounded recovery sweep that ACTS: it re-projects lagging profiles and durably marks incoherent approved/applied claims. W5's reconciler is a distinct, strictly READ-ONLY classifier over ACTIVE scope rows for operator reporting. Do not merge the two and do not give the reconciler write powers.",
@@ -35,13 +37,13 @@
     {
       "criterion_id": "W5-c2",
       "plan_line": "expose kill switches per change family",
-      "text": "Each change family can be independently disabled, and a disabled family is refused regardless of the global mode.",
+      "text": "Each change family can be disabled independently, and a disabled family is refused at GENERATION/auto-apply time regardless of the global mode. A human-approved apply or revert is NOT affected by a kill switch \u2014 the plan preserves that path (W6 step 8).",
       "status": "red-pending"
     },
     {
       "criterion_id": "W5-c3",
       "plan_line": "optimizer shadow run still audits/generates/ranks proposals but calls no apply, measure, revert, install, or target writer",
-      "text": "In shadow mode a run produces proposals and counters, and performs ZERO of: applyProposal, measureProposal, revertProposal, tool install, agent_configs write, profile projection. Asserted by spying every one of those seams, not by reading a flag.",
+      "text": "A shadow run produces proposals and counters and leaves observable state byte-identical: all agent_configs rows, all agent_org_proposals statuses/revisions, and the projected profile files are unchanged after the run. Asserted as a full before/after state comparison, NOT by spying that a function was called (AGENTS.md forbids that form). The gate lives in the run loop, never inside applyProposal/measureProposal/revertProposal \u2014 those are shared with W1's human-approved route, which must keep working under every mode.",
       "status": "red-pending"
     },
     {
@@ -77,13 +79,25 @@
     {
       "criterion_id": "W5-c9",
       "plan_line": "measuring rows gain retry/deadline accounting or a deterministic inconclusive classification rather than indefinite silent retry",
-      "text": "A retryable measuring row accumulates attempt/deadline accounting, and once past its budget becomes deterministically inconclusive and inspectable instead of retrying forever in silence.",
+      "text": "A measuring row that is retryable (telemetry unavailable, engine down) must not retry forever in silence. Implement the plan's SECOND option: a deterministic inconclusive classification derived from columns that already exist \u2014 no new schema, because W5 owns no migration file. Once a row is past its budget it classifies as inconclusive and inspectable.",
       "status": "red-pending"
     },
     {
       "criterion_id": "W5-c10",
       "plan_line": "Reconciler reports the 69 legacy rows safely without changing config",
       "text": "Given the live-audit shape recorded in the plan (legacy whole-field snapshots on active rows), the reconciler classifies them as unsafe legacy rollback and changes no config.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c11",
+      "plan_line": "W5 acceptance 'Shadow mode has zero mutation side effects' + final gate 'Lifecycle drift is reportable with a default-dry-run reconciler'",
+      "text": "The W1 recovery sweep must not become dead code under shadow-by-default. In shadow mode it runs report-only: it classifies and counts lagging projections and incoherent claims, and writes nothing. In human_only and auto it acts as it does today. A test proves both halves: shadow leaves state byte-identical while still reporting a non-zero count when drift exists.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c12",
+      "plan_line": "Campaign invariant: revision is the lifecycle CAS token",
+      "text": "Neither the --apply metadata retirement nor the stuck-measurement classification may advance agent_org_proposals.revision for a fact that is not a domain change. The AFTER UPDATE auto-bump trigger means any raw update does exactly that, invalidating CAS tokens held in flight by approve/apply/revert/measure. Use a sidecar or an explicitly revision-preserving write.",
       "status": "red-pending"
     }
   ],
@@ -97,6 +111,43 @@
   "explicitly_out_of_scope": [
     "Any automatic permission restoration or removal (plan: Deferred by design).",
     "Requester-only canary enablement (plan: Deferred by design).",
-    "Consuming the outcome ledger — that is W6."
+    "Consuming the outcome ledger \u2014 that is W6."
+  ],
+  "spec_review": {
+    "reviewer": "independent read-only architecture/spec review, 2026-08-15",
+    "verdict": "APPROVE WITH CHANGES",
+    "amendments_applied": 6
+  },
+  "plan_interpretations": [
+    {
+      "ambiguity": "The plan never says what happens to W1 corrective-6's recovery sweep under shadow-by-default. runOrgOptimizer is its only production caller, so a naive shadow gate makes it permanently dead code.",
+      "reconciled_as": "Two acceptance statements had to be satisfied at once: 'shadow has zero mutation side effects' (W5 acceptance) and 'Lifecycle drift is reportable with a default-dry-run reconciler' (final gate). Resolution: in shadow mode the recovery sweep runs in REPORT-ONLY form \u2014 it classifies and counts, and writes nothing. Its acting form runs in human_only and auto, where an operator has opted in. This keeps shadow mutation-free without making W1-C's repair unreachable by default. Encoded as W5-c11.",
+      "authority": "W5 acceptance bullet 2 + final acceptance gate 'Lifecycle drift is reportable with a default-dry-run reconciler'"
+    },
+    {
+      "ambiguity": "W5 step 10 offers 'retry/deadline accounting OR a deterministic inconclusive classification', but W5 owns no schema file and persisted accounting needs one.",
+      "reconciled_as": "Take the plan's disjunction as written and implement the deterministic-classification branch, derived from columns that already exist (updated_at, revision, measure_reason). This keeps W4 and W5 genuinely parallel \u2014 persisted accounting would drag W5 into migrations.ts, postgres_bootstrap.ts and skill_schema_parity.test.ts, all W4-owned.",
+      "authority": "plan W5 step 10 'or'; campaign dependency graph 'W4-W5 are parallel'"
+    }
+  ],
+  "verification": {
+    "runtime": "node v22.23.1 via export PATH=/opt/homebrew/opt/node@22/bin:$PATH",
+    "impact_targets": [
+      "runOrgOptimizer",
+      "agent_org_proposals state transitions"
+    ],
+    "commands": [
+      "npx vitest run <owned test files>",
+      "npx vitest run",
+      "npm run build",
+      "npx tsc --noEmit -p tsconfig.json",
+      "detect_changes --base main",
+      "git diff --check"
+    ]
+  },
+  "hazards": [
+    "trg_agent_org_proposals_revision_autobump fires on ANY update of agent_org_proposals and advances the lifecycle CAS token \u2014 see W5-c12.",
+    "tsconfig sets rootDir/include to src only, so apps/api_server/scripts/ is NOT typechecked by npm run build. The script must import its logic from src/ so the build and tests actually cover it.",
+    "runOrgOptimizer is the only production caller of runRecoverySweep \u2014 see W5-c11 before gating anything."
   ]
 }
