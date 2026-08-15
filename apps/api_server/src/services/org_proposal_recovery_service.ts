@@ -158,8 +158,11 @@ export async function runRecoverySweep(
     for (const status of ['approved', 'applied'] as const) {
       for (const proposal of await proposalsRepo.listByStatusAsync(status)) {
         if (budget <= 0) break;
-        budget -= 1;
+        // Spend the budget on rows this sweep can actually act on. Decrementing
+        // before the kind filter let `limit` non-scope rows starve a stranded
+        // scope proposal on every single sweep, forever.
         if (!SCOPE_KINDS.has(proposal.kind)) continue;
+        budget -= 1;
         if (scopeClaimIsCoherent(proposal, configsRepo)) {
           result.proposalsHealthy += 1;
           continue;

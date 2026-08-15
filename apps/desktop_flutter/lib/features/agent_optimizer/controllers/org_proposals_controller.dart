@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/org_proposal.dart';
 import '../repositories/org_proposals_repository.dart';
+import '../../../app/core/errors/app_error.dart';
 
 enum OrgProposalsStatus { idle, loading, error }
 
@@ -56,9 +57,12 @@ class OrgProposalsController extends ChangeNotifier {
       _error = null;
       return true;
     } catch (e) {
-      _error = e.toString();
+      _error = e is AppError ? e.message : e.toString();
+      // Discriminate on the machine-readable code, not on server prose. A
+      // CONFLICT is retryable; RECONCILIATION_REQUIRED is a durably-recorded
+      // unresolved operation that a human has to inspect first.
       _lastApproveNeedsReconciliation =
-          _error!.toLowerCase().contains('reconciliation');
+          e is AppError && e.code == 'RECONCILIATION_REQUIRED';
       // The server may have moved this row out of `proposed` even though the
       // approve did not succeed — a released claim becomes `failed`, an
       // unprovable one becomes `reconciliation-required`. Re-reading keeps the

@@ -95,7 +95,6 @@ import { downloadSkillBody } from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
 import { stripFrontmatterBlock } from './skill_frontmatter';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import {
   readAgentConfigField,

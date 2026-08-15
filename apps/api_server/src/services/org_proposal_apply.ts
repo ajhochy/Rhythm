@@ -53,7 +53,6 @@ import {
   AgentScheduledTasksRepository,
   type AgentScheduledTask,
 } from '../repositories/agent_scheduled_tasks_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
 import {
   projectAgentProfileAfterWrite,
   projectLatestAgentProfile,

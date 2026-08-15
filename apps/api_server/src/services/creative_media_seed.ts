@@ -4,7 +4,6 @@ import {
   type AgentConfig,
 } from "../repositories/agent_configs_repository";
 import { logger } from "../utils/logger";
-import { writeAgentProfileFile } from "./opencode_agent_writer";
 import { projectAgentProfileAfterWrite } from "./agent_profile_projection_service";
 
 export const CREATIVE_MEDIA_AGENT_ID = "creative-media";

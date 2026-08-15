@@ -126,7 +126,7 @@ export class OrgProposalsController {
         });
         if (outcome.kind === 'conflict') throw AppError.conflict(`Proposal ${id}: ${outcome.reason}`);
         if (outcome.kind === 'reconciliation-required') {
-          throw AppError.conflict(
+          throw AppError.reconciliationRequired(
             `Proposal ${id}: ${outcome.reason}; ` +
             (outcome.durable
               ? "the proposal is recorded as 'reconciliation-required'"
@@ -207,7 +207,7 @@ export class OrgProposalsController {
         );
       }
       if (outcome === 'reconciliation-required') {
-        throw AppError.conflict(
+        throw AppError.reconciliationRequired(
           `Proposal ${id} encountered an indeterminate revert result; the durable database transition may have committed, so the proposal, target scope, and projected profile must be inspected before retrying`,
         );
       }

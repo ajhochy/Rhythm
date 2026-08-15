@@ -155,29 +155,39 @@ export function projectLatestAgentProfile(
     recordProjection(input.profileId, outcome);
     return outcome;
   };
-  // A blocked/disabled/locked profile must not simply be left alone: its old
-  // file would keep serving the PRE-mutation scope to the engine, which for a
-  // tightening is strictly wider than what was just approved.
-  if (
-    agentConfigExecutionBlockReason(current) !== null &&
-    isProjectableAgentConfigIgnoringEnabled(current)
-  ) {
+  /**
+   * Nothing was written, so a file left behind keeps serving the PRE-mutation
+   * scope to the engine — for a tightening, strictly wider than what was just
+   * approved. Gating this on the execution-block reason alone was too narrow:
+   * flipping `isAgent` to false makes a profile unprojectable while the block
+   * reason stays null, so the stale file survived and the ledger recorded
+   * `not-applicable`, which claims the file was removed.
+   *
+   * deleteAgentProfileFile never throws — it swallows every rmSync failure as a
+   * warning — so the delete has to be PROVED, not assumed.
+   */
+  const clearStaleFile = (): ProjectionOutcome => {
     deleteAgentProfileFile(current.id);
-    // deleteAgentProfileFile never throws — it swallows every rmSync failure as
-    // a warning — so the delete has to be PROVED. A file that survived still
-    // serves the pre-mutation (wider) scope to the engine, which is exactly the
-    // incoherence `not-applicable` claims to have removed.
-    if (agentProfileFileExists(current.id)) {
-      return record({ kind: 'failed', revision: current.revision });
-    }
-    return record({ kind: 'not-applicable', revision: current.revision });
+    return agentProfileFileExists(current.id)
+      ? record({ kind: 'failed', revision: current.revision })
+      : record({ kind: 'not-applicable', revision: current.revision });
+  };
+
+  if (
+    agentConfigExecutionBlockReason(current) !== null ||
+    !isProjectableAgentConfigIgnoringEnabled(current)
+  ) {
+    return clearStaleFile();
   }
   const result = write(current);
   // ────────────────────────────────────────────────────────────────────
 
   if (result === 'blocked') return record({ kind: 'blocked', revision: current.revision });
   if (result === 'failed') return record({ kind: 'failed', revision: current.revision });
-  if (result === 'skipped') return record({ kind: 'not-applicable', revision: current.revision });
+  // `skipped` means the renderer wrote nothing. Under postgres/test there is no
+  // local file at all; anywhere else a surviving file is the same stale-wider
+  // scope hazard, so prove it is gone before reporting a settled state.
+  if (result === 'skipped') return clearStaleFile();
   // A `stale` outcome still PROJECTED the latest row — the caller's intent was
   // behind, the file is not — so the ledger records the revision on disk.
   recordProjection(input.profileId, { kind: 'projected', revision: current.revision, write: result });

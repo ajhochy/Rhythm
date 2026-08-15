@@ -27,6 +27,7 @@ import 'package:rhythm_desktop/features/agent_optimizer/data/org_proposals_data_
 import 'package:rhythm_desktop/features/agent_optimizer/models/org_proposal.dart';
 import 'package:rhythm_desktop/features/agent_optimizer/repositories/org_proposals_repository.dart';
 import 'package:rhythm_desktop/features/agent_optimizer/views/org_proposals_view.dart';
+import 'package:rhythm_desktop/app/core/errors/app_error.dart';
 
 // ---------------------------------------------------------------------------
 // Fake data source — the ONLY faked boundary. Everything above it (model,
@@ -69,14 +70,21 @@ class _FakeOrgProposalsDataSource extends OrgProposalsDataSource {
   Future<OrgProposal> approve(String id, {int? decidedByUserId}) async {
     _approveAttempted = true;
     if (id == reconciliationId) {
-      throw Exception(
-        "Proposal $id: profile projection blocked; the proposal is recorded as "
-        "'reconciliation-required' — the proposal, target scope, and projected "
-        'profile must be inspected before retrying',
+      // Exactly what assertOk builds from the server's 409 body: the code is
+      // what the client must discriminate on, never the prose.
+      throw AppError(
+        'Proposal $id: profile projection blocked; the proposal, target scope '
+        'and projected profile must be inspected before retrying',
+        code: 'RECONCILIATION_REQUIRED',
+        statusCode: 409,
       );
     }
     if (id == failId) {
-      throw Exception('Approve refused: missing security note');
+      throw AppError(
+        'Approve refused: missing security note',
+        code: 'BAD_REQUEST',
+        statusCode: 400,
+      );
     }
     lastApprovedId = id;
     final proposal = _proposals.firstWhere((p) => p.id == id);

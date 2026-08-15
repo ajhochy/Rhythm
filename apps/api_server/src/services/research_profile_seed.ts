@@ -1,7 +1,6 @@
 import { env } from '../config/env';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
 import { logger } from '../utils/logger';
-import { writeAgentProfileFile } from './opencode_agent_writer';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import { recordSeedMarker, seedMarkerExists } from './seed_once';
 

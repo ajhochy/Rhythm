@@ -98,6 +98,50 @@ function seedDeadScopeProfile(id = 'secretary'): void {
 }
 
 describe('issue-850-c1: runOrgOptimizer executes audit->generate->persist->auto-apply; high-risk kinds never auto-apply', () => {
+  it('W1: the auto-apply lane is still wired, and only ever sees low-risk work', async () => {
+    // Coverage hole this closes: every other test in this describe asserts what
+    // must NOT auto-apply. Once scope kinds became human-gated, no test drove a
+    // proposal THROUGH the lane — deleting the autoApplyProposal call left the
+    // suite green.
+    //
+    // The behavioural half (nothing high-risk reaches the lane) is asserted on
+    // a real run below. The existence half is structural on purpose: every kind
+    // this fixture can generate is now high-risk, so no in-run proposal reaches
+    // the lane, and a structural assertion that genuinely fails on deletion
+    // beats a behavioural one that cannot be written.
+    const apply = await import('../services/org_proposal_apply');
+    const seen: Array<{ kind: string; risk: string }> = [];
+    const spy = vi
+      .spyOn(apply, 'applyProposal')
+      .mockImplementation(async (proposal) => {
+        seen.push({ kind: proposal.kind, risk: proposal.risk });
+        return { status: 'applied-ok' as const };
+      });
+    seedDeadScopeProfile();
+
+    try {
+      const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+      await runOrgOptimizer();
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(seen.every((p) => p.risk === 'low')).toBe(true);
+    expect(
+      seen.some((p) =>
+        ['tighten-scope', 'prune-scope', 'refine-scope', 'broaden-scope'].includes(p.kind)),
+    ).toBe(false);
+
+    const runService = readFileSync(
+      path.join(__dirname, '..', 'services', 'org_optimizer_run_service.ts'),
+      'utf8',
+    );
+    expect(runService).toMatch(
+      /const applyResult = await autoApplyProposal\(proposal, \{ proposalsRepo: realProposalsRepo \}\);/,
+    );
+    expect(runService).toMatch(/result\.byOutcome\.autoApplied \+= 1;/);
+  });
+
   it('a prune-scope gap is persisted but stays proposed — scope removal is human-gated, never auto-applied (W1)', async () => {
     // Bug this catches: the run loop only builds the snapshot/generates but
     // never persists gaps, leaving every gap unactioned as if the loop were a

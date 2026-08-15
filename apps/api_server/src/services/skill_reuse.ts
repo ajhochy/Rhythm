@@ -21,7 +21,6 @@ import { scoreSkill } from './skill_retrieval';
 import { isSameSkill, type RefineCandidate } from './skill_refiner';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 

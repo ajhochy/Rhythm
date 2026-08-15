@@ -36,7 +36,6 @@ import {
   isAgentProfileFileMissing,
   isProjectableAgentConfig,
   isProjectableAgentConfigIgnoringEnabled,
-  writeAgentProfileFile,
 } from './opencode_agent_writer';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 

@@ -292,8 +292,14 @@ export async function measureProposal(
       return await measureRefineTask(proposal, { ...deps, proposalsRepo });
     }
 
-    logger.warn(`[org-proposal-measure] unsupported kind '${proposal.kind}' for '${proposal.id}' — skipping`);
-    return 'skipped';
+    // A kind with no measurement strategy will never acquire one while the row
+    // sits there, so the sweep must not keep picking it up.
+    logger.warn(`[org-proposal-measure] unsupported kind '${proposal.kind}' for '${proposal.id}'`);
+    return await markMeasuringUnresolvable(
+      proposal,
+      { ...deps, proposalsRepo },
+      `proposal kind '${proposal.kind}' has no measurement strategy`,
+    );
   } catch (err) {
     logger.warn(`[org-proposal-measure] FAILED (non-fatal): ${String(err)}`);
     return 'skipped';
@@ -437,8 +443,12 @@ async function measureBodyRefinement(
   }
 
   if (!isBodyRefinementChange(change)) {
-    logger.warn(`[org-proposal-measure] '${proposal.id}' changeJson is not a body refinement — skipping`);
-    return 'skipped';
+    // Stored bytes of the wrong shape do not start being the right shape, so
+    // this is durably unresolvable, not "try again next sweep".
+    logger.warn(`[org-proposal-measure] '${proposal.id}' changeJson is not a body refinement`);
+    return await markMeasuringUnresolvable(
+      proposal, deps, 'the stored change_json is not a body refinement payload',
+    );
   }
 
   const { scoreSkillBody: scorer } = await import('./skill_refiner');
@@ -592,14 +602,16 @@ async function measureBehavioralRerun(
   ];
 
   if (!patchedProfileId || sessionIds.length === 0) {
-    // Nothing to reproduce -> we cannot behaviorally decide. Leave `measuring`
-    // (a later sweep may have more luck) rather than guessing keep/revert.
-    // ponytail: these proposals always carry a profile + replay list from the
-    // diagnosis brain; this only fires for a malformed/legacy payload.
+    // Nothing to reproduce, and the stored payload will not grow a profile or a
+    // replay list on a later pass — these come from the diagnosis brain at
+    // creation time. Durably unresolvable rather than retried forever.
     logger.warn(
-      `[org-proposal-measure] '${proposal.id}' missing patched profile or replay sessionIds — leaving measuring`,
+      `[org-proposal-measure] '${proposal.id}' missing patched profile or replay sessionIds`,
     );
-    return 'skipped';
+    return await markMeasuringUnresolvable(
+      proposal, deps,
+      'the stored payload carries no patched profile or replay sessionIds to reproduce',
+    );
   }
 
   const rerun = deps.rerunScenario ?? defaultRerunScenario;

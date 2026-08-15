@@ -26,7 +26,6 @@
 
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentConfig, AgentConfigInput } from '../repositories/agent_configs_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import { syncOpencodeAgentProfiles } from './agent_profile_sync';
 import { logger } from '../utils/logger';

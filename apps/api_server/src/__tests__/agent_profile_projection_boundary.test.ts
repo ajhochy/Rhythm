@@ -9,9 +9,12 @@
  * (profile id + the revision they believe they are projecting) and the
  * boundary re-reads the latest row itself.
  *
- * A guard rather than a comment, because the whole class of defect is one
- * import away and every previous instance of it was found by review, not by
- * the suite.
+ * The guard is on the IMPORT, not on the call form. A first version matched
+ * the call token and 5 of 8 evasions walked through it — an alias import, an
+ * indirect binding, a destructured dynamic import, a re-export hop and a
+ * namespace alias. A module that never imports the renderer cannot call it by
+ * any name, so that is the property worth enforcing. The evasion table below
+ * pins it, because a guard nobody has attacked is not a guard.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -28,6 +31,50 @@ const ALLOWED = new Set([
   join(SRC, 'services', 'agent_profile_projection_service.ts'),
 ]);
 
+const RENDERER = /\bwriteAgentProfileFile\b|\bsyncAgentProfileFileForState\b/;
+
+/**
+ * Every way a module can get hold of the renderer, reported as a list of
+ * reasons. Empty means the module provably cannot reach it.
+ */
+export function rendererAccessReasons(source: string): string[] {
+  const reasons: string[] = [];
+
+  const staticImports = source.matchAll(
+    /import\s+([\s\S]*?)\s+from\s+['"][^'"]*opencode_agent_writer['"]/g,
+  );
+  for (const match of staticImports) {
+    const clause = match[1];
+    if (/\*\s+as\s+/.test(clause)) reasons.push('namespace import');
+    else if (RENDERER.test(clause)) reasons.push('named import');
+  }
+
+  // A bare dynamic import or require exposes the whole module, renderer
+  // included — the destructuring that follows can rename it to anything.
+  if (/import\s*\(\s*['"][^'"]*opencode_agent_writer['"]\s*\)/.test(source)) {
+    reasons.push('dynamic import');
+  }
+  if (/require\s*\(\s*['"][^'"]*opencode_agent_writer['"]\s*\)/.test(source)) {
+    reasons.push('require');
+  }
+
+  // A re-export hands the renderer to modules that never import it directly.
+  if (/export\s+[\s\S]{0,200}?\bwriteAgentProfileFile\b[\s\S]{0,200}?from\s+['"]/.test(source)) {
+    reasons.push('re-export');
+  }
+
+  // And the plain call, for a module that somehow has it in scope already.
+  for (const raw of source.split('\n')) {
+    const code = raw.replace(/^\s*(\/\/|\*).*$/, '');
+    if (/\bwriteAgentProfileFile\s*\(/.test(code) || /\bsyncAgentProfileFileForState\s*\(/.test(code)) {
+      reasons.push('direct call');
+      break;
+    }
+  }
+
+  return reasons;
+}
+
 function productionFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -43,17 +90,35 @@ function productionFiles(dir: string, out: string[] = []): string[] {
 }
 
 describe('W1 package C: profile projection has exactly one boundary', () => {
-  it('no production module calls the low-level row writer directly', () => {
+  it.each([
+    ['direct call', "import { writeAgentProfileFile } from './opencode_agent_writer';\nwriteAgentProfileFile(config);"],
+    ['alias import', "import { writeAgentProfileFile as render } from './opencode_agent_writer';\nrender(config);"],
+    ['indirect binding', "import { writeAgentProfileFile } from './opencode_agent_writer';\nconst r = writeAgentProfileFile;\nr(config);"],
+    ['namespace alias', "import * as writer from './opencode_agent_writer';\nwriter.writeAgentProfileFile(config);"],
+    ['dynamic import + rename', "const { writeAgentProfileFile: r } = await import('./opencode_agent_writer');\nr(config);"],
+    ['require', "const w = require('./opencode_agent_writer');\nw.writeAgentProfileFile(config);"],
+    ['re-export hop', "export { writeAgentProfileFile } from './opencode_agent_writer';"],
+    ['state-aware alias', "import { syncAgentProfileFileForState as sync } from './opencode_agent_writer';\nsync(config);"],
+  ])('detects the %s evasion', (_label, source) => {
+    expect(rendererAccessReasons(source)).not.toEqual([]);
+  });
+
+  it('does not flag a module that only mentions the renderer in prose', () => {
+    const source = [
+      '// writeAgentProfileFile is the low-level renderer; go through the boundary.',
+      "import { projectLatestAgentProfile } from './agent_profile_projection_service';",
+      'projectLatestAgentProfile({ profileId: id, expectedRevision: 0, cause: "sync" });',
+    ].join('\n');
+    expect(rendererAccessReasons(source)).toEqual([]);
+  });
+
+  it('no production module can reach the low-level row writer', () => {
     const offenders: string[] = [];
     for (const file of productionFiles(SRC)) {
       if (ALLOWED.has(file)) continue;
-      const source = readFileSync(file, 'utf8');
-      for (const [index, line] of source.split('\n').entries()) {
-        // Comments and doc references are fine; a CALL is not.
-        const code = line.replace(/^\s*(\/\/|\*).*$/, '');
-        if (/\bwriteAgentProfileFile\s*\(/.test(code) || /\bsyncAgentProfileFileForState\s*\(/.test(code)) {
-          offenders.push(`${file.slice(SRC.length + 1)}:${index + 1}`);
-        }
+      const reasons = rendererAccessReasons(readFileSync(file, 'utf8'));
+      if (reasons.length > 0) {
+        offenders.push(`${file.slice(SRC.length + 1)} (${[...new Set(reasons)].join(', ')})`);
       }
     }
     expect(offenders).toEqual([]);

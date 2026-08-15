@@ -7,9 +7,7 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import type { AgentConfigInput } from '../repositories/agent_configs_repository';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
-  writeAgentProfileFile,
   deleteAgentProfileFile,
-  syncAgentProfileFileForState,
   isReservedAgentConfigId,
 } from '../services/opencode_agent_writer';
 import { projectAgentProfileAfterWrite } from '../services/agent_profile_projection_service';
