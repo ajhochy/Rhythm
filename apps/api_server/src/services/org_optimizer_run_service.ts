@@ -81,6 +81,14 @@ import { discoverCandidatesFromEcosystem } from './generators/external_discovery
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { resolveKnownMcpServerName } from './mcp_scope_name';
+import {
+  isGenerationAllowedForKind,
+  mayAutoApply,
+  mayMutateLifecycle,
+  parseOptimizerPolicy,
+  type OptimizerMode,
+  type OptimizerPolicy,
+} from './org_optimizer_policy';
 
 /** #830 per-run budget defaults — a single run may never exceed these without an explicit override. */
 const DEFAULT_MAX_PROPOSALS_PER_RUN = 20;
@@ -95,11 +103,24 @@ export interface RunOrgOptimizerOptions {
   proposalsRepo?: AgentOrgProposalsRepository;
   /** Injectable configs repo (tests only — defaults to a fresh AgentConfigsRepository). */
   configsRepo?: AgentConfigsRepository;
+  /**
+   * W5 — operating mode. Anything not exactly `off|shadow|human_only|auto`
+   * resolves to `shadow`. Defaults to `RHYTHM_OPTIMIZER_MODE`, and that
+   * defaults to `shadow` too: the autonomous loop does not get write authority
+   * over agent scope by omission.
+   */
+  mode?: string;
+  /** W5 — comma-separated change families to refuse for generation/auto-apply. */
+  disabledFamilies?: string;
+  /** W5 — fully-formed policy, bypassing env/string parsing (tests). */
+  policy?: OptimizerPolicy;
 }
 
 export interface RunOrgOptimizerResult {
   /** Groups every proposal this run touched. Present even on a skipped/capped run. */
   auditRunId: string;
+  /** W5 — the mode this run actually operated under. */
+  mode: OptimizerMode;
   /** True if the run was skipped entirely (cold-start) — see skippedReason. */
   skipped: boolean;
   skippedReason?: string;
@@ -121,6 +142,27 @@ export interface RunOrgOptimizerResult {
      * counter would never learn a proposal needs hands on it.
      */
     reconciliationRequired: number;
+    /**
+     * W5-c9 — retryable rows whose measurement budget is spent. They are NOT
+     * measured again this pass and NOT written to (the lifecycle CAS token
+     * belongs to real transitions); they are surfaced here and in the operator
+     * report so a stuck measurement stops being an invisible forever-retry.
+     */
+    measuringInconclusive: number;
+  };
+  /**
+   * W5 — what a SHADOW run would have done. Present only in shadow mode, and
+   * the reason a shadow run is still worth reading: without it an operator
+   * cannot tell "the loop found one candidate and held back" from "the loop
+   * found nothing at all".
+   */
+  shadow?: {
+    /** Proposals generated this run — every one of them a shadow candidate. */
+    candidates: number;
+    /** Of those, how many the auto-apply lane WOULD have taken under `auto`. */
+    wouldAutoApply: number;
+    /** Of those, how many would have been left in the human review queue. */
+    wouldQueue: number;
   };
   /** W1 package C — what the bounded recovery sweep repaired or flagged. */
   recovery?: {
@@ -129,19 +171,37 @@ export interface RunOrgOptimizerResult {
     proposalsReconciled: number;
     proposalsHealthy: number;
   };
+  /**
+   * W5-c11 — true when `recovery` counts what the sweep WOULD have repaired
+   * rather than what it did. Shadow must not make W1's repair path invisible,
+   * but it must not write either, so the sweep runs with neutered writers.
+   */
+  recoveryReportOnly?: boolean;
+  /**
+   * Shadow only. Profiles whose file lags the database — what the sweep WOULD
+   * have re-projected. Reported under its own name because reusing
+   * `recovery.projectionsRepaired` claimed repairs that never happened, and
+   * because the report-only stand-in cannot distinguish a projection that would
+   * succeed from one that would fail: it never attempts either.
+   */
+  recoveryLagging?: number;
   /** Non-fatal error message, if the run degraded to a partial result. */
   erroredReason?: string;
 }
 
-function emptySummary(auditRunId: string): RunOrgOptimizerResult {
+function emptySummary(auditRunId: string, mode: OptimizerMode): RunOrgOptimizerResult {
   return {
     auditRunId,
+    mode,
     skipped: false,
     capped: false,
     proposalsCreated: 0,
     byKind: {},
     byRisk: { low: 0, high: 0 },
-    byOutcome: { autoApplied: 0, kept: 0, reverted: 0, queued: 0, skipped: 0, reconciliationRequired: 0 },
+    byOutcome: {
+      autoApplied: 0, kept: 0, reverted: 0, queued: 0, skipped: 0,
+      reconciliationRequired: 0, measuringInconclusive: 0,
+    },
   };
 }
 
@@ -247,6 +307,61 @@ function makeDedupAwareProposalsRepo(
 }
 
 /**
+ * W5-c2 — the per-change-family kill switch, enforced at the ONE seam every
+ * generator (present and future) has to pass through to persist anything. A
+ * per-generator gate would have to be re-derived every time a generator learns
+ * a new kind; this cannot be bypassed by adding a generator.
+ *
+ * Refusal is a throw because that is exactly how the existing per-run cap
+ * refuses, and every generator already tolerates it (they log and continue).
+ */
+function makeFamilyGatedProposalsRepo(
+  real: AgentOrgProposalsRepository,
+  policy: OptimizerPolicy,
+): AgentOrgProposalsRepository {
+  const proxy = Object.create(real) as AgentOrgProposalsRepository;
+  proxy.createAsync = async (input) => {
+    if (!isGenerationAllowedForKind(policy, input.kind)) {
+      throw new Error(`org-optimizer-run: change family for kind '${input.kind}' is disabled by policy`);
+    }
+    return await real.createAsync.call(real, input);
+  };
+  return proxy;
+}
+
+/**
+ * W5-c11 — the W1 recovery sweep, run for its CLASSIFICATION only.
+ *
+ * `runOrgOptimizer` is the sweep's only production caller, so gating it behind
+ * the mutation phases would make W1 corrective-6's repair path dead code from
+ * the moment shadow became the default. Instead the same sweep runs with its
+ * two writers replaced by non-writing stand-ins that report what they WOULD
+ * have done, so drift stays visible without a single byte changing. The
+ * detection logic is not duplicated — it is the same function.
+ */
+async function runRecoverySweepReportOnly(
+  proposalsRepo: AgentOrgProposalsRepository,
+): Promise<RunOrgOptimizerResult['recovery']> {
+  const { runRecoverySweep } = await import('./org_proposal_recovery_service');
+  const readOnlyProposals = Object.create(proposalsRepo) as AgentOrgProposalsRepository;
+  // Reports "this row WOULD have been marked" by handing back the row exactly
+  // as it is — a read, not a write, and truthy so the sweep still counts it.
+  readOnlyProposals.markReconciliationRequiredAsync = async (input) =>
+    await proposalsRepo.findByIdAsync(input.proposalId);
+  return await runRecoverySweep({
+    proposalsRepo: readOnlyProposals,
+    // Reports the profile as one this sweep would have re-projected, without
+    // rendering or replacing any file. `stale` is the existing outcome that
+    // means "nothing of the caller's was written".
+    project: (input) => ({
+      kind: 'stale',
+      requestedRevision: input.expectedRevision,
+      currentRevision: input.expectedRevision,
+    }),
+  });
+}
+
+/**
  * Run the org self-optimizer loop once, end-to-end, server-side. NEVER
  * throws. See module doc comment for the full step sequence.
  */
@@ -264,12 +379,33 @@ export async function runOrgOptimizer(
 
   const auditRunId = crypto.randomUUID();
 
+  // ── 0. W5 policy. Resolved first, because `off` must not even build a
+  // snapshot and `shadow` decides whether any writer runs at all. Resolved
+  // INSIDE the try: reading options.mode/options.policy runs caller-supplied
+  // property getters, and this function's contract is that it never throws.
+  let policy = parseOptimizerPolicy({});
+  let mode = policy.mode;
+
   try {
+    policy = options.policy ?? parseOptimizerPolicy({
+      mode: options.mode ?? process.env.RHYTHM_OPTIMIZER_MODE,
+      disabledFamilies: options.disabledFamilies ?? process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
+    });
+    mode = policy.mode;
+    if (mode === 'off') {
+      logger.info('[org-optimizer-run] skipped — optimizer mode is off');
+      return {
+        ...emptySummary(auditRunId, mode),
+        skipped: true,
+        skippedReason: 'optimizer mode is off',
+      };
+    }
+
     // ── 1. Cold-start guard (#746) ────────────────────────────────────────
     if (isEngineColdStart()) {
       logger.info('[org-optimizer-run] skipped — engine is within its #746 cold-start window');
       return {
-        ...emptySummary(auditRunId),
+        ...emptySummary(auditRunId, mode),
         skipped: true,
         skippedReason: 'engine cold-start window active (#746) — deferring this run',
       };
@@ -277,20 +413,27 @@ export async function runOrgOptimizer(
 
     const realProposalsRepo = options.proposalsRepo ?? new AgentOrgProposalsRepository();
     const configsRepo = options.configsRepo ?? new AgentConfigsRepository();
-    await invalidateMalformedMcpScopeProposals(realProposalsRepo);
+    // Invalidating a malformed row is a WRITE, so it belongs to the acting
+    // modes only — shadow reports, it does not clean up.
+    if (mayMutateLifecycle(policy)) {
+      await invalidateMalformedMcpScopeProposals(realProposalsRepo);
+    }
 
-    const result = emptySummary(auditRunId);
+    const result = emptySummary(auditRunId, mode);
     let capped = false;
 
     const newlyCreated: AgentOrgProposal[] = [];
     const dedupAwareRepo = makeDedupAwareProposalsRepo(realProposalsRepo, (proposal) => {
       newlyCreated.push(proposal);
     });
-    const cappedRepo = makeCappedProposalsRepo(
-      dedupAwareRepo,
-      maxProposalsPerRun,
-      () => {},
-      () => newlyCreated.length >= maxProposalsPerRun,
+    const cappedRepo = makeFamilyGatedProposalsRepo(
+      makeCappedProposalsRepo(
+        dedupAwareRepo,
+        maxProposalsPerRun,
+        () => {},
+        () => newlyCreated.length >= maxProposalsPerRun,
+      ),
+      policy,
     );
 
     // ── 2. Build the read-only audit snapshot ─────────────────────────────
@@ -424,6 +567,11 @@ export async function runOrgOptimizer(
     // autoApplyProposal ITSELF re-checks classifyProposalRisk independently
     // before writing anything — so a high-risk proposal can never reach a
     // write even if one of these two gates has a bug. ────────────────────
+    const shadowing = !mayAutoApply(policy);
+    if (mode === 'shadow') {
+      result.shadow = { candidates: newlyCreated.length, wouldAutoApply: 0, wouldQueue: 0 };
+    }
+
     for (const proposal of newlyCreated) {
       result.byKind[proposal.kind] = (result.byKind[proposal.kind] ?? 0) + 1;
 
@@ -436,6 +584,27 @@ export async function runOrgOptimizer(
         result.byRisk.low += 1;
       } else {
         result.byRisk.high += 1;
+      }
+
+      // W5-c3/c4: outside `auto` the loop has no authority to write to a
+      // target on its own. It still RANKS every candidate, so the summary says
+      // what the run would have done rather than going quiet.
+      if (shadowing) {
+        const wouldApply =
+          proposal.risk === 'low' && risk === 'low' && isGenerationAllowedForKind(policy, proposal.kind);
+        if (result.shadow) {
+          if (wouldApply) result.shadow.wouldAutoApply += 1;
+          else result.shadow.wouldQueue += 1;
+        }
+        result.byOutcome.queued += 1;
+        continue;
+      }
+
+      if (!isGenerationAllowedForKind(policy, proposal.kind)) {
+        // A kill switch refuses the AUTONOMOUS lane. The row stays in the human
+        // review queue, where an approval remains a separate authority.
+        result.byOutcome.queued += 1;
+        continue;
       }
 
       if (proposal.risk !== 'low' || risk !== 'low') {
@@ -489,11 +658,23 @@ export async function runOrgOptimizer(
     // would repeat a possibly-expensive behavioral re-run in the same pass); a
     // row this run left `skipped` (still `measuring`) is retried on the NEXT
     // run's sweep, not this one. Localized, self-contained, never throws. ─────
-    try {
+    if (mayMutateLifecycle(policy)) try {
       const measuredThisRun = new Set(newlyCreated.map((p) => p.id));
       const stillMeasuring = await realProposalsRepo.listByStatusAsync('measuring');
+      const { classifyStuckMeasurement } = await import('./org_proposal_reconciler');
       for (const row of stillMeasuring) {
         if (measuredThisRun.has(row.id)) continue;
+        // W5-c9: a row that has been retryable-but-undecided past its budget is
+        // classified inconclusive and left alone. Measuring it again is the
+        // silent forever-retry this criterion exists to end; writing the verdict
+        // to the row would advance its lifecycle CAS token for something that is
+        // not a domain change, so the verdict is reported, not persisted.
+        const budget = classifyStuckMeasurement(row);
+        if (budget.verdict === 'inconclusive') {
+          result.byOutcome.measuringInconclusive += 1;
+          logger.warn(`[org-optimizer-run] '${row.id}' measurement ${budget.reason}`);
+          continue;
+        }
         const outcome = await measureProposal(row, { proposalsRepo: realProposalsRepo });
         if (outcome === 'kept') result.byOutcome.kept += 1;
         else if (outcome === 'reverted') result.byOutcome.reverted += 1;
@@ -510,14 +691,35 @@ export async function runOrgOptimizer(
     // Bounded and never-throwing: a reconciler that can stall or crash the run
     // is worse than a lagging file. ───────────────────────────────────────────
     try {
-      const { runRecoverySweep } = await import('./org_proposal_recovery_service');
-      result.recovery = await runRecoverySweep({ proposalsRepo: realProposalsRepo });
+      if (mayMutateLifecycle(policy)) {
+        const { runRecoverySweep } = await import('./org_proposal_recovery_service');
+        result.recovery = await runRecoverySweep({ proposalsRepo: realProposalsRepo });
+      } else {
+        const reported = (await runRecoverySweepReportOnly(realProposalsRepo)) ?? {
+          projectionsRepaired: 0,
+          projectionsUnresolved: 0,
+          proposalsReconciled: 0,
+          proposalsHealthy: 0,
+        };
+        result.recoveryReportOnly = true;
+        result.recoveryLagging = reported.projectionsRepaired;
+        // Zero the acting counters: in shadow nothing was repaired and nothing
+        // was reconciled, and a reader who misses `recoveryReportOnly` must not
+        // be told otherwise. `projectionsUnresolved` is unknowable here — the
+        // stand-in never attempts a projection — so it stays 0 rather than
+        // implying every lagging profile would have succeeded.
+        result.recovery = {
+          ...reported,
+          projectionsRepaired: 0,
+          proposalsReconciled: 0,
+        };
+      }
     } catch (err) {
       logger.warn(`[org-optimizer-run] recovery sweep failed (non-fatal): ${String(err)}`);
     }
 
     logger.info(
-      `[org-optimizer-run] run ${auditRunId} complete: created=${result.proposalsCreated} ` +
+      `[org-optimizer-run] run ${auditRunId} complete: mode=${mode} created=${result.proposalsCreated} ` +
       `capped=${result.capped} byOutcome=${JSON.stringify(result.byOutcome)} ` +
       `recovery=${JSON.stringify(result.recovery ?? null)}`,
     );
@@ -526,7 +728,7 @@ export async function runOrgOptimizer(
   } catch (err) {
     logger.warn(`[org-optimizer-run] FAILED (non-fatal): ${String(err)}`);
     return {
-      ...emptySummary(auditRunId),
+      ...emptySummary(auditRunId, mode),
       erroredReason: String(err),
     };
   }
