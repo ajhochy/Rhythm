@@ -1,0 +1,137 @@
+{
+  "issue": "W6-experiment-contracts",
+  "generated": "2026-08-15",
+  "derived_from": {
+    "plan": "docs/ai/plans/2026-08-14-self-improvement-engine-foundation.md",
+    "section": "Work package W6 — Proposal evidence and experiment contracts",
+    "note": "Refinement of the approved plan section into machine-readable criteria. No product scope is added, removed, or reinterpreted; every criterion traces to a plan line."
+  },
+  "branch": "self-improvement/experiment-contracts",
+  "base": "integrated W1-W5 head on self-improvement-engine-foundation (987402fb)",
+  "commit": "feat(optimizer): require evidence bundles and controlled experiment gates",
+  "owned_production_files": [
+    "apps/api_server/src/models/proposal_evidence_bundle.ts",
+    "apps/api_server/src/services/proposal_evidence_validator.ts",
+    "apps/api_server/src/models/agent_org_experiment.ts",
+    "apps/api_server/src/repositories/agent_org_experiments_repository.ts",
+    "apps/api_server/src/services/org_proposal_experiment_service.ts",
+    "apps/api_server/src/services/org_proposal_measure.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/__tests__/skill_schema_parity.test.ts"
+  ],
+  "campaign_invariants_in_force": [
+    "additive schema only; no destructive migration and no production backfill",
+    "no production DB writes; disposable/test DBs only",
+    "SQLite and Postgres parity for every added column",
+    "strict TDD: one failing test, run it, implement only enough to pass, rerun",
+    "never weaken or delete an existing test to get green"
+  ],
+  "criteria": [
+    {
+      "criterion_id": "W6-c1",
+      "plan_line": "define a versioned evidence bundle requiring source event/session IDs, counter-evidence search, target ref/hash, expected outcome, primary metric, guardrails, experiment adapter, rollback rule, generator version, and confidence calibration version",
+      "text": "A versioned evidence bundle type exists carrying exactly those ten elements. The version is part of the persisted payload, not implied by code shape, so an older bundle is recognisable as older rather than silently reinterpreted — the same failure class W1 hit with legacy whole-field snapshots.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c2",
+      "plan_line": "validator rejects missing target hash, missing outcome metric, missing source evidence, absent counter-evidence search, or unsupported adapter",
+      "text": "Each of the five named omissions is rejected independently, with a reason naming which element was missing. A bundle whose version is unrecognised is rejected, never best-effort parsed. Rejection is total: no partially-valid bundle is admitted with a warning.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c3",
+      "plan_line": "add additive experiment table/repository with immutable baseline/candidate specs, deterministic assignment key, predeclared stopping rule, maximum exposure, results, and promote | inconclusive | regress decision",
+      "text": "An additive table holds all seven. Baseline and candidate specs are immutable once written — the W4 precedent applies: state honestly what the schema enforces and pin the boundary with a test in BOTH directions, rather than claiming immutability the triggers do not deliver. The stopping rule and maximum exposure are recorded BEFORE any result, so a test can prove a result cannot retroactively author its own stopping rule.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c4",
+      "plan_line": "deterministic assignment key",
+      "text": "Assignment is a pure function of recorded inputs: the same subject and experiment always yield the same cohort, across processes and across runs. Proven by recomputation, not by reading back a stored value.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c5",
+      "plan_line": "experiment service records paired baseline/candidate outcomes from W4's ledger and refuses promotion without both cohorts",
+      "text": "Outcomes are read from the W4 ledger (agent_run_outcomes / agent_run_feedback_events) — W6 does not invent a second outcome store. Promotion is refused when either cohort is empty. Refusal yields `inconclusive`, never a silent skip and never `regress` (an absent cohort is not evidence of harm).",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c6",
+      "plan_line": "no adapter can promote on one replay, one usage count, a shorter allowlist, output length, disappearance of a regex, or one LLM score",
+      "text": "All six named proxies are individually insufficient for promotion. Asserted as a fixture table with one case per proxy, each presented as the ONLY evidence, each yielding a non-promote decision. This is the campaign's core anti-goal: a self-improvement engine that promotes on proxies optimises the proxy.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c7",
+      "plan_line": "Change current body/rerun measures into diagnostic/shadow evidence only; they may mark inconclusive but cannot set verified improvement",
+      "text": "The existing rerun/body measurement path in org_proposal_measure.ts is demoted to diagnostic evidence. It retains the power to mark a proposal inconclusive or reverted, and loses the power to establish verified improvement. W1's durable reconciliation-required path must keep working unchanged — this criterion narrows what counts as PROOF, it does not remove a safety exit.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c8",
+      "plan_line": "Preserve human-approved apply/revert, but separate deployment status from outcome status",
+      "text": "A human-approved apply or revert continues to work end to end under every optimizer mode — the W5-c3 rule applies here too: the gate never goes inside applyProposal/revertProposal. Deployment status (is this change live?) and outcome status (did it help?) are distinct readable fields; no single field is overloaded to mean both, and a test asserts a proposal can be deployed-and-inconclusive simultaneously.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c9",
+      "plan_line": "W6 acceptance: Incomplete evidence becomes inconclusive",
+      "text": "Every rejection path in this package terminates at `inconclusive` or an existing durable reconciliation state. No path invents a new terminal status, and none fails open to `promote`.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c10",
+      "plan_line": "Campaign invariant: SQLite and Postgres parity for every added column",
+      "text": "The new experiment table exists in both engines and is visible to the dual-DB drift guard: added to skill_schema_parity.test.ts's TABLES list, its Postgres form its own pool.query template literal with indexes in separate calls, no multi-line ALTER. W5's lazily-created sidecar table is the counter-example this criterion exists to prevent repeating.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W6-c11",
+      "plan_line": "Campaign invariant: revision is the lifecycle CAS token",
+      "text": "No write in this package may advance agent_org_proposals.revision for a fact that is not a domain change. The AFTER UPDATE auto-bump trigger converts any raw update into a CAS-token advance, invalidating tokens held in flight by approve/apply/revert/measure. Experiment records live in their own table for exactly this reason.",
+      "status": "red-pending"
+    }
+  ],
+  "acceptance_gates": [
+    "Every promotable candidate has reproducible evidence and a predeclared experiment.",
+    "Baseline and candidate are both represented.",
+    "Incomplete evidence becomes inconclusive.",
+    "LLM scores and proxy reruns cannot establish verified improvement.",
+    "Deployment state and outcome state are distinct."
+  ],
+  "explicitly_out_of_scope": [
+    "Automatic permission restoration or removal (plan: Deferred by design).",
+    "Requester-only canary enablement (plan: Deferred by design).",
+    "Any live-behaviour or documentation gate — that is W7.",
+    "Backfilling evidence bundles for historical proposals."
+  ],
+  "prior_art_to_reuse_not_duplicate": {
+    "agent_run_outcomes_repository.ts": "W4 already owns the outcome ledger. W6 READS it. Do not add a second outcome table, and do not add an update path to W4's tables.",
+    "markMeasuringUnresolvable": "W1 package C already routes permanently-unprovable measuring rows to durable reconciliation-required. W6's `inconclusive` is a different, non-terminal-for-automation classification — do not conflate them.",
+    "org_optimizer_policy.ts": "W5 owns mode gating. W6 adds no new global mode."
+  },
+  "hazards": [
+    "installRevisionInvariants places an AFTER UPDATE auto-bump trigger on agent_org_proposals — see W6-c11.",
+    "skill_schema_parity.test.ts parses DDL by regex: single-line ALTER TABLE ... ADD COLUMN only, and CREATE TABLE bodies whose closing paren is immediately followed by a backtick.",
+    "SQLite fires BEFORE DELETE triggers for INSERT OR REPLACE only when PRAGMA recursive_triggers is ON, and it is OFF here. Any immutability claim must account for this — W4 overclaimed exactly this and it took an independent review to catch.",
+    "org_proposal_measure.ts is shared with W1's human-approved lane. Demoting its evidentiary power must not remove its safety exits."
+  ],
+  "verification": {
+    "runtime": "node v22.23.1 via export PATH=/opt/homebrew/opt/node@22/bin:$PATH",
+    "impact_targets": [
+      "measureProposal",
+      "agent_org_proposals state transitions"
+    ],
+    "commands": [
+      "npx vitest run <owned test files>",
+      "npx vitest run",
+      "npm run build",
+      "npx tsc --noEmit -p tsconfig.json",
+      "detect_changes --base main",
+      "git diff --check"
+    ]
+  }
+}

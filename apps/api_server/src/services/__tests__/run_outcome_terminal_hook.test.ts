@@ -2,6 +2,9 @@
  * W4 — terminal hook behaviour: fire-and-forget, idempotent, root-resolving
  * (c8, c12) and the privacy gate over the whole write path (c10).
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import Database from 'better-sqlite3';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
@@ -32,6 +35,48 @@ beforeEach(() => {
 
 afterEach(() => {
   db.close();
+});
+
+/**
+ * The row is written once and never updated, and `session.idle` is a TURN
+ * boundary — so whatever the FIRST turn claims becomes the run's verdict
+ * forever. That makes the honesty of the evidence passed at the call site a
+ * correctness property, not a style preference: a hook that asserts artifact
+ * production it did not observe permanently records `success` for every
+ * interactive session, and W6 promotes on this ledger.
+ *
+ * The behavioural half is asserted first. The source half exists because the
+ * defect lived entirely at the call site — the service was already correct, so
+ * a service-level test alone passes identically with and without the bug and
+ * guards nothing.
+ */
+describe('W4 — the interactive turn boundary cannot invent a verdict', () => {
+  it('a completed turn with clean telemetry but no artifact evidence is inconclusive, not success', async () => {
+    session('root-1');
+    db.prepare(
+      `INSERT INTO tool_events
+         (session_id, sdk_session_id, call_id, tool, status,
+          started_at, duration_ms, created_at)
+       VALUES (?, ?, ?, 'read', 'completed', ?, 1, ?)`,
+    ).run('root-1', 'sdk-root-1', 'call-1', new Date().toISOString(), new Date().toISOString());
+
+    // Exactly what the interactive hook now sends: a terminal status and
+    // nothing else. Zero tool errors must NOT be read as a success.
+    await recordTerminalOutcome({ sessionId: 'root-1', terminalStatus: 'completed' });
+
+    const view = await new AgentRunOutcomesRepository(db).findByRootSessionIdAsync('root-1');
+    expect(view?.outcome.objectiveEvidence.producedArtifact).toBeNull();
+    expect(view?.outcome.objectiveVerdict).toBe('inconclusive');
+  });
+
+  it('no terminal hook call site claims artifact production it did not observe', () => {
+    const source = readFileSync(join(__dirname, '..', 'opencode_stream_bridge.ts'), 'utf8');
+    const claims: string[] = [];
+    for (const call of source.matchAll(/recordTerminalOutcome\(\{[\s\S]*?\}\)/g)) {
+      if (/producedArtifact:\s*true/.test(call[0])) claims.push(call[0].split('\n')[0]);
+    }
+    expect(claims).toEqual([]);
+  });
 });
 
 describe('W4-c8 terminal hook', () => {

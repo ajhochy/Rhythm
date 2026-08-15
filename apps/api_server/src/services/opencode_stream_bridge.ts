@@ -1684,10 +1684,20 @@ export class OpencodeStreamBridge {
             // awaited, never rejects, so the user's turn cannot fail because
             // the ledger did. A delegated child's idle event resolves to its
             // ROOT run inside the hook, so one run yields one outcome.
+            //
+            // producedArtifact is deliberately NOT passed. `session.idle` is a
+            // TURN boundary, and the only thing observed here is that the model
+            // streamed some text — which is not an artifact. Asserting `true`
+            // here routed around the finalizer's own rule that absent evidence
+            // can never yield `success`, and because the row is written once
+            // and never updated, the FIRST turn of every interactive session
+            // was permanently recorded `success`. Omitting it records `unknown`
+            // and the run finalizes `inconclusive`, which is what we actually
+            // know. Real signal for interactive runs comes from the append-only
+            // feedback events, which no turn boundary can freeze.
             void recordTerminalOutcome({
               sessionId: localSessionId,
               terminalStatus: 'completed',
-              producedArtifact: true,
             });
 
             // #929 / #1109 — schedule (not run) evaluation of any harvested
