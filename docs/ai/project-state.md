@@ -44,8 +44,9 @@ live-smoked inline approval card, bell badge, and native notification route on P
   typecheck and session tests; mobile static/contracts/fake-server; mobile web E2E 71/71.
 - API CI repair PASS locally: the original `npm test --silent` command completed 542 files and 4,438
   assertions in 51.37s after preventing no-work idle callbacks from reattaching the event stream.
-- Hosted-runner stabilization PASS locally: the same 542 files and 4,438 assertions completed through
-  16 fresh sequential one-worker shards; focused argument forwarding and the API build also passed.
+- Hosted-runner triage: Node 24.19 aborts in better-sqlite3 worker cleanup after successful assertions.
+  Server CI is pinned to Node 22.19 LTS; desktop release retains its separate bundled Node 24 build,
+  ABI query, launch, and API smoke coverage.
 - Issue #1392 manual smoke PASS: real approval creation produced a bell badge, session-scoped inline
   card, native notification, and working decision actions; repeat delivery succeeded at 5-second cadence.
 - Production remains healthy on product merge `ed31ea59`; desktop `v0.18.58 (142)` remains released.
