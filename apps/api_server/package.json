@@ -15,7 +15,7 @@
     "doctor": "tsx src/cli/index.ts doctor",
     "setup": "tsx src/cli/index.ts setup",
     "lint": "echo 'TODO: add eslint'",
-    "test": "vitest run",
+    "test": "node scripts/run-tests.mjs",
     "smoke:launch": "bash scripts/smoke-launch.sh",
     "migrate:sqlite-to-postgres": "tsx src/database/migrate_sqlite_to_postgres.ts",
     "postinstall": "node scripts/postinstall.js"

@@ -126,15 +126,12 @@ ISSUE_CHECKS: list[Check] = [
 PR_CHECKS: list[Check] = ISSUE_CHECKS + [
     Check("flutter test", FLUTTER_DIR, ["flutter", "test"]),
     Check("api_server lint", API_DIR, ["npm", "run", "lint", "--silent"]),
-    # The API suite mutates process-global env, singleton services, and shared
-    # SQLite-backed fixtures. File-parallel PR runs intermittently leaked auth
-    # and startup state across files (#755/#1088), while both failures passed
-    # alone and the full serial suite stayed green. Keep focused developer
-    # invocations fast; make the merge gate deterministic.
+    # The package runner uses fresh sequential shards with one isolated worker
+    # each. Do not override that bounded-memory/teardown policy here.
     Check(
-        "api_server vitest (serial shared-state gate)",
+        "api_server vitest (bounded sequential shards)",
         API_DIR,
-        ["npm", "test", "--silent", "--", "--fileParallelism=false"],
+        ["npm", "test", "--silent"],
     ),
     Check("api_server build", API_DIR, ["npm", "run", "build", "--silent"]),
     Check("mcp_server vitest", MCP_DIR, ["npm", "test", "--silent"]),

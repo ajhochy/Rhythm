@@ -15,6 +15,13 @@ export default defineConfig({
     // unit tests are still run via this package's vitest so `npx vitest run`
     // covers them without a second config.
     include: ['src/**/*.test.ts', '../../tools/dev/**/*.test.ts'],
+    // The suite mutates process-global state and owns SQLite/server fixtures.
+    // One worker preserves those isolation assumptions. scripts/run-tests.mjs
+    // bounds full-suite memory by executing deterministic shards in fresh,
+    // sequential processes instead of asking CI to reap hundreds of forks.
+    pool: 'forks',
+    minWorkers: 1,
+    maxWorkers: 1,
     // Intermittent CI failure: every test passes but the run exits non-zero
     // with ~20 pool-level errors — "[vitest-pool]: Timeout terminating forks
     // worker for test files <X>" (a different random ~10 files each run),
@@ -35,10 +42,7 @@ export default defineConfig({
     // at the default 10s a fast dev box reaps every fork in <20ms so it never
     // fires. Widen the budget so the starved CI parent has room to confirm the
     // orderly stops it already completes. Safe: SIGKILL@500ms still guarantees
-    // no real hang, so this never actually delays a healthy run. (Pool
-    // concurrency is deliberately left at the default — the 2-vCPU runner
-    // already runs effectively serial, which is what keeps the suite green;
-    // raising it would risk cross-file isolation flakes.)
+    // no real hang, so this never actually delays a healthy run.
     teardownTimeout: 60_000,
   },
 });
