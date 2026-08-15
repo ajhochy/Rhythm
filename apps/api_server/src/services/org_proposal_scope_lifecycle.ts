@@ -24,6 +24,7 @@ import {
 } from '../repositories/agent_org_proposals_repository';
 import { projectLatestAgentProfile, type ProjectionOutcome } from './agent_profile_projection_service';
 import { verifyScopeSnapshotForRevert } from './scope_mutation_contract';
+import { classifyAmbiguousScopePair } from './scope_pair_classification';
 import { parseStrictJson } from './strict_json';
 import type { RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
 import type { PreparedScopePair } from './org_proposal_apply_service';
@@ -80,60 +81,6 @@ function boundSnapshotValidator(pair: PreparedScopePair) {
       verified.prepared.expectedAppliedValue === pair.nextValue
     );
   };
-}
-
-/**
- * An atomic transition that throws leaves the caller unable to tell a rolled
- * back attempt from a committed one, and the thrown text is never evidence of
- * which. Read BOTH rows back and classify by exact state: the preimage means
- * it did not commit, the postimage means it did, and anything else — a mixed
- * pair or a later operator revision — is genuinely unknowable and must stay
- * reconciliation-required.
- */
-async function classifyAmbiguousTransition(input: {
-  proposalsRepo: AgentOrgProposalsRepository;
-  configsRepo: AgentConfigsRepository;
-  proposalId: string;
-  pair: PreparedScopePair;
-  preimageStatus: string;
-  preimageValue: string | null;
-  postimageStatus: string;
-  postimageValue: string | null;
-}): Promise<
-  | { kind: 'preimage' }
-  | { kind: 'postimage'; proposalRevision: number; targetRevision: number }
-  | { kind: 'unknown' }
-> {
-  try {
-    const proposal = await input.proposalsRepo.findByIdAsync(input.proposalId);
-    const target = input.configsRepo.getById(input.pair.targetId);
-    if (!proposal || !target) return { kind: 'unknown' };
-    const value = readScopeFieldValue(target, input.pair.field);
-    if (proposal.status === input.preimageStatus && value === input.preimageValue) {
-      return { kind: 'preimage' };
-    }
-    if (proposal.status === input.postimageStatus && value === input.postimageValue) {
-      return {
-        kind: 'postimage',
-        proposalRevision: proposal.revision,
-        targetRevision: target.revision,
-      };
-    }
-    return { kind: 'unknown' };
-  } catch {
-    return { kind: 'unknown' };
-  }
-}
-
-function readScopeFieldValue(
-  config: { allowedMcpsJson: string | null; allowedSkillsJson: string | null; corePermissionsJson: string | null },
-  field: PreparedScopePair['field'],
-): string | null {
-  return field === 'allowedMcpsJson'
-    ? config.allowedMcpsJson
-    : field === 'allowedSkillsJson'
-      ? config.allowedSkillsJson
-      : config.corePermissionsJson;
 }
 
 function describeProjection(outcome: ProjectionOutcome): string {
@@ -251,8 +198,9 @@ export async function applyApprovedScopeProposal(input: {
   } catch (error) {
     // The transaction either committed or it did not, and the thrown text is
     // not evidence of which. Classify from the durable rows instead.
-    const classified = await classifyAmbiguousTransition({
-      proposalsRepo, configsRepo, proposalId: proposal.id, pair,
+    const classified = await classifyAmbiguousScopePair({
+      proposalsRepo, configsRepo, proposalId: proposal.id,
+      targetId: pair.targetId, field: pair.field,
       preimageStatus: 'approved', preimageValue: pair.priorValue,
       postimageStatus: 'applied', postimageValue: pair.nextValue,
     });
@@ -362,8 +310,9 @@ export async function applyApprovedScopeProposal(input: {
       nextMeasureReason: proposal.measureReason,
     });
   } catch (error) {
-    const classified = await classifyAmbiguousTransition({
-      proposalsRepo, configsRepo, proposalId: proposal.id, pair,
+    const classified = await classifyAmbiguousScopePair({
+      proposalsRepo, configsRepo, proposalId: proposal.id,
+      targetId: pair.targetId, field: pair.field,
       preimageStatus: 'applied', preimageValue: pair.nextValue,
       postimageStatus: 'approved', postimageValue: pair.priorValue,
     });

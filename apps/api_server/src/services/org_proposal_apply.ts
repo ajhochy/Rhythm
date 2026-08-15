@@ -55,6 +55,7 @@ import {
 } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
 import { projectLatestAgentProfile } from './agent_profile_projection_service';
+import { classifyAmbiguousScopePair } from './scope_pair_classification';
 import {
   writeManagedSkill,
   deleteManagedSkill,
@@ -788,28 +789,22 @@ export async function revertProposal(
         });
       } catch (error) {
         // The thrown text is never evidence of whether the transaction
-        // committed. Classify from the durable rows, exactly as the apply lane
-        // does: a clean preimage means it ROLLED BACK, and terminalizing that
-        // healthy row would strip the measuring sweep's automatic retry for a
-        // transient SQLITE_BUSY or serialization failure.
-        let durable: { status: string; value: string | null } | null = null;
-        try {
-          const current = await proposalsRepo.findByIdAsync(proposal.id);
-          const currentTarget = configsRepo.getById(scopeSnapshot.target.id);
-          if (current && currentTarget) {
-            durable = {
-              status: current.status,
-              value: readAgentConfigField(currentTarget, scopeSnapshot.field),
-            };
-          }
-        } catch {
-          durable = null;
-        }
-        const rolledBack =
-          durable !== null &&
-          durable.status === proposal.status &&
-          durable.value === scopeSnapshot.expectedAppliedValue;
-        if (rolledBack) {
+        // committed. Use the SAME classifier the apply lane uses — two
+        // hand-written copies is exactly how one lane ended up without a
+        // preimage arm and terminalized healthy rows on a transient rollback.
+        const classified = await classifyAmbiguousScopePair({
+          proposalsRepo,
+          configsRepo,
+          proposalId: proposal.id,
+          targetId: scopeSnapshot.target.id,
+          field: scopeSnapshot.field,
+          preimageStatus: proposal.status,
+          preimageValue: scopeSnapshot.expectedAppliedValue,
+          postimageStatus: 'reverted',
+          postimageValue: scopeSnapshot.priorValue,
+        });
+        if (classified.kind === 'preimage') {
+          // Nothing committed: retryable, and the measuring sweep still owns it.
           logger.warn(
             `[org-proposal-apply] atomic scope revert failed and rolled back for ` +
             `'${proposal.id}': ${String(error)}`,
@@ -818,11 +813,16 @@ export async function revertProposal(
         }
         logger.warn(
           `[org-proposal-apply] atomic scope revert reported an ambiguous error for ` +
-          `'${proposal.id}'; reconciliation required: ${String(error)}`,
+          `'${proposal.id}' (durable state: ${classified.kind}): ${String(error)}`,
         );
         return await recordRevertReconciliation(
           proposalsRepo, proposal.id,
-          'the atomic scope revert transaction reported an indeterminate result',
+          classified.kind === 'postimage'
+            // The rows prove it committed; only the projection never ran, so
+            // say that rather than calling the result indeterminate.
+            ? 'the scope revert committed durably but threw before its profile ' +
+              'projection could be attempted'
+            : 'the atomic scope revert transaction reported an indeterminate result',
         );
       }
       if (!transitioned) {
