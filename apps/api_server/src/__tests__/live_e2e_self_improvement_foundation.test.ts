@@ -163,6 +163,14 @@ async function createProfile(role: string, allowedMcpsJson: string): Promise<str
       allowedMcpsJson,
       sessionSelectable: false,
       schedulable: false,
+      // A generated profile id is never in ROUTE_FALLBACKS_BY_AGENT, so the
+      // static route table cannot resolve a model for it and the gateway
+      // refuses the turn outright ("could not resolve model for agentKind").
+      // #854 made the resolver consult agent_configs first, so pinning the
+      // provider here is what makes a real turn possible at all. Left as the
+      // provider's default model rather than a pinned id, so the fixture does
+      // not rot when a specific model is retired.
+      modelProvider: process.env.RHYTHM_LIVE_E2E_PROVIDER ?? 'openrouter',
     }),
   });
   // POST /agent-configs returns 201 (agent_configs_controller.ts:409), the same
@@ -336,10 +344,20 @@ interface OptimizerRun {
  * before it reaches the seeded profiles, which would make an absence
  * assertion vacuously true.
  */
-async function runOptimizer(): Promise<OptimizerRun> {
+/**
+ * `maxLlmCallsPerRun` defaults to 0 so the deterministic lanes stay free of
+ * model calls. That default is NOT universal: the #971 workflow-signal lane
+ * lives entirely inside the LLM-diagnosis budget and `proposeFixFromSignals`
+ * BREAKS OUT of its group loop before creating anything when the budget is
+ * zero (workflow_signal_generator.ts:1148). W7-9's positive control asserts a
+ * proposal from exactly that lane, so with the shared default it could never
+ * pass — the case was self-blocking. Found by executing the suite; every
+ * source review read the helper and the case separately and saw nothing wrong.
+ */
+async function runOptimizer(maxLlmCallsPerRun = 0): Promise<OptimizerRun> {
   const response = await api('/agent-org-optimizer/run', {
     method: 'POST',
-    body: JSON.stringify({ maxProposalsPerRun: 500, maxLlmCallsPerRun: 0 }),
+    body: JSON.stringify({ maxProposalsPerRun: 500, maxLlmCallsPerRun }),
   });
   expect(response.status).toBe(200);
   const result = (await response.json()) as {
@@ -471,6 +489,21 @@ function feedbackRows(rootSessionId: string): Array<{ id: string; source: string
  * structured messages. Counting rows returns mid-turn.
  */
 const turnBoundaries = new Map<string, number>();
+/**
+ * Gateway `error` frames, kept SEPARATE from the boundary count on purpose.
+ *
+ * They must never count as terminal — ws_gateway's own catch emits a frame
+ * indistinguishable from the bridge's, so treating one as a turn boundary
+ * would reintroduce exactly the vacuity this witness was rewritten to remove.
+ *
+ * But they must not be discarded either. When the gateway refuses a turn
+ * outright — `could not resolve model for agentKind=...` is the one that bit
+ * us — no boundary EVER arrives and the wait burns its full 180s before
+ * reporting a bare timeout, which reads as engine slowness rather than a
+ * refusal the server already explained. Recording them lets the waiter fail
+ * fast with the server's own words.
+ */
+const turnErrors = new Map<string, string>();
 
 function boundaryCount(sessionId: string): number {
   return turnBoundaries.get(sessionId) ?? 0;
@@ -479,7 +512,7 @@ function boundaryCount(sessionId: string): number {
 async function openAgentSocket(): Promise<WebSocket> {
   const socket = new WebSocket(`${baseUrl().replace(/^http/, 'ws')}/ws/agents`);
   socket.on('message', (raw) => {
-    let frame: { type?: unknown; id?: unknown; working?: unknown };
+    let frame: { type?: unknown; id?: unknown; working?: unknown; message?: unknown };
     try {
       frame = JSON.parse(raw.toString()) as typeof frame;
     } catch {
@@ -487,6 +520,9 @@ async function openAgentSocket(): Promise<WebSocket> {
     }
     if (frame.type === 'session.status' && frame.working === false && typeof frame.id === 'string') {
       turnBoundaries.set(frame.id, boundaryCount(frame.id) + 1);
+    }
+    if (frame.type === 'error' && typeof frame.id === 'string' && typeof frame.message === 'string') {
+      turnErrors.set(frame.id, frame.message);
     }
   });
   await new Promise<void>((ready, fail) => {
@@ -506,11 +542,21 @@ async function openAgentSocket(): Promise<WebSocket> {
  */
 async function driveTurn(socket: WebSocket, sessionId: string, text: string): Promise<void> {
   const before = boundaryCount(sessionId);
+  turnErrors.delete(sessionId);
   socket.send(JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: text }));
   await waitFor(
     `session ${sessionId} to reach a terminal turn boundary`,
     TURN_TIMEOUT_MS,
-    () => boundaryCount(sessionId) > before,
+    () => {
+      // A refusal is not a boundary — but it IS an answer, and waiting out the
+      // full timeout to report "timed out" hides a reason the server already
+      // gave us.
+      const refusal = turnErrors.get(sessionId);
+      if (refusal !== undefined && boundaryCount(sessionId) === before) {
+        throw new Error(`the gateway refused the turn for ${sessionId}: ${refusal}`);
+      }
+      return boundaryCount(sessionId) > before;
+    },
   );
 }
 
@@ -1052,9 +1098,13 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
 
       const messages = await api(`/agent-sessions/${encodeURIComponent(sessionId)}/messages`);
       expect(messages.status).toBe(200);
-      const rounds = ((await messages.json()) as Array<{ role: string }>).filter(
-        (message) => message.role === 'output',
-      ).length;
+      // GET /agent-sessions/:id/messages returns a PAGE object
+      // ({ messages, pageInfo }), not a bare array — agent_sessions_controller
+      // .ts:2387. Found by executing this suite; reading the call site in
+      // isolation gives no hint, which is how it survived two source reviews.
+      const rounds = (
+        (await messages.json()) as { messages: Array<{ role: string }> }
+      ).messages.filter((message) => message.role === 'output').length;
       expect(rounds, 'the rounds gate must not be the reason nothing was harvested').toBeGreaterThanOrEqual(2);
 
       // Drive the REAL production trigger: a completed interactive turn ends by
@@ -1121,7 +1171,9 @@ describeLive('W7 — self-improvement engine foundation, live behaviour', () => 
         { tool: 'bash', status: 'error', startedAt: failStart + 5_000, durationMs: 1_000, input: failInput },
       ]);
 
-      const run = await runOptimizer();
+      // The workflow-signal lane needs a non-zero diagnosis budget to produce
+      // anything at all — see runOptimizer's note.
+      const run = await runOptimizer(4);
       auditRunId = run.auditRunId;
       const created = proposalsFromRun(auditRunId);
       const retryProposals = created.filter((row) => /reduce retry loops/i.test(row.title));

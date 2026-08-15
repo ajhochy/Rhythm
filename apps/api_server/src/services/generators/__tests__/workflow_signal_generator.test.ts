@@ -278,3 +278,46 @@ describe('issue-935-c7: end-to-end via runOrgOptimizer — proposal stays propos
     }
   });
 });
+
+/**
+ * Run attribution. Found by the FIRST live execution of the W7 gate: the
+ * deterministic lanes wrote `audit_run_id = NULL`, so their proposals were
+ * invisible to every per-run query — the optimizer's own reporting, the live
+ * gate's positive control, and `deleteRunProposals` cleanup alike. Orphan rows
+ * accumulated across sandbox runs because nothing could find them.
+ *
+ * The LLM-diagnosis path in the same file always stamped it
+ * (workflow_signal_generator.ts:1278), which is what makes this an oversight
+ * rather than a design choice.
+ */
+describe('workflow-signal proposals are attributable to the run that created them', () => {
+  it.each([
+    ['create-recipe', makeSignal()],
+    [
+      'broaden-scope',
+      makeSignal({
+        category: 'missing-scope',
+        confidence: 'high',
+        evidence: 'profile=secretary deniedTool=gitnexus_query count=3 sessionIds=s1,s2,s3',
+      }),
+    ],
+  ])('stamps the audit run id on a %s proposal', async (kind, signal) => {
+    new AgentConfigsRepository().insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify([]),
+    });
+    listMcp.mockResolvedValue({ gitnexus: { status: 'connected' } });
+
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+    const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
+
+    expect(created.map((p) => p.kind)).toContain(kind);
+    // The behaviour: every row this run produced is findable BY that run.
+    expect(created.length).toBeGreaterThan(0);
+    for (const proposal of created) {
+      expect(proposal.auditRunId, `${proposal.kind} proposal is unattributed`).toBe('run-1');
+    }
+  });
+});
