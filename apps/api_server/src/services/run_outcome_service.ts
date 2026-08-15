@@ -148,6 +148,23 @@ export function sanitizeFeedbackReason(reason: string | null | undefined): strin
   return redactSecrets(trimmed).slice(0, MAX_REASON_LENGTH);
 }
 
+/**
+ * `actor` is an audit label, not prose — but it was the one free-text field on
+ * the write path that reached the immutable ledger unredacted and uncapped,
+ * bounded only by the 1 MB global JSON body limit. Same treatment as `reason`,
+ * with a label-sized cap: a secret pasted here would otherwise defeat the
+ * privacy gate on the exact path a human types into, permanently, because the
+ * ledger blocks UPDATE and DELETE.
+ */
+const MAX_ACTOR_LENGTH = 120;
+
+export function sanitizeFeedbackActor(actor: string | null | undefined): string | null {
+  if (typeof actor !== 'string') return null;
+  const trimmed = actor.trim();
+  if (trimmed.length === 0) return null;
+  return redactSecrets(trimmed).slice(0, MAX_ACTOR_LENGTH);
+}
+
 export interface TerminalRunEvent {
   /** The session that just reached a terminal state — may be a delegated child. */
   sessionId: string;
@@ -263,7 +280,7 @@ export async function recordFeedback(
         : input.source === 'explicit_user'
           ? 1
           : 0.5,
-    actor: input.actor ?? null,
+    actor: sanitizeFeedbackActor(input.actor),
     reason: sanitizeFeedbackReason(input.reason),
   });
 }

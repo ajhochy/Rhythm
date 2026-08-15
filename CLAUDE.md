@@ -322,14 +322,13 @@ cd apps/desktop_flutter && flutter run -d macos
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Rhythm** (61361 symbols, 122092 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Rhythm** (77189 symbols, 153425 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream", repo: "Rhythm"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-  - **`repo: "Rhythm"` is required, not optional.** 45 repositories are indexed and several share the name `Rhythm` (the main checkout plus per-worktree indexes), so omitting it fails with *"Multiple repositories indexed. Specify which one…"*. That error lists `Rhythm` among the options, which reads like a not-found and has been misreported as a broken tool. It is not — it is a disambiguation prompt. The same applies to `context`, `query` and `detect_changes`.
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
 - **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
 - When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.

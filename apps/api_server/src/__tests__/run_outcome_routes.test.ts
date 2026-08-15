@@ -177,3 +177,69 @@ describe('POST /agent-run-outcomes/:sessionId/feedback', () => {
     }
   });
 });
+
+/**
+ * Security review findings, both of which the suite passed identically before
+ * and after the fix — i.e. nothing covered them.
+ */
+describe('W4 — ledger write-path hardening', () => {
+  it('an unowned run is not readable by an identified caller', async () => {
+    // owner_user_id is NULL for every session the desktop creates without an
+    // authenticated request. Falling open on NULL handed a paired mobile
+    // device every such run in the database.
+    session('root-unowned', null);
+    await recordTerminalOutcome({
+      sessionId: 'root-unowned',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+    });
+
+    const identified = await fetch(`${baseUrl}/agent-run-outcomes/root-unowned`, {
+      headers: strangerHeaders,
+    });
+    expect(identified.status).toBe(404);
+
+    // ...while the SAME caller still reads a run it does own. Without this
+    // half the assertion above is satisfied by a route that is simply broken
+    // for everyone. (The unauthenticated local-process path cannot be
+    // exercised here: requireAuth is active in this harness and 401s before
+    // the route runs. It is a no-op only under AGENT_LOCAL=true.)
+    session('root-owned-by-stranger', strangerId);
+    await recordTerminalOutcome({
+      sessionId: 'root-owned-by-stranger',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+    });
+    const owned = await fetch(`${baseUrl}/agent-run-outcomes/root-owned-by-stranger`, {
+      headers: strangerHeaders,
+    });
+    expect(owned.status).toBe(200);
+  });
+
+  it('redacts and caps a secret pasted into the feedback actor', async () => {
+    session('root-actor', ownerId);
+    await recordTerminalOutcome({
+      sessionId: 'root-actor',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+    });
+
+    const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ012345';
+    const posted = await fetch(`${baseUrl}/agent-run-outcomes/root-actor/feedback`, {
+      method: 'POST',
+      headers: ownerHeaders,
+      body: JSON.stringify({ verdict: 'success', actor: `dev ${secret} ${'x'.repeat(500)}` }),
+    });
+    expect(posted.status).toBe(201);
+
+    const stored = db.prepare(`SELECT actor FROM agent_run_feedback_events`).get() as {
+      actor: string;
+    };
+    expect(stored.actor).not.toContain(secret);
+    expect(stored.actor).toContain('[redacted]');
+    // Bounded, so one POST cannot append ~1MB to an UPDATE/DELETE-blocked table.
+    expect(stored.actor.length).toBeLessThanOrEqual(120);
+    // Not vacuous — the operator's own words survive.
+    expect(stored.actor).toContain('dev');
+  });
+});

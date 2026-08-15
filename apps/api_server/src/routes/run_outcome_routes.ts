@@ -46,8 +46,22 @@ async function resolveRun(
  */
 function isVisible(req: Request, run: ResolvedRun): boolean {
   const caller = callerUserId(req);
+  // An unauthenticated caller is the local desktop process talking to its own
+  // embedded server (requireAuth is a no-op under AGENT_LOCAL=true), which owns
+  // everything in its own database.
   if (caller === null) return true;
-  if (run.ownerUserId === null) return true;
+  // `owner_user_id` is NULL for every session the desktop creates without an
+  // authenticated request — i.e. most of them. Falling open here handed a
+  // paired mobile device every unowned run in the database, not just its own.
+  // The local convention (run_quality_routes.ts) scopes a mobile caller
+  // strictly and has no null-owner escape, so match it: an unowned run belongs
+  // to the local process, and an identified caller is not that.
+  //
+  // The blast radius is bounded but not theoretical — this router is mounted
+  // behind `env.agentExecutionEnabled`, which is false only for the cloud/relay
+  // roles, and `deploymentRole` DEFAULTS to 'all'. A hosted instance that never
+  // sets RHYTHM_ROLE mounts this multi-tenant.
+  if (run.ownerUserId === null) return false;
   return run.ownerUserId === caller;
 }
 
