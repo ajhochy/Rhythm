@@ -1,0 +1,102 @@
+{
+  "issue": "W5-shadow-reconciler",
+  "generated": "2026-08-15",
+  "derived_from": {
+    "plan": "docs/ai/plans/2026-08-14-self-improvement-engine-foundation.md",
+    "section": "Work package W5 — Shadow policy and lifecycle reconciliation",
+    "note": "Refinement of the approved plan section into machine-readable criteria. No product scope is added, removed, or reinterpreted; every criterion traces to a plan line."
+  },
+  "branch": "agent-stack/si-shadow-reconciler",
+  "base": "integrated W1-W3 head on agent-stack/self-improvement-foundation",
+  "commit": "feat(optimizer): default to shadow mode and reconcile stale lifecycle rows",
+  "owned_production_files": [
+    "apps/api_server/src/services/org_optimizer_policy.ts",
+    "apps/api_server/src/services/org_optimizer_run_service.ts",
+    "apps/api_server/src/services/org_proposal_reconciler.ts",
+    "apps/api_server/scripts/reconcile-org-proposals.ts",
+    "apps/api_server/src/repositories/agent_org_proposals_repository.ts"
+  ],
+  "owned_test_files": [
+    "apps/api_server/src/services/__tests__/org_optimizer_policy.test.ts",
+    "apps/api_server/src/services/__tests__/org_proposal_reconciler.test.ts",
+    "apps/api_server/src/__tests__/issue_850_contract.test.ts"
+  ],
+  "prior_art_to_reuse_not_duplicate": {
+    "org_proposal_recovery_service.ts": "W1 package C already ships a bounded recovery sweep that ACTS: it re-projects lagging profiles and durably marks incoherent approved/applied claims. W5's reconciler is a distinct, strictly READ-ONLY classifier over ACTIVE scope rows for operator reporting. Do not merge the two and do not give the reconciler write powers.",
+    "markMeasuringUnresolvable": "W1 package C already converts permanently-unprovable measuring rows to reconciliation-required. W5 step 10 covers the remaining case: rows that are legitimately RETRYABLE (telemetry unavailable, engine down) and today retry forever with no accounting."
+  },
+  "criteria": [
+    {
+      "criterion_id": "W5-c1",
+      "plan_line": "policy parser defaults to shadow, accepts only off | shadow | human_only | auto, and rejects invalid values to the safest mode",
+      "text": "The parser is pure. Absent, empty, misspelled, wrong-case, or hostile values all resolve to shadow, never to auto. Only the four listed values are accepted.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c2",
+      "plan_line": "expose kill switches per change family",
+      "text": "Each change family can be independently disabled, and a disabled family is refused regardless of the global mode.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c3",
+      "plan_line": "optimizer shadow run still audits/generates/ranks proposals but calls no apply, measure, revert, install, or target writer",
+      "text": "In shadow mode a run produces proposals and counters, and performs ZERO of: applyProposal, measureProposal, revertProposal, tool install, agent_configs write, profile projection. Asserted by spying every one of those seams, not by reading a flag.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c4",
+      "plan_line": "preserving result counters that identify shadow candidates",
+      "text": "A shadow run still reports what it WOULD have done, so the counters distinguish a shadow candidate from an absence of candidates.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c5",
+      "plan_line": "reconciler classifies active scope rows as effective, reintroduced/drifted, unsafe legacy rollback, conflicted, or unverifiable",
+      "text": "Exactly those five classifications, decided from the current config and the versioned snapshot. A row that cannot be proven is unverifiable, never assumed effective.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c6",
+      "plan_line": "implement read-only reconciliation against current config and versioned snapshots",
+      "text": "The reconciler performs no writes of any kind. Asserted by running it against a fixture and comparing a full before/after snapshot of both agent_configs and agent_org_proposals.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c7",
+      "plan_line": "operator script prints stable JSON and mutates nothing without --apply",
+      "text": "Default invocation is dry-run, emits deterministic JSON, and changes nothing.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c8",
+      "plan_line": "--apply may only retire/supersede stale metadata; it must never restore/remove permissions automatically",
+      "text": "With --apply the script may only mark proposal metadata retired/superseded. It must never write allowedMcpsJson, allowedSkillsJson, or corePermissionsJson. Asserted by comparing target scope bytes before and after an --apply run.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c9",
+      "plan_line": "measuring rows gain retry/deadline accounting or a deterministic inconclusive classification rather than indefinite silent retry",
+      "text": "A retryable measuring row accumulates attempt/deadline accounting, and once past its budget becomes deterministically inconclusive and inspectable instead of retrying forever in silence.",
+      "status": "red-pending"
+    },
+    {
+      "criterion_id": "W5-c10",
+      "plan_line": "Reconciler reports the 69 legacy rows safely without changing config",
+      "text": "Given the live-audit shape recorded in the plan (legacy whole-field snapshots on active rows), the reconciler classifies them as unsafe legacy rollback and changes no config.",
+      "status": "red-pending"
+    }
+  ],
+  "acceptance_gates": [
+    "Default optimizer mode is shadow.",
+    "Shadow mode has zero mutation side effects.",
+    "Reconciler reports the legacy rows safely without changing config.",
+    "Dry-run is the default and permission restoration/removal is never automated.",
+    "Stuck measuring work becomes inspectable/inconclusive instead of eternal."
+  ],
+  "explicitly_out_of_scope": [
+    "Any automatic permission restoration or removal (plan: Deferred by design).",
+    "Requester-only canary enablement (plan: Deferred by design).",
+    "Consuming the outcome ledger — that is W6."
+  ]
+}
