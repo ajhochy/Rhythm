@@ -454,13 +454,13 @@ describe('issue-W1-corrective-5-c5: atomic scope target and proposal lifecycle',
     )).not.toBe('reverted');
     const pair = await durablePair(fixture);
     expect(pair.target).toBe(fixture.applied);
-    // Package C: the unresolved revert is recorded durably. The audit fields
-    // and the exact bindings must survive that marking untouched.
+    // The abort happens BEFORE commit, so both rows are provably at their
+    // preimage: a plain conflict, healthy row, and every audit binding intact.
     expect(pair.proposal).toMatchObject({
-      status: 'reconciliation-required', baselineScore: 1, postScore: 2, measureReason: 'original',
+      status: 'active', baselineScore: 1, postScore: 2, measureReason: 'original',
       changeJson: fixture.changeJson, beforeSnapshotJson: JSON.stringify(fixture.snapshot),
     });
-    expect(pair.proposal?.reconciliationReason).toBeTruthy();
+    expect(pair.proposal?.reconciliationReason ?? null).toBeNull();
     expect(projection).not.toHaveBeenCalled();
   });
 

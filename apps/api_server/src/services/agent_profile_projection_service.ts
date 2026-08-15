@@ -27,6 +27,7 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import {
+  agentProfileFileExists,
   deleteAgentProfileFile,
   isProjectableAgentConfigIgnoringEnabled,
   writeAgentProfileFile,
@@ -86,6 +87,13 @@ export function projectLatestAgentProfile(
     isProjectableAgentConfigIgnoringEnabled(current)
   ) {
     deleteAgentProfileFile(current.id);
+    // deleteAgentProfileFile never throws — it swallows every rmSync failure as
+    // a warning — so the delete has to be PROVED. A file that survived still
+    // serves the pre-mutation (wider) scope to the engine, which is exactly the
+    // incoherence `not-applicable` claims to have removed.
+    if (agentProfileFileExists(current.id)) {
+      return { kind: 'failed', revision: current.revision };
+    }
     return { kind: 'not-applicable', revision: current.revision };
   }
   const result = write(current);

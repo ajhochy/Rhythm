@@ -787,6 +787,35 @@ export async function revertProposal(
           nextMeasureReason,
         });
       } catch (error) {
+        // The thrown text is never evidence of whether the transaction
+        // committed. Classify from the durable rows, exactly as the apply lane
+        // does: a clean preimage means it ROLLED BACK, and terminalizing that
+        // healthy row would strip the measuring sweep's automatic retry for a
+        // transient SQLITE_BUSY or serialization failure.
+        let durable: { status: string; value: string | null } | null = null;
+        try {
+          const current = await proposalsRepo.findByIdAsync(proposal.id);
+          const currentTarget = configsRepo.getById(scopeSnapshot.target.id);
+          if (current && currentTarget) {
+            durable = {
+              status: current.status,
+              value: readAgentConfigField(currentTarget, scopeSnapshot.field),
+            };
+          }
+        } catch {
+          durable = null;
+        }
+        const rolledBack =
+          durable !== null &&
+          durable.status === proposal.status &&
+          durable.value === scopeSnapshot.expectedAppliedValue;
+        if (rolledBack) {
+          logger.warn(
+            `[org-proposal-apply] atomic scope revert failed and rolled back for ` +
+            `'${proposal.id}': ${String(error)}`,
+          );
+          return 'conflict';
+        }
         logger.warn(
           `[org-proposal-apply] atomic scope revert reported an ambiguous error for ` +
           `'${proposal.id}'; reconciliation required: ${String(error)}`,
@@ -841,7 +870,7 @@ export async function revertProposal(
           );
           return await recordRevertReconciliation(
             proposalsRepo, proposal.id,
-            'the exact compensation lost a concurrent update, so the target bytes were preserved as found',
+            'the compensating scope transaction reported an indeterminate result',
           );
         }
         if (!inverse) {
@@ -851,7 +880,8 @@ export async function revertProposal(
           );
           return await recordRevertReconciliation(
             proposalsRepo, proposal.id,
-            'the database pair was atomically restored but the compensating projection did not succeed',
+            'the exact compensation lost a concurrent update, so the target bytes were ' +
+            'preserved as found and the applied scope was NOT restored',
           );
         }
         const inverseOutcome = projectLatestAgentProfile({

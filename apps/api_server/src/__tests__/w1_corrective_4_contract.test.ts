@@ -433,13 +433,15 @@ describe('issue-W1-corrective-4-c4: final status failure compensation', () => {
     getDb().exec(`CREATE TRIGGER fail_reverted_status BEFORE UPDATE ON agent_org_proposals
       WHEN NEW.status = 'reverted' BEGIN SELECT RAISE(ABORT, 'forced reverted-status failure'); END;`);
 
-    expect(await apply.revertProposal(active)).toBe('reconciliation-required');
+    // The trigger aborts BEFORE commit, so both rows are provably at their
+    // preimage. Package C classifies that as a plain conflict and leaves the
+    // row healthy at `active` — terminalizing it would strip the measuring/
+    // revert retry for what is really a transient failure.
+    expect(await apply.revertProposal(active)).toBe('conflict');
     expect(configs.getById(config.id)?.allowedSkillsJson).toBe(applied);
-    // Package C: the unresolved revert is recorded durably rather than left
-    // looking like a healthy `active` row.
     const settled = await new AgentOrgProposalsRepository().findByIdAsync(active.id);
-    expect(settled?.status).toBe('reconciliation-required');
-    expect(settled?.reconciliationReason).toBeTruthy();
+    expect(settled?.status).toBe('active');
+    expect(settled?.reconciliationReason ?? null).toBeNull();
     expect(projection).not.toHaveBeenCalled();
   });
 
