@@ -510,6 +510,7 @@ function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch
   const p = change?.configPatch;
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const o = p as Record<string, unknown>;
+  if (Object.keys(o).sort().join(',') !== 'agentConfigId,field,value') return null;
   if (typeof o.agentConfigId !== 'string' || !o.agentConfigId.trim()) return null;
   if (typeof o.field !== 'string' || !(CONFIG_PATCH_FIELDS as readonly string[]).includes(o.field)) {
     return null;

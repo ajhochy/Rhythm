@@ -54,13 +54,18 @@
  */
 
 import { logger } from '../utils/logger';
-import { revertProposal, type ApplyDeps, type RevertPatch } from './org_proposal_apply';
+import {
+  readAgentConfigField,
+  revertProposal,
+  type ApplyDeps,
+  type RevertPatch,
+} from './org_proposal_apply';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { TASK_PATCH_TEXT_FIELDS } from './org_diagnosis_types';
 import {
-  parseScopeMutation,
   verifyScopeSnapshotForRevert,
-  type ScopeRemovalKind,
+  type VerifiedScopeSnapshot,
 } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
@@ -142,6 +147,30 @@ async function defaultExercisedTools(agentConfigId: string): Promise<Set<string>
   return resolveExercisedTools(agentConfigId);
 }
 
+function liveBoundScope(
+  proposal: AgentOrgProposal,
+  deps: MeasureDeps,
+): VerifiedScopeSnapshot | null {
+  const exactChangeJson = proposal.changeJson;
+  const exactSnapshotJson = proposal.beforeSnapshotJson;
+  if (!exactChangeJson || !exactSnapshotJson) return null;
+  let snapshot: unknown;
+  try {
+    snapshot = parseStrictJson(exactSnapshotJson, 'proposal before_snapshot_json');
+  } catch {
+    return null;
+  }
+  const verified = verifyScopeSnapshotForRevert(snapshot, proposal.kind, exactChangeJson);
+  if (!verified) return null;
+  const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
+  const current = configsRepo.getById(verified.prepared.agentConfigId);
+  if (
+    !current ||
+    readAgentConfigField(current, verified.prepared.field) !== verified.prepared.expectedAppliedValue
+  ) return null;
+  return verified;
+}
+
 /**
  * Measure a `measuring` proposal and KEEP or REVERT it. NEVER throws.
  */
@@ -174,6 +203,21 @@ export async function measureProposal(
       return await measureScopeChange(proposal, { ...deps, proposalsRepo });
     }
 
+    if (proposal.kind === 'refine-scope') {
+      const verified = liveBoundScope(proposal, deps);
+      if (!verified || verified.snapshot.version !== 'scope-state-v2') {
+        logger.warn(
+          `[org-proposal-measure] '${proposal.id}' refine-scope snapshot is invalid, unbound, or no longer live — skipping`,
+        );
+        return 'skipped';
+      }
+      return await measureBehavioralRerun(
+        proposal,
+        { ...deps, proposalsRepo },
+        () => liveBoundScope(proposal, deps)?.snapshot.version === 'scope-state-v2',
+      );
+    }
+
     if (
       proposal.kind === 'refine-skill' ||
       proposal.kind === 'consolidate-skill' ||
@@ -186,14 +230,13 @@ export async function measureProposal(
       return await measureBodyRefinement(proposal, { ...deps, proposalsRepo });
     }
 
-    // #971-3 + Stage B — refine-config / refine-scope / external-adoption: the
+    // #971-3 + Stage B — refine-config / external-adoption: the
     // fix is a config/scope/library mutation, not a text body, so there is
     // nothing to LLM-score. Measure BEHAVIORALLY — replay the failing scenario
     // (the capability-gap's sample session, under the wired agent) and keep iff
     // the original failure signature is gone.
     if (
       proposal.kind === 'refine-config' ||
-      proposal.kind === 'refine-scope' ||
       proposal.kind === 'external-adoption'
     ) {
       return await measureBehavioralRerun(proposal, { ...deps, proposalsRepo });
@@ -255,41 +298,18 @@ async function measureScopeChange(
 ): Promise<MeasureOutcome> {
   const proposalsRepo = deps.proposalsRepo!;
 
-  // Corrective-6 package A deliberately leaves invalid measurement rows in
-  // status=measuring. Package C owns durable reconciliation outcome/status
+  // Corrective-6 package A deliberately leaves invalid/drifted measurement
+  // rows in status=measuring. Package C owns durable reconciliation outcome
   // propagation; this boundary must not activate or revert unbound bytes.
-  const exactChangeJson = proposal.changeJson;
-  const exactSnapshotJson = proposal.beforeSnapshotJson;
-  if (!exactChangeJson || !exactSnapshotJson) {
-    logger.warn(`[org-proposal-measure] '${proposal.id}' lacks bound scope change/snapshot bytes — skipping`);
+  const verified = liveBoundScope(proposal, deps);
+  if (!verified || verified.snapshot.version !== 'scope-delta-v2') {
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' scope snapshot is invalid, unbound, or no longer live — skipping`,
+    );
     return 'skipped';
   }
 
-  let change;
-  let snapshot: unknown;
-  try {
-    change = parseScopeMutation(proposal.kind as ScopeRemovalKind, exactChangeJson);
-    snapshot = parseStrictJson(exactSnapshotJson, 'proposal before_snapshot_json');
-  } catch (err) {
-    logger.warn(`[org-proposal-measure] invalid scope measurement bytes for '${proposal.id}': ${String(err)}`);
-    return 'skipped';
-  }
-
-  const verified = verifyScopeSnapshotForRevert(
-    snapshot,
-    proposal.kind,
-    exactChangeJson,
-  );
-  if (
-    !verified ||
-    verified.prepared.agentConfigId !== change.agentConfigId ||
-    verified.prepared.field !== change.field ||
-    JSON.stringify(verified.prepared.remove) !== JSON.stringify(change.remove)
-  ) {
-    logger.warn(`[org-proposal-measure] '${proposal.id}' scope snapshot is invalid or unbound — skipping`);
-    return 'skipped';
-  }
-
+  const change = verified.prepared;
   const removed = change.remove ?? [];
   if (removed.length === 0) {
     // Nothing was actually removed — no hygiene improvement to speak of.
@@ -298,6 +318,13 @@ async function measureScopeChange(
 
   const exercisedTools = deps.exercisedTools ?? defaultExercisedTools;
   const exercised = await exercisedTools(change.agentConfigId);
+
+  if (liveBoundScope(proposal, deps)?.snapshot.version !== 'scope-delta-v2') {
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' scope target drifted during measurement — skipping`,
+    );
+    return 'skipped';
+  }
 
   const guardFailed = removed.some((name) => exercised.has(name));
   if (guardFailed) {
@@ -429,6 +456,7 @@ interface DiagnosisChange {
 async function measureBehavioralRerun(
   proposal: AgentOrgProposal,
   deps: Required<Pick<MeasureDeps, 'proposalsRepo'>> & MeasureDeps,
+  preFinalize?: () => boolean,
 ): Promise<MeasureOutcome> {
   const proposalsRepo = deps.proposalsRepo!;
 
@@ -481,6 +509,13 @@ async function measureBehavioralRerun(
 
   if (outcome.status === 'infra-error') {
     logger.info(`[org-proposal-measure] '${proposal.id}' behavioral re-run skipped (infra): ${outcome.reason}`);
+    return 'skipped';
+  }
+
+  if (preFinalize && !preFinalize()) {
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' target drifted during behavioral re-run — skipping`,
+    );
     return 'skipped';
   }
 

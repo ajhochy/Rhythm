@@ -184,6 +184,50 @@ describe('W1 corrective 6 A2: protected scope cannot use generic kinds', () => {
     expect(projection).not.toHaveBeenCalled();
   });
 
+  it('the direct refine-config applier rejects unconsumed configPatch keys', async () => {
+    const configs = new AgentConfigsRepository();
+    const config = configs.insert({
+      label: 'Corrective 6 direct nested smuggle',
+      icon: 'shield',
+      modelProvider: 'safe-provider',
+      modelId: 'safe-model',
+    });
+    const proposals = new AgentOrgProposalsRepository();
+    const proposal = await proposals.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Corrective 6 direct nested smuggle',
+      changeJson: JSON.stringify({
+        configPatch: {
+          agentConfigId: config.id,
+          field: 'model',
+          value: 'other-provider/other-model',
+          hidden: { allowedSkillsJson: ['smuggled-skill'] },
+        },
+      }),
+      dedupKey: `w1-c6:direct-nested-smuggle:${crypto.randomUUID()}`,
+    });
+    const writer = await import('../services/opencode_agent_writer');
+    const projection = vi.spyOn(writer, 'writeAgentProfileFile');
+    const wiring = await import('../services/org_proposal_appliers_wiring');
+    let directApplier: ((value: typeof proposal) => unknown) | undefined;
+    wiring.registerAllProposalAppliers({
+      registerProposalValidator: () => undefined,
+      registerProposalApplier: (kind, applier) => {
+        if (kind === 'refine-config') directApplier = applier;
+      },
+    });
+
+    expect(directApplier).toBeTypeOf('function');
+    expect(() => directApplier?.(proposal)).toThrow(/configPatch|missing|unsupported/i);
+    expect(configs.getById(config.id)).toMatchObject({
+      modelProvider: 'safe-provider',
+      modelId: 'safe-model',
+    });
+    expect(await proposals.findByIdAsync(proposal.id)).toMatchObject({ status: 'proposed' });
+    expect(projection).not.toHaveBeenCalled();
+  });
+
   it('rejects protected scope hidden beside an otherwise valid generic config patch', async () => {
     const configs = new AgentConfigsRepository();
     const config = configs.insert({
@@ -227,9 +271,67 @@ describe('W1 corrective 6 A2: protected scope cannot use generic kinds', () => {
     });
     expect(projection).not.toHaveBeenCalled();
   });
+
+  it('rejects protected scope hidden inside a generic config patch without effects', async () => {
+    const configs = new AgentConfigsRepository();
+    const config = configs.insert({
+      label: 'Corrective 6 nested generic smuggle',
+      icon: 'shield',
+      modelProvider: 'safe-provider',
+      modelId: 'safe-model',
+    });
+    const proposals = new AgentOrgProposalsRepository();
+    const proposal = await proposals.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Corrective 6 nested protected scope',
+      changeJson: JSON.stringify({
+        configPatch: {
+          agentConfigId: config.id,
+          field: 'model',
+          value: 'other-provider/other-model',
+          hidden: { allowedSkillsJson: ['smuggled-skill'] },
+          removeSkills: ['another-smuggled-marker'],
+        },
+      }),
+      dedupKey: `w1-c6:nested-hidden-scope:${crypto.randomUUID()}`,
+    });
+    const writer = await import('../services/opencode_agent_writer');
+    const projection = vi.spyOn(writer, 'writeAgentProfileFile');
+    const service = await import('../services/org_proposal_apply_service');
+
+    await expect(service.validateProposalChange(proposal)).resolves.toMatchObject({ valid: false });
+    await expect(service.applyProposal(proposal)).rejects.toThrow(/scope|unsupported|configPatch/i);
+    expect(configs.getById(config.id)).toMatchObject({
+      modelProvider: 'safe-provider',
+      modelId: 'safe-model',
+    });
+    expect(await proposals.findByIdAsync(proposal.id)).toMatchObject({
+      status: 'proposed',
+      beforeSnapshotJson: null,
+      decidedByUserId: null,
+    });
+    expect(projection).not.toHaveBeenCalled();
+  });
 });
 
 describe('W1 corrective 6 A3: recursive detector aggregates subtree context', () => {
+  it('preserves canonical agent-targeting non-scope operations while scanning their extras', async () => {
+    const scope = await import('../services/scope_mutation_contract');
+
+    expect(scope.containsScopeBearingPayload({
+      agentConfigId: 'manager',
+      allowed_delegates_json: { add: ['specialist'] },
+    })).toBe(false);
+    expect(scope.containsScopeBearingPayload({
+      agentConfigId: 'manager',
+      allowed_delegates_json: {
+        add: ['specialist'],
+        hidden: { allowedSkillsJson: ['smuggled-skill'] },
+      },
+    })).toBe(true);
+  });
+
   it.each([
     ['string', 'cfg'],
     ['number', 42],
@@ -470,6 +572,48 @@ describe('W1 corrective 6 A5: field-specific effective semantics', () => {
       '{"bash":{"*":"allow"}}',
     )).toThrow(/effective|semantic|no.op/i);
   });
+
+  it.each([
+    {
+      label: 'a redundant same-action specific rule',
+      prior: '{"bash":{"*":"ask"}}',
+      set: { bash: { 'git *': 'ask' } },
+    },
+    {
+      label: 'an earlier rule already shadowed by a later wildcard',
+      prior: '{"bash":{"git *":"deny","*":"allow"}}',
+      set: { bash: { 'git *': 'allow' } },
+    },
+  ])('rejects $label under last-match runtime semantics', async ({ prior, set }) => {
+    const scope = await import('../services/scope_mutation_contract');
+    const changeJson = JSON.stringify({
+      scopePatch: {
+        agentConfigId: 'cfg',
+        field: 'corePermissionsJson',
+        set,
+      },
+    });
+
+    expect(() => scope.prepareScopeMutation('refine-scope', changeJson, prior))
+      .toThrow(/effective|semantic|no.op/i);
+  });
+
+  it('accepts a specific permission rule that changes the runtime action', async () => {
+    const scope = await import('../services/scope_mutation_contract');
+    const changeJson = JSON.stringify({
+      scopePatch: {
+        agentConfigId: 'cfg',
+        field: 'corePermissionsJson',
+        set: { bash: { 'git *': 'allow' } },
+      },
+    });
+
+    expect(scope.prepareScopeMutation(
+      'refine-scope',
+      changeJson,
+      '{"bash":{"*":"ask"}}',
+    ).expectedAppliedValue).toBe('{"bash":{"*":"ask","git *":"allow"}}');
+  });
 });
 
 async function makeMeasuringScopeRow(
@@ -517,7 +661,132 @@ async function makeMeasuringScopeRow(
   return { configs, proposals, config, prior, applied, exactChangeJson, snapshotJson, measuring };
 }
 
+async function makeMeasuringRefineScopeRow(
+  transform?: (fixture: {
+    configId: string;
+    exactChangeJson: string;
+    snapshotJson: string;
+  }) => { changeJson?: string; beforeSnapshotJson?: string | null },
+) {
+  const scope = await import('../services/scope_mutation_contract');
+  const configs = new AgentConfigsRepository();
+  const proposals = new AgentOrgProposalsRepository();
+  const prior = '["base"]';
+  const applied = '["base","grant"]';
+  const config = configs.insert({
+    label: 'Corrective 6 refine measurement target',
+    icon: 'shield',
+    allowedSkillsJson: applied,
+  });
+  const exactChangeJson = JSON.stringify({
+    scopePatch: {
+      agentConfigId: config.id,
+      field: 'allowedSkillsJson',
+      add: ['grant'],
+    },
+    sessionIds: ['session-1'],
+    evidence: [{ category: 'tool-unavailable-attempted' }],
+  });
+  const snapshotJson = JSON.stringify(scope.createScopeStateV2Snapshot(
+    config.id,
+    'allowedSkillsJson',
+    prior,
+    applied,
+    exactChangeJson,
+    'refine-scope',
+  ));
+  const changed = transform?.({ configId: config.id, exactChangeJson, snapshotJson }) ?? {};
+  const created = await proposals.createAsync({
+    kind: 'refine-scope',
+    risk: 'high',
+    title: 'Corrective 6 refine measurement boundary',
+    changeJson: changed.changeJson ?? exactChangeJson,
+    beforeSnapshotJson:
+      changed.beforeSnapshotJson === undefined ? snapshotJson : changed.beforeSnapshotJson,
+    dedupKey: `w1-c6:refine-measurement:${crypto.randomUUID()}`,
+  });
+  await proposals.updateStatusAsync(created.id, 'applied');
+  const measuring = (await proposals.updateStatusAsync(created.id, 'measuring'))!;
+  return { configs, proposals, config, prior, applied, exactChangeJson, snapshotJson, measuring };
+}
+
 describe('W1 corrective 6 A6: strict measurement boundary', () => {
+  it.each([
+    {
+      label: 'missing snapshot',
+      transform: () => ({ beforeSnapshotJson: null }),
+    },
+    {
+      label: 'duplicate snapshot',
+      transform: ({ snapshotJson }: { snapshotJson: string }) => ({
+        beforeSnapshotJson: snapshotJson.replace(
+          '"version":"scope-state-v2"',
+          '"version":"shadow","version":"scope-state-v2"',
+        ),
+      }),
+    },
+  ])('leaves refine-scope with invalid $label in measuring before rerun', async ({ transform }) => {
+    const fixture = await makeMeasuringRefineScopeRow(
+      transform as Parameters<typeof makeMeasuringRefineScopeRow>[0],
+    );
+    const writer = await import('../services/opencode_agent_writer');
+    const projection = vi.spyOn(writer, 'writeAgentProfileFile');
+    const measure = await import('../services/org_proposal_measure');
+    let rerunCalls = 0;
+
+    await expect(measure.measureProposal(fixture.measuring, {
+      proposalsRepo: fixture.proposals,
+      configsRepo: fixture.configs,
+      rerunScenario: async () => {
+        rerunCalls += 1;
+        return { status: 'completed', reason: 'must not run' };
+      },
+    })).resolves.toBe('skipped');
+    expect(rerunCalls).toBe(0);
+    expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(fixture.applied);
+    expect(await fixture.proposals.findByIdAsync(fixture.measuring.id)).toMatchObject({
+      status: 'measuring',
+      beforeSnapshotJson: fixture.measuring.beforeSnapshotJson,
+    });
+    expect(projection).not.toHaveBeenCalled();
+  });
+
+  it('keeps a valid bound refine-scope only after behavioral rerun', async () => {
+    const fixture = await makeMeasuringRefineScopeRow();
+    const measure = await import('../services/org_proposal_measure');
+    let rerunCalls = 0;
+
+    await expect(measure.measureProposal(fixture.measuring, {
+      proposalsRepo: fixture.proposals,
+      configsRepo: fixture.configs,
+      rerunScenario: async (_proposal, context) => {
+        rerunCalls += 1;
+        expect(context.patchedProfileId).toBe(fixture.config.id);
+        return { status: 'completed', reason: 'bound rerun passed' };
+      },
+    })).resolves.toBe('kept');
+    expect(rerunCalls).toBe(1);
+    expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(fixture.applied);
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('active');
+  });
+
+  it('does not activate refine-scope when the target drifts during behavioral rerun', async () => {
+    const fixture = await makeMeasuringRefineScopeRow();
+    const operatorValue = '["operator-during-rerun"]';
+    const measure = await import('../services/org_proposal_measure');
+
+    await expect(measure.measureProposal(fixture.measuring, {
+      proposalsRepo: fixture.proposals,
+      configsRepo: fixture.configs,
+      rerunScenario: async () => {
+        fixture.configs.update(fixture.config.id, { allowedSkillsJson: operatorValue });
+        return { status: 'completed', reason: 'stale result must not activate' };
+      },
+    })).resolves.toBe('skipped');
+    expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(operatorValue);
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('measuring');
+  });
+
   it.each([
     {
       label: 'duplicate change_json',
@@ -575,6 +844,46 @@ describe('W1 corrective 6 A6: strict measurement boundary', () => {
       changeJson: fixture.measuring.changeJson,
     });
     expect(projection).not.toHaveBeenCalled();
+  });
+
+  it('leaves a bound removal in measuring when the live target has drifted', async () => {
+    const fixture = await makeMeasuringScopeRow();
+    const operatorValue = '["operator-concurrent-value"]';
+    fixture.configs.update(fixture.config.id, { allowedSkillsJson: operatorValue });
+    const writer = await import('../services/opencode_agent_writer');
+    const projection = vi.spyOn(writer, 'writeAgentProfileFile');
+    const measure = await import('../services/org_proposal_measure');
+    let exercisedCalls = 0;
+
+    await expect(measure.measureProposal(fixture.measuring, {
+      proposalsRepo: fixture.proposals,
+      configsRepo: fixture.configs,
+      exercisedTools: async () => {
+        exercisedCalls += 1;
+        return new Set<string>();
+      },
+    })).resolves.toBe('skipped');
+    expect(exercisedCalls).toBe(0);
+    expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(operatorValue);
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('measuring');
+    expect(projection).not.toHaveBeenCalled();
+  });
+
+  it('does not activate a removal when the target drifts during telemetry lookup', async () => {
+    const fixture = await makeMeasuringScopeRow();
+    const operatorValue = '["operator-during-telemetry"]';
+    const measure = await import('../services/org_proposal_measure');
+
+    await expect(measure.measureProposal(fixture.measuring, {
+      proposalsRepo: fixture.proposals,
+      configsRepo: fixture.configs,
+      exercisedTools: async () => {
+        fixture.configs.update(fixture.config.id, { allowedSkillsJson: operatorValue });
+        return new Set<string>();
+      },
+    })).resolves.toBe('skipped');
+    expect(fixture.configs.getById(fixture.config.id)?.allowedSkillsJson).toBe(operatorValue);
+    expect((await fixture.proposals.findByIdAsync(fixture.measuring.id))?.status).toBe('measuring');
   });
 
   it('keeps a strictly valid bound v2 scope measurement', async () => {

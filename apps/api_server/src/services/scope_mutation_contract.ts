@@ -6,7 +6,7 @@ import {
   SCOPE_ALLOWLIST_FIELDS,
   SCOPE_PATCH_FIELDS,
 } from './org_diagnosis_types';
-import { withHardlineBashEscalation } from './profile_capability_surface';
+import { corePermissionBehaviorSignature } from './profile_capability_surface';
 import { parseStrictJson } from './strict_json';
 
 export type ScopeProposalKind =
@@ -61,17 +61,25 @@ export function containsScopeBearingPayload(value: unknown): boolean {
   const safe: Evidence = { target: false, operation: false, detected: false };
   const unsafe: Evidence = { target: true, operation: true, detected: true };
   const seen = new WeakSet<object>();
-  const inspect = (candidate: unknown, depth: number): Evidence => {
+  const inspect = (
+    candidate: unknown,
+    depth: number,
+    suppressDelegationAdd = false,
+  ): Evidence => {
     if (depth > 24) return unsafe;
     if (!candidate || typeof candidate !== 'object') return safe;
     if (seen.has(candidate)) return unsafe;
     seen.add(candidate);
 
-    const combine = (entries: unknown[], ownTarget = false, ownOperation = false): Evidence => {
+    const combine = (
+      entries: Array<{ value: unknown; suppressDelegationAdd?: boolean }>,
+      ownTarget = false,
+      ownOperation = false,
+    ): Evidence => {
       let target = ownTarget;
       let operation = ownOperation;
       for (const entry of entries) {
-        const child = inspect(entry, depth + 1);
+        const child = inspect(entry.value, depth + 1, entry.suppressDelegationAdd === true);
         if (child.detected) return unsafe;
         target ||= child.target;
         operation ||= child.operation;
@@ -79,7 +87,7 @@ export function containsScopeBearingPayload(value: unknown): boolean {
       return { target, operation, detected: target && operation };
     };
 
-    if (Array.isArray(candidate)) return combine(candidate);
+    if (Array.isArray(candidate)) return combine(candidate.map((value) => ({ value })));
 
     const record = candidate as Record<string, unknown>;
     const keys = Object.keys(record);
@@ -93,9 +101,17 @@ export function containsScopeBearingPayload(value: unknown): boolean {
       record.target === 'agent_config' ||
       (isRecord(target) && (target.type === 'agent_config' || target.kind === 'agent_config'));
     const ownOperation = keys.some((key) =>
-      ['field', 'operation', 'add', 'remove', 'set', 'unset', 'value'].includes(key));
+      ['field', 'operation', 'add', 'remove', 'set', 'unset', 'value'].includes(key) &&
+      !(suppressDelegationAdd && key === 'add'));
 
-    return combine(Object.values(record), ownTarget, ownOperation);
+    return combine(
+      Object.entries(record).map(([key, value]) => ({
+        value,
+        suppressDelegationAdd: key === 'allowed_delegates_json',
+      })),
+      ownTarget,
+      ownOperation,
+    );
   };
   return inspect(value, 0).detected;
 }
@@ -456,13 +472,13 @@ export function prepareScopeMutation(
     }
     expectedAppliedValue = JSON.stringify(next);
     const applied = parseCoreBytes(expectedAppliedValue, 'corePermissionsJson applied value');
-    const priorEffective = withHardlineBashEscalation(
+    const priorEffective = corePermissionBehaviorSignature(
       current as Record<string, string | Record<string, string>>,
     );
-    const appliedEffective = withHardlineBashEscalation(
+    const appliedEffective = corePermissionBehaviorSignature(
       applied as Record<string, string | Record<string, string>>,
     );
-    if (JSON.stringify(priorEffective) === JSON.stringify(appliedEffective)) {
+    if (priorEffective === appliedEffective) {
       throw new Error(`${proposalKind} must produce a real effective runtime mutation`);
     }
   }

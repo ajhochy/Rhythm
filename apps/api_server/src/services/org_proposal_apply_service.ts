@@ -193,26 +193,80 @@ const PROTECTED_SCOPE_FIELDS = new Set([
   'corePermissionsJson',
 ]);
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function createAgentInspectionPayload(parsed: unknown): unknown {
+  if (!isPlainRecord(parsed)) return parsed;
+  const inspected = Object.create(null) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (
+      (key === 'allowedMcpsJson' || key === 'allowedSkillsJson') &&
+      typeof value === 'string'
+    ) continue;
+    Object.defineProperty(inspected, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (!Object.prototype.hasOwnProperty.call(inspected, 'agentConfigId')) {
+    Object.defineProperty(inspected, 'agentConfigId', {
+      value: parsed.agentSlug,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return inspected;
+}
+
 function strictChangeJsonPreflight(proposal: AgentOrgProposal): void {
   if (proposal.changeJson === null || proposal.changeJson === undefined) return;
   const parsed = parseStrictJson(proposal.changeJson, 'proposal change_json');
   if (SCOPE_PROPOSAL_KINDS.has(proposal.kind)) return;
 
+  if (proposal.kind === 'create-agent') {
+    if (containsScopeBearingPayload(createAgentInspectionPayload(parsed))) {
+      throw new Error("proposal kind 'create-agent' cannot carry an unconsumed protected scope mutation");
+    }
+    return;
+  }
+
   if (proposal.kind === 'refine-config') {
-    const change = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-    const configPatch = change?.configPatch;
-    const field = configPatch && typeof configPatch === 'object' && !Array.isArray(configPatch)
-      ? (configPatch as Record<string, unknown>).field
-      : undefined;
-    if (PROTECTED_SCOPE_FIELDS.has(String(field))) {
-      throw new Error(`proposal kind 'refine-config' cannot mutate protected scope field '${String(field)}'`);
+    const change = isPlainRecord(parsed) ? parsed : null;
+    const rawConfigPatch = change?.configPatch;
+    const configPatch = isPlainRecord(rawConfigPatch) ? rawConfigPatch : null;
+    if (configPatch) {
+      const extras = Object.keys(configPatch).filter(
+        (key) => key !== 'agentConfigId' && key !== 'field' && key !== 'value',
+      );
+      if (extras.length > 0) {
+        throw new Error(
+          `proposal kind 'refine-config' configPatch contains unsupported key(s): ${extras.join(', ')}`,
+        );
+      }
+      if (PROTECTED_SCOPE_FIELDS.has(String(configPatch.field))) {
+        throw new Error(
+          `proposal kind 'refine-config' cannot mutate protected scope field '${String(configPatch.field)}'`,
+        );
+      }
     }
     const outsideConfigPatch = change
       ? Object.fromEntries(Object.entries(change).filter(([key]) => key !== 'configPatch'))
       : parsed;
-    if (containsScopeBearingPayload(outsideConfigPatch)) {
+    if (
+      isPlainRecord(outsideConfigPatch) &&
+      configPatch &&
+      !Object.prototype.hasOwnProperty.call(outsideConfigPatch, 'agentConfigId')
+    ) {
+      outsideConfigPatch.agentConfigId = configPatch.agentConfigId;
+    }
+    if (
+      containsScopeBearingPayload(configPatch ? outsideConfigPatch : parsed)
+    ) {
       throw new Error("proposal kind 'refine-config' cannot carry a protected scope mutation");
     }
     return;
