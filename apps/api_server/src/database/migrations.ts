@@ -3874,4 +3874,110 @@ If someone asks for creative work that needs a local capability:
       SELECT RAISE(ABORT, 'agent run feedback is append-only');
     END;
   `);
+
+  // W6-c5 — the experiment service's ONLY read into W4's ledger: the cohort
+  // rows for one proposal. No column is added to agent_run_outcomes and no
+  // update path exists; this is an index for a read that already type-checks.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_experiment
+       ON agent_run_outcomes(proposal_id, experiment_variant)`,
+  );
+
+  // ── W6-c8 — outcome status, separate from deployment status ───────────────
+  //
+  // agent_org_proposals.status stays the DEPLOYMENT field and its state machine
+  // is NOT extended (`inconclusive` is not, and must never become, a proposal
+  // status). Outcome authority lives here instead, so a row can be
+  // simultaneously status='active' and outcome_status='inconclusive'.
+  //
+  // Written ONLY through AgentOrgProposalsRepository.setOutcomeStatusAtRevisionAsync,
+  // which is revision-fenced: the AFTER UPDATE auto-bump above would otherwise
+  // advance the lifecycle CAS token invisibly on any raw UPDATE.
+  const proposalColsW6 = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!proposalColsW6.includes('outcome_status')) {
+    db.exec(
+      `ALTER TABLE agent_org_proposals ADD COLUMN outcome_status TEXT NOT NULL DEFAULT 'unproven'`,
+    );
+  }
+
+  // ── W6-c3 — the controlled experiment record ──────────────────────────────
+  //
+  // Its own additive table. Seven declared elements: immutable baseline and
+  // candidate specs, a deterministic assignment key, a predeclared stopping
+  // rule, a maximum exposure, results, and the promote|inconclusive|regress
+  // decision. The first five are written once at declaration; only `results`
+  // and the decision columns are ever updated, which is what the immutability
+  // trigger below distinguishes.
+  //
+  // Dual-engine — see postgres_bootstrap.ts for the twin; guarded by
+  // skill_schema_parity.test.ts. The CREATE TABLE body's closing paren must
+  // stay immediately before the closing backtick or that parser goes blind.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiments (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      evidence_bundle_json TEXT NOT NULL,
+      baseline_spec_json TEXT NOT NULL,
+      candidate_spec_json TEXT NOT NULL,
+      assignment_key TEXT NOT NULL,
+      stopping_rule_json TEXT NOT NULL,
+      max_exposure INTEGER NOT NULL,
+      results_json TEXT,
+      decision TEXT,
+      decision_reason TEXT,
+      declared_at TEXT NOT NULL,
+      results_recorded_at TEXT,
+      decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiments_proposal
+       ON agent_org_experiments(proposal_id, declared_at)`,
+  );
+  // At most ONE undecided experiment per proposal. Two would read the same
+  // ledger cohort pool through different stopping rules and both stamp
+  // outcome_status — last writer wins. A decided experiment is history and does
+  // not block the next one.
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiments_one_undecided
+       ON agent_org_experiments(proposal_id) WHERE decision IS NULL`,
+  );
+
+  // The SPEC is immutable; the results and the decision are not — an experiment
+  // that could never record a result would be a museum piece. The trigger fires
+  // only when a spec column actually changes, so the two result/decision writes
+  // pass through untouched.
+  //
+  // KNOWN GAP, stated the way W4 was forced to state it rather than
+  // overclaimed: this blocks UPDATE and DELETE. It does NOT block
+  // `INSERT OR REPLACE`, because SQLite fires BEFORE DELETE for REPLACE
+  // conflict resolution only when `PRAGMA recursive_triggers` is ON, and it is
+  // OFF throughout this codebase. No writer here uses REPLACE on this table,
+  // and the repository test pins that boundary in both directions.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiments_spec_immutable
+    BEFORE UPDATE ON agent_org_experiments
+    FOR EACH ROW WHEN
+      NEW.proposal_id IS NOT OLD.proposal_id
+      OR NEW.adapter IS NOT OLD.adapter
+      OR NEW.evidence_bundle_json IS NOT OLD.evidence_bundle_json
+      OR NEW.baseline_spec_json IS NOT OLD.baseline_spec_json
+      OR NEW.candidate_spec_json IS NOT OLD.candidate_spec_json
+      OR NEW.assignment_key IS NOT OLD.assignment_key
+      OR NEW.stopping_rule_json IS NOT OLD.stopping_rule_json
+      OR NEW.max_exposure IS NOT OLD.max_exposure
+      OR NEW.declared_at IS NOT OLD.declared_at
+    BEGIN
+      SELECT RAISE(ABORT, 'agent org experiment specs are immutable once declared');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiments_no_delete
+    BEFORE DELETE ON agent_org_experiments
+    BEGIN
+      SELECT RAISE(ABORT, 'agent org experiment specs are immutable once declared');
+    END;
+  `);
 }

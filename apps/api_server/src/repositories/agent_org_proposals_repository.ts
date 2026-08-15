@@ -9,6 +9,10 @@ import {
   type AgentConfigRow,
   type RevisionedAgentConfig,
 } from './agent_configs_repository';
+import {
+  PROPOSAL_OUTCOME_STATUSES,
+  type ProposalOutcomeStatus,
+} from '../models/agent_org_experiment';
 import { parseStrictJson } from '../services/strict_json';
 import { verifyScopeSnapshotForRevert } from '../services/scope_mutation_contract';
 
@@ -56,6 +60,7 @@ interface AgentOrgProposalRow {
   measure_reason: string | null;
   reconciliation_reason?: string | null;
   decided_by_user_id: number | null;
+  outcome_status?: string | null;
   revision: number;
   // created_at/updated_at come back as a plain string from SQLite (TEXT) but
   // as a native Date from the `pg` driver (Postgres columns are TIMESTAMPTZ,
@@ -281,6 +286,7 @@ function rowToModel(row: AgentOrgProposalRow): RevisionedAgentOrgProposal {
     measureReason: row.measure_reason ?? null,
     reconciliationReason: row.reconciliation_reason ?? null,
     decidedByUserId: row.decided_by_user_id ?? null,
+    outcomeStatus: (row.outcome_status as ProposalOutcomeStatus | null) ?? 'unproven',
     revision: readPersistedRevision(
       row.revision,
       `agent_org_proposals '${row.id}' revision`,
@@ -855,6 +861,60 @@ export class AgentOrgProposalsRepository {
       { reconciliationReason: input.reason },
       input.expectedRevision,
     );
+  }
+
+  /**
+   * W6-c8 / W6-c11 — the ONLY writer of `outcome_status`.
+   *
+   * Deliberately modelled on markReconciliationRequiredAsync: it reads the
+   * current revision first and fences the write on it. An outcome IS a domain
+   * fact about the proposal, so advancing the CAS token is correct — but it
+   * must advance deliberately and observably. A raw UPDATE would be silently
+   * auto-bumped by installRevisionInvariants' AFTER UPDATE trigger, invalidating
+   * tokens held in flight by approve/apply/revert/measure without anyone
+   * noticing. This write does `revision = revision + 1` itself, so the trigger's
+   * equality guard leaves it alone rather than double-counting.
+   *
+   * `status` is NOT touched here: deployment state and outcome state are
+   * distinct fields, and ALLOWED_TRANSITIONS is not consulted or extended.
+   * Returns null when the row moved under the caller.
+   */
+  async setOutcomeStatusAtRevisionAsync(input: {
+    proposalId: string;
+    expectedRevision: number;
+    outcomeStatus: ProposalOutcomeStatus;
+  }): Promise<RevisionedAgentOrgProposal | null> {
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+      throw new Error('Outcome status CAS requires a non-negative integer revision');
+    }
+    if (!PROPOSAL_OUTCOME_STATUSES.includes(input.outcomeStatus)) {
+      throw new Error(
+        `agent_org_proposals.outcome_status must be one of ${PROPOSAL_OUTCOME_STATUSES.join(' | ')}, ` +
+        `got '${String(input.outcomeStatus)}'`,
+      );
+    }
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_org_proposals
+            SET outcome_status = $1, revision = revision + 1, updated_at = $2
+          WHERE id = $3 AND revision = $4
+          RETURNING *`,
+        [input.outcomeStatus, now, input.proposalId, input.expectedRevision],
+      );
+      return result.rows.length === 1 ? rowToModel(result.rows[0]) : null;
+    }
+    const row = this.db!
+      .prepare(
+        `UPDATE agent_org_proposals
+            SET outcome_status = ?, revision = revision + 1, updated_at = ?
+          WHERE id = ? AND revision = ?
+          RETURNING *`,
+      )
+      .get(input.outcomeStatus, now, input.proposalId, input.expectedRevision) as
+      | AgentOrgProposalRow
+      | undefined;
+    return row ? rowToModel(row) : null;
   }
 
   /**

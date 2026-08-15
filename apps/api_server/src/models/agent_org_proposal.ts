@@ -38,6 +38,8 @@
  * decision made before calling updateStatusAsync, not something the state
  * machine itself enforces.
  */
+import type { ProposalOutcomeStatus } from './agent_org_experiment';
+
 export interface AgentOrgProposal {
   id: string;
   /** Groups proposals from one optimizer run. Null for ad hoc/manual proposals. */
@@ -86,6 +88,18 @@ export interface AgentOrgProposal {
    */
   reconciliationReason?: string | null;
   decidedByUserId: number | null;
+  /**
+   * W6-c8 — OUTCOME authority, deliberately separate from `status`, which
+   * remains the DEPLOYMENT field. A proposal can be simultaneously
+   * status='active' (deployed) and outcome_status='inconclusive' (nothing was
+   * proven about it). `inconclusive` is NOT a proposal status and the status
+   * state machine is not extended by W6.
+   *
+   * `unproven` (default) | `inconclusive` | `verified` | `regressed`. Only the
+   * experiment service may write `verified` or `regressed`; the body/rerun
+   * measure path may write `inconclusive` and nothing stronger.
+   */
+  outcomeStatus?: ProposalOutcomeStatus;
   /** Monotonic lifecycle CAS token. Incremented exactly once per mutation. */
   revision?: number;
   createdAt: string;
@@ -143,6 +157,7 @@ export function agentOrgProposalFromJson(json: Record<string, unknown>): Revisio
     measureReason: (json.measureReason as string | null) ?? null,
     reconciliationReason: (json.reconciliationReason as string | null) ?? null,
     decidedByUserId: (json.decidedByUserId as number | null) ?? null,
+    outcomeStatus: (json.outcomeStatus as ProposalOutcomeStatus) ?? 'unproven',
     revision: (json.revision as number) ?? 0,
     createdAt: json.createdAt as string,
     updatedAt: json.updatedAt as string,
@@ -171,6 +186,7 @@ export function agentOrgProposalToJson(proposal: AgentOrgProposal): Record<strin
     measureReason: proposal.measureReason,
     reconciliationReason: proposal.reconciliationReason,
     decidedByUserId: proposal.decidedByUserId,
+    outcomeStatus: proposal.outcomeStatus,
     revision: proposal.revision,
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,

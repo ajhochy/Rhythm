@@ -399,6 +399,32 @@ export class AgentRunOutcomesRepository {
     return row ? outcomeFromRow(row) : null;
   }
 
+  /**
+   * W6-c5 — the experiment service's cohort read. READ ONLY: W6 adds no update
+   * path to this ledger and no column to it, so an experiment is identified
+   * here by the proposal it judges, which is the only experiment-shaped
+   * identifier the ledger carries. Rows with no `experiment_variant` are not
+   * cohort members and are excluded.
+   *
+   * STATED LIMITATION (W6-c5): no production caller populates
+   * `experiment_variant` today — every terminal hook passes it implicitly null,
+   * so in production every cohort is empty until run-creation wiring lands,
+   * which is deliberately out of W6's scope. The pairing behaviour is proven
+   * against a seeded ledger fixture.
+   */
+  async listByExperimentAsync(proposalId: string): Promise<AgentRunOutcome[]> {
+    const sql = (placeholder: string) =>
+      `SELECT * FROM agent_run_outcomes
+        WHERE proposal_id = ${placeholder} AND experiment_variant IS NOT NULL
+        ORDER BY finalized_at, id`;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql('$1'), [proposalId]);
+      return (r.rows as OutcomeRow[]).map(outcomeFromRow);
+    }
+    const rows = this.db!.prepare(sql('?')).all(proposalId) as OutcomeRow[];
+    return rows.map(outcomeFromRow);
+  }
+
   async listFeedbackAsync(rootSessionId: string): Promise<AgentRunFeedbackEvent[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(

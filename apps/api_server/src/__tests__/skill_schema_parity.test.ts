@@ -43,6 +43,10 @@ const TABLES = [
   // only thing standing between an added column and a production-only 500.
   'agent_run_outcomes',
   'agent_run_feedback_events',
+  // W6 — the controlled experiment record. W5's agent_org_proposal_retirements
+  // sidecar is the counter-example this list exists to stop repeating: it is
+  // SQLite-only and still invisible here, so it must not be copied.
+  'agent_org_experiments',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */
@@ -137,6 +141,39 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       expect(sqlite).toContain(col);
       expect(postgres).toContain(col);
     }
+  });
+
+  it('W6-c10: outcome_status is additive in BOTH engines', () => {
+    expect(sqliteColumns('agent_org_proposals')).toContain('outcome_status');
+    expect(postgresColumns(pgSource, 'agent_org_proposals')).toContain('outcome_status');
+  });
+
+  it('W6-c10: the experiment spec-immutability trigger has a behavioural Postgres twin', () => {
+    // The parity guard above compares COLUMNS only, so the behaviour gets its
+    // own assertion. Postgres cannot be executed here, so the twin is checked
+    // statically: same guarded columns, same message text, plus the DELETE
+    // block. (Stated limitation: this pins the DDL, not a live Postgres run.)
+    for (const guarded of [
+      'NEW.baseline_spec_json IS DISTINCT FROM OLD.baseline_spec_json',
+      'NEW.candidate_spec_json IS DISTINCT FROM OLD.candidate_spec_json',
+      'NEW.assignment_key IS DISTINCT FROM OLD.assignment_key',
+      'NEW.stopping_rule_json IS DISTINCT FROM OLD.stopping_rule_json',
+      'NEW.max_exposure IS DISTINCT FROM OLD.max_exposure',
+    ]) {
+      expect(pgSource).toContain(guarded);
+    }
+    expect(pgSource).toContain('trg_agent_org_experiments_no_delete');
+    expect(pgSource).toContain(
+      "rhythm_reject_ledger_write('agent org experiment specs are immutable once declared')",
+    );
+    // Identical wording on both engines.
+    const sqliteSource = readFileSync(
+      join(__dirname, '..', 'database', 'migrations.ts'),
+      'utf8',
+    );
+    expect(sqliteSource).toContain(
+      "RAISE(ABORT, 'agent org experiment specs are immutable once declared')",
+    );
   });
 
   it('issue-798-c7: release CI runs the schema parity guard explicitly', () => {
