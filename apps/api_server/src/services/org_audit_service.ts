@@ -28,9 +28,12 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { opencodeClient } from './opencode_engine';
 import { alignMcpName } from './mcp_name_alignment';
+import { resolveMcpServerIdentity } from './mcp_scope_name';
+import { resolveExercisedTools } from './org_exercised_tools_resolver';
 import { resolveProfileMcpScope, type ProfileMcpScopeShape } from './agent_profile_scope';
 import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import { AgentWebhookEndpointsRepository } from '../repositories/agent_webhook_endpoints_repository';
@@ -156,6 +159,20 @@ export interface OrgAuditSnapshot {
   workflowFailureSignals: WorkflowFailureSignal[];
 }
 
+export type SuccessfulUseEvidence =
+  | {
+      availability: 'available';
+      canonicalPairs: Set<string>;
+      /**
+       * Profile ids whose own resolveExercisedTools call came back
+       * unavailable (W2: no global suppression). detectTightenGaps must
+       * treat these profiles' telemetry as unknown while still judging
+       * every other, fully-covered profile on its own evidence.
+       */
+      unavailableProfileIds: Set<string>;
+    }
+  | { availability: 'unavailable' };
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function parseJsonStringArray(json: string | null): string[] {
@@ -256,23 +273,33 @@ function buildDelegationEdges(profiles: ProfileScopeSnapshot[]): DelegationEdge[
 }
 
 /**
- * Resolve a `denied_tool_events` row's profile when `agent_config_id` is
- * null (the #838 bridge-seam gap) by joining through `session_id ->
- * agent_sessions.mcpRole`, validated against a real `agent_configs.id`
- * (mirrors the resolution the bridge itself performs, documented in
- * denied_tool_events_repository.ts's module header).
+ * Authoritative profile ownership for both activity and denied telemetry.
+ * Scheduled-task ownership is exclusive: once a session names a scheduled
+ * task, only that task's valid owner may win and every conflicting fallback
+ * is ignored. True interactive sessions retain the explicit-event then exact
+ * mcpRole/legacy-agentKind compatibility order; a missing session can use
+ * only a valid explicit event owner.
  */
-function resolveAgentConfigId(
-  event: DeniedToolEvent,
-  sessionsById: Map<string, AgentSession>,
+function resolveAgentConfigOwnership(
+  session: AgentSession | null,
+  explicitAgentConfigId: string | null,
+  scheduledTaskOwnerById: ReadonlyMap<string, string | null>,
   validConfigIds: Set<string>,
 ): string | null {
-  if (event.agentConfigId && validConfigIds.has(event.agentConfigId)) {
-    return event.agentConfigId;
+  if (!session) {
+    return explicitAgentConfigId && validConfigIds.has(explicitAgentConfigId)
+      ? explicitAgentConfigId
+      : null;
   }
-  if (!event.sessionId) return null;
-  const session = sessionsById.get(event.sessionId);
-  if (!session) return null;
+
+  if (session.scheduledTaskId) {
+    const scheduledOwner = scheduledTaskOwnerById.get(session.scheduledTaskId);
+    return scheduledOwner && validConfigIds.has(scheduledOwner) ? scheduledOwner : null;
+  }
+
+  if (explicitAgentConfigId && validConfigIds.has(explicitAgentConfigId)) {
+    return explicitAgentConfigId;
+  }
   if (session.mcpRole && validConfigIds.has(session.mcpRole)) return session.mcpRole;
   if (session.agentKind && validConfigIds.has(session.agentKind)) return session.agentKind;
   return null;
@@ -280,20 +307,24 @@ function resolveAgentConfigId(
 
 function aggregateDeniedTool(
   events: DeniedToolEvent[],
+  sessionsById: Map<string, AgentSession>,
   sessionsRepo: AgentSessionsRepository,
+  scheduledTaskOwnerById: ReadonlyMap<string, string | null>,
   validConfigIds: Set<string>,
 ): DeniedToolAggregate[] {
-  const sessionsById = new Map<string, AgentSession>();
-  for (const event of events) {
-    if (event.sessionId && !sessionsById.has(event.sessionId)) {
-      const session = sessionsRepo.findById(event.sessionId);
-      if (session) sessionsById.set(event.sessionId, session);
-    }
-  }
-
   const counts = new Map<string, DeniedToolAggregate>();
   for (const event of events) {
-    const agentConfigId = resolveAgentConfigId(event, sessionsById, validConfigIds);
+    let session = event.sessionId ? (sessionsById.get(event.sessionId) ?? null) : null;
+    if (!session && event.sessionId) {
+      session = sessionsRepo.findById(event.sessionId);
+      if (session) sessionsById.set(event.sessionId, session);
+    }
+    const agentConfigId = resolveAgentConfigOwnership(
+      session,
+      event.agentConfigId,
+      scheduledTaskOwnerById,
+      validConfigIds,
+    );
     const key = `${agentConfigId ?? '(unattributed)'}::${event.toolName}`;
     const existing = counts.get(key);
     if (existing) {
@@ -344,6 +375,14 @@ function detectPruneGaps(drift: AllowlistDrift[]): OrgAuditGap[] {
  * one), matching the issue's "no data at all must NEVER produce a prune"
  * requirement. A profile with a long history but a genuinely unused tool
  * still produces a gap exactly as before.
+ *
+ * W2 fix: successful-use evidence is profile-granular. `successfulUse.availability
+ * === 'unavailable'` means the catalog/engine itself was unreachable (no MCP
+ * names to judge against at all) and still suppresses every gap. But when the
+ * catalog is live, one profile's own telemetry being unavailable
+ * (`unavailableProfileIds`) must ONLY suppress tighten judgements for THAT
+ * profile — an unrelated, well-covered, genuinely-zero-use profile still gets
+ * judged on its own evidence rather than being dragged down by a sibling.
  */
 export function detectTightenGaps(
   profiles: ProfileScopeSnapshot[],
@@ -351,30 +390,13 @@ export function detectTightenGaps(
   deniedPairs: Set<string>,
   sessionCountByProfile: Map<string, number>,
   observationDaysByProfile: Map<string, number>,
+  successfulUse: SuccessfulUseEvidence = { availability: 'unavailable' },
 ): OrgAuditGap[] {
   if (liveMcpNames.size === 0) return [];
+  if (successfulUse.availability === 'unavailable') return [];
   const gaps: OrgAuditGap[] = [];
   for (const profile of profiles) {
-    // Usage-judgement lane, deliberately NOT widened by the scope-shape fix.
-    //
-    // Stated as "skip tools-map", NOT "keep only 'servers'": a caller that
-    // builds a ProfileScopeSnapshot without `mcpScopeShape` (e.g.
-    // tools/release/org_optimizer_guard_check.ts, which is outside this
-    // package's tsc scope) must keep the behavior it had, never lose the
-    // feature silently. That guard exists precisely to catch a suppression
-    // like that, and it caught this one.
-    // `allowedMcps` now also resolves the tools-map shape, which makes 18 more
-    // live profiles visible here for the first time. This lane's only "was it
-    // used" evidence is denied-tool telemetry (a denial counts as an
-    // exercised-ATTEMPT); a server used SUCCESSFULLY produces no event at all,
-    // so every such grant looks "never invoked" — and tighten-scope is
-    // risk='low', i.e. it AUTO-APPLIES. Letting the corrected read feed this
-    // lane would have auto-stripped live grants (verified against the live org:
-    // workflow-orchestrator's gitnexus + obsidian, among others). Judging those
-    // grants needs real exercised-tool evidence
-    // (org_exercised_tools_resolver.resolveExercisedTools), which is a separate
-    // change; until then this lane keeps exactly the reach it already had.
-    if (profile.mcpScopeShape === 'tools-map') continue;
+    if (successfulUse.unavailableProfileIds.has(profile.id)) continue;
     const sessionCount = sessionCountByProfile.get(profile.id) ?? 0;
     const observationDays = observationDaysByProfile.get(profile.id) ?? 0;
     if (sessionCount < MIN_TIGHTEN_ACTIVITY_COUNT) continue;
@@ -384,6 +406,7 @@ export function detectTightenGaps(
       if (!matched) continue; // dead names are prune candidates, not tighten
       const deniedKey = `${profile.id}::${resolved}`;
       if (deniedPairs.has(deniedKey)) continue; // it WAS exercised (denied counts as exercised-attempt)
+      if (successfulUse.canonicalPairs.has(deniedKey)) continue;
       gaps.push({
         gapId: stableGapId('tighten-scope', profile.id, resolved),
         kind: 'tighten-scope',
@@ -488,19 +511,37 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const delegationEdges = buildDelegationEdges(profiles);
 
   const sessions = sessionsRepo.listAll(1000, { includeArchived: true });
+
+  // W2: scheduled ownership beats mcp_role. A session tied to a scheduled
+  // task (agent_scheduled_tasks.agent_config_id) belongs ONLY to that task's
+  // owner for activity-counting purposes, even if its `mcp_role` column
+  // (stale, or written by a legacy/interactive-labelled path) names a
+  // different profile — otherwise a batch of sessions scheduled for profile A
+  // could inflate profile B's observation floor and let B's telemetry look
+  // observed/available-empty (or B could steal A's activity) purely off a
+  // conflicting mcp_role value.
+  const scheduledTasks = await new AgentScheduledTasksRepository().listAllAsync();
+  const scheduledTaskOwnerById = new Map<string, string | null>();
+  for (const task of scheduledTasks) scheduledTaskOwnerById.set(task.id, task.agentConfigId);
+
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const sessionCountByProfile = new Map<string, number>();
   for (const session of sessions) {
-    if (!session.mcpRole) continue;
     // #1004: only sessions that ACTUALLY EXECUTED count toward the tighten-scope
     // observation floor. A run stuck at 'starting' or that 'error'ed never invoked
     // any tool — counting it lets "never invoked" masquerade as "unused" when the
     // agent simply never ran, which is how the optimizer over-pruned live agents'
     // MCPs. Under-counting only makes pruning MORE conservative (the safe direction).
     if (session.status === 'starting' || session.status === 'error') continue;
-    sessionCountByProfile.set(
-      session.mcpRole,
-      (sessionCountByProfile.get(session.mcpRole) ?? 0) + 1,
+
+    const ownerId = resolveAgentConfigOwnership(
+      session,
+      null,
+      scheduledTaskOwnerById,
+      validConfigIds,
     );
+    if (!ownerId) continue;
+    sessionCountByProfile.set(ownerId, (sessionCountByProfile.get(ownerId) ?? 0) + 1);
   }
 
   // #857 — observation window per profile: wall-clock age since the profile
@@ -514,11 +555,12 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   }
 
   const deniedEvents = await deniedRepo.listAllAsync();
-  const deniedToolAggregates = aggregateDeniedTool(deniedEvents, sessionsRepo, validConfigIds);
-  const deniedPairs = new Set(
-    deniedToolAggregates
-      .filter((d) => d.agentConfigId !== null)
-      .map((d) => `${d.agentConfigId}::${d.toolName}`),
+  const deniedToolAggregates = aggregateDeniedTool(
+    deniedEvents,
+    sessionsById,
+    sessionsRepo,
+    scheduledTaskOwnerById,
+    validConfigIds,
   );
 
   // Open capability gaps (Plan A) — read-only surface into this snapshot.
@@ -534,6 +576,8 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const engineAvailable = opencodeClient.isReady;
   let drift: AllowlistDrift[] = [];
   let liveMcpNames = new Set<string>();
+  let deniedPairs = new Set<string>();
+  let successfulUse: SuccessfulUseEvidence = { availability: 'unavailable' };
 
   if (engineAvailable) {
     try {
@@ -546,6 +590,33 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     }
 
     if (liveMcpNames.size > 0) {
+      deniedPairs = new Set(
+        deniedToolAggregates.flatMap((aggregate) => {
+          if (!aggregate.agentConfigId) return [];
+          const serverId = resolveMcpServerIdentity(aggregate.toolName, liveMcpNames);
+          return serverId ? [`${aggregate.agentConfigId}::${serverId}`] : [];
+        }),
+      );
+
+      // W2 fix: a single profile's unavailable telemetry (e.g. an
+      // unrelated preset with unreadable structured rows) must not blank
+      // out successful-use evidence for every OTHER profile — collect
+      // canonical pairs per available profile and track unavailable ones
+      // separately so detectTightenGaps can skip judging only those.
+      const canonicalPairs = new Set<string>();
+      const unavailableProfileIds = new Set<string>();
+      for (const profile of profiles) {
+        const telemetry = await resolveExercisedTools(profile.id, undefined, liveMcpNames);
+        if (telemetry.availability === 'unavailable') {
+          unavailableProfileIds.add(profile.id);
+          continue;
+        }
+        for (const serverId of telemetry.canonicalServerIds) {
+          canonicalPairs.add(`${profile.id}::${serverId}`);
+        }
+      }
+      successfulUse = { availability: 'available', canonicalPairs, unavailableProfileIds };
+
       for (const profile of profiles) {
         for (const name of profile.allowedMcps) {
           const { matched } = alignMcpName(name, liveMcpNames);
@@ -562,7 +633,14 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
 
   const gaps: OrgAuditGap[] = [
     ...detectPruneGaps(drift),
-    ...detectTightenGaps(profiles, liveMcpNames, deniedPairs, sessionCountByProfile, observationDaysByProfile),
+    ...detectTightenGaps(
+      profiles,
+      liveMcpNames,
+      deniedPairs,
+      sessionCountByProfile,
+      observationDaysByProfile,
+      successfulUse,
+    ),
     ...detectWebhookGaps(sessions, webhookEndpoints),
     ...detectCapabilityGaps(capabilityGapRows),
   ];
