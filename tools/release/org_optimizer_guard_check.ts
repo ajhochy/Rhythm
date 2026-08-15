@@ -387,7 +387,7 @@ async function checkThinHistoryNoAutoAppliedTighten(): Promise<void> {
     deniedPairs,
     sessionCountByProfile,
     observationDaysByProfile,
-    { availability: 'available', canonicalPairs: new Set<string>() },
+    { availability: 'available', canonicalPairs: new Set<string>(), unavailableProfileIds: new Set<string>() },
   );
 
   const thinGaps = gaps.filter((g) => g.evidence.includes(thinProfile.id));

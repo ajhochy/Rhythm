@@ -54,6 +54,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { alignMcpName } from './mcp_name_alignment';
 import { revertProposal, type ApplyDeps, type RevertPatch } from './org_proposal_apply';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { TASK_PATCH_TEXT_FIELDS } from './org_diagnosis_types';
@@ -166,6 +167,7 @@ async function defaultExercisedTools(agentConfigId: string): Promise<ExercisedTo
       reason: 'catalog-unavailable',
       rawCallableNames: new Set<string>(),
       canonicalServerIds: new Set<string>(),
+      knownServerIds: new Set<string>(),
       has: () => false,
     };
   }
@@ -295,17 +297,29 @@ async function measureScopeChange(
   const exercisedTools = deps.exercisedTools ?? defaultExercisedTools;
   const exercised = await exercisedTools(change.agentConfigId);
 
-  if (!(exercised instanceof Set) && exercised.availability === 'unavailable') {
+  // W2 governing rule: positive usage evidence is monotonic and canonical —
+  // check it BEFORE looking at availability. Partial/unreadable coverage only
+  // blocks a NEW negative inference; it must never erase an already-proven
+  // positive veto (e.g. partial-structured-telemetry that still retained a
+  // canonical hit from its covered sessions). Only once no removed name
+  // matches do we fall back to skipping on unavailable telemetry.
+  const guardFailed = removed.some((name) => {
+    if (exercised instanceof Set) return exercised.has(name);
+    if (exercised.canonicalServerIds.has(name)) return true;
+    // Canonicalize the raw removal name (which may be an alias form, e.g.
+    // `nfl-mcp` vs the live/canonical `nfl_mcp`) against the SAME live
+    // catalog that canonicalized the successful calls, before comparing.
+    const aligned = alignMcpName(name, exercised.knownServerIds);
+    return aligned.matched && exercised.canonicalServerIds.has(aligned.resolved);
+  });
+
+  if (!guardFailed && !(exercised instanceof Set) && exercised.availability === 'unavailable') {
     logger.info(
       `[org-proposal-measure] '${proposal.id}' scope telemetry unavailable (${exercised.reason}) — leaving measuring`,
     );
     return 'skipped';
   }
 
-  const guardFailed = removed.some((name) => {
-    if (exercised instanceof Set) return exercised.has(name);
-    return exercised.canonicalServerIds.has(name);
-  });
   if (guardFailed) {
     logger.info(
       `[org-proposal-measure] functional guard FAILED for '${proposal.id}' — a removed scope was actually exercised`,

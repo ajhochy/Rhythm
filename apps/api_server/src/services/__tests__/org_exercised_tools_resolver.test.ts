@@ -49,8 +49,23 @@ beforeEach(() => {
   setDb(makeDb());
 });
 
-function toolPart(tool: string) {
-  return { type: 'tool', id: `part-${tool}`, tool, state: { status: 'completed' } };
+/** A producer-valid `type:'tool'` part (message-v2.ts ToolPart/ToolStateCompleted shape). */
+function toolPart(tool: string, overrides: { mcpResult?: { isError?: boolean } } = {}) {
+  return {
+    type: 'tool',
+    id: `part-${tool}`,
+    callID: `call-${tool}`,
+    tool,
+    state: {
+      status: 'completed',
+      input: {},
+      output: 'ok',
+      title: tool,
+      metadata: {},
+      time: { start: 0, end: 1 },
+      ...(overrides.mcpResult ? { mcpResult: overrides.mcpResult } : {}),
+    },
+  };
 }
 
 describe('known-catalog MCP callable identity', () => {
@@ -553,6 +568,7 @@ describe('issue-853-c3: the #821 functional guard still refuses to keep a prune 
         reason: 'database-error' as const,
         rawCallableNames: new Set<string>(),
         canonicalServerIds: new Set<string>(),
+        knownServerIds: new Set<string>(),
         has: () => false,
       }),
     });
@@ -641,5 +657,191 @@ describe('issue-853-c5: mcp_role is only trusted when it is a real agent_configs
 
     const exercised = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(exercised.has('rhythm_create_reservation')).toBe(false);
+  });
+});
+
+describe('W2 P1-4: only a producer-valid completed (non-mcp-error) tool part counts as successful use', () => {
+  it('counts ONLY the genuinely-completed-and-non-error call out of a pending/running/error/mcp-error/success status matrix', async () => {
+    // Bug this catches: extractToolNamesFromPartsJson used to model only
+    // `{type, tool}` and never checked `state.status` at all, so a tool that
+    // was merely pending, still running, failed, or MCP-errored looked
+    // indistinguishable from a genuinely successful call.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Status Matrix', icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'status matrix session',
+      mcpRole: config.id,
+    });
+
+    const pendingPart = {
+      type: 'tool',
+      id: 'part-pending',
+      callID: 'call-pending',
+      tool: 'rhythm_pending_call',
+      state: { status: 'pending', input: {}, raw: 'raw-pending' },
+    };
+    const runningPart = {
+      type: 'tool',
+      id: 'part-running',
+      callID: 'call-running',
+      tool: 'rhythm_running_call',
+      state: { status: 'running', input: {}, time: { start: 0 } },
+    };
+    const errorPart = {
+      type: 'tool',
+      id: 'part-error',
+      callID: 'call-error',
+      tool: 'rhythm_error_call',
+      state: { status: 'error', input: {}, error: 'boom', time: { start: 0, end: 1 } },
+    };
+    const mcpErrorPart = toolPart('rhythm_mcp_error_call', { mcpResult: { isError: true } });
+    const successPart = toolPart('rhythm_success_call');
+
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      'status-matrix-message',
+      'output',
+      JSON.stringify([pendingPart, runningPart, errorPart, mcpErrorPart, successPart]),
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result.availability).toBe('available');
+    expect(result.has('rhythm_pending_call')).toBe(false);
+    expect(result.has('rhythm_running_call')).toBe(false);
+    expect(result.has('rhythm_error_call')).toBe(false);
+    expect(result.has('rhythm_mcp_error_call')).toBe(false);
+    expect(result.has('rhythm_success_call')).toBe(true);
+  });
+
+  it('reports a structurally-incomplete "completed" tool part as unreadable rather than counting it as success', async () => {
+    // Bug this catches: a completed-status part missing the producer's
+    // required output/title/metadata/time fields used to still be counted as
+    // a successful call, because only `type==='tool'` and a name were ever
+    // checked.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Malformed completed', icon: 'x' });
+    const session = new AgentSessionsRepository().insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'malformed completed session',
+      mcpRole: config.id,
+    });
+    new AgentSessionMessagesRepository().upsertStructured(
+      session.id,
+      'malformed-completed-message',
+      'output',
+      JSON.stringify([
+        {
+          type: 'tool',
+          id: 'part-1',
+          callID: 'call-1',
+          tool: 'rhythm_incomplete_call',
+          state: { status: 'completed' }, // missing input/output/title/metadata/time
+        },
+      ]),
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['rhythm']);
+    expect(result).toMatchObject({ availability: 'unavailable', reason: 'unreadable-source' });
+  });
+});
+
+describe('W2 P1-2: scheduled ownership beats a conflicting mcp_role', () => {
+  it('ten sessions scheduled for profile A but carrying profile B mcp_role contribute telemetry ONLY to A', async () => {
+    // Bug this catches: the mcp_role join (#853) trusted ANY session whose
+    // mcp_role equalled the profile being resolved, even when that session's
+    // scheduled_task_id already durably ties it to a DIFFERENT profile via a
+    // stronger FK. A stale/conflicting mcp_role could cross-contaminate a
+    // sibling profile's usage telemetry.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+
+    const configsRepo = new AgentConfigsRepository();
+    const profileA = configsRepo.insert({ label: 'Profile A', icon: 'x' });
+    const profileB = configsRepo.insert({ label: 'Profile B', icon: 'x' });
+
+    const schedRepo = new AgentScheduledTasksRepository();
+    const task = await schedRepo.createAsync({
+      name: 'A Daily Run',
+      scheduleType: 'daily',
+      prompt: 'do A things',
+      agentConfigId: profileA.id,
+    });
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    for (let i = 0; i < 10; i++) {
+      const session = sessionsRepo.insert({
+        taskId: null,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        name: `contaminated-${i}`,
+        scheduledTaskId: task.id,
+        // Conflicting/stale mcp_role naming the OTHER profile.
+        mcpRole: profileB.id,
+      });
+      messagesRepo.upsertStructured(
+        session.id,
+        `contaminated-${i}-msg`,
+        'output',
+        JSON.stringify([toolPart('rhythm_only_a_should_see_this')]),
+        null,
+        null,
+      );
+    }
+
+    const resultA = await resolveExercisedTools(profileA.id, undefined, ['rhythm']);
+    expect(resultA.has('rhythm_only_a_should_see_this')).toBe(true);
+
+    const resultB = await resolveExercisedTools(profileB.id, undefined, ['rhythm']);
+    expect(resultB.has('rhythm_only_a_should_see_this')).toBe(false);
+    // B has zero genuinely-attributable sessions — must be unavailable, not
+    // a false "available, nothing exercised" that a prune guard could pass on.
+    expect(resultB).toMatchObject({ availability: 'unavailable', reason: 'no-attributable-sessions' });
+  });
+});
+
+describe('W2 P1-3: partial coverage preserves an already-proven positive at the resolver level', () => {
+  it('a covered successful gitnexus_query session plus an uncovered sibling session still reports gitnexus canonically, under partial-structured-telemetry', async () => {
+    // Bug this catches: partial coverage used to discard EVERY already-proven
+    // positive by returning a fresh empty Set, even though one attributed
+    // session had already contributed real, readable, successful telemetry.
+    const { resolveExercisedTools } = await import('../org_exercised_tools_resolver');
+    const config = new AgentConfigsRepository().insert({ label: 'Partial positive', icon: 'x' });
+    const sessionsRepo = new AgentSessionsRepository();
+    const coveredSession = sessionsRepo.insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'covered successful session',
+      mcpRole: config.id,
+    });
+    sessionsRepo.insert({
+      taskId: null,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      name: 'uncovered sibling session',
+      mcpRole: config.id,
+    });
+    new AgentSessionMessagesRepository().upsertStructured(
+      coveredSession.id,
+      'gitnexus-use-message',
+      'output',
+      JSON.stringify([toolPart('gitnexus_query')]),
+      null,
+      null,
+    );
+
+    const result = await resolveExercisedTools(config.id, undefined, ['gitnexus']);
+    expect(result).toMatchObject({ availability: 'unavailable', reason: 'partial-structured-telemetry' });
+    expect(result.canonicalServerIds.has('gitnexus')).toBe(true);
+    expect(result.has('gitnexus')).toBe(true);
   });
 });

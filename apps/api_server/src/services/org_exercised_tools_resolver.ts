@@ -76,15 +76,86 @@ import { resolveMcpServerIdentity } from './mcp_scope_name';
 /** Default trailing window for "recently exercised" — 30 days. */
 const DEFAULT_TRAILING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-interface ToolPart {
-  type?: string;
-  tool?: string;
-  name?: string;
-}
-
 type PartsReadResult =
   | { readable: true; names: string[] }
   | { readable: false };
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function isNonNegativeInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
+}
+
+/** `time.start` (and, when `requireEnd`, `time.end >= time.start`) per the producer's ToolState time shape. */
+function isValidTimeWindow(time: unknown, requireEnd: boolean): boolean {
+  if (!isPlainRecord(time)) return false;
+  if (!isNonNegativeInt(time.start)) return false;
+  if (!requireEnd) return true;
+  return isNonNegativeInt(time.end) && (time.end as number) >= (time.start as number);
+}
+
+type ToolPartEvaluation = { readable: false } | { readable: true; tool: string; successful: boolean };
+
+/**
+ * Validate a single `type:'tool'` part against the producer schema
+ * (opencode_fork's session/message-v2.ts ToolPart/ToolState) closely enough
+ * to fail closed — a shape the producer could never actually emit makes the
+ * whole row unreadable rather than being silently ignored or (worse) counted
+ * as a successful call. `state.input` is only ever type-checked, never read
+ * or logged — it is untrusted tool-call payload, not telemetry.
+ */
+function evaluateToolPart(part: Record<string, unknown>): ToolPartEvaluation {
+  const { id, callID, tool, state } = part;
+  if (!isNonEmptyString(id) || !isNonEmptyString(callID) || !isNonEmptyString(tool)) {
+    return { readable: false };
+  }
+  if (!isPlainRecord(state) || !isPlainRecord(state.input)) {
+    return { readable: false };
+  }
+
+  switch (state.status) {
+    case 'pending':
+      if (!isNonEmptyString(state.raw)) return { readable: false };
+      return { readable: true, tool, successful: false };
+
+    case 'running':
+      if (!isValidTimeWindow(state.time, false)) return { readable: false };
+      if (state.title !== undefined && typeof state.title !== 'string') return { readable: false };
+      if (state.metadata !== undefined && !isPlainRecord(state.metadata)) return { readable: false };
+      return { readable: true, tool, successful: false };
+
+    case 'error':
+      if (!isNonEmptyString(state.error)) return { readable: false };
+      if (state.metadata !== undefined && !isPlainRecord(state.metadata)) return { readable: false };
+      if (!isValidTimeWindow(state.time, true)) return { readable: false };
+      return { readable: true, tool, successful: false };
+
+    case 'completed': {
+      if (typeof state.output !== 'string') return { readable: false };
+      if (typeof state.title !== 'string') return { readable: false };
+      if (!isPlainRecord(state.metadata)) return { readable: false };
+      if (!isValidTimeWindow(state.time, true)) return { readable: false };
+      let isError = false;
+      if (state.mcpResult !== undefined) {
+        if (!isPlainRecord(state.mcpResult)) return { readable: false };
+        if (state.mcpResult.isError !== undefined && typeof state.mcpResult.isError !== 'boolean') {
+          return { readable: false };
+        }
+        isError = state.mcpResult.isError === true;
+      }
+      return { readable: true, tool, successful: !isError };
+    }
+
+    default:
+      return { readable: false };
+  }
+}
 
 function extractToolNamesFromPartsJson(partsJson: string | null): PartsReadResult {
   if (!partsJson) return { readable: false };
@@ -93,12 +164,11 @@ function extractToolNamesFromPartsJson(partsJson: string | null): PartsReadResul
     if (!Array.isArray(parts)) return { readable: false };
     const names: string[] = [];
     for (const part of parts) {
-      if (part && typeof part === 'object' && (part as ToolPart).type === 'tool') {
-        const toolPart = part as ToolPart;
-        const name = toolPart.tool ?? toolPart.name;
-        if (typeof name !== 'string' || !name.trim()) return { readable: false };
-        names.push(name);
-      }
+      // Non-tool parts (and non-object entries) are ignored, not counted.
+      if (!isPlainRecord(part) || part.type !== 'tool') continue;
+      const outcome = evaluateToolPart(part);
+      if (!outcome.readable) return { readable: false };
+      if (outcome.successful) names.push(outcome.tool);
     }
     return { readable: true, names };
   } catch {
@@ -119,6 +189,15 @@ export type ExercisedTelemetryUnavailableReason =
 interface ExercisedToolsTelemetryBase {
   rawCallableNames: Set<string>;
   canonicalServerIds: Set<string>;
+  /**
+   * The live MCP server catalog captured at resolution time — the SAME
+   * catalog `canonicalServerIds` was resolved against. Lets a downstream
+   * caller (org_proposal_measure's functional guard) canonicalize a raw
+   * scope-removal name — which may be in an alias form (`nfl-mcp` vs the
+   * live `nfl_mcp`) — against the identical live identity space before
+   * comparing it to `canonicalServerIds`, instead of comparing raw strings.
+   */
+  knownServerIds: Set<string>;
   /** Compatibility accessor for legacy callers; safety decisions use the discriminant. */
   has(name: string): boolean;
 }
@@ -136,6 +215,7 @@ function telemetryResult(
   unavailableReason?: ExercisedTelemetryUnavailableReason,
 ): ExercisedToolsTelemetry {
   const catalog = knownServerNames ? [...knownServerNames] : [];
+  const knownServerIds = new Set(catalog);
   const canonicalServerIds = new Set<string>();
   if (catalog.length > 0) {
     for (const callableName of rawCallableNames) {
@@ -145,8 +225,8 @@ function telemetryResult(
   }
   const has = (name: string) => rawCallableNames.has(name) || canonicalServerIds.has(name);
   return unavailableReason
-    ? { availability: 'unavailable', reason: unavailableReason, rawCallableNames, canonicalServerIds, has }
-    : { availability: 'available', rawCallableNames, canonicalServerIds, has };
+    ? { availability: 'unavailable', reason: unavailableReason, rawCallableNames, canonicalServerIds, knownServerIds, has }
+    : { availability: 'available', rawCallableNames, canonicalServerIds, knownServerIds, has };
 }
 
 /**
@@ -209,11 +289,19 @@ export async function resolveExercisedTools(
     // real profile row. This is what makes tool usage from ad hoc
     // interactive sessions (no scheduled_task_id) visible to the functional
     // guard, closing the prior "interactive-only usage looks unexercised" gap.
+    //
+    // W2: `scheduled_task_id IS NULL` is REQUIRED here — scheduled ownership
+    // (Join 1) is the strongest signal and always wins. A session actually
+    // triggered by a scheduled task belongs ONLY to that task's owner, even if
+    // its `mcp_role` column (stale, or a legacy write path) happens to name a
+    // different profile; without this bound that conflicting session would be
+    // double-attributed to the wrong profile via this join alone.
     if (configRow) {
       const mcpRoleSessionRows = db
         .prepare(
           `SELECT id FROM agent_sessions
             WHERE mcp_role = ?
+              AND scheduled_task_id IS NULL
               AND created_at >= ?`,
         )
         .all(agentConfigId, sinceIso) as { id: string }[];
@@ -264,15 +352,19 @@ export async function resolveExercisedTools(
     // traffic at all. That is missing capture, not proof the profile used
     // nothing (see module header + the W2 fail-closed contract).
     if (coveredSessionIds.size === 0) {
-      return telemetryResult(new Set<string>(), catalog, 'no-structured-telemetry');
+      return telemetryResult(exercised, catalog, 'no-structured-telemetry');
     }
 
     // Some, but not all, attributed sessions have readable coverage — the
     // observation window is partial. A profile with an uncovered session
     // could have exercised a tool only in the gap, so partial telemetry can
-    // never authorize a prune/keep decision the way full coverage can.
+    // never authorize a prune/keep (negative) decision the way full coverage
+    // can. It MUST still carry forward whatever `exercised` already proved
+    // from the sessions that WERE readable — a partial window blocks a NEW
+    // negative inference, it can never erase an already-proven positive
+    // (governing W2 rule: positive usage evidence is monotonic).
     if (coveredSessionIds.size < sessionIdSet.size) {
-      return telemetryResult(new Set<string>(), catalog, 'partial-structured-telemetry');
+      return telemetryResult(exercised, catalog, 'partial-structured-telemetry');
     }
 
     return telemetryResult(

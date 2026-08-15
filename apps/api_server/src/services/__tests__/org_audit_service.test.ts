@@ -32,6 +32,7 @@ import { AgentCookbookRepository } from '../../repositories/agent_cookbook_repos
 import { AgentWebhookEndpointsRepository } from '../../repositories/agent_webhook_endpoints_repository';
 import { AgentSessionsRepository } from '../../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../../repositories/agent_session_messages_repository';
+import { AgentScheduledTasksRepository } from '../../repositories/agent_scheduled_tasks_repository';
 import { DeniedToolEventsRepository } from '../../repositories/denied_tool_events_repository';
 
 // ── opencode_engine mock — controls isReady / listMcp / listSkills per test ──
@@ -324,7 +325,22 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
           session.id,
           'gitnexus-use',
           'output',
-          JSON.stringify([{ type: 'tool', tool: 'gitnexus_query' }]),
+          JSON.stringify([
+            {
+              type: 'tool',
+              id: 'part-gitnexus-query',
+              callID: 'call-gitnexus-query',
+              tool: 'gitnexus_query',
+              state: {
+                status: 'completed',
+                input: {},
+                output: 'ok',
+                title: 'gitnexus_query',
+                metadata: {},
+                time: { start: 0, end: 1 },
+              },
+            },
+          ]),
           null,
           null,
         );
@@ -746,6 +762,89 @@ describe('issue-934-c2: buildOrgAuditSnapshot stays read-only with workflow sign
     for (const t of tables) after[t] = (db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
 
     expect(after).toEqual(before);
+  });
+});
+
+describe('W2 P1-2: scheduled ownership beats mcp_role for session-count/telemetry attribution', () => {
+  it('ten sessions scheduled for owner-a but carrying interactive-target mcp_role contribute activity/telemetry only to owner-a', async () => {
+    // Bug this catches: sessionCountByProfile counted every session under its
+    // (possibly stale/conflicting) mcp_role regardless of a stronger
+    // scheduled-task ownership tie, so a batch of sessions genuinely
+    // scheduled for one profile could inflate a DIFFERENT profile's
+    // observation floor / cross-contaminate its usage telemetry purely via a
+    // mismatched mcp_role column.
+    listMcp.mockResolvedValue({ gitnexus: { name: 'gitnexus' } });
+
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'owner-a',
+      label: 'Owner A',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    configsRepo.insert({
+      id: 'interactive-target',
+      label: 'Interactive Target',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['gitnexus']),
+    });
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id IN (?, ?)`)
+      .run(
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        'owner-a',
+        'interactive-target',
+      );
+
+    const schedRepo = new AgentScheduledTasksRepository();
+    const task = await schedRepo.createAsync({
+      name: 'Owner A Daily Run',
+      scheduleType: 'daily',
+      prompt: 'do owner-a things',
+      agentConfigId: 'owner-a',
+    });
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    for (let i = 0; i < 10; i++) {
+      const session = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `scheduled-for-a-${i}`,
+        scheduledTaskId: task.id,
+        // Conflicting/stale mcp_role naming the OTHER profile.
+        mcpRole: 'interactive-target',
+        // A legacy/inconsistent row: category says 'chat' (visible to this
+        // listAll(1000, {includeArchived:true}) call, no scope override)
+        // despite scheduledTaskId being set — exactly the "stale/conflicting"
+        // data shape the module doc's migration note describes.
+        category: 'chat',
+      });
+      sessionsRepo.updateStatus(session.id, 'idle');
+      // A readable, genuinely-empty structured row — proves structured
+      // telemetry actually covered this session's traffic (the W2 fail-closed
+      // available-empty distinction), so owner-a's telemetry is 'available'.
+      messagesRepo.upsertStructured(session.id, `scheduled-for-a-${i}-msg`, 'output', '[]', null, null);
+    }
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    // owner-a cleared the activity/observation floor via the scheduled
+    // sessions it actually owns, and never used gitnexus -> tighten-scope gap.
+    const ownerAGap = snapshot.gaps.find(
+      (g) => g.kind === 'tighten-scope' && g.evidence.includes('owner-a') && g.evidence.includes('gitnexus'),
+    );
+    expect(ownerAGap).toBeDefined();
+    expect(ownerAGap?.evidence).toMatch(/sessionCount=10/);
+
+    // interactive-target got NONE of that activity (no gap at all — it
+    // never clears the floor, and it must not look like a judged
+    // "available-empty" profile either).
+    expect(
+      snapshot.gaps.filter((g) => g.kind === 'tighten-scope' && g.evidence.includes('interactive-target')),
+    ).toEqual([]);
   });
 });
 

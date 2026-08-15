@@ -33,6 +33,7 @@ import { resolveExercisedTools } from './org_exercised_tools_resolver';
 import { resolveProfileMcpScope, type ProfileMcpScopeShape } from './agent_profile_scope';
 import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import { AgentWebhookEndpointsRepository } from '../repositories/agent_webhook_endpoints_repository';
@@ -496,19 +497,41 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const delegationEdges = buildDelegationEdges(profiles);
 
   const sessions = sessionsRepo.listAll(1000, { includeArchived: true });
+
+  // W2: scheduled ownership beats mcp_role. A session tied to a scheduled
+  // task (agent_scheduled_tasks.agent_config_id) belongs ONLY to that task's
+  // owner for activity-counting purposes, even if its `mcp_role` column
+  // (stale, or written by a legacy/interactive-labelled path) names a
+  // different profile — otherwise a batch of sessions scheduled for profile A
+  // could inflate profile B's observation floor and let B's telemetry look
+  // observed/available-empty (or B could steal A's activity) purely off a
+  // conflicting mcp_role value.
+  const scheduledTasks = await new AgentScheduledTasksRepository().listAllAsync();
+  const scheduledTaskOwnerById = new Map<string, string | null>();
+  for (const task of scheduledTasks) scheduledTaskOwnerById.set(task.id, task.agentConfigId);
+
   const sessionCountByProfile = new Map<string, number>();
   for (const session of sessions) {
-    if (!session.mcpRole) continue;
     // #1004: only sessions that ACTUALLY EXECUTED count toward the tighten-scope
     // observation floor. A run stuck at 'starting' or that 'error'ed never invoked
     // any tool — counting it lets "never invoked" masquerade as "unused" when the
     // agent simply never ran, which is how the optimizer over-pruned live agents'
     // MCPs. Under-counting only makes pruning MORE conservative (the safe direction).
     if (session.status === 'starting' || session.status === 'error') continue;
-    sessionCountByProfile.set(
-      session.mcpRole,
-      (sessionCountByProfile.get(session.mcpRole) ?? 0) + 1,
-    );
+
+    if (session.scheduledTaskId) {
+      const ownerId = scheduledTaskOwnerById.get(session.scheduledTaskId);
+      // Fail closed: an unresolvable/unowned scheduled task counts toward
+      // NEITHER profile rather than guessing via mcp_role.
+      if (!ownerId || !validConfigIds.has(ownerId)) continue;
+      sessionCountByProfile.set(ownerId, (sessionCountByProfile.get(ownerId) ?? 0) + 1);
+      continue;
+    }
+
+    // True interactive session (no scheduled task) — mcp_role is only trusted
+    // when it is a validated exact agent_configs.id match.
+    if (!session.mcpRole || !validConfigIds.has(session.mcpRole)) continue;
+    sessionCountByProfile.set(session.mcpRole, (sessionCountByProfile.get(session.mcpRole) ?? 0) + 1);
   }
 
   // #857 — observation window per profile: wall-clock age since the profile
