@@ -630,15 +630,18 @@ describe('issue-826: human-gate review queue API', () => {
 
     // W1 package C: the projection AND its compensating projection are both
     // blocked, so the atomic inverse restores the exact prior target bytes and
-    // the durable human claim survives at `approved` — never at a half-applied
-    // `applied` — while the route reports the unresolved state.
+    // the unresolved operation is recorded DURABLY as reconciliation-required
+    // — an operator can see it, and no automatic path can sweep it onward.
     expect(res.status).toBe(409);
+    expect(await res.text()).toMatch(/reconciliation-required/);
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
-    expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
-      status: 'approved',
+    const settled = await repo.findByIdAsync(proposal.id);
+    expect(settled).toMatchObject({
+      status: 'reconciliation-required',
       decidedByUserId: 0,
       changeJson: exactChangeJson,
     });
+    expect(settled?.reconciliationReason).toMatch(/compensating projection/);
     expect((await repo.findByIdAsync(proposal.id))?.beforeSnapshotJson).toContain('scope-delta-v2');
     expect(measureSpy).not.toHaveBeenCalled();
   });

@@ -1456,6 +1456,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_org_proposals
       ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS reconciliation_reason TEXT;
   `);
   // `revision` is the lifecycle CAS token, so the same two invariants the
   // SQLite engine installs (see installRevisionInvariants in migrations.ts)

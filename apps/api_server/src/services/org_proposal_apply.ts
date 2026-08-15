@@ -54,6 +54,7 @@ import {
   type AgentScheduledTask,
 } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
+import { projectLatestAgentProfile } from './agent_profile_projection_service';
 import {
   writeManagedSkill,
   deleteManagedSkill,
@@ -718,11 +719,30 @@ export async function revertProposal(
         ? patch.measureReason
         : proposal.measureReason;
 
+      // Revision-bound on BOTH rows: a value-only CAS cannot see an
+      // A -> B -> A operator sequence, which is the same ABA hole the apply
+      // lane fences against. The proposal revision comes from the row the
+      // caller already read — deliberately NOT a fresh readback, so a read
+      // outage cannot turn a committed revert into a reported failure.
+      const expectedProposalRevision = proposal.revision;
+      const liveTarget = configsRepo.getById(scopeSnapshot.target.id);
+      if (!Number.isSafeInteger(expectedProposalRevision) || (expectedProposalRevision as number) < 0) {
+        logger.warn(
+          `[org-proposal-apply] scope revert for '${proposal.id}' has no usable CAS token — refusing`,
+        );
+        return 'conflict';
+      }
+      if (!liveTarget) {
+        logger.warn(`[org-proposal-apply] scope revert target vanished for '${proposal.id}'`);
+        return 'conflict';
+      }
       let transitioned;
       try {
-        transitioned = await proposalsRepo.transitionScopeAtomicallyAsync({
+        transitioned = await proposalsRepo.transitionScopeAtomicallyAtRevisionsAsync({
           proposalId: proposal.id,
           expectedProposalStatus: proposal.status,
+          expectedProposalRevision: expectedProposalRevision as number,
+          expectedTargetRevision: liveTarget.revision,
           nextProposalStatus: 'reverted',
           expectedKind: proposal.kind,
           expectedChangeJson: proposal.changeJson!,
@@ -747,13 +767,25 @@ export async function revertProposal(
         return 'conflict';
       }
 
-      const projection = writeAgentProfileFile(transitioned.target);
+      // Project by ID + committed revision, never the row this function is
+      // holding: the await above is a real suspension point, so a concurrent
+      // operator edit may already be committed AND projected by now. The
+      // boundary re-reads the latest row so the file can lag the database but
+      // can never contradict a newer revision.
+      const projectionOutcome = projectLatestAgentProfile({
+        profileId: scopeSnapshot.target.id,
+        expectedRevision: transitioned.target.revision,
+        cause: 'scope-revert',
+      });
+      const projection = projectionOutcome.kind === 'missing' ? 'failed' : projectionOutcome.kind;
       if (projection === 'blocked' || projection === 'failed') {
         let inverse;
         try {
-          inverse = await proposalsRepo.transitionScopeAtomicallyAsync({
+          inverse = await proposalsRepo.transitionScopeAtomicallyAtRevisionsAsync({
             proposalId: proposal.id,
             expectedProposalStatus: 'reverted',
+            expectedProposalRevision: transitioned.proposal.revision,
+            expectedTargetRevision: transitioned.target.revision,
             nextProposalStatus: proposal.status,
             expectedKind: proposal.kind,
             expectedChangeJson: proposal.changeJson!,
@@ -780,7 +812,12 @@ export async function revertProposal(
           );
           return 'reconciliation-required';
         }
-        const inverseProjection = writeAgentProfileFile(inverse.target);
+        const inverseOutcome = projectLatestAgentProfile({
+          profileId: scopeSnapshot.target.id,
+          expectedRevision: inverse.target.revision,
+          cause: 'scope-compensation',
+        });
+        const inverseProjection = inverseOutcome.kind === 'missing' ? 'failed' : inverseOutcome.kind;
         if (inverseProjection === 'blocked' || inverseProjection === 'failed') {
           logger.warn(
             `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +

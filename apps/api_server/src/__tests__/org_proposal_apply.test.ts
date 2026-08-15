@@ -1134,11 +1134,16 @@ describe('W1: deferred human scope apply CAS', () => {
       expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(prior);
       // The exact atomic inverse restored BOTH rows: the durable human claim
       // survives at `approved`, never at a half-applied `applied`.
+      // The unresolved operation is now DURABLE: an operator can see it in the
+      // proposal list instead of an indistinguishable `approved` row.
+      expect(outcome).toMatchObject({ kind: 'reconciliation-required', durable: true });
       expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
-        status: 'approved',
+        status: 'reconciliation-required',
         beforeSnapshotJson: prepared.beforeSnapshotJson,
         decidedByUserId: 77,
       });
+      expect((await proposalsRepo.findByIdAsync(proposal.id))?.reconciliationReason)
+        .toMatch(/compensating projection/);
     },
   );
 
@@ -1173,9 +1178,10 @@ describe('W1: deferred human scope apply CAS', () => {
       });
 
     const outcome = await runScopeLifecycle(proposal, prepared, 77);
-    expect(outcome.kind).toBe('reconciliation-required');
+    expect(outcome).toMatchObject({ kind: 'reconciliation-required', durable: true });
     expect(configsRepo.getById(config.id)?.allowedMcpsJson).toBe(concurrent);
-    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('applied');
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status)
+      .toBe('reconciliation-required');
   });
 
   for (const field of ['allowedSkillsJson', 'corePermissionsJson'] as const) {
@@ -1234,7 +1240,7 @@ describe('W1: deferred human scope apply CAS', () => {
             expect(readScopeField(configsRepo, config.id, field)).toBe(snapshot.expectedAppliedValue);
           }
           expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
-            status: refused ? 'approved' : 'measuring',
+            status: refused ? 'reconciliation-required' : 'measuring',
             decidedByUserId: 88,
             changeJson: exactChangeJson,
             beforeSnapshotJson: prepared.beforeSnapshotJson,
@@ -1291,9 +1297,10 @@ describe('W1: deferred human scope apply CAS', () => {
         });
 
       const outcome = await runScopeLifecycle(proposal, prepared, 91);
-      expect(outcome.kind).toBe('reconciliation-required');
+      expect(outcome).toMatchObject({ kind: 'reconciliation-required', durable: true });
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(concurrent);
-      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('applied');
+      expect((await proposalsRepo.findByIdAsync(proposal.id))?.status)
+        .toBe('reconciliation-required');
     } finally {
       process.env.VITEST = originalVitest;
       process.env.NODE_ENV = originalNodeEnv;
@@ -1333,10 +1340,10 @@ describe('W1: deferred human scope apply CAS', () => {
       // HOME=/dev/null fails the compensating projection too, so the restored
       // database pair is durable but file coherence is unknown.
       const outcome = await runScopeLifecycle(proposal, prepared, 92);
-      expect(outcome.kind).toBe('reconciliation-required');
+      expect(outcome).toMatchObject({ kind: 'reconciliation-required', durable: true });
       expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(prior);
       expect(await proposalsRepo.findByIdAsync(proposal.id)).toMatchObject({
-        status: 'approved', changeJson: exactChangeJson, decidedByUserId: 92,
+        status: 'reconciliation-required', changeJson: exactChangeJson, decidedByUserId: 92,
       });
     } finally {
       process.env.VITEST = originalVitest;

@@ -2323,6 +2323,16 @@ export function runMigrations(db: Database.Database): void {
 
   installRevisionInvariants(db, 'agent_org_proposals');
 
+  // W1 package C — durable evidence for `status = 'reconciliation-required'`.
+  // Kept out of `measure_reason` so measurement prose and an unresolved
+  // operation can never be mistaken for one another.
+  const orgProposalReconciliationCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!orgProposalReconciliationCols.includes('reconciliation_reason')) {
+    db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN reconciliation_reason TEXT`);
+  }
+
   // #1053 (OCU-12) — org_skills: the org's shared skill library, hosted on
   // the production API in the engine-compatible skills.urls format
   // (index.json + file serving — see org_skills_routes.ts). Reads are PUBLIC

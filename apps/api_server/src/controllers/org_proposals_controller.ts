@@ -127,8 +127,11 @@ export class OrgProposalsController {
         if (outcome.kind === 'conflict') throw AppError.conflict(`Proposal ${id}: ${outcome.reason}`);
         if (outcome.kind === 'reconciliation-required') {
           throw AppError.conflict(
-            `Proposal ${id}: ${outcome.reason}; the proposal, target scope, and projected profile ` +
-            'must be inspected before retrying',
+            `Proposal ${id}: ${outcome.reason}; ` +
+            (outcome.durable
+              ? "the proposal is recorded as 'reconciliation-required'"
+              : 'the reconciliation record itself could NOT be persisted') +
+            ' — the proposal, target scope, and projected profile must be inspected before retrying',
           );
         }
         void measureProposal(outcome.proposal).catch((err) =>

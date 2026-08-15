@@ -31,10 +31,18 @@ import type { PreparedScopePair } from './org_proposal_apply_service';
 export type ScopeApplyOutcome =
   /** Pair committed, latest revision projected, proposal advanced to measuring. */
   | { kind: 'measuring'; proposal: RevisionedAgentOrgProposal }
-  /** Nothing durable changed, or the exact inverse restored the prior bytes. */
+  /**
+   * Nothing durable changed, or the exact inverse restored the prior bytes.
+   * The proposal is left in a re-approvable status, never stranded.
+   */
   | { kind: 'conflict'; reason: string }
-  /** Coherence could not be proved; a human must inspect the pair. */
-  | { kind: 'reconciliation-required'; reason: string };
+  /**
+   * Coherence could not be proved; a human or the recovery service must
+   * inspect the pair. `durable` is false when even the reconciliation record
+   * could not be written — the caller must say so rather than imply the state
+   * was recorded.
+   */
+  | { kind: 'reconciliation-required'; reason: string; durable: boolean };
 
 export interface ApplyApprovedScopeDeps {
   proposalsRepo?: AgentOrgProposalsRepository;
@@ -135,6 +143,51 @@ function describeProjection(outcome: ProjectionOutcome): string {
 }
 
 /**
+ * The claim is void: the target moved, or the pair was atomically restored.
+ * Put the row back in a status `approve()` accepts so one benign concurrent
+ * config edit cannot strand a proposal that nothing else can move.
+ */
+async function releaseClaim(
+  proposalsRepo: AgentOrgProposalsRepository,
+  proposalId: string,
+  expectedRevision: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await proposalsRepo.updateStatusAtRevisionAsync(proposalId, expectedRevision, 'failed', {
+      measureReason: reason,
+    });
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-scope-lifecycle] could not release the approved claim on ` +
+      `'${proposalId}': ${String(error)}`,
+    );
+  }
+}
+
+/** Durably records an unresolved operation, and reports whether it stuck. */
+async function markReconciliation(
+  proposalsRepo: AgentOrgProposalsRepository,
+  proposalId: string,
+  expectedStatus: string,
+  expectedRevision: number,
+  reason: string,
+): Promise<ScopeApplyOutcome> {
+  try {
+    const marked = await proposalsRepo.markReconciliationRequiredAsync({
+      proposalId, expectedStatus, expectedRevision, reason,
+    });
+    return { kind: 'reconciliation-required', reason, durable: marked !== null };
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-scope-lifecycle] could not persist reconciliation for ` +
+      `'${proposalId}': ${String(error)}`,
+    );
+    return { kind: 'reconciliation-required', reason, durable: false };
+  }
+}
+
+/**
  * Runs the whole human scope route for one prepared proposal. Never mutates
  * the target before the durable `approved` claim wins, and never advances to
  * `measuring` before the exact applied revision is proved to be on disk.
@@ -169,10 +222,12 @@ export async function applyApprovedScopeProposal(input: {
   }
 
   // 2. One atomic transaction over BOTH rows. A miss changes neither, and the
-  //    proposal is left at `approved` so recovery can inspect the exact claim.
+  //    now-void claim is released so the row stays re-approvable.
   const target = configsRepo.getById(pair.targetId);
   if (!target) {
-    return { kind: 'conflict', reason: `scope target ${pair.targetId} no longer exists` };
+    const reason = `scope target ${pair.targetId} no longer exists`;
+    await releaseClaim(proposalsRepo, proposal.id, approved.revision, reason);
+    return { kind: 'conflict', reason };
   }
   let applied;
   try {
@@ -206,35 +261,39 @@ export async function applyApprovedScopeProposal(input: {
         `[org-proposal-scope-lifecycle] atomic apply failed and rolled back for ` +
         `'${proposal.id}': ${String(error)}`,
       );
-      return {
-        kind: 'conflict',
-        reason: 'the atomic apply transaction failed and neither row changed',
-      };
+      const reason = 'the atomic apply transaction failed and neither row changed';
+      await releaseClaim(proposalsRepo, proposal.id, approved.revision, reason);
+      return { kind: 'conflict', reason };
     }
     if (classified.kind === 'unknown') {
       logger.warn(
         `[org-proposal-scope-lifecycle] atomic apply reported an ambiguous error for ` +
         `'${proposal.id}'; reconciliation required: ${String(error)}`,
       );
-      return {
-        kind: 'reconciliation-required',
-        reason: 'the atomic apply transaction reported an indeterminate result',
-      };
+      return await markReconciliation(
+        proposalsRepo, proposal.id, 'approved', approved.revision,
+        'the atomic apply transaction reported an indeterminate result',
+      );
     }
     logger.warn(
       `[org-proposal-scope-lifecycle] atomic apply threw after a durable commit for ` +
       `'${proposal.id}': ${String(error)}`,
     );
-    applied = {
-      proposal: (await proposalsRepo.findByIdAsync(proposal.id))!,
-      target: configsRepo.getById(pair.targetId)!,
-    };
+    const settledProposal = await proposalsRepo.findByIdAsync(proposal.id);
+    const settledTarget = configsRepo.getById(pair.targetId);
+    if (!settledProposal || !settledTarget) {
+      return {
+        kind: 'reconciliation-required',
+        reason: 'the atomic apply committed but its rows could not be re-read',
+        durable: false,
+      };
+    }
+    applied = { proposal: settledProposal, target: settledTarget };
   }
   if (!applied) {
-    return {
-      kind: 'conflict',
-      reason: `scope target ${pair.targetId}.${pair.field} changed after approval preparation`,
-    };
+    const reason = `scope target ${pair.targetId}.${pair.field} changed after approval preparation`;
+    await releaseClaim(proposalsRepo, proposal.id, approved.revision, reason);
+    return { kind: 'conflict', reason };
   }
 
   // 3. Project by ID + committed revision. The boundary re-reads the latest
@@ -251,10 +310,10 @@ export async function applyApprovedScopeProposal(input: {
       'measuring',
     );
     if (!measuring) {
-      return {
-        kind: 'reconciliation-required',
-        reason: 'the applied pair was projected but the measuring transition lost its revision CAS',
-      };
+      return await markReconciliation(
+        proposalsRepo, proposal.id, 'applied', applied.proposal.revision,
+        'the applied pair was projected but the measuring transition lost its revision CAS',
+      );
     }
     return { kind: 'measuring', proposal: measuring };
   }
@@ -290,15 +349,25 @@ export async function applyApprovedScopeProposal(input: {
       `'${proposal.id}' (durable state: ${classified.kind}): ${String(error)}`,
     );
     if (classified.kind !== 'postimage') {
+      return await markReconciliation(
+        proposalsRepo, proposal.id, 'applied', applied.proposal.revision,
+        'the compensating transaction reported an indeterminate result',
+      );
+    }
+    // Re-read through the same consistent classification, not a bare
+    // non-null assertion: the row could have been deleted in between, and a
+    // TypeError escaping here would turn a recoverable ambiguity into a 500
+    // with the pair left at `applied`.
+    const settledProposal = await proposalsRepo.findByIdAsync(proposal.id);
+    const settledTarget = configsRepo.getById(pair.targetId);
+    if (!settledProposal || !settledTarget) {
       return {
         kind: 'reconciliation-required',
-        reason: 'the compensating transaction reported an indeterminate result',
+        reason: 'the compensating transaction committed but its rows could not be re-read',
+        durable: false,
       };
     }
-    inverse = {
-      proposal: (await proposalsRepo.findByIdAsync(proposal.id))!,
-      target: configsRepo.getById(pair.targetId)!,
-    };
+    inverse = { proposal: settledProposal, target: settledTarget };
   }
   if (!inverse) {
     // Someone else owns those bytes now. Restoring them blindly would destroy
@@ -307,11 +376,11 @@ export async function applyApprovedScopeProposal(input: {
       `[org-proposal-scope-lifecycle] projection ${describeProjection(projection)} for ` +
       `'${proposal.id}' and the exact inverse lost its CAS; reconciliation required`,
     );
-    return {
-      kind: 'reconciliation-required',
-      reason: `profile projection ${describeProjection(projection)} and the exact compensation ` +
-        'lost a concurrent update, so the target bytes were preserved as found',
-    };
+    return await markReconciliation(
+      proposalsRepo, proposal.id, 'applied', applied.proposal.revision,
+      `profile projection ${describeProjection(projection)} and the exact compensation ` +
+      'lost a concurrent update, so the target bytes were preserved as found',
+    );
   }
 
   const compensationProjection = project({
@@ -321,16 +390,15 @@ export async function applyApprovedScopeProposal(input: {
   });
   if (compensationProjection.kind === 'blocked' || compensationProjection.kind === 'failed' ||
       compensationProjection.kind === 'missing') {
-    return {
-      kind: 'reconciliation-required',
-      reason: `profile projection ${describeProjection(projection)}; the database pair was ` +
-        `atomically restored but the compensating projection ` +
-        `${describeProjection(compensationProjection)}`,
-    };
+    return await markReconciliation(
+      proposalsRepo, proposal.id, 'approved', inverse.proposal.revision,
+      `profile projection ${describeProjection(projection)}; the database pair was ` +
+      `atomically restored but the compensating projection ` +
+      `${describeProjection(compensationProjection)}`,
+    );
   }
-  return {
-    kind: 'conflict',
-    reason: `profile projection ${describeProjection(projection)}; the exact prior scope and the ` +
-      'approved claim were atomically restored',
-  };
+  const reason = `profile projection ${describeProjection(projection)}; the exact prior scope and ` +
+    'the approved claim were atomically restored';
+  await releaseClaim(proposalsRepo, proposal.id, inverse.proposal.revision, reason);
+  return { kind: 'conflict', reason };
 }

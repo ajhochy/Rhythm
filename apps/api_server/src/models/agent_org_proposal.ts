@@ -79,6 +79,12 @@ export interface AgentOrgProposal {
   baselineScore: number | null;
   postScore: number | null;
   measureReason: string | null;
+  /**
+   * Why proposal/target/projection coherence could not be proved. Kept
+   * separate from `measureReason` on purpose: measurement prose and an
+   * unresolved-operation record must never be mistaken for one another.
+   */
+  reconciliationReason?: string | null;
   decidedByUserId: number | null;
   /** Monotonic lifecycle CAS token. Incremented exactly once per mutation. */
   revision?: number;
@@ -105,6 +111,7 @@ export interface AgentOrgProposalInput {
   baselineScore?: number | null;
   postScore?: number | null;
   measureReason?: string | null;
+  reconciliationReason?: string | null;
   decidedByUserId?: number | null;
 }
 
@@ -134,6 +141,7 @@ export function agentOrgProposalFromJson(json: Record<string, unknown>): Revisio
     baselineScore: (json.baselineScore as number | null) ?? null,
     postScore: (json.postScore as number | null) ?? null,
     measureReason: (json.measureReason as string | null) ?? null,
+    reconciliationReason: (json.reconciliationReason as string | null) ?? null,
     decidedByUserId: (json.decidedByUserId as number | null) ?? null,
     revision: (json.revision as number) ?? 0,
     createdAt: json.createdAt as string,
@@ -161,6 +169,7 @@ export function agentOrgProposalToJson(proposal: AgentOrgProposal): Record<strin
     baselineScore: proposal.baselineScore,
     postScore: proposal.postScore,
     measureReason: proposal.measureReason,
+    reconciliationReason: proposal.reconciliationReason,
     decidedByUserId: proposal.decidedByUserId,
     revision: proposal.revision,
     createdAt: proposal.createdAt,

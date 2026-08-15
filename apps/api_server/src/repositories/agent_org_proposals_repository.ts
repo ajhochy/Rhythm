@@ -54,6 +54,7 @@ interface AgentOrgProposalRow {
   baseline_score: number | null;
   post_score: number | null;
   measure_reason: string | null;
+  reconciliation_reason?: string | null;
   decided_by_user_id: number | null;
   revision: number;
   // created_at/updated_at come back as a plain string from SQLite (TEXT) but
@@ -86,12 +87,26 @@ interface AgentOrgProposalRow {
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   proposed: ['approved', 'rejected', 'applied', 'failed'],
-  approved: ['applied'],
-  applied: ['measuring'],
-  measuring: ['active', 'reverted', 'rejected'],
+  /**
+   * `approved` is a durable human claim with the target still untouched. It
+   * must have an exit that is not the atomic pair: if the target moves between
+   * the claim and the pair, the claim is void and the row has to become
+   * re-approvable again, or one benign concurrent config edit strands the
+   * proposal forever (`approve()` accepts only proposed|failed).
+   */
+  approved: ['applied', 'failed', 'reconciliation-required'],
+  applied: ['measuring', 'reconciliation-required'],
+  measuring: ['active', 'reverted', 'rejected', 'reconciliation-required'],
   rejected: [],
-  active: ['reverted'],
-  reverted: [],
+  active: ['reverted', 'reconciliation-required'],
+  reverted: ['reconciliation-required'],
+  /**
+   * Durable evidence that proposal/target/projection coherence could not be
+   * proved. Terminal for every automatic path on purpose: only a human or the
+   * dedicated recovery service may resolve it, and only after proving a
+   * recognized pair. Nothing here may be swept back into the normal lifecycle.
+   */
+  'reconciliation-required': [],
   /**
    * #1056 — publish-skill-to-org's applier marks a prod-down/unreachable
    * publish attempt 'failed' instead of leaving the proposal stuck at
@@ -264,6 +279,7 @@ function rowToModel(row: AgentOrgProposalRow): RevisionedAgentOrgProposal {
     baselineScore: row.baseline_score ?? null,
     postScore: row.post_score ?? null,
     measureReason: row.measure_reason ?? null,
+    reconciliationReason: row.reconciliation_reason ?? null,
     decidedByUserId: row.decided_by_user_id ?? null,
     revision: readPersistedRevision(
       row.revision,
@@ -604,6 +620,10 @@ export class AgentOrgProposalsRepository {
         fields.push('measure_reason = ?');
         values.push(patch.measureReason ?? null);
       }
+      if (patch.reconciliationReason !== undefined) {
+        fields.push('reconciliation_reason = ?');
+        values.push(patch.reconciliationReason ?? null);
+      }
       if (patch.decidedByUserId !== undefined) {
         fields.push('decided_by_user_id = ?');
         values.push(patch.decidedByUserId ?? null);
@@ -806,6 +826,35 @@ export class AgentOrgProposalsRepository {
       throw new Error('Revision-bound atomic scope transition requires both safe revisions');
     }
     return this.transitionScopeAtomicallyAsync(input);
+  }
+
+  /**
+   * Durably records that a proposal's coherence could not be proved, fenced on
+   * the exact status and revision the caller observed. Callers must treat a
+   * `null` return (or a throw) as "the reconciliation record is NOT durable"
+   * and say so — an unresolved operation that was never written down is worse
+   * than one that was.
+   */
+  async markReconciliationRequiredAsync(input: {
+    proposalId: string;
+    expectedStatus: string;
+    expectedRevision: number;
+    reason: string;
+  }): Promise<RevisionedAgentOrgProposal | null> {
+    if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) {
+      throw new Error('Reconciliation marking requires a non-negative integer revision');
+    }
+    const current = await this.findByIdAsync(input.proposalId);
+    if (!current) return null;
+    if (current.status !== input.expectedStatus || current.revision !== input.expectedRevision) {
+      return null;
+    }
+    return await this.updateStatusAsync(
+      input.proposalId,
+      'reconciliation-required',
+      { reconciliationReason: input.reason },
+      input.expectedRevision,
+    );
   }
 
   /**
