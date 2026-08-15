@@ -3810,6 +3810,17 @@ If someone asks for creative work that needs a local capability:
   // human/inferred verdicts do NOT edit this row; they are appended to
   // agent_run_feedback_events below, which is what keeps the objective record
   // and the subjective record from being mistaken for one another.
+  //
+  // KNOWN GAP, stated precisely rather than overclaimed: these triggers block
+  // UPDATE and DELETE. They do NOT block `INSERT OR REPLACE`, because SQLite
+  // fires BEFORE DELETE for REPLACE conflict resolution only when
+  // `PRAGMA recursive_triggers` is ON, and it is OFF (the default) throughout
+  // this codebase. No writer in this repository uses REPLACE on these tables,
+  // and turning the pragma on would change REPLACE semantics for every other
+  // table, so the guarantee is scoped honestly instead: no UPDATE or DELETE
+  // path can rewrite history. A REPLACE-shaped writer would have to be added
+  // deliberately, and the test below pins that boundary so it cannot be added
+  // silently.
   db.exec(`
     CREATE TRIGGER IF NOT EXISTS agent_run_outcomes_immutable
     BEFORE UPDATE ON agent_run_outcomes

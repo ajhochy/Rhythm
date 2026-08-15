@@ -22,7 +22,13 @@ import { buildAttribution, newLedgerId } from '../services/run_outcome_service';
  * Deliberately INSERT-ONLY. There is no update and no delete method, on either
  * table, because a finalized outcome is immutable (W4-c11) and feedback is
  * append-only (W4-c2). The schema enforces the same thing with triggers, so a
- * future caller that bypasses this class still cannot rewrite history.
+ * future caller that bypasses this class cannot UPDATE or DELETE history.
+ *
+ * That is the exact guarantee — not "cannot rewrite" in general. SQLite fires
+ * BEFORE DELETE for `INSERT OR REPLACE` only under `PRAGMA recursive_triggers`,
+ * which is off here, so a REPLACE-shaped writer would slip past the triggers.
+ * Nothing in this repository does that, and `migrations.ts` documents why the
+ * pragma is not flipped; the boundary is pinned by a test rather than assumed.
  *
  * Dual-engine, following AgentOrgProposalsRepository: SQLite uses synchronous
  * better-sqlite3 with the throwaway `:memory:` fallback for tests that never
@@ -153,6 +159,30 @@ function makeInMemoryDb(): Database.Database {
  */
 const MAX_SESSION_TREE_DEPTH = 64;
 
+/**
+ * The route validates its own input, but the repository is the surface W5 and
+ * W6 will call directly, and TypeScript disappears at runtime. Junk verdicts
+ * persisted silently until this existed.
+ */
+const TERMINAL_STATUSES = new Set(['completed', 'error', 'aborted', 'timeout']);
+const VERDICTS = new Set(['success', 'partial', 'failure', 'inconclusive']);
+const FEEDBACK_VERDICTS = new Set(['success', 'partial', 'failure']);
+const FEEDBACK_SOURCES = new Set(['explicit_user', 'inferred']);
+
+function assertEnum(value: string, allowed: Set<string>, field: string): void {
+  if (!allowed.has(value)) {
+    throw new Error(
+      `agent run ledger: '${field}' must be one of ${[...allowed].sort().join(' | ')}, got '${value}'`,
+    );
+  }
+}
+
+function assertConfidence(value: number): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`agent run ledger: 'confidence' must be a finite number in [0,1], got ${String(value)}`);
+  }
+}
+
 export class AgentRunOutcomesRepository {
   /** SQLite-only handle. Never populated (and never used) under Postgres. */
   private db: Database.Database | null;
@@ -258,6 +288,8 @@ export class AgentRunOutcomesRepository {
    * first one wrote rather than producing a competing verdict.
    */
   async finalizeAsync(input: FinalizeOutcomeInput): Promise<AgentRunOutcome> {
+    assertEnum(input.terminalStatus, TERMINAL_STATUSES, 'terminalStatus');
+    assertEnum(input.objectiveVerdict, VERDICTS, 'objectiveVerdict');
     const row = {
       id: newLedgerId(),
       root_session_id: input.rootSessionId,
@@ -305,6 +337,9 @@ export class AgentRunOutcomesRepository {
   }
 
   async appendFeedbackAsync(input: AppendFeedbackInput): Promise<AgentRunFeedbackEvent> {
+    assertEnum(input.verdict, FEEDBACK_VERDICTS, 'verdict');
+    assertEnum(input.source, FEEDBACK_SOURCES, 'source');
+    assertConfidence(input.confidence);
     const row = {
       id: newLedgerId(),
       root_session_id: input.rootSessionId,

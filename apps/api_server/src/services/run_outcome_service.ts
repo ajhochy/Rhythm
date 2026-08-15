@@ -68,16 +68,29 @@ interface AttributionInput {
   configRevision?: number | null;
 }
 
+/**
+ * Names are supposed to identify a tool or skill, but nothing structurally
+ * stops a caller — or an oddly-named MCP tool arriving through real telemetry —
+ * from putting prompt text or a credential here. The privacy gate (W4-c10) has
+ * to hold at the boundary, not only for the paths that exist today, so every
+ * attribution string is redacted and length-capped on the way in.
+ */
+const MAX_ATTRIBUTION_LENGTH = 200;
+
+function sanitizeAttributionText(value: string): string {
+  return redactSecrets(value).slice(0, MAX_ATTRIBUTION_LENGTH);
+}
+
 function attribute(
   entries: Array<{ name: string; revision?: string | null }> | undefined,
 ): AttributedRevision[] {
   return (entries ?? []).map((entry) => ({
-    name: entry.name,
+    name: sanitizeAttributionText(entry.name),
     // W4-c9: a missing revision becomes an explicit marker, never a plausible
     // stand-in borrowed from a sibling entry or from "current".
     revision:
       typeof entry.revision === 'string' && entry.revision.length > 0
-        ? entry.revision
+        ? sanitizeAttributionText(entry.revision)
         : UNKNOWN_REVISION,
   }));
 }
@@ -179,9 +192,12 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
     );
     const repo = new AgentRunOutcomesRepository();
     const rootSessionId = await repo.resolveRootSessionIdAsync(event.sessionId);
+    // The row is keyed on the ROOT run, so its objective evidence must describe
+    // the root run too. Reading the child's telemetry produced an outcome that
+    // silently ignored the root's own errors.
     const telemetry = event.evidence
       ? null
-      : await repo.findToolEvidenceAsync(event.sessionId);
+      : await repo.findToolEvidenceAsync(rootSessionId);
     const evidence: ObjectiveEvidence = event.evidence ?? {
       producedArtifact: event.producedArtifact ?? null,
       // No telemetry rows at all means "unknown", not "zero errors".

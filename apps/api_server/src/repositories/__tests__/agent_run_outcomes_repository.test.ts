@@ -217,4 +217,40 @@ describe('W4-c12 root-run resolution', () => {
   it('falls back to the session id itself when no session row exists', async () => {
     expect(await repo.resolveRootSessionIdAsync('orphan')).toBe('orphan');
   });
+
+  it('pins the exact immutability boundary: UPDATE and DELETE are blocked, REPLACE is not', () => {
+    // This test exists so the guarantee cannot quietly drift from what the
+    // schema actually provides. SQLite fires BEFORE DELETE for INSERT OR
+    // REPLACE only when PRAGMA recursive_triggers is ON; it is OFF here, so
+    // REPLACE bypasses the immutability trigger. No writer in this repository
+    // uses REPLACE. If someone turns the pragma on, or adds a REPLACE writer,
+    // one of these two assertions changes and the reviewer has to think about
+    // it — which is the point.
+    expect(db.pragma('recursive_triggers', { simple: true })).toBe(0);
+
+    db.prepare(
+      `INSERT INTO agent_run_outcomes
+         (id, session_id, root_session_id, terminal_status, objective_verdict, finalized_at)
+       VALUES ('boundary-1', 's1', 'boundary-root', 'completed', 'success', datetime('now'))`,
+    ).run();
+
+    expect(() =>
+      db.prepare(`UPDATE agent_run_outcomes SET objective_verdict = 'failure' WHERE id = 'boundary-1'`).run(),
+    ).toThrow(/immutable/);
+    expect(() =>
+      db.prepare(`DELETE FROM agent_run_outcomes WHERE id = 'boundary-1'`).run(),
+    ).toThrow(/immutable/);
+
+    // The documented gap, asserted rather than hidden.
+    db.prepare(
+      `INSERT OR REPLACE INTO agent_run_outcomes
+         (id, session_id, root_session_id, terminal_status, objective_verdict, finalized_at)
+       VALUES ('boundary-1', 's1', 'boundary-root', 'error', 'failure', datetime('now'))`,
+    ).run();
+    expect(
+      (db.prepare(`SELECT objective_verdict FROM agent_run_outcomes WHERE id = 'boundary-1'`)
+        .get() as { objective_verdict: string }).objective_verdict,
+    ).toBe('failure');
+  });
+
 });
