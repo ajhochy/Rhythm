@@ -152,6 +152,7 @@ function proposeStepsForPattern(pattern: string): string {
 async function proposeCreateRecipe(
   entry: { gapId: string; pattern: string; count: number; sessionIds: string[] },
   proposalsRepo: AgentOrgProposalsRepository,
+  auditRunId: string,
 ): Promise<AgentOrgProposal | null> {
   const dedupKey = `create-recipe:${stableHash(entry.pattern)}`;
   if (await proposalsRepo.existsByDedupKeyAsync(dedupKey)) {
@@ -166,6 +167,7 @@ async function proposeCreateRecipe(
   const risk = classifyProposalRisk({ kind: 'create-recipe', changeJson });
 
   const proposal = await proposalsRepo.createAsync({
+    auditRunId,
     kind: 'create-recipe',
     risk,
     title: `Create recipe: ${title}`,
@@ -185,6 +187,7 @@ async function proposeRefineRecipe(
   recipe: AgentCookbook,
   scorer: ScoreCall,
   proposalsRepo: AgentOrgProposalsRepository,
+  auditRunId: string,
 ): Promise<AgentOrgProposal | null> {
   const priorBody = compileStepsToBody(recipe.stepsJson);
   const purpose: SkillPurpose = {
@@ -237,6 +240,7 @@ async function proposeRefineRecipe(
   const risk = classifyProposalRisk({ kind: 'refine-recipe', changeJson });
 
   const proposal = await proposalsRepo.createAsync({
+    auditRunId,
     kind: 'refine-recipe',
     risk,
     title: `Refine recipe: ${recipe.title}`,
@@ -277,7 +281,7 @@ export async function generateRecipeProposals(
           // candidate, handled in the loop below over ALL recipes.)
           continue;
         }
-        const proposal = await proposeCreateRecipe(entry, proposalsRepo);
+        const proposal = await proposeCreateRecipe(entry, proposalsRepo, snapshot.auditRunId);
         if (proposal) created.push(proposal);
       } catch (err) {
         logger.warn(`[recipe-generator] create-recipe candidate failed (non-fatal): ${String(err)}`);
@@ -287,7 +291,7 @@ export async function generateRecipeProposals(
     const scorer: ScoreCall = deps.scorer ?? ((purpose, body) => scoreSkillBody(purpose, body));
     for (const recipe of snapshot.recipes) {
       try {
-        const proposal = await proposeRefineRecipe(recipe, scorer, proposalsRepo);
+        const proposal = await proposeRefineRecipe(recipe, scorer, proposalsRepo, snapshot.auditRunId);
         if (proposal) created.push(proposal);
       } catch (err) {
         logger.warn(`[recipe-generator] refine-recipe candidate failed (non-fatal): ${String(err)}`);

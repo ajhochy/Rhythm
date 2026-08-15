@@ -583,6 +583,7 @@ export async function runOrgOptimizer(
     if (newlyCreated.length < maxProposalsPerRun) {
       try {
         await runExternalDiscoveryGenerator({
+          auditRunId: taggedSnapshot.auditRunId,
           gaps: taggedSnapshot.gaps,
           discoverCandidates: discoverCandidatesFromEcosystem,
           maxResults: maxProposalsPerRun - newlyCreated.length,

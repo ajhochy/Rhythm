@@ -93,6 +93,7 @@ describe('issue-828-c1: drops a candidate with no matching audit gap', () => {
     const { runExternalDiscoveryGenerator } = await import('../external_discovery_generator');
 
     const result = await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps: [makeGap({ gapId: 'tighten-scope:real-gap' })],
       discoverCandidates: async () => [
         {
@@ -117,6 +118,7 @@ describe('issue-828-c1: drops a candidate with no matching audit gap', () => {
     const gap = makeGap({ gapId: 'tighten-scope:real-gap-2' });
 
     const result = await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps: [gap],
       discoverCandidates: async () => [
         {
@@ -147,6 +149,7 @@ describe('issue-828-c2: drops a candidate missing any required provenance field'
     const { license: _omit, ...incompleteProvenance } = FULL_PROVENANCE;
 
     const result = await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps: [gap],
       discoverCandidates: async () => [
         {
@@ -167,6 +170,7 @@ describe('issue-828-c2: drops a candidate missing any required provenance field'
     const gap = makeGap({ gapId: 'tighten-scope:prov-gap-2' });
 
     await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps: [gap],
       discoverCandidates: async () => [
         {
@@ -201,6 +205,7 @@ describe('issue-828-c3: every emitted proposal is risk=high, external=1', () => 
     const gap = makeGap({ gapId: 'tighten-scope:risk-gap' });
 
     await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps: [gap],
       discoverCandidates: async () => [
         { kind: 'mcp' as const, name: 'srv-a', gapId: gap.gapId, provenance: FULL_PROVENANCE },
@@ -408,6 +413,7 @@ describe('issue-828-c5: callable without a scheduler, dedup-aware, result-capped
 
     const { runExternalDiscoveryGenerator } = await import('../external_discovery_generator');
     const result = await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps: [gap],
       discoverCandidates: async () => [
         { kind: 'mcp' as const, name: 'dup-server', gapId: gap.gapId, provenance: FULL_PROVENANCE },
@@ -429,6 +435,7 @@ describe('issue-828-c5: callable without a scheduler, dedup-aware, result-capped
     ];
 
     const result = await runExternalDiscoveryGenerator({
+      auditRunId: 'test-run',
       gaps,
       maxResults: 2,
       discoverCandidates: async () =>
@@ -450,6 +457,7 @@ describe('issue-828-c5: callable without a scheduler, dedup-aware, result-capped
     const { runExternalDiscoveryGenerator } = await import('../external_discovery_generator');
     await expect(
       runExternalDiscoveryGenerator({
+        auditRunId: 'test-run',
         gaps: [makeGap()],
         discoverCandidates: async () => {
           throw new Error('scoped agent unavailable');
