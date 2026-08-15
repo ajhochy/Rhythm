@@ -104,3 +104,123 @@ describe('migration self-heal: agent_skills / agent_scheduled_tasks / agent_cook
     db.close();
   });
 });
+
+// ── W4 — immutable outcome + append-only feedback ledger ────────────────────
+//
+// Schema-level guarantees. These assert what the DATABASE refuses, not what a
+// service remembers to check: a service guard is bypassed by any second writer
+// (a concurrent finalizer, a repair script, a future caller), the schema is not.
+
+describe('W4 ledger schema', () => {
+  function migrated(): Database.Database {
+    const db = makeDb();
+    runMigrations(db);
+    return db;
+  }
+
+  it('W4-c1: the database itself refuses a second outcome row for the same root run', () => {
+    const db = migrated();
+    const insert = (id: string) =>
+      db
+        .prepare(
+          `INSERT INTO agent_run_outcomes
+             (id, root_session_id, session_id, terminal_status, objective_verdict,
+              objective_evidence_json, attribution_json, finalized_at)
+           VALUES (?, 'root-1', 'root-1', 'completed', 'success', '{}', '{}', '2026-08-15T00:00:00Z')`,
+        )
+        .run(id);
+
+    insert('outcome-1');
+    expect(() => insert('outcome-2')).toThrow(/UNIQUE/i);
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM agent_run_outcomes`).get(),
+    ).toEqual({ n: 1 });
+    db.close();
+  });
+
+  it('W4-c2: feedback rows carry source + confidence and the database refuses UPDATE/DELETE', () => {
+    const db = migrated();
+    const insert = (
+      id: string,
+      seq: number,
+      source: string,
+      verdict: string,
+      confidence: number,
+    ) =>
+      db
+        .prepare(
+          `INSERT INTO agent_run_feedback_events
+             (id, root_session_id, seq, source, verdict, confidence, created_at)
+           VALUES (?, 'root-1', ?, ?, ?, ?, '2026-08-15T00:00:00Z')`,
+        )
+        .run(id, seq, source, verdict, confidence);
+
+    insert('fb-1', 1, 'explicit_user', 'success', 1);
+    insert('fb-2', 2, 'inferred', 'failure', 0.4);
+
+    // Both verdicts survive; the later contradictory one did not replace the first.
+    expect(
+      db
+        .prepare(
+          `SELECT source, verdict FROM agent_run_feedback_events
+            WHERE root_session_id = 'root-1' ORDER BY id`,
+        )
+        .all(),
+    ).toEqual([
+      { source: 'explicit_user', verdict: 'success' },
+      { source: 'inferred', verdict: 'failure' },
+    ]);
+
+    expect(() =>
+      db.prepare(`UPDATE agent_run_feedback_events SET verdict = 'failure'`).run(),
+    ).toThrow(/append-only/i);
+    expect(() =>
+      db.prepare(`DELETE FROM agent_run_feedback_events`).run(),
+    ).toThrow(/append-only/i);
+
+    // source and confidence are mandatory — W6 weights evidence by exactly these.
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO agent_run_feedback_events
+             (id, root_session_id, seq, source, verdict, confidence, created_at)
+           VALUES ('fb-3', 'root-1', 3, NULL, 'success', 1, '2026-08-15T00:00:00Z')`,
+        )
+        .run(),
+    ).toThrow(/NOT NULL/i);
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO agent_run_feedback_events
+             (id, root_session_id, seq, source, verdict, confidence, created_at)
+           VALUES ('fb-4', 'root-1', 4, 'inferred', 'success', NULL, '2026-08-15T00:00:00Z')`,
+        )
+        .run(),
+    ).toThrow(/NOT NULL/i);
+    db.close();
+  });
+
+  it('W4-c11: a finalized outcome row cannot be mutated or deleted', () => {
+    const db = migrated();
+    db.prepare(
+      `INSERT INTO agent_run_outcomes
+         (id, root_session_id, session_id, terminal_status, objective_verdict,
+          objective_evidence_json, attribution_json, finalized_at)
+       VALUES ('o-1', 'root-1', 'root-1', 'completed', 'failure', '{}', '{}', '2026-08-15T00:00:00Z')`,
+    ).run();
+
+    expect(() =>
+      db.prepare(`UPDATE agent_run_outcomes SET objective_verdict = 'success'`).run(),
+    ).toThrow(/immutable/i);
+    expect(() =>
+      db.prepare(`UPDATE agent_run_outcomes SET objective_evidence_json = '{"x":1}'`).run(),
+    ).toThrow(/immutable/i);
+    expect(() => db.prepare(`DELETE FROM agent_run_outcomes`).run()).toThrow(
+      /immutable/i,
+    );
+    expect(
+      db.prepare(`SELECT objective_verdict AS v FROM agent_run_outcomes`).get(),
+    ).toEqual({ v: 'failure' });
+    db.close();
+  });
+});

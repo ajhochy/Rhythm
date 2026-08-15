@@ -3762,4 +3762,116 @@ If someone asks for creative work that needs a local capability:
       SELECT RAISE(ABORT, 'milestone must belong to the project instance');
     END;
   `);
+
+  // ── W4 — immutable run-outcome ledger ─────────────────────────────────────
+  //
+  // Its OWN table, deliberately, for the same reason agent_profile_projections
+  // is: agent_configs and agent_org_proposals carry installRevisionInvariants'
+  // AFTER UPDATE auto-bump, so recording run outcomes there would advance a
+  // lifecycle CAS token for something that is not a domain change at all.
+  //
+  // `root_session_id` is UNIQUE at the TABLE level (not merely a unique index)
+  // so the parity guard's CREATE-TABLE parser can see it and so a second,
+  // concurrent finalizer is refused by the database rather than by whichever
+  // service branch happened to run first.
+  //
+  // Privacy (W4-c10): every column here is an identifier, an enum, a count or
+  // a timestamp. No prompt text, tool argument, tool output or credential is
+  // ever copied in — see run_outcome_service.ts, which builds the only rows
+  // this table receives.
+  //
+  // Dual-engine — see postgres_bootstrap.ts for the matching tables; guarded
+  // by skill_schema_parity.test.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_run_outcomes (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL UNIQUE,
+      session_id TEXT,
+      scheduled_occurrence_id TEXT,
+      experiment_variant TEXT,
+      proposal_id TEXT,
+      profile_id TEXT,
+      config_revision INTEGER,
+      terminal_status TEXT NOT NULL,
+      objective_verdict TEXT NOT NULL,
+      objective_evidence_json TEXT NOT NULL DEFAULT '{}',
+      attribution_json TEXT NOT NULL DEFAULT '{}',
+      finalized_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_finalized
+       ON agent_run_outcomes(finalized_at DESC)`,
+  );
+
+  // The outcome row is written once, complete, at finalization — so "mutable
+  // until finalized, immutable after" collapses to immutable-on-arrival. Later
+  // human/inferred verdicts do NOT edit this row; they are appended to
+  // agent_run_feedback_events below, which is what keeps the objective record
+  // and the subjective record from being mistaken for one another.
+  //
+  // KNOWN GAP, stated precisely rather than overclaimed: these triggers block
+  // UPDATE and DELETE. They do NOT block `INSERT OR REPLACE`, because SQLite
+  // fires BEFORE DELETE for REPLACE conflict resolution only when
+  // `PRAGMA recursive_triggers` is ON, and it is OFF (the default) throughout
+  // this codebase. No writer in this repository uses REPLACE on these tables,
+  // and turning the pragma on would change REPLACE semantics for every other
+  // table, so the guarantee is scoped honestly instead: no UPDATE or DELETE
+  // path can rewrite history. A REPLACE-shaped writer would have to be added
+  // deliberately, and the test below pins that boundary so it cannot be added
+  // silently.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_run_outcomes_immutable
+    BEFORE UPDATE ON agent_run_outcomes
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run outcomes are immutable once finalized');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_run_outcomes_no_delete
+    BEFORE DELETE ON agent_run_outcomes
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run outcomes are immutable once finalized');
+    END;
+  `);
+
+  // Append-only feedback. `source` and `confidence` are NOT NULL because W6
+  // weights evidence by exactly those two fields — a row missing either is
+  // unusable downstream, so it must never be storable in the first place.
+  // `reason` is the only free-text column in the ledger and holds ONLY the
+  // operator's own words supplied to the feedback API; run content never
+  // reaches it (run_outcome_service.ts redacts secret-shaped input).
+  //
+  // `seq` orders events within one root run. An ISO `created_at` alone is not
+  // enough — two verdicts recorded in the same millisecond would then be
+  // ordered by a random UUID, and "which verdict came last" is exactly the
+  // question this table exists to answer.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_run_feedback_events (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      actor TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_feedback_events_root
+       ON agent_run_feedback_events(root_session_id, seq)`,
+  );
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_run_feedback_events_no_update
+    BEFORE UPDATE ON agent_run_feedback_events
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run feedback is append-only');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_run_feedback_events_no_delete
+    BEFORE DELETE ON agent_run_feedback_events
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run feedback is append-only');
+    END;
+  `);
 }

@@ -39,6 +39,10 @@ const TABLES = [
   'agent_org_proposals',
   'org_skills',
   'agent_config_security_events',
+  // W4 — the run-outcome ledger. Both tables are dual-engine; this guard is the
+  // only thing standing between an added column and a production-only 500.
+  'agent_run_outcomes',
+  'agent_run_feedback_events',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */

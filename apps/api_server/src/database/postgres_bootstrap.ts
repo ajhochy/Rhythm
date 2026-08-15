@@ -1704,4 +1704,71 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
       ON agent_scheduled_task_runs(task_id, started_at DESC);
   `);
+
+  // ── W4 — immutable run-outcome ledger (Postgres twin) ─────────────────────
+  //
+  // Column set MUST stay identical to the SQLite migration in migrations.ts —
+  // enforced by skill_schema_parity.test.ts, whose parser only reads a CREATE
+  // TABLE body whose closing paren is immediately followed by a backtick and
+  // single-line `ALTER TABLE ... ADD COLUMN`. Keep the table in its own
+  // pool.query and every index in a separate call, or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_run_outcomes (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL UNIQUE,
+      session_id TEXT,
+      scheduled_occurrence_id TEXT,
+      experiment_variant TEXT,
+      proposal_id TEXT,
+      profile_id TEXT,
+      config_revision INTEGER,
+      terminal_status TEXT NOT NULL,
+      objective_verdict TEXT NOT NULL,
+      objective_evidence_json TEXT NOT NULL DEFAULT '{}',
+      attribution_json TEXT NOT NULL DEFAULT '{}',
+      finalized_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_finalized
+       ON agent_run_outcomes(finalized_at DESC)`,
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_run_feedback_events (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      confidence DOUBLE PRECISION NOT NULL,
+      actor TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_feedback_events_root
+       ON agent_run_feedback_events(root_session_id, seq)`,
+  );
+  // Twin of the SQLite append-only / immutability triggers. TG_ARGV carries the
+  // same message text the SQLite RAISE(ABORT, ...) uses, so a caller sees one
+  // wording regardless of engine.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_reject_ledger_write() RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION '%', TG_ARGV[0];
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_run_outcomes_immutable ON agent_run_outcomes;
+    CREATE TRIGGER trg_agent_run_outcomes_immutable
+      BEFORE UPDATE OR DELETE ON agent_run_outcomes
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent run outcomes are immutable once finalized');
+    DROP TRIGGER IF EXISTS trg_agent_run_feedback_events_append_only ON agent_run_feedback_events;
+    CREATE TRIGGER trg_agent_run_feedback_events_append_only
+      BEFORE UPDATE OR DELETE ON agent_run_feedback_events
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent run feedback is append-only');
+  `);
 }

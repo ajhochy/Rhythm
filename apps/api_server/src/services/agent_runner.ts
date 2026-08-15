@@ -30,6 +30,7 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { recordTerminalOutcome } from './run_outcome_service';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import {
   classifyAgentRunFailure,
@@ -1357,6 +1358,15 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // awaited and must not change this return value or its timing.
     if (rhythmSessionId) {
       queueSkillExtraction(rhythmSessionId);
+      // W4 — the headless/scheduled turn-completion point. Same fire-and-forget
+      // posture as queueSkillExtraction above: never awaited, never rejects, so
+      // a ledger problem can never fail the run it is describing.
+      void recordTerminalOutcome({
+        sessionId: rhythmSessionId,
+        terminalStatus: 'completed',
+        producedArtifact: resultText.length > 0,
+        scheduledOccurrenceId: scheduledTaskId ?? null,
+      });
     }
 
     // #929 / #1109 — schedule (not run) evaluation of any harvested draft that
@@ -1404,7 +1414,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       // generic timeout string. The returned `error` still carries the raw
       // timeout message so callers can distinguish "done with a recovered
       // partial" from a clean success.
-      _markSessionError(rhythmSessionId, partial || err.message);
+      _markSessionError(rhythmSessionId, partial || err.message, partial.length > 0);
       if (rhythmSessionId && partial) {
         try {
           new AgentSessionMessagesRepository().append(rhythmSessionId, 'output', partial, partial);
@@ -1438,7 +1448,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
  * optional message is recorded as the session's last_preview so the
  * background-loop activity log shows WHY a run failed, not just that it did.
  */
-function _markSessionError(rhythmSessionId: string | null, message?: string): void {
+function _markSessionError(
+  rhythmSessionId: string | null,
+  message?: string,
+  producedArtifact = false,
+): void {
   if (!rhythmSessionId) return;
   try {
     const repo = new AgentSessionsRepository();
@@ -1449,6 +1463,15 @@ function _markSessionError(rhythmSessionId: string | null, message?: string): vo
   } catch {
     /* non-fatal */
   }
+  // W4 — every error termination in this file funnels through here, so one
+  // hook covers them all. Fire-and-forget: never awaited, never rejects.
+  // `producedArtifact` is a boolean ABOUT the output; no output text, prompt or
+  // tool payload is passed.
+  void recordTerminalOutcome({
+    sessionId: rhythmSessionId,
+    terminalStatus: 'error',
+    producedArtifact,
+  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
