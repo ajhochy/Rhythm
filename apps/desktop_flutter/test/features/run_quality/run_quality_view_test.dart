@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/features/run_quality/controllers/run_quality_controller.dart';
+import 'package:rhythm_desktop/features/run_quality/data/applied_changes_data_source.dart';
 import 'package:rhythm_desktop/features/run_quality/data/run_quality_data_source.dart';
 import 'package:rhythm_desktop/features/run_quality/models/agent_run_quality.dart';
 import 'package:rhythm_desktop/features/run_quality/repositories/run_quality_repository.dart';
@@ -43,6 +44,19 @@ class _FakeRunQualityDataSource extends RunQualityDataSource {
     }
     return _rollup ??
         RunQualityRollup(generatedAt: '', windowDays: 30, agents: []);
+  }
+}
+
+class _FakeAppliedChangesDataSource extends AppliedChangesDataSource {
+  _FakeAppliedChangesDataSource([this._proposals = const []]);
+
+  final List<Map<String, dynamic>> _proposals;
+  bool throwOnGet = false;
+
+  @override
+  Future<List<Map<String, dynamic>>> listAppliedChanges() async {
+    if (throwOnGet) throw Exception('proposals unavailable');
+    return _proposals;
   }
 }
 
@@ -138,11 +152,20 @@ Widget _buildApp(RunQualityController controller) {
   );
 }
 
-RunQualityController _controllerFor(List<AgentRunQuality> agents) {
+RunQualityController _controllerFor(
+  List<AgentRunQuality> agents, {
+  List<Map<String, dynamic>> proposals = const [],
+  bool changesFail = false,
+}) {
   final ds = _FakeRunQualityDataSource(
     RunQualityRollup(generatedAt: 'now', windowDays: 30, agents: agents),
   );
-  return RunQualityController(RunQualityRepository(ds));
+  final changes = _FakeAppliedChangesDataSource(proposals)
+    ..throwOnGet = changesFail;
+  return RunQualityController(
+    RunQualityRepository(ds),
+    appliedChanges: changes,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +247,10 @@ void main() {
 
     testWidgets('error state renders with a retry button', (tester) async {
       final ds = _FakeRunQualityDataSource(null)..throwOnGet = true;
-      final controller = RunQualityController(RunQualityRepository(ds));
+      final controller = RunQualityController(
+        RunQualityRepository(ds),
+        appliedChanges: _FakeAppliedChangesDataSource(),
+      );
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
@@ -245,6 +271,91 @@ void main() {
             ValueKey('run-quality-card-${_thinHistoryAgent().agentKind}')),
         findsOneWidget,
       );
+    });
+  });
+
+  group('RunQualityView — applied-changes summary (READ-ONLY)', () {
+    Map<String, dynamic> proposal(
+      String agentKind,
+      String status, [
+      String? outcomeStatus,
+    ]) =>
+        {
+          'id': '$agentKind-$status-${outcomeStatus ?? 'x'}',
+          'targetRef': 'agent_config:$agentKind',
+          'status': status,
+          if (outcomeStatus != null) 'outcomeStatus': outcomeStatus,
+        };
+
+    testWidgets('summarises changes applied to that agent in plain language',
+        (tester) async {
+      final controller = _controllerFor(
+        [_healthyAgent()],
+        proposals: [
+          proposal('claude-code', 'active', 'verified'),
+          proposal('claude-code', 'applied', 'unproven'),
+          proposal('claude-code', 'measuring', 'unproven'),
+        ],
+      );
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('applied-changes-claude-code')),
+          findsOneWidget);
+      expect(
+        find.textContaining('3 changes to this agent are switched on'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('2 not measured yet'), findsOneWidget);
+      expect(find.textContaining('1 helped'), findsOneWidget);
+    });
+
+    testWidgets('shows nothing for an agent with no applied changes',
+        (tester) async {
+      final controller = _controllerFor(
+        [_healthyAgent()],
+        proposals: [proposal('codex', 'active')],
+      );
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('applied-changes-claude-code')),
+          findsNothing);
+      expect(find.textContaining('switched on right now'), findsNothing);
+    });
+
+    testWidgets('offers no way to act on a change — reporting only',
+        (tester) async {
+      final controller = _controllerFor(
+        [_healthyAgent()],
+        proposals: [proposal('claude-code', 'active', 'verified')],
+      );
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('applied-changes-claude-code')),
+          findsOneWidget);
+      // No approve / revert / undo affordance anywhere on the report card.
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(TextButton), findsNothing);
+      expect(find.byType(ElevatedButton), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+      expect(find.byType(Switch), findsNothing);
+      expect(find.byType(Checkbox), findsNothing);
+    });
+
+    testWidgets('report card still renders when the change list is unavailable',
+        (tester) async {
+      final controller = _controllerFor(
+        [_healthyAgent()],
+        changesFail: true,
+      );
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Claude Code'), findsOneWidget);
+      expect(find.byKey(const ValueKey('applied-changes-claude-code')),
+          findsNothing);
     });
   });
 }

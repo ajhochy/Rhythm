@@ -18,6 +18,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/run_quality_controller.dart';
 import '../models/agent_run_quality.dart';
+import '../models/applied_change_summary.dart';
 
 class RunQualityView extends StatefulWidget {
   const RunQualityView({super.key});
@@ -154,6 +155,7 @@ class _RunQualityViewState extends State<RunQualityView> {
           _AgentReportCard(
             key: ValueKey('run-quality-card-${agent.agentKind}'),
             agent: agent,
+            changes: controller.changesFor(agent.agentKind),
           ),
           const SizedBox(height: 12),
         ],
@@ -167,9 +169,13 @@ class _RunQualityViewState extends State<RunQualityView> {
 // ---------------------------------------------------------------------------
 
 class _AgentReportCard extends StatelessWidget {
-  const _AgentReportCard({super.key, required this.agent});
+  const _AgentReportCard({super.key, required this.agent, this.changes});
 
   final AgentRunQuality agent;
+
+  /// READ-ONLY summary of org-optimizer changes applied to this agent. Null
+  /// (or empty) when there is nothing to report — no zero row.
+  final AppliedChangeSummary? changes;
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +224,13 @@ class _AgentReportCard extends StatelessWidget {
           if (agent.repeatedMistakes.isNotEmpty) ...[
             const SizedBox(height: 12),
             _RepeatedMistakesBlock(agent: agent),
+          ],
+          if (changes != null && !changes!.isEmpty) ...[
+            const SizedBox(height: 12),
+            _AppliedChangesBlock(
+              key: ValueKey('applied-changes-${agent.agentKind}'),
+              summary: changes!,
+            ),
           ],
         ],
       ),
@@ -376,6 +389,61 @@ class _CorrectionsRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// READ-ONLY: what the org optimizer has changed about this agent, and
+/// whether anyone has actually checked whether it helped. Text only — no
+/// approve, no undo, no toggle. The report card reports; the review queue
+/// (agent_optimizer) is where changes are acted on.
+class _AppliedChangesBlock extends StatelessWidget {
+  const _AppliedChangesBlock({super.key, required this.summary});
+
+  final AppliedChangeSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = summary.sentences;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.tune, size: 15, color: context.rhythm.textMuted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  lines.first,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.rhythm.textPrimary,
+                  ),
+                ),
+                for (final line in lines.skip(1))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      line,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
