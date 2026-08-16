@@ -22,11 +22,7 @@ export function isAllowedLocalAgentSurfaceRequest(
   }
 
   if (headers.origin !== undefined) {
-    return (
-      typeof headers.origin === 'string' &&
-      env.localRendererOrigins.includes(headers.origin) &&
-      isAllowedHost(headers.host)
-    );
+    return false;
   }
 
   const fetchSite = headers['sec-fetch-site'];

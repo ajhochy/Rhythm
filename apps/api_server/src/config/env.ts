@@ -231,26 +231,6 @@ export function resolveApiBindHost(options: {
   return host;
 }
 
-/** Privileged renderer origins accepted by the loopback-only agent server. */
-export function parseLocalRendererOrigins(value = process.env.RHYTHM_LOCAL_RENDERER_ORIGINS): string[] {
-  if (value === undefined || value.trim() === '') return [];
-
-  const origins = value.split(',').map((origin) => origin.trim());
-  for (const origin of origins) {
-    const port = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})$/.exec(origin)?.[1];
-    if (
-      origin !== 'rhythm://app' &&
-      (port === undefined || Number(port) > 65_535)
-    ) {
-      throw new Error(
-        'Invalid RHYTHM_LOCAL_RENDERER_ORIGINS. Expected comma-separated http://127.0.0.1:<1-65535> origins or rhythm://app.',
-      );
-    }
-  }
-
-  return [...new Set(origins)];
-}
-
 function parseDbClient(value: string): DbClient {
   if (value === 'sqlite' || value === 'postgres') {
     return value;
@@ -393,7 +373,6 @@ export const env = {
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0),
-  localRendererOrigins: parseLocalRendererOrigins(),
   /**
    * Defensive origin/host enforcement for the loopback agent surface. Default
    * ON; only the explicit value "off" disables it for compatibility recovery.

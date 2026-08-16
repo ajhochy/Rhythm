@@ -97,15 +97,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         if (
           env.agentOriginGuardEnabled !== false &&
-          env.agentLocal
-        ) {
-          callback(null, env.localRendererOrigins.includes(origin));
-          return;
-        }
-
-        if (
-          env.agentOriginGuardEnabled !== false &&
-          env.corsAllowedOrigins.length === 0
+          (env.agentLocal || env.corsAllowedOrigins.length === 0)
         ) {
           callback(null, false);
           return;

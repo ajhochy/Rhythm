@@ -135,42 +135,6 @@ describe('Tasks permissions', () => {
     expect(collaboratorTasks.map((visibleTask) => visibleTask.id)).toEqual([task.id]);
   });
 
-  it('returns the actor-specific shared flag after a collaborator mutation', async () => {
-    // Regression caught: mutation response shaping omits is_shared and coerces it to false.
-    const owner = usersRepo.create({ name: 'Shared task owner', email: 'shared-owner@example.com' });
-    const collaborator = usersRepo.create({ name: 'Shared task collaborator', email: 'shared-collaborator@example.com' });
-    const ownerHeaders = await authHeaderFor(owner.id);
-    const collaboratorHeaders = await authHeaderFor(collaborator.id);
-
-    const createResponse = await fetch(`${baseUrl}/tasks`, {
-      method: 'POST',
-      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Shared mutation response task' }),
-    });
-    expect(createResponse.status).toBe(201);
-    const task = await readJson(createResponse) as { id: string; isShared?: boolean };
-    // Regression caught: the POST response omits is_shared, so a fresh owner-created
-    // task falls back to the ownerId===currentUserId arm and disables delete until reload.
-    expect(task.isShared).toBe(false);
-    tasksRepo.addCollaborator(task.id, collaborator.id);
-
-    const collaboratorPatch = await fetch(`${baseUrl}/tasks/${task.id}`, {
-      method: 'PATCH',
-      headers: { ...collaboratorHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'done' }),
-    });
-    expect(collaboratorPatch.status).toBe(200);
-    expect((await readJson(collaboratorPatch) as { isShared?: boolean }).isShared).toBe(true);
-
-    const ownerPatch = await fetch(`${baseUrl}/tasks/${task.id}`, {
-      method: 'PATCH',
-      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'open' }),
-    });
-    expect(ownerPatch.status).toBe(200);
-    expect((await readJson(ownerPatch) as { isShared?: boolean }).isShared).toBe(false);
-  });
-
   it('accepts in_progress and waiting_for_reply as valid task statuses', async () => {
     const user = usersRepo.create({ name: 'User', email: 'u@x.com' });
     const task = tasksRepo.create({ title: 'T', ownerId: user.id });

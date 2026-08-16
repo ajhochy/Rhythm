@@ -377,7 +377,6 @@ export class AgentConfigsController {
         allowedSkillsJson: typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null,
         corePermissionsJson: typeof body.corePermissionsJson === 'string' ? body.corePermissionsJson : null,
         allowedDelegatesJson: typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null,
-        sortOrder: typeof body.sortOrder === 'number' ? body.sortOrder : 0,
         modelProvider: typeof body.modelProvider === 'string' ? body.modelProvider : null,
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
         ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
