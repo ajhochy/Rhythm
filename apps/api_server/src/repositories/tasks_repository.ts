@@ -59,7 +59,7 @@ function rowToTask(row: TaskRow): Task {
     ),
     energy: row.energy ?? null,
     workspaceId: row.workspace_id ?? null,
-    isShared: Boolean(row.is_shared),
+    isShared: row.is_shared == null ? undefined : Boolean(row.is_shared),
     collaborators: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -100,6 +100,13 @@ const TASK_SELECT = `
     ON tasks.source_type = 'recurring_rule'
    AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
 `;
+
+const taskSelectForUser = (userParameter: string) => TASK_SELECT.replace(
+  '    END AS source_name\n  FROM tasks',
+  `    END AS source_name,
+    CASE WHEN tasks.owner_id != ${userParameter} THEN 1 ELSE 0 END AS is_shared
+  FROM tasks`,
+);
 
 function compareCanonicalTasks(a: Task, b: Task, today: string): number {
   const priority = (task: Task) => task.scheduledDate ?? task.dueDate;
@@ -459,8 +466,8 @@ export class TasksRepository {
   async findByIdAsync(id: string, userId: number): Promise<Task> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<TaskRow>(
-        `${TASK_SELECT}
-         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
+        `${taskSelectForUser('$2')}
+          LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
          WHERE tasks.id = $1 AND (tasks.owner_id = $2 OR tc.user_id IS NOT NULL)`,
         [id, userId],
       );
@@ -484,11 +491,11 @@ export class TasksRepository {
   findById(id: string, userId: number): Task {
     const row = getDb()
       .prepare(
-        `${TASK_SELECT}
-         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+        `${taskSelectForUser('?')}
+          LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
          WHERE tasks.id = ? AND (tasks.owner_id = ? OR tc.user_id IS NOT NULL)`,
       )
-      .get(userId, id, userId) as TaskRow | undefined;
+       .get(userId, userId, id, userId) as TaskRow | undefined;
     if (!row) throw AppError.notFound('Task');
     const task = rowToTask(row);
     const collabRows = getDb()
@@ -801,7 +808,11 @@ export class TasksRepository {
           now,
         ],
       );
-      return this.findByIdIncludingLegacyAsync(id);
+      // Owner-created tasks return the actor-scoped shape (is_shared selected);
+      // ownerless system/external creates keep the legacy unscoped read.
+      return data.ownerId != null
+        ? this.findByIdAsync(id, data.ownerId)
+        : this.findByIdIncludingLegacyAsync(id);
     }
 
     return this.create(data);
@@ -839,7 +850,9 @@ export class TasksRepository {
         now,
         now,
       );
-    return this.findByIdIncludingLegacy(id);
+    return data.ownerId != null
+      ? this.findById(id, data.ownerId)
+      : this.findByIdIncludingLegacy(id);
   }
 
   async upsertExternalTaskAsync(data: CreateTaskDto): Promise<Task> {

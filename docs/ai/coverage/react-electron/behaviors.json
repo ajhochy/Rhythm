@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "flutterReference": {
+    "ref": "origin/main",
+    "commit": "9fa2761ed78159f83f56982c03fcd85dc035039a"
+  },
+  "taxonomy": [
+    "launch-auth-onboarding",
+    "nav-a11y",
+    "dashboard-planner-tasks-rhythms-projects-messages-facilities-automations-integrations",
+    "profiles-providers-models",
+    "sessions-composer-attachments-stream-retry-cancel-reconnect-transcript",
+    "permissions-questions-approvals-delegation",
+    "files-search-diffs-worktrees",
+    "mcp-skills-commands",
+    "memory-research-gallery-playbooks-cookbook-schedules-run-quality",
+    "notifications",
+    "live-artifacts",
+    "mobile-pairing-cloud-gateway",
+    "settings-updates",
+    "electron-windows-dialogs-deep-links-security-process-lifecycle-packaging",
+    "empty-loading-error-offline-forbidden",
+    "ownership-isolation",
+    "terminal-pty"
+  ],
+  "behaviors": [
+    {
+      "behaviorId": "behavior:launch-auth-onboarding",
+      "taxonomy": "launch-auth-onboarding",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise launch auth onboarding",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:nav-a11y",
+      "taxonomy": "nav-a11y",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise nav a11y",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:dashboard-planner-tasks-rhythms-projects-messages-facilities-automations-integrations",
+      "taxonomy": "dashboard-planner-tasks-rhythms-projects-messages-facilities-automations-integrations",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise dashboard planner tasks rhythms projects messages facilities automations integrations",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:profiles-providers-models",
+      "taxonomy": "profiles-providers-models",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise profiles providers models",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:sessions-composer-attachments-stream-retry-cancel-reconnect-transcript",
+      "taxonomy": "sessions-composer-attachments-stream-retry-cancel-reconnect-transcript",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise sessions composer attachments stream retry cancel reconnect transcript",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:permissions-questions-approvals-delegation",
+      "taxonomy": "permissions-questions-approvals-delegation",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise permissions questions approvals delegation",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:files-search-diffs-worktrees",
+      "taxonomy": "files-search-diffs-worktrees",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise files search diffs worktrees",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:mcp-skills-commands",
+      "taxonomy": "mcp-skills-commands",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise mcp skills commands",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:memory-research-gallery-playbooks-cookbook-schedules-run-quality",
+      "taxonomy": "memory-research-gallery-playbooks-cookbook-schedules-run-quality",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise memory research gallery playbooks cookbook schedules run quality",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:notifications",
+      "taxonomy": "notifications",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise notifications",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:live-artifacts",
+      "taxonomy": "live-artifacts",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise live artifacts",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:mobile-pairing-cloud-gateway",
+      "taxonomy": "mobile-pairing-cloud-gateway",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise mobile pairing cloud gateway",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:settings-updates",
+      "taxonomy": "settings-updates",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise settings updates",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:electron-windows-dialogs-deep-links-security-process-lifecycle-packaging",
+      "taxonomy": "electron-windows-dialogs-deep-links-security-process-lifecycle-packaging",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise electron windows dialogs deep links security process lifecycle packaging",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:empty-loading-error-offline-forbidden",
+      "taxonomy": "empty-loading-error-offline-forbidden",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise empty loading error offline forbidden",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:ownership-isolation",
+      "taxonomy": "ownership-isolation",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise ownership isolation",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "planned",
+      "owner": "parity-matrix",
+      "rationale": "Seeded non-Terminal taxonomy requires a planned or review-required owner."
+    },
+    {
+      "behaviorId": "behavior:terminal-pty",
+      "taxonomy": "terminal-pty",
+      "actor": "desktop user or agent",
+      "precondition": "the applicable surface is available",
+      "action": "exercise terminal pty",
+      "outcome": "observable result matches the declared contract",
+      "failure": "a visible, bounded failure state is shown",
+      "security": "authorization and ownership boundaries remain enforced",
+      "layers": [
+        "unit",
+        "integration",
+        "manual"
+      ],
+      "journeys": [
+        "desktop parity"
+      ],
+      "status": "deferred",
+      "owner": "parity-matrix",
+      "rationale": "Terminal/PTTY is explicitly deferred by Slice 6."
+    }
+  ]
+}

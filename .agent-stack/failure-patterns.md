@@ -1,5 +1,14 @@
 # Failure Patterns
 
+## 2026-08-15 — Slice 4 Unit 4 — c4 fixed, c5 prompt delivery and c9 cleanup failed
+
+- **Result**: smoke FAIL (verification claimed FAIL; no divergence)
+- **Category**: C3 — wrong implementation; process: `async-stage-latency`, `cleanup-coverage`
+- **Criteria affected**: engine-session-live-lifecycle-c5 and c9; c4 passed
+- **Root cause**: a 61.151s lifecycle-context worktree stage exceeded the old observer, and after c4 passed the real prompt never reached the deterministic provider while cleanup left its isolated worktree.
+- **Suggested fix**: trace the c5 WebSocket-to-provider path in a new authorized unit and make failure cleanup remove the captured smoke worktree.
+- See `.agent-stack/postmortems/2026-08-15-engine-session-live-lifecycle-unit4.json`.
+
 ## 2026-07-25 — Issue 1174 aggregate — reconnect remount regression fixed
 
 - **Result**: smoke PASS after fix (source-branch verification claimed PASS);

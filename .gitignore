@@ -46,6 +46,8 @@ apps/api_server/src/config/curated_mcp_servers.local.json
 *.log
 !docs/ai/evidence/logs/*.log
 coverage/
+!docs/ai/coverage/
+!docs/ai/coverage/**
 
 # Local runtime data
 rhythm.db

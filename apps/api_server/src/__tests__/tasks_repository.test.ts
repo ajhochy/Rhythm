@@ -227,6 +227,31 @@ describe('TasksRepository.findByFilter', () => {
     }
   });
 
+  it('selects the actor-specific shared flag for a Postgres task detail', async () => {
+    // Regression caught: a collaborator mutation reload omits is_shared, publishing isShared:false.
+    const originalDbClient = env.dbClient;
+    const query = vi.fn()
+      .mockResolvedValueOnce({ rows: [{
+        id: 'shared-task', title: 'Shared task', notes: null, due_date: null,
+        scheduled_date: null, scheduled_order: null, locked: false, status: 'open',
+        source_type: null, source_id: null, source_name: null, owner_id: 2,
+        goal_id: null, priority: null, tags: [], energy: null, is_shared: 1,
+        created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+        preferred_agent: null,
+      }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const poolSpy = vi.spyOn(database, 'getPostgresPool').mockReturnValue({ query } as never);
+    (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = 'postgres';
+
+    try {
+      await expect(repo.findByIdAsync('shared-task', userId)).resolves.toMatchObject({ isShared: true });
+      expect(query.mock.calls[0][0]).toContain('CASE WHEN tasks.owner_id != $2 THEN 1 ELSE 0 END AS is_shared');
+    } finally {
+      (env as { dbClient: 'sqlite' | 'postgres' }).dbClient = originalDbClient;
+      poolSpy.mockRestore();
+    }
+  });
+
   it('does not treat raw FTS syntax as an operator', async () => {
     await seed({ title: 'Weekly meeting' });
     await seed({ title: 'Weekly report' });

@@ -1,0 +1,201 @@
+.pg-automations { height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--fg); background: color-mix(in oklab, var(--surface), var(--bg) 6%); }
+.pg-automations .automations-header { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 24px; border-bottom: 1px solid var(--border-soft); background: var(--surface); }
+.pg-automations .automations-heading { min-width: 0; display: flex; align-items: center; gap: 13px; }
+.pg-automations .automations-mark { width: 46px; height: 46px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid color-mix(in oklab, var(--accent), var(--border) 46%); border-radius: var(--r-md); color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 90%); }
+.pg-automations .automations-heading h1 { margin: 0; font-size: clamp(20px, 2.2vw, 30px); line-height: 1.08; font-weight: 650; letter-spacing: -.028em; }
+.pg-automations .automations-heading p { max-width: 70ch; margin: 4px 0 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.pg-automations .automations-header-controls { flex: 0 0 auto; }
+.pg-automations .automations-state-picker { display: grid; gap: 3px; color: var(--muted); font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.pg-automations .automations-state-picker select { min-width: 148px; min-height: 44px; padding: 0 34px 0 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg); background: var(--surface-warm); text-transform: none; }
+.pg-automations .automations-banner { flex: 0 0 auto; min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 7px 24px; border-bottom: 1px solid color-mix(in oklab, var(--warning), var(--border-soft) 70%); color: var(--fg-2); background: color-mix(in oklab, var(--warning), transparent 92%); }
+.pg-automations .automations-banner svg { color: var(--warning); }
+.pg-automations .automations-mutation-gate { flex: 0 0 auto; min-width: 0; display: flex; flex-direction: column; margin: 0; padding: 0; border: 0; }
+.pg-automations .automations-mutation-gate:disabled { opacity: 1; }
+.pg-automations .automations-overview { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 24px; border-bottom: 1px solid var(--border-soft); background: color-mix(in oklab, var(--surface), var(--bg) 3%); }
+.pg-automations .automations-overview dl { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px 30px; margin: 0; }
+.pg-automations .automations-overview dl div { display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 7px; }
+.pg-automations .automations-overview dt { color: var(--muted); font-size: 10px; }
+.pg-automations .automations-overview dd { margin: 0; color: var(--fg); font-family: var(--font-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.pg-automations .automations-overview button { min-height: 44px; }
+.pg-automations .automations-dependency { flex: 0 0 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 24px; border-bottom: 1px solid color-mix(in oklab, var(--warning), var(--border-soft) 68%); color: var(--fg-2); background: color-mix(in oklab, var(--warning), transparent 93%); }
+.pg-automations .automations-dependency > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.pg-automations .automations-dependency > svg { flex: 0 0 auto; color: var(--warning); }
+.pg-automations .automations-dependency button { flex: 0 0 auto; min-height: 44px; }
+.pg-automations .automation-workspace { min-width: 0; min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(470px, 1.15fr) minmax(340px, .85fr); overflow: hidden; background: var(--surface); }
+.pg-automations .automation-groups { min-width: 0; min-height: 0; overflow: auto; border-inline-end: 1px solid var(--border-soft); }
+.pg-automations .automation-group { min-width: 0; margin: 0; }
+.pg-automations .automation-group > header { min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--surface), var(--bg) 3%); }
+.pg-automations .automation-group > header h2 { margin: 0; font-size: 15px; font-weight: 640; letter-spacing: -.012em; }
+.pg-automations .automation-group > header p { margin: 2px 0 0; color: var(--muted); font-size: 10px; }
+.pg-automations .automation-group > header > span { color: var(--muted); font-family: var(--font-mono); font-size: 9px; white-space: nowrap; }
+.pg-automations .automation-rule-list { min-width: 0; }
+.pg-automations .automation-rule { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "select actions" "inspect actions" "progress progress"; align-items: center; gap: 2px 10px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--border-soft); color: var(--fg); }
+.pg-automations .automation-rule[aria-current="true"] { box-shadow: inset 2px 0 0 var(--accent); background: var(--surface-warm); }
+.pg-automations .rule-select { grid-area: select; min-width: 0; min-height: 44px; display: block; padding: 4px 0; border: 0; color: var(--fg); background: transparent; cursor: pointer; text-align: start; }
+.pg-automations .rule-select:hover { color: var(--fg); }
+.pg-automations .rule-select .rule-copy { display: grid; gap: 2px; }
+.pg-automations .rule-select .rule-title-line { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.pg-automations .rule-select .rule-title-line strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 620; }
+.pg-automations .rule-select small, .pg-automations .rule-select em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 9px; font-style: normal; }
+.pg-automations .rule-path { grid-area: path; min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
+.pg-automations .rule-path span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-automations .rule-path strong { color: var(--fg-2); font-weight: 600; white-space: nowrap; }
+.pg-automations .rule-main { grid-area: main; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; }
+.pg-automations .rule-copy { min-width: 0; }
+.pg-automations .rule-title-line { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.pg-automations .rule-title-line h3 { min-width: 0; margin: 0; font-size: 13px; font-weight: 620; line-height: 1.35; letter-spacing: -.008em; overflow-wrap: anywhere; }
+.pg-automations .rule-status { flex: 0 0 auto; padding: 2px 7px; border: 1px solid var(--border-soft); border-radius: var(--r-pill); color: var(--muted); font-family: var(--font-mono); font-size: 8px; }
+.pg-automations .rule-status.active { border-color: color-mix(in oklab, var(--success), var(--border) 65%); color: var(--success); }
+.pg-automations .rule-copy > p { margin: 3px 0 7px; color: var(--muted); font-size: 10px; }
+.pg-automations .rule-copy dl { min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; color: var(--muted); font-family: var(--font-mono); font-size: 8px; }
+.pg-automations .rule-copy dl div { min-width: 0; display: flex; gap: 5px; }
+.pg-automations .rule-copy dt { color: var(--muted); }
+.pg-automations .rule-copy dd { min-width: 0; max-width: 48ch; margin: 0; color: var(--fg-2); overflow-wrap: anywhere; }
+.pg-automations .rule-actions { grid-area: actions; display: flex; align-items: center; gap: 4px; }
+.pg-automations .rule-actions button { min-width: 44px; min-height: 44px; }
+.pg-automations .rule-actions .danger-control { color: color-mix(in oklab, var(--danger), var(--fg) 22%); }
+.pg-automations .automation-toggle { position: relative; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.pg-automations .automation-toggle::before { content: ""; width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 5px; color: var(--accent-on); background: var(--surface); font-size: 12px; line-height: 1; }
+.pg-automations .automation-toggle:has(input:checked)::before { content: "✓"; border-color: var(--accent); background: var(--accent); }
+.pg-automations .automation-toggle input { position: absolute; inset: 0; width: 44px; height: 44px; margin: 0; opacity: 0; cursor: pointer; }
+.pg-automations .automation-toggle:has(input:focus-visible)::before { outline: 2px solid CanvasText; outline-offset: 2px; box-shadow: var(--focus); }
+.pg-automations .rule-inspect { grid-area: inspect; min-height: 28px; display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 0; color: var(--fg-2); font-size: 9px; text-decoration: underline; text-decoration-color: color-mix(in oklab, var(--accent), transparent 45%); text-underline-offset: 3px; }
+.pg-automations .rule-inspect:hover { color: var(--fg); text-decoration-thickness: 2px; }
+.pg-automations .rule-progress, .pg-automations .rule-result { grid-area: progress; min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-sm); color: var(--fg-2); background: color-mix(in oklab, var(--accent), transparent 92%); font-size: 10px; }
+.pg-automations .rule-progress span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.pg-automations .rule-result { color: var(--success); background: color-mix(in oklab, var(--success), transparent 93%); }
+.pg-automations .automation-inspector { min-width: 0; min-height: 0; overflow: auto; padding: 24px; background: color-mix(in oklab, var(--surface), var(--bg) 4%); }
+.pg-automations .automation-inspector-content { display: grid; gap: 20px; }
+.pg-automations .automation-inspector-content > header { display: grid; gap: 5px; }
+.pg-automations .automation-inspector-content > header > span, .pg-automations .automation-inspector-sample > span { color: var(--accent); font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.pg-automations .automation-inspector-content h2 { margin: 0; font-size: 24px; line-height: 1.18; letter-spacing: -.022em; }
+.pg-automations .automation-inspector-content header p { max-width: 54ch; margin: 0; color: var(--muted); }
+.pg-automations .automation-inspector-content dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--border-soft); }
+.pg-automations .automation-inspector-content dl div { min-width: 0; display: grid; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.pg-automations .automation-inspector-content dl div:nth-child(odd) { padding-inline-end: 14px; }
+.pg-automations .automation-inspector-content dl div:nth-child(even) { padding-inline-start: 14px; border-inline-start: 1px solid var(--border-soft); }
+.pg-automations .automation-inspector-content dt { color: var(--muted); font-family: var(--font-mono); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.pg-automations .automation-inspector-content dd { min-width: 0; margin: 0; color: var(--fg-2); overflow-wrap: anywhere; }
+.pg-automations .automation-inspector-sample { display: grid; gap: 7px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+.pg-automations .automation-inspector-sample p { margin: 0; color: var(--fg-2); }
+.pg-automations .automation-inspector-empty { min-height: 260px; display: grid; place-content: center; gap: 6px; color: var(--muted); text-align: center; }
+.pg-automations .automation-inspector-empty strong { color: var(--fg); }
+.pg-automations .automation-inspector-empty p { max-width: 38ch; margin: 0; }
+.pg-automations .automation-direct-editor { min-width: 0; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border-soft); }
+.pg-automations .automation-direct-editor > fieldset { min-width: 0; display: grid; gap: 18px; margin: 0; padding: 0; border: 0; }
+.pg-automations .automations-state-wrap { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 24px; }
+.pg-automations .automations-state, .pg-automations .automations-not-found { width: min(100%, 640px); min-height: 340px; display: grid; place-content: center; justify-items: center; gap: 8px; margin: 0 auto; padding: 38px; border: 1px solid var(--border-soft); border-radius: var(--r-md); color: var(--muted); background: var(--surface); text-align: center; }
+.pg-automations .automations-state.danger { background: color-mix(in oklab, var(--danger), var(--surface) 96%); }
+.pg-automations .automations-state.warning { background: color-mix(in oklab, var(--warning), var(--surface) 96%); }
+.pg-automations .automations-state h2, .pg-automations .automations-not-found h2 { margin: 2px 0; color: var(--fg); font-size: 19px; letter-spacing: -.02em; }
+.pg-automations .automations-state p, .pg-automations .automations-not-found p { max-width: 56ch; margin: 0 0 7px; }
+.pg-automations .automations-state button, .pg-automations .automations-not-found button { min-height: 44px; }
+.pg-automations .automations-state-code { color: var(--warning); font-family: var(--font-mono); font-size: 26px; font-weight: 700; }
+.pg-automations .automations-state-mark { width: 50px; height: 50px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--accent); background: var(--surface-warm); }
+.pg-automations .automations-spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+.pg-automations .automations-skeleton { width: min(100%, 360px); display: grid; gap: 7px; margin-top: 10px; }
+.pg-automations .automations-skeleton span { height: 8px; border-radius: var(--r-pill); background: var(--border-soft); }
+.pg-automations .automations-skeleton span:nth-child(2) { width: 78%; }
+.pg-automations .automations-skeleton span:nth-child(3) { width: 56%; }
+.pg-automations .automations-not-found { flex: 1; min-height: 0; margin: 24px auto; }
+.pg-automations .page-trace { flex: 0 0 auto; min-width: 0; max-height: 84px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; overflow: auto; padding: 8px 24px; border-top: 1px solid var(--border-soft); color: var(--muted); background: color-mix(in oklab, var(--bg), var(--surface) 32%); font-family: var(--font-mono); font-size: 8px; }
+.pg-automations .page-trace > span { color: var(--fg-2); font-weight: 650; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+.pg-automations .page-trace ol { min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 16px; margin: 0; padding-inline-start: 18px; }
+.pg-automations .page-trace li { overflow-wrap: anywhere; }
+.pg-automations .automation-builder { display: grid; gap: 14px; }
+.pg-automations .builder-section { display: grid; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border-soft); }
+.pg-automations .builder-section > header { display: flex; align-items: center; gap: 9px; }
+.pg-automations .builder-section > header > span { width: 24px; height: 24px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 50%; color: var(--accent); font-family: var(--font-mono); font-size: 9px; }
+.pg-automations .builder-section > header > div { min-width: 0; flex: 1; }
+.pg-automations .builder-section h3, .pg-automations .builder-review h3 { margin: 0; font-size: 13px; letter-spacing: -.01em; }
+.pg-automations .builder-section header p { margin: 1px 0 0; color: var(--muted); font-size: 9px; }
+.pg-automations .builder-section header button { min-height: 44px; }
+.pg-automations .builder-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pg-automations .automation-field { min-width: 0; display: grid; gap: 5px; color: var(--fg-2); font-size: 10px; font-weight: 570; }
+.pg-automations .automation-field > span { justify-self: end; margin-top: -19px; color: var(--muted); font-weight: 400; }
+.pg-automations .automation-field input, .pg-automations .automation-field select, .pg-automations .automation-field textarea { width: 100%; min-width: 0; min-height: 44px; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--fg); background: var(--surface); }
+.pg-automations .automation-field textarea { resize: vertical; }
+.pg-automations .trigger-grid, .pg-automations .pco-options fieldset { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin: 0; padding: 9px 10px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); }
+.pg-automations .trigger-grid legend, .pg-automations .pco-options legend { padding: 0 5px; color: var(--muted); font-size: 9px; }
+.pg-automations .trigger-grid label, .pg-automations .pco-options label { min-height: 44px; display: flex; align-items: center; gap: 8px; color: var(--fg-2); font-size: 10px; }
+.pg-automations .trigger-grid input, .pg-automations .pco-options input { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--accent); }
+.pg-automations .pco-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pg-automations .conditions-list { display: grid; gap: 8px; }
+.pg-automations .condition-row { min-width: 0; display: grid; grid-template-columns: 1fr 1fr 1fr 44px; align-items: end; gap: 8px; }
+.pg-automations .condition-row button { width: 44px; height: 44px; }
+.pg-automations .automation-form-error { padding: 10px; border: 1px solid color-mix(in oklab, var(--danger), var(--border) 40%); border-radius: var(--r-sm); color: var(--fg); background: color-mix(in oklab, var(--danger), transparent 90%); }
+.pg-automations .builder-review { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px; border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface-warm); }
+.pg-automations .builder-review > div > span { color: var(--muted); font-family: var(--font-mono); font-size: 8px; text-transform: uppercase; }
+.pg-automations .builder-review dl { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px 18px; margin: 0; }
+.pg-automations .builder-review dl div { display: grid; }
+.pg-automations .builder-review dt { color: var(--muted); font-size: 8px; }
+.pg-automations .builder-review dd { margin: 0; font-size: 9px; }
+.pg-automations .builder-actions, .pg-automations .preview-actions { display: flex; justify-content: end; gap: 8px; }
+.pg-automations .builder-actions button, .pg-automations .preview-actions button { min-height: 44px; }
+.pg-automations .automation-preview { display: grid; gap: 14px; }
+.pg-automations .preview-path { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.pg-automations .preview-path strong { color: var(--fg); }
+.pg-automations .preview-summary { max-width: 70ch; margin: 0; color: var(--fg-2); font-size: 14px; line-height: 1.6; }
+.pg-automations .automation-preview dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: var(--border-soft); }
+.pg-automations .automation-preview dl div { display: grid; gap: 3px; padding: 10px; background: var(--surface); }
+.pg-automations .automation-preview dt { color: var(--muted); font-size: 9px; }
+.pg-automations .automation-preview dd { margin: 0; color: var(--fg); font-family: var(--font-mono); font-size: 10px; overflow-wrap: anywhere; }
+.pg-automations .preview-sample { padding: 12px; border: 1px solid var(--border); border-radius: var(--r-sm); background: color-mix(in oklab, var(--accent), transparent 94%); }
+.pg-automations .preview-sample span { color: var(--muted); font-family: var(--font-mono); font-size: 8px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.pg-automations .preview-sample p { margin: 6px 0 0; color: var(--fg); overflow-wrap: anywhere; }
+.pg-automations .delete-confirm-copy { display: grid; gap: 14px; }
+.pg-automations .delete-confirm-copy > p { margin: 0; color: var(--fg-2); }
+.pg-automations .dialog-actions { display: flex; justify-content: end; gap: 8px; }
+.pg-automations .dialog-actions button { min-height: 44px; }
+
+@media (max-width: 900px) {
+  .pg-automations .automations-header, .pg-automations .automations-overview { padding-inline: 16px; }
+  .pg-automations .automation-workspace { grid-template-columns: minmax(390px, 1fr) minmax(300px, .85fr); }
+  .pg-automations .rule-main { align-items: start; }
+  .pg-automations .rule-actions { flex-wrap: wrap; justify-content: end; max-width: 208px; }
+  .pg-automations .page-trace { padding-inline: 14px; }
+}
+
+@media (max-width: 640px) {
+  .pg-automations .automations-header { align-items: stretch; flex-direction: column; padding-block: 12px; }
+  .pg-automations .automations-mark { width: 44px; height: 44px; }
+  .pg-automations .automations-state-picker select { width: 100%; }
+  .pg-automations .automations-overview { align-items: stretch; flex-direction: column; }
+  .pg-automations .automations-overview dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 14px; }
+  .pg-automations .automations-overview dl div { justify-content: space-between; }
+  .pg-automations .automations-dependency { align-items: stretch; flex-direction: column; padding-inline: 14px; }
+  .pg-automations .automation-workspace { display: block; overflow: auto; }
+  .pg-automations .automation-groups { overflow: visible; border-inline-end: 0; }
+  .pg-automations .automation-inspector { min-height: 420px; overflow: visible; border-top: 1px solid var(--border); }
+  .pg-automations .automation-rule { grid-template-columns: minmax(0, 1fr); grid-template-areas: "select" "actions" "inspect" "progress"; gap: 5px; }
+  .pg-automations .rule-path { align-items: start; flex-wrap: wrap; }
+  .pg-automations .rule-path span { white-space: normal; }
+  .pg-automations .rule-main { grid-template-columns: minmax(0, 1fr); }
+  .pg-automations .rule-actions { max-width: none; justify-content: start; }
+  .pg-automations .rule-copy dl { display: grid; gap: 4px; }
+  .pg-automations .rule-copy dl div { display: grid; grid-template-columns: 68px minmax(0, 1fr); }
+  .pg-automations .rule-inspect { justify-self: start; }
+  .pg-automations .automation-inspector-content dl { grid-template-columns: minmax(0, 1fr); }
+  .pg-automations .automation-inspector-content dl div:nth-child(odd), .pg-automations .automation-inspector-content dl div:nth-child(even) { padding-inline: 0; border-inline-start: 0; }
+  .pg-automations .page-trace { max-height: 100px; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .pg-automations .page-trace ol { display: grid; }
+  .pg-automations .builder-grid, .pg-automations .pco-options { grid-template-columns: minmax(0, 1fr); }
+  .pg-automations .condition-row { grid-template-columns: minmax(0, 1fr) 44px; }
+  .pg-automations .condition-row .automation-field { grid-column: 1 / -1; }
+  .pg-automations .condition-row button { grid-column: 2; }
+  .pg-automations .trigger-grid { grid-template-columns: minmax(0, 1fr); }
+  .pg-automations .builder-review { grid-template-columns: minmax(0, 1fr); }
+  .pg-automations .builder-review dl { justify-content: start; }
+  .pg-automations .automation-preview dl { grid-template-columns: minmax(0, 1fr); }
+  .pg-automations .dialog-backdrop { padding: 8px; }
+  .pg-automations .dialog-panel { max-height: calc(100vh - 16px); }
+}
+
+@media (forced-colors: active) {
+  .pg-automations .automation-rule[aria-current="true"], .pg-automations .automations-mark, .pg-automations .rule-status.active { outline: 2px solid Highlight; outline-offset: 2px; }
+  .pg-automations .rule-progress span { box-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-automations .automations-spinner { animation-duration: 1.4s; }
+}

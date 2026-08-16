@@ -21,6 +21,8 @@ import {
 } from 'vitest';
 import WebSocket, { type WebSocketServer } from 'ws';
 
+import { parseLocalRendererOrigins } from '../config/env';
+
 const { ptyBridgeSpy } = vi.hoisted(() => ({
   ptyBridgeSpy: vi.fn((socket: WebSocket) => {
     socket.send(JSON.stringify({ v: 1, type: 'pty.ready' }));
@@ -55,6 +57,7 @@ interface Scenario {
 interface ScenarioOptions {
   agentLocal: boolean;
   allowedOrigins?: string;
+  localRendererOrigins?: string[];
   guard?: 'off';
 }
 
@@ -65,6 +68,7 @@ async function startScenario(options: ScenarioOptions): Promise<Scenario> {
     agentLocal: env.agentLocal,
     agentExecutionEnabled: env.agentExecutionEnabled,
     corsAllowedOrigins: env.corsAllowedOrigins,
+    localRendererOrigins: env.localRendererOrigins,
     agentOriginGuardEnabled: env.agentOriginGuardEnabled,
   };
   env.agentLocal = options.agentLocal;
@@ -72,6 +76,7 @@ async function startScenario(options: ScenarioOptions): Promise<Scenario> {
   env.corsAllowedOrigins = options.allowedOrigins
     ? [options.allowedOrigins]
     : [];
+  env.localRendererOrigins = options.localRendererOrigins ?? [];
   env.agentOriginGuardEnabled = options.guard !== 'off';
 
   const { setDb } = await import('../database/db');
@@ -117,6 +122,7 @@ async function startScenario(options: ScenarioOptions): Promise<Scenario> {
       env.agentLocal = previousEnv.agentLocal;
       env.agentExecutionEnabled = previousEnv.agentExecutionEnabled;
       env.corsAllowedOrigins = previousEnv.corsAllowedOrigins;
+      env.localRendererOrigins = previousEnv.localRendererOrigins;
       env.agentOriginGuardEnabled = previousEnv.agentOriginGuardEnabled;
     },
   };
@@ -212,6 +218,50 @@ function frameTypes(frames: string[]): string[] {
 }
 
 describe.sequential('local agent surface defensive contract', () => {
+  describe('local renderer origin parser', () => {
+    it('slice-2-c13: accepts, trims, and deduplicates only exact renderer origins', () => {
+      // Regression caught: startup accepts aliases or returns duplicate policy entries.
+      expect(parseLocalRendererOrigins).toBeTypeOf('function');
+      if (typeof parseLocalRendererOrigins !== 'function') return;
+      expect(
+        parseLocalRendererOrigins(
+          ' http://127.0.0.1:4175, rhythm://app,http://127.0.0.1:4175 ',
+        ),
+      ).toEqual(['http://127.0.0.1:4175', 'rhythm://app']);
+      expect(parseLocalRendererOrigins(undefined)).toEqual([]);
+      expect(parseLocalRendererOrigins('')).toEqual([]);
+    });
+
+    it.each([
+      '*',
+      'null',
+      'file:///tmp/index.html',
+      'https://127.0.0.1:4175',
+      'http://localhost:4175',
+      'http://0.0.0.0:4175',
+      'http://127.0.0.2:4175',
+      'http://user@127.0.0.1:4175',
+      'http://127.0.0.1',
+      'http://127.0.0.1:0',
+      'http://127.0.0.1:65536',
+      'http://127.0.0.1:4175/path',
+      'http://127.0.0.1:4175?query=1',
+      'http://127.0.0.1:4175#fragment',
+      'http://127.0.0.1:4175.evil.invalid',
+      'prefixhttp://127.0.0.1:4175',
+      'rhythm://app.evil',
+      'rhythm://app/path',
+      'not an origin',
+    ])('slice-2-c14: rejects unsafe renderer origin %s at startup', (value) => {
+      // Regression caught: malformed or lookalike origins enter the privileged allowlist.
+      expect(parseLocalRendererOrigins).toBeTypeOf('function');
+      if (typeof parseLocalRendererOrigins !== 'function') return;
+      expect(() => parseLocalRendererOrigins(value)).toThrow(
+        /RHYTHM_LOCAL_RENDERER_ORIGINS/,
+      );
+    });
+  });
+
   describe('empty hosted allowlist', () => {
     let scenario: Scenario;
 
@@ -386,6 +436,83 @@ describe.sequential('local agent surface defensive contract', () => {
       expect(observed.opened).toBe(false);
       expect(observed.rejectionStatus).toBe(403);
       expect(ptyBridgeSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('agent-local configured renderer origin', () => {
+    let scenario: Scenario;
+    const rendererOrigin = 'http://127.0.0.1:4175';
+
+    beforeAll(async () => {
+      scenario = await startScenario({
+        agentLocal: true,
+        localRendererOrigins: [rendererOrigin],
+      });
+    });
+
+    beforeEach(() => {
+      ptyBridgeSpy.mockClear();
+    });
+
+    afterAll(async () => {
+      await scenario.close();
+    });
+
+    it('slice-2-c15: exact renderer origin receives HTTP 200 and exact ACAO across ports', async () => {
+      // Regression caught: the configured renderer remains blocked by Origin or same-site provenance.
+      const response = await get(scenario, {
+        Origin: rendererOrigin,
+        'Sec-Fetch-Site': 'same-site',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe(
+        rendererOrigin,
+      );
+    });
+
+    it('slice-2-c16: exact renderer origin opens agent and PTY WebSockets', async () => {
+      // Regression caught: HTTP uses the allowlist but either upgrade path does not.
+      const agents = await observeUpgrade(scenario, '/ws/agents', {
+        Origin: rendererOrigin,
+        'Sec-Fetch-Site': 'cross-site',
+      });
+      const pty = await observeUpgrade(scenario, '/ws/pty/contract', {
+        Origin: rendererOrigin,
+        'Sec-Fetch-Site': 'same-site',
+      });
+
+      expect(agents.opened).toBe(true);
+      expect(frameTypes(agents.frames)).toContain('sessions.list');
+      expect(pty.opened).toBe(true);
+      expect(ptyBridgeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      'http://127.0.0.1:4176',
+      'http://localhost:4175',
+      'http://127.0.0.1:4175.evil.invalid',
+      'null',
+      '*',
+      'https://external.invalid',
+    ])('slice-2-c17: rejects similar or arbitrary Origin %s without ACAO', async (origin) => {
+      // Regression caught: CORS or the guard reflects a lookalike/unconfigured origin.
+      const response = await get(scenario, { Origin: origin });
+
+      expectConciseForbidden(response);
+      expect(response.headers['access-control-allow-origin']).toBeUndefined();
+      expect(response.body).not.toContain(origin);
+    });
+
+    it('slice-2-c18: approved Origin still requires a loopback destination Host', async () => {
+      // Regression caught: renderer authorization bypasses destination Host validation.
+      const response = await get(scenario, {
+        Host: 'unapproved.invalid',
+        Origin: rendererOrigin,
+      });
+
+      expectConciseForbidden(response);
+      expect(response.headers['access-control-allow-origin']).toBeUndefined();
     });
   });
 

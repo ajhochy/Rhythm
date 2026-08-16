@@ -1,0 +1,122 @@
+{
+  "issue": 2006,
+  "generated": "2026-08-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-2006-c1",
+      "text": "The /messages collection route and /messages/<threadId> deep links render the real page-messages contract inside the selected Rhythm shell with exactly one Messages h1.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c1: messages collection and thread deep links render the real page shell",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c2",
+      "text": "Ready fixtures contain exactly six unread threads at one unread message each, and case-insensitive title search filters deterministic visible results without changing unread totals or emitting an endpoint receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c2: search filters deterministic threads without changing the six unread baseline",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c3",
+      "text": "The ready, loading, empty, server-error, forbidden, unavailable, and readonly state matrix is deterministic; Retry recovers without reload, empty opens New conversation, no-results clears, invalid deep links recover, and readonly preserves inspection while natively disabling mutation.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c3: state matrix no-results and invalid links expose deterministic recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c4",
+      "text": "Every enabled Messages control has a stable kebab-case data-testid and observable outcome; client-only controls add no fake receipt, and menus/dialogs close on Escape and restore focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c4: controls are live receipt-honest and restore focus",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c5",
+      "text": "The visible page-trace ledger records exact GET /message-threads, GET /users, POST /message-threads, GET/POST /message-threads/:id/messages, and POST read/unread receipts with meaningful payload keys and simulated 200, 201, or 204 statuses in Flutter order.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c5: visible ledger records exact message endpoint receipts and excludes client-only controls",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c6",
+      "text": "The ready Messages page and New thread dialog have zero serious or critical axe violations, labelled forms and status regions, ordered headings, and contained modal keyboard focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c6: ready page and New thread dialog satisfy axe and modal focus",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c7",
+      "text": "Messages has no page-level horizontal overflow at 1440, 1024, 768, or 390 CSS pixels and remains usable with 200 percent text, RTL, reduced motion, long CJK/emoji content, forced colors, and 44 pixel touch targets.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c7: messages remains responsive under required presentation modes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c8",
+      "text": "Messages is fixture-only and loopback-isolated: it attempts no external request, uses deterministic ids and timestamps, and reload restores the identical six-unread seed after local mutations.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c8: fixture isolation blocks external I O and reload resets the seed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c9",
+      "text": "Selecting or deep-linking a thread selects the correct row, renders its subject, participants, ordered transcript and type, marks it read, updates the hash route, and never leaks the previously selected transcript.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c9: selecting and deep linking hydrate the correct conversation and read state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c10",
+      "text": "New thread validates Flutter-supported recipients, direct/group type, and optional-or-required title without inventing an initial body field; successful creation occurs once, selects the created thread, and exposes exact creation and hydration receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c10: new thread validates supported fields creates once and selects the result",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c11",
+      "text": "Reply rejects a trimmed-empty body without a receipt, Shift plus Enter inserts a newline, and successful Enter or Send appends the returned message exactly once, clears the composer, preserves focus, scrolls to the latest message, and emits POST /message-threads/:id/messages {body} -> 201.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c11: reply validates appends once preserves focus and exposes the exact receipt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c12",
+      "text": "Mark as read and Mark as unread update the target thread badge, page unread total, and accessible shell Messages badge from the initial six baseline and back, with exact 204 mutation and 200 refresh receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c12: mark read and unread synchronize thread page and shell badges",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2006-c13",
+      "text": "Messages page Needs thread name edit and thread delete functions.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2006-messages.spec.ts",
+      "test_id": "issue-2006-c13: thread rename and delete are functional and selection safe",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "manual-visual-parity",
+      "reason": "Manual plus screenshot: the lead compares Messages in dark and light themes against ../rhythm-dashboard-redesign.html for the mineral blue-green hierarchy, density, typography, borders, radii, and restrained accent."
+    },
+    {
+      "criterion_id": "lead-global-gates",
+      "reason": "Lead-run only: complete repository regression/build verification and the Electron-absence audit are outside this page-owner recon contract."
+    }
+  ],
+  "verified": "2026-08-13 full-suite run: 216 passed incl. all Wave-2 contract+page suites (installed Chrome); build + dist smoke green"
+}

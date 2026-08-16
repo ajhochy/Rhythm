@@ -1,0 +1,172 @@
+{
+  "run_id": "2026-08-13-issue-2006-thread-actions",
+  "issue": 2006,
+  "date": "2026-08-13",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-2006-c1",
+      "text": "The /messages collection route and /messages/<threadId> deep links render the real page-messages contract inside the selected Rhythm shell with exactly one Messages h1.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c2",
+      "text": "Ready fixtures contain exactly six unread threads at one unread message each, and case-insensitive title search filters deterministic visible results without changing unread totals or emitting an endpoint receipt.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c3",
+      "text": "The ready, loading, empty, server-error, forbidden, unavailable, and readonly state matrix is deterministic; Retry recovers without reload, empty opens New conversation, no-results clears, invalid deep links recover, and readonly preserves inspection while natively disabling mutation.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c4",
+      "text": "Every enabled Messages control has a stable kebab-case data-testid and observable outcome; client-only controls add no fake receipt, and menus/dialogs close on Escape and restore focus.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "New action focus recovery was observed through the selected-thread action trigger; the complete legacy control inventory was not manually repeated."
+    },
+    {
+      "criterion_id": "issue-2006-c5",
+      "text": "The visible page-trace ledger records exact GET /message-threads, GET /users, POST /message-threads, GET/POST /message-threads/:id/messages, and POST read/unread receipts with meaningful payload keys and simulated 200, 201, or 204 statuses in Flutter order.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c6",
+      "text": "The ready Messages page and New thread dialog have zero serious or critical axe violations, labelled forms and status regions, ordered headings, and contained modal keyboard focus.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c7",
+      "text": "Messages has no page-level horizontal overflow at 1440, 1024, 768, or 390 CSS pixels and remains usable with 200 percent text, RTL, reduced motion, long CJK/emoji content, forced colors, and 44 pixel touch targets.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c8",
+      "text": "Messages is fixture-only and loopback-isolated: it attempts no external request, uses deterministic ids and timestamps, and reload restores the identical six-unread seed after local mutations.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The live smoke remained loopback-only, but reload reset was not repeated."
+    },
+    {
+      "criterion_id": "issue-2006-c9",
+      "text": "Selecting or deep-linking a thread selects the correct row, renders its subject, participants, ordered transcript and type, marks it read, updates the hash route, and never leaks the previously selected transcript.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c10",
+      "text": "New thread validates Flutter-supported recipients, direct/group type, and optional-or-required title without inventing an initial body field; successful creation occurs once, selects the created thread, and exposes exact creation and hydration receipts.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c11",
+      "text": "Reply rejects a trimmed-empty body without a receipt, Shift plus Enter inserts a newline, and successful Enter or Send appends the returned message exactly once, clears the composer, preserves focus, scrolls to the latest message, and emits POST /message-threads/:id/messages {body} -> 201.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c12",
+      "text": "Mark as read and Mark as unread update the target thread badge, page unread total, and accessible shell Messages badge from the initial six baseline and back, with exact 204 mutation and 200 refresh receipts.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Existing criterion was outside this focused manual smoke."
+    },
+    {
+      "criterion_id": "issue-2006-c13",
+      "text": "Messages page Needs thread name edit and thread delete functions.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Renamed Weekend Team to Sunday coordination, confirmed the list row and open conversation updated without changing the stable thread id, then deleted it and observed seven remaining conversations, the Facilities thread selected, route recovery, and focus on its action trigger."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "browser-launch-permissions",
+      "description": "The installed-Chrome Playwright contract could not reach assertions because Chrome Crashpad access was denied by the managed macOS sandbox.",
+      "detected_by": "npx playwright test ... --grep issue-2006-c13 exited 1 with SIGABRT and Operation not permitted for Chrome/Crashpad/settings.dat."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "The manual smoke was performed before the formal verification-gate handoff, so the postmortem has no verification claim to compare.",
+        "detected_by": "Transcript order: coding-agent implementation, live browser smoke, then failure-postmortem."
+      },
+      {
+        "workflow_category": "W3",
+        "affected_skill": "acceptance-contract",
+        "description": "The compact task plan did not expand every acceptance-contract and coding-agent checklist item into a separate todo.",
+        "detected_by": "Transcript plan inspection."
+      },
+      {
+        "workflow_category": "W6",
+        "affected_skill": "coding-agent",
+        "description": "The target directory is not a Git worktree, so a branch identity could not be confirmed before browser smoke; the smoke instead verified the unique new rename/delete UI on the local dev port.",
+        "detected_by": "git diff reported Not a git repository; live accessibility tree exposed the new action labels and dialogs."
+      }
+    ]
+  },
+  "implementation_files": [
+    "src/pages/messages/index.tsx",
+    "src/pages/messages/styles.css",
+    "tests/contract/issue-2006-messages.spec.ts",
+    "docs/ai/contracts/issue-2006.json",
+    "../preview/messages-thread-actions.png"
+  ],
+  "failure_output": "Playwright launch failed before assertions: Chrome Crashpad bootstrap permission denied; settings.dat Operation not permitted; browser exited SIGABRT.",
+  "overall_category": "none",
+  "suggested_follow_up": "Run issue-2006-c13 in an environment where installed Chrome can access its Crashpad profile so the automated contract can replace the manual-only evidence."
+}

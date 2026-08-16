@@ -1,0 +1,73 @@
+{
+  "issue": "inspector-verification",
+  "date": "2026-08-14",
+  "test_command": "npx playwright test tests/pages/planner.spec.ts tests/pages/tasks.spec.ts tests/pages/rhythms.spec.ts tests/pages/projects.spec.ts tests/pages/facilities.spec.ts tests/pages/automations.spec.ts tests/pages/integrations.spec.ts --workers=1",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-inspector-verification-c1",
+      "text": "Selecting an editable record immediately exposes fields without an Edit click.",
+      "mode": "ui",
+      "test": "tests/pages/{planner,tasks,rhythms,projects,facilities,automations,integrations}.spec.ts",
+      "status": "pass",
+      "reason": "All seven page specs passed."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c2",
+      "text": "Read-only/shared/source-owned inspectors expose the same fields disabled.",
+      "mode": "ui",
+      "test": "tests/pages/{planner,tasks,rhythms,projects,facilities,automations,integrations}.spec.ts",
+      "status": "pass",
+      "reason": "Readonly and ownership checks passed across the seven page specs and existing contracts."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c3",
+      "text": "Saving a Facilities reservation keeps it selected and subsequent saves remain PATCH operations.",
+      "mode": "ui",
+      "test": "tests/contract/issue-2007-facilities.spec.ts",
+      "status": "pass",
+      "reason": "issue-2007-c5 asserts two PATCH receipts while the selected detail remains visible."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c4",
+      "text": "Rhythms has no redundant Edit actions.",
+      "mode": "ui",
+      "test": "tests/pages/rhythms.spec.ts",
+      "status": "pass",
+      "reason": "The selected rhythm exposes enabled fields and no Edit button."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c5",
+      "text": "Automation edits update the selected rule rather than creating another rule.",
+      "mode": "ui",
+      "test": "tests/contract/issue-2008-automations.spec.ts",
+      "status": "pass",
+      "reason": "issue-2008-c11 passed."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c6",
+      "text": "Planning Center filters edit directly inside the Integration inspector.",
+      "mode": "ui",
+      "test": "tests/contract/issue-2009-integrations.spec.ts",
+      "status": "pass",
+      "reason": "issue-2009-c12 passed."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c7",
+      "text": "Responsive and axe checks pass for all seven surfaces.",
+      "mode": "ui",
+      "test": "tests/pages/{planner,tasks,rhythms,projects,facilities,automations,integrations}.spec.ts",
+      "status": "pass",
+      "reason": "The seven-surface page run passed 36/36."
+    },
+    {
+      "criterion_id": "task-inspector-verification-c8",
+      "text": "Confirm Chromium launches successfully here.",
+      "mode": "ui",
+      "test": "npm test",
+      "status": "pass",
+      "reason": "Chromium launched for both full-suite runs without MachPortRendezvousServer errors."
+    }
+  ],
+  "not_tested": []
+}

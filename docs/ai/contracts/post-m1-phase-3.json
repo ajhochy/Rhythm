@@ -1,0 +1,269 @@
+{
+  "issue": "post-m1-phase-3",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/post_m1_phase_3_route_vocabulary.test.ts --reporter=verbose; cd ../web && npx playwright test --config tests/post-m1-phase-3-fixture-playwright.config.ts; npx playwright test --config tests/post-m1-phase-3-live-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p3-c1a",
+      "text": "Dashboard declares fixture list/detail/mutation boundaries for DashboardSummary.tasks, rhythms, projects, goals, and messages, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2001-dashboard.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1b",
+      "text": "Planner declares fixture boundaries for WeeklyPlan.weekLabel, weekStart, days, backlog and Task scheduledDate, scheduledOrder, locked, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2002-planner.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1c",
+      "text": "Tasks declares fixture list/detail/create/update/delete/collaborator boundaries using TaskStatus open, in_progress, waiting_for_reply, or done, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2003-tasks.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1d",
+      "text": "Rhythms declares fixture list/detail/CRUD/collaborator boundaries using frequency weekly, monthly, or annual and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2004-rhythms.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1e",
+      "text": "Projects declares fixture boundaries for ProjectTemplate, ProjectTemplateStep, ProjectInstance, ProjectInstanceStep, ProjectMilestone, and collaborators, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2005-projects.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1f",
+      "text": "Messages declares fixture list/thread/message/create/read/unread boundaries using threadType direct or group and numeric persisted thread/message IDs, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2006-messages.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1g",
+      "text": "Facilities declares fixture boundaries for Facility, Reservation, grouped reservations, ReservationSeries, conflicts, and automation-reservation cleanup, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2007-facilities.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1h",
+      "text": "Automations declares fixture catalog/list/detail/preview/CRUD/resync boundaries using canonical source, triggerKey, actionType, sourceAccountId, conditions, and enabled fields, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2008-automations.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c1i",
+      "text": "Integrations declares fixture account/OAuth-handoff/sync/signal/preference/import boundaries while keeping display route IDs separate from canonical providers google_calendar, gmail, and planning_center, and fixture mode performs no network request.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-2009-integrations.spec.ts",
+      "status": "pending",
+      "reason": "Collected by the new Phase 3 fixture config; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2a",
+      "text": "Live Dashboard reads the authenticated DashboardSummary and project instances, persists task/project-step/collaborator mutations, opens real message data, and never falls back to dashboard fixtures or cross-workspace records.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2b",
+      "text": "Live Planner reads WeeklyPlan for the requested week and persists scheduledDate, scheduledOrder, locked, task/project-step edits, creates, and collaborators while retaining canonical sourceType project_step and calendar_shadow_event.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2c",
+      "text": "Live Tasks lists, adds, and removes collaborators by numeric userId, preserves server collaborators and sourceType without invented creator data, and rejects cross-workspace task or user IDs non-disclosingly.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2d",
+      "text": "Live Rhythms lists and persists recurring-rule CRUD, enabled, sequential, steps, and collaborators using frequency weekly, monthly, or annual with no fixture fallback or cross-workspace visibility.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2e",
+      "text": "Live Projects persists template/step CRUD, instance generation and deletion, instance-step updates, milestones, and collaborators using numeric assigneeId/ownerId and canonical instance fields without fixture fallback or cross-workspace visibility.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2f",
+      "text": "Live Messages lists authorized threads, creates direct/group threads with participantIds, sends body, and persists read/unread state using numeric thread/message IDs without fixture fallback or unauthorized disclosure.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2g",
+      "text": "Live Facilities persists facility CRUD, single/group reservations, ReservationSeries recurrence_type weekly/biweekly/monthly/custom, conflicts, and automation-reservation preview/removal using canonical request and response field names without fixture fallback or unauthorized disclosure.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2h",
+      "text": "Live Automations loads server catalogs/prerequisites and persists preview/CRUD/enable/resync using canonical sources, sourceAccountId, actionType auto_schedule, and exact declared triggerKey values; invalid fixture literals are never sent.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2i",
+      "text": "Live Integrations starts Google user/agent and Planning Center authorization, observes canonical provider account state, syncs providers/all, loads Gmail signals/options, persists selectedCalendarIds and teamIds/positionNames, and imports API records without fixture fallback or cross-user disclosure.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c2j",
+      "text": "Dashboard, Planner, and Tasks quick actions create a real task-bound Secretary agent session, send the selected preset prompt, and for follow-up persist the task before launch; failure is observable and no fixture session is substituted.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-live-pages.redspec.ts",
+      "status": "pending",
+      "reason": "API prerequisite test passes and the browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c3a",
+      "text": "A successful Task create/update/collaborator mutation refreshes DashboardSummary.tasks and the matching WeeklyPlan day or backlog without duplicate records while preserving the selected task, weekLabel, filters, and view across reload.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-selection-reload.redspec.ts",
+      "status": "pending",
+      "reason": "The browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c3b",
+      "text": "A successful ProjectInstanceStep status/date mutation refreshes DashboardSummary.projects and WeeklyPlan using the same step id and sourceType project_step while preserving selected project, expanded instance, milestone filter, and week across reload.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-3-selection-reload.redspec.ts",
+      "status": "pending",
+      "reason": "The browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c3c",
+      "text": "Successful Rhythm, Message, Facility, Automation, and Integration mutations invalidate only their affected operational summaries and preserve each page's selected stable ID, filter, and deep link across renderer reload.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-3-selection-reload.redspec.ts",
+      "status": "pending",
+      "reason": "The browser RED spec collects; Chromium execution is assigned to the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4a",
+      "text": "The packaged app completes Dashboard task create-edit-reload plus project-step completion and renders bounded validation/unauthorized feedback without raw bodies, secrets, stacks, or absolute paths.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Dashboard journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4b",
+      "text": "The packaged app completes Planner schedule-edit-reload for an ordinary task and project step while preserving week/filter/selection and bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Planner journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4c",
+      "text": "The packaged app completes Task create-edit-collaborator-reload-delete using canonical Task fields and bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Tasks journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4d",
+      "text": "The packaged app completes Rhythm create-edit-enable-collaborator-reload-delete using canonical frequency and bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Rhythms journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4e",
+      "text": "The packaged app completes Project template/step create-edit, instance generation, milestone/step mutation, reload, and cleanup with bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Projects journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4f",
+      "text": "The packaged app completes Message direct/group create-send-read-unread-reload using numeric persisted IDs and bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Messages journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4g",
+      "text": "The packaged app completes Facility and recurring multi-room reservation create-edit-reload-delete, exposes conflict results, and uses bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Facilities journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4h",
+      "text": "The packaged app completes Automation create-preview-edit-enable-resync-reload-delete using server catalog literals and bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Automations journey."
+    },
+    {
+      "criterion_id": "post-m1-p3-c4i",
+      "text": "The packaged app completes an Integration authorization-return, Calendar or PCO preference save, sync, reload, and account-state observation using canonical provider values and bounded feedback.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "UNVERIFIED: this unit was explicitly forbidden to modify or launch Electron; orchestrator must assign the packaged Integrations journey."
+    }
+  ],
+  "not_tested": [
+    "post-m1-p3-c4a",
+    "post-m1-p3-c4b",
+    "post-m1-p3-c4c",
+    "post-m1-p3-c4d",
+    "post-m1-p3-c4e",
+    "post-m1-p3-c4f",
+    "post-m1-p3-c4g",
+    "post-m1-p3-c4h",
+    "post-m1-p3-c4i"
+  ],
+  "note": "The Phase 3 plan says eight page families but names nine; this contract covers all nine plus Secretary-scoped quick actions. API route/vocabulary prerequisites pass. Fixture and browser RED specs collect but were not executed because Chromium launch is forbidden for this unit. Packaged criteria are explicitly not_tested because Electron changes and GUI execution were out of scope."
+}
