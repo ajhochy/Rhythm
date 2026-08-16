@@ -40,6 +40,64 @@ class OrgProposalsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------------------------------------------------------------------
+  // Applied (already-live) changes — the revert lane.
+  //
+  // The server's status filter takes ONE status per call, so the live set is
+  // three reads. `active` is the kept steady state; `applied`/`measuring` are
+  // the earlier stages of the same deployment — already changing behaviour, so
+  // they belong on this tab too, even though only `active` may be reverted.
+  // ---------------------------------------------------------------------
+
+  static const appliedStatuses = ['active', 'applied', 'measuring'];
+
+  List<OrgProposal> _applied = [];
+  OrgProposalsStatus _appliedStatus = OrgProposalsStatus.idle;
+  String? _appliedError;
+
+  List<OrgProposal> get applied => List.unmodifiable(_applied);
+  OrgProposalsStatus get appliedStatus => _appliedStatus;
+  String? get appliedError => _appliedError;
+
+  Future<void> refreshApplied() async {
+    _appliedStatus = OrgProposalsStatus.loading;
+    _appliedError = null;
+    notifyListeners();
+
+    try {
+      final batches = await Future.wait(
+        appliedStatuses.map((s) => _repository.listProposed(status: s)),
+      );
+      _applied = batches.expand((batch) => batch).toList();
+      _appliedStatus = OrgProposalsStatus.idle;
+    } catch (e) {
+      _appliedError = e is AppError ? e.message : e.toString();
+      _appliedStatus = OrgProposalsStatus.error;
+    }
+    notifyListeners();
+  }
+
+  /// Undo an already-live change. Returns true only when the server confirms
+  /// the revert; on refusal [appliedError] holds the SERVER's message (the
+  /// client-side [OrgProposal.revertNeedsOperator] check is a UX aid, never
+  /// the guarantee — the server is the authority on what may be reverted).
+  Future<bool> revert(String id) async {
+    _pendingIds.add(id);
+    _appliedError = null;
+    notifyListeners();
+    try {
+      await _repository.revert(id);
+      _applied = _applied.where((p) => p.id != id).toList();
+      return true;
+    } catch (e) {
+      _appliedError = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _pendingIds.remove(id);
+      notifyListeners();
+    }
+  }
+
   /// True when the last approve failed because the server durably recorded the
   /// operation as `reconciliation-required`. That is NOT an ordinary failure to
   /// retry: the proposal, the target scope and the projected profile have to be
