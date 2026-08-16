@@ -206,7 +206,7 @@ interface Case {
   bundle: unknown;
   baseline: AgentRunOutcome[];
   candidate: AgentRunOutcome[];
-  expected: 'promote' | 'inconclusive' | 'regress';
+  expected: 'promote' | 'inconclusive' | 'regress' | 'collecting';
   reasonMatches: RegExp;
 }
 
@@ -283,29 +283,30 @@ const CASES: Case[] = [
     expected: 'inconclusive',
     reasonMatches: /evidence bundle/i,
   },
-  // ── W6-c5 COHORT PAIRING ───────────────────────────────────────────────
+  // ── C0 — undersized cohorts are COLLECTING, not terminal, while eligible
+  // exposure is below maxExposure (the declare() helper defaults to 100) ──
   {
-    name: 'c5 an empty candidate cohort is inconclusive, never regress',
+    name: 'c5 an empty candidate cohort is collecting, never regress',
     bundle: makeValidBundle(),
     baseline: cohort(20, 10, 'baseline'),
     candidate: [],
-    expected: 'inconclusive',
+    expected: 'collecting',
     reasonMatches: /candidate cohort is empty/i,
   },
   {
-    name: 'c5 an empty baseline cohort is inconclusive, never promote',
+    name: 'c5 an empty baseline cohort is collecting, never promote',
     bundle: makeValidBundle(),
     baseline: [],
     candidate: cohort(20, 20, 'candidate'),
-    expected: 'inconclusive',
+    expected: 'collecting',
     reasonMatches: /baseline cohort is empty/i,
   },
   {
-    name: 'below the predeclared stopping rule is inconclusive in both directions',
+    name: 'below the predeclared stopping rule is collecting in both directions',
     bundle: makeValidBundle(),
     baseline: cohort(3, 0, 'baseline'),
     candidate: cohort(3, 3, 'candidate'),
-    expected: 'inconclusive',
+    expected: 'collecting',
     reasonMatches: /stopping rule/i,
   },
   {
@@ -323,7 +324,12 @@ describe('W6-c6 / W6-c12 / W6-c13 — one decision table, refusals and positive 
     const experiments = new AgentOrgExperimentsRepository();
     const exp = await declare(experiments, bundle);
     const result = decideExperiment({ experiment: exp, baseline, candidate });
-    expect(result.decision).toBe(expected);
+    if (expected === 'collecting') {
+      expect(result.status).toBe('collecting');
+    } else {
+      expect(result.status).toBe('decided');
+      expect(result.status === 'decided' && result.decision).toBe(expected);
+    }
     expect(result.reason).toMatch(reasonMatches);
   });
 
@@ -368,23 +374,29 @@ describe('W6-c12 promote and regress are reachable END TO END, through the ledge
     return created.id;
   }
 
-  it('promotes, records the decision on the experiment, and marks the proposal verified', async () => {
-    await seedProposal();
-    await seedLedger(10, 18);
-    const experiments = new AgentOrgExperimentsRepository();
-    const exp = await declare(experiments, makeValidBundle());
+  it(
+    'C0 — a paired-cohort-outcome effect records results but is fail-closed gated to inconclusive, never verified',
+    async () => {
+      await seedProposal();
+      await seedLedger(10, 18);
+      const experiments = new AgentOrgExperimentsRepository();
+      const exp = await declare(experiments, makeValidBundle());
 
-    const judged = await judgeExperimentAsync(exp.id);
-    expect(judged.decision).toBe('promote');
+      const judged = await judgeExperimentAsync(exp.id);
+      if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+      expect(judged.status).toBe('decided');
+      expect(judged.decision).toBe('inconclusive');
+      expect(judged.reason).toMatch(/treatment-v2/i);
 
-    const stored = await experiments.findByIdAsync(exp.id);
-    expect(stored!.decision).toBe('promote');
-    expect(stored!.results!.baseline.sampleCount).toBe(20);
-    expect(stored!.results!.candidate.sampleCount).toBe(20);
+      const stored = await experiments.findByIdAsync(exp.id);
+      expect(stored!.decision).toBe('inconclusive');
+      expect(stored!.results!.baseline.sampleCount).toBe(20);
+      expect(stored!.results!.candidate.sampleCount).toBe(20);
 
-    const proposal = await new AgentOrgProposalsRepository().findByIdAsync('prop-1');
-    expect(proposal!.outcomeStatus).toBe('verified');
-  });
+      const proposal = await new AgentOrgProposalsRepository().findByIdAsync('prop-1');
+      expect(proposal!.outcomeStatus).toBe('inconclusive');
+    },
+  );
 
   it('regresses on the mirror fixture and marks the proposal regressed', async () => {
     await seedProposal();
@@ -393,6 +405,7 @@ describe('W6-c12 promote and regress are reachable END TO END, through the ledge
     const exp = await declare(experiments, makeValidBundle());
 
     const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
     expect(judged.decision).toBe('regress');
 
     const proposal = await new AgentOrgProposalsRepository().findByIdAsync('prop-1');
@@ -409,6 +422,7 @@ describe('W6-c12 promote and regress are reachable END TO END, through the ledge
     });
 
     const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
     expect(judged.decision).toBe('inconclusive');
 
     const proposal = await new AgentOrgProposalsRepository().findByIdAsync('prop-1');
@@ -453,13 +467,14 @@ describe('W6-c13 a result may not be judged by a rule that did not predate it', 
       baseline: cohort(20, 10, 'baseline'),
       candidate: cohort(20, 18, 'candidate'),
     });
+    if (result.status !== 'decided') throw new Error('expected a terminal decision');
     expect(result.decision).toBe('inconclusive');
     expect(result.reason).toMatch(/declared after/i);
   });
 });
 
 describe('P2-4 an established outcome is never downgraded by a re-judge', () => {
-  it('judging twice leaves `verified` alone and does not churn the CAS revision', async () => {
+  it('judging twice leaves the C0-gated inconclusive verdict alone and does not churn the CAS revision', async () => {
     const proposals = new AgentOrgProposalsRepository();
     await proposals.createAsync({
       id: 'prop-1',
@@ -489,14 +504,18 @@ describe('P2-4 an established outcome is never downgraded by a re-judge', () => 
     const experiments = new AgentOrgExperimentsRepository();
     const exp = await declare(experiments, makeValidBundle());
 
-    expect((await judgeExperimentAsync(exp.id)).decision).toBe('promote');
+    const firstJudged = await judgeExperimentAsync(exp.id);
+    if (firstJudged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(firstJudged.decision).toBe('inconclusive');
     const afterFirst = (await proposals.findByIdAsync('prop-1'))!;
-    expect(afterFirst.outcomeStatus).toBe('verified');
+    expect(afterFirst.outcomeStatus).toBe('inconclusive');
 
-    // Re-entrant call: same verdict, no downgrade, no extra revision bump.
-    expect((await judgeExperimentAsync(exp.id)).decision).toBe('promote');
+    // Re-entrant call: same verdict, no churn, no extra revision bump.
+    const secondJudged = await judgeExperimentAsync(exp.id);
+    if (secondJudged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(secondJudged.decision).toBe('inconclusive');
     const afterSecond = (await proposals.findByIdAsync('prop-1'))!;
-    expect(afterSecond.outcomeStatus).toBe('verified');
+    expect(afterSecond.outcomeStatus).toBe('inconclusive');
     expect(afterSecond.revision).toBe(afterFirst.revision);
   });
 
