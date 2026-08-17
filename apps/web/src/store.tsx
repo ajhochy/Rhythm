@@ -4,6 +4,7 @@ import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
 import { mapPart, SessionGatewayError, type ProfileMutation, type SessionSocket, type SessionWireEvent } from './gateway/sessions';
 import type { DomainNotification } from './gateway/notifications';
+import type { PendingApproval } from './gateway/approvals';
 import { isSessionOffline } from './sessionState';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
@@ -78,6 +79,10 @@ interface FixtureContextValue {
   replyLiveQuestion(answers: string[][]): Promise<void>;
   rejectLiveQuestion(): Promise<void>;
   updatePermissionMode(mode: string): Promise<void>;
+  // post-m1-phase-7 c4d: pending human-gated approvals surfaced as actionable cards in the
+  // Notifications bell (same GET /agent-approvals?status=pending boundary Review Queue reads).
+  pendingApprovals: PendingApproval[];
+  decideApproval(id: string, status: 'approved' | 'rejected'): Promise<void>;
 }
 
 const FixtureContext = createContext<FixtureContextValue | null>(null);
@@ -191,6 +196,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const [liveChildView, setLiveChildView] = useState<LiveChildView | null>(null);
   const [notifications, setNotifications] = useState<DomainNotification[]>([]);
   const [pushNotifications, setPushNotifications] = useState<PushNotification[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const pushSeenIdsRef = useRef(new Set<number>());
   const sessionSocketRef = useRef<SessionSocket | null>(null);
   const streamedPartsRef = useRef(new Set<string>());
@@ -447,6 +453,28 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
+
+  // c4d: hydrate the shared pending-approval boundary once on mount — same read Review Queue
+  // (LiveReviewTool) uses, so an approval raised against any session shows up here too.
+  useEffect(() => {
+    if (!live) return;
+    let active = true;
+    void gateway.domains.approvals!.listPending()
+      .then((rows) => { if (active) setPendingApprovals(rows); })
+      .catch(() => { if (active) notify('Pending approvals could not be loaded'); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gateway, live]);
+
+  // No native signer bridge exists in this Electron/React build yet — the P-256 decision
+  // signature `ApprovalGateway.decide()` requires can only be produced by the signed desktop
+  // app's Keychain-held key (see gateway/approvals.ts's HumanApprovalMaterial doc). Honestly
+  // reject rather than fabricate a signature, mirroring sessions.ts dispatchMcp's pattern for a
+  // real capability this build does not implement yet: never call decide() with invented
+  // material, and never claim a decision succeeded that was never sent to the server.
+  const decideApproval = async (_id: string, _status: 'approved' | 'rejected') => {
+    notify('Approving requires the signed desktop app’s Keychain key, which is not wired into this build yet.');
+  };
 
   const markNotificationRead = (id: number) => {
     setNotifications((current) => current.filter((item) => item.id !== id));
@@ -780,7 +808,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount]);
+  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 
