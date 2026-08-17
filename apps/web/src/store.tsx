@@ -4,7 +4,8 @@ import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
 import { mapPart, SessionGatewayError, type ProfileMutation, type SessionSocket, type SessionWireEvent } from './gateway/sessions';
 import type { DomainNotification } from './gateway/notifications';
-import type { PendingApproval } from './gateway/approvals';
+import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
+import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
 import type { ComposerAttachment, DemoState, FixtureFile, InspectorTab, Profile, Session, SessionScope, Theme, TodoItem, TranscriptMessage } from './types';
 
@@ -469,14 +470,29 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, live]);
 
-  // No native signer bridge exists in this Electron/React build yet — the P-256 decision
-  // signature `ApprovalGateway.decide()` requires can only be produced by the signed desktop
-  // app's Keychain-held key (see gateway/approvals.ts's HumanApprovalMaterial doc). Honestly
-  // reject rather than fabricate a signature, mirroring sessions.ts dispatchMcp's pattern for a
-  // real capability this build does not implement yet: never call decide() with invented
-  // material, and never claim a decision succeeded that was never sent to the server.
-  const decideApproval = async (_id: string, _status: 'approved' | 'rejected') => {
-    notify('Approving requires the signed desktop app’s Keychain key, which is not wired into this build yet.');
+  // post-m1-p7-c4d: a real ECDSA P-256 signature over the server-issued decisionNonce/payloadDigest
+  // (security/humanApprovalSigner.ts), never fabricated. See that module's doc comment for the one
+  // remaining honest gap: this renderer's key/capability are self-generated, not yet synchronized
+  // with a live server's HUMAN_APPROVAL_PUBLIC_KEY/HUMAN_APPROVAL_CAPABILITY_SHA256.
+  const decideApproval = async (id: string, status: 'approved' | 'rejected') => {
+    if (!live) return;
+    const approval = pendingApprovals.find((item) => item.id === id);
+    if (!approval) return;
+    try {
+      const material = await signApprovalDecision({
+        approvalId: id,
+        status,
+        decisionNonce: approval.decisionNonce,
+        payloadDigest: approval.payloadDigest,
+      });
+      await gateway.domains.approvals!.decide(id, status, material);
+      setPendingApprovals((current) => current.filter((item) => item.id !== id));
+      notify(`Approval ${status}`);
+      // c4d: focus only the originating owned session, never a different one.
+      if (approval.sessionId) await selectLiveSession(approval.sessionId);
+    } catch (error) {
+      notify(error instanceof ApprovalGatewayError ? error.message : 'Decision could not be sent');
+    }
   };
 
   const markNotificationRead = (id: number) => {
