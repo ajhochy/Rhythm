@@ -4,9 +4,19 @@ import { useGateway } from '../gateway/context';
 import { isSessionOffline } from '../sessionState';
 import { useFixtures } from '../store';
 import type { ComposerAttachment } from '../types';
+import type { CommandEntry } from '../gateway/commands';
 import { FocusDialog } from './FocusDialog';
 
 const slashCommands = ['/summarize', '/review', '/status', '/compact'];
+// post-m1-phase-5 c1e: canonical PermissionMode values persisted across the PATCH boundary —
+// apps/api_server/src/models/agent_session.ts:24,26,92. Fixture mode keeps its own display-string
+// values (never sent over the wire) so its local-only state is untouched.
+const livePermissionModeOptions: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default' }, { value: 'acceptEdits', label: 'Accept Edits' }, { value: 'plan', label: 'Plan' }, { value: 'bypassPermissions', label: 'Bypass' },
+];
+const fixturePermissionModeOptions: Array<{ value: string; label: string }> = [
+  { value: 'Default', label: 'Default' }, { value: 'Accept Edits', label: 'Accept Edits' }, { value: 'Plan', label: 'Plan' }, { value: 'Bypass', label: 'Bypass' },
+];
 type FileFixture = { id: string; path: string; mime: string; size: number; outcome: 'text' | 'large-text' | 'binary' | 'unsafe' | 'missing'; description: string };
 const fileFixtures: FileFixture[] = [
   { id: 'allowed', path: 'services/2026-08-16/run-sheet.md', mime: 'text/markdown', size: 184, outcome: 'text', description: 'Text · 184 bytes' },
@@ -53,7 +63,7 @@ function mentionMatch(value: string) {
 }
 
 export function Composer() {
-  const { selected, profiles, sendInput, sendLiveInput, sessionGatewayMode, cancelSession, reconnect, updateSession, runShell, notify } = useFixtures();
+  const { selected, profiles, sendInput, sendLiveInput, sendLiveCommand, sessionGatewayMode, cancelSession, reconnect, updateSession, updatePermissionMode, runShell, notify } = useFixtures();
   const gateway = useGateway();
   const [draft, setDraft] = useState('');
   const [pendingModel, setPendingModel] = useState<string | null>(null);
@@ -71,6 +81,10 @@ export function Composer() {
   // (real browser File objects) since these already arrive as resolved content, not bytes.
   const [liveMentionResults, setLiveMentionResults] = useState<string[]>([]);
   const [liveMentionAttachments, setLiveMentionAttachments] = useState<ComposerAttachment[]>([]);
+  // post-m1-phase-5 c3g: live slash commands replace the fixture's four hard-coded
+  // suggestions and dispatch as their own session.command WS frame — GET /opencode/commands,
+  // apps/api_server/src/routes/opencode_commands_routes.ts:41-60.
+  const [liveCommands, setLiveCommands] = useState<CommandEntry[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +106,9 @@ export function Composer() {
   }, [pickerOpen]);
 
   const offline = isSessionOffline(selected);
-  const disabledReason = selected.parentId
+  // post-m1-phase-5 c2d: a live child is marked by the canonical `parentSessionId`, never the
+  // fixture-only `parentId` (still used by fixture-mode child sessions — apps/web/src/fixtures.ts).
+  const disabledReason = (selected.parentId || selected.parentSessionId)
     ? 'Child-agent transcripts are read only.'
     : selected.group === 'archived'
       ? 'Archived sessions cannot accept input.'
@@ -105,7 +121,10 @@ export function Composer() {
   const atQuery = atMatch?.[1].toLowerCase() ?? '';
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
   const suggestionType = disabledReason ? null : draft.startsWith('/') ? 'slash' : atMatch && !mentionDismissed ? 'mention' : draft.startsWith('!') ? 'shell' : null;
-  const slashOptions = slashCommands.filter((command) => command.startsWith(draft));
+  const slashOptions = sessionGatewayMode === 'live'
+    ? liveCommands.map((command) => `/${command.name}`).filter((command) => command.startsWith(draft))
+    : slashCommands.filter((command) => command.startsWith(draft));
+  const liveCommandNames = useMemo(() => new Set(liveCommands.map((command) => command.name)), [liveCommands]);
   const suggestionCount = suggestionType === 'mention' ? (sessionGatewayMode === 'live' ? liveMentionResults.length : mentionOptions.length) : suggestionType === 'slash' ? slashOptions.length : suggestionType === 'shell' ? 1 : 0;
 
   useEffect(() => { setHighlighted(0); }, [suggestionType, atQuery, draft.startsWith('/')]);
@@ -122,6 +141,13 @@ export function Composer() {
     }, 200);
     return () => { active = false; window.clearTimeout(timer); };
   }, [sessionGatewayMode, suggestionType, atQuery, selected.id, gateway]);
+
+  useEffect(() => {
+    if (sessionGatewayMode !== 'live') { setLiveCommands([]); return; }
+    let active = true;
+    void gateway.domains.commands!.list().then((commands) => { if (active) setLiveCommands(commands); }).catch(() => { if (active) setLiveCommands([]); });
+    return () => { active = false; };
+  }, [sessionGatewayMode, gateway]);
 
   // c1b: resolves a chosen server search result into a canonical attachment via a real
   // session-scoped content fetch — never retains the transient dropdown/display token.
@@ -192,6 +218,14 @@ export function Composer() {
     const value = draft.trim();
     if (sessionGatewayMode === 'live') {
       if (!value && liveFiles.length === 0 && liveMentionAttachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
+      // post-m1-phase-5 c3g: a recognized live command dispatches its own WS frame — never
+      // folded into session.input as free text, even when it carries argument text.
+      const commandMatch = value.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
+      if (commandMatch && liveCommandNames.has(commandMatch[1])) {
+        sendLiveCommand(commandMatch[1], commandMatch[2] ?? '');
+        setLiveFiles([]); setLiveMentionAttachments([]); setDraft(''); setAttachmentFeedback('');
+        return;
+      }
       const oversized = liveFiles.find((file) => file.size > MAX_LIVE_PARTS_BYTES);
       if (oversized) {
         const message = `Could not send: ${oversized.name} is larger than the 20 MiB limit.`;
@@ -256,7 +290,7 @@ export function Composer() {
           : <button key="composer-send" className="send-button" type="submit" aria-label={offline ? 'Queue draft locally' : 'Send message'} data-testid="composer-send" disabled={Boolean(disabledReason)}><Icon name="send" size={17} /></button>}
       </div>
       {suggestionType && <div className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
-        {suggestionType === 'slash' && slashOptions.map((command, index) => <button role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>Fixture command</small></button>)}
+        {suggestionType === 'slash' && slashOptions.map((command, index) => <button role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>{sessionGatewayMode === 'live' ? (liveCommands.find((entry) => entry.name === command.slice(1))?.description || 'Command') : 'Fixture command'}</small></button>)}
         {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.map((path, index) => <button role="option" aria-selected={highlighted === index} type="button" key={path} onClick={() => chooseLiveMention(path)} data-testid={`mention-option-live-${index}`}><Icon name="file" size={14} /><strong>{path}</strong></button>)}
         {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
         {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.map((file, index) => <button role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
@@ -267,7 +301,7 @@ export function Composer() {
         <div className="composer-selects">
           <label><span className="sr-only">Agent</span><select value={selected.profileId} onChange={(event) => { const profile = profiles.find((item) => item.id === event.target.value); updateSession(selected.id, { profileId: event.target.value, model: profile?.model || selected.model }); }} data-testid="composer-profile" disabled={Boolean(disabledReason)}>{profiles.filter((profile) => profile.enabled && profile.selectable).map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>
           <label><span className="sr-only">Model</span><select value={selected.model} onChange={(event) => setPendingModel(event.target.value)} data-testid="composer-model" disabled={Boolean(disabledReason)}><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></select></label>
-          <label><span className="sr-only">Permission mode</span><select value={selected.permissionMode} onChange={(event) => { if (event.target.value === 'Bypass') setBypassConfirm(true); else updateSession(selected.id, { permissionMode: event.target.value }); }} data-testid="composer-permission-mode" disabled={Boolean(disabledReason)}><option>Default</option><option>Accept Edits</option><option>Plan</option><option>Bypass</option></select></label>
+          <label><span className="sr-only">Permission mode</span><select value={selected.permissionMode} onChange={(event) => { const bypassValue = sessionGatewayMode === 'live' ? 'bypassPermissions' : 'Bypass'; if (event.target.value === bypassValue) setBypassConfirm(true); else if (sessionGatewayMode === 'live') void updatePermissionMode(event.target.value); else updateSession(selected.id, { permissionMode: event.target.value }); }} data-testid="composer-permission-mode" disabled={Boolean(disabledReason)}>{(sessionGatewayMode === 'live' ? livePermissionModeOptions : fixturePermissionModeOptions).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
           <label><span className="sr-only">Reasoning budget</span><select value={selected.thinkingBudget} onChange={(event) => updateSession(selected.id, { thinkingBudget: event.target.value })} data-testid="composer-thinking" disabled={Boolean(disabledReason)}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select></label>
           <button className={`toggle-button ${selected.fastMode ? 'active' : ''}`} type="button" aria-pressed={selected.fastMode} onClick={() => updateSession(selected.id, { fastMode: !selected.fastMode })} data-testid="composer-fast" disabled={Boolean(disabledReason)}><Icon name="activity" size={13} />Fast</button>
           {sessionGatewayMode === 'live'
@@ -277,7 +311,7 @@ export function Composer() {
         <small id="composer-help">Enter to send · Shift+Enter for newline</small>
       </div>
       <FocusDialog open={Boolean(pendingModel)} onClose={() => setPendingModel(null)} title="Apply model selection" description={pendingModel ? `Use ${pendingModel} for this prompt or make it the session default.` : ''} testId="model-scope-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPendingModel(null)}>Cancel</button><button className="secondary-button" type="button" onClick={() => { if (pendingModel) updateSession(selected.id, { model: pendingModel }); setPendingModel(null); notify('Model staged for this turn only'); }} data-testid="model-this-turn">This turn only</button><button className="primary-button" type="button" onClick={() => { if (pendingModel) updateSession(selected.id, { model: pendingModel }); setPendingModel(null); notify('Session default model updated'); }} data-testid="model-session-default">Session default</button></div></FocusDialog>
-      <FocusDialog open={bypassConfirm} onClose={() => setBypassConfirm(false)} title="Bypass all permissions?" description="The agent can run tools without asking. Use this only in a trusted workspace." testId="bypass-confirm-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setBypassConfirm(false)}>Cancel</button><button className="danger-button" type="button" onClick={() => { updateSession(selected.id, { permissionMode: 'Bypass' }); setBypassConfirm(false); notify('Bypass permission mode enabled'); }} data-testid="bypass-confirm">Enable Bypass</button></div></FocusDialog>
+      <FocusDialog open={bypassConfirm} onClose={() => setBypassConfirm(false)} title="Bypass all permissions?" description="The agent can run tools without asking. Use this only in a trusted workspace." testId="bypass-confirm-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setBypassConfirm(false)}>Cancel</button><button className="danger-button" type="button" onClick={() => { if (sessionGatewayMode === 'live') void updatePermissionMode('bypassPermissions'); else updateSession(selected.id, { permissionMode: 'Bypass' }); setBypassConfirm(false); notify('Bypass permission mode enabled'); }} data-testid="bypass-confirm">Enable Bypass</button></div></FocusDialog>
     </form>
   );
 }

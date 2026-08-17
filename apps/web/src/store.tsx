@@ -57,6 +57,9 @@ interface FixtureContextValue {
   createLiveSession(input: LiveSessionInput): Promise<string>; deleteLiveSession(id: string): Promise<void>;
   refreshLiveSessions(): Promise<void>; selectLiveSession(id: string): Promise<void>;
   sendLiveInput(input: string, attachments?: ComposerAttachment[]): void;
+  // post-m1-phase-5 c3g: a recognized live slash command travels as its own WS frame,
+  // never folded into session.input as plain text.
+  sendLiveCommand(command: string, args: string): void;
   // c3d: resume's honest 410 — the persisted sdkSessionId is gone server-side. Kept
   // separate from liveSessionError so it renders as an actionable alert, not a generic banner.
   resumeGone: { id: string; message: string } | null; dismissResumeGone(): void;
@@ -551,6 +554,16 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     notify('Message sent');
   };
 
+  // post-m1-phase-5 c3g: apps/api_server/src/services/ws_gateway.ts:202-260 dispatches
+  // a `session.command` frame through opencodeClient.dispatchCommand, distinct from the
+  // free-text `session.input` path above.
+  const sendLiveCommand = (command: string, args: string) => {
+    if (!live || !selected.id) return;
+    sessionSocketRef.current?.send({ v: 1, type: 'session.command', id: selected.id, command, arguments: args });
+    setRunMessage('Command delivered · agent is working');
+    notify(`/${command} sent`);
+  };
+
   const createSession = (input: Partial<NewSessionInput> = {}) => {
     const count = sessions.filter((session) => session.id.startsWith('session-created-')).length + 1;
     const id = `session-created-${count}`;
@@ -767,7 +780,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount]);
+  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

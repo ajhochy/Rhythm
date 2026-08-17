@@ -23,6 +23,7 @@ export interface GatewayDomainContracts {
   skills?: SkillGateway;
   schedules?: ScheduleGateway;
   mobileAccess?: MobileAccessGateway;
+  commands?: CommandGateway;
 }
 
 export interface GatewayHealth {
@@ -125,6 +126,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       skills: createLiveSkillGateway(apiBase, config.taskToken),
       schedules: createLiveScheduleGateway(apiBase, config.taskToken),
       mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken),
+      commands: createLiveCommandGateway(apiBase, config.taskToken),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -162,3 +164,4 @@ import { createLiveMcpGateway, type McpGateway } from './mcp';
 import { createLiveSkillGateway, type SkillGateway } from './skills';
 import { createLiveScheduleGateway, type ScheduleGateway } from './schedules';
 import { createLiveMobileAccessGateway, type MobileAccessGateway } from './mobile-access';
+import { createLiveCommandGateway, type CommandGateway } from './commands';
