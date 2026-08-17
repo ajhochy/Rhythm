@@ -1567,7 +1567,9 @@ export class AgentSessionsController {
 
       // OCU-17 (#1058) — optional worktree cleanup on hard delete. Default is
       // KEEP the worktree (an explicit ?removeWorktree=true / body flag opts in).
-      // Best-effort: a cleanup failure must never block clearing the local row.
+      // post-m1-p6-c4a: fail CLOSED — an explicit `false`/thrown failure from the
+      // engine must not be reported as a successful delete, and the local row
+      // (with its worktree identity) must be retained so the caller can retry.
       const removeWorktreeFlag =
         (req.query.removeWorktree === 'true') ||
         ((req.body as Record<string, unknown> | undefined)?.removeWorktree === true);
@@ -1575,13 +1577,8 @@ export class AgentSessionsController {
         const projectDir = session.projectId
           ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
           : session.worktreePath;
-        try {
-          await opencodeClient.removeWorktree(projectDir, session.worktreePath);
-        } catch (err) {
-          logger.warn(
-            `[AgentSessionsController] destroy: worktree removal failed for ${session.id} — continuing local delete: ${String(err)}`,
-          );
-        }
+        const ok = await opencodeClient.removeWorktree(projectDir, session.worktreePath);
+        if (!ok) throw new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree');
       }
 
       // #1048 (OCU-07) — hard delete also removes the engine-side session so
