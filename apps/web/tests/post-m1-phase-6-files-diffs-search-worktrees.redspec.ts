@@ -56,6 +56,11 @@ async function openMockedLive(page: Page, overrides: Record<string, unknown> = {
         worktreeBranch: 'opencode/phase6-created',
       })) });
     }
+    if (url.pathname === `/agent-sessions/${localId}/files/find-files`) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([noncePath]) });
+    if (url.pathname === `/agent-sessions/${localId}/files/content`) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ content: nonceText, mimeType: 'text/plain' }) });
+    if (url.pathname === `/agent-sessions/${localId}/files/list`) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ name: noncePath, type: 'file' }]) });
+    if (url.pathname === `/agent-sessions/${localId}/files/status`) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ path: noncePath, status: 'modified' }]) });
+    if (url.pathname === `/agent-sessions/${localId}/diff`) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ file: noncePath, before: '', after: nonceText, additions: 1, deletions: 0 }]) });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
   });
   await page.goto('/#/agents');

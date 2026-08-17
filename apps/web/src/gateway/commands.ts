@@ -22,7 +22,18 @@ export function createLiveCommandGateway(apiBase: string, token: string | undefi
     list: async () => {
       const result = await fetcher(`${apiBase}/opencode/commands`, { headers: { Authorization: `Bearer ${token}` } });
       if (!result.ok) throw new Error(`Load commands failed (${result.status})`);
-      return result.json() as Promise<CommandEntry[]>;
+      const data: unknown = await result.json();
+      if (!Array.isArray(data)) return [];
+      return data.map((item) => {
+        const record = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+        return {
+          name: typeof record.name === 'string' ? record.name : '',
+          description: typeof record.description === 'string' ? record.description : undefined,
+          source: typeof record.source === 'string' ? record.source : 'command',
+          managed: record.managed === true,
+          hints: Array.isArray(record.hints) ? record.hints.filter((hint): hint is string => typeof hint === 'string') : [],
+        };
+      }).filter((entry) => entry.name);
     },
   };
 }
