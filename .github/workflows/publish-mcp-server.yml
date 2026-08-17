@@ -25,6 +25,14 @@ jobs:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
 
+      # OIDC trusted-publishing token exchange requires npm >=11.5.1. The 22.x
+      # setup-node cache shipped npm 10.9.8 on 2026-08-17 — bundled npm version
+      # does NOT reliably track Node version, so pin explicitly rather than
+      # assume. Without this the publish step signs provenance successfully but
+      # then 404s on the actual PUT (observed on the first real dispatch).
+      - name: Ensure npm supports OIDC trusted publishing
+        run: npm install -g npm@^11.5.1
+
       - name: Install and build
         working-directory: apps/mcp_server
         run: |
@@ -39,6 +47,4 @@ jobs:
         working-directory: apps/mcp_server
         run: npm publish --provenance --access public
         env:
-          # npm >=11.5.1 (bundled with Node 22.19+) exchanges the GitHub OIDC
-          # token for a short-lived publish token automatically — no secret needed.
           NPM_CONFIG_PROVENANCE: 'true'
