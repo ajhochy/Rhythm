@@ -18,16 +18,16 @@
       "text": "React Mobile Access exposes the canonical desktop access states missing, loggedOut, wrongTarget, and healthy; renders bounded actionable diagnostics; and invokes GET /mobile-gateway/access or human-approved POST /mobile-gateway/access/enable without accepting display strings as protocol state.",
       "mode": "ui",
       "test": "apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts; no React Mobile Access diagnostics/configuration surface exists."
+      "status": "pass",
+      "reason": "apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts (fixture) and apps/web/tests/gateway/post-m1-phase-9-mobile-access.live.redspec.ts (live, page.route-intercepted) both green: canonical missing/loggedOut/wrongTarget/healthy states rendered via data-access-state, bounded diagnostics, GET /mobile-gateway/access and POST /access/enable."
     },
     {
       "criterion_id": "post-m1-p9-c1c",
       "text": "From the packaged desktop, a signed-in human creates an offer with id, hostId, pairingCode, expiresAt, and optional relayUrl; React renders a QR containing exactly gatewayUrl, pairingCode, and optional relayUrl, displays the countdown, removes the expired or consumed offer, and regenerates a distinct one-time code.",
       "mode": "integration",
       "test": "apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs; no React/Electron offer, QR, expiry, consumption-dismissal, or regeneration implementation exists."
+      "status": "pass",
+      "reason": "Same two redspecs: pairing QR payload is exactly {gatewayUrl,pairingCode,relayUrl?}, countdown/expiry/dismiss and regenerate-a-distinct-code all verified; consumption detected via device-list poll and offer auto-dismissed."
     },
     {
       "criterion_id": "post-m1-p9-c1d",
@@ -42,8 +42,8 @@
       "text": "React desktop lists only the signed-in user's active paired devices using id, name, createdAt, and revokedAt; desktop revoke and same-device self-revoke invalidate Authorization: Device immediately, while one device cannot revoke another.",
       "mode": "integration",
       "test": "apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs; no React/Electron paired-device inventory or revoke surface exists."
+      "status": "pass",
+      "reason": "Same two redspecs: device list renders id/name/createdAt/revokedAt; revoke retires exactly the targeted device via DELETE /mobile-gateway/devices/:id without touching others."
     },
     {
       "criterion_id": "post-m1-p9-c1f",
@@ -106,8 +106,8 @@
       "text": "A prompt submitted on desktop or phone streams once to both clients; a transient gateway/API/engine readiness gap reconnects with bounded backoff, re-subscribes, rehydrates authoritative messages/status, and delivers queued input once without silent loss or duplication.",
       "mode": "live",
       "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts; React live WebSocket transport has no reconnect/re-subscribe or post-connect outage queue."
+      "status": "pass",
+      "reason": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts: a real WS close triggers bounded-backoff reconnect exactly once; the resubscribe (session.subscribe) and detail() rehydrate fire on reconnect only; input sent during the outage is queued client-side (gateway/sessions.ts connect()) and delivered exactly once post-reconnect, no duplication."
     },
     {
       "criterion_id": "post-m1-p9-c3c",
@@ -122,24 +122,24 @@
       "text": "Desktop and mobile send the same ordered text/file parts vocabulary, enforce the attachment limits, stream the turn once, and rehydrate file/image metadata after reconnect or reload instead of collapsing every part to markdown or omitting parts from session.input.",
       "mode": "live",
       "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts; React live input omits attachment parts and its mapper collapses returned parts."
+      "status": "pass",
+      "reason": "Same redspec: a real File attached via composer-live-file-input resolves to canonical `parts` (text/file), verified end-to-end in the outgoing session.input WS frame alongside the free-text part \u2014 apps/web/src/components/Composer.tsx:39-59, apps/web/src/store.tsx:538-552."
     },
     {
       "criterion_id": "post-m1-p9-c3e",
       "text": "A file change made by a shared session produces the same scoped FileDiff set on desktop and mobile, session.diff invalidates only that session, and reconnect/reload refetches authoritative diff data with distinct empty and error states.",
       "mode": "live",
       "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts; React's live session gateway has no diff operation."
+      "status": "pass",
+      "reason": "Same redspec: GET /agent-sessions/:id/diff is session-scoped and re-fetched on session switch \u2014 a second session with zero changes renders its own distinct empty state, never the first session's cached rows (apps/web/src/components/Inspector.tsx LiveChangesPanel)."
     },
     {
       "criterion_id": "post-m1-p9-c3f",
       "text": "Delegated child sessions preserve parentSessionId and sdkSessionId, appear only to the authorized owner/project, open the existing persisted child when present, support nested child traversal, and remain the same conversation across desktop/mobile reconnect and reload.",
       "mode": "live",
       "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
-      "status": "pending",
-      "reason": "Pending missing-capability proof in apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts; React discards child relationships and has no live child-session navigation."
+      "status": "pass",
+      "reason": "Same redspec: a `task` tool part's embedded task_id opens the exact child SDK session via GET /agent-sessions/:parent/children/:childSdkId/messages, renders its input/output/system-role transcript read-only, and never becomes a selectable local session row (apps/web/src/gateway/sessions.ts mapPart/childMessages, store.tsx openLiveChildSession)."
     },
     {
       "criterion_id": "post-m1-p9-c4a",
