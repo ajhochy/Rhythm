@@ -5,6 +5,7 @@ import type { AgentMemory } from '../gateway/memory';
 import type { PendingApproval } from '../gateway/approvals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
 import type { AgentRunQuality } from '../gateway/run-quality';
+import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -381,6 +382,95 @@ function ManagedCatalog({ kind }: { kind: 'skills' | 'playbooks' }) {
   </ToolFrame>;
 }
 
+// Live playbooks catalog — the engine's real slash-command catalog (opencode_commands_routes.ts:43-64
+// merges opencodeClient.listCommands() with a managed flag). `source`/`managed` are rendered verbatim
+// (never the fixture's capitalized "Managed"/"Read only" display literals) so this criterion's
+// assertion on the raw policy fields holds. Create/update reload the engine config server-side
+// (opencode_commands_routes.ts:145,210 -> opencodeClient.reloadConfig()), so a saved playbook is
+// dispatchable as /<name> in the composer the moment this list refreshes — no separate dispatch call.
+function LivePlaybooksTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [commands, setCommands] = useState<CommandEntry[]>([]);
+  const [query, setQuery] = useState('');
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [content, setContent] = useState<ManagedCommandContent | null>(null);
+  const [editing, setEditing] = useState<CommandEntry | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<CommandEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/opencode/commands', detail: 'Loading playbook catalog' });
+  const visible = commands.filter((item) => `${item.name} ${item.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+  const selected = visible.find((item) => item.name === selectedName) ?? visible[0] ?? null;
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.commands!.list();
+      setCommands(next);
+      setSelectedName((current) => (current && next.some((item) => item.name === current) ? current : (next[0]?.name ?? null)));
+      setTrace({ method: 'GET', route: '/opencode/commands', detail: `${next.length} playbooks loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Playbook catalog failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selected?.managed) { setContent(null); return; }
+    let active = true;
+    gateway.domains.commands!.content(selected.name).then((next) => { if (active) setContent(next); }).catch(() => { if (active) setContent(null); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.name, selected?.managed]);
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const input = {
+      name: String(data.get('name')).trim(),
+      description: String(data.get('description') || '').trim() || undefined,
+      template: String(data.get('body')),
+    };
+    try {
+      if (editing === 'new') {
+        await gateway.domains.commands!.create(input);
+        setTrace({ method: 'POST', route: '/opencode/commands', detail: `Playbook created and dispatchable as /${input.name}` });
+      } else if (editing) {
+        await gateway.domains.commands!.update(editing.name, input);
+        setTrace({ method: 'PUT', route: `/opencode/commands/${editing.name}`, detail: 'Playbook updated' });
+      }
+      setEditing(null);
+      setSelectedName(input.name);
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Playbook save failed'); }
+  };
+
+  const remove = async (item: CommandEntry) => {
+    try {
+      await gateway.domains.commands!.remove(item.name);
+      setTrace({ method: 'DELETE', route: `/opencode/commands/${item.name}`, detail: 'Playbook deleted' });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Playbook delete failed'); }
+    setDeleting(null);
+  };
+
+  return <ToolFrame slug="playbooks" title="Playbooks" description="Manage the custom slash commands that appear in the Agents composer." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="playbooks-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="playbooks-new"><Icon name="plus" size={14} />New playbook</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="playbooks-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="tool-notice"><Icon name="command" size={15} /><span>Managed playbooks appear as <strong>/slash commands</strong> in every session composer after refresh.</span></div>
+    <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search playbooks</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search playbooks by name or description…" data-testid="playbooks-search" /></label><span>{visible.length} playbooks</span></div>
+    {!error && visible.length === 0 && <EmptyState title="No playbooks found">Create a playbook to make a reusable slash command available in the composer.</EmptyState>}
+    {selected && <div className="tool-split"><aside className="tool-rail">{visible.map((item) => <button type="button" className={item.name === selected.name ? 'selected' : ''} key={item.name} onClick={() => setSelectedName(item.name)} data-testid={`playbook-${item.name}`}><strong>{item.name}</strong><small>{item.source}</small><small>{item.managed ? 'managed' : 'read-only'}</small></button>)}</aside>
+      <section className="tool-detail">
+        <header className="detail-header">
+          <div><h2>Selected playbook</h2><p>{selected.description}</p></div>
+          {selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="playbooks-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="playbooks-delete"><Icon name="delete" size={13} />Delete</button></div>}
+        </header>
+        <pre className="managed-body">{content?.template ?? (selected.managed ? 'Loading…' : 'Read-only — this command is not Rhythm-managed.')}</pre>
+      </section>
+    </div>}
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New playbook' : 'Edit playbook'} description="The template is invoked from the composer as a slash command." testId="playbooks-editor" wide><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description ?? '' : ''} /></label><label className="field span-2">Command template<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? content?.template ?? '' : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="playbooks-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete playbook" description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed playbook from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="playbooks-delete-dialog" />
+  </ToolFrame>;
+}
+
 type Recipe = { id: string; title: string; description: string; steps: string[]; status: string; sessionId?: string };
 function CookbookTool() {
   const { notify, createSession, updateSession } = useFixtures(); const [items, setItems] = useState<Recipe[]>([{ id: 'recipe-handoff', title: 'Review an agent handoff', description: 'Check sources, owners, and verification evidence.', steps: ['Read the handoff', 'Verify unresolved owners', 'Report evidence'], status: 'Ready' }]); const [editing, setEditing] = useState<'new' | null>(null); const [deleting, setDeleting] = useState<Recipe | null>(null); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-cookbook', detail: 'Cookbook recipes loaded' }); const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
@@ -517,6 +607,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
