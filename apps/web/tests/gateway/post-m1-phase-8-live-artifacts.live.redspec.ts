@@ -20,8 +20,13 @@ const artifact = {
   updatedByDisplayName: 'Avery Owner',
   deletedAt: null,
 };
+// Owned by a different workspace member (82) but 'shared' visibility, so it belongs in the owner's
+// (81) picker catalog alongside `artifact` — both are workspace 8. Only the by-id GET handler had
+// this defined before; the general catalog GET never included it, so the picker's "Viewer artifact"
+// option (asserted by post-m1-p8-c1d) could never appear no matter what the product code did.
+const secondArtifact = { ...artifact, id: secondArtifactId, title: 'Viewer artifact', ownerUserId: 82, state: {} };
 const cors = {
-  'access-control-allow-origin': 'http://127.0.0.1:4178',
+  'access-control-allow-origin': 'http://127.0.0.1:4378',
   'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
   'access-control-allow-headers': 'authorization,content-type',
 };
@@ -59,9 +64,9 @@ async function openLiveDashboard(page: Page, handler?: (route: Route) => Promise
     if (handler && await handler(route)) return;
     const url = new URL(route.request().url());
     if (url.pathname === '/health') return fulfillJson(route, 200, { healthy: true });
-    if (url.pathname === '/live-artifacts' && route.request().method() === 'GET') return fulfillJson(route, 200, [artifact]);
+    if (url.pathname === '/live-artifacts' && route.request().method() === 'GET') return fulfillJson(route, 200, [artifact, secondArtifact]);
     if (url.pathname === `/live-artifacts/${artifactId}` && route.request().method() === 'GET') return fulfillJson(route, 200, { ...artifact, state: { selectedPlanId: 'plan-5' } });
-    if (url.pathname === `/live-artifacts/${secondArtifactId}` && route.request().method() === 'GET') return fulfillJson(route, 200, { ...artifact, id: secondArtifactId, title: 'Viewer artifact', ownerUserId: 82, state: {} });
+    if (url.pathname === `/live-artifacts/${secondArtifactId}` && route.request().method() === 'GET') return fulfillJson(route, 200, secondArtifact);
     if (url.pathname.endsWith('/render')) return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: '<!doctype html><main id="artifact-content">Phase 8 current bundle</main>' });
     if (url.pathname === '/users/me/preferences' && route.request().method() === 'PATCH') return fulfillJson(route, 200, { artifactTabIds: route.request().postDataJSON().artifactTabIds });
     return fulfillJson(route, 404, { error: { code: 'NOT_FOUND' } });
@@ -161,7 +166,13 @@ test('post-m1-p8-c1f: current bundle metadata and bounded reload recovery remain
   await expect(surface).toContainText(/bundle revision\s*7/i);
   await expect(surface).toContainText(/state revision\s*5/i);
   await expect(surface).toContainText('shared');
-  await expect(surface.locator('iframe')).toContainText('Phase 8 current bundle');
+  // `sandbox="allow-scripts"` makes the artifact iframe a distinct document — plain
+  // `locator('iframe').toContainText(...)` reads the PARENT document's light DOM (always empty for
+  // a frame-owner element) and can never see across the frame boundary, regardless of product code.
+  // `.contentFrame()` (same API the sibling post-m1-p8-c4g test already uses on this exact testid)
+  // is the only way to assert on the rendered document inside.
+  const artifactFrame = await surface.locator('iframe').contentFrame();
+  await expect(artifactFrame.locator('#artifact-content')).toContainText('Phase 8 current bundle');
 
   for (const [next, expected] of [
     ['missing', /unavailable/i],
@@ -226,7 +237,11 @@ test('post-m1-p8-c4g: pco.services.read is declared, exact-shape, current-viewer
     return true;
   });
   await selectArtifactTab(page);
-  const frame = await page.getByTestId('live-artifact-frame').contentFrame();
+  // `Locator.contentFrame()` returns a `FrameLocator`, which has no `.evaluate()` — only a real
+  // `Frame` (obtained via `ElementHandle.contentFrame()`) supports running code inside the artifact
+  // document, which this test needs to call `window.rhythm.request(...)` below.
+  const frameHandle = await page.getByTestId('live-artifact-frame').elementHandle();
+  const frame = await frameHandle?.contentFrame();
   expect(frame, 'selected artifact must render in an isolated child frame').not.toBeNull();
   if (!frame) return;
   await expect(frame.locator('#artifact-content')).toBeVisible();
