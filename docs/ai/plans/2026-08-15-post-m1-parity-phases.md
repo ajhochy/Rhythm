@@ -269,16 +269,23 @@ without escalation and are recorded here so they are auditable rather than impli
   worktree cleanup, rather than becoming a stray follow-up.
 - **No criterion is assigned to AJ as manual homework** unless it is genuinely unautomatable. Packaged
   keyboard traversal and packaged relaunch persistence are scriptable and belong to the orchestrator.
-- **Phase 11 (signing/notarization) is deliberately not attempted** in the 2026-08-16/17 overnight run
-  (orchestrator, not escalated because the answer was already settled by this doc's own scope line
-  — see below). Every other in-scope criterion this run is diagnosable/buildable from the repo alone;
-  Phase 11 genuinely is not: c1/c2 need real Apple Developer ID + notary credentials that live in CI
-  secrets, never in a working tree, and c2/c3 require actually submitting to Apple's notary service and
-  dispatching a real CI release run — both irreversible, both explicitly gated on "AJ's explicit
-  approval per release" per this doc's own scope line ("this plan does not authorize... production
-  deployment... or migration execution"). Fabricating a fake signature the way an ad-hoc dev-only
-  signature already exists from Slice 7 would misrepresent capability exactly the way this whole
-  program exists to stop doing. Phases 1/3/4/5/6/7/8/9/10 are otherwise durably green as of `5cdd8b79`.
+- **Phase 11 (signing/notarization) was initially deferred, then attempted after AJ pointed at real
+  local credentials** (`~/Documents/Certificates & Keys/`) and directed the build/launch/test/PR
+  sequence explicitly (2026-08-17). c1/c2 do NOT require CI secrets after all — AJ has a real
+  Developer ID Application identity and App Store Connect notary API key on this machine; codesign
+  and `xcrun notarytool` work locally. Built `apps/electron/scripts/sign-and-notarize-mac.mjs`
+  (entitlements at `apps/electron/entitlements/mac.plist`) modeled on
+  `tools/release/sign_and_notarize_macos.sh`, simplified because this Electron shell bundles no
+  native runtime/opencode fork binary. First notarization attempt was correctly REJECTED by Apple
+  (`chrome_crashpad_handler` and Squirrel's `ShipIt` — two extensionless Mach-O helpers my walker's
+  extension-based matching missed); fixed by detecting Mach-O magic bytes instead of relying on file
+  extension, re-signed, and Apple accepted it (`status: Accepted`, stapled, `spctl --assess` →
+  `accepted`/`source=Notarized Developer ID`). `slice-7-c4`'s packaged live-smoke test (real gateway
+  read against the sandbox) passes against this signed bundle, confirming post-m1-p11-c4. A CI
+  workflow (`.github/workflows/electron_release.yml`) is authored for c3 but not dispatched — running
+  it for real still means publishing an actual GitHub Release, which stays gated on AJ triggering it
+  himself. c5 (no secret committed) holds: nothing under `apps/electron/` references a literal key,
+  password, or cert; the workflow reads everything from `secrets.*`.
 
 ## Stale reference warning (AJ, 2026-08-15)
 
