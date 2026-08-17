@@ -9,14 +9,20 @@ export type SeenRequest = {
 
 export type ApiHandler = (route: Route, request: Request) => Promise<boolean> | boolean;
 
-const corsHeaders = {
-  'access-control-allow-origin': 'http://127.0.0.1:4173',
+// ponytail: reflect the requesting page's own origin instead of a hardcoded port. This worktree's
+// dev server runs on a port-remapped baseURL (see tests/post-m1-phase-7-fixture-playwright.config.ts
+// webServer, 4173+800=4973) to avoid cross-worktree contamination between sibling agents sharing this
+// machine; a fixed 'http://127.0.0.1:4173' Access-Control-Allow-Origin silently mismatches that and
+// the browser blocks every mocked response as a CORS violation (fetch rejects with a generic network
+// error, surfaced upstream as e.g. "Schedule service unavailable" with no indication it was CORS).
+const corsHeadersFor = (request: Request) => ({
+  'access-control-allow-origin': request.headers()['origin'] ?? '*',
   'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   'access-control-allow-headers': 'authorization,content-type,x-rhythm-human-approval-capability',
-};
+});
 
 export const fulfillJson = (route: Route, status: number, json: unknown) =>
-  route.fulfill({ status, headers: corsHeaders, json });
+  route.fulfill({ status, headers: corsHeadersFor(route.request()), json });
 
 export async function openPhase7Live(
   page: Page,
@@ -30,7 +36,7 @@ export async function openPhase7Live(
   await page.route('http://127.0.0.1:4098/**', async (route) => {
     const request = route.request();
     if (request.method() === 'OPTIONS') {
-      await route.fulfill({ status: 204, headers: corsHeaders });
+      await route.fulfill({ status: 204, headers: corsHeadersFor(request) });
       return;
     }
     const url = new URL(request.url());
