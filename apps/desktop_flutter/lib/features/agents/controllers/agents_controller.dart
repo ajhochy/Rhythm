@@ -3344,13 +3344,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         title: msg.title,
         body: msg.body,
       );
-      if (_lifecycleState != AppLifecycleState.resumed) {
-        _notificationService.showMessageNotification(
-          id: msg.id,
-          title: msg.title,
-          body: msg.body,
-        );
-      }
     } else if (msg is SessionDiffMessage) {
       // OPC-M3-1: session.diff event — refetch diff for the affected session only.
       handleSessionDiffEvent(msg.id);

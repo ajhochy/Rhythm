@@ -233,10 +233,13 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
     );
 
     expect(routes).toMatch(
-      /agentApprovalsRouter\.get\(\s*['"]\/['"]\s*,\s*requireAuth[\s\S]{0,250}requireHumanApprovalCapability/,
+      /const requireHumanAuth[\s\S]{0,250}env\.agentLocal\s*\?\s*requireLocalOrCloudAuth\s*:\s*requireAuth/,
     );
     expect(routes).toMatch(
-      /agentApprovalsRouter\.patch\(\s*['"]\/:id['"]\s*,\s*requireAuth[\s\S]{0,350}requireHumanApprovalCapability/,
+      /agentApprovalsRouter\.get\(\s*['"]\/['"]\s*,\s*requireHumanAuth[\s\S]{0,250}requireHumanApprovalCapability/,
+    );
+    expect(routes).toMatch(
+      /agentApprovalsRouter\.patch\(\s*['"]\/:id['"]\s*,\s*requireHumanAuth[\s\S]{0,350}requireHumanApprovalCapability/,
     );
     expect(controller).toMatch(/req\.auth\?*\.user|req\.auth\.user/);
     expect(controller).not.toMatch(

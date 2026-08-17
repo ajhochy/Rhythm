@@ -930,6 +930,10 @@ export class AgentSessionsController {
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
         permissionMode: permissionMode as PermissionMode,
+        // This controller is the interactive, user-selected session surface.
+        // Internal runners that stamp operational bypassPermissions create
+        // rows through the repository and therefore fail closed at false.
+        approvalBypassExplicit: permissionMode === 'bypassPermissions',
         // C1 — MCP role (null when no role was requested).
         mcpRole: resolvedMcpRole,
         mcpAllowedToolsJson,
@@ -1081,6 +1085,7 @@ export class AgentSessionsController {
         modelId?: string | null;
         agentMode?: string | null;
         permissionMode?: PermissionMode;
+        approvalBypassExplicit?: boolean;
         thinkingBudget?: number | null;
         fastMode?: boolean;
       } = {};
@@ -1122,6 +1127,10 @@ export class AgentSessionsController {
           throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
         }
         fields.permissionMode = body.permissionMode as PermissionMode;
+        // Ignore any caller-supplied marker. The server derives provenance
+        // only from the validated interactive permission-mode selection.
+        fields.approvalBypassExplicit =
+          body.permissionMode === 'bypassPermissions';
       }
 
       // Issue #604 — reasoning budget + fast-mode

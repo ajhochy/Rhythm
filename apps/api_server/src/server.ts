@@ -644,6 +644,21 @@ async function main() {
         );
       }
 
+      // #1392 — recover signed approval decisions committed before a crash
+      // could enqueue their machine-authored continuation. Runs only after
+      // engine readiness and stream/session reconciliation.
+      try {
+        const { agentApprovalContinuationService } = await import(
+          './services/agent_approval_continuation_service'
+        );
+        await agentApprovalContinuationService.recoverAfterRestart();
+        logger.info('[server] approval continuation recovery complete');
+      } catch (e) {
+        logger.warn(
+          `[server] approval continuation recovery failed (non-fatal): ${String(e)}`,
+        );
+      }
+
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration

@@ -18,7 +18,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          # The full Vitest suite repeatedly creates/destroys native SQLite
+          # statements in isolated workers. Node 24.19 aborts in
+          # better-sqlite3's cleanup hook during worker teardown on Linux.
+          # Desktop release separately builds and smokes the packaged Node 24
+          # runtime; keep this unit/integration gate on the stable Node 22 LTS
+          # line also used by MCP CI.
+          node-version: '22.19.0'
           cache: 'npm'
           cache-dependency-path: apps/api_server/package.json
       - run: npm install --workspaces=false

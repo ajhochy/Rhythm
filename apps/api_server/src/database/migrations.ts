@@ -843,6 +843,25 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (artifact_id, revision)
     );
+
+    -- Artifact content bytes. Previously these lived only on the filesystem
+    -- under LIVE_ARTIFACT_STORAGE_DIR while the revision tables above held the
+    -- hashes. That split lost every artifact whenever the container was
+    -- recreated without a persistent mount (observed 2026-08-15: metadata
+    -- intact, every artifact returning "Live artifact content unavailable").
+    -- Content is addressed by (artifact, kind, hash) exactly as the on-disk
+    -- layout was, so identical content still stores once per artifact.
+    -- No FK to live_artifacts: content is written BEFORE the metadata row so a
+    -- revision is never advertised without its bytes (see
+    -- live_artifacts_controller.create). Cleanup is explicit in removeArtifact.
+    CREATE TABLE IF NOT EXISTS live_artifact_contents (
+      artifact_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('bundle', 'state')),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (artifact_id, kind, hash)
+    );
   `);
 
   const userColsLiveArtifacts = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
@@ -1319,6 +1338,13 @@ export function runMigrations(db: Database.Database): void {
   const agentSessionColsPerm = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
   if (!agentSessionColsPerm.includes('permission_mode')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'`);
+  }
+  // Separate provenance from operational permission mode. Existing sessions,
+  // AgentRunner rows, forks, and delegated children fail closed by default.
+  if (!agentSessionColsPerm.includes('approval_bypass_explicit')) {
+    db.exec(
+      `ALTER TABLE agent_sessions ADD COLUMN approval_bypass_explicit INTEGER NOT NULL DEFAULT 0`,
+    );
   }
 
   // Issue #604 — reasoning effort (thinking_budget) and fast-mode columns for agent_sessions.
@@ -2741,6 +2767,12 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
   // Existing pending rows intentionally receive no backfill: they fail closed
   // and must be re-requested after upgrade rather than becoming unsigned.
   addAgentApprovalColumn('decision_nonce', 'TEXT');
+  // #1392 — durable handoff from a signed human decision back to the exact
+  // originating agent session. Null means no continuation is required (for
+  // example a legacy approval without a session); queued/waking/delivered is
+  // the crash-recoverable delivery lifecycle.
+  addAgentApprovalColumn('continuation_state', 'TEXT');
+  addAgentApprovalColumn('continuation_updated_at', 'TEXT');
 
   // The current row is the active session taint epoch. Every external read
   // rotates taint_id, invalidating approvals created before newer untrusted
