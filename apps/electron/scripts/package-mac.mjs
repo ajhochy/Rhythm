@@ -42,6 +42,8 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/preload.cjs'), resolve(packagedApp, 'src/preload.cjs')),
   cp(resolve(electronRoot, 'src/google-oauth-core.mjs'), resolve(packagedApp, 'src/google-oauth-core.mjs')),
   cp(resolve(electronRoot, 'src/desktop-google-oauth.mjs'), resolve(packagedApp, 'src/desktop-google-oauth.mjs')),
+  cp(resolve(electronRoot, 'src/agent-server.mjs'), resolve(packagedApp, 'src/agent-server.mjs')),
+  cp(resolve(electronRoot, 'src/human-approval-main-signer.mjs'), resolve(packagedApp, 'src/human-approval-main-signer.mjs')),
   cp(resolve(electronRoot, 'package.json'), resolve(packagedApp, 'package.json')),
   cp(resolve(electronRoot, '../web/dist'), resolve(packagedApp, 'web/dist'), { recursive: true }),
   writeFile(resolve(packagedApp, 'src/build-config.mjs'), [

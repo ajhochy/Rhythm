@@ -5,8 +5,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService } from './agent-server.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
+import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
@@ -63,6 +65,45 @@ if (hasSingleInstanceLock) {
     return googleSignInInFlight;
   });
 
+  // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
+  // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
+  // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
+  // developer's own terminal) already has one running. Skipped entirely for --smoke runs so the
+  // existing, carefully-tuned smoke-test contract (11 test files) is untouched — those tests set
+  // their own RHYTHM_LIVE_API_URL/RHYTHM_LIVE_ENGINE_URL explicitly when they want live mode.
+  const agentServer = new AgentServerService();
+  if (!isSmoke) {
+    // Explicit overrides (e.g. a test harness pointing at tools/dev/sandbox.sh) always win — set
+    // before the window (and its preload) exist, matching Flutter's "explicit env always wins"
+    // precedence for MEMORY_VAULT_PATH etc. (api_server_service.dart:70-85).
+    if (!process.env.RHYTHM_LIVE_API_URL) process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
+    if (!process.env.RHYTHM_LIVE_ENGINE_URL) process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
+  }
+
+  ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
+  ipcMain.handle('rhythm:human-approval:capability', () => humanApprovalSigner.capability());
+  ipcMain.handle('rhythm:human-approval:sign-decision', (_event, decision) => humanApprovalSigner.signDecision(decision));
+  agentServer.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
+  });
+
+  // api_server_service.dart:134-151's exact shutdown sequence (SIGTERM, race a 2s timer against
+  // real exit, SIGKILL if still alive), triggered from the same three places Flutter triggers it:
+  // normal app quit, and OS SIGINT/SIGTERM (main.dart:182-192; SIGTERM is skipped on Windows there
+  // because it isn't catchable — not a concern here since this Electron build targets macOS only).
+  let shuttingDown = false;
+  app.on('before-quit', (event) => {
+    if (isSmoke || shuttingDown) return;
+    shuttingDown = true;
+    event.preventDefault();
+    void agentServer.stopGracefully().finally(() => app.quit());
+  });
+  if (!isSmoke) {
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      process.on(signal, () => { void agentServer.stopGracefully().then(() => process.exit(0)); });
+    }
+  }
+
   /** @param {string[]} argv */
   const routeIncomingDeepLink = (argv) => {
     const deepLink = deepLinkFromArgv(argv);
@@ -83,6 +124,11 @@ if (hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     if (isMissingDistSmoke || !existsSync(webDist)) throw new Error(`Rhythm Electron shell requires built web assets at ${webDist}`);
+
+    // Fire-and-forget, exactly like Flutter's main.dart:186-190 (`AgentServerController..initialize()`
+    // is never awaited before `runApp`) — the window renders immediately and the renderer's own
+    // EnvironmentReceipt already polls health with retries while this comes up in the background.
+    if (!isSmoke) void agentServer.start();
 
     protocol.handle('rhythm', (request) => {
       const url = new URL(request.url);
@@ -182,6 +228,14 @@ if (hasSingleInstanceLock) {
     auth: {
       keys: Object.keys(window.rhythmShell?.auth || {}),
       frozen: Object.isFrozen(window.rhythmShell?.auth),
+    },
+    humanApproval: {
+      keys: Object.keys(window.rhythmShell?.humanApproval || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.humanApproval),
+    },
+    agentServer: {
+      keys: Object.keys(window.rhythmShell?.agentServer || {}),
+      frozen: Object.isFrozen(window.rhythmShell?.agentServer),
     },
   nodeExposed: typeof process !== 'undefined' || typeof require !== 'undefined',
   value: { version: window.rhythmShell?.version }

@@ -1,26 +1,21 @@
 // post-m1-p7-c4d — produces the real P-256 decision signature apps/api_server/src/security/
-// human_approval_security.ts:60-156 verifies, using the Web Crypto API instead of Flutter's
-// native Keychain/SecKey bridge (apps/desktop_flutter/lib/features/notifications/data/
-// human_approval_signer.dart + macos/Runner/HumanApprovalSigner.swift).
+// human_approval_security.ts:60-156 verifies.
 //
-// Why Web Crypto, not an Electron-main/Keychain bridge: this exact renderer runs unmodified both
-// as a plain browser page (Vite dev, every Playwright redspec, including post-m1-phase-7-
-// approvals.redspec.ts) and inside packaged Electron — SubtleCrypto works identically in both,
-// while a `window.rhythmShell` IPC bridge would only exist in the latter and leave the former with
-// nothing to call. ECDSA P-256 has no meaningful security difference between the two runtimes here
-// (WebKit/Chromium's SubtleCrypto stores non-extractable keys in the OS's own key storage under the
-// hood on both platforms); the two things Flutter's native bridge buys over this — hardware-backed
-// Secure Enclave binding and a hard non-exportability guarantee — remain the honest gap, noted below.
-//
-// ponytail: the private key and capability are self-generated and persisted locally (mirroring
-// Flutter's `humanApprovalCapability()`, which also self-generates rather than being issued by the
-// server). Nothing yet synchronizes this renderer's public key / capability into a real server's
-// `HUMAN_APPROVAL_PUBLIC_KEY` / `HUMAN_APPROVAL_CAPABILITY_SHA256` env vars — Flutter's bootstrap for
-// that is "the desktop app spawns api_server itself and injects both values into its environment"
-// (apps/desktop_flutter/lib/app/core/server/api_server_service.dart:46-92,186-283), and apps/electron
-// does not own api_server's process lifecycle the same way. Wiring that — either Electron spawning
-// the server like Flutter does, or a new server-side enrollment endpoint — is a real, separate piece
-// of work, not something to fake here.
+// Two implementations, tried in this order:
+//   1. window.rhythmShell.humanApproval (apps/electron/src/human-approval-main-signer.mjs, exposed
+//      via preload.cjs) — used whenever running inside Electron. This is the path that actually
+//      round-trips against a live server: apps/electron/src/agent-server.mjs spawns api_server
+//      itself and injects THIS SAME signer's public key/capability into its environment
+//      (mirroring apps/desktop_flutter/lib/app/core/server/api_server_service.dart:46-92,186-283),
+//      so a signature produced here verifies against the exact server this app is talking to.
+//   2. Web Crypto (SubtleCrypto), self-generated and persisted in IndexedDB/localStorage — the
+//      fallback for every context with no Electron main process attached: Vite dev, every
+//      Playwright redspec (including this criterion's own post-m1-phase-7-approvals.redspec.ts),
+//      and any future non-Electron host. Nothing spawns a server for this path, so nothing
+//      synchronizes its key/capability with a live server's HUMAN_APPROVAL_PUBLIC_KEY/
+//      HUMAN_APPROVAL_CAPABILITY_SHA256 — an honest, structural gap of running standalone, not a
+//      bug. The two things Flutter's native SecKey bridge buys over the Web Crypto path — hardware-
+//      backed Secure Enclave binding and a hard non-exportability guarantee — remain open there too.
 
 const DB_NAME = 'rhythm-human-approval';
 const STORE_NAME = 'keys';
@@ -124,12 +119,28 @@ export interface SignedDecision {
   signature: string;
 }
 
+// Same inline-cast pattern main.tsx already uses for window.rhythmShell.auth/gateway — no ambient
+// global .d.ts exists for this bridge, so every consumer declares the slice of the shape it needs.
+function electronHumanApprovalBridge() {
+  return (window as Window & {
+    rhythmShell?: {
+      humanApproval?: {
+        capability(): Promise<string>;
+        signDecision(approvalId: string, status: 'approved' | 'rejected', decisionNonce: string, payloadDigest: string | null): Promise<SignedDecision>;
+      };
+    };
+  }).rhythmShell?.humanApproval;
+}
+
 export async function signApprovalDecision(input: {
   approvalId: string;
   status: 'approved' | 'rejected';
   decisionNonce: string;
   payloadDigest: string | null;
 }): Promise<SignedDecision> {
+  const bridge = electronHumanApprovalBridge();
+  if (bridge) return bridge.signDecision(input.approvalId, input.status, input.decisionNonce, input.payloadDigest);
+
   const canonical = [CANONICAL_PREFIX, input.approvalId, input.status, input.decisionNonce, input.payloadDigest ?? ''].join('\n');
   const { privateKey } = await getOrCreateKeyPair();
   const signature = await crypto.subtle.sign(
