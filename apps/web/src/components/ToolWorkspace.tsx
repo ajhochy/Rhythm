@@ -6,6 +6,7 @@ import type { PendingApproval } from '../gateway/approvals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
+import type { CookbookRecipe } from '../gateway/cookbook';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -482,6 +483,73 @@ function CookbookTool() {
   </ToolFrame>;
 }
 
+// Live cookbook — apps/web/src/gateway/cookbook.ts's CookbookRecipe is the canonical
+// GET/POST/PATCH /agent-cookbook row (stepsJson stays a JSON string end-to-end, never
+// re-parsed into local array state, so PATCH round-trips the exact bytes the server persisted).
+// Running a recipe returns a real sessionId (agentCookbookController.ts:162); this fetches that
+// session before navigating so a fabricated/foreign id can never pass as "opened".
+function LiveCookbookTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [items, setItems] = useState<CookbookRecipe[]>([]);
+  const [editing, setEditing] = useState<'new' | null>(null);
+  const [deleting, setDeleting] = useState<CookbookRecipe | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-cookbook', detail: 'Loading cookbook recipes' });
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.cookbook!.list();
+      setItems(next);
+      setTrace({ method: 'GET', route: '/agent-cookbook', detail: `${next.length} recipes loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Cookbook failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const steps = String(data.get('steps')).split('\n').map((value) => value.trim()).filter(Boolean);
+    try {
+      await gateway.domains.cookbook!.create({ title: String(data.get('title')), description: String(data.get('description') || '') || null, stepsJson: JSON.stringify(steps) });
+      setTrace({ method: 'POST', route: '/agent-cookbook', detail: 'Recipe created with {title,description,stepsJson}' });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Recipe save failed'); }
+    setEditing(null);
+  };
+
+  const run = async (recipe: CookbookRecipe) => {
+    try {
+      const result = await gateway.domains.cookbook!.run(recipe.id);
+      setTrace({ method: 'POST', route: `/agent-cookbook/${recipe.id}/run`, detail: `Recipe dispatched session ${result.sessionId}` });
+      const session = await gateway.domains.cookbook!.session(result.sessionId);
+      setTrace({ method: 'GET', route: `/agent-sessions/${session.id}`, detail: 'Opened the recipe’s owned session' });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Recipe run failed'); }
+  };
+
+  const remove = async (recipe: CookbookRecipe) => {
+    try {
+      await gateway.domains.cookbook!.remove(recipe.id);
+      setItems((current) => current.filter((item) => item.id !== recipe.id));
+      setTrace({ method: 'DELETE', route: `/agent-cookbook/${recipe.id}`, detail: 'Recipe deleted' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Recipe delete failed'); }
+    setDeleting(null);
+  };
+
+  return <ToolFrame slug="cookbook" title="Cookbook" description="Create reusable prompt recipes and launch an observable agent session for each run." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="cookbook-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="cookbook-new"><Icon name="plus" size={14} />New Recipe</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="cookbook-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && items.length === 0 && <EmptyState title="Your cookbook is empty">Create a recipe to turn a proven sequence into a repeatable agent run.</EmptyState>}
+    <div className="tool-list">{items.map((recipe) => {
+      const steps = parseJsonArray<unknown>(recipe.stepsJson);
+      return <article className="recipe-row" key={recipe.id} data-testid={`recipe-${recipe.id}`}><span className="tool-icon"><Icon name="book" /></span><span><strong>{recipe.title}</strong><p>{recipe.description}</p><small>{steps.length} steps{recipe.boundConfigId ? ` · bound to ${recipe.boundConfigId}` : ''}</small></span><button className="primary-button compact" type="button" onClick={() => void run(recipe)} data-testid={`cookbook-run-${recipe.id}`}><Icon name="resume" size={13} />Run recipe</button><button className="icon-button small" type="button" aria-label={`Delete ${recipe.title}`} onClick={() => setDeleting(recipe)} data-testid={`cookbook-delete-${recipe.id}`}><Icon name="delete" size={14} /></button></article>;
+    })}</div>
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title="New Recipe" description="Steps are serialized as the shipping stepsJson array." testId="cookbook-editor"><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field span-2">Title<input name="title" required data-autofocus /></label><label className="field span-2">Description<input name="description" /></label><label className="field span-2">Steps (one per line)<textarea name="steps" required rows={6} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="cookbook-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete Recipe" description={deleting ? `Delete “${deleting.title}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="cookbook-delete-dialog" />
+  </ToolFrame>;
+}
+
 type Proposal = { id: string; title: string; kind: string; risk: string; rationale: string; evidence: string; status: 'proposed' | 'approved' | 'rejected'; expanded?: boolean };
 // post-m1-phase-5 c2b: the pending human-approval boundary (apps/api_server/src/controllers/agent_approvals_controller.ts:118-186)
 // is a single shared list — Review Queue must read it live, the same GET /agent-approvals the
@@ -607,6 +675,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
