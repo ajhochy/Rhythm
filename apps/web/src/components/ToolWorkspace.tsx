@@ -4,6 +4,7 @@ import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
 import type { PendingApproval } from '../gateway/approvals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
+import type { AgentRunQuality } from '../gateway/run-quality';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -439,6 +440,57 @@ function ReportCardTool() {
   </ToolFrame>;
 }
 
+// Live report card — apps/web/src/gateway/run-quality.ts's RunQualityRollup is the canonical
+// GET /agents/run-quality shape. `notEnoughData` must suppress the rate entirely (never fall back
+// to a fixture-style fixed percentage like the old 89%/83% scorecards this criterion regressed on).
+function formatRate(rate: number | null, notEnoughData: boolean): string {
+  if (notEnoughData || rate === null) return 'Not scored yet';
+  return `${Math.round(rate * 100)}%`;
+}
+
+function LiveReportCardTool() {
+  const gateway = useGateway();
+  const [days, setDays] = useState(30);
+  const [agents, setAgents] = useState<AgentRunQuality[]>([]);
+  const [selectedKind, setSelectedKind] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: `/agents/run-quality?windowDays=${days}`, detail: 'Loading run-quality rollup' });
+  const selected = agents.find((agent) => agent.agentKind === selectedKind) ?? agents[0] ?? null;
+
+  const load = async (windowDays: number) => {
+    setError(null);
+    try {
+      const rollup = await gateway.domains.runQuality!.rollup(windowDays);
+      setAgents(rollup.agents);
+      setSelectedKind((current) => (current && rollup.agents.some((agent) => agent.agentKind === current) ? current : (rollup.agents[0]?.agentKind ?? null)));
+      setTrace({ method: 'GET', route: `/agents/run-quality?windowDays=${windowDays}`, detail: `${rollup.agents.length} agents scored` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Run-quality rollup failed'); }
+  };
+  useEffect(() => { void load(days); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <ToolFrame slug="report-card" title="Agent Report Card" description={`How each agent has been doing over the last ${days} days - separate from how much they cost.`} trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load(days)} data-testid="report-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="report-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="tool-filterbar"><label>Time window<select value={days} onChange={(event) => { const next = Number(event.target.value); setDays(next); void load(next); }} data-testid="report-window"><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label></div>
+    {!error && agents.length === 0 && <EmptyState title="No scored runs yet">Quality trends appear after an agent finishes a run with enough evidence to score.</EmptyState>}
+    {selected && <div className="tool-split">
+      <aside className="tool-rail">{agents.map((agent) => <button type="button" className={agent.agentKind === selected.agentKind ? 'selected' : ''} key={agent.agentKind} onClick={() => setSelectedKind(agent.agentKind)} data-testid={`report-agent-${agent.agentKind}`}><strong>{agent.agentLabel ?? agent.agentKind}</strong><small>{agent.totalRuns} runs</small></button>)}</aside>
+      <section className="tool-detail report-detail">
+        <header><span className="eyebrow">{selected.totalRuns} runs</span><h2>{selected.agentLabel ?? selected.agentKind}</h2>{selected.notEnoughData && <p role="status">Not enough data to score this agent yet.</p>}</header>
+        <div className="metric-grid">
+          <article><small>Completion</small><strong>{formatRate(selected.completionRate, selected.notEnoughData)}</strong><p>Finished the job {formatRate(selected.completionRate, selected.notEnoughData).toLowerCase()} of the time.</p></article>
+          <article><small>Wasted usage</small><strong>{formatRate(selected.wastedTokenRate, selected.notEnoughData)}</strong><p>Usage spent on runs that did not pan out.</p></article>
+          <article><small>Corrections</small><strong>{selected.notEnoughData || selected.averageCorrectionsPerRun === null ? 'Not scored yet' : selected.averageCorrectionsPerRun}</strong><p>Average redirects per run.</p></article>
+        </div>
+        <section className="session-quality">
+          <h3>Run evidence</h3>
+          <p>{selected.unmeasuredRuns} unmeasured · {selected.inProgressRuns} in progress · {selected.completedRuns} completed · {selected.escalatedRuns} escalated · {selected.totalTokens} tokens ({selected.wastedTokens} wasted) · {selected.totalUserCorrections} corrections</p>
+          {selected.repeatedMistakes.length > 0 && <div className="quality-warning"><strong>Keeps making the same mistake</strong>{selected.repeatedMistakes.map((item) => <span key={item.mistake}>{item.mistake} · {item.count}×</span>)}</div>}
+        </section>
+      </section>
+    </div>}
+  </ToolFrame>;
+}
+
 type EmailSignal = { id: string; from: string; email: string; subject: string; snippet: string; unread: boolean; received: string };
 function EmailTool() {
   const { notify, createSession, updateSession } = useFixtures(); const signals: EmailSignal[] = [{ id: 'email-handoff', from: 'Morgan Lee', email: 'morgan@example.org', subject: 'Sunday handoff owner', snippet: 'I can cover the livestream fallback if the run sheet is updated.', unread: true, received: 'Aug 12, 3:36 PM' }, { id: 'email-relay', from: 'Rhythm Ops', email: 'ops@example.org', subject: 'Relay recovery notes', snippet: 'The direct pairing check passed after reconnect.', unread: false, received: 'Aug 12, 2:18 PM' }]; const [selectedId, setSelectedId] = useState(signals[0].id); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/integrations/gmail-signals', detail: 'Authenticated Gmail signals loaded into fixture state' }); const selected = signals.find((item) => item.id === selectedId) ?? signals[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
@@ -465,6 +517,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
