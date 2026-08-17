@@ -8,6 +8,7 @@ import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
 import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
+import type { AgentDesign } from '../gateway/designs';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -835,6 +836,64 @@ function EmailTool() {
   </ToolFrame>;
 }
 
+// Live Gallery — apps/web/src/gateway/designs.ts's AgentDesign mirrors
+// apps/api_server/src/repositories/agent_designs_repository.ts:5-16 (publicAgentDesign, filePath
+// stripped server-side). "Open deliverable" fetches the actual artifact bytes/text
+// (GET /agent-designs/:id/artifact) instead of just recording a fixture trace, and "Launch Creative
+// Media" seeds the new session from this design's own canonical `id` in the POST /agent-sessions
+// body — never a locally re-typed title/type/project summary.
+function LiveGalleryTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [designs, setDesigns] = useState<AgentDesign[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-designs', detail: 'Loading creative designs' });
+  const selected = designs.find((design) => design.id === selectedId) ?? designs[0] ?? null;
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.designs!.list();
+      setDesigns(next);
+      setSelectedId((current) => (current && next.some((design) => design.id === current) ? current : (next[0]?.id ?? null)));
+      setTrace({ method: 'GET', route: '/agent-designs', detail: `${next.length} designs loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Creative designs failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const open = async (design: AgentDesign) => {
+    try {
+      await gateway.domains.designs!.artifact(design);
+      setTrace({ method: 'GET', route: design.artifactUrl ?? `/agent-designs/${design.id}/artifact`, detail: `Opened ${design.title ?? design.id} deliverable` });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Deliverable could not be opened'); }
+  };
+
+  const launch = async () => {
+    if (!selected) return;
+    try {
+      const session = await gateway.domains.designs!.launch(selected.id);
+      setTrace({ method: 'POST', route: '/agent-sessions', detail: `Creative Media session ${session.id} created seeded from design ${selected.id}` });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Creative Media session could not be launched'); }
+  };
+
+  return <ToolFrame slug="gallery" title="Creative Media" description="Browse agent designs and launch a Creative Media session from the selected artifact context." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="gallery-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="gallery-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && designs.length === 0 && <EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState>}
+    {selected && <section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><h2>{selected.title ?? selected.id}</h2><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section>}
+    <div className="design-grid" aria-label="Creative Media artifacts">{designs.map((design) => <article className={design.id === selected?.id ? 'selected' : ''} key={design.id} data-testid={`design-${design.id}`}>
+      <button className="design-preview" type="button" onClick={() => setSelectedId(design.id)} aria-label={`Select ${design.title ?? design.id}`}><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></button>
+      <h2>{design.title ?? design.id}</h2>
+      <p>{design.provider ?? 'unknown provider'}</p>
+      <footer>
+        <button className="text-button" type="button" onClick={() => void open(design)} data-testid={`gallery-open-${design.id}`}>Open deliverable</button>
+        {design.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: design.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${design.id}`}>Open project</button>}
+      </footer>
+    </article>)}</div>
+  </ToolFrame>;
+}
+
 type Design = { id: string; title: string; provider: string; type: string; project: string };
 function GalleryTool() {
   const { notify, createSession, updateSession } = useFixtures(); const designs: Design[] = [{ id: 'design-service-slide', title: 'Sunday service announcement', provider: 'local artifact', type: 'HTML', project: 'Ministry operations' }, { id: 'design-relay-card', title: 'Relay status card', provider: 'creative-media', type: 'PNG', project: 'Synology relay' }, { id: 'design-handoff', title: 'Agent handoff checklist', provider: 'local artifact', type: 'PDF', project: 'Rhythm desktop' }]; const [selectedId, setSelectedId] = useState(designs[0].id); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-designs', detail: 'Creative Media artifacts loaded' }); const selected = designs.find((item) => item.id === selectedId) ?? designs[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
@@ -852,6 +911,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
