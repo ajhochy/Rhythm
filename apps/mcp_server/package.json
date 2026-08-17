@@ -2,6 +2,11 @@
   "name": "@ajhochy/rhythm-mcp-server",
   "version": "0.6.2",
   "description": "MCP server for Rhythm — manage tasks, projects, and rhythms via Claude",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ajhochy/Rhythm",
+    "directory": "apps/mcp_server"
+  },
   "type": "commonjs",
   "main": "dist/index.js",
   "bin": {
