@@ -15,11 +15,10 @@
 export type ExperimentEnrollmentCohort = 'baseline' | 'candidate';
 
 /**
- * Nonterminal by default (`reserved`). `treatment_failed` is the only
- * terminal state this phase writes, and only on a dispatch failure — see
- * required_behavior for C1. Other terminal states arrive with C2/C3.
+ * Nonterminal by default (`reserved`). Active reservations are `reserved` and
+ * `dispatched`; terminal rows are `treatment_failed` and `terminalized`.
  */
-export type ExperimentEnrollmentState = 'reserved' | 'treatment_failed';
+export type ExperimentEnrollmentState = 'reserved' | 'dispatched' | 'treatment_failed' | 'terminalized';
 
 export interface ExperimentEnrollment {
   id: string;
@@ -37,6 +36,7 @@ export interface ExperimentEnrollment {
 
 export interface ReserveEnrollmentInput {
   id?: string;
+  maxExposure: number;
   runEpisodeId: string;
   experimentId: string;
   proposalId: string;

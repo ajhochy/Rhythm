@@ -4022,7 +4022,8 @@ If someone asks for creative work that needs a local capability:
       assignment_digest TEXT NOT NULL,
       baseline_target_revision_hash TEXT NOT NULL,
       treatment_spec_hash TEXT NOT NULL,
-      state TEXT NOT NULL DEFAULT 'reserved',
+      state TEXT NOT NULL DEFAULT 'reserved'
+        CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
       reserved_at TEXT NOT NULL
     );
   `);
@@ -4030,4 +4031,22 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
        ON agent_org_experiment_enrollments(experiment_id)`,
   );
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_agent_org_experiment_enrollments_state_insert_domain
+    BEFORE INSERT ON agent_org_experiment_enrollments
+    FOR EACH ROW
+    WHEN NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')
+    BEGIN
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments.state must be reserved, dispatched, treatment_failed, or terminalized');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_agent_org_experiment_enrollments_state_update_domain
+    BEFORE UPDATE ON agent_org_experiment_enrollments
+    FOR EACH ROW
+    WHEN NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')
+    BEGIN
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments.state must be reserved, dispatched, treatment_failed, or terminalized');
+    END;
+  `);
 }

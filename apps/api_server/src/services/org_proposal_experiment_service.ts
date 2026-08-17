@@ -274,73 +274,62 @@ export async function reserveRunEnrollment(
   profileId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
 ): Promise<ExperimentEnrollment | null> {
-  try {
-    const policy =
-      deps.policy ??
-      parseOptimizerPolicy({
-        mode: process.env.RHYTHM_OPTIMIZER_MODE,
-        disabledFamilies: process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
-      });
-    if (policy.mode === 'off') return null;
-
-    const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
-    const undecided = await experimentsRepo.listUndecidedAsync();
-    if (undecided.length === 0) return null;
-
-    const profileConfigRepo = new AgentConfigsRepository();
-    const targetProfile = profileConfigRepo.getById(profileId);
-    if (!targetProfile) return null;
-    const targetRevisionFingerprint = buildProfileRevisionFingerprint(targetProfile);
-
-    // Find an experiment whose evidence target matches this run's profile.
-    // In C1 we filter by profileId; C2 will also require the treatment adapter
-    // to support the experiment's proposal shape.
-    const match = findEligibleExperiment(undecided, profileId, targetRevisionFingerprint);
-    const experiment = match?.experiment;
-    if (!experiment) return null;
-
-    // Check exposure cap against existing reservations (not finished runs).
-    const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
-    const existingReservations = await enrollmentsRepo.listByExperimentAsync(experiment.id);
-    if (existingReservations.length >= experiment.maxExposure) {
-      return null;
-    }
-
-    // Deterministic cohort assignment.
-    const assignment = assignSubject({
-      assignmentKey: experiment.assignmentKey,
-      maxExposure: experiment.maxExposure,
-      currentExposure: existingReservations.length,
-      subjectId: runEpisodeId,
+  const policy =
+    deps.policy ??
+    parseOptimizerPolicy({
+      mode: process.env.RHYTHM_OPTIMIZER_MODE,
+      disabledFamilies: process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
     });
-    if (assignment.status === 'refused') return null;
+  if (policy.mode === 'off') return null;
 
-    const { baselineTargetRevisionHash, treatmentSpecHash } = buildHashes({
-      targetRevisionFingerprint: match.targetRevisionFingerprint,
-      treatmentSpec: match!.candidateSpec,
-    });
+  const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
+  const undecided = await experimentsRepo.listUndecidedAsync();
+  if (undecided.length === 0) return null;
 
-    // Persist the enrollment reservation.
-    const enrollment = await enrollmentsRepo.reserveAsync({
-      runEpisodeId,
-      experimentId: experiment.id,
-      proposalId: experiment.proposalId,
-      profileId,
-      cohort: assignment.cohort,
-      assignmentDigest: createHash('sha256')
-        .update(`${experiment.assignmentKey}:${runEpisodeId}`)
-        .digest('hex'),
-      baselineTargetRevisionHash,
-      treatmentSpecHash,
-    });
+  const profileConfigRepo = new AgentConfigsRepository();
+  const targetProfile = profileConfigRepo.getById(profileId);
+  if (!targetProfile) return null;
+  const targetRevisionFingerprint = buildProfileRevisionFingerprint(targetProfile);
 
-    return enrollment;
-  } catch (err) {
-    logger.warn(
-      `[org-proposal-experiment] pre-run enrollment skipped for '${runEpisodeId}' (non-fatal): ${String(err)}`,
-    );
-    return null;
-  }
+  // Find an experiment whose evidence target matches this run's profile.
+  // In C1 we filter by profileId; C2 will also require the treatment adapter
+  // to support the experiment's proposal shape.
+  const match = findEligibleExperiment(undecided, profileId, targetRevisionFingerprint);
+  const experiment = match?.experiment;
+  if (!experiment) return null;
+
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+
+  // Deterministic cohort assignment.
+  const assignment = assignSubject({
+    assignmentKey: experiment.assignmentKey,
+    maxExposure: experiment.maxExposure,
+    currentExposure: 0,
+    subjectId: runEpisodeId,
+  });
+  if (assignment.status === 'refused') return null;
+
+  const { baselineTargetRevisionHash, treatmentSpecHash } = buildHashes({
+    targetRevisionFingerprint: match.targetRevisionFingerprint,
+    treatmentSpec: match!.candidateSpec,
+  });
+
+  // Persist the enrollment reservation.
+  const enrollment = await enrollmentsRepo.reserveAsync({
+    maxExposure: experiment.maxExposure,
+    runEpisodeId,
+    experimentId: experiment.id,
+    proposalId: experiment.proposalId,
+    profileId,
+    cohort: assignment.cohort,
+    assignmentDigest: createHash('sha256')
+      .update(`${experiment.assignmentKey}:${runEpisodeId}`)
+      .digest('hex'),
+    baselineTargetRevisionHash,
+    treatmentSpecHash,
+  });
+
+  return enrollment;
 }
 
 /**
