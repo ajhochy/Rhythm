@@ -148,6 +148,11 @@ export interface Session {
   // the API's `transcriptPage`/`pageInfo` at apps/api_server/src/controllers/agent_sessions_controller.ts:614-616,2389-2391.
   transcriptCursor?: string | null;
   transcriptHasMore?: boolean;
+  // post-m1-phase-6 c3b/c3d/c3e: resolved isolated-worktree identity from the API — never
+  // defaulted to 'main' or synthesized client-side.
+  worktreeName?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
   /** Transient provider-retry state from a `session.status` frame with `status:'retrying'`
    * (post-m1-phase-4 capability c3e). Not persisted — cleared on the next part or non-retry status. */
   retry?: { attempt: number; reason: string };

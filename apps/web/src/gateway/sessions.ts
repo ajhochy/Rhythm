@@ -38,12 +38,54 @@ export type SessionWireEvent = {
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };
+
+// post-m1-phase-6: canonical file/diff/worktree boundary shapes. Field vocabulary verified
+// against apps/api_server/src/routes/agent_sessions_routes.ts:86-94,110-112,121-122 and
+// apps/api_server/src/controllers/agent_sessions_controller.ts:2441-2539 (files/vcs proxy),
+// :1616-1659 (worktree reset/remove), :1817-1846 (revert/unrevert).
+export interface SessionFileEntry { name: string; type?: string }
+export interface SessionFileStatusEntry { path: string; status?: string }
+// GET /:id/files/content response spreads the engine body + a server-added `resolvedPath`
+// (secret-bearing absolute path) — the gateway strips that field before it ever reaches a
+// component; never forward it to the renderer (post-m1-p6-c2b).
+export interface SessionFileContent { content?: string; type?: string; mimeType?: string; encoding?: string }
+// GET /:id/diff — exactly @opencode-ai/sdk's FileDiff shape (node_modules/@opencode-ai/sdk/gen/types.gen.d.ts:32-38).
+export interface SessionFileDiffEntry { file: string; before: string; after: string; additions: number; deletions: number }
+// GET /:id/vcs/diff?mode=git|branch — canonical {file,patch?,additions,deletions,status?} (post-m1-p6-c2d).
+export interface SessionVcsDiffEntry { file: string; patch?: string; additions: number; deletions: number; status?: string }
+// GET /projects/:id/branches — apps/api_server/src/controllers/projects_controller.ts:161-175.
+export interface ProjectBranches { current: string | null; local: string[]; recent: string[] }
+
 export interface SessionGateway {
   readonly mode: GatewayMode;
   profiles(): Promise<Profile[]>;
   list(): Promise<Session[]>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard' }): Promise<Session>;
+  // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
+  findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
+  // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
+  listFiles(localId: string, path?: string): Promise<SessionFileEntry[]>;
+  // GET /:id/files/content?path — never exposes the server's `resolvedPath`.
+  fileContent(localId: string, path: string): Promise<SessionFileContent>;
+  // GET /:id/files/status
+  fileStatus(localId: string): Promise<SessionFileStatusEntry[]>;
+  // GET /:id/diff — canonical session FileDiff[] (post-m1-p6-c2c).
+  sessionDiff(localId: string): Promise<SessionFileDiffEntry[]>;
+  // GET /:id/vcs/diff?mode=git|branch (post-m1-p6-c2d).
+  vcsDiff(localId: string, mode: 'git' | 'branch'): Promise<SessionVcsDiffEntry[]>;
+  // GET /:id/vcs/diff/raw — raw text/x-diff patch, never re-encoded (post-m1-p6-c2e).
+  vcsDiffRaw(localId: string): Promise<string>;
+  // POST /:id/revert {messageId} / POST /:id/unrevert (post-m1-p6-c2f).
+  revert(localId: string, messageId: string): Promise<void>;
+  unrevert(localId: string): Promise<void>;
+  // POST /:id/worktree/reset — surfaces the bounded 502 WORKTREE_RESET_FAILED (post-m1-p6-c3d).
+  resetWorktree(localId: string): Promise<void>;
+  // POST /:id/worktree/remove — surfaces the bounded 502 WORKTREE_REMOVE_FAILED; returns the
+  // updated session with worktree metadata cleared (post-m1-p6-c3e).
+  removeWorktreeSession(localId: string): Promise<Session>;
+  // GET /projects/:id/branches (post-m1-p6-c3a).
+  branches(projectId: string): Promise<ProjectBranches>;
   createProfile(input: ProfileMutation): Promise<Profile>;
   patchProfile(id: string, input: ProfileMutation): Promise<Profile>;
   deleteProfile(id: string): Promise<void>;
@@ -179,6 +221,11 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
     connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName, 'Live workspace'),
     cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId),
+    // post-m1-phase-6 c3b/c3d/c3e: the resolved isolated-worktree identity — never defaulted
+    // to 'main' or synthesized client-side. apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts:96-100.
+    worktreeName: typeof source.worktreeName === 'string' && source.worktreeName ? source.worktreeName : undefined,
+    worktreePath: typeof source.worktreePath === 'string' && source.worktreePath ? source.worktreePath : undefined,
+    worktreeBranch: typeof source.worktreeBranch === 'string' && source.worktreeBranch ? source.worktreeBranch : undefined,
     model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: 'Medium', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
     createdAt: string(source.createdAt, new Date(0).toISOString()), updatedAt: string(source.updatedAt, string(source.createdAt, new Date(0).toISOString())), cost: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalBudget: 0,
     // post-m1-phase-5 c2d: preserve canonical delegation identity instead of dropping it — a
@@ -230,7 +277,11 @@ function mapProfile(value: unknown): Profile {
 
 export function createFixtureSessionsGateway(_fetcher?: typeof fetch): SessionGateway {
   const unsupported = async (): Promise<never> => { throw new SessionGatewayError(0, 'Fixture sessions gateway is unsupported'); };
-  return { mode: 'fixture', profiles: unsupported, list: unsupported, detail: unsupported, create: unsupported, createProfile: unsupported, patchProfile: unsupported, deleteProfile: unsupported, hardDelete: unsupported, cancel: unsupported, resume: unsupported, childMessages: unsupported, pageOlder: unsupported, updatePermissionMode: unsupported, connect: () => ({ send: () => undefined, close: () => undefined }) };
+  return {
+    mode: 'fixture', profiles: unsupported, list: unsupported, detail: unsupported, create: unsupported, createProfile: unsupported, patchProfile: unsupported, deleteProfile: unsupported, hardDelete: unsupported, cancel: unsupported, resume: unsupported, childMessages: unsupported, pageOlder: unsupported, updatePermissionMode: unsupported,
+    findFiles: unsupported, listFiles: unsupported, fileContent: unsupported, fileStatus: unsupported, sessionDiff: unsupported, vcsDiff: unsupported, vcsDiffRaw: unsupported, revert: unsupported, unrevert: unsupported, resetWorktree: unsupported, removeWorktreeSession: unsupported, branches: unsupported,
+    connect: () => ({ send: () => undefined, close: () => undefined }),
+  };
 }
 
 export function createLiveSessionsGateway(apiBase: string, token: string | undefined, fetcher: typeof fetch = fetch, WebSocketImpl: typeof WebSocket = WebSocket): SessionGateway {
@@ -267,6 +318,57 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     // SDK session is gone) surfaces the server's own explanatory text via SessionGatewayError
     // rather than a generic label — the caller renders it verbatim as the start-fresh state.
     resume: async (localId) => toSessionViewModel(await response<unknown>('Resume session', request(`/agent-sessions/${encodeURIComponent(localId)}/resume`, { method: 'POST' }))),
+    // post-m1-phase-6 c1b/c2a: relative paths only — never absolute, never a fixture list.
+    findFiles: async (localId, query, opts) => {
+      const params = new URLSearchParams({ query });
+      if (opts?.limit != null) params.set('limit', String(opts.limit));
+      if (opts?.type) params.set('type', opts.type);
+      const data = await response<unknown>('Find files', request(`/agent-sessions/${encodeURIComponent(localId)}/files/find-files?${params.toString()}`));
+      return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
+    },
+    listFiles: async (localId, path = '') => {
+      const data = await response<unknown>('List files', request(`/agent-sessions/${encodeURIComponent(localId)}/files/list?path=${encodeURIComponent(path)}`));
+      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ name: string(item.name), type: string(item.type) || undefined })) : [];
+    },
+    fileContent: async (localId, path) => {
+      const data = record(await response<unknown>('Load file content', request(`/agent-sessions/${encodeURIComponent(localId)}/files/content?path=${encodeURIComponent(path)}`)));
+      // c2b: `resolvedPath` is a secret-bearing absolute path — deliberately dropped here so it
+      // can never reach a component, even if a future response shape starts including it.
+      return { content: typeof data.content === 'string' ? data.content : undefined, type: string(data.type) || undefined, mimeType: string(data.mimeType) || undefined, encoding: string(data.encoding) || undefined };
+    },
+    fileStatus: async (localId) => {
+      const data = await response<unknown>('Load file status', request(`/agent-sessions/${encodeURIComponent(localId)}/files/status`));
+      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ path: string(item.path), status: string(item.status) || undefined })) : [];
+    },
+    sessionDiff: async (localId) => {
+      const data = await response<unknown>('Load session diff', request(`/agent-sessions/${encodeURIComponent(localId)}/diff`));
+      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ file: string(item.file), before: string(item.before), after: string(item.after), additions: Number(item.additions) || 0, deletions: Number(item.deletions) || 0 })) : [];
+    },
+    vcsDiff: async (localId, mode) => {
+      const data = await response<unknown>('Load VCS diff', request(`/agent-sessions/${encodeURIComponent(localId)}/vcs/diff?mode=${mode}`));
+      return Array.isArray(data) ? data.map((item) => record(item)).map((item) => ({ file: string(item.file), patch: typeof item.patch === 'string' ? item.patch : undefined, additions: Number(item.additions) || 0, deletions: Number(item.deletions) || 0, status: string(item.status) || undefined })) : [];
+    },
+    // c2e: the raw text/x-diff patch — never routed through response()'s JSON parsing, so the
+    // exact exported bytes are preserved instead of being re-encoded through a display string.
+    vcsDiffRaw: async (localId) => {
+      const result = await request(`/agent-sessions/${encodeURIComponent(localId)}/vcs/diff/raw`);
+      if (!result.ok) throw new SessionGatewayError(result.status, failureText(result.status, 'Export patch'));
+      return result.text();
+    },
+    revert: async (localId, messageId) => { await response<void>('Revert session', request(`/agent-sessions/${encodeURIComponent(localId)}/revert`, { method: 'POST', body: JSON.stringify({ messageId }) })); },
+    unrevert: async (localId) => { await response<void>('Restore session', request(`/agent-sessions/${encodeURIComponent(localId)}/unrevert`, { method: 'POST' })); },
+    // c3d/c3e: both surface the server's bounded 502 (WORKTREE_RESET_FAILED/WORKTREE_REMOVE_FAILED)
+    // as a SessionGatewayError instead of swallowing it into a false "success".
+    resetWorktree: async (localId) => { await response<void>('Reset worktree', request(`/agent-sessions/${encodeURIComponent(localId)}/worktree/reset`, { method: 'POST' })); },
+    removeWorktreeSession: async (localId) => toSessionViewModel(await response<unknown>('Remove worktree', request(`/agent-sessions/${encodeURIComponent(localId)}/worktree/remove`, { method: 'POST' }))),
+    branches: async (projectId) => {
+      const data = record(await response<unknown>('Load branches', request(`/projects/${encodeURIComponent(projectId)}/branches`)));
+      return {
+        current: typeof data.current === 'string' ? data.current : null,
+        local: Array.isArray(data.local) ? data.local.filter((item): item is string => typeof item === 'string') : [],
+        recent: Array.isArray(data.recent) ? data.recent.filter((item): item is string => typeof item === 'string') : [],
+      };
+    },
     childMessages: async (parentLocalId, childSdkId) => {
       const body = await response<{ messages?: unknown[] }>(
         'Load child session',

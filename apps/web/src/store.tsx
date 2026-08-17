@@ -23,6 +23,10 @@ interface LiveSessionInput {
   profileId: string;
   isolateWorktree: boolean;
   worktreeName?: string;
+  // post-m1-phase-6 c3a: canonical branch fields — sent through verbatim to gateway.create().
+  branch?: string;
+  createBranch?: boolean;
+  stash?: 'stash' | 'discard';
 }
 
 // c2j: a live child-session view is deliberately NOT a row in `sessions` — the child's

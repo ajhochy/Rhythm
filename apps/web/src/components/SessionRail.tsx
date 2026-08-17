@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
-import { SessionGatewayError } from '../gateway/sessions';
+import { useGateway } from '../gateway/context';
+import { SessionGatewayError, type ProjectBranches } from '../gateway/sessions';
 import { isSessionRecoverable, sessionPresentation } from '../sessionState';
 import { useFixtures } from '../store';
 import type { Session, SessionGroup, SessionScope } from '../types';
@@ -27,6 +28,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
   const fixtures = useFixtures();
+  const gateway = useGateway();
   const { sessions, profiles, selected, selectedId, scope, setScope, selectSession, createSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, notify, sessionGatewayMode, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession } = fixtures;
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -56,6 +58,9 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   const [profileId, setProfileId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<{ status: number; message: string } | null>(null);
+  // post-m1-phase-6 c3a: real project branches — apps/api_server/src/controllers/projects_controller.ts:161-175
+  // (GET /projects/:id/branches → {current, local, recent}). Never a fixture branch literal.
+  const [liveBranches, setLiveBranches] = useState<ProjectBranches | null>(null);
 
   useEffect(() => { if (searchOpen) searchRef.current?.focus(); }, [searchOpen]);
   useEffect(() => {
@@ -71,15 +76,28 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     setBranch(selected.branch); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); setStashConfirmed(false);
     setAccount(''); setProfileId(profiles.find((profile) => profile.isDefault && profile.enabled && profile.selectable)?.id ?? profiles.find((profile) => profile.enabled && profile.selectable)?.id ?? ''); setSubmitting(false); setSubmitError(null);
   };
-  const openAdvanced = () => { resetAdvanced(); setAdvancedOpen(true); };
+  const openAdvanced = () => { resetAdvanced(); setLiveBranches(null); setAdvancedOpen(true); };
   const closeAdvanced = () => { if (!submitting) setAdvancedOpen(false); };
+  // c3a: fetch the real project branch list once the dialog opens in live mode — never the
+  // fixture's hardcoded 'release/desktop'/'main' literals.
+  useEffect(() => {
+    if (!advancedOpen || sessionGatewayMode !== 'live') return;
+    let active = true;
+    void gateway.domains.sessions!.branches(selected.projectId)
+      .then((data) => { if (active) setLiveBranches(data); })
+      .catch(() => { if (active) setLiveBranches(null); });
+    return () => { active = false; };
+  }, [advancedOpen, sessionGatewayMode, selected.projectId, gateway]);
   const startSession = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim() || submitting) return;
     setSubmitting(true); setSubmitError(null);
     try {
       if (sessionGatewayMode === 'live') {
-        await createLiveSession({ name: name.trim(), cwd, profileId, isolateWorktree, worktreeName: worktreeName || undefined });
+        await createLiveSession({
+          name: name.trim(), cwd, profileId, isolateWorktree, worktreeName: worktreeName || undefined,
+          branch: newBranchMode ? newBranch : branch, createBranch: newBranchMode, stash: stashConfirmed ? 'stash' : 'discard',
+        });
       } else {
         await Promise.resolve();
         if (cwd.includes('forbidden')) { setSubmitError({ status: 422, message: 'That working directory is not available. Choose another folder and try again.' }); return; }
@@ -175,7 +193,14 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
         <label className="field span-2">Working directory<div className="field-with-action"><input value={cwd} onChange={(event) => setCwd(event.target.value)} required data-testid="advanced-cwd" /><button type="button" onClick={() => { setCwd('/workspace/rhythm'); notify('Fixture folder selected'); }} data-testid="advanced-browse">Browse…</button></div></label>
         <label className="switch-row span-2"><input type="checkbox" checked={isolateWorktree} onChange={(event) => setIsolateWorktree(event.target.checked)} data-testid="advanced-isolate-worktree" /><span><strong>Run in isolated worktree</strong><small>Creates a separate git worktree so edits do not touch this working directory.</small></span></label>
         {isolateWorktree && <label className="field span-2">Worktree name<span>Optional</span><input value={worktreeName} onChange={(event) => setWorktreeName(event.target.value)} placeholder="release-readiness" data-testid="advanced-worktree-name" /></label>}
-        <fieldset className="branch-options span-2"><legend>Branch</legend>{newBranchMode ? <div className="field-with-action"><input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} placeholder="new-branch-name" aria-label="New branch name" data-testid="advanced-new-branch" /><button type="button" onClick={() => { setNewBranchMode(false); setNewBranch(''); }}>Cancel</button></div> : <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch"><option value={selected.branch}>Current · {selected.branch}</option>{selected.branch !== 'release/desktop' && <option value="release/desktop">release/desktop · recent</option>}{selected.branch !== 'main' && <option value="main">main · local</option>}<option value="__new__">New branch from current</option></select>}</fieldset>
+        <fieldset className="branch-options span-2"><legend>Branch</legend>{newBranchMode ? <div className="field-with-action"><input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} placeholder="new-branch-name" aria-label="New branch name" data-testid="advanced-new-branch" /><button type="button" onClick={() => { setNewBranchMode(false); setNewBranch(''); }}>Cancel</button></div> : sessionGatewayMode === 'live'
+          ? <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch">
+              <option value={liveBranches?.current ?? selected.branch}>Current · {liveBranches?.current ?? selected.branch}</option>
+              {(liveBranches?.recent ?? []).filter((name) => name !== (liveBranches?.current ?? selected.branch)).map((name) => <option value={name} key={`recent-${name}`}>{name} · recent</option>)}
+              {(liveBranches?.local ?? []).filter((name) => name !== (liveBranches?.current ?? selected.branch) && !(liveBranches?.recent ?? []).includes(name)).map((name) => <option value={name} key={`local-${name}`}>{name} · local</option>)}
+              <option value="__new__">New branch from current</option>
+            </select>
+          : <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch"><option value={selected.branch}>Current · {selected.branch}</option>{selected.branch !== 'release/desktop' && <option value="release/desktop">release/desktop · recent</option>}{selected.branch !== 'main' && <option value="main">main · local</option>}<option value="__new__">New branch from current</option></select>}</fieldset>
         {accounts.length >= 2 && <label className="field span-2">Account<span>Optional</span><select value={account} onChange={(event) => setAccount(event.target.value)} data-testid="advanced-account"><option value="">Profile default</option>{accounts.map((item) => <option key={item}>{item}</option>)}</select></label>}
         {pendingBranch && <div className="protected-confirm span-2" role="alertdialog" aria-labelledby="stash-confirm-title" aria-describedby="stash-confirm-description" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setPendingBranch(null); } }} data-testid="stash-confirm-dialog"><div><strong id="stash-confirm-title">Working tree has uncommitted changes</strong><p id="stash-confirm-description">Stash the unsaved changes before switching branches, or cancel and keep the current branch.</p></div><div className="dialog-actions"><button className="secondary-button" type="button" autoFocus onClick={() => setPendingBranch(null)} data-testid="stash-cancel">Cancel</button><button className="primary-button" type="button" onClick={() => { setBranch(pendingBranch); setStashConfirmed(true); setPendingBranch(null); }} data-testid="stash-confirm">Stash</button></div></div>}
         {submitError && <div className="form-error span-2" role="alert" data-testid="advanced-error">{submitError.status >= 500 ? <><strong>Something went wrong on the server.</strong><details><summary>Details</summary><p>{submitError.message}</p></details></> : submitError.message}</div>}

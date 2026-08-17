@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../icons';
+import { useGateway } from '../gateway/context';
 import { isSessionOffline } from '../sessionState';
 import { useFixtures } from '../store';
 import type { ComposerAttachment } from '../types';
@@ -16,6 +17,10 @@ const fileFixtures: FileFixture[] = [
 ];
 
 const MAX_LIVE_TEXT_ATTACHMENT_CHARS = 100 * 1024;
+// post-m1-phase-6 c1e: the existing API-side session.input.parts size boundary
+// (apps/api_server/src/services/ws_gateway.ts), driven through React pre-flight so a too-large
+// selection never reaches the provider and the composer keeps the file for a retry.
+const MAX_LIVE_PARTS_BYTES = 20 * 1024 * 1024;
 
 // c2e: resolves a real, user-selected File into a canonical composer attachment. Text-shaped
 // files become inline text content (truncated like Flutter's 100 KB cap); image/PDF files
@@ -49,6 +54,7 @@ function mentionMatch(value: string) {
 
 export function Composer() {
   const { selected, profiles, sendInput, sendLiveInput, sessionGatewayMode, cancelSession, reconnect, updateSession, runShell, notify } = useFixtures();
+  const gateway = useGateway();
   const [draft, setDraft] = useState('');
   const [pendingModel, setPendingModel] = useState<string | null>(null);
   const [bypassConfirm, setBypassConfirm] = useState(false);
@@ -60,6 +66,11 @@ export function Composer() {
   // parts at submit time (not on selection) so a fast composer-send click can never race
   // ahead of the async FileReader work — see resolveLiveAttachment above.
   const [liveFiles, setLiveFiles] = useState<File[]>([]);
+  // post-m1-phase-6 c1b: real server-side `@` search results (relative paths) and the
+  // canonical attachments resolved from choosing one — kept separate from `liveFiles`
+  // (real browser File objects) since these already arrive as resolved content, not bytes.
+  const [liveMentionResults, setLiveMentionResults] = useState<string[]>([]);
+  const [liveMentionAttachments, setLiveMentionAttachments] = useState<ComposerAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -95,9 +106,40 @@ export function Composer() {
   const mentionOptions = useMemo(() => fileFixtures.filter((file) => file.path.toLowerCase().includes(atQuery)), [atQuery]);
   const suggestionType = disabledReason ? null : draft.startsWith('/') ? 'slash' : atMatch && !mentionDismissed ? 'mention' : draft.startsWith('!') ? 'shell' : null;
   const slashOptions = slashCommands.filter((command) => command.startsWith(draft));
-  const suggestionCount = suggestionType === 'mention' ? mentionOptions.length : suggestionType === 'slash' ? slashOptions.length : suggestionType === 'shell' ? 1 : 0;
+  const suggestionCount = suggestionType === 'mention' ? (sessionGatewayMode === 'live' ? liveMentionResults.length : mentionOptions.length) : suggestionType === 'slash' ? slashOptions.length : suggestionType === 'shell' ? 1 : 0;
 
   useEffect(() => { setHighlighted(0); }, [suggestionType, atQuery, draft.startsWith('/')]);
+
+  // post-m1-phase-6 c1b: debounced server-side `@` search — apps/api_server/src/routes/agent_sessions_routes.ts:86,
+  // controller.findFiles at apps/api_server/src/controllers/agent_sessions_controller.ts:2441-2454 (query/limit/type).
+  useEffect(() => {
+    if (sessionGatewayMode !== 'live' || suggestionType !== 'mention' || !atQuery.trim()) { setLiveMentionResults([]); return; }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void gateway.domains.sessions!.findFiles(selected.id, atQuery, { limit: 20, type: 'file' })
+        .then((paths) => { if (active) setLiveMentionResults(paths); })
+        .catch(() => { if (active) setLiveMentionResults([]); });
+    }, 200);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [sessionGatewayMode, suggestionType, atQuery, selected.id, gateway]);
+
+  // c1b: resolves a chosen server search result into a canonical attachment via a real
+  // session-scoped content fetch — never retains the transient dropdown/display token.
+  const chooseLiveMention = (path: string) => {
+    const match = mentionMatch(draft);
+    if (match && match.index !== undefined) setDraft(`${draft.slice(0, match.index)}${draft.slice(match.index + match[0].length)}`.trimStart());
+    setMentionDismissed(false);
+    const filename = path.split('/').at(-1) ?? path;
+    void gateway.domains.sessions!.fileContent(selected.id, path).then((content) => {
+      const id = `attachment-live-mention-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const attachment: ComposerAttachment = typeof content.content === 'string'
+        ? { id, type: 'text', path, filename, mime: content.mimeType || 'text/plain', size: content.content.length, content: content.content }
+        : { id, type: 'file', path, filename, mime: content.mimeType || 'application/octet-stream', size: 0, fileUrl: `file:${path}` };
+      setLiveMentionAttachments((current) => [...current, attachment]);
+      setAttachmentFeedback(`${filename} attached.`); notify(`${filename} attached`);
+    }).catch(() => { setAttachmentFeedback(`Could not attach ${filename}.`); notify(`Could not attach ${filename}`); });
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   const addFixture = (file: FileFixture) => {
     setAttachmentFeedback('');
@@ -149,12 +191,22 @@ export function Composer() {
     if (disabledReason) { notify(disabledReason); return; }
     const value = draft.trim();
     if (sessionGatewayMode === 'live') {
-      if (!value && liveFiles.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
-      const resolved = await Promise.all(liveFiles.map(resolveLiveAttachment));
+      if (!value && liveFiles.length === 0 && liveMentionAttachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
+      const oversized = liveFiles.find((file) => file.size > MAX_LIVE_PARTS_BYTES);
+      if (oversized) {
+        const message = `Could not send: ${oversized.name} is larger than the 20 MiB limit.`;
+        setAttachmentFeedback(message); notify(message); return;
+      }
+      const resolved = [...liveMentionAttachments, ...await Promise.all(liveFiles.map(resolveLiveAttachment))];
       if (value.startsWith('\\!')) sendLiveInput(value.slice(1), resolved);
       else if (value.startsWith('!')) { runShell(value.slice(1).trim()); notify('Shell command completed in the fixture terminal'); }
       else sendLiveInput(value, resolved);
-      setLiveFiles([]); setDraft(''); setAttachmentFeedback('');
+      // A resolved text attachment's real content is what the agent actually received —
+      // surface a preview of it (after sendLiveInput's own generic notify) so the sender can
+      // confirm what was delivered instead of a content-free "Message sent".
+      const textPreview = resolved.find((attachment) => attachment.content !== undefined)?.content;
+      if (textPreview) notify(`Message sent · attached: ${textPreview.slice(0, 200)}`);
+      setLiveFiles([]); setLiveMentionAttachments([]); setDraft(''); setAttachmentFeedback('');
       return;
     }
     if (!value && attachments.length === 0) { notify('Enter a message or attach a file before sending'); textareaRef.current?.focus(); return; }
@@ -165,7 +217,8 @@ export function Composer() {
   };
 
   const useHighlightedSuggestion = () => {
-    if (suggestionType === 'mention' && mentionOptions[highlighted]) chooseMention(mentionOptions[highlighted]);
+    if (suggestionType === 'mention' && sessionGatewayMode === 'live') { if (liveMentionResults[highlighted]) chooseLiveMention(liveMentionResults[highlighted]); }
+    else if (suggestionType === 'mention' && mentionOptions[highlighted]) chooseMention(mentionOptions[highlighted]);
     else if (suggestionType === 'slash' && slashOptions[highlighted]) { setDraft(`${slashOptions[highlighted]} `); requestAnimationFrame(() => textareaRef.current?.focus()); }
     else if (suggestionType === 'shell') { setDraft('!git status --short'); requestAnimationFrame(() => textareaRef.current?.focus()); }
   };
@@ -183,8 +236,11 @@ export function Composer() {
     <form className={`composer ${offline ? 'offline' : ''}`} aria-label="Message composer" onSubmit={(event) => { event.preventDefault(); void submit(); }} data-od-id="agent-composer">
       {offline && <div className="offline-queue" role="status" data-testid="offline-queue"><span><Icon name="background" size={15} /><strong>Desktop offline</strong> · input remains local until you reconnect.</span><button className="secondary-button" type="button" onClick={reconnect} data-testid="reconnect-button"><Icon name="refresh" size={14} />Reconnect &amp; flush</button></div>}
       {disabledReason && <div className="composer-disabled-reason" role="status"><Icon name="background" size={14} />{disabledReason}</div>}
-      {attachments.length > 0 && <div className="attachment-list" aria-label="Pending attachments" data-testid="attachment-list">{attachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`attachment-${attachment.id.replace('attachment-', '')}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.truncated ? 'first 100 KB · truncated' : attachment.type === 'file' ? 'local file reference' : attachment.mime}</small></span><button type="button" onClick={() => removeAttachment(attachment.id)} aria-label={`Remove ${attachment.filename}`} disabled={Boolean(disabledReason)} data-testid={`attachment-remove-${attachment.id.replace('attachment-', '')}`}><Icon name="close" size={13} /></button></div>)}</div>}
-      {sessionGatewayMode === 'live' && liveFiles.length > 0 && <div className="attachment-list" aria-label="Pending attachments" data-testid="live-attachment-list">{liveFiles.map((file, index) => <div className="attachment-chip" key={`${file.name}-${index}`} data-testid={`live-attachment-${index}`}><Icon name="file" size={14} /><span><strong>{file.name}</strong><small>{file.type || 'application/octet-stream'}</small></span><button type="button" onClick={() => setLiveFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><Icon name="close" size={13} /></button></div>)}</div>}
+      {attachments.length > 0 && <div className="attachment-list" role="region" aria-label="Pending attachments" data-testid="attachment-list">{attachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`attachment-${attachment.id.replace('attachment-', '')}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.truncated ? 'first 100 KB · truncated' : attachment.type === 'file' ? 'local file reference' : attachment.mime}</small></span><button type="button" onClick={() => removeAttachment(attachment.id)} aria-label={`Remove ${attachment.filename}`} disabled={Boolean(disabledReason)} data-testid={`attachment-remove-${attachment.id.replace('attachment-', '')}`}><Icon name="close" size={13} /></button></div>)}</div>}
+      {sessionGatewayMode === 'live' && (liveFiles.length > 0 || liveMentionAttachments.length > 0) && <div className="attachment-list" role="region" aria-label="Pending attachments" data-testid="live-attachment-list">
+        {liveMentionAttachments.map((attachment) => <div className="attachment-chip" key={attachment.id} data-testid={`live-mention-${attachment.id}`}><Icon name={attachment.type === 'file' ? 'command' : 'file'} size={14} /><span><strong>{attachment.filename}</strong><small>{attachment.mime}</small></span><button type="button" onClick={() => setLiveMentionAttachments((current) => current.filter((item) => item.id !== attachment.id))} aria-label={`Remove ${attachment.filename}`}><Icon name="close" size={13} /></button></div>)}
+        {liveFiles.map((file, index) => <div className="attachment-chip" key={`${file.name}-${index}`} data-testid={`live-attachment-${index}`}><Icon name="file" size={14} /><span><strong>{file.name}</strong><small>{file.type || 'application/octet-stream'}</small></span><button type="button" onClick={() => setLiveFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}><Icon name="close" size={13} /></button></div>)}
+      </div>}
       {attachmentFeedback && <div className={`attachment-feedback ${attachmentFeedback.startsWith('Could not') ? 'error' : ''}`} id="composer-attachment-feedback" role={attachmentFeedback.startsWith('Could not') ? 'alert' : 'status'} data-testid="attachment-feedback"><span>{attachmentFeedback}</span>{attachmentFeedback.startsWith('Could not') && <button type="button" className="text-button" onClick={() => { setAttachmentFeedback(''); textareaRef.current?.focus(); }}>Dismiss</button>}</div>}
       <label className="composer-label" htmlFor="composer-input">Message the agent</label>
       <div className="composer-input-row">
@@ -201,8 +257,10 @@ export function Composer() {
       </div>
       {suggestionType && <div className="composer-suggestions" role="listbox" aria-label={`${suggestionType} suggestions`} data-testid="composer-suggestions">
         {suggestionType === 'slash' && slashOptions.map((command, index) => <button role="option" aria-selected={highlighted === index} type="button" key={command} onClick={() => { setDraft(`${command} `); textareaRef.current?.focus(); }} data-testid={`command-${command.slice(1)}`}><Icon name="command" size={14} /><strong>{command}</strong><small>Fixture command</small></button>)}
-        {suggestionType === 'mention' && mentionOptions.map((file, index) => <button role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
-        {suggestionType === 'mention' && mentionOptions.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
+        {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.map((path, index) => <button role="option" aria-selected={highlighted === index} type="button" key={path} onClick={() => chooseLiveMention(path)} data-testid={`mention-option-live-${index}`}><Icon name="file" size={14} /><strong>{path}</strong></button>)}
+        {suggestionType === 'mention' && sessionGatewayMode === 'live' && liveMentionResults.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
+        {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.map((file, index) => <button role="option" aria-selected={highlighted === index} type="button" key={file.id} onClick={() => chooseMention(file)} data-testid={`mention-option-${file.id}`}><Icon name="file" size={14} /><strong>{file.path}</strong><small>{file.description}</small></button>)}
+        {suggestionType === 'mention' && sessionGatewayMode !== 'live' && mentionOptions.length === 0 && <div className="suggestion-empty" role="status" data-testid="mention-no-results">No matching files</div>}
         {suggestionType === 'shell' && <button role="option" aria-selected="true" type="button" onClick={() => { setDraft('!git status --short'); textareaRef.current?.focus(); }} data-testid="shell-shortcut-option"><Icon name="terminal" size={14} /><strong>!git status --short</strong><small>Run through session shell</small></button>}
       </div>}
       <div className="composer-toolbar">
@@ -213,7 +271,7 @@ export function Composer() {
           <label><span className="sr-only">Reasoning budget</span><select value={selected.thinkingBudget} onChange={(event) => updateSession(selected.id, { thinkingBudget: event.target.value })} data-testid="composer-thinking" disabled={Boolean(disabledReason)}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select></label>
           <button className={`toggle-button ${selected.fastMode ? 'active' : ''}`} type="button" aria-pressed={selected.fastMode} onClick={() => updateSession(selected.id, { fastMode: !selected.fastMode })} data-testid="composer-fast" disabled={Boolean(disabledReason)}><Icon name="activity" size={13} />Fast</button>
           {sessionGatewayMode === 'live'
-            ? <label className="icon-button small live-file-label" aria-label="Attach files"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason)} data-testid="composer-live-file-input" /></label>
+            ? <label className="icon-button small live-file-label" aria-label="Attach files" data-testid="composer-attach"><Icon name="attach" size={15} /><input type="file" multiple className="sr-only" onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length > 0) setLiveFiles((current) => [...current, ...files]); event.target.value = ''; }} disabled={Boolean(disabledReason)} data-testid="composer-live-file-input" /></label>
             : <div className="attachment-picker-anchor"><button ref={attachButtonRef} className="icon-button small" type="button" onClick={() => setPickerOpen((value) => !value)} aria-label="Attach files" aria-haspopup="menu" aria-expanded={pickerOpen} data-testid="composer-attach" disabled={Boolean(disabledReason)}><Icon name="attach" size={15} /></button>{pickerOpen && <div ref={pickerRef} className="attachment-picker menu-popover" role="menu" aria-label="Fixture files" data-testid="attachment-picker"><div className="menu-heading"><span>Attach files</span><small>Local fixture</small></div>{fileFixtures.map((file) => <button className="menu-item stacked" role="menuitem" type="button" key={file.id} onClick={() => { addFixture(file); setPickerOpen(false); requestAnimationFrame(() => attachButtonRef.current?.focus()); }} data-testid={`attachment-option-${file.id}`}><Icon name={file.outcome === 'binary' ? 'command' : 'file'} size={14} /><span><strong>{file.path}</strong><small>{file.description}</small></span></button>)}</div>}</div>}
         </div>
         <small id="composer-help">Enter to send · Shift+Enter for newline</small>
