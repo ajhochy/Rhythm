@@ -51,6 +51,10 @@ import {
   PRIMARY_METRICS,
   type ProposalEvidenceBundle,
 } from '../models/proposal_evidence_bundle';
+import {
+  validateSystemPromptV1Spec,
+  type SystemPromptV1TreatmentSpec,
+} from '../models/experiment_treatment_adapter';
 import type {
   AgentOrgExperiment,
   ExperimentDecision,
@@ -60,6 +64,7 @@ import type { AgentRunOutcome } from '../models/agent_run_outcome';
 import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgExperimentEnrollmentsRepository } from '../repositories/agent_org_experiment_enrollments_repository';
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 import { validateEvidenceBundle } from './proposal_evidence_validator';
@@ -109,6 +114,119 @@ export interface ExperimentDeps {
   experimentsRepo?: AgentOrgExperimentsRepository;
   outcomesRepo?: AgentRunOutcomesRepository;
   proposalsRepo?: AgentOrgProposalsRepository;
+}
+
+function canonicalizeForHash(input: unknown): string {
+  if (Array.isArray(input)) {
+    return `[${input.map((item) => canonicalizeForHash(item)).join(',')}]`;
+  }
+  if (input && typeof input === 'object') {
+    const entries = Object.keys(input as Record<string, unknown>)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeForHash((input as Record<string, unknown>)[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(input);
+}
+
+interface EligibleExperimentMatch {
+  experiment: AgentOrgExperiment;
+  evidenceBundle: ProposalEvidenceBundle;
+  baselineSpec: SystemPromptV1TreatmentSpec;
+  candidateSpec: SystemPromptV1TreatmentSpec;
+  targetRevisionFingerprint: string;
+}
+
+function toProfileTargetRef(profileId: string): string {
+  return `agent_config:${profileId}`;
+}
+
+const SYSTEM_PROMPT_DURABLE_FINGERPRINT_NULL_SENTINEL = '__system-prompt-null__';
+
+function buildProfileRevisionFingerprint(profile: { id: string; revision: number; systemPrompt: string | null }): string {
+  return `sha256:${createHash('sha256')
+    .update(
+      canonicalizeForHash({
+        id: profile.id,
+        revision: profile.revision,
+        systemPrompt: profile.systemPrompt ?? SYSTEM_PROMPT_DURABLE_FINGERPRINT_NULL_SENTINEL,
+      }),
+    )
+    .digest('hex')}`;
+}
+
+function buildHashes(input: {
+  targetRevisionFingerprint: string;
+  treatmentSpec: SystemPromptV1TreatmentSpec;
+}): {
+  baselineTargetRevisionHash: string;
+  treatmentSpecHash: string;
+} {
+  return {
+    baselineTargetRevisionHash: input.targetRevisionFingerprint,
+    treatmentSpecHash: createHash('sha256').update(canonicalizeForHash(input.treatmentSpec)).digest('hex'),
+  };
+}
+
+function findEligibleExperiment(
+  experiments: AgentOrgExperiment[],
+  profileId: string,
+  targetRevisionFingerprint: string,
+): EligibleExperimentMatch | null {
+  const expectedProfileRef = toProfileTargetRef(profileId);
+
+  for (const experiment of experiments) {
+    if (experiment.adapter !== 'paired-cohort-outcome') continue;
+
+    let evidenceBundle: ProposalEvidenceBundle;
+    try {
+      const parsed = JSON.parse(experiment.evidenceBundleJson);
+      const validatedBundle = validateEvidenceBundle(parsed);
+      if (!validatedBundle.valid) continue;
+      evidenceBundle = validatedBundle.bundle;
+    } catch {
+      continue;
+    }
+
+    if (evidenceBundle.target.ref !== expectedProfileRef) continue;
+    if (evidenceBundle.target.hash !== targetRevisionFingerprint) continue;
+
+    let baselineSpec: ReturnType<typeof validateSystemPromptV1Spec>;
+    let candidateSpec: ReturnType<typeof validateSystemPromptV1Spec>;
+    try {
+      baselineSpec = validateSystemPromptV1Spec(JSON.parse(experiment.baselineSpecJson));
+      candidateSpec = validateSystemPromptV1Spec(JSON.parse(experiment.candidateSpecJson));
+    } catch {
+      continue;
+    }
+    if (!baselineSpec.valid || !candidateSpec.valid) continue;
+    if (
+      baselineSpec.spec.agentConfigId !== candidateSpec.spec.agentConfigId ||
+      baselineSpec.spec.agentConfigId !== profileId ||
+      baselineSpec.spec.field !== 'system_prompt' ||
+      candidateSpec.spec.field !== 'system_prompt'
+    ) {
+      continue;
+    }
+    if (
+      baselineSpec.spec.evidenceTarget.ref !== evidenceBundle.target.ref ||
+      baselineSpec.spec.evidenceTarget.hash !== targetRevisionFingerprint ||
+      candidateSpec.spec.evidenceTarget.ref !== evidenceBundle.target.ref ||
+      candidateSpec.spec.evidenceTarget.hash !== targetRevisionFingerprint
+    ) {
+      continue;
+    }
+
+    return {
+      experiment,
+      evidenceBundle,
+      baselineSpec: baselineSpec.spec,
+      candidateSpec: candidateSpec.spec,
+      targetRevisionFingerprint,
+    };
+  }
+
+  return null;
 }
 
 /** Live exposure is the number of ledger rows already enrolled in the experiment. */
@@ -169,13 +287,16 @@ export async function reserveRunEnrollment(
     const undecided = await experimentsRepo.listUndecidedAsync();
     if (undecided.length === 0) return null;
 
+    const profileConfigRepo = new AgentConfigsRepository();
+    const targetProfile = profileConfigRepo.getById(profileId);
+    if (!targetProfile) return null;
+    const targetRevisionFingerprint = buildProfileRevisionFingerprint(targetProfile);
+
     // Find an experiment whose evidence target matches this run's profile.
     // In C1 we filter by profileId; C2 will also require the treatment adapter
     // to support the experiment's proposal shape.
-    const experiment = undecided.find((exp) => {
-      // For now, accept any experiment — C2 adds stricter filtering.
-      return true;
-    });
+    const match = findEligibleExperiment(undecided, profileId, targetRevisionFingerprint);
+    const experiment = match?.experiment;
     if (!experiment) return null;
 
     // Check exposure cap against existing reservations (not finished runs).
@@ -194,11 +315,10 @@ export async function reserveRunEnrollment(
     });
     if (assignment.status === 'refused') return null;
 
-    // Build baseline target revision hash and treatment spec hash.
-    // In C1 these are placeholders; C2 will compute real hashes from the
-    // evidence bundle and proposed treatment.
-    const baselineTargetRevisionHash = `placeholder-rev-${experiment.proposalId}`;
-    const treatmentSpecHash = `placeholder-spec-${experiment.id}`;
+    const { baselineTargetRevisionHash, treatmentSpecHash } = buildHashes({
+      targetRevisionFingerprint: match.targetRevisionFingerprint,
+      treatmentSpec: match!.candidateSpec,
+    });
 
     // Persist the enrollment reservation.
     const enrollment = await enrollmentsRepo.reserveAsync({

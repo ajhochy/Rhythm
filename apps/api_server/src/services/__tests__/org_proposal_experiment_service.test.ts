@@ -10,6 +10,7 @@
  *  - W6-c13 promotion is BOUND to a valid bundle and a predeclared experiment
  */
 
+import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -21,7 +22,9 @@ import {
 } from '../../models/proposal_evidence_bundle';
 import type { AgentRunOutcome } from '../../models/agent_run_outcome';
 import { AgentOrgExperimentsRepository } from '../../repositories/agent_org_experiments_repository';
+import { AgentOrgExperimentEnrollmentsRepository } from '../../repositories/agent_org_experiment_enrollments_repository';
 import { AgentRunOutcomesRepository } from '../../repositories/agent_run_outcomes_repository';
+import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import {
   assignCohort,
@@ -29,6 +32,7 @@ import {
   assignSubjectAsync,
   decideExperiment,
   judgeExperimentAsync,
+  reserveRunEnrollment,
   writeOutcomeStatus,
 } from '../org_proposal_experiment_service';
 
@@ -60,6 +64,115 @@ function makeValidBundle(): ProposalEvidenceBundle {
     generatorVersion: 'scope-hygiene-generator@3',
     confidenceCalibrationVersion: 'calibration@2026-08-01',
   };
+}
+
+function toProfileTargetRef(profileId: string): string {
+  return `agent_config:${profileId}`;
+}
+
+function canonicalizeForHash(input: unknown): string {
+  if (Array.isArray(input)) {
+    return `[${input.map((item) => canonicalizeForHash(item)).join(',')}]`;
+  }
+  if (input && typeof input === 'object') {
+    const entries = Object.keys(input as Record<string, unknown>)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeForHash((input as Record<string, unknown>)[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(input);
+}
+
+function durableTargetFingerprint(profile: {
+  id: string;
+  revision: number;
+  systemPrompt: string | null;
+}): string {
+  return `sha256:${createHash('sha256')
+    .update(
+      canonicalizeForHash({
+        id: profile.id,
+        revision: profile.revision,
+        systemPrompt: profile.systemPrompt ?? '__system-prompt-null__',
+      }),
+    )
+    .digest('hex')}`;
+}
+
+function ensureProfile(profileId: string, systemPrompt: string | null = 'before') {
+  const repo = new AgentConfigsRepository();
+  const existing = repo.getById(profileId);
+  if (!existing) {
+    return repo.insert({ id: profileId, label: profileId, icon: 'x', systemPrompt });
+  }
+  if (existing.systemPrompt !== systemPrompt) {
+    const updated = repo.update(profileId, { systemPrompt });
+    if (!updated) return existing;
+    return updated;
+  }
+  return existing;
+}
+
+function profileTargetFingerprint(profileId: string, systemPrompt: string | null = 'before') {
+  const config = ensureProfile(profileId, systemPrompt);
+  return { config, hash: durableTargetFingerprint(config) };
+}
+
+function bundleForProfile(
+  profileId: string,
+  revision = 'sha256:abc123',
+): ProposalEvidenceBundle {
+  return {
+    ...makeValidBundle(),
+    target: { ref: toProfileTargetRef(profileId), hash: revision },
+  };
+}
+
+function systemPromptSpec(
+  profileId: string,
+  overrides: Record<string, unknown> = {},
+  evidenceHash = 'sha256:abc123',
+): Record<string, unknown> {
+  return {
+    agentConfigId: profileId,
+    field: 'system_prompt',
+    priorValue: 'before',
+    currentValue: 'before',
+    candidateValue: 'after',
+    evidenceTarget: { ref: toProfileTargetRef(profileId), hash: evidenceHash },
+    ...overrides,
+  };
+}
+
+async function declareC1Experiment(
+  profileId: string,
+  options: {
+    proposalId?: string;
+    adapter?: string;
+    bundle?: ProposalEvidenceBundle;
+    baselineSpec?: Record<string, unknown>;
+    candidateSpec?: Record<string, unknown>;
+  } = {},
+) {
+  const {
+    proposalId,
+    adapter = 'paired-cohort-outcome',
+    bundle = bundleForProfile(profileId),
+    baselineSpec = systemPromptSpec(profileId),
+    candidateSpec = systemPromptSpec(profileId, { candidateValue: 'after-candidate' }),
+  } = options;
+
+  const experiments = new AgentOrgExperimentsRepository();
+  return experiments.declareAsync({
+    proposalId: proposalId ?? `prop-${bundle.target.ref}-${Math.random()}`,
+    adapter,
+    evidenceBundleJson: JSON.stringify(bundle),
+    baselineSpecJson: JSON.stringify(baselineSpec),
+    candidateSpecJson: JSON.stringify(candidateSpec),
+    assignmentKey: `exp-${bundle.target.ref}-${Math.random()}`,
+    stoppingRule: { minSamplesPerCohort: 10, minEffect: 0.05 },
+    maxExposure: 100,
+  });
 }
 
 /** A cohort of `n` ledger outcomes of which `successes` succeeded. */
@@ -136,6 +249,183 @@ describe('W6-c4 deterministic assignment key', () => {
     const a = subjects.map((s) => assignCohort('exp-key-1', s)).join('');
     const b = subjects.map((s) => assignCohort('exp-key-2', s)).join('');
     expect(b).not.toBe(a);
+  });
+});
+
+describe('C1-B strict enrollment gating and hashing', () => {
+  it('returns null when the experiment target does not match the run profile', async () => {
+    profileTargetFingerprint('target-profile');
+    const { hash } = profileTargetFingerprint('other-profile');
+    await declareC1Experiment('other-profile', { bundle: bundleForProfile('other-profile', hash) });
+
+    const result = await reserveRunEnrollment('run-profile-mismatch', 'target-profile');
+    expect(result).toBeNull();
+    expect(await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync('run-profile-mismatch')).toBeNull();
+  });
+
+  it('returns null when the run profile does not exist', async () => {
+    const { hash } = profileTargetFingerprint('real-profile');
+    await declareC1Experiment('real-profile', { bundle: bundleForProfile('real-profile', hash) });
+
+    const result = await reserveRunEnrollment('run-missing-profile', 'target-profile-does-not-exist');
+    expect(result).toBeNull();
+    expect(await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync('run-missing-profile')).toBeNull();
+  });
+
+  it('returns null when the experiment adapter is unsupported', async () => {
+    const { hash } = profileTargetFingerprint('profile-1');
+    const unsupportedBundle = bundleForProfile('profile-1', hash);
+    unsupportedBundle.experimentAdapter = 'single-replay';
+    await declareC1Experiment('profile-1', {
+      adapter: 'single-replay',
+      bundle: unsupportedBundle,
+      baselineSpec: systemPromptSpec('profile-1', { candidateValue: 'baseline-candidate' }, hash),
+      candidateSpec: systemPromptSpec('profile-1', { candidateValue: 'candidate-only' }, hash),
+    });
+
+    const result = await reserveRunEnrollment('run-unsupported-adapter', 'profile-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns null when either treatment spec is invalid', async () => {
+    const { hash } = profileTargetFingerprint('profile-2');
+    await declareC1Experiment('profile-2', {
+      bundle: bundleForProfile('profile-2', hash),
+      candidateSpec: systemPromptSpec('profile-2', { extraKey: 'not-allowed' }, hash),
+    });
+
+    const result = await reserveRunEnrollment('run-invalid-spec', 'profile-2');
+    expect(result).toBeNull();
+  });
+
+  it('enrolls only the exact eligible profile experiment', async () => {
+    const unrelatedProfile = profileTargetFingerprint('other-profile');
+    const targetProfile = profileTargetFingerprint('target-profile');
+    const unrelated = await declareC1Experiment('other-profile', {
+      proposalId: 'prop-other-profile',
+      bundle: bundleForProfile('other-profile', unrelatedProfile.hash),
+      baselineSpec: systemPromptSpec('other-profile', {}, unrelatedProfile.hash),
+      candidateSpec: systemPromptSpec('other-profile', { candidateValue: 'other' }, unrelatedProfile.hash),
+    });
+    const target = await declareC1Experiment('target-profile', {
+      proposalId: 'prop-target-profile',
+      bundle: bundleForProfile('target-profile', targetProfile.hash),
+      baselineSpec: systemPromptSpec('target-profile', {}, targetProfile.hash),
+      candidateSpec: systemPromptSpec('target-profile', { candidateValue: 'target' }, targetProfile.hash),
+    });
+
+    const reserved = await reserveRunEnrollment('run-eligible', 'target-profile');
+    expect(reserved).not.toBeNull();
+    expect(reserved!.proposalId).not.toBe(unrelated.proposalId);
+    expect(reserved!.proposalId).toBe('prop-target-profile');
+  });
+
+  it('requires the durable target fingerprint and rejects stale or forged hashes', async () => {
+    const { hash } = profileTargetFingerprint('profile-hash');
+    await declareC1Experiment('profile-hash', {
+      proposalId: 'prop-hash-stale',
+      bundle: bundleForProfile('profile-hash', 'sha256:000000000000000000000000000000000000000000000000000000000000000000'),
+      baselineSpec: systemPromptSpec('profile-hash', {}, 'sha256:000000000000000000000000000000000000000000000000000000000000000000'),
+      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'stale' }, 'sha256:000000000000000000000000000000000000000000000000000000000000000000'),
+    });
+
+    const staleResult = await reserveRunEnrollment('run-hash-stale', 'profile-hash');
+    expect(staleResult).toBeNull();
+
+    await declareC1Experiment('profile-hash', {
+      proposalId: 'prop-hash-0',
+      bundle: bundleForProfile('profile-hash', hash),
+      baselineSpec: systemPromptSpec('profile-hash', {}, hash),
+      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'first' }, hash),
+    });
+
+    const reserved = await reserveRunEnrollment('run-hash-valid', 'profile-hash');
+    expect(reserved).not.toBeNull();
+    expect(reserved!.baselineTargetRevisionHash).toBe(hash);
+  });
+
+  it('requires canonical `agent_config:` target refs and rejects unsupported aliases', async () => {
+    const { hash } = profileTargetFingerprint('profile-alias');
+
+    await declareC1Experiment('profile-alias', {
+      proposalId: 'prop-alias',
+      bundle: {
+        ...bundleForProfile('profile-alias', hash),
+        target: { ref: 'agent_configs/profile-alias', hash },
+      },
+      baselineSpec: { ...systemPromptSpec('profile-alias', {}, hash), evidenceTarget: { ref: 'agent_configs/profile-alias', hash } },
+      candidateSpec: { ...systemPromptSpec('profile-alias', { candidateValue: 'alias' }, hash), evidenceTarget: { ref: 'agent_configs/profile-alias', hash } },
+    });
+
+    expect(await reserveRunEnrollment('run-alias-rejected', 'profile-alias')).toBeNull();
+  });
+
+  it('persists only durable hash artifacts and never raw system prompts', async () => {
+    const { hash } = profileTargetFingerprint('profile-no-raw', 'the profile system prompt bytes must stay private');
+
+    await declareC1Experiment('profile-no-raw', {
+      proposalId: 'prop-no-raw',
+      bundle: bundleForProfile('profile-no-raw', hash),
+      baselineSpec: {
+        ...systemPromptSpec('profile-no-raw', {}, hash),
+        priorValue: 'before',
+      },
+      candidateSpec: {
+        ...systemPromptSpec('profile-no-raw', { candidateValue: 'private-after' }, hash),
+        priorValue: 'before',
+      },
+    });
+
+    const reserved = await reserveRunEnrollment('run-no-raw', 'profile-no-raw');
+    expect(reserved).not.toBeNull();
+    expect(reserved!.baselineTargetRevisionHash).toBe(hash);
+    expect(reserved!.baselineTargetRevisionHash).not.toContain('the profile system prompt bytes must stay private');
+    expect(reserved!.baselineTargetRevisionHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(reserved!.treatmentSpecHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('derives deterministic hashes and updates when durable source inputs change', async () => {
+    const { hash: initialHash } = profileTargetFingerprint('profile-hash', 'baseline');
+    await declareC1Experiment('profile-hash', {
+      proposalId: 'prop-hash-1',
+      bundle: bundleForProfile('profile-hash', initialHash),
+      baselineSpec: systemPromptSpec('profile-hash', {}, initialHash),
+      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'first' }, initialHash),
+    });
+
+    const first = await reserveRunEnrollment('run-hash-1', 'profile-hash');
+    expect(first).not.toBeNull();
+    expect(first!.baselineTargetRevisionHash).toBe(initialHash);
+    expect(first!.baselineTargetRevisionHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(first!.treatmentSpecHash).toMatch(/^[a-f0-9]{64}$/);
+
+    const firstRepeat = await reserveRunEnrollment('run-hash-2', 'profile-hash');
+    expect(firstRepeat).not.toBeNull();
+    expect(firstRepeat!.baselineTargetRevisionHash).toBe(first!.baselineTargetRevisionHash);
+    expect(firstRepeat!.treatmentSpecHash).toBe(first!.treatmentSpecHash);
+
+    const older = await new AgentOrgExperimentsRepository().listUndecidedAsync();
+    await new AgentOrgExperimentsRepository().recordDecisionAsync(
+      older[0]!.id,
+      'inconclusive',
+      'deprecated test decision',
+    );
+
+    const { hash: updatedHash } = profileTargetFingerprint('profile-hash', 'baseline-updated');
+    await declareC1Experiment('profile-hash', {
+      proposalId: 'prop-hash-2',
+      bundle: bundleForProfile('profile-hash', updatedHash),
+      baselineSpec: systemPromptSpec('profile-hash', {}, updatedHash),
+      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'second' }, updatedHash),
+    });
+
+    const second = await reserveRunEnrollment('run-hash-3', 'profile-hash');
+    expect(second).not.toBeNull();
+    expect(second!.baselineTargetRevisionHash).toBe(updatedHash);
+    expect(second!.baselineTargetRevisionHash).not.toBe(initialHash);
+    expect(second!.treatmentSpecHash).not.toBe(first!.treatmentSpecHash);
+    expect(second!.baselineTargetRevisionHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(second!.treatmentSpecHash).toMatch(/^[a-f0-9]{64}$/);
   });
 });
 
