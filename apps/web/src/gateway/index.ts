@@ -19,6 +19,10 @@ export interface GatewayDomainContracts {
   permissions?: PermissionGateway;
   approvals?: ApprovalGateway;
   delegation?: DelegationGateway;
+  mcp?: McpGateway;
+  skills?: SkillGateway;
+  schedules?: ScheduleGateway;
+  mobileAccess?: MobileAccessGateway;
 }
 
 export interface GatewayHealth {
@@ -117,6 +121,10 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       permissions: createLivePermissionGateway(apiBase, config.taskToken),
       approvals: createLiveApprovalGateway(apiBase, config.taskToken),
       delegation: createLiveDelegationGateway(apiBase, config.taskToken),
+      mcp: createLiveMcpGateway(apiBase, config.taskToken),
+      skills: createLiveSkillGateway(apiBase, config.taskToken),
+      schedules: createLiveScheduleGateway(apiBase, config.taskToken),
+      mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -150,3 +158,7 @@ import { createLiveMemoryGateway } from './memory';
 import { createLivePermissionGateway, type PermissionGateway } from './permissions';
 import { createLiveApprovalGateway, type ApprovalGateway } from './approvals';
 import { createLiveDelegationGateway, type DelegationGateway } from './delegation';
+import { createLiveMcpGateway, type McpGateway } from './mcp';
+import { createLiveSkillGateway, type SkillGateway } from './skills';
+import { createLiveScheduleGateway, type ScheduleGateway } from './schedules';
+import { createLiveMobileAccessGateway, type MobileAccessGateway } from './mobile-access';

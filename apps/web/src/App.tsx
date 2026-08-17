@@ -5,7 +5,8 @@ import { Icon } from './icons';
 import { Profiles } from './components/Profiles';
 import { Shell, navigate } from './components/Shell';
 import { ToolWorkspace } from './components/ToolWorkspace';
-import { DashboardPage } from './pages/dashboard';
+import { LiveArtifactsShell } from './pages/dashboard/LiveArtifactsShell';
+import { MobileAccessPage } from './pages/mobile-access';
 import { PlannerPage } from './pages/planner';
 import { TasksPage } from './pages/tasks';
 import { RhythmsPage } from './pages/rhythms';
@@ -42,7 +43,10 @@ export function App() {
   const route = useHashRoute();
   let content: React.ReactNode;
   if (route === '/agents' || route === '/') content = <AgentsWorkspace />;
-  else if (route === '/dashboard' || route.startsWith('/dashboard/')) content = <DashboardPage route={route} />;
+  // LiveArtifactsShell falls back to the plain fixture DashboardPage internally whenever gateway
+  // mode isn't live or the artifact/preferences domains are absent, so this is the single route
+  // for both modes — not a live-only replacement of the fixture page.
+  else if (route === '/dashboard' || route.startsWith('/dashboard/')) content = <LiveArtifactsShell route={route} />;
   else if (route === '/planner' || route.startsWith('/planner/')) content = <PlannerPage route={route} />;
   else if (route === '/tasks' || route.startsWith('/tasks/')) content = <TasksPage route={route} />;
   else if (route === '/rhythms' || route.startsWith('/rhythms/')) content = <RhythmsPage route={route} />;
@@ -53,6 +57,7 @@ export function App() {
   else if (route === '/integrations' || route.startsWith('/integrations/')) content = <IntegrationsPage route={route} />;
   else if (route === '/profiles') content = <Profiles />;
   else if (route === '/endpoint-map') content = <EndpointMap />;
+  else if (route === '/mobile-access') content = <MobileAccessPage />;
   else if (route.startsWith('/tools/')) content = <ToolWorkspace slug={route.split('/')[2]} />;
   else content = <RouteNotFound path={route} />;
   return <><EnvironmentReceipt /><Shell route={route}>{content}</Shell></>;
