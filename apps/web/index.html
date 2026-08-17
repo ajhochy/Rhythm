@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self' data:; connect-src http://127.0.0.1:4098 http://127.0.0.1:4097 ws://127.0.0.1:4098; object-src 'none'; base-uri 'none'; form-action 'self'" />
+    <!-- script-src's hash allows exactly one fixed inline script: the artifact postMessage bridge
+         (ARTIFACT_BRIDGE_SCRIPT in src/pages/dashboard/LiveArtifactsShell.tsx). A `srcdoc` iframe
+         without allow-same-origin still INHERITS its parent's CSP per spec, so this page's policy
+         governs the sandboxed artifact document too — without the hash, that script is silently
+         blocked ("Refused to execute inline script...") and `window.rhythm` never exists
+         (post-m1-p8-c4g). The hash is content-addressed, not origin-addressed, so it authorizes only
+         this exact script text — never a general 'unsafe-inline' escape hatch. Regenerate it (see
+         the comment above ARTIFACT_BRIDGE_SCRIPT) if that script's source ever changes. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Jb/7yyMDkCaF5SCbEUsqX52ra9A1QBCIeWAI9ozyy1o='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self' data:; connect-src http://127.0.0.1:4098 http://127.0.0.1:4097 ws://127.0.0.1:4098; object-src 'none'; base-uri 'none'; form-action 'self'" />
     <meta name="theme-color" content="oklch(0.15 0.014 185)" />
     <title>Rhythm workspace</title>
   </head>

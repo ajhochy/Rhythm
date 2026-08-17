@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { useGateway } from '../../gateway/context';
 import { useAuthUser } from '../../gateway/auth';
-import { LiveArtifactsGatewayError, type LiveArtifact, type LiveArtifactDetail, type LiveArtifactsGateway } from '../../gateway/live-artifacts';
+import { LiveArtifactsGatewayError, type LiveArtifact, type LiveArtifactDetail, type LiveArtifactsGateway, type LiveArtifactVisibility, type PcoServicesReadRequest } from '../../gateway/live-artifacts';
+import type { MessageThreadParticipant } from '../../gateway/messages';
 import type { UserPreferencesGateway } from '../../gateway/user-preferences';
 import { DashboardPage } from '.';
 import './liveArtifacts.css';
@@ -22,6 +23,54 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Injected into every artifact document's srcDoc (appended after the artifact's own markup — HTML
+// parsers accept a trailing <script> even without an explicit <body>). This is the ONLY primitive
+// the sandboxed document is given: postMessage to the parent and back. There is no generic
+// fetch/XHR/URL surface here — mirrors the closed bridge contract at
+// apps/electron/src/artifact-policy.mjs:1-7 (ARTIFACT_METHODS), scoped here to the one operation the
+// web host actually implements (pco.services.read — post-m1-p8-c4g).
+//
+// A `srcdoc` iframe (even sandboxed, even without allow-same-origin) INHERITS its parent's CSP —
+// index.html's `script-src 'self'` would otherwise silently block this exact inline script. Its
+// SHA-256 is allowlisted there instead of adding 'unsafe-inline'. If this string ever changes,
+// regenerate the hash: node -e "console.log('sha256-'+require('crypto').createHash('sha256').update(<the text between <script> and <\/script>>,'utf8').digest('base64'))"
+const ARTIFACT_BRIDGE_SCRIPT = `<script>(function(){
+  var pending = {}; var n = 0;
+  window.rhythm = { request: function(method, params) {
+    return new Promise(function(resolve, reject) {
+      var id = 'r' + (++n) + '-' + Date.now();
+      pending[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage({ __rhythmBridge: true, id: id, method: method, params: params }, '*');
+    });
+  } };
+  window.addEventListener('message', function(event) {
+    var data = event.data;
+    if (!data || data.__rhythmBridgeResponse !== true || !pending[data.id]) return;
+    var entry = pending[data.id]; delete pending[data.id];
+    if (data.error) entry.reject(new Error(data.error)); else entry.resolve(data.result);
+  });
+})();<\/script>`;
+
+// Exact request-union validation (post-m1-p8-c4g) — matches the server's own contract at
+// apps/api_server/src/controllers/live_artifact_capabilities_controller.ts:26-45. Checked here too
+// (not just server-side) so a malformed request never even reaches the network — the criterion
+// requires the rejection to produce zero API mutations.
+function isValidPcoRequest(params: unknown): params is PcoServicesReadRequest {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return false;
+  const keys = Object.keys(params as Record<string, unknown>).sort();
+  const op = (params as { operation?: unknown }).operation;
+  if (op === 'list_service_types') return keys.length === 1 && keys[0] === 'operation';
+  if (op === 'list_plans') {
+    const { serviceTypeId, filter } = params as { serviceTypeId?: unknown; filter?: unknown };
+    return keys.length === 3 && typeof serviceTypeId === 'string' && (filter === 'future' || filter === 'past');
+  }
+  if (op === 'list_plan_items') {
+    const { serviceTypeId, planId } = params as { serviceTypeId?: unknown; planId?: unknown };
+    return keys.length === 3 && typeof serviceTypeId === 'string' && typeof planId === 'string';
+  }
+  return false;
+}
+
 function mapError(error: unknown): { status: TabStatus; message: string } {
   if (error instanceof LiveArtifactsGatewayError) {
     if (error.status === 404) return { status: 'unavailable', message: 'This live artifact is unavailable.' };
@@ -32,7 +81,126 @@ function mapError(error: unknown): { status: TabStatus; message: string } {
   return { status: 'error', message: 'Could not load this live artifact. Try again.' };
 }
 
-function LiveArtifactSurface({ tab, onReload }: { tab: ArtifactTab; onReload(): void }) {
+// Owner-only sharing controls (post-m1-p8-c2b). Visibility and collaborators are the same
+// authorization surface the API already enforces (apps/api_server/src/controllers/live_artifacts_controller.ts) —
+// this dialog only ever sends the exact {visibility} PATCH, {userId} POST, and DELETE the server
+// already accepts; a non-owner never sees the "Sharing" trigger at all (checked by the caller).
+function SharingDialog({
+  open, onClose, artifactId, visibility, liveArtifacts, listWorkspaceUsers, onVisibilityChange,
+}: {
+  open: boolean;
+  onClose(): void;
+  artifactId: string;
+  visibility: LiveArtifactVisibility;
+  liveArtifacts: LiveArtifactsGateway;
+  listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
+  onVisibilityChange(next: LiveArtifactVisibility): void;
+}) {
+  const [directory, setDirectory] = useState<MessageThreadParticipant[]>([]);
+  const [collaborators, setCollaborators] = useState<{ userId: number }[]>([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setSearch('');
+    void liveArtifacts.collaborators(artifactId).then(setCollaborators).catch(() => setCollaborators([]));
+    void listWorkspaceUsers().then(setDirectory).catch(() => setDirectory([]));
+  }, [open, artifactId, liveArtifacts, listWorkspaceUsers]);
+
+  const nameFor = (userId: number) => directory.find((user) => user.id === userId)?.name ?? `User ${userId}`;
+  const matches = search.trim() ? directory.filter((user) => user.name.toLowerCase().includes(search.toLowerCase()) && !collaborators.some((c) => c.userId === user.id)) : [];
+
+  async function addCollaborator(userId: number) {
+    await liveArtifacts.addCollaborator(artifactId, userId);
+    setCollaborators((current) => [...current, { userId }]);
+    setSearch('');
+  }
+
+  async function removeCollaborator(userId: number) {
+    await liveArtifacts.removeCollaborator(artifactId, userId);
+    setCollaborators((current) => current.filter((c) => c.userId !== userId));
+  }
+
+  return (
+    <FocusDialog open={open} onClose={onClose} title="Sharing" description="Choose who can open this live artifact." testId="live-artifact-sharing">
+      <label>
+        Visibility
+        <select
+          value={visibility}
+          onChange={(event) => {
+            const next = event.target.value as LiveArtifactVisibility;
+            onVisibilityChange(next);
+            void liveArtifacts.patch(artifactId, { visibility: next });
+          }}
+        >
+          <option value="private">Private</option>
+          <option value="shared">Shared</option>
+          <option value="organization">Organization</option>
+        </select>
+      </label>
+      <div className="artifact-picker-search">
+        <input type="search" role="searchbox" aria-label="Search workspace users" value={search} onChange={(event) => setSearch(event.target.value)} />
+      </div>
+      {matches.length > 0 && (
+        <div role="listbox" aria-label="Workspace users" className="artifact-picker-list">
+          {matches.map((user) => (
+            <button key={user.id} type="button" role="option" aria-selected={false} className="artifact-picker-option" onClick={() => void addCollaborator(user.id)}>
+              {user.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {collaborators.length > 0 && (
+        <ul className="artifact-collaborator-list">
+          {collaborators.map(({ userId }) => (
+            <li key={userId}>
+              {nameFor(userId)}
+              <button type="button" className="secondary-button" aria-label={`Remove ${nameFor(userId)}`} onClick={() => void removeCollaborator(userId)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </FocusDialog>
+  );
+}
+
+function LiveArtifactSurface({
+  tab, onReload, isOwner, liveArtifacts, listWorkspaceUsers,
+}: {
+  tab: ArtifactTab;
+  onReload(): void;
+  isOwner: boolean;
+  liveArtifacts: LiveArtifactsGateway;
+  listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
+}) {
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [visibility, setVisibility] = useState<LiveArtifactVisibility | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Host side of the artifact bridge (post-m1-p8-c4g). Bound to exactly this tab's id and current
+  // declaredCapabilities — a stale/removed tab's listener is torn down by the cleanup below, so a
+  // response can never be delivered against a since-closed or switched artifact.
+  useEffect(() => {
+    const detail = tab.detail;
+    if (!detail) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data as { __rhythmBridge?: boolean; id?: string; method?: string; params?: unknown } | null;
+      if (!data || data.__rhythmBridge !== true || typeof data.id !== 'string') return;
+      const respond = (payload: { result?: unknown; error?: string }) => {
+        iframeRef.current?.contentWindow?.postMessage({ __rhythmBridgeResponse: true, id: data.id, ...payload }, '*');
+      };
+      if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
+      if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
+      if (!isValidPcoRequest(data.params)) { respond({ error: 'invalid_request' }); return; }
+      liveArtifacts.pcoServicesRead(tab.id, data.params)
+        .then((result) => respond({ result }))
+        .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [tab.id, tab.detail, liveArtifacts]);
+
   if (tab.status === 'loading') {
     return (
       <section data-testid="live-artifact-surface" data-artifact-id={tab.id} className="live-artifact-surface">
@@ -49,22 +217,37 @@ function LiveArtifactSurface({ tab, onReload }: { tab: ArtifactTab; onReload(): 
     );
   }
   const detail = tab.detail;
+  const currentVisibility = visibility ?? detail.visibility;
   return (
     <section data-testid="live-artifact-surface" data-artifact-id={tab.id} className="live-artifact-surface">
       <header className="live-artifact-toolbar">
         <div>
           <h2>{detail.title}</h2>
           <p>
-            Updated by {detail.updatedByDisplayName ?? 'Unknown'} · {formatDate(detail.updatedAt)} · bundle revision {detail.currentBundleRevision} · state revision {detail.currentStateRevision} · {detail.visibility}
+            Updated by {detail.updatedByDisplayName ?? 'Unknown'} · {formatDate(detail.updatedAt)} · bundle revision {detail.currentBundleRevision} · state revision {detail.currentStateRevision} · {currentVisibility}
           </p>
         </div>
-        <button type="button" className="secondary-button" onClick={onReload}>Reload</button>
+        <div>
+          {isOwner && <button type="button" className="secondary-button" onClick={() => setSharingOpen(true)}>Sharing</button>}
+          <button type="button" className="secondary-button" onClick={onReload}>Reload</button>
+        </div>
       </header>
       {/* sandbox="allow-scripts" (no allow-same-origin) keeps this an opaque, isolated origin: the
           artifact bundle is untrusted content and must never reach network, file, popup,
           navigation, or download primitives — apps/api_server/src/controllers/live_artifacts_controller.ts:64-69
           already denies connect-src/forms/frames/objects in the served document's own CSP. */}
-      <iframe data-testid="live-artifact-frame" title={detail.title} sandbox="allow-scripts" srcDoc={tab.html ?? ''} />
+      <iframe ref={iframeRef} data-testid="live-artifact-frame" title={detail.title} sandbox="allow-scripts" srcDoc={`${tab.html ?? ''}${ARTIFACT_BRIDGE_SCRIPT}`} />
+      {isOwner && (
+        <SharingDialog
+          open={sharingOpen}
+          onClose={() => setSharingOpen(false)}
+          artifactId={tab.id}
+          visibility={currentVisibility}
+          liveArtifacts={liveArtifacts}
+          listWorkspaceUsers={listWorkspaceUsers}
+          onVisibilityChange={setVisibility}
+        />
+      )}
     </section>
   );
 }
@@ -136,18 +319,94 @@ function ArtifactPicker({ open, onClose, gateway, onSelect }: {
   );
 }
 
+const MAX_IMPORT_BYTES = 900 * 1024;
+// Always shown for any accepted preview rather than scanning the source for the exact tags that
+// happen to trigger it — the sandboxed iframe (allow-scripts only, post-m1-p8-c4c/c4e) already
+// blocks every one of these regardless of what a per-tag scan would find, so the honest, simplest
+// warning is a blanket one instead of a content-scan that could miss an obfuscated equivalent.
+const IMPORT_WARNING = 'Imported HTML runs in an isolated sandbox: external resources, network requests, frames, and media will not load.';
+
+interface HtmlImportPreview { title: string; source: string }
+
+async function readHtmlImportFile(file: File): Promise<{ preview: HtmlImportPreview } | { error: string }> {
+  if (!/\.html?$/i.test(file.name)) return { error: 'File must use an html or htm extension.' };
+  const buffer = await file.arrayBuffer();
+  if (buffer.byteLength > MAX_IMPORT_BYTES) return { error: 'File exceeds the 900 KiB import limit.' };
+  let source: string;
+  try {
+    source = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    return { error: 'File is not valid UTF-8.' };
+  }
+  const titleMatch = source.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const title = titleMatch ? titleMatch[1].trim() : file.name.replace(/\.html?$/i, '');
+  return { preview: { title, source } };
+}
+
+// HTML import (post-m1-p8-c5a/c5b). Reference: apps/desktop_flutter/lib/features/live_artifacts —
+// the desktop app's import dialog is the same format/size/UTF-8/preview/warning contract; this is
+// its React equivalent, wired to the same POST /live-artifacts create path the picker-opened flow uses.
+function HtmlImportDialog({ open, onClose, onConfirm }: {
+  open: boolean;
+  onClose(): void;
+  onConfirm(input: { title: string; source: string }): void;
+}) {
+  const [preview, setPreview] = useState<HtmlImportPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setPreview(null);
+    setError(null);
+    if (inputRef.current) inputRef.current.value = '';
+  }, [open]);
+
+  async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const result = await readHtmlImportFile(file);
+    if ('error' in result) { setError(result.error); setPreview(null); }
+    else { setError(null); setPreview(result.preview); }
+  }
+
+  return (
+    <FocusDialog open={open} onClose={onClose} title="Import HTML" description="Import a local HTML file as a private live artifact." testId="html-import-dialog">
+      <input ref={inputRef} type="file" accept=".html,.htm" data-autofocus onChange={(event) => void onFileChange(event)} />
+      {error && <p role="alert">{error}</p>}
+      {preview && (
+        <>
+          <label>
+            Title
+            <input type="text" value={preview.title} onChange={(event) => setPreview({ ...preview, title: event.target.value })} />
+          </label>
+          <p role="alert">{IMPORT_WARNING}</p>
+          <pre data-testid="html-import-source">{preview.source}</pre>
+          <div className="dialog-actions">
+            <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
+            <button type="button" className="primary-button" onClick={() => onConfirm(preview)}>Confirm import</button>
+          </div>
+        </>
+      )}
+    </FocusDialog>
+  );
+}
+
 function LiveArtifactsWorkspace({
-  route, artifactTabIds, liveArtifacts, userPreferences,
+  route, artifactTabIds, liveArtifacts, userPreferences, currentUserId, listWorkspaceUsers,
 }: {
   route: string;
   artifactTabIds: string[];
   liveArtifacts: LiveArtifactsGateway;
   userPreferences: UserPreferencesGateway;
+  currentUserId: number;
+  listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
 }) {
   const [tabs, setTabs] = useState<ArtifactTab[]>([]);
   // Dashboard is always the initial selection — never the last-active artifact tab.
   const [selected, setSelected] = useState<string>('dashboard');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const dashboardRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const addRef = useRef<HTMLButtonElement>(null);
@@ -226,6 +485,21 @@ function LiveArtifactsWorkspace({
     await loadTab(id);
   }
 
+  async function confirmImport(input: { title: string; source: string }) {
+    setImportOpen(false);
+    // No dedicated "current workspace" endpoint exists yet — every artifact this user can already
+    // see (via the catalog) shares their one workspace, so the first entry's workspaceId stands in
+    // for it. ponytail: revisit if a user can legitimately have zero visible artifacts and still
+    // needs to import their first one into a real (non-default) workspace.
+    const existing = await liveArtifacts.list().catch(() => []);
+    const workspaceId = existing[0]?.workspaceId ?? 1;
+    const created = await liveArtifacts.create({
+      type: 'html', title: input.title, workspaceId, visibility: 'private',
+      bundle: { html: input.source, css: '', js: '' }, state: {},
+    });
+    await openArtifact(created.id, created.title);
+  }
+
   function closeTab(id: string) {
     const index = order.indexOf(id);
     pendingFocusRef.current = order[index - 1] ?? 'dashboard';
@@ -278,6 +552,7 @@ function LiveArtifactsWorkspace({
             </div>
           ))}
         </div>
+        <button type="button" className="secondary-button" onClick={() => setImportOpen(true)}>Import HTML</button>
         <button ref={addRef} type="button" className="artifact-tab-add" aria-label="Add live artifact" onClick={() => setPickerOpen(true)}>+</button>
       </div>
 
@@ -289,11 +564,18 @@ function LiveArtifactsWorkspace({
           <DashboardPage route={route} />
         </div>
         {activeTab && selected !== 'dashboard' && (
-          <LiveArtifactSurface tab={activeTab} onReload={() => void loadTab(activeTab.id)} />
+          <LiveArtifactSurface
+            tab={activeTab}
+            onReload={() => void loadTab(activeTab.id)}
+            isOwner={activeTab.detail?.ownerUserId === currentUserId}
+            liveArtifacts={liveArtifacts}
+            listWorkspaceUsers={listWorkspaceUsers}
+          />
         )}
       </div>
 
       <ArtifactPicker open={pickerOpen} onClose={() => setPickerOpen(false)} gateway={liveArtifacts} onSelect={(id, title) => void openArtifact(id, title)} />
+      <HtmlImportDialog open={importOpen} onClose={() => setImportOpen(false)} onConfirm={(input) => void confirmImport(input)} />
     </div>
   );
 }
@@ -308,7 +590,8 @@ export function LiveArtifactsShell({ route }: { route: string }) {
   const authUser = useAuthUser();
   const liveArtifacts = gateway.domains.liveArtifacts;
   const userPreferences = gateway.domains.userPreferences;
-  if (gateway.mode !== 'live' || !authUser || !liveArtifacts || !userPreferences) {
+  const messages = gateway.domains.messages;
+  if (gateway.mode !== 'live' || !authUser || !liveArtifacts || !userPreferences || !messages) {
     return <DashboardPage route={route} />;
   }
   return (
@@ -318,6 +601,8 @@ export function LiveArtifactsShell({ route }: { route: string }) {
       artifactTabIds={authUser.user.artifactTabIds ?? []}
       liveArtifacts={liveArtifacts}
       userPreferences={userPreferences}
+      currentUserId={authUser.user.id}
+      listWorkspaceUsers={() => messages.users()}
     />
   );
 }
