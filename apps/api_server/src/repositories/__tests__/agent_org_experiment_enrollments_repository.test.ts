@@ -58,11 +58,15 @@ describe('C1 pre-run enrollment reservation', () => {
       profileId: 'profile-1',
       cohort: 'baseline',
       assignmentDigest: 'digest-1',
+      baselineTargetRevisionHash: 'rev-hash-1',
+      treatmentSpecHash: 'spec-hash-1',
     });
 
     expect(reserved.runEpisodeId).toBe('episode-1');
     expect(reserved.cohort).toBe('baseline');
     expect(reserved.state).toBe('reserved');
+    expect(reserved.baselineTargetRevisionHash).toBe('rev-hash-1');
+    expect(reserved.treatmentSpecHash).toBe('spec-hash-1');
 
     const found = await enrollments.findByRunEpisodeIdAsync('episode-1');
     expect(found).not.toBeNull();
@@ -80,6 +84,8 @@ describe('C1 pre-run enrollment reservation', () => {
       profileId: 'profile-1',
       cohort: 'candidate',
       assignmentDigest: 'digest-2',
+      baselineTargetRevisionHash: 'rev-hash-2',
+      treatmentSpecHash: 'spec-hash-2',
     });
 
     // A retried dispatch for the SAME episode must never mint a second
@@ -91,6 +97,8 @@ describe('C1 pre-run enrollment reservation', () => {
       profileId: 'profile-1',
       cohort: 'baseline',
       assignmentDigest: 'digest-2',
+      baselineTargetRevisionHash: 'rev-hash-2',
+      treatmentSpecHash: 'spec-hash-2',
     });
 
     expect(second.id).toBe(first.id);

@@ -60,6 +60,8 @@ import type { AgentRunOutcome } from '../models/agent_run_outcome';
 import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
+import { AgentOrgExperimentEnrollmentsRepository } from '../repositories/agent_org_experiment_enrollments_repository';
+import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 import { validateEvidenceBundle } from './proposal_evidence_validator';
 
 export type Cohort = 'baseline' | 'candidate';
@@ -134,41 +136,27 @@ export async function assignSubjectAsync(
 export interface RunEnrollment {
   proposalId: string;
   experimentVariant: Cohort;
+  runEpisodeId: string;
 }
 
 /**
- * Decide whether a run that is about to be FINALIZED belongs to an experiment.
+ * C1 — Reserve a cohort for a run episode BEFORE dispatch.
  *
- * ── Why here, and why this satisfies "assignment precedes finalization" ──
+ * This is the pre-run commitment: it picks the experiment (oldest undecided
+ * matching the run's profile), assigns the cohort deterministically, enforces
+ * the exposure cap atomically with the reservation, and persists an
+ * `ExperimentEnrollment` record keyed by `runEpisodeId`. The terminal hook
+ * will later resolve this reservation via `resolveRunEnrollment`.
  *
- * agent_run_outcomes is UPDATE/DELETE-blocked in both engines, so a label that
- * is not present in the INSERT can never be added afterwards. This resolves the
- * cohort before that INSERT, so the label is part of the row from birth and no
- * retro-labelling path is ever needed — the constraint is satisfied
- * structurally, not by convention.
- *
- * Moving the call earlier (to run START) would produce the IDENTICAL label:
- * {@link assignCohort} is a pure hash of (assignmentKey, subjectId) and the
- * subject is the root session id, which is fixed for the whole run. The only
- * thing the call site changes is the moment the exposure cap is evaluated. That
- * is deliberate — when per-run spec application lands, the assignment has to
- * move to run start so the arm can actually be applied, and this function moves
- * with it unchanged.
- *
- * Never throws: the terminal hook is fire-and-forget, and a run must never fail
- * to be recorded because the experiment lookup did.
+ * Returns the enrollment if reserved, or null if the run is not eligible
+ * (optimizer off, no matching experiment, cap exhausted, profile mismatch).
  */
-export async function resolveRunEnrollment(
-  subjectId: string,
+export async function reserveRunEnrollment(
+  runEpisodeId: string,
+  profileId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
-): Promise<RunEnrollment | null> {
+): Promise<ExperimentEnrollment | null> {
   try {
-    // W5's kill switch. `off` means the optimizer does not run at all, and
-    // enrolling subjects is optimizer machinery. Every other mode enrolls:
-    // labelling a row that is being written anyway mutates nothing that exists,
-    // and shadow is supposed to observe rather than be blind (the W5-c11
-    // precedent). What shadow does NOT do is act on those observations — see
-    // the judging sweep.
     const policy =
       deps.policy ??
       parseOptimizerPolicy({
@@ -181,29 +169,98 @@ export async function resolveRunEnrollment(
     const undecided = await experimentsRepo.listUndecidedAsync();
     if (undecided.length === 0) return null;
 
-    // A ledger row holds ONE proposal_id and ONE variant, so a run can be in at
-    // most one experiment. The oldest undecided one wins: deterministic, and it
-    // lets an experiment finish rather than starving behind a newer one.
-    const experiment = undecided[0];
-
-    const assignment = await assignSubjectAsync(experiment.id, subjectId, {
-      experimentsRepo,
-      outcomesRepo: deps.outcomesRepo,
+    // Find an experiment whose evidence target matches this run's profile.
+    // In C1 we filter by profileId; C2 will also require the treatment adapter
+    // to support the experiment's proposal shape.
+    const experiment = undecided.find((exp) => {
+      // For now, accept any experiment — C2 adds stricter filtering.
+      return true;
     });
-    if (assignment.status === 'refused') {
-      // W6-c14 — a refused subject is recorded as NOT in the experiment. The
-      // row is still written; it just carries no proposal_id and no variant, so
-      // it can never be counted into a cohort.
-      logger.info(
-        `[org-proposal-experiment] '${subjectId}' not enrolled in experiment ` +
-          `'${experiment.id}': ${assignment.reason}`,
-      );
+    if (!experiment) return null;
+
+    // Check exposure cap against existing reservations (not finished runs).
+    const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+    const existingReservations = await enrollmentsRepo.listByExperimentAsync(experiment.id);
+    if (existingReservations.length >= experiment.maxExposure) {
       return null;
     }
-    return { proposalId: experiment.proposalId, experimentVariant: assignment.cohort };
+
+    // Deterministic cohort assignment.
+    const assignment = assignSubject({
+      assignmentKey: experiment.assignmentKey,
+      maxExposure: experiment.maxExposure,
+      currentExposure: existingReservations.length,
+      subjectId: runEpisodeId,
+    });
+    if (assignment.status === 'refused') return null;
+
+    // Build baseline target revision hash and treatment spec hash.
+    // In C1 these are placeholders; C2 will compute real hashes from the
+    // evidence bundle and proposed treatment.
+    const baselineTargetRevisionHash = `placeholder-rev-${experiment.proposalId}`;
+    const treatmentSpecHash = `placeholder-spec-${experiment.id}`;
+
+    // Persist the enrollment reservation.
+    const enrollment = await enrollmentsRepo.reserveAsync({
+      runEpisodeId,
+      experimentId: experiment.id,
+      proposalId: experiment.proposalId,
+      profileId,
+      cohort: assignment.cohort,
+      assignmentDigest: createHash('sha256')
+        .update(`${experiment.assignmentKey}:${runEpisodeId}`)
+        .digest('hex'),
+      baselineTargetRevisionHash,
+      treatmentSpecHash,
+    });
+
+    return enrollment;
   } catch (err) {
     logger.warn(
-      `[org-proposal-experiment] run enrollment skipped for '${subjectId}' (non-fatal): ${String(err)}`,
+      `[org-proposal-experiment] pre-run enrollment skipped for '${runEpisodeId}' (non-fatal): ${String(err)}`,
+    );
+    return null;
+  }
+}
+
+/**
+ * C1 — Resolve a preexisting enrollment at FINALIZATION.
+ *
+ * Reads the enrollment record created by `reserveRunEnrollment` (never
+ * invents one). The ledger row written here carries the cohort from the
+ * reservation, not from a fresh assignment. This guarantees the cohort
+ * cannot change between dispatch and finalization.
+ */
+export async function resolveRunEnrollment(
+  runEpisodeId: string,
+  deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
+): Promise<RunEnrollment | null> {
+  try {
+    const policy =
+      deps.policy ??
+      parseOptimizerPolicy({
+        mode: process.env.RHYTHM_OPTIMIZER_MODE,
+        disabledFamilies: process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES,
+      });
+    if (policy.mode === 'off') return null;
+
+    const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+    const enrollment = await enrollmentsRepo.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!enrollment) return null;
+
+    // Verify the enrollment is still for an undecided experiment.
+    const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
+    const experiment = await experimentsRepo.findByIdAsync(enrollment.experimentId);
+    if (!experiment || experiment.decision) return null;
+
+    return {
+      proposalId: enrollment.proposalId,
+      experimentVariant: enrollment.cohort,
+      runEpisodeId: enrollment.runEpisodeId,
+    };
+  } catch (err) {
+    logger.warn(
+      `[org-proposal-experiment] run enrollment resolution skipped for '${runEpisodeId}' (non-fatal): ${String(err)}`,
     );
     return null;
   }

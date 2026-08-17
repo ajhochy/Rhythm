@@ -4020,6 +4020,8 @@ If someone asks for creative work that needs a local capability:
       profile_id TEXT NOT NULL,
       cohort TEXT NOT NULL CHECK (cohort IN ('baseline','candidate')),
       assignment_digest TEXT NOT NULL,
+      baseline_target_revision_hash TEXT NOT NULL,
+      treatment_spec_hash TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'reserved',
       reserved_at TEXT NOT NULL
     );

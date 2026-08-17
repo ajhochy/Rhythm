@@ -29,6 +29,8 @@ interface EnrollmentRow {
   profile_id: string;
   cohort: string;
   assignment_digest: string;
+  baseline_target_revision_hash: string;
+  treatment_spec_hash: string;
   state: string;
   reserved_at: string;
 }
@@ -42,6 +44,8 @@ function rowToModel(row: EnrollmentRow): ExperimentEnrollment {
     profileId: row.profile_id,
     cohort: row.cohort as ExperimentEnrollmentCohort,
     assignmentDigest: row.assignment_digest,
+    baselineTargetRevisionHash: row.baseline_target_revision_hash,
+    treatmentSpecHash: row.treatment_spec_hash,
     state: row.state as ExperimentEnrollmentState,
     reservedAt: row.reserved_at,
   };
@@ -81,6 +85,8 @@ export class AgentOrgExperimentEnrollmentsRepository {
       proposalId: input.proposalId,
       profileId: input.profileId,
       assignmentDigest: input.assignmentDigest,
+      baselineTargetRevisionHash: input.baselineTargetRevisionHash,
+      treatmentSpecHash: input.treatmentSpecHash,
     })) {
       if (typeof value !== 'string' || value.length === 0) {
         throw new Error(`agent org experiment enrollment: '${field}' is required to reserve`);
@@ -101,6 +107,8 @@ export class AgentOrgExperimentEnrollmentsRepository {
       profile_id: input.profileId,
       cohort: input.cohort,
       assignment_digest: input.assignmentDigest,
+      baseline_target_revision_hash: input.baselineTargetRevisionHash,
+      treatment_spec_hash: input.treatmentSpecHash,
       state: 'reserved' as ExperimentEnrollmentState,
       reserved_at: new Date().toISOString(),
     };
@@ -110,8 +118,8 @@ export class AgentOrgExperimentEnrollmentsRepository {
         .prepare(
           `INSERT INTO agent_org_experiment_enrollments
              (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
-              assignment_digest, state, reserved_at)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
+              assignment_digest, baseline_target_revision_hash, treatment_spec_hash, state, reserved_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .run(
           row.id,
@@ -121,6 +129,8 @@ export class AgentOrgExperimentEnrollmentsRepository {
           row.profile_id,
           row.cohort,
           row.assignment_digest,
+          row.baseline_target_revision_hash,
+          row.treatment_spec_hash,
           row.state,
           row.reserved_at,
         );
@@ -144,5 +154,12 @@ export class AgentOrgExperimentEnrollmentsRepository {
       .prepare(`SELECT * FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
       .get(runEpisodeId) as EnrollmentRow | undefined;
     return row ? rowToModel(row) : null;
+  }
+
+  async listByExperimentAsync(experimentId: string): Promise<ExperimentEnrollment[]> {
+    const rows = this.db
+      .prepare(`SELECT * FROM agent_org_experiment_enrollments WHERE experiment_id = ?`)
+      .all(experimentId) as EnrollmentRow[];
+    return rows.map(rowToModel);
   }
 }

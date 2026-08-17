@@ -27,7 +27,7 @@ import { setDb, getDb } from '../database/db';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
 import { OrgProposalsController } from '../controllers/org_proposals_controller';
-import { assignCohort } from '../services/org_proposal_experiment_service';
+import { assignCohort, reserveRunEnrollment } from '../services/org_proposal_experiment_service';
 import { recordTerminalOutcome } from '../services/run_outcome_service';
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../models/proposal_evidence_bundle';
 
@@ -160,6 +160,8 @@ function sessionsPerCohort(count: number): { baseline: string[]; candidate: stri
 
 async function driveRun(sessionId: string, succeeded: boolean): Promise<void> {
   session(sessionId);
+  // C1: reserve enrollment before dispatch
+  await reserveRunEnrollment(sessionId, 'test-profile');
   await recordTerminalOutcome({
     sessionId,
     terminalStatus: succeeded ? 'completed' : 'error',

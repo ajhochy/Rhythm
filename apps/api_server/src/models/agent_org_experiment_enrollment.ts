@@ -29,6 +29,8 @@ export interface ExperimentEnrollment {
   profileId: string;
   cohort: ExperimentEnrollmentCohort;
   assignmentDigest: string;
+  baselineTargetRevisionHash: string;
+  treatmentSpecHash: string;
   reservedAt: string;
   state: ExperimentEnrollmentState;
 }
@@ -41,4 +43,6 @@ export interface ReserveEnrollmentInput {
   profileId: string;
   cohort: ExperimentEnrollmentCohort;
   assignmentDigest: string;
+  baselineTargetRevisionHash: string;
+  treatmentSpecHash: string;
 }

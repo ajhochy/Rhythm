@@ -43,6 +43,7 @@ import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_se
 import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
 import { partitionResearchMcpPreflight } from './agent_skill_wiring';
+import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/experiment_treatment_adapter';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -383,6 +384,21 @@ export interface AgentRunOptions {
    * without anyone having to remember to add it to a list.
    */
   denyAllTools?: boolean;
+  /**
+   * C2 — a run-scoped experiment treatment (contract
+   * docs/ai/contracts/issue-causal-runtime-v2.json, phase C2). When present
+   * and the spec validates against the named closed adapter, the cohort's
+   * exact effective system prompt becomes this run's `system` override at
+   * the real prompt dispatch boundary — unconditionally, even on paths that
+   * would otherwise omit a duplicate system override (ocAgent === configId).
+   * An invalid spec is ignored (fail-closed: no override, not a crash);
+   * later phases add receipts/hashing/drift checks on top of this wiring.
+   */
+  experimentTreatment?: {
+    adapter: 'system-prompt-v1';
+    cohort: 'baseline' | 'candidate';
+    spec: unknown;
+  } | null;
   /**
    * #844 (tokens-04) — optional task-kind hint ('triage' | 'formatting' |
    * 'extraction' | 'summarization' | 'planning' | 'judgment' | ...) used for
@@ -1211,9 +1227,36 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // ('build'/'plan', where ocAgent !== configId) also keeps the override.
     const runningAsOwnAgent =
       !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
+
+    // C2 — experiment treatment system override (contract docs/ai/contracts/issue-causal-runtime-v2.json, phase C2).
+    // When a valid system-prompt-v1 spec is provided, its cohort-specific effective value
+    // becomes the run's system override unconditionally — even on paths that would
+    // otherwise omit a duplicate (ocAgent === configId). An invalid spec is ignored
+    // (fail-closed: no override, not a crash).
+    let treatmentSystemOverride: string | null = null;
+    if (opts.experimentTreatment) {
+      const { TREATMENT_ADAPTERS, validateSystemPromptV1Spec, resolveEffectiveSystemPrompt } = await import(
+        '../models/experiment_treatment_adapter'
+      );
+      const adapter = TREATMENT_ADAPTERS[opts.experimentTreatment.adapter];
+      if (adapter) {
+        const validation = adapter.validate(opts.experimentTreatment.spec);
+        if (validation.valid) {
+          treatmentSystemOverride = resolveEffectiveSystemPrompt(
+            validation.spec,
+            opts.experimentTreatment.cohort,
+          );
+        }
+      }
+    }
+
     const promptOpts: Record<string, unknown> = {
       permissionMode: 'bypassPermissions',
-      ...((effectiveSystemPrompt !== null && !runningAsOwnAgent)
+      // Treatment override wins unconditionally; it is NOT "a duplicate" of the profile prompt.
+      // When present, it replaces any effectiveSystemPrompt/transient block for this cohort.
+      ...(treatmentSystemOverride !== null
+        ? { system: treatmentSystemOverride }
+        : (effectiveSystemPrompt !== null && !runningAsOwnAgent)
         || transientSystemBlocks.length > 0
         ? {
             system: [
