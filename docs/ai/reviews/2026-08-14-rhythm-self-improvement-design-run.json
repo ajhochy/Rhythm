@@ -1,0 +1,24 @@
+{
+  "projectId": "hermes-a546f8918d33452a982754ada7242d04",
+  "conversationId": "5e1acf04-12ba-4769-9929-80c8229ab18a",
+  "runId": "6e1b2c14-8088-4a66-bc02-17902e4345b1",
+  "projectName": "Rhythm Self-Improvement Engine Audit \u2014 2026-08-14",
+  "skillId": "frontend-design",
+  "kitPluginId": "example-web-prototype-taste-editorial",
+  "status": "succeeded",
+  "exportZip": "/Users/ajhochhalter/Documents/Rhythm/docs/ai/reviews/2026-08-14-rhythm-self-improvement-engine-audit.zip",
+  "outputDir": "/Users/ajhochhalter/Documents/Rhythm/docs/ai/reviews/2026-08-14-rhythm-self-improvement-engine-audit",
+  "files": [
+    {
+      "name": "index.html",
+      "path": "index.html",
+      "size": 45780,
+      "mtime": 1786741564078.5234,
+      "kind": "html",
+      "mime": "text/html; charset=utf-8"
+    }
+  ],
+  "htmlFiles": [
+    "index.html"
+  ]
+}

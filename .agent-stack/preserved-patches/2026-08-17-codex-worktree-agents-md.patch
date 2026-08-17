@@ -1,0 +1,34 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index b64d6412..ca6b2389 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -59,6 +59,16 @@ flutter analyze --no-fatal-infos      # must exit 0 (infos are pre-existing, not
+ 
+ See `docs/ai/testing-guide.md` for the full command set (api_server tests, opencode fork tests, manual smoke checklist).
+ 
++Canonical workflow entrypoints:
++
++```bash
++ai-workflow status                  # context-file health
++ai-workflow checks --level issue    # flutter analyze + dart format + tsc --noEmit
++ai-workflow checks --level pr       # adds vitest (npm test in apps/api_server)
++ai-workflow checks --level smoke    # prints pointer to docs/testing/manual-smoke.md
++ai-workflow run --issue N[,M,...]   # packed handoff (issue bodies inlined, no extra gh calls)
++```
++
+ ## Behavioral verification gate (required before "done")
+ 
+ Unit tests prove the code is there. They do **not** prove the behavior works
+@@ -88,6 +98,12 @@ a project-state update, a handoff message, or a commit), you must:
+    tools/dev/sandbox.sh down
+    ```
+ 
++   Mobile-gateway and desktop-human-approval live suites have one extra rule:
++   export `RHYTHM_MOBILE_GATEWAY_PORT` and any required
++   `HUMAN_APPROVAL_*` / `RHYTHM_LIVE_HUMAN_CAPABILITY` values **before**
++   `tools/dev/sandbox.sh up`. Those env vars are read at sandbox startup; setting
++   them after `up` does not reconfigure the running gateway.
++
+    See `docs/ai/testing-guide.md` "Isolated dev sandbox" and "Running the fork
+    engine in dev" for the launch commands.
+ 

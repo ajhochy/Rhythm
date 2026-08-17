@@ -1,0 +1,49 @@
+{
+  "run_id": "2026-08-13-open-design-remaining-pages-overnight",
+  "issue": "2001-2009 (Open Design prototype swarm)",
+  "date": "2026-08-13",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    { "criterion_id": "issue-2001 (12 criteria)", "text": "Dashboard contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: task add produced POST /tasks {title} → 201, count 5→6, unscheduled placement, toast; shortcuts navigate; mineral composition matches reference." },
+    { "criterion_id": "issue-2002 (15 criteria)", "text": "Planner contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: week nav updated label, ?week=2026-W34 URL, exact GET receipt; calendar read-only lanes and backlog render." },
+    { "criterion_id": "issue-2003 (14 criteria)", "text": "Tasks contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: list↔board preserved filters; 4 status columns; Flutter-parity filter set confirmed." },
+    { "criterion_id": "issue-2004 (14 criteria)", "text": "Rhythms contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: pause→enable emitted PATCH /recurring-rules/rhythm-monthly-care {enabled:true} → 200 + toast; shared rule is inspect-only." },
+    { "criterion_id": "issue-2005 (14 criteria)", "text": "Projects contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: hydrated Active Projects default; Show completed affordance; contrast-fixed Delete buttons visible." },
+    { "criterion_id": "issue-2006 (12 criteria)", "text": "Messages contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: deep link marked thread read (POST read → 204) and the dynamic shell badge dropped 6→5 live; reply appended once with POST messages {body} → 201." },
+    { "criterion_id": "issue-2007 (15 criteria)", "text": "Facilities contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "COSMETIC: FocusDialog's built-in close and the contract's form-header close render as two stacked X buttons on the Reserve dialog. Functionality and a11y pass; visual duplication only." },
+    { "criterion_id": "issue-2008 (15 criteria)", "text": "Automations contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "COSMETIC: noticeable empty vertical band between the stats row and the first source group at 1280px. Ledger records all 8 bootstrap catalog receipts correctly." },
+    { "criterion_id": "issue-2009 (15 criteria)", "text": "Integrations contract", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "Manual: provider cards with calendar-source checklist (CJK/Arabic fixtures), reconnect/sync controls; zero runtime network requests observed page-wide." }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P2",
+      "description": "Two test-infrastructure pitfalls cost a diagnostic cycle each: (1) a second openPage within one test was a same-document hash navigation so mount-time ?state= reads went stale (fixed in the shared helper with an about:blank hop); (2) Playwright's toBeDisabled() does not recognize disabled on a fieldset element itself, breaking every page's readonly-gate assertion until aria-disabled mirrors were added.",
+      "detected_by": "Playwright trace parsing (call-by-call timeline) for (1); toBeDisabled failure log showing 'locator resolved to <fieldset disabled …>' for (2)."
+    },
+    {
+      "process_category": "recurring-a11y-classes",
+      "description": "First-integration failures repeated the same axe classes across independently-authored pages: scrollable-region-focusable (Tasks, Facilities, Automations, Integrations), label-durability under RTL/200% (Rhythms), nested-interactive cards (Automations), aria-label on plain spans (Integrations), shared danger-button contrast on page surfaces (Projects, Facilities). Each was fixed per page; the brief was amended mid-run only for the fieldset case.",
+      "detected_by": "AxeBuilder violation nodes in error-context artifacts across waves."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "acceptance-contract (review-mode per page, 9x)", "codex page owners (user-mandated coding-agent substitute, 2-turn contract-first protocol)", "verification-gate (Wave-1 gate + final full-suite gate)", "failure-postmortem", "project-state-updater (immediately after this artifact)"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "none",
+        "affected_skill": "coding-agent",
+        "description": "Page implementation ran on Local Codex gpt-5.6-sol per the user's explicit dispatch mandate rather than the claude coding-agent skill; contract-first discipline (red proof before implementation, no weakened assertions, cited contract corrections only) was preserved by the lead. Lead also made documented inline fixes inside page-owned files (locator disambiguations, tab-order restructure, aria fixes) when diagnosis required tooling the sandboxed owners could not run — a swarm-protocol deviation, recorded, not a W-category.",
+        "detected_by": "transcript"
+      }
+    ]
+  },
+  "implementation_files": ["Open Design prototype rhythm-desktop-agents: src/pages/{dashboard,planner,tasks,rhythms,projects,messages,facilities,automations,integrations}/**, src/App.tsx, src/components/Shell.tsx, src/store.tsx, src/endpointMap.ts, tests/helpers.ts, tests/contract/issue-200{1..9}-*.spec.ts, tests/pages/*.spec.ts, tests/screenshot-sweep.spec.ts, docs/ai/{SWARM-BRIEF.md,inventories/*,contracts/*,paused-live-mode/*}, README.md, package.json, vite.config.ts, playwright configs"],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Fold the run's harness learnings into the swarm brief template up front (fresh-document openPage semantics, fieldset aria-disabled mirror, scrollable-region tabIndex, durable accessible names under RTL/zoom, nested-interactive card structure, danger-button per-surface contrast, unique testids for dual close affordances) so future page owners don't rediscover them; also file the two cosmetic notes (Facilities double close button, Automations stats-to-group gap) as prototype follow-ups."
+}

@@ -66,18 +66,33 @@ export function isTranscriptDisplayMessage(entry: TranscriptEntry) {
     );
   }
 
-  return Boolean(entry.text.trim() || entry.error);
+  const hasVisibleTool = entry.details.some(
+    (detail) =>
+      detail.kind === 'tool' &&
+      ['running', 'completed', 'error'].includes(detail.status),
+  );
+  return Boolean(entry.text.trim() || entry.error || hasVisibleTool);
 }
 
 export function summarizeTranscriptDetails(details: TranscriptDetail[]) {
   const patches = details.filter((detail) => detail.kind === 'patch').length;
   const files = details.filter((detail) => detail.kind === 'file').length;
-  const runningTool = details.find((detail) => detail.kind === 'tool' && detail.status === 'running');
   const failedRetry = details.find((detail) => detail.kind === 'retry');
   const summaries: string[] = [];
 
-  if (runningTool) {
-    summaries.push(runningTool.label);
+  for (const detail of details) {
+    if (detail.kind !== 'tool') continue;
+    const status =
+      detail.status === 'error'
+        ? 'failed'
+        : ['running', 'completed'].includes(detail.status)
+          ? detail.status
+          : null;
+    if (status) {
+      // Labels are the presentation-safe tool identity/action. Never include
+      // detail.body here: it may contain command output, paths, or metadata.
+      summaries.push(`${detail.label} · ${status}`);
+    }
   }
 
   if (patches > 0) {

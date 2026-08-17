@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
-import type { IncomingMessage } from 'node:http';
+import { STATUS_CODES, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 
@@ -15,6 +15,7 @@ import { resolveLiveArtifactStorageDir } from '../config/env';
 import {
   initializeMobilePairingSchema,
 } from '../repositories/mobile_devices_repository';
+import { getMobilePairingService } from './mobile_gateway_runtime';
 import { OpencodeEventHub } from './opencode_event_hub';
 import { logger } from '../utils/logger';
 import {
@@ -23,6 +24,9 @@ import {
   type ReplDevicesFrame,
   type FileArtifactFrame,
   type ReplRowFrame,
+  type PtyCloseFrame,
+  type PtyDataFrame,
+  type PtyOpenFrame,
   type RpcReqFrame,
   type RpcResFrame,
   type UplinkFrame,
@@ -47,6 +51,22 @@ interface UplinkConnection {
   helloReceived: boolean;
 }
 
+interface PendingPtyConnection {
+  id: string;
+  uplink: UplinkConnection;
+  request: IncomingMessage;
+  socket: Duplex;
+  head: Buffer;
+  timer: ReturnType<typeof setTimeout>;
+  onSocketClosed: () => void;
+}
+
+interface ActivePtyConnection {
+  id: string;
+  uplink: UplinkConnection;
+  phone: WebSocket;
+}
+
 const DEVICE_COLUMNS = [
   'id',
   'host_id',
@@ -62,6 +82,12 @@ const REPLICATED_TABLES = new Set([
   'agent_session_messages',
 ]);
 const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const RELAY_PTY_PATH_PATTERN =
+  /^\/relay\/mobile-gateway\/pty\/([A-Za-z0-9_-]{1,256})\/connect$/;
+const MAX_PTY_CONNECTIONS = 32;
+const PTY_CONNECT_TIMEOUT_MS = 10_000;
+const PTY_MAX_FRAME_BYTES = 1024 * 1024;
+const PTY_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 
 function header(request: IncomingMessage, name: string): string | null {
   const value = request.headers[name.toLowerCase()];
@@ -78,10 +104,68 @@ function rejectUnauthorized(socket: Duplex): void {
   socket.write(response, () => socket.destroy());
 }
 
+function rejectUpgrade(socket: Duplex, status: number): void {
+  if (socket.destroyed) return;
+  const safeStatus = Number.isInteger(status) && status >= 400 && status <= 599
+    ? status
+    : 502;
+  const reason = STATUS_CODES[safeStatus] ?? 'Error';
+  const response =
+    `HTTP/1.1 ${safeStatus} ${reason}\r\n` +
+    'Connection: close\r\n' +
+    'Content-Length: 0\r\n' +
+    'Cache-Control: no-store\r\n\r\n';
+  socket.write(response, () => socket.destroy());
+}
+
+function validCloseCode(code: number | undefined): number {
+  if (
+    code !== undefined &&
+    Number.isInteger(code) &&
+    code >= 1000 &&
+    code <= 4999 &&
+    code !== 1005 &&
+    code !== 1006 &&
+    code !== 1015
+  ) {
+    return code;
+  }
+  return 1000;
+}
+
+function closeWebSocket(
+  socket: WebSocket,
+  code = 1000,
+  reason = '',
+): void {
+  if (
+    socket.readyState !== WebSocket.OPEN &&
+    socket.readyState !== WebSocket.CONNECTING
+  ) {
+    return;
+  }
+  try {
+    if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+    else socket.close(validCloseCode(code), reason.slice(0, 123));
+  } catch {
+    try {
+      socket.terminate();
+    } catch {
+      // Already closed.
+    }
+  }
+}
+
 function rawText(data: RawData): string {
   if (Buffer.isBuffer(data)) return data.toString('utf8');
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
   return Buffer.concat(data).toString('utf8');
+}
+
+function rawBuffer(data: RawData): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  return Buffer.concat(data);
 }
 
 function validIdentity(value: unknown): value is BearerIdentity {
@@ -257,8 +341,11 @@ export class RelayUplinkServer {
 
   private readonly bearerValidator: BearerValidator;
   private readonly wss: WebSocketServer;
+  private readonly phonePtyWss: WebSocketServer;
   private readonly connections = new Set<UplinkConnection>();
   private readonly pendingRpcs = new Map<string, PendingRpc>();
+  private readonly pendingPtys = new Map<string, PendingPtyConnection>();
+  private readonly activePtys = new Map<string, ActivePtyConnection>();
   private active: UplinkConnection | null = null;
   private health: unknown | null = null;
   private lastUplinkAt: string | null = null;
@@ -270,6 +357,11 @@ export class RelayUplinkServer {
     this.bearerValidator = options.bearerValidator ?? defaultBearerValidator;
     this.hub = options.hub ?? new OpencodeEventHub();
     this.wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+    this.phonePtyWss = new WebSocketServer({
+      noServer: true,
+      maxPayload: PTY_MAX_FRAME_BYTES,
+      perMessageDeflate: false,
+    });
   }
 
   handleUpgrade(
@@ -282,6 +374,10 @@ export class RelayUplinkServer {
       url = new URL(request.url ?? '/', 'http://relay.local');
     } catch {
       return false;
+    }
+    if (RELAY_PTY_PATH_PATTERN.test(url.pathname)) {
+      this.handlePtyUpgrade(request, socket, head, url);
+      return true;
     }
     if (url.pathname !== '/relay/uplink') return false;
 
@@ -361,6 +457,258 @@ export class RelayUplinkServer {
     this.connections.clear();
     this.active = null;
     this.wss.close();
+    this.phonePtyWss.close();
+  }
+
+  private handlePtyUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    url: URL,
+  ): void {
+    const active = this.active;
+    if (
+      !this.macOnline ||
+      !active ||
+      active.socket.readyState !== WebSocket.OPEN
+    ) {
+      rejectUpgrade(socket, 503);
+      return;
+    }
+
+    const authorization = header(request, 'authorization') ?? '';
+    const tokenMatch = authorization.match(/^Device\s+(\S+)$/i);
+    if (!tokenMatch) {
+      rejectUnauthorized(socket);
+      return;
+    }
+    let device: ReturnType<
+      ReturnType<typeof getMobilePairingService>['authenticateDevice']
+    >;
+    try {
+      device = getMobilePairingService().authenticateDevice(tokenMatch[1]);
+    } catch {
+      rejectUpgrade(socket, 503);
+      return;
+    }
+    if (!device) {
+      rejectUnauthorized(socket);
+      return;
+    }
+    if (device.userId !== active.authenticatedUserId) {
+      rejectUpgrade(socket, 403);
+      return;
+    }
+
+    const projectId = header(request, 'x-rhythm-project-id')?.trim();
+    if (!projectId) {
+      rejectUpgrade(socket, 400);
+      return;
+    }
+    if (
+      this.pendingPtys.size + this.activePtys.size >=
+      MAX_PTY_CONNECTIONS
+    ) {
+      rejectUpgrade(socket, 503);
+      return;
+    }
+
+    const id = randomUUID();
+    const onSocketClosed = () => this.rejectPendingPty(id, 502, true);
+    const timer = setTimeout(
+      () => this.rejectPendingPty(id, 504, true),
+      PTY_CONNECT_TIMEOUT_MS,
+    );
+    timer.unref();
+    const pending: PendingPtyConnection = {
+      id,
+      uplink: active,
+      request,
+      socket,
+      head: Buffer.from(head),
+      timer,
+      onSocketClosed,
+    };
+    this.pendingPtys.set(id, pending);
+    socket.once('close', onSocketClosed);
+    socket.once('error', onSocketClosed);
+
+    const path = `${url.pathname.slice('/relay'.length)}${url.search}`;
+    const frame: PtyOpenFrame = {
+      ch: 'pty',
+      t: 'open',
+      id,
+      path,
+      headers: {
+        Authorization: authorization,
+        'X-Rhythm-Project-ID': projectId,
+      },
+    };
+    try {
+      active.socket.send(serializeUplinkFrame(frame), (error) => {
+        if (error) this.rejectPendingPty(id, 503, false);
+      });
+    } catch {
+      this.rejectPendingPty(id, 503, false);
+    }
+  }
+
+  private acceptPty(id: string): void {
+    const pending = this.pendingPtys.get(id);
+    if (!pending || pending.uplink !== this.active) return;
+    this.clearPendingPty(pending);
+    if (pending.socket.destroyed) {
+      this.sendPtyClose(pending.uplink, id, 1001, 'phone disconnected');
+      return;
+    }
+    try {
+      this.phonePtyWss.handleUpgrade(
+        pending.request,
+        pending.socket,
+        pending.head,
+        (phone) => {
+          const connection: ActivePtyConnection = {
+            id,
+            uplink: pending.uplink,
+            phone,
+          };
+          this.activePtys.set(id, connection);
+          phone.on('message', (data, isBinary) => {
+            const current = this.activePtys.get(id);
+            if (current !== connection) return;
+            const bytes = rawBuffer(data);
+            if (
+              bytes.byteLength > PTY_MAX_FRAME_BYTES ||
+              pending.uplink.socket.bufferedAmount >
+                PTY_MAX_BUFFERED_BYTES
+            ) {
+              this.closeActivePty(id, true, 1013, 'PTY backpressure');
+              return;
+            }
+            const dataFrame: PtyDataFrame = {
+              ch: 'pty',
+              t: 'data',
+              id,
+              dataB64: bytes.toString('base64'),
+              binary: isBinary,
+            };
+            if (!this.sendPtyFrame(pending.uplink, dataFrame)) {
+              this.closeActivePty(id, false, 1011, 'uplink unavailable');
+            }
+          });
+          phone.once('close', (code, reason) => {
+            this.closeActivePty(id, true, code, reason.toString());
+          });
+          phone.once('error', () => {
+            this.closeActivePty(id, true, 1011, 'phone PTY error');
+          });
+        },
+      );
+    } catch {
+      rejectUpgrade(pending.socket, 502);
+      this.sendPtyClose(pending.uplink, id, 1011, 'relay upgrade failed');
+    }
+  }
+
+  private forwardPtyData(frame: PtyDataFrame): void {
+    if (
+      typeof frame.id !== 'string' ||
+      typeof frame.dataB64 !== 'string' ||
+      typeof frame.binary !== 'boolean'
+    ) {
+      return;
+    }
+    const connection = this.activePtys.get(frame.id);
+    if (!connection || connection.phone.readyState !== WebSocket.OPEN) return;
+    const bytes = Buffer.from(frame.dataB64, 'base64');
+    if (
+      bytes.byteLength > PTY_MAX_FRAME_BYTES ||
+      connection.phone.bufferedAmount > PTY_MAX_BUFFERED_BYTES
+    ) {
+      this.closeActivePty(frame.id, true, 1013, 'PTY backpressure');
+      return;
+    }
+    const payload = frame.binary ? bytes : bytes.toString('utf8');
+    connection.phone.send(
+      payload,
+      { binary: frame.binary },
+      (error) => {
+        if (error) {
+          this.closeActivePty(frame.id, true, 1011, 'phone PTY send failed');
+        }
+      },
+    );
+  }
+
+  private rejectPendingPty(
+    id: string,
+    status: number,
+    notifyMac: boolean,
+  ): void {
+    const pending = this.pendingPtys.get(id);
+    if (!pending) return;
+    this.clearPendingPty(pending);
+    if (notifyMac) {
+      this.sendPtyClose(pending.uplink, id, 1001, 'phone disconnected');
+    }
+    rejectUpgrade(pending.socket, status);
+  }
+
+  private clearPendingPty(pending: PendingPtyConnection): void {
+    this.pendingPtys.delete(pending.id);
+    clearTimeout(pending.timer);
+    pending.socket.off('close', pending.onSocketClosed);
+    pending.socket.off('error', pending.onSocketClosed);
+  }
+
+  private closeActivePty(
+    id: string,
+    notifyMac: boolean,
+    code?: number,
+    reason = '',
+  ): void {
+    const connection = this.activePtys.get(id);
+    if (!connection) return;
+    this.activePtys.delete(id);
+    closeWebSocket(connection.phone, code, reason);
+    if (notifyMac) {
+      this.sendPtyClose(connection.uplink, id, code, reason);
+    }
+  }
+
+  private sendPtyClose(
+    uplink: UplinkConnection,
+    id: string,
+    code?: number,
+    reason = '',
+  ): void {
+    const frame: PtyCloseFrame = {
+      ch: 'pty',
+      t: 'close',
+      id,
+      ...(code === undefined ? {} : { code: validCloseCode(code) }),
+      ...(reason ? { reason: reason.slice(0, 123) } : {}),
+    };
+    this.sendPtyFrame(uplink, frame);
+  }
+
+  private sendPtyFrame(
+    uplink: UplinkConnection,
+    frame: PtyDataFrame | PtyCloseFrame,
+  ): boolean {
+    if (
+      this.active !== uplink ||
+      uplink.socket.readyState !== WebSocket.OPEN ||
+      uplink.socket.bufferedAmount > PTY_MAX_BUFFERED_BYTES
+    ) {
+      return false;
+    }
+    try {
+      uplink.socket.send(serializeUplinkFrame(frame));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async authorizeAndUpgrade(
@@ -489,6 +837,31 @@ export class RelayUplinkServer {
       pending.resolve(frame);
       return;
     }
+    if (frame.ch === 'pty' && frame.t === 'opened') {
+      if (typeof frame.id === 'string') this.acceptPty(frame.id);
+      return;
+    }
+    if (frame.ch === 'pty' && frame.t === 'data') {
+      this.forwardPtyData(frame);
+      return;
+    }
+    if (frame.ch === 'pty' && frame.t === 'close') {
+      if (typeof frame.id !== 'string') return;
+      const pending = this.pendingPtys.get(frame.id);
+      if (pending) {
+        const status =
+          typeof frame.status === 'number' ? frame.status : 502;
+        this.rejectPendingPty(frame.id, status, false);
+        return;
+      }
+      this.closeActivePty(
+        frame.id,
+        false,
+        frame.code,
+        typeof frame.reason === 'string' ? frame.reason : '',
+      );
+      return;
+    }
     if (frame.ch === 'file' && frame.t === 'artifact') {
       if (
         typeof frame.artifactId !== 'string' ||
@@ -552,6 +925,18 @@ export class RelayUplinkServer {
   private setOffline(): void {
     this.macOnline = false;
     this.hub.setLive(false);
+    for (const pending of [...this.pendingPtys.values()]) {
+      this.clearPendingPty(pending);
+      rejectUpgrade(pending.socket, 503);
+    }
+    for (const connection of [...this.activePtys.values()]) {
+      this.closeActivePty(
+        connection.id,
+        false,
+        1011,
+        'desktop offline',
+      );
+    }
     for (const pending of this.pendingRpcs.values()) {
       pending.reject(new MacOfflineError());
     }

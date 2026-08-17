@@ -1,0 +1,224 @@
+{
+  "issue": 1387,
+  "generated": "2026-08-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-1387-c1",
+      "text": "When the phone loads projects or sessions through the relay, a bodyless GET is tunneled with an empty RPC body and the Mac's response is returned.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/relay_uplink_server_contract.test.ts",
+      "test_id": "issue-1387-c1: tunnels bodyless GET requests with an empty rpc body",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c2",
+      "text": "The Mac uplink never forwards a relay-provided body on GET or HEAD, so an already-deployed relay cannot turn catalog reads into uplink_dispatch_failed 502 responses.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/relay_uplink_client_contract.test.ts",
+      "test_id": "issue-1387-c2: never forwards relay-provided bodies for GET or HEAD requests",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c3",
+      "text": "Settings does not say Connected when relay health is green but the authenticated OpenCode catalog connection is failing.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+      "test_id": "issue-1387-c3: relay health never masks a catalog connection error",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c4",
+      "text": "Paired mobile discovery paginates every owner-catalog page without initializing one OpenCode engine scope and MCP stack per project.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/session-discovery.test.ts",
+      "test_id": "issue-1387-c4: paired discovery uses every owner page without project engine fan-out",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c5",
+      "text": "Every paired-host catalog selects the owner-catalog path before relay URL adoption can race discovery.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+      "test_id": "issue-1387-c5: every paired-host catalog skips project engine fan-out",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c6",
+      "text": "Paired mobile capability hydration never calls the OpenCode provider-auth endpoint, which blocks this engine build, while still loading configuration and the provider/model catalog.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/capabilities-service.test.ts",
+      "test_id": "issue-1387-c6: paired hydration never calls the blocking provider auth endpoint",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c7",
+      "text": "While the Mac uplink is online, owner-catalog pages tunnel to the Mac's complete local catalog instead of being answered from a potentially stale relay mirror; offline reads still use the relay mirror.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/relay_mirror_reads_contract.test.ts",
+      "test_id": "issue-1387-c7: tunnels owner catalog pages to the online Mac instead of a stale relay mirror",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c8",
+      "text": "One transient bounded relay health-probe failure while the paired host is connected does not downgrade reachability or clear the open chat; consecutive failures still surface the unavailable state, a successful probe resets the grace period, and Mac presence remains a separate signal.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1387-c8: one transient relay health-probe miss preserves connected reachability",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c9",
+      "text": "When a paired host is using the relay, a failed health probe names the relay rather than incorrectly blaming Tailscale.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1387-c9: relay failures are described as relay failures",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c10",
+      "text": "Paired-chat, pairing, and shared network-error UI describes the active Rhythm Cloud Gateway route and never presents the legacy Tailscale address as the active connection.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+      "test_id": "issue-1387-c10: relay UI does not present the legacy Tailscale route",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c11",
+      "text": "Paired owner discovery uses a dedicated authenticated Mac catalog endpoint that the already-deployed relay forwards through its generic tunnel, avoiding the relay's incomplete historical mirror.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1379_mirror_reads_http.test.ts; apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+      "test_id": "issue-1387-c11: owner discovery uses the generic relay tunnel catalog route",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c12",
+      "text": "A successful Workspace Files search renders the file names returned by the active relay request instead of depending on a separate provider-state update.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/workspace-search.test.tsx",
+      "test_id": "issue-1387-c12: successful relay search renders the returned files directly",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c13",
+      "text": "A completed Workspace Files search with no matches shows an explicit empty state containing the submitted query.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/workspace-search.test.tsx",
+      "test_id": "issue-1387-c13: an empty relay result has an explicit empty state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c14",
+      "text": "A stalled Workspace Files relay search ends within a bounded deadline and shows a clear retryable timeout instead of remaining blank indefinitely.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/workspace-search.test.tsx",
+      "test_id": "issue-1387-c14: a stalled relay search ends with a clear timeout",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c15",
+      "text": "Tapping a Gallery design resolves its finished artifact through the authenticated native Cloud Gateway tunnel, preserving project scope and never constructing a direct Tailscale URL.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1285-tools-parity.test.mjs",
+      "test_id": "issue-1387-c15: Gallery resolves its finished artifact through the authenticated Cloud Gateway tunnel",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c16",
+      "text": "When a Gallery artifact is missing or unsupported on mobile, tapping the item shows an explicit Artifact unavailable state instead of silently doing nothing.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/issue-1285-tools-parity.test.mjs",
+      "test_id": "issue-1387-c16: Gallery exposes an explicit unavailable state when an artifact cannot load",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c17",
+      "text": "When the Cloud Gateway is reachable but the Mac uplink is offline, opening a session already present in the cached relay catalog reaches the authenticated mirrored-transcript read and renders that transcript instead of stopping at Opening chat with a Mac-offline error.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1387-offline-transcript.test.mjs",
+      "test_id": "issue-1387-c17: desktop-offline relay opens a cached session from the mirrored transcript",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1387-c18",
+      "text": "Tapping a file row returned by Workspace Files search through the active Cloud Gateway opens a readable preview of that file, or exposes an explicit supported action when inline preview is intentionally unavailable, instead of silently doing nothing.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-workspace-preview.test.tsx",
+      "test_id": "issue-1387-c18: tapping a relay search result opens its readable preview",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c19",
+      "text": "When a prompt reaches the Mac through the native Cloud Gateway but the relay uplink or relay instance drops before the phone receives the RPC response, the mobile app preserves the already-open readable transcript instead of replacing it with terminal Opening chat; writes may remain unavailable during the outage, and after automatic uplink recovery the accepted user turn and assistant response converge without a Retry tap.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx",
+      "test_id": "issue-1387-c19: a send-time uplink restart preserves the open transcript until recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c20",
+      "text": "A stalled Gallery catalog request through the paired Cloud Gateway exits the shared paired-tool loading state within the existing 12-second service deadline and shows a retryable error instead of leaving the screen on an infinite spinner.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-gallery-loading.test.tsx",
+      "test_id": "issue-1387-c20: a stalled Gallery relay request exits the shared loading state with retry",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c21",
+      "text": "When Providers & Models loads through a healthy paired Cloud Gateway, successful provider/model catalog and config responses render before the shared 12-second deadline even if the OpenCode provider-auth endpoint does not settle, instead of discarding the successful data and showing a generic timeout.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-models-loading.test.tsx",
+      "test_id": "issue-1387-c21: Providers & Models renders successful paired catalog data without waiting for stalled provider auth",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c22",
+      "text": "After a cold native app relaunch directly into a cached scoped chat with persisted pairing and a complete relay mirror, the authenticated Cloud Gateway renders the mirrored transcript with an explicit Offline state while macOnline is false, without showing the terminal Opening chat state or requiring the live /mobile-gateway/projects catalog.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-offline-cold-relaunch.test.tsx",
+      "test_id": "issue-1387-c22: a complete offline mirror renders immediately after cold pairing hydration",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c23",
+      "text": "The Rhythm mobile app migrates off Tailscale to native Cloud Gateway for all server-relay functions; Terminal PTY connection uses the configured Cloud Gateway relay and never the stored direct `.ts.net` gateway.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1387_terminal_relay.test.ts",
+      "test_id": "issue-1387-c23: Terminal PTY uses the configured Cloud Gateway relay end to end",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c24",
+      "text": "After a cold native app relaunch reaches a retryable terminal state because the initial offline relay mirror is incomplete, a later macOnline true paired-host refresh automatically reopens the chat and renders its transcript without a Retry tap.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-offline-cold-relaunch.test.tsx",
+      "test_id": "issue-1387-c24: an incomplete offline mirror auto-recovers after paired Mac refresh",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c25",
+      "text": "During cold hydration of a persisted paired project, opening Gallery shows an honest loading or restoring state instead of falsely telling the user to select a project, then renders the persisted project's artifacts within the shared 12-second tool deadline.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-gallery-loading.test.tsx",
+      "test_id": "issue-1387-c25: persisted Gallery scope stays restoring until cold hydration completes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c26",
+      "text": "When the relay reports macOnline false, the Agents catalog shows an explicit desktop-offline status while still listing mirrored sessions, and never claims Connected.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-offline-sessions-state.test.tsx",
+      "test_id": "issue-1387-c26: an offline mirrored Agents catalog never claims Connected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1387-c27",
+      "text": "When the relay mirror has project metadata for offline sessions, the Agents catalog preserves and displays those project names instead of Unknown project.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1387-offline-sessions-state.test.tsx",
+      "test_id": "issue-1387-c27: an offline mirrored session preserves its project name",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

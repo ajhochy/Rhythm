@@ -411,7 +411,7 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
         `${relay.baseUrl}/relay/mobile-gateway/pty/x/connect`,
         { headers: { Authorization: `Device ${fixture.deviceToken}` } },
       );
-      if (probe.status === 501) break;
+      if (probe.status === 426) break;
       await new Promise((r) => setTimeout(r, 25));
     }
     return { relay, mac };
@@ -505,7 +505,7 @@ describe('Track 2 contract — RelayUplinkServer + relay phone surface', () => {
       `${relay.baseUrl}/relay/mobile-gateway/pty/x/connect`,
       { headers: { Authorization: `Device ${fixture.deviceToken}` } },
     );
-    expect(ok.status).toBe(501); // authenticated, then PTY is 501 by contract
+    expect(ok.status).toBe(426); // authenticated; PTY requires WebSocket upgrade
 
     const bad = await fetch(
       `${relay.baseUrl}/relay/mobile-gateway/pty/x/connect`,

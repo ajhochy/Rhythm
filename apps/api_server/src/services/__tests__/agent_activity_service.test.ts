@@ -161,6 +161,28 @@ describe('#1172 agent activity aggregation', () => {
     ).rejects.toThrow(/cursor/i);
   });
 
+  it('issue-1387-activity-chat-id: activity chat links use the OpenCode session id', async () => {
+    db.prepare(
+      `UPDATE agent_sessions
+       SET sdk_session_id = ?
+       WHERE id = ?`,
+    ).run('ses_activity_human_1', 'human-1');
+
+    const result = await listAgentActivity({
+      trustedGlobal: true,
+      source: 'human',
+      limit: 20,
+    });
+
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: 'human:human-1',
+        sessionId: 'ses_activity_human_1',
+        projectId: 'project-a',
+      }),
+    );
+  });
+
   it('issue-1175-c10: callers must explicitly choose authenticated owner scope or trusted local global scope', async () => {
     await expect(listAgentActivity({ limit: 20 })).rejects.toMatchObject({
       statusCode: 403,

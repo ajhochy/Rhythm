@@ -112,6 +112,46 @@ export interface RpcResFrame {
   bodyB64: string;
 }
 
+// ── pty ─────────────────────────────────────────────────────────────────────
+
+/** Relay asks the Mac to open its existing authenticated mobile PTY path. */
+export interface PtyOpenFrame {
+  ch: 'pty';
+  t: 'open';
+  id: string;
+  /** Starts with `/mobile-gateway/pty/` and preserves ticket/cursor query. */
+  path: string;
+  /** Device auth + project scope, replayed through the Mac gateway. */
+  headers: Record<string, string>;
+}
+
+/** Mac confirms that its local mobile PTY WebSocket accepted the upgrade. */
+export interface PtyOpenedFrame {
+  ch: 'pty';
+  t: 'opened';
+  id: string;
+}
+
+/** One WebSocket message. Base64 keeps text and binary frames byte-safe. */
+export interface PtyDataFrame {
+  ch: 'pty';
+  t: 'data';
+  id: string;
+  dataB64: string;
+  binary: boolean;
+}
+
+/** Either peer closes one PTY without affecting the shared uplink. */
+export interface PtyCloseFrame {
+  ch: 'pty';
+  t: 'close';
+  id: string;
+  code?: number;
+  reason?: string;
+  /** HTTP status used when the Mac rejects the pre-upgrade open request. */
+  status?: number;
+}
+
 // ── file ─────────────────────────────────────────────────────────────────────
 
 export interface FileArtifactFrame {
@@ -134,9 +174,13 @@ export type UplinkFrame =
   | EventsEnvFrame
   | RpcReqFrame
   | RpcResFrame
+  | PtyOpenFrame
+  | PtyOpenedFrame
+  | PtyDataFrame
+  | PtyCloseFrame
   | FileArtifactFrame;
 
-const CHANNELS = new Set(['ctrl', 'repl', 'events', 'rpc', 'file']);
+const CHANNELS = new Set(['ctrl', 'repl', 'events', 'rpc', 'pty', 'file']);
 
 /**
  * Parse one wire frame. Returns null (never throws) on garbage — an uplink

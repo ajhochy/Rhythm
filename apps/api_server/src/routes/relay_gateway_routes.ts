@@ -285,7 +285,7 @@ export function createRelayGatewayRouter(
   );
 
   router.all('/mobile-gateway/pty/*', requireDevice, (_req, res) => {
-    res.status(501).json({ error: 'pty_requires_direct_connection' });
+    res.status(426).json({ error: 'websocket_upgrade_required' });
   });
 
   // Relay-served mirror reads (Track 5). Keep this region separate from the

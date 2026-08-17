@@ -1,5 +1,45 @@
 # Smoke Test
 
+## PR #1387 Synology relay physical iPhone smoke — 2026-08-12
+
+Scope: `mobile/synology-relay` at `36c27ef5`, PR #1387. The target is an
+iPhone 13 mini on LTE with Wi-Fi and Tailscale disabled. Device identifiers,
+pairing tokens, and build-time OAuth values are intentionally omitted from
+this record.
+
+### Findings
+
+- An already-paired phone must adopt `https://api.vcrcapps.com/relay` from
+  gateway health without re-pairing or scanning a new QR code.
+- The relay must preserve compatibility fingerprint fields, serve replicated
+  reads and artifacts while the Mac sleeps, stream live turns continuously in
+  under two seconds through Cloudflare, and tunnel writes while the Mac is
+  awake.
+- PTY remains intentionally direct through Tailscale; a relay PTY request
+  returns 501 and is not a release failure.
+
+### Checks
+
+| Area | Check | How to run | Result | Reasoning |
+| --- | --- | --- | --- | --- |
+| Setup | Relay and desktop uplink are healthy | Probe Cloudflare relay health, relay gateway health, and the NAS LAN fast path | Success | All three responded; relay and gateway report `macOnline:true`, and gateway health advertises the expected relay URL. |
+| Setup | Latest Release app is installed from the PR head | Prebuild, install pods, build for the physical iPhone, then install the resulting app | Success | Release build exited 0 and the current `RhythmAgents.app` installed successfully as `org.visaliacrc.rhythm.agents`. |
+| Pairing | Existing pairing adopts the relay and remains compatible | Launch without re-pairing; observe “Connected securely to your Mac through the relay” and no QR flow | Fail | Relay adoption itself appeared to succeed with no re-pair, but Agents remained unusable: Chats (0), “No chats yet,” and New chat disabled. A health label is not sufficient compatibility evidence. |
+| Offline reads | Session list and complete transcripts remain readable with the Mac asleep | On LTE, open sessions/transcripts before and after sleeping the Mac | Fail | The baseline list failed while the Mac was awake, so the stronger asleep/offline requirement cannot pass. |
+| Live stream | A real agent turn streams continuously through Cloudflare with less than two seconds of lag | With Mac awake, send a turn and observe incremental output timing on the phone | Pending | |
+| Writes | Prompt submission and permission approval tunnel to the awake Mac | Send a prompt that requests a safe permission and approve it on the phone | Pending | |
+| Offline UX | Sleeping the Mac mid-session shows the calm offline state without blocking reads | Sleep Mac during a session; inspect banner, composer, and existing transcript navigation | Pending | |
+| Artifacts | A generated image remains openable from the relay with the Mac asleep | Generate image while awake, sleep Mac, then open the artifact on phone | Pending | |
+| Terminal | PTY remains explicitly direct-only | Open Terminal without Tailscale and confirm the direct-connection requirement rather than relay success | Pending | Expected limitation: relay returns 501 for PTY. |
+
+### Known gaps at start
+
+- PR #1387 is draft. Server CI is green. Desktop CI has unrelated golden-image
+  drift, and Mobile CI has two older reachability E2E failures; neither is
+  treated as proof for or against the physical relay smoke.
+
+---
+
 ## PR #1284 Physical iPhone Smoke — 2026-07-31
 
 Source: `codex/mobile-fixes-rollup` at `6fa09be111db4b15954ddef7f3a0369696619b8d`.

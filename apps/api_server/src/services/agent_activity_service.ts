@@ -216,7 +216,10 @@ function itemFromSession(
     startedAt,
     completedAt:
       status === 'completed' || status === 'failed' ? occurredAt : null,
-    sessionId: id,
+    // Mobile chat routes address OpenCode sessions. The activity row id is
+    // Rhythm's local agent_sessions primary key, so passing it to the chat
+    // router makes an otherwise healthy session look missing.
+    sessionId: stringValue(row.sdk_session_id),
     resultUrl: `/agent-sessions/${encodeURIComponent(id)}`,
     profileId,
     projectId: stringValue(row.project_id),
@@ -242,14 +245,14 @@ async function loadActivityItems(userId: number | null): Promise<AgentActivityIt
   ] = await Promise.all([
     selectRows(
       `
-        SELECT id, status, status_message, name, project_id, agent_kind, mcp_role,
+        SELECT id, sdk_session_id, status, status_message, name, project_id, agent_kind, mcp_role,
                scheduled_task_id, category, is_system, last_preview,
                last_activity_at, created_at, updated_at
         FROM agent_sessions
         ${sqliteOwnerWhere('owner_user_id')}
       `,
       `
-        SELECT id, status, status_message, name, project_id, agent_kind, mcp_role,
+        SELECT id, sdk_session_id, status, status_message, name, project_id, agent_kind, mcp_role,
                scheduled_task_id, category, is_system, last_preview,
                last_activity_at, created_at, updated_at
         FROM agent_sessions

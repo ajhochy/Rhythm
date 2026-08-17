@@ -1,0 +1,86 @@
+{
+  "run_id": "2026-08-12-open-design-agents-prototype-smoke",
+  "issue": 0,
+  "date": "2026-08-12",
+  "smoke_result": "fail",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "open-design-agents-c1",
+      "text": "A completed or unresumable session disables the textbox, Send, agent, model, permission, reasoning, Fast, and attachment controls together.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The in-app browser reported all eight controls present and disabled on the completed fixture session."
+    },
+    {
+      "criterion_id": "open-design-agents-c2",
+      "text": "Prepare project for agents remains reachable from the session overflow menu.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The overflow opened and its Prepare project for agents item was visible."
+    },
+    {
+      "criterion_id": "open-design-agents-c3",
+      "text": "Session todo items are read-only, matching the Flutter Agents inspector.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "All four visible todo checkboxes were enabled in the prototype."
+    },
+    {
+      "criterion_id": "open-design-agents-c4",
+      "text": "Brain exposes only the controls present in the audited Flutter view.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "The Brain page exposed an enabled New memory control and opened its editor, while the audited Flutter view exposes search, expand, edit, delete, and clear-all but no create control."
+    },
+    {
+      "criterion_id": "open-design-agents-c5",
+      "text": "Webhook receive URLs use the Flutter-derived /agent-webhooks/:id/receive shape.",
+      "contract_status": "absent",
+      "smoke_status": "not_checked",
+      "category": "C1",
+      "notes": "Static source comparison found the prototype uses /hooks/rhythm/... instead; this was not mutated during the browser smoke."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "browser-launch-sandbox",
+      "description": "The generated Playwright suite failed before app navigation because macOS denied Chromium Mach-port registration inside the generation sandbox.",
+      "detected_by": "All eight new Tool tests ended with MachPortRendezvousServer permission denied and Chromium SIGTRAP before page setup."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "open-design-mode",
+      "browser",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "open-design-mode",
+      "browser",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "rhythm-desktop-agents/src/components/ToolWorkspace.tsx",
+    "rhythm-desktop-agents/src/App.tsx",
+    "rhythm-desktop-agents/src/components/Composer.tsx",
+    "rhythm-desktop-agents/src/components/AgentsWorkspace.tsx",
+    "rhythm-desktop-agents/src/styles.css",
+    "rhythm-desktop-agents/src/types.ts",
+    "rhythm-desktop-agents/src/components/EndpointMap.tsx",
+    "rhythm-desktop-agents/src/endpointMap.ts",
+    "rhythm-desktop-agents/tests/tools.spec.ts"
+  ],
+  "failure_output": "Chromium FATAL: MachPortRendezvousServer permission denied (1100); process exited via SIGTRAP before each Tool test reached the page.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Add parity assertions for read-only todos, Flutter-exposed Brain controls, and webhook URL shape, then run Playwright outside the restricted generation sandbox."
+}

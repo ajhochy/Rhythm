@@ -660,7 +660,58 @@
 - **Criteria affected**: issue-1286-c10/c11/c12, chat-switching latency/list stability
 - **Root cause**: server fixes handed to smoke against a pre-fix api_server process; four client defects (scope-flip cache destruction, discovery sweep re-runs, capability catalog cleared without refetch on the detail route, stale refresh timers) invisible to every web-tier gate.
 - **Suggested fix**: mandatory desktop relaunch step before device smoke when apps/api_server changed; add a scope-flip-simulating test tier; on-device probes (hit/miss reasons) as a standard smoke instrument.
+## 2026-08-12 — PR 1387 — relay health connected while sessions remain unusable
 
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract; process: ci-red-signal-dismissed
+- **Criteria affected**: relay-t5-real-phone-session-list, issue-1387-c8
+- **Root cause**: Automated coverage proved relay adoption, seeded reads, and the event-stream catch path separately, but did not overlap a real prompt/refresh workload with the independent four-second health probe. A single transient probe failure changes paired-host state, and the chat provider treats that state as connection identity, clears the open chat, and reconnects even though the prompt and reply succeeded.
+- **Suggested fix**: Add a client-inclusive relay contract from stored pairing through non-empty catalog and repeated sends, overlap the health loop with post-send refreshes, and assert one transient probe miss cannot tear down active state.
+
+## 2026-08-12 — Issue 1387 — paired tool deadline passed two contracts but not the physical app
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract
+- **Criteria affected**: issue-1387-c20
+- **Root cause**: Preserving the mounted deadline across service identity churn fixed one real trigger and passed the expanded Gallery/Profiles suite 2/2, but the second signed-device smoke still failed because the contract continued to mount `RhythmToolsProvider` directly and omitted the surrounding `AppRhythmToolsProvider` hydration and probe lifecycle.
+- **Suggested fix**: Exercise the full app provider while account, paired-host probe, active-project, availability, and derived cache-scope inputs transition during a stalled request, and assert that one monotonic deadline still replaces Loading with a retryable error.
+- See `.agent-stack/postmortems/2026-08-12-issue-1387-paired-tools-loading.json`.
+
+## 2026-08-12 — Open Design Agents prototype — manual parity smoke exposed missing contracts
+
+- **Result**: smoke FAIL (verification not yet claimed)
+- **Category**: C1 — missing contract; process: browser-launch-sandbox
+- **Criteria affected**: open-design-agents-c3, open-design-agents-c4, open-design-agents-c5
+- **Root cause**: The generated interaction suite covered happy-path Tool mutations but did not encode the Flutter source-of-truth constraints that todos are read-only, Brain has no create control, and webhook receive URLs use `/agent-webhooks/:id/receive`; sandboxed Chromium also failed before test navigation.
+- **Suggested fix**: Add those parity assertions and run the Playwright suite outside the restricted generation sandbox.
+- See `.agent-stack/postmortems/2026-08-12-retro-open-design-agents-prototype-smoke.json`.
+
+## 2026-08-12 — Issue 1387 — final relay build passes core recovery but Gallery shows a false hydration state
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C1 — missing contract; process: contract-fixture-fidelity, device-control-permission, deployed-relay-revision-drift
+- **Criteria affected**: issue-1387-c25; issue-1387-c19 and issue-1387-c23 remain not checked on the physical device
+- **Root cause**: The paired-tool contract covered request lifetime but did not require Gallery to remain truthfully loading while persisted project scope hydrated, so the physical app briefly showed `Select a project` before rendering the real catalog; the earlier c22 synthetic false-green was corrected by a real provider/service contract and now passes on device.
+- **Suggested fix**: Add the dispatched full-wrapper c25 hydration regression, then rerun repeated sends and real Terminal streaming when iPhone touch control is available and Synology is running the PTY-capable relay image.
+- See `.agent-stack/postmortems/2026-08-12-issue-1387-final-relay-device-smoke.json`.
+
+## 2026-08-12 — Issue 1387 — final core device re-smoke passes send-time recovery, Gallery, and offline catalog recovery
+
+- **Result**: smoke PASS for the final-core physical scope after the c19 repair (verification claimed PASS; no final divergence)
+- **Category**: none for the final run; closes the earlier C2 — wrong contract for issue-1387-c19; process: device-control-permission
+- **Criteria affected**: issue-1387-c19, issue-1387-c25, issue-1387-c26, issue-1387-c27; Terminal is paused and excluded from the mobile scope
+- **Root cause**: The earlier c19 contract held one synthetic health state and did not represent the same relay identity moving between connected and unavailable while an open transcript was active. The first manual `RELAY_FINAL` collapse coincided with a fresh/restarted relay (`macOnline: false`, `lastUplinkAt: null`), while `RELAY_FINAL_TWO` stayed Connected under a healthy relay and showed that the send itself was not the outage trigger. The strengthened repair preserves the active transcript across that same-relay transition. The Gallery hydration correction and mirrored project-name fallback also survived their physical recovery checks.
+- **Suggested fix**: Keep c19 coverage at the full paired-host, chat-provider, and route boundary, and retain the safe physical uplink-loss check for future relay changes. No core follow-up remains; Terminal is paused by user choice.
+- See `.agent-stack/postmortems/2026-08-12-issue-1387-final-core-device-resmoke.json`.
+
+## 2026-08-12 — Open Design Agents prototype — final web smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: open-design-agents-final-c1 through open-design-agents-final-c5
+- **Root cause**: The earlier prototype gaps and browser-launch conflict were corrected by enforcing read-only nested sessions, endpoint-traceable fixture states, safe attachment handling, and running the web suite against an installed browser outside the restricted generation sandbox.
+- **Suggested fix**: Preserve these live click-through criteria as the web acceptance floor and keep Electron packaging on a separate signed/notarized track after web acceptance.
+- See `.agent-stack/postmortems/2026-08-12-open-design-agents-prototype-final-smoke.json`.
 ## 2026-08-13 — Issue 1387 — Native Cloud Gateway production release
 
 - **Result**: smoke PASS (verification claimed PASS)
@@ -668,6 +719,14 @@
 - **Criteria affected**: c1-c22 and c24-c27 passed; c23 Terminal intentionally not checked
 - **Root cause**: No product failure; release triage found Flutter toolchain drift, one scheduler timing flake, and missing EAS `ascAppId` submission configuration.
 - **Suggested fix**: Keep desktop Flutter pinned and add the App Store Connect app ID to the production submit profile.
+
+## 2026-08-13 — Issues 2001–2009 (Open Design remaining-pages swarm) — all nine contracts green, smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS — 230/230 installed-Chrome, build, dist smoke, Electron audit)
+- **Category**: none (2 cosmetic notes: Facilities dialog double close button; Automations stats-to-group gap)
+- **Criteria affected**: none failing; 126 automated criteria pass across 9 contracts
+- **Root cause (of the diagnostic cycles, not failures)**: P2-class test-infra pitfalls — same-document hash navigation staling mount-time ?state= reads, and Playwright toBeDisabled not recognizing fieldset[disabled]; plus recurring axe classes (scrollable-region-focusable, nested-interactive, aria-prohibited-attr, name durability under RTL/zoom, danger-button contrast) rediscovered per page.
+- **Suggested fix**: seed future swarm briefs with these harness rules up front; file the two cosmetic notes as prototype follow-ups.
 
 ## 2026-08-14 — Issue 1392 — real approval created but desktop notification card remained empty
 

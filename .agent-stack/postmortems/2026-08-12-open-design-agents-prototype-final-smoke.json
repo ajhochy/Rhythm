@@ -1,0 +1,80 @@
+{
+  "run_id": "2026-08-12-open-design-agents-prototype-final-smoke",
+  "issue": 0,
+  "date": "2026-08-12",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "open-design-agents-final-c1",
+      "text": "The web prototype presents the Rhythm application shell and a usable Agents session workspace.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live browser showed the full product navigation, Agents rail, active transcript, composer, inspector, and deterministic session state."
+    },
+    {
+      "criterion_id": "open-design-agents-final-c2",
+      "text": "Nested child and grandchild sessions are reachable through the transcript and return through one-hop parent breadcrumbs.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The smoke opened Volunteer coverage audit, then Livestream reply verification, and returned to the root session through the two one-hop parent controls."
+    },
+    {
+      "criterion_id": "open-design-agents-final-c3",
+      "text": "Child-agent transcripts and their composer controls remain read only.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Both nested transcript fixtures displayed Read only; the textbox, send/cancel action, agent, model, permission, reasoning, Fast, and attachment controls were disabled."
+    },
+    {
+      "criterion_id": "open-design-agents-final-c4",
+      "text": "Agent Memory exposes an endpoint-traceable retryable error and recovers deterministically.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Selecting Server error rendered a 503 state for GET /agent-memory; Try again restored the two seeded memories and a recovery receipt."
+    },
+    {
+      "criterion_id": "open-design-agents-final-c5",
+      "text": "The composer safely handles an oversized deterministic fixture and allows the user to remove it.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live picker attached full-transcript.json as first 100 KB / truncated, announced the truncation, and removed the pending attachment through its named control."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "open-design-mode",
+      "browser",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "open-design-mode",
+      "browser",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "rhythm-desktop-agents/src/components/ToolWorkspace.tsx",
+    "rhythm-desktop-agents/src/components/Shell.tsx",
+    "rhythm-desktop-agents/src/components/AgentsWorkspace.tsx",
+    "rhythm-desktop-agents/src/styles.css",
+    "rhythm-desktop-agents/index.html",
+    "rhythm-desktop-agents/tests/tool-state-matrix.spec.ts",
+    "rhythm-desktop-agents/tests/navigation-validation.spec.ts",
+    "rhythm-desktop-agents/tests/responsive-a11y.spec.ts",
+    "rhythm-desktop-agents/tests/secondary-tool-paths.spec.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep Electron packaging deferred until the user accepts this verified web-only prototype, then add a separately signed and notarized packaging track."
+}

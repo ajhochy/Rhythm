@@ -1,0 +1,287 @@
+{
+  "run_id": "2026-08-12-issue-1387-final-relay-device-smoke",
+  "issue": 1387,
+  "date": "2026-08-12",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1387-c1",
+      "text": "When the phone loads projects or sessions through the relay, a bodyless GET is tunneled with an empty RPC body and the Mac's response is returned.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "With the Mac uplink online, the final signed iPhone build loaded the real session catalog and opened an existing chat through the native Cloud Gateway."
+    },
+    {
+      "criterion_id": "issue-1387-c2",
+      "text": "The Mac uplink never forwards a relay-provided body on GET or HEAD, so an already-deployed relay cannot turn catalog reads into uplink_dispatch_failed 502 responses.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The final device smoke did not isolate GET/HEAD forwarding behavior."
+    },
+    {
+      "criterion_id": "issue-1387-c3",
+      "text": "Settings does not say Connected when relay health is green but the authenticated OpenCode catalog connection is failing.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The final build was checked in healthy-online and genuine Mac-offline states, not with green relay health plus a deliberately failing authenticated catalog."
+    },
+    {
+      "criterion_id": "issue-1387-c4",
+      "text": "Paired mobile discovery paginates every owner-catalog page without initializing one OpenCode engine scope and MCP stack per project.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Real sessions loaded, but the smoke did not measure complete pagination or engine-scope fan-out."
+    },
+    {
+      "criterion_id": "issue-1387-c5",
+      "text": "Every paired-host catalog selects the owner-catalog path before relay URL adoption can race discovery.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The healthy catalog path passed, but the route-adoption race was not forced independently."
+    },
+    {
+      "criterion_id": "issue-1387-c6",
+      "text": "Paired mobile capability hydration never calls the OpenCode provider-auth endpoint, which blocks this engine build, while still loading configuration and the provider/model catalog.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Providers & Models rendered on the final build, but the phone observation alone cannot prove whether the optional provider-auth request was skipped or merely bounded."
+    },
+    {
+      "criterion_id": "issue-1387-c7",
+      "text": "While the Mac uplink is online, owner-catalog pages tunnel to the Mac's complete local catalog instead of being answered from a potentially stale relay mirror; offline reads still use the relay mirror.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Online and offline data both rendered, but the smoke could not independently identify the online response source."
+    },
+    {
+      "criterion_id": "issue-1387-c8",
+      "text": "One transient bounded relay health-probe failure while the paired host is connected does not downgrade reachability or clear the open chat; consecutive failures still surface the unavailable state, a successful probe resets the grace period, and Mac presence remains a separate signal.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The original disconnect-after-send regression was not physically retested after the c19 fix because iPhone Mirroring touch control was denied."
+    },
+    {
+      "criterion_id": "issue-1387-c9",
+      "text": "When a paired host is using the relay, a failed health probe names the relay rather than incorrectly blaming Tailscale.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The genuine Mac-offline state used the neutral Offline status and did not present a Tailscale address or Tailscale failure message."
+    },
+    {
+      "criterion_id": "issue-1387-c10",
+      "text": "Paired-chat, pairing, and shared network-error UI describes the active Rhythm Cloud Gateway route and never presents the legacy Tailscale address as the active connection.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Observed final-build connected/offline chat states used native Cloud Gateway language with no legacy Tailscale route shown."
+    },
+    {
+      "criterion_id": "issue-1387-c11",
+      "text": "Paired owner discovery uses a dedicated authenticated Mac catalog endpoint that the already-deployed relay forwards through its generic tunnel, avoiding the relay's incomplete historical mirror.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The final smoke observed usable real sessions but did not inspect the exact catalog endpoint."
+    },
+    {
+      "criterion_id": "issue-1387-c12",
+      "text": "A successful Workspace Files search renders the file names returned by the active relay request instead of depending on a separate provider-state update.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Workspace loaded its selected project, but Files search required a touch interaction that was unavailable."
+    },
+    {
+      "criterion_id": "issue-1387-c13",
+      "text": "A completed Workspace Files search with no matches shows an explicit empty state containing the submitted query.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "No-match search was not physically exercised because touch control was denied."
+    },
+    {
+      "criterion_id": "issue-1387-c14",
+      "text": "A stalled Workspace Files relay search ends within a bounded deadline and shows a clear retryable timeout instead of remaining blank indefinitely.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "A deliberately stalled Workspace Files search was not physically exercised."
+    },
+    {
+      "criterion_id": "issue-1387-c15",
+      "text": "Tapping a Gallery design resolves its finished artifact through the authenticated native Cloud Gateway tunnel, preserving project scope and never constructing a direct Tailscale URL.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Gallery catalog data rendered, but opening an artifact required a touch interaction that was unavailable."
+    },
+    {
+      "criterion_id": "issue-1387-c16",
+      "text": "When a Gallery artifact is missing or unsupported on mobile, tapping the item shows an explicit Artifact unavailable state instead of silently doing nothing.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The missing-artifact path was not physically exercised."
+    },
+    {
+      "criterion_id": "issue-1387-c17",
+      "text": "When the Cloud Gateway is reachable but the Mac uplink is offline, opening a session already present in the cached relay catalog reaches the authenticated mirrored-transcript read and renders that transcript instead of stopping at Opening chat with a Mac-offline error.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "On a genuine desktop-offline cold relaunch, the final signed build rendered the full mirrored transcript in about five seconds with an explicit Offline status."
+    },
+    {
+      "criterion_id": "issue-1387-c18",
+      "text": "Tapping a file row returned by Workspace Files search through the active Cloud Gateway opens a readable preview of that file, or exposes an explicit supported action when inline preview is intentionally unavailable, instead of silently doing nothing.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Opening a file preview required a touch interaction that was unavailable."
+    },
+    {
+      "criterion_id": "issue-1387-c19",
+      "text": "While the native Cloud Gateway health body continues to report macOnline true, two successful prompt-and-assistant-response turns remain Connected after a transient relay request failure instead of falsely downgrading the chat to Desktop offline.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "This is the original user-reported post-send regression. It remains physically unverified after the fix because sending from the mirrored phone required denied touch control."
+    },
+    {
+      "criterion_id": "issue-1387-c20",
+      "text": "A stalled Gallery catalog request through the paired Cloud Gateway exits the shared paired-tool loading state within the existing 12-second service deadline and shows a retryable error instead of leaving the screen on an infinite spinner.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Gallery eventually rendered its real catalog on the final build and no longer remained indefinitely on Loading. A separate false Select a project hydration state is recorded as the new c25 gap below."
+    },
+    {
+      "criterion_id": "issue-1387-c21",
+      "text": "When Providers & Models loads through a healthy paired Cloud Gateway, successful provider/model catalog and config responses render before the shared 12-second deadline even if the OpenCode provider-auth endpoint does not settle, instead of discarding the successful data and showing a generic timeout.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Providers & Models rendered real provider/model data on the final physical iPhone build."
+    },
+    {
+      "criterion_id": "issue-1387-c22",
+      "text": "After a cold native app relaunch directly into a cached scoped chat with persisted pairing and a complete relay mirror, the authenticated Cloud Gateway renders the mirrored transcript with an explicit Offline state while macOnline is false, without showing the terminal Opening chat state or requiring the live /mobile-gateway/projects catalog.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Final physical retest passed: a force-quit and cold direct relaunch while the Mac was genuinely offline rendered the mirrored transcript in about five seconds with Offline status. The earlier synthetic c22 contract had been false-green while the phone remained on Opening chat for more than ten seconds; a real provider/service contract reproduced RED before the corrected implementation."
+    },
+    {
+      "criterion_id": "issue-1387-c23",
+      "text": "The Rhythm mobile app migrates off Tailscale to native Cloud Gateway for all server-relay functions; Terminal PTY connection uses the configured Cloud Gateway relay and never the stored direct `.ts.net` gateway.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The Terminal screen loaded its real catalog/workspace state, but no interactive PTY stream was opened. Touch control was denied, and the deployed Synology relay remained pinned to the earlier relay-smoke image rather than the c23-capable build."
+    },
+    {
+      "criterion_id": "issue-1387-c24",
+      "text": "After a cold native app relaunch reaches a retryable terminal state because the initial offline relay mirror is incomplete, a later macOnline true paired-host refresh automatically reopens the chat and renders its transcript without a Retry tap.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "After the desktop and uplink returned, the same physical chat automatically recovered from Offline to Connected without a manual Retry."
+    },
+    {
+      "criterion_id": "issue-1387-c25",
+      "text": "While paired account, project, and tool context are still hydrating, Gallery keeps a truthful loading state and never briefly tells a paired user to Select a project before the persisted project becomes available.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "On the final physical build, Gallery showed a misleading Select a project state for roughly 8–13 seconds before the persisted project hydrated and the real Gallery catalog appeared. A c25 contract/fix task was dispatched immediately; no duplicate GitHub issue was filed."
+    },
+    {
+      "criterion_id": "physical-profiles-catalog",
+      "text": "Profiles loads the paired Mac's real profile catalog through the native Cloud Gateway.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Profiles rendered the real catalog on the final physical iPhone build."
+    },
+    {
+      "criterion_id": "physical-online-sessions-chat-baseline",
+      "text": "With the desktop and relay online, the paired phone loads sessions and opens a real transcript through the native Cloud Gateway.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The final signed build loaded the online session catalog, opened the Relay QA chat, rendered its transcript, and showed Connected."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "contract-fixture-fidelity",
+      "description": "The first c22 automated contract passed while the physical cold relaunch still remained on Opening chat; it did not exercise the real provider, pairing-hydration, route, and service gate together.",
+      "detected_by": "A genuine Mac-offline force-quit/relaunch stayed on Opening chat for more than ten seconds. The strengthened real provider/service contract then reproduced RED before the fix and final physical PASS."
+    },
+    {
+      "process_category": "device-control-permission",
+      "description": "iPhone Mirroring denied Computer Use touch control, blocking physical send, Gallery artifact tap, Workspace file tap/search, and Terminal interaction checks.",
+      "detected_by": "Computer Use returned: Computer Use was not approved to use iPhone Mirroring. Read-only direct-route launches and screenshots remained available."
+    },
+    {
+      "process_category": "deployed-relay-revision-drift",
+      "description": "The Synology relay remained pinned to the earlier relay-smoke image, so the new native Cloud Gateway PTY implementation could not be validated end to end against the deployed relay.",
+      "detected_by": "Deployment inspection during the smoke showed the production relay image had not advanced to the c23 PTY-capable revision; only Terminal catalog/workspace loading could be observed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "smoke-test",
+      "computer-use",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "smoke-test",
+      "computer-use",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/app/agents/chats/[sessionId].tsx",
+    "apps/mobile/lib/opencode/client.ts",
+    "apps/mobile/lib/transport/paired-mac-client.ts",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/providers/paired-host-provider.tsx",
+    "apps/mobile/providers/rhythm-tools-provider.tsx",
+    "apps/mobile/providers/services/rhythm-tools-service.ts",
+    "apps/mobile/tests/contract/issue-1387-false-offline-after-send.test.tsx",
+    "apps/mobile/tests/contract/issue-1387-gallery-loading.test.tsx",
+    "apps/mobile/tests/contract/issue-1387-models-loading.test.tsx",
+    "apps/mobile/tests/contract/issue-1387-offline-cold-relaunch.test.tsx",
+    "apps/api_server/src/contract/issue_1387_terminal_relay.test.ts",
+    "apps/api_server/src/services/relay_uplink_client.ts",
+    "apps/api_server/src/services/relay_uplink_protocol.ts",
+    "apps/api_server/src/services/relay_uplink_server.ts",
+    "docs/ai/contracts/issue-1387.json"
+  ],
+  "failure_output": "Final physical build: Gallery briefly showed 'Select a project' for roughly 8–13 seconds before the persisted project hydrated and real items rendered. The original post-send disconnect regression and interactive artifact/file/Terminal paths remain not checked because iPhone Mirroring touch control was denied; the Synology relay is also still on the earlier image.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Make c25 exercise the full paired-tool wrapper through account/project hydration and require Gallery to stay truthfully loading until project scope is definitive, then rerun repeated sends and real PTY streaming when touch control and the updated relay image are available."
+}

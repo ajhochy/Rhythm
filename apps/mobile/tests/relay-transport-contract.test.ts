@@ -3,9 +3,9 @@
  * (docs/ai/contracts/relay-t3-phone-transport.md, plan S1.10–S1.11).
  *
  * Pins: relay URL validation, pairing-payload relayUrl handling, relay-first
- * base selection, path-prefix-safe client URL building, and PTY staying on
- * the direct .ts.net origin. Implementation must make these pass without
- * modifying this file.
+ * base selection and path-prefix-safe client URL building. The superseding
+ * issue-1387-c23 contract owns PTY transport because Terminal must now use
+ * the native Cloud Gateway end to end.
  */
 import type { FetchFn } from '@/lib/transport/types';
 import {
@@ -147,24 +147,6 @@ describe('Track 3 contract — PairedMacClient with a path-bearing base', () => 
     expect(calls[0]!.url).toBe(`${RELAY_BASE}/mobile-gateway/health`);
   });
 
-  it('ptyUrl uses the direct .ts.net base, never the relay', async () => {
-    const { client } = await makeClient({ directBaseUrl: TSNET });
-    const url = client.ptyUrl('pty_1');
-    expect(url.startsWith('wss://rhythm-mac.tail1234.ts.net/')).toBe(true);
-    expect(url).toContain('/mobile-gateway/pty/pty_1/connect');
-    expect(url).not.toContain('/relay');
-  });
-
-  it('ptyUrl falls back to baseUrl when no direct base exists (legacy pairing)', async () => {
-    const client = new PairedMacClient({
-      baseUrl: TSNET,
-      getDeviceToken: async () => 'device-token',
-    } as never);
-    expect(client.ptyUrl('pty_1').startsWith('wss://rhythm-mac.tail1234.ts.net/')).toBe(
-      true,
-    );
-  });
-
   it('Gallery resource URLs stay on the relay even when a direct base exists', async () => {
     const { client } = await makeClient({ directBaseUrl: TSNET });
     const connection = await client.resourceConnection(
@@ -180,4 +162,5 @@ describe('Track 3 contract — PairedMacClient with a path-bearing base', () => 
     });
     expect(connection.url).not.toContain('tail1234.ts.net');
   });
+
 });
