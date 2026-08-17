@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "flutterReference": {
     "ref": "origin/main",
-    "commit": "9fa2761ed78159f83f56982c03fcd85dc035039a"
+    "commit": "283a6f86a1d552d515f75d352abf0a185a566f2d"
   },
   "taxonomy": [
     "launch-auth-onboarding",
