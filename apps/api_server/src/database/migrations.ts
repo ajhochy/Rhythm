@@ -4004,4 +4004,30 @@ If someone asks for creative work that needs a local capability:
       retired_at TEXT NOT NULL
     );
   `);
+
+  // ── C1 — pre-run episode enrollment reservation ───────────────────────────
+  //
+  // Distinct from agent_run_outcomes: this is written BEFORE dispatch, not at
+  // finalization. `run_episode_id` is UNIQUE so a retried/duplicate dispatch
+  // for the same episode can never mint a second reservation or flip the
+  // cohort — the repository reads the existing row back instead of inserting.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_enrollments (
+      id TEXT PRIMARY KEY,
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline','candidate')),
+      assignment_digest TEXT NOT NULL,
+      baseline_target_revision_hash TEXT NOT NULL,
+      treatment_spec_hash TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'reserved',
+      reserved_at TEXT NOT NULL
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
+       ON agent_org_experiment_enrollments(experiment_id)`,
+  );
 }

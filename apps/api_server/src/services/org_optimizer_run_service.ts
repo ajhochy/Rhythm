@@ -206,10 +206,16 @@ export interface RunOrgOptimizerResult {
    * outcome_status to `verified`.
    */
   experiments?: {
+    /** Reached a terminal decision this sweep (promote|regress|inconclusive). */
     judged: number;
     promoted: number;
     regressed: number;
     inconclusive: number;
+    /**
+     * C0 — nonterminal. Still short of `minSamplesPerCohort` or `maxExposure`;
+     * writes nothing and remains undecided for a future sweep to pick up.
+     */
+    collecting: number;
   };
   /**
    * True when `experiments` counts what the sweep WOULD have decided rather
@@ -750,25 +756,36 @@ export async function runOrgOptimizer(
       );
       const undecided = await new AgentOrgExperimentsRepository().listUndecidedAsync();
       const acting = mayMutateLifecycle(policy);
-      const tally = { judged: 0, promoted: 0, regressed: 0, inconclusive: 0 };
+      const tally = { judged: 0, promoted: 0, regressed: 0, inconclusive: 0, collecting: 0 };
       for (const experiment of undecided) {
         // Acting modes RECORD the verdict (results, decision, and the
         // proposal's outcome_status). Shadow computes the identical verdict
         // through the shared code path and persists nothing, so a default
         // install can never auto-promote.
-        const decided = acting
+        const evaluation = acting
           ? await judgeExperimentAsync(experiment.id)
           : await computeDecisionAsync(experiment);
+        // C0 — collecting is nonterminal: nothing was written, and the
+        // experiment stays undecided for a future sweep to pick up. Report it
+        // separately rather than folding it into `judged`.
+        if (evaluation.status === 'collecting') {
+          tally.collecting += 1;
+          logger.info(
+            `[org-optimizer-run] experiment '${experiment.id}' (proposal '${experiment.proposalId}') ` +
+            `still collecting: ${evaluation.reason}`,
+          );
+          continue;
+        }
         tally.judged += 1;
-        if (decided.decision === 'promote') tally.promoted += 1;
-        else if (decided.decision === 'regress') tally.regressed += 1;
+        if (evaluation.decision === 'promote') tally.promoted += 1;
+        else if (evaluation.decision === 'regress') tally.regressed += 1;
         else tally.inconclusive += 1;
         logger.info(
           `[org-optimizer-run] experiment '${experiment.id}' (proposal '${experiment.proposalId}') ` +
-          `${acting ? 'decided' : 'WOULD decide'} ${decided.decision}: ${decided.reason}`,
+          `${acting ? 'decided' : 'WOULD decide'} ${evaluation.decision}: ${evaluation.reason}`,
         );
       }
-      if (tally.judged > 0) {
+      if (tally.judged > 0 || tally.collecting > 0) {
         result.experiments = tally;
         if (!acting) result.experimentsReportOnly = true;
       }

@@ -27,7 +27,7 @@ import { setDb, getDb } from '../database/db';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
 import { OrgProposalsController } from '../controllers/org_proposals_controller';
-import { assignCohort } from '../services/org_proposal_experiment_service';
+import { assignCohort, reserveRunEnrollment } from '../services/org_proposal_experiment_service';
 import { recordTerminalOutcome } from '../services/run_outcome_service';
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../models/proposal_evidence_bundle';
 
@@ -160,6 +160,8 @@ function sessionsPerCohort(count: number): { baseline: string[]; candidate: stri
 
 async function driveRun(sessionId: string, succeeded: boolean): Promise<void> {
   session(sessionId);
+  // C1: reserve enrollment before dispatch
+  await reserveRunEnrollment(sessionId, 'test-profile');
   await recordTerminalOutcome({
     sessionId,
     terminalStatus: succeeded ? 'completed' : 'error',
@@ -238,25 +240,32 @@ describe('verified is reachable end to end through the production loop', () => {
     return proposalId;
   }
 
-  it('an acting-mode optimizer run promotes and stamps outcome_status=verified', async () => {
-    const proposalId = await driveAnEffect();
+  it(
+    'C0 — a synthetic paired-cohort-outcome effect cannot stamp verified without treatment-v2 receipts',
+    async () => {
+      const proposalId = await driveAnEffect();
 
-    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
-    const result = await runOrgOptimizer({ mode: 'auto' });
+      const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+      const result = await runOrgOptimizer({ mode: 'auto' });
 
-    expect(result.experiments).toEqual({
-      judged: 1,
-      promoted: 1,
-      regressed: 0,
-      inconclusive: 0,
-    });
-    expect(result.experimentsReportOnly).toBeUndefined();
+      // The randomised split favoured the candidate arm, but nothing applied a
+      // per-run treatment (C1/C2 do not exist yet): this is causally an A/A
+      // result, and the fail-closed gate refuses to call it verified.
+      expect(result.experiments).toEqual({
+        judged: 1,
+        promoted: 0,
+        regressed: 0,
+        inconclusive: 1,
+        collecting: 0,
+      });
+      expect(result.experimentsReportOnly).toBeUndefined();
 
-    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
-    expect(proposal?.outcomeStatus).toBe('verified');
-    // W6-c8 — the DEPLOYMENT field is untouched by the outcome write.
-    expect(proposal?.status).toBe('active');
-  });
+      const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+      expect(proposal?.outcomeStatus).toBe('inconclusive');
+      // W6-c8 — the DEPLOYMENT field is untouched by the outcome write.
+      expect(proposal?.status).toBe('active');
+    },
+  );
 
   it('the mirror fixture — candidate worse than baseline — reaches regressed', async () => {
     const proposalId = await seedProposal();
@@ -273,14 +282,18 @@ describe('verified is reachable end to end through the production loop', () => {
     expect(proposal?.outcomeStatus).toBe('regressed');
   });
 
-  it('shadow mode reports the same promote verdict and writes nothing', async () => {
+  it('shadow mode reports the same C0-gated verdict and writes nothing', async () => {
     const proposalId = await driveAnEffect();
 
     const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
     const result = await runOrgOptimizer({ mode: 'shadow' });
 
     expect(result.experimentsReportOnly).toBe(true);
-    expect(result.experiments?.promoted).toBe(1);
+    // Shadow's report-only sweep shares computeDecisionAsync with the acting
+    // path, so it is truthful about the C0 fail-closed gate too: it would NOT
+    // have promoted, because paired-cohort-outcome has no treatment-v2 proof.
+    expect(result.experiments?.promoted).toBe(0);
+    expect(result.experiments?.inconclusive).toBe(1);
 
     const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
     expect(proposal?.outcomeStatus).toBe('unproven');
