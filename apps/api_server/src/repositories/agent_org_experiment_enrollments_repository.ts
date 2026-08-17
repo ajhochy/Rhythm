@@ -14,9 +14,12 @@ import Database from 'better-sqlite3';
 
 import { getDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
-import type {
+import {
   ExperimentEnrollment,
   ExperimentEnrollmentCohort,
+  ENROLLMENT_FAILURE_CODES,
+  ENROLLMENT_FAILURE_CODE_REASONS,
+  ExperimentEnrollmentFailureCode,
   ExperimentEnrollmentState,
   ReserveEnrollmentInput,
 } from '../models/agent_org_experiment_enrollment';
@@ -28,6 +31,22 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+export interface EnrollmentFailure {
+  failureCode: ExperimentEnrollmentFailureCode;
+}
+
+export type EnrollmentTransitionStatus =
+  | 'applied'
+  | 'no_op'
+  | 'missing'
+  | 'illegal_transition'
+  | 'invalid_failure';
+
+export interface EnrollmentTransitionResult {
+  status: EnrollmentTransitionStatus;
+  current: ExperimentEnrollment | null;
 }
 
 function isRetryableReservationError(error: unknown): boolean {
@@ -58,6 +77,8 @@ interface EnrollmentRow {
   treatment_spec_hash: string;
   state: string;
   reserved_at: string;
+  failure_code: string | null;
+  failure_reason: string | null;
 }
 
 function rowToModel(row: EnrollmentRow): ExperimentEnrollment {
@@ -73,7 +94,15 @@ function rowToModel(row: EnrollmentRow): ExperimentEnrollment {
     treatmentSpecHash: row.treatment_spec_hash,
     state: row.state as ExperimentEnrollmentState,
     reservedAt: row.reserved_at,
+    failureCode: (row.failure_code ?? null) as ExperimentEnrollmentFailureCode | null,
+    failureReason: row.failure_reason ?? null,
   };
+}
+
+function normalizeFailureCode(value: string): ExperimentEnrollmentFailureCode | null {
+  return (ENROLLMENT_FAILURE_CODES as readonly string[]).includes(value)
+    ? (value as ExperimentEnrollmentFailureCode)
+    : null;
 }
 
 function makeInMemoryDb(): Database.Database {
@@ -229,5 +258,120 @@ export class AgentOrgExperimentEnrollmentsRepository {
       .prepare(`SELECT * FROM agent_org_experiment_enrollments WHERE experiment_id = ?`)
       .all(experimentId) as EnrollmentRow[];
     return rows.map(rowToModel);
+  }
+
+  async markDispatchedAsync(runEpisodeId: string): Promise<EnrollmentTransitionResult> {
+    const current = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!current) {
+      return { status: 'missing', current: null };
+    }
+    if (current.state === 'dispatched') {
+      return { status: 'no_op', current };
+    }
+    if (current.state !== 'reserved') {
+      return { status: 'illegal_transition', current };
+    }
+
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_experiment_enrollments
+         SET state = ?, failure_code = NULL, failure_reason = NULL
+       WHERE run_episode_id = ? AND state = ?`,
+      )
+      .run('dispatched', runEpisodeId, 'reserved');
+
+    if (result.changes === 1) {
+      const updated = await this.findByRunEpisodeIdAsync(runEpisodeId);
+      return { status: 'applied', current: updated };
+    }
+
+    const latest = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!latest) {
+      return { status: 'missing', current: null };
+    }
+    if (latest.state === 'dispatched') {
+      return { status: 'no_op', current: latest };
+    }
+    return { status: 'illegal_transition', current: latest };
+  }
+
+  async markTreatmentFailedAsync(
+    runEpisodeId: string,
+    failure: EnrollmentFailure,
+  ): Promise<EnrollmentTransitionResult> {
+    const current = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!current) {
+      return { status: 'missing', current: null };
+    }
+    if (current.state === 'treatment_failed') {
+      return { status: 'no_op', current };
+    }
+    if (current.state !== 'reserved') {
+      return { status: 'illegal_transition', current };
+    }
+
+    const failureCode = normalizeFailureCode(failure.failureCode);
+    if (!failureCode) {
+      return { status: 'invalid_failure', current };
+    }
+
+    const failureReason = ENROLLMENT_FAILURE_CODE_REASONS[failureCode];
+
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_experiment_enrollments
+         SET state = ?, failure_code = ?, failure_reason = ?
+       WHERE run_episode_id = ? AND state = ?`,
+      )
+      .run('treatment_failed', failureCode, failureReason ?? null, runEpisodeId, 'reserved');
+
+    if (result.changes === 1) {
+      const updated = await this.findByRunEpisodeIdAsync(runEpisodeId);
+      return { status: 'applied', current: updated };
+    }
+
+    const latest = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!latest) {
+      return { status: 'missing', current: null };
+    }
+    if (latest.state === 'treatment_failed') {
+      return { status: 'no_op', current: latest };
+    }
+    return { status: 'illegal_transition', current: latest };
+  }
+
+  async markTerminalizedAsync(runEpisodeId: string): Promise<EnrollmentTransitionResult> {
+    const current = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!current) {
+      return { status: 'missing', current: null };
+    }
+    if (current.state === 'terminalized') {
+      return { status: 'no_op', current };
+    }
+    if (current.state !== 'dispatched') {
+      return { status: 'illegal_transition', current };
+    }
+
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_experiment_enrollments
+         SET state = ?, failure_code = NULL, failure_reason = NULL
+       WHERE run_episode_id = ? AND state = ?`,
+      )
+      .run('terminalized', runEpisodeId, 'dispatched');
+
+    if (result.changes === 1) {
+      const updated = await this.findByRunEpisodeIdAsync(runEpisodeId);
+      return { status: 'applied', current: updated };
+    }
+
+    const latest = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!latest) {
+      return { status: 'missing', current: null };
+    }
+    if (latest.state === 'terminalized') {
+      return { status: 'no_op', current: latest };
+    }
+    return { status: 'illegal_transition', current: latest };
   }
 }

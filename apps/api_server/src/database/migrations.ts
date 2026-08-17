@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 
 import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
+import { ENROLLMENT_FAILURE_CODES, ENROLLMENT_FAILURE_CODE_REASONS } from '../models/agent_org_experiment_enrollment';
 import {
   LEGACY_MEMORY_CONSOLIDATION_PROMPT_V1,
   MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
@@ -4024,29 +4025,93 @@ If someone asks for creative work that needs a local capability:
       treatment_spec_hash TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'reserved'
         CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
+      failure_code TEXT,
+      failure_reason TEXT,
       reserved_at TEXT NOT NULL
     );
   `);
+
+  const enrollmentCols = (db.pragma('table_info(agent_org_experiment_enrollments)') as {
+    name: string;
+  }[]).map((c) => c.name);
+  if (!enrollmentCols.includes('failure_code')) {
+    db.exec(`ALTER TABLE agent_org_experiment_enrollments ADD COLUMN failure_code TEXT`);
+  }
+  if (!enrollmentCols.includes('failure_reason')) {
+    db.exec(`ALTER TABLE agent_org_experiment_enrollments ADD COLUMN failure_reason TEXT`);
+  }
+
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
        ON agent_org_experiment_enrollments(experiment_id)`,
   );
 
+  const canonicalFailureReasonCases = ENROLLMENT_FAILURE_CODES.map((code) => {
+    const reason = ENROLLMENT_FAILURE_CODE_REASONS[code];
+    const escapedReason = reason.replace(/'/g, "''");
+    return ` WHEN '${code}' THEN '${escapedReason}'`;
+  }).join('\n');
+  const canonicalFailureReasonExpr = `(CASE NEW.failure_code ${canonicalFailureReasonCases} ELSE NULL END)`;
+
   db.exec(`
-    CREATE TRIGGER IF NOT EXISTS trg_agent_org_experiment_enrollments_state_insert_domain
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_insert_domain;
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_update_domain;
+
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_insert_domain
     BEFORE INSERT ON agent_org_experiment_enrollments
     FOR EACH ROW
     WHEN NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')
+      OR (NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN (
+        'pre_dispatch_failed',
+        'prompt_dispatch_failed',
+        'provider_unavailable',
+        'invalid_model',
+        'prompt_timeout'
+      ))
+      OR (NEW.state = 'treatment_failed'
+          AND (NEW.failure_code IS NULL OR NEW.failure_reason IS NOT ${canonicalFailureReasonExpr}))
+      OR (NEW.state IN ('reserved', 'dispatched', 'terminalized')
+          AND (NEW.failure_code IS NOT NULL OR NEW.failure_reason IS NOT NULL))
     BEGIN
-      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments.state must be reserved, dispatched, treatment_failed, or terminalized');
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
     END;
 
-    CREATE TRIGGER IF NOT EXISTS trg_agent_org_experiment_enrollments_state_update_domain
-    BEFORE UPDATE ON agent_org_experiment_enrollments
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_update_domain
+    BEFORE UPDATE OF state, failure_code, failure_reason
+    ON agent_org_experiment_enrollments
     FOR EACH ROW
-    WHEN NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')
+    WHEN NOT (
+      -- unchanged state + unchanged metadata is a legal idempotent write
+      (NEW.state = OLD.state
+       AND NEW.failure_code IS OLD.failure_code
+       AND NEW.failure_reason IS OLD.failure_reason)
+      OR (
+        OLD.state = 'reserved'
+        AND NEW.state = 'dispatched'
+        AND NEW.failure_code IS NULL
+        AND NEW.failure_reason IS NULL
+      )
+      OR (
+        OLD.state = 'reserved'
+        AND NEW.state = 'treatment_failed'
+        AND NEW.failure_code IN (
+          'pre_dispatch_failed',
+          'prompt_dispatch_failed',
+          'provider_unavailable',
+          'invalid_model',
+          'prompt_timeout'
+        )
+        AND NEW.failure_reason IS ${canonicalFailureReasonExpr}
+      )
+      OR (
+        OLD.state = 'dispatched'
+        AND NEW.state = 'terminalized'
+        AND NEW.failure_code IS NULL
+        AND NEW.failure_reason IS NULL
+      )
+    )
     BEGIN
-      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments.state must be reserved, dispatched, treatment_failed, or terminalized');
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
     END;
   `);
 }

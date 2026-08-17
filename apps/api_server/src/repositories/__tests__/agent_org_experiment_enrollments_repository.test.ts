@@ -24,6 +24,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setDb } from '../../database/db';
 import { runMigrations } from '../../database/migrations';
+import {
+  ExperimentEnrollmentFailureCode,
+  ENROLLMENT_FAILURE_CODE_REASONS,
+} from '../../models/agent_org_experiment_enrollment';
 import { AgentOrgExperimentsRepository } from '../agent_org_experiments_repository';
 import { AgentOrgExperimentEnrollmentsRepository } from '../agent_org_experiment_enrollments_repository';
 
@@ -55,7 +59,34 @@ function seedEnrollment(params: {
   proposalId: string;
   runEpisodeId: string;
   state: 'reserved' | 'dispatched' | 'treatment_failed' | 'terminalized';
+  failureCode?: ExperimentEnrollmentFailureCode;
+  failureReason?: string | null;
 }) {
+  if (params.failureCode || params.failureReason) {
+    db.prepare(
+      `INSERT INTO agent_org_experiment_enrollments
+         (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
+          assignment_digest, baseline_target_revision_hash, treatment_spec_hash,
+          state, failure_code, failure_reason, reserved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      `seed-${params.runEpisodeId}`,
+      params.runEpisodeId,
+      params.experimentId,
+      params.proposalId,
+      'seed-profile',
+      'baseline',
+      `digest-${params.runEpisodeId}`,
+      `rev-${params.runEpisodeId}`,
+      `spec-${params.runEpisodeId}`,
+      params.state,
+      params.failureCode,
+      params.failureReason ?? null,
+      new Date().toISOString(),
+    );
+    return;
+  }
+
   db.prepare(
     `INSERT INTO agent_org_experiment_enrollments
        (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
@@ -482,6 +513,13 @@ describe('C1 pre-run enrollment reservation', () => {
       proposalId: 'legacy-prop',
       state: 'reserved',
     });
+    seedEnrollmentRow(legacyDb, {
+      id: 'legacy-reason-boundary',
+      runEpisodeId: 'legacy-reason-boundary',
+      experimentId: 'legacy-exp',
+      proposalId: 'legacy-prop',
+      state: 'reserved',
+    });
 
     expect(() => runMigrations(legacyDb)).not.toThrow();
     expect(() =>
@@ -517,10 +555,67 @@ describe('C1 pre-run enrollment reservation', () => {
         .run('dispatched', 'legacy-valid'),
     ).not.toThrow();
 
+    expect(() =>
+      legacyDb
+        .prepare(`UPDATE agent_org_experiment_enrollments SET state = ? WHERE id = ?`)
+        .run('terminalized', 'legacy-valid'),
+    ).not.toThrow();
+
+    expect(() =>
+      legacyDb
+        .prepare(`UPDATE agent_org_experiment_enrollments
+           SET state = ?, failure_code = ?, failure_reason = ?
+           WHERE id = ?`)
+        .run('treatment_failed', 'provider_unavailable', 'provider_unavailable_check', 'legacy-reason-boundary'),
+    ).toThrow();
+    const untouchedFailure = legacyDb
+      .prepare(`SELECT state, failure_code, failure_reason FROM agent_org_experiment_enrollments WHERE id = ?`)
+      .get('legacy-reason-boundary') as {
+        state: string;
+        failure_code: string | null;
+        failure_reason: string | null;
+      };
+    expect(untouchedFailure.state).toBe('reserved');
+    expect(untouchedFailure.failure_code).toBeNull();
+    expect(untouchedFailure.failure_reason).toBeNull();
+
+    expect(() =>
+      legacyDb
+        .prepare(`UPDATE agent_org_experiment_enrollments
+           SET state = ?, failure_code = ?, failure_reason = ?
+           WHERE id = ?`)
+        .run(
+          'treatment_failed',
+          'provider_unavailable',
+          ENROLLMENT_FAILURE_CODE_REASONS.provider_unavailable,
+          'legacy-reason-boundary',
+        ),
+    ).not.toThrow();
+
+    const canonicalFailure = legacyDb
+      .prepare(
+        `SELECT state, failure_code, failure_reason
+           FROM agent_org_experiment_enrollments WHERE id = ?`,
+      )
+      .get('legacy-reason-boundary') as {
+        state: string;
+        failure_code: string;
+        failure_reason: string;
+      };
+    expect(canonicalFailure.state).toBe('treatment_failed');
+    expect(canonicalFailure.failure_code).toBe('provider_unavailable');
+    expect(canonicalFailure.failure_reason).toBe(ENROLLMENT_FAILURE_CODE_REASONS.provider_unavailable);
+
+    const legacyCols = legacyDb.pragma('table_info(agent_org_experiment_enrollments)') as {
+      name: string;
+    }[];
+    expect(legacyCols.some((column) => column.name === 'failure_code')).toBe(true);
+    expect(legacyCols.some((column) => column.name === 'failure_reason')).toBe(true);
+
     const updated = legacyDb
       .prepare(`SELECT state FROM agent_org_experiment_enrollments WHERE id = ?`)
       .get('legacy-valid') as { state: string };
-    expect(updated.state).toBe('dispatched');
+    expect(updated.state).toBe('terminalized');
 
     legacyDb.close();
     cleanupTempEnrollmentDb(dbPath);
@@ -596,6 +691,8 @@ describe('C1 pre-run enrollment reservation', () => {
       proposalId: experiment.proposalId,
       runEpisodeId: 'legacy-failed',
       state: 'treatment_failed',
+      failureCode: 'provider_unavailable',
+      failureReason: ENROLLMENT_FAILURE_CODE_REASONS.provider_unavailable,
     });
 
     expect(countActiveReservations(experiment.id)).toBe(0);
@@ -616,5 +713,157 @@ describe('C1 pre-run enrollment reservation', () => {
     expect(reserved!.state).toBe('reserved');
     expect(countActiveReservations(experiment.id)).toBe(1);
     expect(countReservations(experiment.id)).toBe(3);
+  });
+
+  it('transitions reserved enrollment to dispatched and handles idempotent repeats', async () => {
+    const experiment = await declaredExperiment({ maxExposure: 2 });
+    seedEnrollment({
+      experimentId: experiment.id,
+      proposalId: experiment.proposalId,
+      runEpisodeId: 'transition-dispatched',
+      state: 'reserved',
+    });
+
+    const enrollments = new AgentOrgExperimentEnrollmentsRepository();
+    const first = await enrollments.markDispatchedAsync('transition-dispatched');
+    expect(first.status).toBe('applied');
+    expect(first.current).not.toBeNull();
+    expect(first.current!.state).toBe('dispatched');
+
+    const second = await enrollments.markDispatchedAsync('transition-dispatched');
+    expect(second.status).toBe('no_op');
+    expect(second.current).not.toBeNull();
+    expect(second.current!.state).toBe('dispatched');
+  });
+
+  it('transitions reserved enrollment to treatment_failed with bounded failure fields', async () => {
+    const experiment = await declaredExperiment({ maxExposure: 2 });
+    seedEnrollment({
+      experimentId: experiment.id,
+      proposalId: experiment.proposalId,
+      runEpisodeId: 'transition-failed',
+      state: 'reserved',
+    });
+
+    const enrollments = new AgentOrgExperimentEnrollmentsRepository();
+    const result = await enrollments.markTreatmentFailedAsync('transition-failed', {
+      failureCode: 'provider_unavailable',
+    });
+
+    expect(result.status).toBe('applied');
+    expect(result.current).not.toBeNull();
+    expect(result.current!.state).toBe('treatment_failed');
+    expect(result.current!.failureCode).toBe('provider_unavailable');
+    expect(result.current!.failureReason).toBe(ENROLLMENT_FAILURE_CODE_REASONS.provider_unavailable);
+  });
+
+  it('enforces the allowed state graph for illegal edges', async () => {
+    const experiment = await declaredExperiment({ maxExposure: 2 });
+    seedEnrollment({
+      experimentId: experiment.id,
+      proposalId: experiment.proposalId,
+      runEpisodeId: 'transition-illegal',
+      state: 'reserved',
+    });
+
+    const enrollments = new AgentOrgExperimentEnrollmentsRepository();
+    const terminalFromReserved = await enrollments.markTerminalizedAsync('transition-illegal');
+    expect(terminalFromReserved.status).toBe('illegal_transition');
+    expect(terminalFromReserved.current).not.toBeNull();
+    expect(terminalFromReserved.current!.state).toBe('reserved');
+
+    const dispatched = await enrollments.markDispatchedAsync('transition-illegal');
+    expect(dispatched.status).toBe('applied');
+    expect(dispatched.current).not.toBeNull();
+    expect(dispatched.current!.state).toBe('dispatched');
+
+    const reservedFromDispatched = await enrollments.markDispatchedAsync('transition-illegal');
+    expect(reservedFromDispatched.status).toBe('no_op');
+    expect(reservedFromDispatched.current).not.toBeNull();
+    expect(reservedFromDispatched.current!.state).toBe('dispatched');
+  });
+
+  it('terminalizes dispatched rows idempotently', async () => {
+    const experiment = await declaredExperiment({ maxExposure: 2 });
+    seedEnrollment({
+      experimentId: experiment.id,
+      proposalId: experiment.proposalId,
+      runEpisodeId: 'transition-terminalized',
+      state: 'dispatched',
+    });
+
+    const enrollments = new AgentOrgExperimentEnrollmentsRepository();
+    const first = await enrollments.markTerminalizedAsync('transition-terminalized');
+    expect(first.status).toBe('applied');
+    expect(first.current).not.toBeNull();
+    expect(first.current!.state).toBe('terminalized');
+
+    const second = await enrollments.markTerminalizedAsync('transition-terminalized');
+    expect(second.status).toBe('no_op');
+    expect(second.current).not.toBeNull();
+    expect(second.current!.state).toBe('terminalized');
+  });
+
+  it('returns missing when no enrollment exists for a transition', async () => {
+    const result = await new AgentOrgExperimentEnrollmentsRepository().markDispatchedAsync('missing-run-episode');
+    expect(result.status).toBe('missing');
+    expect(result.current).toBeNull();
+  });
+
+  it('rejects invalid failure codes and stores canonical failure reasons only', async () => {
+    const experiment = await declaredExperiment({ maxExposure: 2 });
+    seedEnrollment({
+      experimentId: experiment.id,
+      proposalId: experiment.proposalId,
+      runEpisodeId: 'transition-invalid-failure',
+      state: 'reserved',
+    });
+
+    const enrollments = new AgentOrgExperimentEnrollmentsRepository();
+    const badCode = await enrollments.markTreatmentFailedAsync('transition-invalid-failure', {
+      failureCode: ('definitely-not-a-code' as unknown) as ExperimentEnrollmentFailureCode,
+    });
+    expect(badCode.status).toBe('invalid_failure');
+
+    const current = await enrollments.findByRunEpisodeIdAsync('transition-invalid-failure');
+    expect(current).not.toBeNull();
+    expect(current!.state).toBe('reserved');
+    expect(current!.failureCode).toBeNull();
+    expect(current!.failureReason).toBeNull();
+  });
+
+  it('rejects raw SQL treatment_failed updates with a valid code but NULL reason', () => {
+    seedEnrollment({
+      experimentId: 'failure-null-reason-exp',
+      proposalId: 'failure-null-reason-prop',
+      runEpisodeId: 'failure-null-reason',
+      state: 'reserved',
+    });
+
+    expect(() => {
+      db
+        .prepare(
+          `UPDATE agent_org_experiment_enrollments
+             SET state = ?, failure_code = ?, failure_reason = ?
+           WHERE run_episode_id = ?`,
+        )
+        .run('treatment_failed', 'provider_unavailable', null, 'failure-null-reason');
+    }).toThrow();
+
+    const unchanged = db
+      .prepare(
+        `SELECT state, failure_code, failure_reason
+           FROM agent_org_experiment_enrollments
+          WHERE run_episode_id = ?`,
+      )
+      .get('failure-null-reason') as {
+        state: 'reserved' | 'dispatched' | 'treatment_failed' | 'terminalized';
+        failure_code: string | null;
+        failure_reason: string | null;
+      };
+
+    expect(unchanged.state).toBe('reserved');
+    expect(unchanged.failure_code).toBeNull();
+    expect(unchanged.failure_reason).toBeNull();
   });
 });
