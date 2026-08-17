@@ -24,6 +24,10 @@ export interface GatewayDomainContracts {
   schedules?: ScheduleGateway;
   mobileAccess?: MobileAccessGateway;
   commands?: CommandGateway;
+  runQuality?: RunQualityGateway;
+  cookbook?: CookbookGateway;
+  research?: ResearchGateway;
+  designs?: DesignsGateway;
 }
 
 export interface GatewayHealth {
@@ -127,6 +131,10 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       schedules: createLiveScheduleGateway(apiBase, config.taskToken),
       mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken),
       commands: createLiveCommandGateway(apiBase, config.taskToken),
+      runQuality: createLiveRunQualityGateway(apiBase, config.taskToken),
+      cookbook: createLiveCookbookGateway(apiBase, config.taskToken),
+      research: createLiveResearchGateway(apiBase, config.taskToken),
+      designs: createLiveDesignsGateway(apiBase, config.taskToken),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -165,3 +173,7 @@ import { createLiveSkillGateway, type SkillGateway } from './skills';
 import { createLiveScheduleGateway, type ScheduleGateway } from './schedules';
 import { createLiveMobileAccessGateway, type MobileAccessGateway } from './mobile-access';
 import { createLiveCommandGateway, type CommandGateway } from './commands';
+import { createLiveRunQualityGateway, type RunQualityGateway } from './run-quality';
+import { createLiveCookbookGateway, type CookbookGateway } from './cookbook';
+import { createLiveResearchGateway, type ResearchGateway } from './research';
+import { createLiveDesignsGateway, type DesignsGateway } from './designs';

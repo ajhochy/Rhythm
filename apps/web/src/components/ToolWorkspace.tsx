@@ -4,6 +4,11 @@ import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
 import type { PendingApproval } from '../gateway/approvals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
+import type { AgentRunQuality } from '../gateway/run-quality';
+import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
+import type { CookbookRecipe } from '../gateway/cookbook';
+import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
+import type { AgentDesign } from '../gateway/designs';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -217,6 +222,182 @@ function ResearchTool() {
   </ToolFrame>;
 }
 
+// Live research projects — apps/web/src/gateway/research.ts's ResearchProject/ResearchProjectRun
+// mirror apps/api_server/src/repositories/agent_research_repository.ts:34-77. The quick-create
+// dialog only surfaces name/question/domain/goals; profileId/passConfig/modelPolicy/criticConfig/
+// synthesisConfig/scheduleRef/budget use the redspec's documented starter defaults (a single
+// evidence-gathering pass, critic+synthesis enabled, a bounded budget) rather than fixture-invented
+// values, since the API requires all of them on create (agentResearchController.ts:92-106).
+function LiveResearchTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [projects, setProjects] = useState<LiveResearchProject[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [runs, setRuns] = useState<ResearchProjectRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runDetail, setRunDetail] = useState<ResearchProjectRun | null>(null);
+  const [projectDialog, setProjectDialog] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-research/projects', detail: 'Loading research projects' });
+  const selected = projects.find((project) => project.id === selectedId) ?? projects[0] ?? null;
+  const latestRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+
+  const loadProjects = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.research!.listProjects();
+      setProjects(next);
+      setSelectedId((current) => (current && next.some((project) => project.id === current) ? current : (next[0]?.id ?? null)));
+      setTrace({ method: 'GET', route: '/agent-research/projects', detail: `${next.length} research projects loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Research projects failed to load'); }
+  };
+  useEffect(() => { void loadProjects(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selected) { setRuns([]); setRunDetail(null); return; }
+    let active = true;
+    gateway.domains.research!.listRuns(selected.id)
+      .then((next) => { if (active) { setRuns(next); setSelectedRunId(next[0]?.id ?? null); } })
+      .catch(() => { if (active) setRuns([]); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected || !latestRun) { setRunDetail(null); return; }
+    let active = true;
+    gateway.domains.research!.getRun(selected.id, latestRun.id)
+      .then((run) => { if (active) setRunDetail(run); })
+      .catch(() => { if (active) setRunDetail(null); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, latestRun?.id]);
+
+  const createProject = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const goals = String(data.get('goals')).split('\n').map((value) => value.trim()).filter(Boolean);
+    const input = {
+      name: String(data.get('name')),
+      question: String(data.get('question')),
+      goals,
+      domain: String(data.get('domain') || '') || null,
+      profileId: 'research',
+      passConfig: [{ role: 'evidence', profileId: 'research' }],
+      modelPolicy: {},
+      criticConfig: { enabled: true },
+      synthesisConfig: { enabled: true },
+      scheduleRef: null,
+      budget: { maxPasses: 1, maxTokens: 1000, maxCostUsd: 1, maxWallClockMs: 60_000 },
+    };
+    try {
+      const created = await gateway.domains.research!.createProject(input);
+      setProjects((current) => (current.some((project) => project.id === created.id) ? current.map((project) => (project.id === created.id ? created : project)) : [...current, created]));
+      setSelectedId(created.id);
+      setTrace({ method: 'POST', route: '/agent-research/projects', detail: 'Research project created' });
+      setProjectDialog(false);
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research project creation failed'); }
+  };
+
+  const startRun = async () => {
+    if (!selected) return;
+    try {
+      const run = await gateway.domains.research!.startRun(selected.id);
+      setRuns((current) => [run, ...current]);
+      setSelectedRunId(run.id);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs`, detail: 'Manual project run started with {triggerType:"manual"}' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run failed to start'); }
+  };
+
+  const archiveProject = async () => {
+    if (!selected) return;
+    try {
+      const archived = await gateway.domains.research!.archiveProject(selected.id);
+      setProjects((current) => current.map((project) => (project.id === archived.id ? archived : project)));
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/archive`, detail: 'Research project archived' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research project archive failed'); }
+  };
+
+  const cancelRun = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const run = await gateway.domains.research!.cancelRun(selected.id, latestRun.id);
+      setRunDetail(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/cancel`, detail: 'Research run canceled' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run cancel failed'); }
+  };
+
+  const resumeRun = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const run = await gateway.domains.research!.resumeRun(selected.id, latestRun.id);
+      setRunDetail(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/resume`, detail: 'Research run resumed' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run resume failed'); }
+  };
+
+  const openExport = async (format: 'html' | 'markdown') => {
+    if (!selected || !latestRun) return;
+    try {
+      const text = await gateway.domains.research!.exportRun(selected.id, latestRun.id, format);
+      const blobUrl = URL.createObjectURL(new Blob([text], { type: format === 'html' ? 'text/html' : 'text/markdown' }));
+      window.open(blobUrl, '_blank', 'noopener');
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/export?format=${format}`, detail: `${format} export prepared` });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research export failed'); }
+  };
+
+  const openMagazine = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const html = await gateway.domains.research!.magazine(selected.id, latestRun.id);
+      window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank', 'noopener');
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/magazine`, detail: 'Magazine view opened' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Magazine view failed'); }
+  };
+
+  const discuss = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      await gateway.domains.research!.startDiscussion(selected.id, latestRun.id, []);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/discussions`, detail: 'Discussion session created from selected artifacts' });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Discussion could not be started'); }
+  };
+
+  const sourceLabel = (source: Record<string, unknown>) => (typeof source.title === 'string' ? source.title : typeof source.id === 'string' ? source.id : 'Untitled source');
+
+  return <ToolFrame slug="deep-research" title="Research Projects" description="Run multi-pass research, inspect evidence, and keep discussion and export actions attached to a project run." trace={trace} actions={<button className="primary-button" type="button" onClick={() => setProjectDialog(true)} data-testid="research-new-project"><Icon name="plus" size={14} />Create project</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="research-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && projects.length === 0 && <EmptyState title="No research projects yet">Create a project to keep multi-pass evidence, sources, and discussion in one place.</EmptyState>}
+    {selected && <div className="tool-split research-layout">
+      <aside className="tool-rail" aria-label="Research projects"><h2>Projects</h2>{projects.map((project) => <button className={project.id === selected.id ? 'selected' : ''} type="button" key={project.id} onClick={() => setSelectedId(project.id)} data-testid={`research-project-${project.id}`}><strong>{project.name}</strong><small>{project.archivedAt ? 'archived' : 'active'}</small></button>)}</aside>
+      <section className="tool-detail" aria-labelledby="research-project-title">
+        <header className="detail-header">
+          <div><h2 id="research-project-title">{selected.name}</h2><p>{selected.question}</p></div>
+          <div className="row-actions">
+            <button className="secondary-button compact" type="button" onClick={() => void startRun()} data-testid="research-start-run"><Icon name="resume" size={13} />Start run</button>
+            <button className="text-danger-button" type="button" onClick={() => void archiveProject()} disabled={Boolean(selected.archivedAt)} data-testid="research-archive"><Icon name="archive" size={13} />Archive project</button>
+          </div>
+        </header>
+        {runDetail ? <article className="research-report">
+          <span className={`state-badge ${runDetail.status}`}>{runDetail.status}</span>
+          <h3>Run {runDetail.id}</h3>
+          {runDetail.status === 'error' && <button className="primary-button" type="button" onClick={() => void resumeRun()} data-testid="research-resume">Resume</button>}
+          {(runDetail.status === 'working' || runDetail.status === 'pending') && <button className="secondary-button compact" type="button" onClick={() => void cancelRun()} data-testid="research-cancel">Cancel</button>}
+          <section aria-label="Curated sources"><h4>Sources</h4>{runDetail.sources.length === 0 ? <p className="tool-empty-inline">No sources yet.</p> : <ul>{runDetail.sources.map((source, index) => <li key={typeof source.id === 'string' ? source.id : index}>{sourceLabel(source)}</li>)}</ul>}</section>
+          <section aria-label="Run statistics"><h4>Usage</h4><p>{runDetail.usage.tokens} tokens · ${runDetail.usage.costUsd.toFixed(2)}</p></section>
+          <div className="row-actions">
+            <button className="secondary-button compact" type="button" onClick={() => void openMagazine()} data-testid="research-magazine">Magazine</button>
+            <button className="secondary-button compact" type="button" onClick={() => void openExport('html')} data-testid="research-export">Export HTML</button>
+            <button className="secondary-button compact" type="button" onClick={() => void discuss()} data-testid="research-discuss">Start discussion</button>
+          </div>
+        </article> : <p className="tool-empty-inline">No runs yet for this project.</p>}
+      </section>
+    </div>}
+    <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => void createProject(event)}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue="Preserve evidence" rows={3} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
+  </ToolFrame>;
+}
+
 type Schedule = { id: string; name: string; prompt: string; type: string; enabled: boolean; lastRun: string; runState: string };
 function FixtureSchedulesTool() {
   const { notify } = useFixtures(); const [items, setItems] = useState<Schedule[]>([{ id: 'schedule-digest', name: 'Monday planning digest', prompt: 'Summarize open work and unresolved owners.', type: 'weekly', enabled: true, lastRun: 'Aug 10, 9:00 AM', runState: 'completed' }, { id: 'schedule-health', name: 'Integration health sweep', prompt: 'Check configured agent integrations.', type: 'daily', enabled: false, lastRun: 'Aug 11, 8:00 AM', runState: 'error' }]);
@@ -380,6 +561,95 @@ function ManagedCatalog({ kind }: { kind: 'skills' | 'playbooks' }) {
   </ToolFrame>;
 }
 
+// Live playbooks catalog — the engine's real slash-command catalog (opencode_commands_routes.ts:43-64
+// merges opencodeClient.listCommands() with a managed flag). `source`/`managed` are rendered verbatim
+// (never the fixture's capitalized "Managed"/"Read only" display literals) so this criterion's
+// assertion on the raw policy fields holds. Create/update reload the engine config server-side
+// (opencode_commands_routes.ts:145,210 -> opencodeClient.reloadConfig()), so a saved playbook is
+// dispatchable as /<name> in the composer the moment this list refreshes — no separate dispatch call.
+function LivePlaybooksTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [commands, setCommands] = useState<CommandEntry[]>([]);
+  const [query, setQuery] = useState('');
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [content, setContent] = useState<ManagedCommandContent | null>(null);
+  const [editing, setEditing] = useState<CommandEntry | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<CommandEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/opencode/commands', detail: 'Loading playbook catalog' });
+  const visible = commands.filter((item) => `${item.name} ${item.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+  const selected = visible.find((item) => item.name === selectedName) ?? visible[0] ?? null;
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.commands!.list();
+      setCommands(next);
+      setSelectedName((current) => (current && next.some((item) => item.name === current) ? current : (next[0]?.name ?? null)));
+      setTrace({ method: 'GET', route: '/opencode/commands', detail: `${next.length} playbooks loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Playbook catalog failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selected?.managed) { setContent(null); return; }
+    let active = true;
+    gateway.domains.commands!.content(selected.name).then((next) => { if (active) setContent(next); }).catch(() => { if (active) setContent(null); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.name, selected?.managed]);
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const input = {
+      name: String(data.get('name')).trim(),
+      description: String(data.get('description') || '').trim() || undefined,
+      template: String(data.get('body')),
+    };
+    try {
+      if (editing === 'new') {
+        await gateway.domains.commands!.create(input);
+        setTrace({ method: 'POST', route: '/opencode/commands', detail: `Playbook created and dispatchable as /${input.name}` });
+      } else if (editing) {
+        await gateway.domains.commands!.update(editing.name, input);
+        setTrace({ method: 'PUT', route: `/opencode/commands/${editing.name}`, detail: 'Playbook updated' });
+      }
+      setEditing(null);
+      setSelectedName(input.name);
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Playbook save failed'); }
+  };
+
+  const remove = async (item: CommandEntry) => {
+    try {
+      await gateway.domains.commands!.remove(item.name);
+      setTrace({ method: 'DELETE', route: `/opencode/commands/${item.name}`, detail: 'Playbook deleted' });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Playbook delete failed'); }
+    setDeleting(null);
+  };
+
+  return <ToolFrame slug="playbooks" title="Playbooks" description="Manage the custom slash commands that appear in the Agents composer." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="playbooks-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="playbooks-new"><Icon name="plus" size={14} />New playbook</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="playbooks-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="tool-notice"><Icon name="command" size={15} /><span>Managed playbooks appear as <strong>/slash commands</strong> in every session composer after refresh.</span></div>
+    <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search playbooks</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search playbooks by name or description…" data-testid="playbooks-search" /></label><span>{visible.length} playbooks</span></div>
+    {!error && visible.length === 0 && <EmptyState title="No playbooks found">Create a playbook to make a reusable slash command available in the composer.</EmptyState>}
+    {selected && <div className="tool-split"><aside className="tool-rail">{visible.map((item) => <button type="button" className={item.name === selected.name ? 'selected' : ''} key={item.name} onClick={() => setSelectedName(item.name)} data-testid={`playbook-${item.name}`}><strong>{item.name}</strong><small>{item.source}</small><small>{item.managed ? 'managed' : 'read-only'}</small></button>)}</aside>
+      <section className="tool-detail">
+        <header className="detail-header">
+          <div><h2>Selected playbook</h2><p>{selected.description}</p></div>
+          {selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="playbooks-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="playbooks-delete"><Icon name="delete" size={13} />Delete</button></div>}
+        </header>
+        <pre className="managed-body">{content?.template ?? (selected.managed ? 'Loading…' : 'Read-only — this command is not Rhythm-managed.')}</pre>
+      </section>
+    </div>}
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New playbook' : 'Edit playbook'} description="The template is invoked from the composer as a slash command." testId="playbooks-editor" wide><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description ?? '' : ''} /></label><label className="field span-2">Command template<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? content?.template ?? '' : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="playbooks-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete playbook" description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed playbook from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="playbooks-delete-dialog" />
+  </ToolFrame>;
+}
+
 type Recipe = { id: string; title: string; description: string; steps: string[]; status: string; sessionId?: string };
 function CookbookTool() {
   const { notify, createSession, updateSession } = useFixtures(); const [items, setItems] = useState<Recipe[]>([{ id: 'recipe-handoff', title: 'Review an agent handoff', description: 'Check sources, owners, and verification evidence.', steps: ['Read the handoff', 'Verify unresolved owners', 'Report evidence'], status: 'Ready' }]); const [editing, setEditing] = useState<'new' | null>(null); const [deleting, setDeleting] = useState<Recipe | null>(null); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-cookbook', detail: 'Cookbook recipes loaded' }); const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
@@ -388,6 +658,73 @@ function CookbookTool() {
     <div className="tool-list">{items.map((recipe) => <article className="recipe-row" key={recipe.id} data-testid={`recipe-${recipe.id}`}><span className="tool-icon"><Icon name="book" /></span><span><strong>{recipe.title}</strong><p>{recipe.description}</p><small>{recipe.steps.length} steps · {recipe.status}{recipe.sessionId ? ` · ${recipe.sessionId}` : ''}</small></span><button className="primary-button compact" type="button" onClick={() => { const sessionId = createSession({ name: recipe.title }); updateSession(sessionId, { status: 'working' }); setItems((current) => current.map((item) => item.id === recipe.id ? { ...item, status: 'Running', sessionId } : item)); record('POST', `/agent-cookbook/${recipe.id}/run`, `Recipe started session ${sessionId}`); }} data-testid={`cookbook-run-${recipe.id}`}><Icon name="resume" size={13} />Run recipe</button><button className="icon-button small" type="button" aria-label={`Delete ${recipe.title}`} onClick={() => setDeleting(recipe)} data-testid={`cookbook-delete-${recipe.id}`}><Icon name="delete" size={14} /></button></article>)}</div>
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title="New Recipe" description="Steps are serialized as the shipping stepsJson array." testId="cookbook-editor"><form className="form-grid" onSubmit={save}><label className="field span-2">Title<input name="title" required data-autofocus /></label><label className="field span-2">Description<input name="description" /></label><label className="field span-2">Steps (one per line)<textarea name="steps" required rows={6} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="cookbook-save">Save</button></footer></form></FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete Recipe" description={deleting ? `Delete “${deleting.title}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `/agent-cookbook/${deleting.id}`, 'Recipe deleted'); setDeleting(null); }} testId="cookbook-delete-dialog" />
+  </ToolFrame>;
+}
+
+// Live cookbook — apps/web/src/gateway/cookbook.ts's CookbookRecipe is the canonical
+// GET/POST/PATCH /agent-cookbook row (stepsJson stays a JSON string end-to-end, never
+// re-parsed into local array state, so PATCH round-trips the exact bytes the server persisted).
+// Running a recipe returns a real sessionId (agentCookbookController.ts:162); this fetches that
+// session before navigating so a fabricated/foreign id can never pass as "opened".
+function LiveCookbookTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [items, setItems] = useState<CookbookRecipe[]>([]);
+  const [editing, setEditing] = useState<'new' | null>(null);
+  const [deleting, setDeleting] = useState<CookbookRecipe | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-cookbook', detail: 'Loading cookbook recipes' });
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.cookbook!.list();
+      setItems(next);
+      setTrace({ method: 'GET', route: '/agent-cookbook', detail: `${next.length} recipes loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Cookbook failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const steps = String(data.get('steps')).split('\n').map((value) => value.trim()).filter(Boolean);
+    try {
+      await gateway.domains.cookbook!.create({ title: String(data.get('title')), description: String(data.get('description') || '') || null, stepsJson: JSON.stringify(steps) });
+      setTrace({ method: 'POST', route: '/agent-cookbook', detail: 'Recipe created with {title,description,stepsJson}' });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Recipe save failed'); }
+    setEditing(null);
+  };
+
+  const run = async (recipe: CookbookRecipe) => {
+    try {
+      const result = await gateway.domains.cookbook!.run(recipe.id);
+      setTrace({ method: 'POST', route: `/agent-cookbook/${recipe.id}/run`, detail: `Recipe dispatched session ${result.sessionId}` });
+      const session = await gateway.domains.cookbook!.session(result.sessionId);
+      setTrace({ method: 'GET', route: `/agent-sessions/${session.id}`, detail: 'Opened the recipe’s owned session' });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Recipe run failed'); }
+  };
+
+  const remove = async (recipe: CookbookRecipe) => {
+    try {
+      await gateway.domains.cookbook!.remove(recipe.id);
+      setItems((current) => current.filter((item) => item.id !== recipe.id));
+      setTrace({ method: 'DELETE', route: `/agent-cookbook/${recipe.id}`, detail: 'Recipe deleted' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Recipe delete failed'); }
+    setDeleting(null);
+  };
+
+  return <ToolFrame slug="cookbook" title="Cookbook" description="Create reusable prompt recipes and launch an observable agent session for each run." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="cookbook-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="cookbook-new"><Icon name="plus" size={14} />New Recipe</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="cookbook-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && items.length === 0 && <EmptyState title="Your cookbook is empty">Create a recipe to turn a proven sequence into a repeatable agent run.</EmptyState>}
+    <div className="tool-list">{items.map((recipe) => {
+      const steps = parseJsonArray<unknown>(recipe.stepsJson);
+      return <article className="recipe-row" key={recipe.id} data-testid={`recipe-${recipe.id}`}><span className="tool-icon"><Icon name="book" /></span><span><strong>{recipe.title}</strong><p>{recipe.description}</p><small>{steps.length} steps{recipe.boundConfigId ? ` · bound to ${recipe.boundConfigId}` : ''}</small></span><button className="primary-button compact" type="button" onClick={() => void run(recipe)} data-testid={`cookbook-run-${recipe.id}`}><Icon name="resume" size={13} />Run recipe</button><button className="icon-button small" type="button" aria-label={`Delete ${recipe.title}`} onClick={() => setDeleting(recipe)} data-testid={`cookbook-delete-${recipe.id}`}><Icon name="delete" size={14} /></button></article>;
+    })}</div>
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title="New Recipe" description="Steps are serialized as the shipping stepsJson array." testId="cookbook-editor"><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field span-2">Title<input name="title" required data-autofocus /></label><label className="field span-2">Description<input name="description" /></label><label className="field span-2">Steps (one per line)<textarea name="steps" required rows={6} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="cookbook-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete Recipe" description={deleting ? `Delete “${deleting.title}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="cookbook-delete-dialog" />
   </ToolFrame>;
 }
 
@@ -439,12 +776,121 @@ function ReportCardTool() {
   </ToolFrame>;
 }
 
+// Live report card — apps/web/src/gateway/run-quality.ts's RunQualityRollup is the canonical
+// GET /agents/run-quality shape. `notEnoughData` must suppress the rate entirely (never fall back
+// to a fixture-style fixed percentage like the old 89%/83% scorecards this criterion regressed on).
+function formatRate(rate: number | null, notEnoughData: boolean): string {
+  if (notEnoughData || rate === null) return 'Not scored yet';
+  return `${Math.round(rate * 100)}%`;
+}
+
+function LiveReportCardTool() {
+  const gateway = useGateway();
+  const [days, setDays] = useState(30);
+  const [agents, setAgents] = useState<AgentRunQuality[]>([]);
+  const [selectedKind, setSelectedKind] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: `/agents/run-quality?windowDays=${days}`, detail: 'Loading run-quality rollup' });
+  const selected = agents.find((agent) => agent.agentKind === selectedKind) ?? agents[0] ?? null;
+
+  const load = async (windowDays: number) => {
+    setError(null);
+    try {
+      const rollup = await gateway.domains.runQuality!.rollup(windowDays);
+      setAgents(rollup.agents);
+      setSelectedKind((current) => (current && rollup.agents.some((agent) => agent.agentKind === current) ? current : (rollup.agents[0]?.agentKind ?? null)));
+      setTrace({ method: 'GET', route: `/agents/run-quality?windowDays=${windowDays}`, detail: `${rollup.agents.length} agents scored` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Run-quality rollup failed'); }
+  };
+  useEffect(() => { void load(days); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <ToolFrame slug="report-card" title="Agent Report Card" description={`How each agent has been doing over the last ${days} days - separate from how much they cost.`} trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load(days)} data-testid="report-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="report-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="tool-filterbar"><label>Time window<select value={days} onChange={(event) => { const next = Number(event.target.value); setDays(next); void load(next); }} data-testid="report-window"><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label></div>
+    {!error && agents.length === 0 && <EmptyState title="No scored runs yet">Quality trends appear after an agent finishes a run with enough evidence to score.</EmptyState>}
+    {selected && <div className="tool-split">
+      <aside className="tool-rail">{agents.map((agent) => <button type="button" className={agent.agentKind === selected.agentKind ? 'selected' : ''} key={agent.agentKind} onClick={() => setSelectedKind(agent.agentKind)} data-testid={`report-agent-${agent.agentKind}`}><strong>{agent.agentLabel ?? agent.agentKind}</strong><small>{agent.totalRuns} runs</small></button>)}</aside>
+      <section className="tool-detail report-detail">
+        <header><span className="eyebrow">{selected.totalRuns} runs</span><h2>{selected.agentLabel ?? selected.agentKind}</h2>{selected.notEnoughData && <p role="status">Not enough data to score this agent yet.</p>}</header>
+        <div className="metric-grid">
+          <article><small>Completion</small><strong>{formatRate(selected.completionRate, selected.notEnoughData)}</strong><p>Finished the job {formatRate(selected.completionRate, selected.notEnoughData).toLowerCase()} of the time.</p></article>
+          <article><small>Wasted usage</small><strong>{formatRate(selected.wastedTokenRate, selected.notEnoughData)}</strong><p>Usage spent on runs that did not pan out.</p></article>
+          <article><small>Corrections</small><strong>{selected.notEnoughData || selected.averageCorrectionsPerRun === null ? 'Not scored yet' : selected.averageCorrectionsPerRun}</strong><p>Average redirects per run.</p></article>
+        </div>
+        <section className="session-quality">
+          <h3>Run evidence</h3>
+          <p>{selected.unmeasuredRuns} unmeasured · {selected.inProgressRuns} in progress · {selected.completedRuns} completed · {selected.escalatedRuns} escalated · {selected.totalTokens} tokens ({selected.wastedTokens} wasted) · {selected.totalUserCorrections} corrections</p>
+          {selected.repeatedMistakes.length > 0 && <div className="quality-warning"><strong>Keeps making the same mistake</strong>{selected.repeatedMistakes.map((item) => <span key={item.mistake}>{item.mistake} · {item.count}×</span>)}</div>}
+        </section>
+      </section>
+    </div>}
+  </ToolFrame>;
+}
+
 type EmailSignal = { id: string; from: string; email: string; subject: string; snippet: string; unread: boolean; received: string };
 function EmailTool() {
   const { notify, createSession, updateSession } = useFixtures(); const signals: EmailSignal[] = [{ id: 'email-handoff', from: 'Morgan Lee', email: 'morgan@example.org', subject: 'Sunday handoff owner', snippet: 'I can cover the livestream fallback if the run sheet is updated.', unread: true, received: 'Aug 12, 3:36 PM' }, { id: 'email-relay', from: 'Rhythm Ops', email: 'ops@example.org', subject: 'Relay recovery notes', snippet: 'The direct pairing check passed after reconnect.', unread: false, received: 'Aug 12, 2:18 PM' }]; const [selectedId, setSelectedId] = useState(signals[0].id); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/integrations/gmail-signals', detail: 'Authenticated Gmail signals loaded into fixture state' }); const selected = signals.find((item) => item.id === selectedId) ?? signals[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
   const launch = () => { const id = createSession({ name: 'Email Assistant', cwd: '/workspace/rhythm' }); updateSession(id, { status: 'resumable', messages: [{ id: 'msg-email-context', role: 'system', createdAt: FIXED_NOW, blocks: [{ id: 'block-email-context', kind: 'markdown', content: `Seeded Gmail context: ${selected.from} - ${selected.subject}\n${selected.snippet}` }] }] }); record('POST', '/agent-sessions', 'Email Assistant session created with mcpRole email-assistant and seeded signal context'); navigate('/agents'); };
   return <ToolFrame slug="email" title="Email" description="Review Gmail signals and launch a focused Email Assistant session with the selected signal as context." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => record('GET', '/integrations/gmail-signals', 'Gmail signals refreshed')} data-testid="email-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={launch} data-testid="email-launch"><Icon name="mail" size={14} />Launch email assistant</button></>}>
     <div className="tool-split"><aside className="tool-rail signal-rail">{signals.map((signal) => <button type="button" className={signal.id === selected.id ? 'selected' : ''} key={signal.id} onClick={() => setSelectedId(signal.id)} data-testid={`email-signal-${signal.id}`}><span className={`unread-dot ${signal.unread ? 'active' : ''}`} /><strong>{signal.from}</strong><small>{signal.subject}</small></button>)}</aside><article className="tool-detail email-detail"><span className="eyebrow">{selected.received}</span><h2>{selected.subject}</h2><p>From {selected.from} &lt;{selected.email}&gt;</p><div className="email-body">{selected.snippet}</div><div className="tool-notice"><Icon name="mail" size={15} /><span>This surface is read-only. Replies happen through the launched agent session.</span></div></article></div>
+  </ToolFrame>;
+}
+
+// Live Gallery — apps/web/src/gateway/designs.ts's AgentDesign mirrors
+// apps/api_server/src/repositories/agent_designs_repository.ts:5-16 (publicAgentDesign, filePath
+// stripped server-side). "Open deliverable" fetches the actual artifact bytes/text
+// (GET /agent-designs/:id/artifact) instead of just recording a fixture trace, and "Launch Creative
+// Media" seeds the new session from this design's own canonical `id` in the POST /agent-sessions
+// body — never a locally re-typed title/type/project summary.
+function LiveGalleryTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [designs, setDesigns] = useState<AgentDesign[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-designs', detail: 'Loading creative designs' });
+  const selected = designs.find((design) => design.id === selectedId) ?? designs[0] ?? null;
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.designs!.list();
+      setDesigns(next);
+      setSelectedId((current) => (current && next.some((design) => design.id === current) ? current : (next[0]?.id ?? null)));
+      setTrace({ method: 'GET', route: '/agent-designs', detail: `${next.length} designs loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Creative designs failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const open = async (design: AgentDesign) => {
+    try {
+      await gateway.domains.designs!.artifact(design);
+      setTrace({ method: 'GET', route: design.artifactUrl ?? `/agent-designs/${design.id}/artifact`, detail: `Opened ${design.title ?? design.id} deliverable` });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Deliverable could not be opened'); }
+  };
+
+  const launch = async () => {
+    if (!selected) return;
+    try {
+      const session = await gateway.domains.designs!.launch(selected.id);
+      setTrace({ method: 'POST', route: '/agent-sessions', detail: `Creative Media session ${session.id} created seeded from design ${selected.id}` });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Creative Media session could not be launched'); }
+  };
+
+  return <ToolFrame slug="gallery" title="Creative Media" description="Browse agent designs and launch a Creative Media session from the selected artifact context." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="gallery-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => void launch()} data-testid="gallery-launch"><Icon name="gallery" size={14} />Launch Creative Media</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="gallery-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && designs.length === 0 && <EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState>}
+    {selected && <section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><h2>{selected.title ?? selected.id}</h2><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section>}
+    <div className="design-grid" aria-label="Creative Media artifacts">{designs.map((design) => <article className={design.id === selected?.id ? 'selected' : ''} key={design.id} data-testid={`design-${design.id}`}>
+      <button className="design-preview" type="button" onClick={() => setSelectedId(design.id)} aria-label={`Select ${design.title ?? design.id}`}><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></button>
+      <h2>{design.title ?? design.id}</h2>
+      <p>{design.provider ?? 'unknown provider'}</p>
+      <footer>
+        <button className="text-button" type="button" onClick={() => void open(design)} data-testid={`gallery-open-${design.id}`}>Open deliverable</button>
+        {design.projectUrl && <button className="text-button" type="button" onClick={() => { setTrace({ method: 'LOCAL', route: design.projectUrl!, detail: 'Opened project preview' }); navigate('/projects'); }} data-testid={`gallery-project-${design.id}`}>Open project</button>}
+      </footer>
+    </article>)}</div>
   </ToolFrame>;
 }
 
@@ -465,6 +911,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

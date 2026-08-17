@@ -63,7 +63,7 @@ const demoLabels: Record<DemoState, string> = {
 };
 
 export function Shell({ route, children }: { route: string; children: React.ReactNode }) {
-  const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead } = useFixtures();
+  const { theme, setTheme, demo, setDemo, toast, resetFixtures, notify, unreadThreads, sessionGatewayMode, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, pendingApprovals, decideApproval } = useFixtures();
   const live = sessionGatewayMode === 'live';
   // c4b: entityType -> destination page. Deliberately a list route, not a deep per-entity view —
   // Rhythm's task/rhythm/project detail routes don't yet accept a hash target id to focus.
@@ -119,7 +119,19 @@ export function Shell({ route, children }: { route: string; children: React.Reac
           <Menu label="Notifications" icon="bell" testId="notifications-button">
             {live ? <>
               <div className="menu-heading"><span>Notifications</span><small>{notificationUnreadCount} unread</small></div>
-              {notifications.length === 0 && pushNotifications.length === 0 && <div className="menu-item stacked"><small>No notifications</small></div>}
+              {notifications.length === 0 && pushNotifications.length === 0 && pendingApprovals.length === 0 && <div className="menu-item stacked"><small>No notifications</small></div>}
+              {/* post-m1-phase-7 c4d: pending approvals as actionable cards, not just a read-only row —
+                  Approve/Reject attempt the real decide() boundary; see decideApproval's doc comment in
+                  store.tsx for why that boundary is presently an honest rejection (no native signer yet). */}
+              {pendingApprovals.map((approval) => <div key={`approval-${approval.id}`} className="menu-item stacked approval-card" data-testid={`approval-card-${approval.id}`}>
+                <strong>{approval.action}</strong>
+                {approval.preview && <p>{approval.preview}</p>}
+                {approval.consequence && <small>{approval.consequence}</small>}
+                <div className="dialog-actions">
+                  <button type="button" className="primary-button compact" data-menu-keep-open onClick={() => void decideApproval(approval.id, 'approved')}>Approve</button>
+                  <button type="button" className="secondary-button compact" data-menu-keep-open onClick={() => void decideApproval(approval.id, 'rejected')}>Reject</button>
+                </div>
+              </div>)}
               {notifications.map((item) => <button key={`domain-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={() => openDomainNotification(item.id, item.entityType)}><strong>{item.message}</strong><small>{item.type}</small></button>)}
               {pushNotifications.map((item) => <button key={`push-${item.id}`} role="menuitem" className="menu-item stacked" type="button" onClick={openPushNotification}><strong>{item.title}</strong><small>{item.body}</small></button>)}
               <button role="menuitem" className="menu-item stacked" type="button" onClick={markAllNotificationsRead}><strong>Mark all read</strong><small>Clears unread status</small></button>
