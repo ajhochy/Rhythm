@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
+import type { PendingApproval } from '../gateway/approvals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
@@ -391,7 +392,38 @@ function CookbookTool() {
 }
 
 type Proposal = { id: string; title: string; kind: string; risk: string; rationale: string; evidence: string; status: 'proposed' | 'approved' | 'rejected'; expanded?: boolean };
-function ReviewTool() {
+// post-m1-phase-5 c2b: the pending human-approval boundary (apps/api_server/src/controllers/agent_approvals_controller.ts:118-186)
+// is a single shared list — Review Queue must read it live, the same GET /agent-approvals the
+// originating transcript reads, never the seeded org-optimizer proposal fixtures below.
+function LiveReviewTool() {
+  const gateway = useGateway();
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-approvals?status=pending', detail: 'Loading pending approvals' });
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.approvals!.listPending();
+      setApprovals(next);
+      setTrace({ method: 'GET', route: '/agent-approvals?status=pending', detail: `${next.length} approvals loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Approval list failed'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <ToolFrame slug="review" title="Review Queue" description="Pending human-gated approvals, shared with the originating session transcript." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="review-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="proposal-grid" data-testid="review-list">{approvals.map((approval) => <article className="proposal-card" key={approval.id} data-testid={`approval-${approval.id}`}>
+      <header><span className="kind-badge">{approval.status}</span></header>
+      <h2>{approval.action}</h2>
+      {approval.preview && <p>{approval.preview}</p>}
+      {approval.consequence && <p className="tool-notice"><Icon name="background" size={14} /><span>{approval.consequence}</span></p>}
+    </article>)}</div>
+    {approvals.length === 0 && !error && <EmptyState title="Nothing waiting for review">Approvals raised by a live session will appear here.</EmptyState>}
+  </ToolFrame>;
+}
+
+function FixtureReviewTool() {
   const { notify } = useFixtures(); const [items, setItems] = useState<Proposal[]>([{ id: 'proposal-research-agent', title: 'Adopt research-librarian profile', kind: 'external_adoption', risk: 'medium', rationale: 'Repeated research runs benefit from explicit citation constraints.', evidence: 'signal: 7 verified runs · post score 84', status: 'proposed' }, { id: 'proposal-review-skill', title: 'Promote verification skill', kind: 'skill_change', risk: 'low', rationale: 'The measured revision reduced unverified handoffs.', evidence: 'baseline 60 · post 82 · decision keep', status: 'proposed' }]); const [status, setStatus] = useState('proposed'); const [rejecting, setRejecting] = useState<Proposal | null>(null); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-org-proposals?status=proposed', detail: 'Proposals waiting for human review loaded' }); const visible = items.filter((item) => item.status === status); const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
   return <ToolFrame slug="review" title="Review Queue" description="Human-gated organization optimizer proposals remain inert until a person approves or rejects them." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => record('GET', `/agent-org-proposals?status=${status}`, 'Review queue refreshed')} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
     <div className="tool-filterbar"><label>Status<select value={status} onChange={(event) => { setStatus(event.target.value); setTrace({ method: 'GET', route: `/agent-org-proposals?status=${event.target.value}`, detail: 'Proposal status filter changed' }); }} data-testid="review-filter"><option value="proposed">Proposed</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label><span>{visible.length} proposals</span></div>
@@ -433,6 +465,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: <ReviewTool />, 'report-card': <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

@@ -38,6 +38,9 @@ export type SessionWireEvent = {
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };
+// apps/api_server/src/services/tool_surface_estimator.ts:39-52.
+export type ToolSurfaceServerEntry = { name: string; toolCount: number; estimatedTokens: number };
+export type ToolSurfaceReport = { mcpRole: string | null; servers: ToolSurfaceServerEntry[]; builtins: ToolSurfaceServerEntry; totalToolCount: number; totalEstimatedTokens: number };
 
 // post-m1-phase-6: canonical file/diff/worktree boundary shapes. Field vocabulary verified
 // against apps/api_server/src/routes/agent_sessions_routes.ts:86-94,110-112,121-122 and
@@ -86,6 +89,17 @@ export interface SessionGateway {
   removeWorktreeSession(localId: string): Promise<Session>;
   // GET /projects/:id/branches (post-m1-p6-c3a).
   branches(projectId: string): Promise<ProjectBranches>;
+  // #841 — GET /:id/tool-surface — apps/api_server/src/controllers/agent_sessions_controller.ts:2199-2260,
+  // apps/api_server/src/services/tool_surface_estimator.ts:39-52 (post-m1-p5-c3f).
+  toolSurface(localId: string): Promise<ToolSurfaceReport>;
+  // post-m1-p5-c3f: real and callable, but always rejects. The opencode engine has no primitive
+  // to execute a single MCP tool for a session outside a model-originated MCP App interactive
+  // binding (client.session.mcpAppExecution needs a live callId+proof issued FOR that specific
+  // model-created request — opencode_client_service.ts:2741-2764); there is no generic "run this
+  // tool now" endpoint (checked the full tool.*/mcp.* surface in
+  // services/mobile_opencode_operations.generated.ts). Honest rejection here, not a fabricated
+  // success, until the engine gains that capability.
+  dispatchMcp(localId: string, server: string, tool: string, args: Record<string, unknown>): Promise<never>;
   createProfile(input: ProfileMutation): Promise<Profile>;
   patchProfile(id: string, input: ProfileMutation): Promise<Profile>;
   deleteProfile(id: string): Promise<void>;
@@ -279,7 +293,7 @@ export function createFixtureSessionsGateway(_fetcher?: typeof fetch): SessionGa
   const unsupported = async (): Promise<never> => { throw new SessionGatewayError(0, 'Fixture sessions gateway is unsupported'); };
   return {
     mode: 'fixture', profiles: unsupported, list: unsupported, detail: unsupported, create: unsupported, createProfile: unsupported, patchProfile: unsupported, deleteProfile: unsupported, hardDelete: unsupported, cancel: unsupported, resume: unsupported, childMessages: unsupported, pageOlder: unsupported, updatePermissionMode: unsupported,
-    findFiles: unsupported, listFiles: unsupported, fileContent: unsupported, fileStatus: unsupported, sessionDiff: unsupported, vcsDiff: unsupported, vcsDiffRaw: unsupported, revert: unsupported, unrevert: unsupported, resetWorktree: unsupported, removeWorktreeSession: unsupported, branches: unsupported,
+    findFiles: unsupported, listFiles: unsupported, fileContent: unsupported, fileStatus: unsupported, sessionDiff: unsupported, vcsDiff: unsupported, vcsDiffRaw: unsupported, revert: unsupported, unrevert: unsupported, resetWorktree: unsupported, removeWorktreeSession: unsupported, branches: unsupported, toolSurface: unsupported, dispatchMcp: unsupported,
     connect: () => ({ send: () => undefined, close: () => undefined }),
   };
 }
@@ -369,6 +383,8 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
         recent: Array.isArray(data.recent) ? data.recent.filter((item): item is string => typeof item === 'string') : [],
       };
     },
+    toolSurface: (localId) => response<ToolSurfaceReport>('Load tool surface', request(`/agent-sessions/${encodeURIComponent(localId)}/tool-surface`)),
+    dispatchMcp: async () => { throw new SessionGatewayError(0, 'The engine has no primitive to dispatch a single MCP tool outside a model-originated request'); },
     childMessages: async (parentLocalId, childSdkId) => {
       const body = await response<{ messages?: unknown[] }>(
         'Load child session',
