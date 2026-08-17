@@ -48,14 +48,16 @@ const canonicalMessages = [{
   parts: [{ id: 'phase-5-text', type: 'text', text: 'Waiting for a human decision.' }],
 }];
 
-const corsHeaders = {
-  'access-control-allow-origin': 'http://127.0.0.1:4173',
+// Reflects the request's own Origin instead of a fixed port: a hardcoded port broke every
+// mocked response as soon as this suite's webServer port was remapped for worktree isolation.
+const corsHeaders = (route: Route) => ({
+  'access-control-allow-origin': route.request().headers()['origin'] ?? '*',
   'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
   'access-control-allow-headers': 'authorization,content-type,x-rhythm-human-approval',
-};
+});
 
 export const fulfillJson = (route: Route, status: number, json: unknown) =>
-  route.fulfill({ status, headers: corsHeaders, json });
+  route.fulfill({ status, headers: corsHeaders(route), json });
 
 export type BoundaryRequest = {
   method: string;
@@ -91,7 +93,7 @@ export async function openInterceptedLiveApp(
   await page.route('http://127.0.0.1:4097/**', (route) => fulfillJson(route, 200, { healthy: true }));
   await page.route('http://127.0.0.1:4098/**', async (route) => {
     const raw = route.request();
-    if (raw.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders });
+    if (raw.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: corsHeaders(route) });
     const url = new URL(raw.url());
     const request: BoundaryRequest = {
       method: raw.method(),
