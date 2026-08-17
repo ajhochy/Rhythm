@@ -26,7 +26,7 @@ const artifact = {
 // option (asserted by post-m1-p8-c1d) could never appear no matter what the product code did.
 const secondArtifact = { ...artifact, id: secondArtifactId, title: 'Viewer artifact', ownerUserId: 82, state: {} };
 const cors = {
-  'access-control-allow-origin': 'http://127.0.0.1:4378',
+  'access-control-allow-origin': 'http://127.0.0.1:4178',
   'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
   'access-control-allow-headers': 'authorization,content-type',
 };

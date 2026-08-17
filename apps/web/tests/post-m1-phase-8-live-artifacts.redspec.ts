@@ -10,7 +10,7 @@ const artifacts = [
 ];
 
 const cors = {
-  'access-control-allow-origin': 'http://127.0.0.1:4378',
+  'access-control-allow-origin': 'http://127.0.0.1:4178',
   'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
   'access-control-allow-headers': 'authorization,content-type',
 };

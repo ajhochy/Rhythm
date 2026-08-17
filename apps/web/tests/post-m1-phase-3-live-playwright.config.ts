@@ -8,10 +8,10 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   reporter: [['line']],
-  use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:4376', viewport: { width: 1440, height: 900 } },
+  use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:4176', viewport: { width: 1440, height: 900 } },
   webServer: {
-    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_LIVE_TOKEN=post-m1-phase-3-disposable npm run dev -- --host 127.0.0.1 --port 4376',
-    url: 'http://127.0.0.1:4376',
+    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_LIVE_TOKEN=post-m1-phase-3-disposable npm run dev -- --host 127.0.0.1 --port 4176',
+    url: 'http://127.0.0.1:4176',
     reuseExistingServer: false,
     timeout: 30_000,
   },

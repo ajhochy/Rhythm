@@ -8,7 +8,7 @@ const existingArtifact = {
   updatedAt: '2026-08-15T00:00:00Z', updatedByDisplayName: 'Avery Owner', deletedAt: null,
 };
 const cors = {
-  'access-control-allow-origin': 'http://127.0.0.1:4378',
+  'access-control-allow-origin': 'http://127.0.0.1:4178',
   'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
   'access-control-allow-headers': 'authorization,content-type',
 };
