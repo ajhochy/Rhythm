@@ -44,13 +44,24 @@ function stripSourcePrefix(triggerKey: string) {
   return triggerKey.replace(/^[a-z_]+\./, '');
 }
 
-type SurfaceState = 'ready' | 'loading' | 'empty' | 'server-error' | 'forbidden' | 'unavailable' | 'readonly' | 'catalog-empty' | 'invalid-config' | 'provider-error';
+// Phase 10 / post-m1-p10-c1a: the surface state vocabulary is exactly these seven literals. Bounded
+// dependency detail (empty catalog, a rule referencing a stale trigger, a provider needing
+// reconnect) is real information *within* ready/readonly, never a route-state literal of its own —
+// see DependencyDetail below.
+type SurfaceState = 'ready' | 'loading' | 'empty' | 'server-error' | 'forbidden' | 'unavailable' | 'readonly';
 
-const supportedStates: SurfaceState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly', 'catalog-empty', 'invalid-config', 'provider-error'];
+const supportedStates: SurfaceState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly'];
 const stateLabels: Record<SurfaceState, string> = {
   ready: 'Ready', loading: 'Loading', empty: 'Empty', 'server-error': 'Server error', forbidden: 'Forbidden', unavailable: 'Unavailable',
-  readonly: 'Read-only', 'catalog-empty': 'Catalog empty', 'invalid-config': 'Invalid configuration', 'provider-error': 'Provider error',
+  readonly: 'Read-only',
 };
+
+// Bounded dependency detail rendered while the page is otherwise ready/readonly. Live mode derives
+// this from the real catalog/rule responses (see liveDependencyDetail below); fixture mode exposes
+// the same three scenarios through a separate `?dependency=` param so demos never masquerade as an
+// invented route state.
+type DependencyDetail = 'none' | 'catalog-empty' | 'invalid-config' | 'provider-error';
+const supportedDependencyDetails: DependencyDetail[] = ['none', 'catalog-empty', 'invalid-config', 'provider-error'];
 
 function hashParams() {
   return new URLSearchParams(window.location.hash.split('?')[1] ?? '');
@@ -59,6 +70,11 @@ function hashParams() {
 function initialSurfaceState(): SurfaceState {
   const value = hashParams().get('state');
   return supportedStates.includes(value as SurfaceState) ? value as SurfaceState : 'ready';
+}
+
+function initialDependencyDetail(): DependencyDetail {
+  const value = hashParams().get('dependency');
+  return supportedDependencyDetails.includes(value as DependencyDetail) ? value as DependencyDetail : 'none';
 }
 
 function ruleIdFromRoute(route: string) {
@@ -84,7 +100,7 @@ function suggestedName(source: AutomationSource) {
   return 'Rhythm task due';
 }
 
-function StatePanel({ state, onRetry, onCreate }: { state: Exclude<SurfaceState, 'ready' | 'readonly' | 'catalog-empty' | 'invalid-config' | 'provider-error'>; onRetry(): void; onCreate(): void }) {
+function StatePanel({ state, onRetry, onCreate }: { state: Exclude<SurfaceState, 'ready' | 'readonly'>; onRetry(): void; onCreate(): void }) {
   if (state === 'loading') return <section className="automations-state loading" role="status" aria-live="polite" data-testid="page-state-loading"><span className="automations-spinner" aria-hidden="true" /><h2>Loading automations</h2><p>Gathering rules, provider accounts, and the current automation catalogs.</p><div className="automations-skeleton" aria-hidden="true"><span /><span /><span /></div></section>;
   if (state === 'empty') return <section className="automations-state" role="status" data-testid="page-state-empty"><span className="automations-state-mark" aria-hidden="true"><Icon name="spark" size={24} /></span><h2>No automations yet</h2><p>Turn a repeated handoff into a dependable Rhythm rule.</p><button className="primary-button" type="button" onClick={onCreate} data-testid="automations-empty-create"><Icon name="plus" size={15} />Create automation</button></section>;
   if (state === 'server-error') return <section className="automations-state danger" role="alert" data-testid="page-state-server-error"><span className="automations-state-code">503</span><h2>Automations could not be loaded</h2><p>The automation service returned a temporary error. Existing rules remain unchanged.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry"><Icon name="refresh" size={15} />Retry</button></section>;
@@ -261,6 +277,7 @@ export function AutomationsPage({ route }: { route: string }) {
   const isLive = rendererGateway.mode === 'live';
   const requestedRuleId = ruleIdFromRoute(route);
   const [surfaceState, setSurfaceState] = useState<SurfaceState>(() => isLive ? 'loading' : initialSurfaceState());
+  const [fixtureDependency] = useState<DependencyDetail>(() => isLive ? 'none' : initialDependencyDetail());
   // No fixture fallback in live mode: rules/receipts start empty and are only ever populated
   // from a real /automation-rules response (see loadLiveAutomations below).
   const [rules, setRules] = useState<AutomationRule[]>(() => isLive ? [] : cloneSeededAutomationRules());
@@ -296,7 +313,17 @@ export function AutomationsPage({ route }: { route: string }) {
   const inspectorRule = rules.find((rule) => rule.id === selectedRuleId) ?? rules[0] ?? null;
   const requestedRuleExists = !requestedRuleId || rules.some((rule) => rule.id === requestedRuleId);
   const isReadonly = surfaceState === 'readonly';
-  const showsRules = ['ready', 'readonly', 'catalog-empty', 'invalid-config', 'provider-error'].includes(surfaceState);
+  const showsRules = ['ready', 'readonly'].includes(surfaceState);
+  // Real, live-derived dependency detail (post-m1-p10-c5g): an empty catalog or a rule whose stored
+  // triggerKey is absent from the loaded live catalog is bounded detail on an otherwise-ready page,
+  // never a fixture toggle. There is no live signal for provider connection health on this page yet
+  // (AutomationProviderCatalogItem carries no status field), so live mode never reports
+  // 'provider-error' here — ponytail: add when the catalog gains a real status field.
+  const liveCatalogEmpty = isLive && liveTriggers.length === 0 && liveActions.length === 0 && liveProviders.length === 0;
+  const liveInvalidConfigRule = isLive && liveTriggers.length > 0 ? rules.find((rule) => !liveTriggers.some((trigger) => trigger.key === rule.triggerKey)) : undefined;
+  const dependencyDetail: DependencyDetail = isLive
+    ? (liveCatalogEmpty ? 'catalog-empty' : liveInvalidConfigRule ? 'invalid-config' : 'none')
+    : fixtureDependency;
   const groupedRules = useMemo(() => sourceOrder.map((source) => ({ source, rules: rules.filter((rule) => rule.source === source) })).filter((group) => group.rules.length), [rules]);
   const enabledCount = rules.filter((rule) => rule.enabled).length;
 
@@ -519,27 +546,31 @@ export function AutomationsPage({ route }: { route: string }) {
 
     {surfaceState === 'readonly' && <div className="automations-banner" role="status" id="automations-readonly-reason" data-testid="page-state-readonly"><Icon name="review" size={16} /><span><strong>Workspace is read-only.</strong> Rules and historical previews remain available; creating, editing, running, toggling, and deleting are disabled.</span></div>}
 
-    {!showsRules && <main className="automations-state-wrap">{<StatePanel state={surfaceState as Exclude<SurfaceState, 'ready' | 'readonly' | 'catalog-empty' | 'invalid-config' | 'provider-error'>} onRetry={() => { if (isLive) retryLiveLoad(); else chooseState('ready'); }} onCreate={() => openBuilder()} />}</main>}
+    {!showsRules && <main className="automations-state-wrap">{<StatePanel state={surfaceState as Exclude<SurfaceState, 'ready' | 'readonly'>} onRetry={() => { if (isLive) retryLiveLoad(); else chooseState('ready'); }} onCreate={() => openBuilder()} />}</main>}
 
     {showsRules && !requestedRuleExists && <section className="automations-not-found" role="status" data-testid="automation-rule-not-found"><span className="automations-state-code">404</span><h2>Automation not found</h2><p>The requested rule is not in the current workspace. No preview request was made.</p><button className="secondary-button" type="button" onClick={() => navigate('/automations')} data-testid="automations-back-to-list"><Icon name="chevronRight" className="rotate-180" size={14} />Back to automations</button></section>}
 
     {showsRules && requestedRuleExists && <>
       <fieldset className="automations-mutation-gate" disabled={isReadonly} aria-disabled={isReadonly ? 'true' : undefined} aria-describedby={isReadonly ? 'automations-readonly-reason' : undefined} data-testid="automations-mutations"><legend className="sr-only">Automation mutations</legend>
-        <section className="automations-overview" aria-label="Automation summary"><dl><div><dt>Rules</dt><dd data-testid="automations-rule-count">{rules.length}</dd></div><div><dt>Enabled</dt><dd data-testid="automations-enabled-count">{enabledCount}</dd></div><div><dt>Connected providers</dt><dd data-testid="automations-provider-count">3</dd></div><div><dt>Latest account sync</dt><dd>Aug 12 · 15:45</dd></div></dl><button className="primary-button" type="button" onClick={() => openBuilder()} disabled={surfaceState === 'catalog-empty'} aria-describedby={surfaceState === 'catalog-empty' ? 'automations-catalog-reason' : undefined} data-testid="automations-new"><Icon name="plus" size={15} />New automation</button></section>
-        {surfaceState === 'catalog-empty' && <div className="automations-dependency" role="alert" id="automations-catalog-reason" data-testid="automations-catalog-empty"><Icon name="background" size={17} /><span><strong>The automation catalog is unavailable.</strong> Existing rules remain inspectable, but a trigger and action catalog is required to create another.</span></div>}
-        {surfaceState === 'invalid-config' && <div className="automations-dependency" role="alert" id="automations-invalid-reason" data-testid="automation-invalid-config"><Icon name="background" size={17} /><span><strong>One rule references a trigger that is no longer in the provider catalog.</strong> Edit the rule to choose a supported trigger before running it.</span><button className="secondary-button" type="button" disabled data-testid="automation-invalid-run">Run unavailable</button><button className="secondary-button" type="button" onClick={() => openBuilder(rules[0])} data-testid="automation-invalid-edit">Edit rule</button></div>}
-        {surfaceState === 'provider-error' && <div className="automations-dependency" role="alert" id="automations-provider-reason" data-testid="automation-provider-error"><Icon name="background" size={17} /><span><strong>Google Calendar needs attention.</strong> Reconnect the provider before its rules can resync.</span><button className="secondary-button" type="button" disabled aria-describedby="automations-provider-reason" data-testid="automation-provider-resync">Resync unavailable</button><button className="text-button" type="button" onClick={() => navigate('/integrations')} data-testid="automations-open-integrations">Open Integrations</button></div>}
+        <section className="automations-overview" aria-label="Automation summary"><dl><div><dt>Rules</dt><dd data-testid="automations-rule-count">{rules.length}</dd></div><div><dt>Enabled</dt><dd data-testid="automations-enabled-count">{enabledCount}</dd></div><div><dt>Connected providers</dt><dd data-testid="automations-provider-count">3</dd></div><div><dt>Latest account sync</dt><dd>Aug 12 · 15:45</dd></div></dl><button className="primary-button" type="button" onClick={() => openBuilder()} disabled={dependencyDetail === 'catalog-empty'} aria-describedby={dependencyDetail === 'catalog-empty' ? 'automations-catalog-reason' : undefined} data-testid="automations-new"><Icon name="plus" size={15} />New automation</button></section>
+        {dependencyDetail === 'catalog-empty' && <div className="automations-dependency" role="alert" id="automations-catalog-reason" data-testid="automations-catalog-empty"><Icon name="background" size={17} /><span><strong>The automation catalog is unavailable.</strong> Existing rules remain inspectable, but a trigger and action catalog is required to create another.</span></div>}
+        {dependencyDetail === 'invalid-config' && <div className="automations-dependency" role="alert" id="automations-invalid-reason" data-testid="automation-invalid-config"><Icon name="background" size={17} /><span><strong>One rule references a trigger that is no longer in the provider catalog.</strong> Edit the rule to choose a supported trigger before running it.</span><button className="secondary-button" type="button" disabled data-testid="automation-invalid-run">Run unavailable</button><button className="secondary-button" type="button" onClick={() => openBuilder(liveInvalidConfigRule ?? rules[0])} data-testid="automation-invalid-edit">Edit rule</button></div>}
+        {dependencyDetail === 'provider-error' && <div className="automations-dependency" role="alert" id="automations-provider-reason" data-testid="automation-provider-error"><Icon name="background" size={17} /><span><strong>Google Calendar needs attention.</strong> Reconnect the provider before its rules can resync.</span><button className="secondary-button" type="button" disabled aria-describedby="automations-provider-reason" data-testid="automation-provider-resync">Resync unavailable</button><button className="text-button" type="button" onClick={() => navigate('/integrations')} data-testid="automations-open-integrations">Open Integrations</button></div>}
 
         </fieldset>
         <main className="automation-workspace" aria-label="Automation rules and inspector">
           <div className="automation-groups" tabIndex={0} aria-label="Automation rule groups"><fieldset className="automations-rule-gate" disabled={isReadonly} aria-disabled={isReadonly ? 'true' : undefined}><legend className="sr-only">Automation rules</legend>{groupedRules.map((group) => <section className="automation-group" key={group.source} data-source={group.source} data-testid={`automation-group-${group.source}`} aria-labelledby={`automation-group-${group.source}-title`}><header><div><h2 id={`automation-group-${group.source}-title`}>{sourceLabels[group.source]}</h2><p>{sourceDescriptions[group.source]}</p></div><span>{group.rules.length} {group.rules.length === 1 ? 'rule' : 'rules'}</span></header><div className="automation-rule-list">{group.rules.map((rule) => {
             const isResyncing = resyncingId === rule.id;
-            const providerBlocked = surfaceState === 'provider-error' && rule.source === 'google_calendar';
+            const providerBlocked = dependencyDetail === 'provider-error' && rule.source === 'google_calendar';
+            // post-m1-p10-c5g: a rule whose stored triggerKey is absent from the live trigger
+            // catalog cannot be resynced until it is edited onto a supported trigger.
+            const triggerInvalid = isLive && liveTriggers.length > 0 && !liveTriggers.some((trigger) => trigger.key === rule.triggerKey);
+            const resyncBlocked = providerBlocked || triggerInvalid;
             return <section className="automation-rule" key={rule.id} aria-current={inspectorRule?.id === rule.id ? 'true' : undefined} data-rule-id={rule.id} data-condition-count={rule.conditions.length} data-testid={`automation-rule-${rule.id}`}>
               <button className="rule-select" type="button" onClick={() => setSelectedRuleId(rule.id)} data-testid={`automation-select-${rule.id}`}>
                 <span className="rule-copy"><span className="rule-title-line"><strong>{rule.name}</strong><span className={`rule-status ${rule.enabled ? 'active' : ''}`}>{rule.enabled ? 'Enabled' : 'Paused'}</span></span><small>{rule.triggerLabel} → {rule.actionLabel}</small><em>{rule.accountLabel}</em></span>
               </button>
-              <div className="rule-actions"><label className="automation-toggle"><span className="sr-only">{rule.enabled ? 'Disable' : 'Enable'} {rule.name}</span><input type="checkbox" checked={rule.enabled} disabled={mutationPending} onChange={(event) => { void toggleRule(rule, event.target.checked); }} data-testid={`automation-enabled-${rule.id}`} /></label><button className="secondary-button" type="button" onClick={() => resyncRule(rule)} disabled={isResyncing || providerBlocked} aria-describedby={providerBlocked ? 'automations-provider-reason' : undefined} data-testid={`automation-resync-${rule.id}`}>{isResyncing ? <Icon name="refresh" className="spin" size={14} /> : <Icon name={rule.source === 'rhythm' ? 'resume' : 'refresh'} size={14} />}{rule.source === 'rhythm' ? 'Trigger' : 'Resync'}</button><button className="icon-button danger-control" type="button" aria-label={`Delete ${rule.name}`} disabled={mutationPending} onClick={() => setDeleteTarget(rule)} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} /></button></div>
+              <div className="rule-actions"><label className="automation-toggle"><span className="sr-only">{rule.enabled ? 'Disable' : 'Enable'} {rule.name}</span><input type="checkbox" checked={rule.enabled} disabled={mutationPending} onChange={(event) => { void toggleRule(rule, event.target.checked); }} data-testid={`automation-enabled-${rule.id}`} /></label><button className="secondary-button" type="button" onClick={() => resyncRule(rule)} disabled={isResyncing || resyncBlocked} aria-describedby={providerBlocked ? 'automations-provider-reason' : triggerInvalid ? 'automations-invalid-reason' : undefined} data-testid={`automation-resync-${rule.id}`}>{isResyncing ? <Icon name="refresh" className="spin" size={14} /> : <Icon name={rule.source === 'rhythm' ? 'resume' : 'refresh'} size={14} />}{rule.source === 'rhythm' ? 'Trigger' : 'Resync'}</button><button className="icon-button danger-control" type="button" aria-label={`Delete ${rule.name}`} disabled={mutationPending} onClick={() => setDeleteTarget(rule)} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} /></button></div>
               <a className="rule-inspect" href={`#/automations/${encodeURIComponent(rule.id)}`} onClick={(event) => openPreview(rule, event)} data-testid={`automation-inspect-${rule.id}`}><Icon name="search" size={14} />Preview history</a>
               {isResyncing && <div className="rule-progress" role="status" aria-live="polite" data-testid={`automation-resync-progress-${rule.id}`}><span />Refreshing provider signals and automation catalogs…</div>}
               {resyncResults[rule.id] && <div className="rule-result" role="status" aria-live="polite" data-testid={`automation-resync-result-${rule.id}`}><Icon name="check" size={14} />{resyncResults[rule.id]}</div>}

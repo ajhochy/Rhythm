@@ -198,17 +198,19 @@ test('issue-2008-c8: fixture isolation blocks external I O and reload resets rul
 
 test('issue-2008-c9: provider prerequisites and dependency failures remain explicit', async ({ page }) => {
   // Regression caught: an empty/invalid/provider-error fixture exposes runnable controls, hides the prerequisite, or opens a real OAuth URL.
-  await openPage(page, 'automations', '?state=catalog-empty');
+  // Phase 10 / post-m1-p10-c1a: these three are bounded dependency detail, not route-state literals,
+  // so the fixture toggle lives on a separate `?dependency=` param instead of `?state=`.
+  await openPage(page, 'automations', '?dependency=catalog-empty');
   await expect(page.getByTestId('automations-catalog-empty')).toContainText('automation catalog');
   await expect(page.getByTestId('automations-new')).toBeDisabled();
 
-  await openPage(page, 'automations', '?state=invalid-config');
+  await openPage(page, 'automations', '?dependency=invalid-config');
   await expect(page.getByTestId('automation-invalid-config')).toHaveAttribute('role', 'alert');
   await expect(page.getByTestId('automation-invalid-config')).toContainText('trigger');
   await expect(page.getByTestId('automation-invalid-run')).toBeDisabled();
   await expect(page.getByTestId('automation-invalid-edit')).toBeEnabled();
 
-  await openPage(page, 'automations', '?state=provider-error');
+  await openPage(page, 'automations', '?dependency=provider-error');
   await expect(page.getByTestId('automation-provider-error')).toHaveAttribute('role', 'alert');
   await expect(page.getByTestId('automation-provider-error')).toContainText(/reconnect/i);
   await expect(page.getByTestId('automation-provider-resync')).toBeDisabled();

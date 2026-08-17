@@ -69,7 +69,7 @@ test('Automations state and prerequisite journeys recover in place without exter
   await expect(page.getByTestId('automation-direct-editor').getByTestId('automation-name')).toBeDisabled();
   await expect(page.getByTestId('automation-preview-dialog')).toBeVisible();
 
-  await openPage(page, 'automations', '?state=provider-error');
+  await openPage(page, 'automations', '?dependency=provider-error');
   await expect(page.getByTestId('automation-provider-resync')).toBeDisabled();
   await page.getByTestId('automations-open-integrations').click();
   await expect(page).toHaveURL(/#\/integrations/);
