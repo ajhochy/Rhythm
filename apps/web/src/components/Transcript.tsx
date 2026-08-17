@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
-import type { TranscriptBlock } from '../types';
+import { useGateway } from '../gateway/context';
+import type { PendingApproval } from '../gateway/approvals';
+import type { LiveQuestionItem, TranscriptBlock } from '../types';
 
 function MarkdownText({ content }: { content: string }) {
   const pieces = content.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
@@ -60,6 +62,159 @@ function QuestionCard() {
   );
 }
 
+// post-m1-phase-5 c1a/c1c: live-mode permission card — translated shape only, never a raw
+// engine literal. Broadcast fields (sessionId, permissionID, directory, tool, patterns, title,
+// createdAt) come from apps/api_server/src/services/opencode_stream_bridge.ts:359-391
+// (registerPermission's `permission.asked` frame). `selected.livePermission` is populated by
+// that same frame (and the pending-permissions rehydrate poll) in store.tsx.
+function LivePermissionCard() {
+  const { selected, replyLivePermission } = useFixtures();
+  const [reason, setReason] = useState('');
+  const [sending, setSending] = useState(false);
+  const permission = selected.livePermission;
+  useEffect(() => { setSending(false); setReason(''); }, [permission?.permissionID]);
+  if (!permission) return null;
+  // c1a: exactly one reply per permissionID — the `sending` guard blocks a second click before
+  // the reply lands and the card unmounts (store.tsx clears `livePermission` on success).
+  const send = (reply: 'once' | 'always' | 'reject') => {
+    if (sending) return;
+    setSending(true);
+    void replyLivePermission(reply, reply === 'reject' ? reason : undefined);
+  };
+  return (
+    <section className="decision-card permission-card" aria-labelledby="live-permission-title" data-testid="permission-card">
+      <div className="decision-icon"><Icon name="command" /></div>
+      <div className="decision-main">
+        <h3 id="live-permission-title">{permission.title || 'Permission required'}</h3>
+        <p>The agent wants to use <strong>{permission.tool}</strong> in <code>{permission.directory}</code>.</p>
+        <pre>{permission.patterns.join('\n')}</pre>
+        <label className="field compact-field">Optional denial reason<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain what should change" data-testid="permission-reason" disabled={sending} /></label>
+        <div className="decision-actions">
+          <button className="primary-button" type="button" onClick={() => send('once')} disabled={sending} data-testid="permission-allow-once">Allow once</button>
+          <button className="secondary-button" type="button" onClick={() => send('always')} disabled={sending} data-testid="permission-always">Always allow</button>
+          <button className="text-danger-button" type="button" onClick={() => send('reject')} disabled={sending} data-testid="permission-deny">Deny</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// post-m1-phase-5 c1d: live-mode question card — renders the full canonical `questions` array
+// (each with its own header/options/multiple/custom), never collapsed into the fixture's single
+// options:string[] prompt. Broadcast shape from
+// apps/api_server/src/services/opencode_stream_bridge.ts:535-556 (registerQuestion's
+// `question.asked` frame: sessionId, requestId, callId, questions).
+function LiveQuestionCard() {
+  const { selected, replyLiveQuestion, rejectLiveQuestion } = useFixtures();
+  const question = selected.liveQuestion;
+  const questions = question?.questions ?? [];
+  const [selections, setSelections] = useState<string[][]>([]);
+  const [customs, setCustoms] = useState<string[]>([]);
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    setSelections(questions.map(() => []));
+    setCustoms(questions.map(() => ''));
+    setSending(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question?.callId]);
+  if (!question) return null;
+
+  const toggle = (index: number, label: string, multiple: boolean) => {
+    setSelections((current) => current.map((picked, i) => {
+      if (i !== index) return picked;
+      if (multiple) return picked.includes(label) ? picked.filter((item) => item !== label) : [...picked, label];
+      return picked.includes(label) ? [] : [label];
+    }));
+  };
+  const setCustom = (index: number, value: string) => setCustoms((current) => current.map((item, i) => i === index ? value : item));
+
+  // c1d: exactly one callId-scoped reply, sent as canonical answers:string[][] — one
+  // answer-array per question, in the same order the questions were asked.
+  const submit = () => {
+    if (sending) return;
+    setSending(true);
+    const answers = questions.map((_item, index) => {
+      const picked = selections[index] ?? [];
+      const custom = (customs[index] ?? '').trim();
+      return custom ? [...picked, custom] : picked;
+    });
+    void replyLiveQuestion(answers);
+  };
+  const reject = () => { if (sending) return; setSending(true); void rejectLiveQuestion(); };
+
+  return (
+    <form className="decision-card question-card" aria-labelledby="live-question-title" onSubmit={(event) => { event.preventDefault(); submit(); }} data-testid="question-card">
+      <div className="decision-icon"><Icon name="spark" /></div>
+      <div className="decision-main">
+        <h3 id="live-question-title">Agent needs a decision</h3>
+        {questions.map((item: LiveQuestionItem, index) => (
+          <fieldset key={`${question.callId}-${index}`}>
+            <legend>{item.header}</legend>
+            <p>{item.question}</p>
+            {item.options.map((option) => (
+              <label className="radio-row" key={option.label}>
+                <input
+                  type={item.multiple ? 'checkbox' : 'radio'}
+                  name={`live-question-${question.callId}-${index}`}
+                  checked={(selections[index] ?? []).includes(option.label)}
+                  onChange={() => toggle(index, option.label, Boolean(item.multiple))}
+                  disabled={sending}
+                />
+                {option.label}{option.description ? <small> · {option.description}</small> : null}
+              </label>
+            ))}
+            {item.custom && (
+              <div className="radio-row custom-answer">
+                <label htmlFor={`live-question-custom-${question.callId}-${index}`}>Custom answer</label>
+                <input
+                  id={`live-question-custom-${question.callId}-${index}`}
+                  value={customs[index] ?? ''}
+                  onChange={(event) => setCustom(index, event.target.value)}
+                  placeholder="Custom response"
+                  disabled={sending}
+                  data-testid={`question-custom-${index}`}
+                />
+              </div>
+            )}
+          </fieldset>
+        ))}
+        <div className="decision-actions">
+          <button className="primary-button" type="submit" disabled={sending} data-testid="question-answer">Send answer</button>
+          <button className="secondary-button" type="button" onClick={reject} disabled={sending} data-testid="question-reject">Reject request</button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+// post-m1-phase-5 c2b: read-only pending-approval banner. Reads the SAME signed boundary
+// (`gateway.domains.approvals` -> GET /agent-approvals, apps/api_server/src/controllers/
+// agent_approvals_controller.ts:118-186) that the Review Queue must also read, so an approval
+// raised against this session shows identical identity in both places. Display only — the
+// P-256 decision signature `decide()` requires can only be produced by the signed native app's
+// Keychain-held key, which no browser renderer has; see gateway/approvals.ts's module doc.
+function PendingApprovalBanner({ sessionId }: { sessionId: string }) {
+  const gateway = useGateway();
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  useEffect(() => {
+    if (gateway.mode !== 'live' || !gateway.domains.approvals) { setApprovals([]); return; }
+    let active = true;
+    gateway.domains.approvals.listPending()
+      .then((pending) => { if (active) setApprovals(pending.filter((item) => item.sessionId === sessionId && item.status === 'pending')); })
+      .catch(() => { if (active) setApprovals([]); });
+    return () => { active = false; };
+  }, [gateway, sessionId]);
+  if (approvals.length === 0) return null;
+  return (
+    <div className="pending-trigger-banner" role="status" data-testid="pending-approval-banner">
+      <span className="status-dot waiting" />
+      <span>
+        {approvals.map((approval) => `Human approval pending · ${approval.action}${approval.preview ? ` · ${approval.preview}` : ''}${approval.consequence ? ` · ${approval.consequence}` : ''}`).join(' · ')}
+      </span>
+    </div>
+  );
+}
+
 export function Transcript() {
   const { selected, sessions, selectSession, demo, loading, notify, loadOlder, revertSession, unrevertSession, forkSession, summarizeSession, sendInput, sessionGatewayMode, liveChildView, openLiveChildSession } = useFixtures();
   const openChild = (id: string, title: string) => {
@@ -99,8 +254,9 @@ export function Transcript() {
         <footer className="message-actions"><button type="button" onClick={() => notify('Message copied to clipboard')} data-testid={`copy-${message.id}`}><Icon name="copy" size={13} />Copy</button>{message.role === 'assistant' && !selected.parentId && <><button type="button" onClick={() => revertSession(selected.id, message.id)} data-testid={`revert-${message.id}`}><Icon name="undo" size={13} />Revert</button><button type="button" onClick={() => forkSession(selected.id)} data-testid={`fork-${message.id}`}><Icon name="fork" size={13} />Fork</button><button type="button" onClick={() => summarizeSession(selected.id)} data-testid={`summarize-${message.id}`}><Icon name="spark" size={13} />Compact</button></>}</footer>
       </article>)}
       {selected.queuedDraft && <article className="message user queued-message" aria-label="Queued local draft"><header><span className="message-role">You · queued locally</span><time>Not sent</time></header><p>{selected.queuedDraft}</p><small>Waiting for the direct desktop connection. Rhythm has not told the server this message exists.</small></article>}
-      <PermissionCard />
-      <QuestionCard />
+      {sessionGatewayMode === 'live' && <PendingApprovalBanner sessionId={selected.id} />}
+      {sessionGatewayMode === 'live' ? <LivePermissionCard /> : <PermissionCard />}
+      {sessionGatewayMode === 'live' ? <LiveQuestionCard /> : <QuestionCard />}
     </section>
   );
 }
