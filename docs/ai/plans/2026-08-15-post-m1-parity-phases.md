@@ -269,6 +269,16 @@ without escalation and are recorded here so they are auditable rather than impli
   worktree cleanup, rather than becoming a stray follow-up.
 - **No criterion is assigned to AJ as manual homework** unless it is genuinely unautomatable. Packaged
   keyboard traversal and packaged relaunch persistence are scriptable and belong to the orchestrator.
+- **Phase 11 (signing/notarization) is deliberately not attempted** in the 2026-08-16/17 overnight run
+  (orchestrator, not escalated because the answer was already settled by this doc's own scope line
+  — see below). Every other in-scope criterion this run is diagnosable/buildable from the repo alone;
+  Phase 11 genuinely is not: c1/c2 need real Apple Developer ID + notary credentials that live in CI
+  secrets, never in a working tree, and c2/c3 require actually submitting to Apple's notary service and
+  dispatching a real CI release run — both irreversible, both explicitly gated on "AJ's explicit
+  approval per release" per this doc's own scope line ("this plan does not authorize... production
+  deployment... or migration execution"). Fabricating a fake signature the way an ad-hoc dev-only
+  signature already exists from Slice 7 would misrepresent capability exactly the way this whole
+  program exists to stop doing. Phases 1/3/4/5/6/7/8/9/10 are otherwise durably green as of `5cdd8b79`.
 
 ## Stale reference warning (AJ, 2026-08-15)
 
