@@ -456,11 +456,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
 
   // c4d: hydrate the shared pending-approval boundary once on mount — same read Review Queue
   // (LiveReviewTool) uses, so an approval raised against any session shows up here too.
+  // Array.isArray guards a harness/host that doesn't recognize the route and falls through to a
+  // generic `{ok:true}` shape — ApprovalGateway.listPending() doesn't validate its own JSON parse,
+  // so an un-array-shaped body must degrade to [] here rather than reach pendingApprovals.map(...).
   useEffect(() => {
     if (!live) return;
     let active = true;
     void gateway.domains.approvals!.listPending()
-      .then((rows) => { if (active) setPendingApprovals(rows); })
+      .then((rows) => { if (active) setPendingApprovals(Array.isArray(rows) ? rows : []); })
       .catch(() => { if (active) notify('Pending approvals could not be loaded'); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
