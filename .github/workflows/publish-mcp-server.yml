@@ -1,0 +1,44 @@
+name: Publish rhythm-mcp-server
+
+# Uses npm Trusted Publishing (OIDC) — no NPM_TOKEN, no 2FA prompt. Requires the
+# "ajhochy/Rhythm" -> this workflow filename trust link configured on
+# npmjs.com (package settings -> Trusted Publisher -> GitHub Actions).
+#
+# Manual dispatch only, mirroring desktop_release.yml / electron_release.yml —
+# publishing a real npm version is a deliberate act, not a side effect of every
+# merge to main.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install and build
+        working-directory: apps/mcp_server
+        run: |
+          npm install
+          npm run build
+
+      - name: Test
+        working-directory: apps/mcp_server
+        run: npm test
+
+      - name: Publish
+        working-directory: apps/mcp_server
+        run: npm publish --provenance --access public
+        env:
+          # npm >=11.5.1 (bundled with Node 22.19+) exchanges the GitHub OIDC
+          # token for a short-lived publish token automatically — no secret needed.
+          NPM_CONFIG_PROVENANCE: 'true'
