@@ -1,0 +1,89 @@
+{
+  "issue": 2010,
+  "generated": "2026-08-15",
+  "criteria": [
+    {
+      "criterion_id": "issue-2010-c1",
+      "text": "Generate a cryptographically random PKCE verifier and its unpadded base64url SHA-256 challenge.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c1: PKCE generation matches the Flutter verifier and S256 challenge shape",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c2",
+      "text": "Build the exact Flutter Google authorization URL with the same endpoint, ordered scopes, PKCE, state, offline access, consent prompt, and granted-scope parameters.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c2: authorization URL exactly matches the Flutter desktop contract",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c3",
+      "text": "Reject a Google loopback callback whose state does not match the generated state.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c3: a state mismatch is rejected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c4",
+      "text": "Reject a Google loopback callback containing an error parameter.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c4: an OAuth error parameter is rejected before other callback fields",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c5",
+      "text": "Reject a Google loopback callback with a missing or empty authorization code.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c5: missing and empty authorization codes are rejected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c6",
+      "text": "Time out after five minutes while awaiting the callback and always close the loopback server.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c6: callback waiting uses the Flutter five-minute timeout",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c7",
+      "text": "POST the authorization code, code verifier, and redirect URI to /auth/google/desktop-exchange and accept only a 200 { sessionToken, user } response.",
+      "mode": "unit",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c7: desktop exchange request body matches Flutter exactly",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c8",
+      "text": "Bind the loopback listener to 127.0.0.1 on an OS-assigned port and open the authorization URL through Electron shell.openExternal.",
+      "mode": "integration",
+      "test_file": "apps/web/tests/post-m1-auth-oauth.redspec.ts",
+      "test_id": "post-m1-auth-c8: Electron host owns loopback binding and external-browser launch",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2010-c9",
+      "text": "In live mode, use the returned sessionToken as the runtime gateway bearer; when absent show a signed-out Google sign-in affordance and never fixture application data. Preserve VITE_RHYTHM_LIVE_TOKEN as a TEST-ONLY override.",
+      "mode": "ui",
+      "test_file": "apps/web/tests/post-m1-auth-session.redspec.ts",
+      "test_id": "post-m1-auth-c9: tokenless live mode is signed out rather than fixture-backed",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-2010-c10",
+      "text": "Complete a real Google consent round trip with the production desktop OAuth client and verify the resulting account session in the packaged Electron app.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED: requires real Google consent and a packaged GUI launch; both are explicitly prohibited in this implementation unit."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-2010-c10"
+  ]
+}

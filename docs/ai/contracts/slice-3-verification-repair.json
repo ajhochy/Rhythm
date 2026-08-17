@@ -1,0 +1,41 @@
+{
+  "issue": "slice-3-verification-repair",
+  "date": "2026-08-14",
+  "test_command": "cd apps/web && npm run test:fixture",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "slice-3-verification-repair-c1",
+      "text": "Update the npm run test:fixture slice-2-c5/slice-2-c7 gateway tests with a disposable dummy token so they reach their original assertions (separate API/engine errors; no fixture fallback).",
+      "mode": "unit",
+      "test": "apps/web/tests/gateway/gateway.spec.ts",
+      "status": "pass",
+      "reason": "Green rerun: npm run test:fixture passed 10/10 gateway/receipt/task-gateway tests and 1/1 invalid-live test; slice-2-c5 and slice-2-c7 reached and passed their original assertions."
+    },
+    {
+      "criterion_id": "slice-3-verification-repair-c2",
+      "text": "Add focused TasksGateway tests proving distinct 401/403/404/5xx handling and that Authorization/token data never appears in error text.",
+      "mode": "unit",
+      "test": "apps/web/tests/gateway/tasks-gateway.spec.ts",
+      "status": "pass",
+      "reason": "Green rerun: npm run test:fixture passed task-live-lifecycle-c1a and task-live-lifecycle-c1b within 10/10 gateway/receipt/task-gateway tests; the invalid-live invocation also passed 1/1."
+    },
+    {
+      "criterion_id": "slice-3-verification-repair-c3",
+      "text": "Triage whether live API isShared:true + real secondary-identity denial + focused fixture UI delete gating sufficiently triangulate the collaborator delete contract; only add a second live-browser collaborator journey if triage says it is required.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/tasks_permissions.test.ts; apps/api_server/src/__tests__/tasks_repository.test.ts; apps/web/tests/tasks/task-live-lifecycle.fixture.spec.ts; apps/web/tests/tasks/task-live-lifecycle.live.spec.ts",
+      "status": "pass",
+      "reason": "Triage ruled the prior triangulation insufficient (untested isShared:true predicate arm; mutation responses coerced is_shared to false). AJ chose the API root-cause repair. Closed by focused tests: API mutation shapes 30/30 (red-first POST assertion captured), fixture c7 discriminates disabled/enabled 2/2, live collaborator PATCH isShared:true passed against the rebuilt sandbox API. No second live-browser journey required."
+    },
+    {
+      "criterion_id": "slice-3-verification-repair-c4",
+      "text": "Report Slice 3 ownership against the declared slice-start / verified-prior-slice baseline, not whole-worktree cleanliness.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Recorded: failure-triage RULING 2 adopted the declared slice-start baseline; the full slice-ownership table (all modified/untracked path groups, Slices 0/1/2/3/5/6, including the previously omitted fixtures.ts and tasks-gateway.spec.ts claims) is in docs/ai/runs/2026-08-14-slice-3-verification-repair.md. Verification must consume that table, not whole-worktree cleanliness."
+    }
+  ],
+  "not_tested": ["slice-3-verification-repair-c4"]
+}

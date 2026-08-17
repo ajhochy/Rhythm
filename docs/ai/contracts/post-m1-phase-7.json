@@ -1,0 +1,189 @@
+{
+  "issue": "post-m1-phase-7",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-7-fixture-playwright.config.ts; cd ../api_server && npx vitest run src/__tests__/post_m1_phase_7_memory_contract.test.ts src/__tests__/post_m1_phase_7_runs_contract.test.ts src/__tests__/post_m1_phase_7_notifications_contract.test.ts --no-file-parallelism; cd ../electron && node --test test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p7-c1a",
+      "text": "A memory captured through the real authorized agent/API boundary returns a canonical `id` and round-trips through React/Electron list and search with `kind`, `content`, `source`, `sourceId`, `tagsJson`, `status`, `staleAfter`, `verifiedJson`, `sourcesJson`, `generatedBy`, `generatedAt`, `trustTier`, `autoInjectable`, `ownerUserId`, `createdAt`, and `updatedAt` unchanged.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-memory.redspec.ts",
+      "status": "pending",
+      "reason": "Renderer RED spec collected by Playwright --list but could not be executed in this sandbox; real API+engine capture/restart proof remains for the orchestrator."
+    },
+    {
+      "criterion_id": "post-m1-p7-c1b",
+      "text": "React/Electron renders canonical memory provenance and verification objects, derived `lifecycleState: 'active' | 'stale' | 'deprecated'`, `unverifiable`, and `trustTier: 'unverified' | 'machine' | 'human'` without substituting fixture display literals such as `verified` or `reviewed`.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-7-memory.redspec.ts",
+      "status": "pending",
+      "reason": "Renderer RED spec collected by Playwright --list but not executed because Chromium launch is prohibited in this unit."
+    },
+    {
+      "criterion_id": "post-m1-p7-c1c",
+      "text": "Memory update and forget operations use the server-returned canonical `id`, persist across renderer and API restart, and cannot read, mutate, deprecate, roll back, or delete another user's owner-scoped row; owner-null instance-global rows follow the existing explicit retrieval policy.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_7_memory_contract.test.ts",
+      "status": "pending",
+      "reason": "API owner/global retrieval sub-contract passed (1/1); update/forget plus renderer/API restart proof remains pending, so the full criterion is not marked pass."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2a",
+      "text": "React/Electron lists, creates, edits, selects, and archives real owner-scoped research projects using canonical fields `name`, `question`, `goals`, `domain`, `profileId`, `passConfig`, `modelPolicy`, `criticConfig`, `synthesisConfig`, `scheduleRef`, and `budget`, and preserves the server-returned project `id`.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_7_runs_contract.test.ts",
+      "status": "pending",
+      "reason": "Canonical API project CRUD sub-contract passed; renderer RED spec collected but was not executed, so the full criterion remains pending."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2b",
+      "text": "A manual research run persists a distinct run `id`, `projectId`, owner, `triggerType:'manual'`, config snapshot, status, progress, diagnostics, timestamps, canonical artifact, artifacts, sources, and `usage:{tokens,costUsd}`, and reaches an observable bounded terminal or recoverable state through the real engine.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/research_projects_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Existing real-engine research suite is the retained proof target; it was not run by this bounded unit, so status remains pending."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2c",
+      "text": "React/Electron exposes the selected research run's synthesis, passes, contrarian review, curated sources, statistics, diagnostics, artifacts, and usage; cancel, resume, pass retry, magazine, HTML/Markdown export, and discussion creation call their real contracts and consume the returned session identity without inventing status literals.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts; apps/api_server/src/__tests__/research_projects_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Renderer evidence/action RED spec collected; existing real-engine research suite was not run here."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2d",
+      "text": "Gallery lists real `AgentDesign` rows, renders only authorized previews, opens the actual deliverable/project target, and launches a real Creative Media session seeded from the selected design's canonical `id`/artifact context; fixture cards or request traces cannot satisfy this criterion.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-research-gallery.redspec.ts",
+      "status": "pending",
+      "reason": "Gallery/live-session RED spec collected but not executed under the Chromium restriction."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2e",
+      "text": "React/Electron lists the real engine playbook catalog with canonical `source` and `managed` policy, reads `{name,frontmatter,template}`, creates/updates/deletes only managed commands, refreshes the engine catalog, and dispatches the saved playbook as a real slash command.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-playbooks-cookbook.redspec.ts",
+      "status": "pending",
+      "reason": "Engine-backed playbook RED spec collected but not executed under the Chromium restriction."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2f",
+      "text": "Cookbook list/create/update/delete persists canonical `stepsJson`, nullable `boundConfigId`, and server-derived `ownerUserId`; running `/agent-cookbook/:id/run` returns a real `sessionId` whose observable session is owned by the caller and associated with that recipe/config.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-playbooks-cookbook.redspec.ts",
+      "status": "pending",
+      "reason": "Persisted recipe/returned-session RED spec collected but not executed under the Chromium restriction."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2g",
+      "text": "React/Electron creates, edits, enables/disables, deletes, and triggers real scheduled tasks while preserving canonical recurrence, timezone, prompt, profile, model, MCP/skill allowlist, next/last-run, error, owner, and timestamp fields rather than the fixture-only `{type,lastRun,runState}` shape.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-schedules-quality.redspec.ts",
+      "status": "pending",
+      "reason": "Scheduled-task CRUD/trigger RED spec collected but not executed under the Chromium restriction."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2h",
+      "text": "Each scheduled attempt creates a durable run row with distinct `id`, `taskId`, `startedAt`, `endedAt`, status, nullable error, nullable `rootSessionId`, and `createdAt`; React/Electron shows newest-first history and navigates only to the owned real root session.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-schedules-quality.redspec.ts",
+      "status": "pending",
+      "reason": "Durable history/root-session renderer RED spec collected; restart/live scheduler proof was not authored within this bounded unit."
+    },
+    {
+      "criterion_id": "post-m1-p7-c2i",
+      "text": "React/Electron renders the real owner-scoped run-quality rollup with `notEnoughData`, nullable rates, `unmeasuredRuns`, total/wasted tokens, correction metrics, and repeated mistakes; every displayed value is traceable to persisted run evidence and no fixture percentage is presented as live.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-7-schedules-quality.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_7_runs_contract.test.ts",
+      "status": "pending",
+      "reason": "Canonical API run-quality sub-contract passed; renderer RED spec collected but not executed, so the full criterion remains pending."
+    },
+    {
+      "criterion_id": "post-m1-p7-c3a",
+      "text": "After local API restart, enabled due SQLite scheduled tasks resume from persisted `nextRunAt`, stale `running`/`queued` state becomes bounded error evidence, and each actual attempt produces at most one durable run/root session instead of duplicate delivery.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "Pending: no restart mutation test was authored within the time cap; the orchestrator must add/run isolated sandbox restart proof."
+    },
+    {
+      "criterion_id": "post-m1-p7-c3b",
+      "text": "A Postgres-backed hosted process and a copied or disabled sandbox task never advance or fire scheduled execution; quarantine is non-destructive and reports stranded enabled rows without creating sessions or run rows.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "Pending: Postgres/copy quarantine proof was not safely executable in this bounded SQLite test unit."
+    },
+    {
+      "criterion_id": "post-m1-p7-c3c",
+      "text": "Scheduled, research, cookbook, and delegated execution re-read the caller/target profiles at the execution boundary and enforce authenticated owner, executable profile, manager, `allowedDelegatesJson`, session-selectable, depth, model authorization, and permission gates; a dispatch result `status:'dispatched'` is never presented as completion.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "Pending: cross-runner real-engine authorization proof was not authored within the time cap."
+    },
+    {
+      "criterion_id": "post-m1-p7-c3d",
+      "text": "Gap-driven discovery remains agent-execution-role gated, debounced, bounded by `maxGapsPerPass`, independently proposal-budgeted, and observable through `gapsConsidered`, `skipped`, optional `skippedReason`, and bounded error output without fan-out from a copied backlog.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_7_runs_contract.test.ts",
+      "status": "pass",
+      "reason": "Executed API contract: role-gated skip evidence and maxGapsPerPass=1 bounded backlog behavior passed."
+    },
+    {
+      "criterion_id": "post-m1-p7-c4a",
+      "text": "Domain and agent notification creation persists or broadcasts the canonical row/frame exactly once: persisted rows carry `id`, `recipientUserId`, closed `type`, closed `entityType`, `entityId`, `message`, `readAt`, and `createdAt`; agent push carries `{v:1,type:'notification.push',id,title,body}` with bounded title/body.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_7_notifications_contract.test.ts",
+      "status": "pass",
+      "reason": "Executed API contract: canonical domain row persistence and exactly-one bounded notification.push broadcast both passed."
+    },
+    {
+      "criterion_id": "post-m1-p7-c4b",
+      "text": "React/Electron lists only the authenticated recipient's unread notifications, derives the bell badge from real unread agent/domain/approval state, marks one or all rows read, survives reload, and navigates task/rhythm/project/session targets without disclosing another user's row or target existence.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-notifications.redspec.ts",
+      "status": "pending",
+      "reason": "Recipient/read/badge/navigation RED spec collected but not executed under the Chromium restriction."
+    },
+    {
+      "criterion_id": "post-m1-p7-c4c",
+      "text": "The live React WebSocket client consumes `notification.push`, deduplicates by canonical numeric `id`, adds the item to unread state, and routes it to Agents without confusing it with persisted domain-notification IDs or losing it during concurrent session events.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-notifications.redspec.ts",
+      "status": "pending",
+      "reason": "Real WebSocket-frame renderer RED spec collected but not executed under the Chromium restriction."
+    },
+    {
+      "criterion_id": "post-m1-p7-c4d",
+      "text": "Pending approvals appear as actionable cards with canonical approval fields; approve/reject sends `status:'approved'|'rejected'` plus a decision signature bound to `id`, `decisionNonce`, `payloadDigest`, and status, and navigation focuses only the originating owned session and exact approval.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-7-approvals.redspec.ts",
+      "status": "pending",
+      "reason": "Approval/signing/owned-navigation RED spec collected but not executed under the Chromium restriction; native signer behavior remains an orchestrator follow-up."
+    },
+    {
+      "criterion_id": "post-m1-p7-c4e",
+      "text": "Packaged Electron explicitly requests native notification permission, presents completion/failure/message/ask notifications fail-soft, deduplicates repeated IDs, cancels resolved asks, and never exposes arbitrary renderer-controlled native notification or approval-signing primitives.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-7-native-notifications.test.mjs; apps/electron/test/post-m1-phase-7-packaged-notifications.test.mjs",
+      "status": "red",
+      "reason": "Executed Node host contract failed an assertion because Electron main does not own/import the native Notification primitive; no Electron process was launched."
+    },
+    {
+      "criterion_id": "post-m1-p7-c4f",
+      "text": "Activating a native notification while Electron is foregrounded, backgrounded, or terminated validates an allowlisted payload, restores/focuses the single app instance, opens the owned task/rhythm/project/session/approval target, replays an early launch activation after renderer readiness, and ignores malformed, unknown, or cross-user targets.",
+      "mode": "manual",
+      "test": "apps/electron/test/post-m1-phase-7-packaged-notifications.test.mjs",
+      "status": "pending",
+      "reason": "The non-GUI host-policy subtest is RED because no early activation queue exists, but foreground/background/terminated packaged execution is still mandatory and was prohibited in this unit."
+    }
+  ],
+  "not_tested": [
+    "post-m1-p7-c4f"
+  ],
+  "note": "Phase 7 now has 13 collected renderer RED specs, 6 passing API sub-contract tests, and 2 executed assertion-RED Electron host-policy tests. Chromium execution, real-engine run families, scheduler restart/quarantine, cross-runner authorization, and packaged native activation remain orchestrator work. Fixture-only state changes and endpoint-shaped traces cannot satisfy live criteria."
+}

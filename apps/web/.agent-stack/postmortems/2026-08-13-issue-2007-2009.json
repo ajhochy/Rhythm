@@ -1,0 +1,53 @@
+{
+  "run_id": "2026-08-13-cross-surface-2007-2009",
+  "issue": "2007-2009",
+  "date": "2026-08-13",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-2007-visual",
+      "text": "Facilities Overview and Rooms preserve compact operational density while exposing selected reservation or room details.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live Chrome smoke confirmed both sub-tabs render a selectable left rail and persistent right inspector without overlap or missing actions."
+    },
+    {
+      "criterion_id": "manual-visual-parity-2008",
+      "text": "Automations preserves compact density and exposes selected rule metadata in a persistent inspector.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live Chrome smoke confirmed deterministic rule groups, row actions, selection, and inspector metadata render together."
+    },
+    {
+      "criterion_id": "manual-visual-parity-2009",
+      "text": "Integrations uses a provider-only primary rail and moves provider configuration and signals into the detail inspector.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live Chrome smoke confirmed Google Calendar and Gmail selection update the inspector while provider actions and utilities remain available."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["impeccable", "computer-use", "failure-postmortem"],
+    "observed_chain": ["impeccable", "computer-use", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "src/pages/facilities/index.tsx",
+    "src/pages/facilities/styles.css",
+    "src/pages/automations/index.tsx",
+    "src/pages/automations/styles.css",
+    "src/pages/integrations/index.tsx",
+    "src/pages/integrations/styles.css"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep split-view selection and responsive collapse covered by route-level visual smoke checks."
+}

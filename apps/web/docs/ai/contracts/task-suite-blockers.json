@@ -1,0 +1,17 @@
+{
+  "issue": "suite-blockers",
+  "date": "2026-08-14",
+  "test_command": "npm test",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-suite-blockers-c1",
+      "text": "Fix what is blocking the normal deterministic local Playwright suite.",
+      "mode": "ui",
+      "test": "npm test",
+      "status": "pass",
+      "reason": "Final npm test run: 238 passed, 0 failed, 1 skipped."
+    }
+  ],
+  "not_tested": []
+}

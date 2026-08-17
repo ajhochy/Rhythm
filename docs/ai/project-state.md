@@ -2,79 +2,81 @@
 
 ## Current focus
 
-The native Cloud Gateway/mobile release is live. Hosted API/relay and desktop `v0.18.58` are
-released; iOS `1.0.8 (6)` has been uploaded successfully to App Store Connect. Issue #1392 now has a
-live-smoked inline approval card, bell badge, and native notification route on PR #1393.
+React/Electron parity program: bringing `apps/web` + `apps/electron` up to the shipping Flutter
+desktop app's real, live capabilities (not just a fixture-mode prototype). Milestone 1 (9/9 slices)
+shipped earlier. This is the post-M1, 11-phase capability build.
 
 ## Active branch / PR
 
-- Product PR #1388 merged as `ed31ea597878c0636169f49b4cbae9cb378c7d17`.
-- Evidence PR #1389 merged as `cbe10fbc3945909feace401ec05dd890f03b9a15`.
-- Release-config PR #1390 merged as `0c4c2461ae394daeec8876eea791684f809ffe49`.
-- Active docs-only submission-evidence branch: `codex/ios-build-6-submission-evidence`.
-- Original workspace Terminal/PTy, transcript-display, activity-service, proof-image, and unrelated
-  postmortem changes remain preserved outside this isolated branch.
-- **#1392 approval-card delivery fix**: branch `issue/approval-card-delivery` (isolated worktree),
-  PR #1393 open against `main` and ready for review. The desktop now accepts the authenticated Cloud bearer for local
-  approval reads/decisions, renders session-scoped inline cards, emits native notifications that route
-  to the exact request, and polls within 5 seconds. Manual smoke passed. See
-  `docs/ai/runs/2026-08-14-issue-1392-approval-card-delivery.md` for the full trace and evidence.
+- Branch: `codex/react-electron-live-suite`, pushed to origin at `745909cf`.
+- PR #1399 open (draft) — not merged. Awaiting AJ's manual smoke test.
+- PR #1400 (`codex/post-m1-phase-11-signing` → `codex/react-electron-live-suite`) open — signed,
+  notarized `dist/Rhythm.app`. Not merged.
 
 ## In progress
 
-- Wait for Apple to finish processing EAS submission `d52e1e6d-b832-4f21-a897-b513c53ce60a`, then
-  install build 6 from TestFlight and run the focused Cloud Gateway device smoke.
-- Merge PR #1393 after remote checks, then publish the next desktop patch release.
+- Phases 1, 3, 4, 5, 6, 7 (13/13), 8, 9, 10 are durably green and pushed — zero known gaps left in
+  the fixture/live suites.
+- Phase 11 (signing/notarization): real Developer ID signing + Apple notarization done locally
+  (Accepted, stapled). CI dispatch not yet run — issue #1403.
+- `apps/electron` now spawns and owns its own local `api_server` (mirroring Flutter's
+  `ApiServerService`/`AgentServerController` field-for-field), including a real Keychain-backed
+  P-256 human-approval signer wired to the same live server it spawns.
 
 ## Risks / known issues
 
-- Terminal remains intentionally deferred; the discussed Gallery cloud-upload redesign is not implemented.
-- TestFlight processing and an exact-build physical-device smoke remain.
-- Issue #1380 (export-compliance declaration) remains separate; it may require resolving Apple's
-  Missing Compliance prompt after processing.
-- Existing issue #1382 remains the broader stale-token track; this PR changes only the approval
-  endpoint's already-authenticated local desktop bearer fallback.
+- Two data-loss incidents overnight (2026-08-16/17): a concurrent, unrelated Claude Code session ran
+  `git checkout main` in a shared working directory twice, discarding uncommitted work both times.
+  Recovered both times; all further phase work moved to dedicated git worktrees, one per agent, each
+  committing its own work immediately on green rather than batching. No further incidents since.
+- `gateway/sessions.ts`'s `dispatchMcp()` is an honest, real-but-rejecting method: the opencode
+  engine has no primitive to execute one MCP tool for a session outside a model-originated MCP App
+  interactive binding. Documented in code; not fabricated.
+- `security/humanApprovalSigner.ts`'s Web Crypto fallback path (used only when no Electron main
+  process is attached — plain browser, every Playwright redspec) still self-generates its key and
+  capability independently, with no server to synchronize against. This is now structural, not an
+  open gap: whenever the app actually runs inside Electron, `agent-server.mjs` and
+  `human-approval-main-signer.mjs` are the same process spawning `api_server` AND answering the
+  renderer's signing IPC calls, so a real Electron launch's signatures do verify against the server
+  it spawned.
+- Two pre-existing, unrelated native-notification test gaps in `apps/electron`
+  (`post-m1-p7-c4e`/`c4f-policy`) — filed as issue #1401.
+- `apps/electron` doesn't yet bundle `api_server` into a packaged `.app`; only the dev-mode spawn
+  path (walking up to find `apps/api_server` in a monorepo checkout) is reachable today — filed as
+  issue #1402.
+- Three distinct "Developer ID Application" certs exist in the signing keychain; PR #1400 picked the
+  one with standard 5-year validity over two shorter-lived ones — needs AJ's confirmation, filed as
+  issue #1404.
+- Playwright test configs across `apps/web/tests/` (including `tests/gateway/`) share a fixed set of
+  hardcoded webServer ports (4173/4175/4176/4178/4179/4180/4181/4185). Running more than one
+  worktree's suite concurrently WILL silently cross-contaminate results via `reuseExistingServer:
+  true` unless ports are temporarily offset per worktree. Watch for this again if dispatching parallel
+  agents in fresh worktrees.
 
 ## Test status
 
-- Submit-config regression: `npm run test:app-config` PASS; it asserts App Store record `6796011479`.
-- Mobile static: lint PASS with three pre-existing warnings; typecheck PASS.
-- Issue gate PASS: Flutter analyze/format plus API and MCP typechecks.
-- PR gate PASS: Flutter tests; API lint, serial tests, and build; MCP tests/build; opencode fork
-  typecheck and session tests; mobile static/contracts/fake-server; mobile web E2E 71/71.
-- API CI repair PASS locally: the original `npm test --silent` command completed 542 files and 4,438
-  assertions in 51.37s after preventing no-work idle callbacks from reattaching the event stream.
-- Hosted-runner triage: Node 24.19 aborts in better-sqlite3 worker cleanup after successful assertions.
-  Server CI is pinned to Node 22.19 LTS; desktop release retains its separate bundled Node 24 build,
-  ABI query, launch, and API smoke coverage.
-- Issue #1392 manual smoke PASS: real approval creation produced a bell badge, session-scoped inline
-  card, native notification, and working decision actions; repeat delivery succeeded at 5-second cadence.
-- Production remains healthy on product merge `ed31ea59`; desktop `v0.18.58 (142)` remains released.
-- iOS `1.0.8 (6)` store IPA remains build-complete with SHA-256
-  `0b60914a133c8c77d173341d74d1973b73276159238551f7b8059c5939511f48`.
-- EAS submission `d52e1e6d-b832-4f21-a897-b513c53ce60a` PASS: exact build
-  `626de7fe-116f-4fb9-afc1-9a82c97b1632` uploaded to App Store record `6796011479` with EAS-hosted
-  ASC API key `9XHDX3ZN44`; Apple processing is in progress.
+Full regression as of `745909cf` (single worktree, canonical ports):
+- Fixture suites: phase-3 129/129, phase-4 2/2, phase-5 17/17, phase-6 14/14, phase-7 13/13, phase-8
+  10/10, phase-9 4/4, phase-10 12/12, auth 9/9 — **210/210**.
+- Live suites: phase-3 13/13, phase-4 9/9, phase-9 mobile-access 1/1, phase-9 session-continuity 1/1,
+  phase-10 2/2 — **26/26**.
+- `apps/api_server` `post_m1_phase_8_live_artifacts.test.ts`: 4/4.
+- `apps/electron`: `npm test` 30/32 (2 pre-existing, unrelated native-notification gaps — issue
+  #1401); `slice-7-c2`-`c6` (packaged live smoke, renderer isolation, deterministic packaging) 5/5
+  against the SIGNED+notarized bundle.
+- `npm run typecheck` clean in `apps/web` and `apps/electron`.
+- Full M1 `verify-all.mjs` gate and provenance/SHA256SUMS reconciliation have NOT been re-run since
+  tonight's phase work landed — issue #1405.
 
 ## Next step
 
-Verify Apple finishes processing build 6, resolve the existing export-compliance prompt if Apple
-requires it, then install that exact TestFlight artifact and perform the focused Cloud Gateway smoke.
-
-For #1392: merge PR #1393 after remote checks and publish the next desktop patch release.
-
-## Recent coding-agent runs
-
-### 2026-08-14 — approval notification lifetime
-- Files modified: `agent_approvals_controller.dart` replaces a directly resolved actionable notification in place; `issue_1392_approval_push_route_contract_test.dart` covers notification lifetime and retained chat routing.
-- Checks run: regression test RED on immediate `cancel`; focused controller/route tests PASS (4 tests); complete notification test directory PASS (4 tests); focused format check PASS; `flutter analyze --no-fatal-infos` PASS with 311 pre-existing infos.
-- Decisions made: preserve the same notification ID and route payload while changing the title to `Approval approved` or `Approval rejected`; keep poll-time cancellation for approvals resolved outside this app.
-- Deviations from spec: none.
-- Concerns: native banner visibility still requires a manual macOS smoke after rebuilding; the running app was intentionally not restarted or interrupted.
-
-### 2026-08-15 — unified bell native notifications
-- Files modified: `notifications_controller.dart`, `local_notification_service.dart`, `main.dart`, `agents_controller.dart`, and `app_shell.dart` unify native delivery/dedupe/routing for general and immediate agent notifications; two focused notification contract suites and issue #1392 criteria c17-c19 cover the behavior.
-- Checks run: acceptance contracts RED on missing general delivery and duplicate agent unread; unified contracts PASS (6 tests); notification/approval/badge slice PASS (21 tests); focused format and diff checks PASS; `flutter analyze --no-fatal-infos` PASS with 311 pre-existing infos.
-- Decisions made: baseline the first successful unread poll to prevent launch replay spam; use `notification:<entityType>:<entityId>` payloads and route targetless agent events to the Agents root; keep approval notifications on their specialized lifecycle.
-- Deviations from spec: none.
-- Concerns: native banner display and tap-through require the parent agent's rebuilt macOS smoke; the running app was intentionally not restarted.
+1. Re-run `node tools/validation/verify-all.mjs`, reconcile `apps/web/SHA256SUMS`/`PROVENANCE.md`,
+   and regenerate the parity matrix against current `origin/main` Flutter (issue #1405).
+2. AJ: manual smoke test of PR #1399 in a real browser/packaged build, focused on Phase 5-10 UI
+   (permission/question cards, MCP/skill/command catalogs, live files/diffs/worktrees, live artifacts
+   sharing + HTML import, mobile pairing, research/cookbook/playbooks/gallery/report-card, approval
+   decision cards) and the new Electron-spawned local agent server.
+3. AJ: confirm the Developer ID signing identity PR #1400 chose (issue #1404).
+4. Dispatch `.github/workflows/electron_release.yml` and verify on a clean machine (issue #1403).
+5. Bundle `api_server` into the packaged Electron app for a real standalone spawn path (issue #1402).
+6. Build native Electron notification support (issue #1401).

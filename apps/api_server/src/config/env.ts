@@ -373,6 +373,12 @@ export const env = {
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0),
+  // Renderer origins the local Electron/dev host is allowed to load from (e.g. the sandbox's
+  // isolated Vite port). Consulted by localAgentSurfaceGuard's origin/host allowlist check below.
+  localRendererOrigins: (process.env.RHYTHM_LOCAL_RENDERER_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0),
   /**
    * Defensive origin/host enforcement for the loopback agent surface. Default
    * ON; only the explicit value "off" disables it for compatibility recovery.

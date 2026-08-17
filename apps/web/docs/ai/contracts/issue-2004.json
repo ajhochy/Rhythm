@@ -1,0 +1,130 @@
+{
+  "issue": 2004,
+  "generated": "2026-08-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-2004-c1",
+      "text": "The Rhythms destination renders the real page-rhythms shell at /rhythms, exposes exactly one Rhythms h1, records GET /recurring-rules and workspace-member load receipts, and supports deterministic selected-rule and edit deep links.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c1: rhythms route and deep links render the real page shell",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c2",
+      "text": "The ready list preserves Flutter behavior: server order, completion donut, title, exact weekly/monthly/annual pattern descriptions, and explicit Enabled or Paused status, without inventing search, filter, sort, or grouping controls.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c2: ready list exposes exact schedules progress and enabled state without invented filters",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c3",
+      "text": "Selected-rule detail makes the returned owner, collaborators, generated/completed/remaining counts, waiting person, and next due information explicit and deterministic without fabricating a scheduler endpoint.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c3: selected detail exposes deterministic ownership progress and next due data",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c4",
+      "text": "Create rejects blank or invalid recurrence input without a receipt, keeps ownership implicit, supports only Flutter's title, weekly/monthly/annual schedule, sequential workflow steps, optional workspace-member assignee, and per-step schedule fields, inserts one selected rule, and records POST /recurring-rules with a 201 receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c4: create validates recurrence and supported step template fields",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c5",
+      "text": "Edit deep links prepopulate the selected rule, validate the same supported recurrence and step fields as Create, update the list and selected detail, and record PATCH /recurring-rules/:id with a 200 receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c5: edit prepopulates validates and updates supported fields",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c6",
+      "text": "Enable and pause optimistically update only the selected rule's switch, explicit status, and generated-next-due presentation and record PATCH /recurring-rules/:id {enabled} receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c6: enable and pause update the selected rule with exact receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c7",
+      "text": "Owner-only collaborator add and remove update the selected rule, exclude the owner and existing collaborators from candidates, record exact POST 200 and DELETE 204 receipts, and surface the rhythm-owner prerequisite truthfully for shared rules.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c7: collaborator add remove and owner prerequisite are observable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c8",
+      "text": "Delete requires a destructive confirmation naming the rule and preserving already-generated tasks; Cancel retains it, Confirm removes it and clears selection, and the ledger records DELETE /recurring-rules/:id with a 204 receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c8: delete confirmation preserves generated-task truth and updates selection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c9",
+      "text": "The deterministic ready, loading, empty, server-error, forbidden, unavailable, and readonly states expose the correct recovery or prerequisite; Retry recovers without reload, empty opens Create, and readonly natively disables mutation while preserving inspection.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c9: deterministic state matrix remains actionable and read only is native",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c10",
+      "text": "Every enabled Rhythms control has a stable kebab-case data-testid and an observable outcome; client-only selection, validation, and dialogs never fabricate endpoint receipts, and dialogs close on Escape and restore focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c10: enabled controls are identifiable live and dialogs restore focus",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c11",
+      "text": "The visible page-trace ledger starts with exact GET /recurring-rules and GET /workspaces/me/members receipts, remains append-only as the mutation criteria add their exact receipts, and omits unused users, detail, collaborator-list, and step endpoints.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c11: trace ledger is exact append only and excludes unused endpoint families",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c12",
+      "text": "Ready Rhythms and its dialogs have zero serious or critical axe violations, labelled controls and ordered headings, polite status semantics, alert errors, and contained keyboard focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c12: ready page and dialogs are accessible",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c13",
+      "text": "Rhythms has no page-level horizontal overflow at 1440, 1024, 768, or 390 CSS pixels and remains usable with 200 percent text, RTL, long CJK and emoji fixture content, reduced motion, and 44 pixel touch targets.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c13: rhythms is responsive under required widths text scale rtl and touch sizing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2004-c14",
+      "text": "Rhythms is fixture-only: no non-loopback request is attempted, ids and generated dates are deterministic around the fixed clock, and reload restores the identical seeded rules after local mutations without persistent browser state.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2004-rhythms.spec.ts",
+      "test_id": "issue-2004-c14: fixture isolation blocks external io and reload resets deterministically",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "manual-visual-parity",
+      "reason": "Manual plus screenshot: the lead compares Rhythms in dark and light themes with ../rhythm-dashboard-redesign.html for the mineral blue-green hierarchy, compact density, typography, dividers, radii, and restrained accent."
+    },
+    {
+      "criterion_id": "lead-global-gates",
+      "reason": "Lead-run only: complete repository regression count/build and Electron-absence audit are outside this page-owner recon turn."
+    }
+  ],
+  "verified": "2026-08-13 full-suite run: 216 passed incl. all Wave-2 contract+page suites (installed Chrome); build + dist smoke green"
+}

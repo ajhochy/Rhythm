@@ -1,0 +1,138 @@
+{
+  "issue": 2008,
+  "generated": "2026-08-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-2008-c1",
+      "text": "The /automations collection route and /automations/<ruleId> deep links render the real page-automations contract inside the selected Rhythm shell with exactly one Automations h1, and invalid rule ids recover without a fabricated endpoint.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c1: automations route and rule deep links render the real page shell",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c2",
+      "text": "Ready rules remain deterministic in Flutter source order and API created order with stable enabled/count statistics; because Flutter has no rule search or list-filter control, the redesign does not invent either.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c2: rule grouping ordering and enabled statistics are deterministic",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c3",
+      "text": "The ready, loading, empty, server-error, forbidden, unavailable, and readonly state matrix is deterministic; Retry recovers without reload, empty opens the builder, and readonly preserves inspection while natively disabling every mutation with an aria-disabled fieldset mirror.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c3: shared state matrix exposes deterministic recovery and readonly inspection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c4",
+      "text": "Every enabled Automations control has a stable kebab-case data-testid and observable outcome; client-only controls emit no fake receipt, and preview/builder dialogs close on Escape and restore focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c4: controls are live receipt-honest and modal focus is restored",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c5",
+      "text": "The visible page-trace ledger records the exact eight-request Flutter bootstrap: rules, trigger/action/provider catalogs, integration accounts, Planning Center task options, Gmail labels, and project templates, each with a simulated 200 status.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c5: bootstrap ledger records exact catalog dependency receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c6",
+      "text": "The ready Automations page and builder have zero serious or critical axe violations, ordered headings, labelled controls and status/error regions, and contained modal keyboard focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c6: ready page and builder satisfy axe and modal focus",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c7",
+      "text": "Automations has no page-level horizontal overflow at 1440, 1024, 768, or 390 CSS pixels and remains usable with 200 percent text, RTL, reduced motion, long CJK/emoji content, forced colors, and 44 pixel touch targets.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c7: automations remains responsive under required presentation modes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c8",
+      "text": "Automations is fixture-only and loopback-isolated: it attempts no external request, uses deterministic ids and timestamps, and reload restores the identical seeded rules after local mutations.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c8: fixture isolation blocks external I O and reload resets rule state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c9",
+      "text": "Missing integration prerequisites, empty catalog, invalid existing configuration, and provider error or reauthentication remain explicit, disable only affected controls, and provide a fixture-safe Integrations handoff.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c9: provider prerequisites and dependency failures remain explicit",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c10",
+      "text": "Builder source, connected account, trigger fields, source-specific condition fields, and available actions are derived from the real catalogs: PCO is multi-trigger and task/project-only, Calendar may reserve facilities, and Gmail or Rhythm cannot reserve facilities.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c10: builder choices follow provider trigger and action catalogs",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c11",
+      "text": "Create, edit, and delete update exactly the targeted rule and visible statistics once, with exact POST /automation-rules, PATCH /automation-rules/:id, and DELETE /automation-rules/:id receipts and simulated 201, 200, and 204 statuses.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c11: create edit and delete update the list with exact receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c12",
+      "text": "Enable and disable patch only enabled state, replace the targeted rule without reordering it, update the Enabled statistic, and emit PATCH /automation-rules/:id {enabled} -> 200 once per change.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c12: enabled switch patches one rule and preserves deterministic order",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c13",
+      "text": "Preview renders the endpoint's historical summary, latest sample, match count, and evaluation timestamps without mutating rules, and emits only GET /automation-rules/:id/preview -> 200 for the inspection action.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c13: preview renders historical match evidence without mutation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c14",
+      "text": "Trigger or Resync disables while running, renders progress and a truthful response-derived result, emits POST /automation-rules/:id/resync -> 200, then performs the exact eight-request Flutter reload without duplicating rules.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c14: resync exposes progress result receipt and deterministic reload",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2008-c15",
+      "text": "Builder submission blocks a missing required project template, notification message, or reservation facility without a mutation receipt; optional blank condition rows are omitted exactly as Flutter does and valid submission preserves the catalog-derived review.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2008-automations.spec.ts",
+      "test_id": "issue-2008-c15: builder validates required action fields and omits blank conditions",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "manual-visual-parity",
+      "reason": "Manual plus screenshot: the lead compares Automations in dark and light themes against ../rhythm-dashboard-redesign.html for mineral blue-green hierarchy, compact density, typography, hairline borders, radii, and restrained accent."
+    },
+    {
+      "criterion_id": "lead-global-gates",
+      "reason": "Lead-run only: complete repository regression/build verification and the Electron-absence audit are outside this page-owner recon contract."
+    }
+  ],
+  "verified": "2026-08-13 final full-suite run: 230/230 passed (installed Chrome, all nine contracts + 58-test Agents baseline); build + dist smoke + Electron audit green"
+}
