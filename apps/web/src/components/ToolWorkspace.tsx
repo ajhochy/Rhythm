@@ -7,6 +7,7 @@ import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gat
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
+import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -217,6 +218,182 @@ function ResearchTool() {
     <div className="tool-split research-layout"><aside className="tool-rail" aria-label="Research projects"><h2>Projects</h2>{projects.map((project) => <button className={project.id === selected.id ? 'selected' : ''} type="button" key={project.id} onClick={() => { setSelectedId(project.id); record('GET', `/agent-research/projects/${project.id}/runs`, 'Project runs loaded'); }} data-testid={`research-project-${project.id}`}><strong>{project.name}</strong><small>{project.status} · {project.run.status}</small></button>)}</aside><section className="tool-detail" aria-labelledby="research-project-title"><header className="detail-header"><div><span className="eyebrow">{selected.run.status}</span><h2 id="research-project-title">{selected.name}</h2><p>{selected.question}</p></div><div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => { setProjects((current) => current.map((item) => item.id === selected.id ? { ...item, run: { ...item.run, id: `run-${item.id}-04`, status: 'working', synthesis: 'Research passes are collecting source evidence.' } } : item)); record('POST', `/agent-research/projects/${selected.id}/runs`, 'Manual project run started with {triggerType:"manual"}'); }} data-testid="research-start-run"><Icon name="resume" size={13} />Start run</button><button className="text-danger-button" type="button" onClick={() => { setProjects((current) => current.map((item) => item.id === selected.id ? { ...item, status: 'archived' } : item)); record('POST', `/agent-research/projects/${selected.id}/archive`, 'Research project archived'); }} data-testid="research-archive"><Icon name="archive" size={13} />Archive project</button></div></header><div className="research-tabs" role="tablist" aria-label="Research evidence"><button role="tab" aria-selected="true" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}`, 'Run synthesis opened')}>Synthesis</button><button role="tab" aria-selected="false" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}`, 'Pass evidence opened')}>Passes</button><button role="tab" aria-selected="false" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}`, 'Contrarian review opened')}>Contrarian Review</button><button role="tab" aria-selected="false" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}`, 'Curated sources opened')}>Sources</button><button role="tab" aria-selected="false" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}`, 'Run statistics opened')}>Statistics</button></div><article className="research-report"><span className={`state-badge ${selected.run.status}`}>{selected.run.status}</span><h3>Run {selected.run.id}</h3><p>{selected.run.synthesis}</p>{selected.run.status === 'failed' && <button className="primary-button" type="button" onClick={() => { setProjects((current) => current.map((item) => item.id === selected.id ? { ...item, run: { ...item.run, status: 'working', synthesis: 'Retry is gathering source evidence.' } } : item)); record('POST', `/agent-research/${selected.run.id}/retry`, 'Failed legacy research job retried'); }} data-testid="research-retry">Retry</button>}<div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => record('LOCAL', 'clipboard.writeText', 'Research result copied')} data-testid="research-copy"><Icon name="copy" size={13} />Copy results</button><button className="secondary-button compact" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}/magazine`, 'Magazine view opened')} data-testid="research-magazine">Magazine</button><button className="secondary-button compact" type="button" onClick={() => record('GET', `/agent-research/projects/${selected.id}/runs/${selected.run.id}/export?format=html`, 'HTML export prepared')} data-testid="research-export">Export HTML</button><button className="secondary-button compact" type="button" onClick={() => record('POST', `/agent-research/projects/${selected.id}/runs/${selected.run.id}/discussions`, 'Discussion session created from selected artifacts')} data-testid="research-discuss">Start discussion</button></div></article></section></div>
     <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const id = `research-project-${projects.length + 1}`; const project: ResearchProject = { id, name: String(data.get('name')), question: String(data.get('question')), status: 'active', run: { id: `${id}-run-01`, status: 'working', synthesis: 'The first research pass is queued.' } }; setProjects((current) => [...current, project]); setSelectedId(id); setProjectDialog(false); record('POST', '/agent-research/projects', 'Research project created from {name,question,goals,domain,profileId,passConfig,modelPolicy,criticConfig,synthesisConfig,budget}'); }}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue={'Verified sources\nActionable synthesis'} rows={3} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
     <FocusDialog open={legacyDialog} onClose={() => setLegacyDialog(false)} title="New Research" description="Start a bounded legacy research job." testId="research-legacy-dialog"><form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); setLegacyDialog(false); record('POST', '/agent-research', `Research started at ${String(data.get('depth'))} depth with {query,depth}`); }}><label className="field span-2">Question / Topic<textarea name="query" required data-autofocus placeholder="What would you like to research?" /></label><fieldset className="radio-stack span-2"><legend>Depth</legend><label><input type="radio" name="depth" value="standard" defaultChecked />Standard</label><label><input type="radio" name="depth" value="deep" />Deep</label></fieldset><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setLegacyDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-legacy-start">Start</button></footer></form></FocusDialog>
+  </ToolFrame>;
+}
+
+// Live research projects — apps/web/src/gateway/research.ts's ResearchProject/ResearchProjectRun
+// mirror apps/api_server/src/repositories/agent_research_repository.ts:34-77. The quick-create
+// dialog only surfaces name/question/domain/goals; profileId/passConfig/modelPolicy/criticConfig/
+// synthesisConfig/scheduleRef/budget use the redspec's documented starter defaults (a single
+// evidence-gathering pass, critic+synthesis enabled, a bounded budget) rather than fixture-invented
+// values, since the API requires all of them on create (agentResearchController.ts:92-106).
+function LiveResearchTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [projects, setProjects] = useState<LiveResearchProject[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [runs, setRuns] = useState<ResearchProjectRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runDetail, setRunDetail] = useState<ResearchProjectRun | null>(null);
+  const [projectDialog, setProjectDialog] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-research/projects', detail: 'Loading research projects' });
+  const selected = projects.find((project) => project.id === selectedId) ?? projects[0] ?? null;
+  const latestRun = runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+
+  const loadProjects = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.research!.listProjects();
+      setProjects(next);
+      setSelectedId((current) => (current && next.some((project) => project.id === current) ? current : (next[0]?.id ?? null)));
+      setTrace({ method: 'GET', route: '/agent-research/projects', detail: `${next.length} research projects loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Research projects failed to load'); }
+  };
+  useEffect(() => { void loadProjects(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selected) { setRuns([]); setRunDetail(null); return; }
+    let active = true;
+    gateway.domains.research!.listRuns(selected.id)
+      .then((next) => { if (active) { setRuns(next); setSelectedRunId(next[0]?.id ?? null); } })
+      .catch(() => { if (active) setRuns([]); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected || !latestRun) { setRunDetail(null); return; }
+    let active = true;
+    gateway.domains.research!.getRun(selected.id, latestRun.id)
+      .then((run) => { if (active) setRunDetail(run); })
+      .catch(() => { if (active) setRunDetail(null); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, latestRun?.id]);
+
+  const createProject = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const goals = String(data.get('goals')).split('\n').map((value) => value.trim()).filter(Boolean);
+    const input = {
+      name: String(data.get('name')),
+      question: String(data.get('question')),
+      goals,
+      domain: String(data.get('domain') || '') || null,
+      profileId: 'research',
+      passConfig: [{ role: 'evidence', profileId: 'research' }],
+      modelPolicy: {},
+      criticConfig: { enabled: true },
+      synthesisConfig: { enabled: true },
+      scheduleRef: null,
+      budget: { maxPasses: 1, maxTokens: 1000, maxCostUsd: 1, maxWallClockMs: 60_000 },
+    };
+    try {
+      const created = await gateway.domains.research!.createProject(input);
+      setProjects((current) => (current.some((project) => project.id === created.id) ? current.map((project) => (project.id === created.id ? created : project)) : [...current, created]));
+      setSelectedId(created.id);
+      setTrace({ method: 'POST', route: '/agent-research/projects', detail: 'Research project created' });
+      setProjectDialog(false);
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research project creation failed'); }
+  };
+
+  const startRun = async () => {
+    if (!selected) return;
+    try {
+      const run = await gateway.domains.research!.startRun(selected.id);
+      setRuns((current) => [run, ...current]);
+      setSelectedRunId(run.id);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs`, detail: 'Manual project run started with {triggerType:"manual"}' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run failed to start'); }
+  };
+
+  const archiveProject = async () => {
+    if (!selected) return;
+    try {
+      const archived = await gateway.domains.research!.archiveProject(selected.id);
+      setProjects((current) => current.map((project) => (project.id === archived.id ? archived : project)));
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/archive`, detail: 'Research project archived' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research project archive failed'); }
+  };
+
+  const cancelRun = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const run = await gateway.domains.research!.cancelRun(selected.id, latestRun.id);
+      setRunDetail(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/cancel`, detail: 'Research run canceled' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run cancel failed'); }
+  };
+
+  const resumeRun = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const run = await gateway.domains.research!.resumeRun(selected.id, latestRun.id);
+      setRunDetail(run);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/resume`, detail: 'Research run resumed' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research run resume failed'); }
+  };
+
+  const openExport = async (format: 'html' | 'markdown') => {
+    if (!selected || !latestRun) return;
+    try {
+      const text = await gateway.domains.research!.exportRun(selected.id, latestRun.id, format);
+      const blobUrl = URL.createObjectURL(new Blob([text], { type: format === 'html' ? 'text/html' : 'text/markdown' }));
+      window.open(blobUrl, '_blank', 'noopener');
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/export?format=${format}`, detail: `${format} export prepared` });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Research export failed'); }
+  };
+
+  const openMagazine = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      const html = await gateway.domains.research!.magazine(selected.id, latestRun.id);
+      window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank', 'noopener');
+      setTrace({ method: 'GET', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/magazine`, detail: 'Magazine view opened' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Magazine view failed'); }
+  };
+
+  const discuss = async () => {
+    if (!selected || !latestRun) return;
+    try {
+      await gateway.domains.research!.startDiscussion(selected.id, latestRun.id, []);
+      setTrace({ method: 'POST', route: `/agent-research/projects/${selected.id}/runs/${latestRun.id}/discussions`, detail: 'Discussion session created from selected artifacts' });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Discussion could not be started'); }
+  };
+
+  const sourceLabel = (source: Record<string, unknown>) => (typeof source.title === 'string' ? source.title : typeof source.id === 'string' ? source.id : 'Untitled source');
+
+  return <ToolFrame slug="deep-research" title="Research Projects" description="Run multi-pass research, inspect evidence, and keep discussion and export actions attached to a project run." trace={trace} actions={<button className="primary-button" type="button" onClick={() => setProjectDialog(true)} data-testid="research-new-project"><Icon name="plus" size={14} />Create project</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="research-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && projects.length === 0 && <EmptyState title="No research projects yet">Create a project to keep multi-pass evidence, sources, and discussion in one place.</EmptyState>}
+    {selected && <div className="tool-split research-layout">
+      <aside className="tool-rail" aria-label="Research projects"><h2>Projects</h2>{projects.map((project) => <button className={project.id === selected.id ? 'selected' : ''} type="button" key={project.id} onClick={() => setSelectedId(project.id)} data-testid={`research-project-${project.id}`}><strong>{project.name}</strong><small>{project.archivedAt ? 'archived' : 'active'}</small></button>)}</aside>
+      <section className="tool-detail" aria-labelledby="research-project-title">
+        <header className="detail-header">
+          <div><h2 id="research-project-title">{selected.name}</h2><p>{selected.question}</p></div>
+          <div className="row-actions">
+            <button className="secondary-button compact" type="button" onClick={() => void startRun()} data-testid="research-start-run"><Icon name="resume" size={13} />Start run</button>
+            <button className="text-danger-button" type="button" onClick={() => void archiveProject()} disabled={Boolean(selected.archivedAt)} data-testid="research-archive"><Icon name="archive" size={13} />Archive project</button>
+          </div>
+        </header>
+        {runDetail ? <article className="research-report">
+          <span className={`state-badge ${runDetail.status}`}>{runDetail.status}</span>
+          <h3>Run {runDetail.id}</h3>
+          {runDetail.status === 'error' && <button className="primary-button" type="button" onClick={() => void resumeRun()} data-testid="research-resume">Resume</button>}
+          {(runDetail.status === 'working' || runDetail.status === 'pending') && <button className="secondary-button compact" type="button" onClick={() => void cancelRun()} data-testid="research-cancel">Cancel</button>}
+          <section aria-label="Curated sources"><h4>Sources</h4>{runDetail.sources.length === 0 ? <p className="tool-empty-inline">No sources yet.</p> : <ul>{runDetail.sources.map((source, index) => <li key={typeof source.id === 'string' ? source.id : index}>{sourceLabel(source)}</li>)}</ul>}</section>
+          <section aria-label="Run statistics"><h4>Usage</h4><p>{runDetail.usage.tokens} tokens · ${runDetail.usage.costUsd.toFixed(2)}</p></section>
+          <div className="row-actions">
+            <button className="secondary-button compact" type="button" onClick={() => void openMagazine()} data-testid="research-magazine">Magazine</button>
+            <button className="secondary-button compact" type="button" onClick={() => void openExport('html')} data-testid="research-export">Export HTML</button>
+            <button className="secondary-button compact" type="button" onClick={() => void discuss()} data-testid="research-discuss">Start discussion</button>
+          </div>
+        </article> : <p className="tool-empty-inline">No runs yet for this project.</p>}
+      </section>
+    </div>}
+    <FocusDialog open={projectDialog} onClose={() => setProjectDialog(false)} title="Create research project" description="Define the project question and evidence goals." testId="research-project-dialog" wide><form className="form-grid" onSubmit={(event) => void createProject(event)}><label className="field">Project name<input name="name" required data-autofocus /></label><label className="field">Domain<input name="domain" defaultValue="operations" /></label><label className="field span-2">Research question<textarea name="question" required rows={3} /></label><label className="field span-2">Goals (one per line)<textarea name="goals" defaultValue="Preserve evidence" rows={3} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setProjectDialog(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="research-project-create">Create project</button></footer></form></FocusDialog>
   </ToolFrame>;
 }
 
@@ -675,6 +852,6 @@ function SettingsTool() {
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
