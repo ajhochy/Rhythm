@@ -1,12 +1,48 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useGateway } from '../gateway/context';
+import type { McpServer } from '../gateway/mcp';
+import type { SkillEntry } from '../gateway/skills';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import type { Profile } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
 
+// `allowedMcpsJson` is a server→tool map, `allowedSkillsJson` a flat name array —
+// apps/api_server/src/routes/opencode_mcp_routes.ts:78-159 (tools per server) and
+// apps/api_server/src/routes/opencode_skills_routes.ts:90-98 (skill name). Parsed
+// defensively: a live row always carries these as JSON text, never pre-parsed.
+function parseMcpSelectionMap(raw: string | null | undefined): Record<string, string[]> {
+  if (!raw) return {};
+  try { const parsed = JSON.parse(raw); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, string[]> : {}; }
+  catch { return {}; }
+}
+function parseNameList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []; }
+  catch { return []; }
+}
+
 export function Profiles() {
-  const { profiles, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, notify } = useFixtures();
+  const { profiles, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, notify, sessionGatewayMode } = useFixtures();
+  const live = sessionGatewayMode === 'live';
+  const gateway = useGateway();
+  const [mcpCatalog, setMcpCatalog] = useState<McpServer[]>([]);
+  const [mcpCatalogError, setMcpCatalogError] = useState<string | null>(null);
+  const [skillCatalog, setSkillCatalog] = useState<SkillEntry[]>([]);
+  const [skillCatalogError, setSkillCatalogError] = useState<string | null>(null);
+  const loadMcpCatalog = () => {
+    setMcpCatalogError(null);
+    gateway.domains.mcp!.list().then(setMcpCatalog).catch((err) => setMcpCatalogError(err instanceof Error ? err.message : 'MCP catalog failed to load'));
+  };
+  const loadSkillCatalog = () => {
+    setSkillCatalogError(null);
+    gateway.domains.skills!.list().then(setSkillCatalog).catch((err) => setSkillCatalogError(err instanceof Error ? err.message : 'Skill catalog failed to load'));
+  };
+  // Fired independently (not Promise.all): one catalog failing must never blank the other's
+  // already-fetched rows.
+  useEffect(() => { if (live) loadMcpCatalog(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (live) loadSkillCatalog(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedId, setSelectedId] = useState(profiles.find((profile) => profile.isDefault)?.id || profiles[0].id);
   const [search, setSearch] = useState(''); const [sort, setSort] = useState('name'); const [renaming, setRenaming] = useState(false); const [deleteOpen, setDeleteOpen] = useState(false);
   const selected = profiles.find((profile) => profile.id === selectedId) ?? profiles[0];
@@ -20,6 +56,18 @@ export function Profiles() {
   const visible = useMemo(() => profiles.filter((profile) => `${profile.label} ${profile.modelProvider ?? ''} ${profile.modelId ?? ''}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => sort === 'updated' ? b.updatedAt.localeCompare(a.updatedAt) : sort === 'provider' ? (a.modelProvider ?? '').localeCompare(b.modelProvider ?? '') : a.label.localeCompare(b.label)), [profiles, search, sort]);
   const set = <K extends keyof Profile>(key: K, value: Profile[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const toggleArray = (key: 'allowedDelegates' | 'mcps' | 'skills', value: string) => setDraft((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((item) => item !== value) : [...current[key], value] }));
+  const toggleMcpTool = (server: string, tool: string) => {
+    const map = parseMcpSelectionMap(draft.allowedMcpsJson);
+    const existing = map[server] ?? [];
+    const nextTools = existing.includes(tool) ? existing.filter((item) => item !== tool) : [...existing, tool];
+    const next = { ...map };
+    if (nextTools.length > 0) next[server] = nextTools; else delete next[server];
+    set('allowedMcpsJson', JSON.stringify(next));
+  };
+  const toggleSkillPolicy = (name: string) => {
+    const list = parseNameList(draft.allowedSkillsJson);
+    set('allowedSkillsJson', JSON.stringify(list.includes(name) ? list.filter((item) => item !== name) : [...list, name]));
+  };
   if (fixtureState !== 'ready' && fixtureState !== 'read-only') {
     const waiting = fixtureState === 'loading' || fixtureState === 'retrying';
     const recoverable = ['empty', 'first-use', 'no-results'].includes(fixtureState);
@@ -43,7 +91,22 @@ export function Profiles() {
           <section className="editor-section"><header><div><h3>Delegation</h3><p>Bound manager behavior and allowed delegate profiles.</p></div><label className="switch-label"><input type="checkbox" checked={draft.managerAgent} onChange={(event) => set('managerAgent', event.target.checked)} data-testid="profile-manager" /><span />Manager agent</label></header><fieldset className="option-grid"><legend>Allowed delegates</legend>{profiles.filter((profile) => profile.id !== selected.id).map((profile) => <label key={profile.id}><input type="checkbox" checked={draft.allowedDelegates.includes(profile.id)} onChange={() => toggleArray('allowedDelegates', profile.id)} data-testid={`delegate-${profile.id}`} /><span className="profile-avatar tiny">{profile.icon}</span><span><strong>{profile.label}</strong><small>{profile.model}</small></span></label>)}</fieldset></section>
           <section className="editor-section"><header><div><h3>Availability</h3><p>Control whether sessions can select and run this profile.</p></div></header><div className="switch-row"><label className="switch-label"><input type="checkbox" checked={draft.selectable} onChange={(event) => set('selectable', event.target.checked)} data-testid="profile-selectable" /><span />Session-selectable</label><label className="switch-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => set('enabled', event.target.checked)} data-testid="profile-enabled" /><span />Enabled</label><label className="switch-label"><input type="checkbox" checked={draft.managedSkills} onChange={(event) => set('managedSkills', event.target.checked)} data-testid="profile-managed-skills" /><span />Managed skills</label></div></section>
           <section className="editor-section"><header><div><h3>Provider &amp; model</h3><p>Defaults used when a session begins with this profile.</p></div></header><div className="form-grid"><label className="field">Provider<select value={draft.modelProvider ?? ''} onChange={(event) => set('modelProvider', event.target.value || null)} data-testid="profile-provider"><option value="">No preference</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="local">Local provider</option></select></label><label className="field">Model<select value={draft.modelId ?? ''} onChange={(event) => set('modelId', event.target.value || null)} data-testid="profile-model"><option value="">No preference</option><option value="gpt-5.6">gpt-5.6</option><option value="gpt-5.6-codex">gpt-5.6-codex</option><option value="claude-sonnet-4">claude-sonnet-4</option><option value="claude-sonnet-4-6">claude-sonnet-4-6</option></select></label><label className="field span-2">Default account<select value={draft.defaultAccount} onChange={(event) => set('defaultAccount', event.target.value)} data-testid="profile-account"><option>Rhythm workspace</option><option>Research account</option><option>Local account</option></select></label></div></section>
-          <section className="editor-section"><header><div><h3>Capabilities</h3><p>Scope MCP servers and skills to this profile.</p></div><button className="secondary-button" type="button" onClick={() => notify('MCP servers and skills refreshed')} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></header><div className="capability-columns"><fieldset><legend>MCP servers</legend>{['GitNexus', 'Open Design', 'Web research'].map((item) => <label key={item}><input type="checkbox" checked={draft.mcps.includes(item)} onChange={() => toggleArray('mcps', item)} data-testid={`mcp-${item.toLowerCase().replace(' ', '-')}`} />{item}</label>)}</fieldset><fieldset><legend>Skills</legend>{['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map((item) => <label key={item}><input type="checkbox" checked={draft.skills.includes(item)} onChange={() => toggleArray('skills', item)} data-testid={`skill-${item}`} />{item}</label>)}</fieldset></div></section>
+          {!live && <section className="editor-section"><header><div><h3>Capabilities</h3><p>Scope MCP servers and skills to this profile.</p></div><button className="secondary-button" type="button" onClick={() => notify('MCP servers and skills refreshed')} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></header><div className="capability-columns"><fieldset><legend>MCP servers</legend>{['GitNexus', 'Open Design', 'Web research'].map((item) => <label key={item}><input type="checkbox" checked={draft.mcps.includes(item)} onChange={() => toggleArray('mcps', item)} data-testid={`mcp-${item.toLowerCase().replace(' ', '-')}`} />{item}</label>)}</fieldset><fieldset><legend>Skills</legend>{['planning', 'verification', 'frontend', 'tests', 'research', 'citations'].map((item) => <label key={item}><input type="checkbox" checked={draft.skills.includes(item)} onChange={() => toggleArray('skills', item)} data-testid={`skill-${item}`} />{item}</label>)}</fieldset></div></section>}
+          {live && <section className="editor-section"><header><div><h3>Capabilities</h3><p>Scope MCP servers and skills to this profile from the live engine catalog.</p></div><button className="secondary-button" type="button" onClick={() => { loadMcpCatalog(); loadSkillCatalog(); }} data-testid="profile-resync"><Icon name="refresh" size={14} />Refresh capabilities</button></header><div className="capability-columns">
+            <fieldset><legend>MCP servers</legend>
+              {mcpCatalogError && <p role="alert">{mcpCatalogError}</p>}
+              {mcpCatalog.map((server) => {
+                const selectedTools = parseMcpSelectionMap(draft.allowedMcpsJson)[server.name] ?? [];
+                return <div key={server.name} className="mcp-server-group"><strong>{server.name}</strong>{server.tools.map((tool) => <label key={tool}><input type="checkbox" checked={selectedTools.includes(tool)} onChange={() => toggleMcpTool(server.name, tool)} data-testid={`mcp-${server.name}-${tool}`} />{tool}</label>)}</div>;
+              })}
+              {!mcpCatalogError && mcpCatalog.length === 0 && <p>No MCP servers configured.</p>}
+            </fieldset>
+            <fieldset><legend>Skills</legend>
+              {skillCatalogError && <p role="alert">{skillCatalogError}</p>}
+              {skillCatalog.map((skill) => <label key={skill.name}><input type="checkbox" checked={parseNameList(draft.allowedSkillsJson).includes(skill.name)} onChange={() => toggleSkillPolicy(skill.name)} data-testid={`skill-${skill.name}`} />{skill.name}</label>)}
+              {!skillCatalogError && skillCatalog.length === 0 && <p>No skills found.</p>}
+            </fieldset>
+          </div></section>}
           <section className="editor-section"><header><div><h3>Core permission rules</h3><p>Ask, allow, or deny each capability by default.</p></div></header><div className="permission-table" role="table" aria-label="Core permission rules"><div role="row" className="permission-head"><span role="columnheader">Capability</span><span role="columnheader">Ask</span><span role="columnheader">Allow</span><span role="columnheader">Deny</span></div>{Object.entries(draft.permissionRules).map(([rule, value]) => <div role="row" key={rule}><strong role="cell">{rule}</strong>{(['ask', 'allow', 'deny'] as const).map((choice) => <label role="cell" key={choice}><input type="radio" name={`permission-${rule}`} checked={value === choice} onChange={() => setDraft((current) => ({ ...current, permissionRules: { ...current.permissionRules, [rule]: choice } }))} aria-label={`${rule}: ${choice}`} data-testid={`permission-${rule}-${choice}`} /></label>)}</div>)}</div></section>
           <footer className="sticky-save"><button className="secondary-button" type="button" onClick={() => setDraft(structuredClone(selected))} data-testid="profile-cancel">Cancel changes</button><button className="primary-button" type="submit" data-testid="profile-save">Save profile</button></footer>
         </form>

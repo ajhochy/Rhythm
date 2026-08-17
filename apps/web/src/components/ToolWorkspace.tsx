@@ -1,9 +1,21 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { FIXED_NOW } from '../fixtures';
+import { useGateway } from '../gateway/context';
+import type { AgentMemory } from '../gateway/memory';
+import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+
+// Parses a JSON array field defensively — live rows always carry these as JSON text
+// (see apps/api_server/src/repositories/agent_memory_repository.ts:9-30), never as
+// already-parsed arrays, so a malformed or absent value must degrade to [] rather than throw.
+function parseJsonArray<T>(raw: string | null | undefined): T[] {
+  if (!raw) return [];
+  try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed as T[] : []; }
+  catch { return []; }
+}
 
 type Trace = { method: string; route: string; detail: string };
 type ToolSurfaceState = 'ready' | 'loading' | 'empty' | 'server-error' | 'forbidden' | 'unavailable' | 'readonly';
@@ -108,7 +120,7 @@ const seedMemories: Memory[] = [
   { id: 'memory-relay', kind: 'preference', content: 'When the desktop relay is offline, keep drafts local and state that they have not been sent.', tags: ['relay', 'offline'], source: 'agents/relay-notes.md', trust: 'reviewed', generatedBy: 'session-offline' },
 ];
 
-function BrainTool() {
+function FixtureBrainTool() {
   const { notify } = useFixtures();
   const [memories, setMemories] = useState(seedMemories);
   const [query, setQuery] = useState('');
@@ -128,6 +140,59 @@ function BrainTool() {
     {visible.length === 0 && <EmptyState title="No memories found">Try a different phrase or clear the search.</EmptyState>}
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title="Edit memory" description="Update this memory entry and its metadata." testId="memory-editor"><form className="form-grid" onSubmit={save}><label className="field span-2">Content<textarea name="content" defaultValue={editing?.content ?? ''} data-autofocus rows={5} required /></label><label className="field">Kind<select name="kind" defaultValue={editing?.kind ?? 'fact'}><option>fact</option><option>preference</option><option>decision</option></select></label><label className="field">Tags<input name="tags" defaultValue={editing?.tags.join(', ') ?? ''} placeholder="handoff, services" /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="memory-save">Save</button></footer></form></FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete memory?" description={deleting?.content || ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setMemories((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `/agent-memory/${deleting.id}`, 'Memory permanently deleted'); setDeleting(null); }} testId="memory-delete-dialog" />
+  </ToolFrame>;
+}
+
+// Live memory surface — apps/api_server/src/repositories/agent_memory_repository.ts:9-30 is the
+// canonical row shape. `lifecycleState` and `trustTier` are rendered verbatim from the server;
+// this must never fall back to the fixture's seeded 'verified'/'reviewed' display literals.
+function LiveBrainTool() {
+  const gateway = useGateway();
+  const [memories, setMemories] = useState<AgentMemory[]>([]);
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-memory', detail: 'Loading live memories' });
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.memory!.list();
+      setMemories(next);
+      setTrace({ method: 'GET', route: '/agent-memory', detail: `${next.length} memories loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Memory list failed'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const search = async (value: string) => {
+    setQuery(value);
+    setError(null);
+    try {
+      const next = value ? await gateway.domains.memory!.search(value) : await gateway.domains.memory!.list();
+      setMemories(next);
+      setTrace(value
+        ? { method: 'GET', route: `/agent-memory/search?q=${encodeURIComponent(value)}`, detail: `${next.length} memories matched` }
+        : { method: 'GET', route: '/agent-memory', detail: `${next.length} memories loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Memory search failed'); }
+  };
+
+  return <ToolFrame slug="brain" title="Agent Memory" description="Search, inspect, and curate the persistent memories available to agent sessions." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="brain-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search memories</span><input value={query} onChange={(event) => void search(event.target.value)} placeholder="Search memories…" data-testid="brain-search" /></label><span>{memories.length} memories</span></div>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="brain-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="tool-list" data-testid="brain-list">{memories.map((memory) => {
+      const sources = parseJsonArray<{ id?: string; title?: string }>(memory.sourcesJson);
+      const verified = parseJsonArray<{ by?: string; at?: string }>(memory.verifiedJson);
+      const tags = parseJsonArray<string>(memory.tagsJson);
+      return <article className="tool-row" key={memory.id} data-testid={`memory-${memory.id}`}>
+        <span className="kind-badge">{memory.kind}</span>
+        <div>
+          <strong>{memory.content}</strong>
+          <small><span>{memory.lifecycleState ?? memory.status}</span> · <span>{memory.trustTier}</span>{tags.length > 0 ? ` · ${tags.join(' · ')}` : ''}</small>
+          {sources.length > 0 && <p className="memory-meta">Sources: {sources.map((source) => source.title ?? source.id).filter(Boolean).join(', ')}</p>}
+          {verified.length > 0 && <p className="memory-meta">Verified by {verified.map((entry) => `${entry.by ?? 'unknown'}${entry.at ? ` at ${entry.at}` : ''}`).join(', ')}</p>}
+        </div>
+      </article>;
+    })}</div>
+    {memories.length === 0 && !error && <EmptyState title="No memories found">Try a different phrase, or clear the search to reload the live list.</EmptyState>}
   </ToolFrame>;
 }
 
@@ -152,7 +217,7 @@ function ResearchTool() {
 }
 
 type Schedule = { id: string; name: string; prompt: string; type: string; enabled: boolean; lastRun: string; runState: string };
-function SchedulesTool() {
+function FixtureSchedulesTool() {
   const { notify } = useFixtures(); const [items, setItems] = useState<Schedule[]>([{ id: 'schedule-digest', name: 'Monday planning digest', prompt: 'Summarize open work and unresolved owners.', type: 'weekly', enabled: true, lastRun: 'Aug 10, 9:00 AM', runState: 'completed' }, { id: 'schedule-health', name: 'Integration health sweep', prompt: 'Check configured agent integrations.', type: 'daily', enabled: false, lastRun: 'Aug 11, 8:00 AM', runState: 'error' }]);
   const [selectedId, setSelectedId] = useState(items[0].id); const [editing, setEditing] = useState<Schedule | 'new' | null>(null); const [deleting, setDeleting] = useState<Schedule | null>(null); const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Scheduled jobs loaded' }); const selected = items.find((item) => item.id === selectedId) ?? items[0];
   const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
@@ -161,6 +226,127 @@ function SchedulesTool() {
     <div className="tool-split"><aside className="tool-rail" aria-label="Scheduled agent jobs">{items.map((item) => <button className={item.id === selected.id ? 'selected' : ''} type="button" key={item.id} onClick={() => { setSelectedId(item.id); record('GET', `/agent-sessions?scheduledTaskId=${item.id}`, 'Recent scheduled runs loaded'); }} data-testid={`schedule-${item.id}`}><strong>{item.name}</strong><small>{item.type} · {item.enabled ? 'Enabled' : 'Disabled'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><h2>{selected.name}</h2><p>{selected.prompt}</p></div><div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => { setItems((current) => current.map((item) => item.id === selected.id ? { ...item, enabled: !item.enabled } : item)); record('PATCH', `/agent-schedules/${selected.id}`, `Schedule ${selected.enabled ? 'disabled' : 'enabled'}`); }} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="schedule-delete"><Icon name="delete" size={13} />Delete</button></div></header><dl className="tool-properties"><div><dt>Schedule Type</dt><dd>{selected.type}</dd></div><div><dt>Timezone</dt><dd>America/Los_Angeles</dd></div><div><dt>Last run</dt><dd>{selected.lastRun}</dd></div></dl><div className="run-history"><header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => { setItems((current) => current.map((item) => item.id === selected.id ? { ...item, lastRun: 'Aug 12, 3:48 PM', runState: 'working' } : item)); record('POST', `/agent-schedules/${selected.id}/trigger-now`, 'Scheduled job triggered now'); }} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header><button type="button" onClick={() => record('GET', `/agent-sessions?scheduledTaskId=${selected.id}`, 'Opened linked run session')}><span className={`status-dot ${selected.runState}`} /><strong>{selected.name} · manual run</strong><small>{selected.runState} · {selected.lastRun}</small></button></div></section></div>
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Schedule times use America/Los_Angeles." testId="schedule-editor" wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label><label className="field">Schedule Type<select name="type" defaultValue={editing && editing !== 'new' ? editing.type : 'daily'}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label><label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label><label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer></form></FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `/agent-schedules/${deleting.id}`, 'Scheduled task deleted'); setSelectedId(items.find((item) => item.id !== deleting.id)?.id || ''); setDeleting(null); }} testId="schedule-delete-dialog" />
+  </ToolFrame>;
+}
+
+// Live schedules surface — apps/api_server/src/repositories/agent_scheduled_tasks_repository.ts:5-31
+// and agent_scheduled_task_runs_repository.ts:15-33 are the canonical persisted shapes. Run rows
+// carry a durable `rootSessionId`; navigation reads it through ScheduleGateway.rootSession rather
+// than the fixture's synthetic `/agent-sessions?scheduledTaskId=` query.
+function LiveSchedulesTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [runs, setRuns] = useState<ScheduledTaskRun[]>([]);
+  const [editing, setEditing] = useState<ScheduledTask | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<ScheduledTask | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-schedules', detail: 'Loading live schedules' });
+  const selected = tasks.find((task) => task.id === selectedId) ?? tasks[0] ?? null;
+
+  const loadTasks = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.schedules!.list();
+      setTasks(next);
+      setSelectedId((current) => (current && next.some((task) => task.id === current) ? current : (next[0]?.id ?? null)));
+      setTrace({ method: 'GET', route: '/agent-schedules', detail: `${next.length} schedules loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Schedules failed to load'); }
+  };
+  useEffect(() => { void loadTasks(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadRuns = async (id: string) => {
+    setRunsError(null);
+    try { setRuns(await gateway.domains.schedules!.runs(id)); }
+    catch (err) { setRuns([]); setRunsError(err instanceof Error ? err.message : 'Run history failed to load'); }
+  };
+  useEffect(() => { if (selected) void loadRuns(selected.id); else setRuns([]); }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openRun = async (run: ScheduledTaskRun) => {
+    if (!run.rootSessionId) return;
+    try {
+      await gateway.domains.schedules!.rootSession(run.rootSessionId);
+      setTrace({ method: 'GET', route: `/agent-sessions/${run.rootSessionId}`, detail: 'Opened linked run session' });
+      navigate('/agents');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Could not open the linked session'); }
+  };
+
+  const toggleEnabled = async (task: ScheduledTask) => {
+    try {
+      const next = await gateway.domains.schedules!.update(task.id, { enabled: !task.enabled });
+      setTasks((current) => current.map((item) => (item.id === next.id ? next : item)));
+      setTrace({ method: 'PATCH', route: `/agent-schedules/${task.id}`, detail: `Schedule ${next.enabled ? 'enabled' : 'disabled'}` });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Schedule update failed'); }
+  };
+
+  const triggerNow = async () => {
+    if (!selected) return;
+    try {
+      const next = await gateway.domains.schedules!.triggerNow(selected.id);
+      setTasks((current) => current.map((item) => (item.id === next.id ? next : item)));
+      setTrace({ method: 'POST', route: `/agent-schedules/${selected.id}/trigger-now`, detail: 'Scheduled job triggered now' });
+      void loadRuns(selected.id);
+    } catch (err) { notify(err instanceof Error ? err.message : 'Trigger failed'); }
+  };
+
+  const removeTask = async (task: ScheduledTask) => {
+    try {
+      await gateway.domains.schedules!.remove(task.id);
+      setTasks((current) => current.filter((item) => item.id !== task.id));
+      setTrace({ method: 'DELETE', route: `/agent-schedules/${task.id}`, detail: 'Scheduled task deleted' });
+    } catch (err) { notify(err instanceof Error ? err.message : 'Delete failed'); }
+    setDeleting(null);
+  };
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const input: ScheduledTaskInput = { name: String(data.get('name')), prompt: String(data.get('prompt')), scheduleType: String(data.get('type')), enabled: data.get('enabled') === 'on' };
+    try {
+      if (editing === 'new') {
+        const created = await gateway.domains.schedules!.create(input);
+        setTasks((current) => [...current, created]); setSelectedId(created.id);
+        setTrace({ method: 'POST', route: '/agent-schedules', detail: 'Schedule created' });
+      } else if (editing) {
+        const updated = await gateway.domains.schedules!.update(editing.id, input);
+        setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+        setTrace({ method: 'PATCH', route: `/agent-schedules/${editing.id}`, detail: 'Schedule updated' });
+      }
+    } catch (err) { notify(err instanceof Error ? err.message : 'Save failed'); }
+    setEditing(null);
+  };
+
+  return <ToolFrame slug="tasks" title="Agent Schedules" description="Create and operate recurring or one-time agent jobs, with linked session history." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void loadTasks()} data-testid="schedules-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="schedule-new"><Icon name="plus" size={14} />New Schedule</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="schedules-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && tasks.length === 0 && <EmptyState title="No schedules yet">Create a schedule for recurring work or a one-time agent job.</EmptyState>}
+    {selected && <div className="tool-split">
+      <aside className="tool-rail" aria-label="Scheduled agent jobs">{tasks.map((task) => <button className={task.id === selected.id ? 'selected' : ''} type="button" key={task.id} onClick={() => setSelectedId(task.id)} data-testid={`schedule-${task.id}`}><strong>{task.name}</strong><small>{task.scheduleType} · {task.enabled ? 'Enabled' : 'Disabled'}</small></button>)}</aside>
+      <section className="tool-detail">
+        <header className="detail-header">
+          <div><span className={`state-badge ${selected.enabled ? 'completed' : ''}`}>{selected.enabled ? 'Enabled' : 'Disabled'}</span><h2>{selected.name}</h2><p>{selected.prompt}</p></div>
+          <div className="row-actions">
+            <button className="secondary-button compact" type="button" onClick={() => void toggleEnabled(selected)} data-testid="schedule-toggle">{selected.enabled ? 'Disable' : 'Enable'}</button>
+            <button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="schedule-edit"><Icon name="rename" size={13} />Edit</button>
+            <button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="schedule-delete"><Icon name="delete" size={13} />Delete</button>
+          </div>
+        </header>
+        <dl className="tool-properties">
+          <div><dt>Schedule Type</dt><dd>{selected.scheduleType}</dd></div>
+          <div><dt>Timezone</dt><dd>{selected.timezone}</dd></div>
+          <div><dt>Last run</dt><dd>{selected.lastRunAt ?? 'Never'}</dd></div>
+        </dl>
+        <div className="run-history">
+          <header><h3>Run history</h3><button className="primary-button" type="button" onClick={() => void triggerNow()} data-testid="schedule-trigger"><Icon name="resume" size={13} />Trigger now</button></header>
+          {runsError && <p role="alert">{runsError}</p>}
+          {runs.map((run) => <button key={run.id} type="button" onClick={() => void openRun(run)} data-testid={`schedule-run-${run.id}`}><span className={`status-dot ${run.status}`} /><strong>{run.startedAt}</strong><small>{run.status}{run.error ? ` · ${run.error}` : ''}</small></button>)}
+          {runs.length === 0 && !runsError && <p className="tool-empty-inline">No runs yet.</p>}
+        </div>
+      </section>
+    </div>}
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New Schedule' : 'Edit Schedule'} description="Schedule times use the task's own timezone." testId="schedule-editor" wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} /></label><label className="field">Schedule Type<select name="type" defaultValue={editing && editing !== 'new' ? editing.scheduleType : 'daily'}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="cron">Cron Expression</option><option value="once">Once</option></select></label><label className="field span-2">Instructions / Prompt<textarea name="prompt" required rows={4} defaultValue={editing && editing !== 'new' ? editing.prompt : ''} /></label><label className="check-label span-2"><input type="checkbox" name="enabled" defaultChecked={editing && editing !== 'new' ? editing.enabled : true} />Enabled</label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="schedule-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete scheduled task?" description={deleting ? `Delete “${deleting.name}”? This cannot be undone.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void removeTask(deleting); }} testId="schedule-delete-dialog" />
   </ToolFrame>;
 }
 
@@ -245,6 +431,8 @@ function SettingsTool() {
 }
 
 export function ToolWorkspace({ slug }: { slug: string }) {
-  const tools: Record<string, ReactNode> = { brain: <BrainTool />, 'deep-research': <ResearchTool />, tasks: <SchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: <ReviewTool />, 'report-card': <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
-  return <div key={slug} className="tool-route-boundary">{tools[slug] ?? <BrainTool />}</div>;
+  const { sessionGatewayMode } = useFixtures();
+  const live = sessionGatewayMode === 'live';
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: <CookbookTool />, review: <ReviewTool />, 'report-card': <ReportCardTool />, email: <EmailTool />, gallery: <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }
