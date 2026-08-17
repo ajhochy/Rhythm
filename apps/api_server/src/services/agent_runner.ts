@@ -44,6 +44,7 @@ import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_
 import { resolveProfileScope } from './agent_profile_scope';
 import { partitionResearchMcpPreflight } from './agent_skill_wiring';
 import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/experiment_treatment_adapter';
+import { reserveRunEnrollment } from './org_proposal_experiment_service';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -411,10 +412,16 @@ export interface AgentRunOptions {
    * still honors `modelOverride` first (never downgraded for budget), then
    * the profile's `model_tier_hint` (if set) or this task kind's default
    * tier, narrowed to the cheapest ADEQUATE authed route and downgraded
-   * further if the target provider is near its usage budget. Every decision
-   * is logged as one structured `[ModelRouting]` line (see #819 org audit).
-   */
+  * further if the target provider is near its usage budget. Every decision
+  * is logged as one structured `[ModelRouting]` line (see #819 org audit).
+  */
   taskKind?: string | null;
+  /**
+   * C1 — stable per-run episode identifier for experiment pre-reservation.
+   * When provided, this exact value is forwarded to `reserveRunEnrollment()`
+   * instead of any generated fallback.
+   */
+  runEpisodeId?: string | null;
 }
 
 export interface AgentRunResult {
@@ -780,6 +787,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     modelOverride,
     taskKind,
     category,
+    runEpisodeId: explicitRunEpisodeId,
   } = opts;
 
   // #1135 — enforce the independent security lock before consuming a
@@ -1225,6 +1233,18 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // mcpRoleConfig, NOT via the profile's own .md) keeps its existing behavior:
     // it still forwards the system override. A genuine built-in ocAgent
     // ('build'/'plan', where ocAgent !== configId) also keeps the override.
+    const resolvedProfileId = effectiveConfigId ?? 'claude-code';
+    const resolvedRunEpisodeId = explicitRunEpisodeId ?? rhythmSessionId;
+    if (resolvedRunEpisodeId) {
+      try {
+        await reserveRunEnrollment(resolvedRunEpisodeId, resolvedProfileId);
+      } catch (err) {
+        logger.warn(
+          `[AgentRunner] pre-run experiment reservation skipped for '${resolvedRunEpisodeId}' (non-fatal): ${String(err)}`,
+        );
+      }
+    }
+
     const runningAsOwnAgent =
       !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
 
