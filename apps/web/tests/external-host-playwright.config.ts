@@ -16,7 +16,7 @@ export default defineConfig({
   use: {
     browserName: 'chromium',
     launchOptions: { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' },
-    baseURL: 'http://127.0.0.1:4185',
+    baseURL: 'http://127.0.0.1:4385',
     viewport: { width: 1440, height: 900 },
     timezoneId: 'America/Los_Angeles',
     locale: 'en-US',
@@ -27,9 +27,9 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 4185',
+      command: 'npm run dev -- --host 127.0.0.1 --port 4385',
       cwd: projectRoot,
-      url: 'http://127.0.0.1:4185',
+      url: 'http://127.0.0.1:4385',
       reuseExistingServer: false,
       timeout: 30_000,
     },

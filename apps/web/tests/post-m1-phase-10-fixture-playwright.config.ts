@@ -8,10 +8,10 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   reporter: [['line']],
-  use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:4179', viewport: { width: 1440, height: 900 } },
+  use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:4379', viewport: { width: 1440, height: 900 } },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 4179',
-    url: 'http://127.0.0.1:4179',
+    command: 'npm run dev -- --host 127.0.0.1 --port 4379',
+    url: 'http://127.0.0.1:4379',
     reuseExistingServer: false,
     timeout: 30_000,
   },

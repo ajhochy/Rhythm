@@ -28,3 +28,6 @@
 .artifact-picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
 .artifact-picker-option { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; }
 .artifact-picker-option[aria-selected="true"] { border-color: var(--accent, #4f6af5); }
+
+.artifact-collaborator-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.artifact-collaborator-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; }
