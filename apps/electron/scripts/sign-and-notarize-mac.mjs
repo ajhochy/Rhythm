@@ -7,14 +7,15 @@
 // so there are no extensionless Mach-O binaries or JIT-needing embedded runtimes to sign separately
 // beyond Electron's own bundled Frameworks/Helpers.
 //
-// Required environment:
-//   APPLE_SIGNING_IDENTITY  — codesign identity (SHA-1 hash or exact "Developer ID Application: ..."
-//                             string). Must already be importable/present in a keychain codesign can
-//                             reach (security find-identity -v -p codesigning).
-//   APPLE_TEAM_ID           — e.g. 56Q69NYP9H.
-//   APPLE_API_KEY_PATH      — path to the App Store Connect API .p8 key file.
-//   APPLE_API_KEY_ID        — that key's Key ID.
-//   APPLE_API_ISSUER        — that key's Issuer ID.
+// Required environment (same Apple ID + app-specific-password notarization credentials as
+// tools/release/sign_and_notarize_macos.sh — the Flutter release script — since this is the same
+// Apple Developer account/app; no separate App Store Connect API key needed):
+//   APPLE_SIGNING_IDENTITY      — codesign identity (SHA-1 hash or exact "Developer ID Application:
+//                                 ..." string). Must already be importable/present in a keychain
+//                                 codesign can reach (security find-identity -v -p codesigning).
+//   APPLE_TEAM_ID               — e.g. 56Q69NYP9H.
+//   APPLE_ID                    — Apple ID email used for notarization.
+//   APPLE_APP_SPECIFIC_PASSWORD — app-specific password for that Apple ID.
 import { execFile } from 'node:child_process';
 import { open, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -27,7 +28,7 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const artifact = resolve(electronRoot, 'dist/Rhythm.app');
 const entitlementsPath = resolve(electronRoot, 'entitlements/mac.plist');
 
-const required = ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_PATH', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER'];
+const required = ['APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD'];
 for (const name of required) {
   if (!process.env[name]?.trim()) {
     process.stderr.write(`Missing ${name} — skipping sign/notarize.\n`);
@@ -112,12 +113,14 @@ process.stdout.write(`${assess.stderr ?? assess.stdout ?? ''}\n`);
 const zipPath = resolve(electronRoot, 'dist/Rhythm.zip');
 await run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', artifact, zipPath]);
 
+const appleId = process.env.APPLE_ID.trim();
+const appSpecificPassword = process.env.APPLE_APP_SPECIFIC_PASSWORD.trim();
+
 process.stdout.write('Submitting to Apple notary service (this can take several minutes)...\n');
 const notaryArgs = [
   'notarytool', 'submit', zipPath,
-  '--key', process.env.APPLE_API_KEY_PATH,
-  '--key-id', process.env.APPLE_API_KEY_ID,
-  '--issuer', process.env.APPLE_API_ISSUER,
+  '--apple-id', appleId,
+  '--password', appSpecificPassword,
   '--team-id', teamId,
   '--wait', '--timeout', '30m',
 ];
@@ -135,9 +138,9 @@ const status = statusMatches.at(-1)?.[1];
 if (status === 'Invalid' && submissionId) {
   const log = await run('xcrun', [
     'notarytool', 'log', submissionId,
-    '--key', process.env.APPLE_API_KEY_PATH,
-    '--key-id', process.env.APPLE_API_KEY_ID,
-    '--issuer', process.env.APPLE_API_ISSUER,
+    '--apple-id', appleId,
+    '--password', appSpecificPassword,
+    '--team-id', teamId,
   ]).catch((error) => error);
   process.stdout.write(`${(log.stdout ?? '') + (log.stderr ?? '')}\n`);
   process.exit(1);
