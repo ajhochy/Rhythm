@@ -51,6 +51,17 @@ export async function fetchWithColdStartBackoff(
     signal?: AbortSignal | null;
     delaysMs?: readonly number[];
     sleep?: (ms: number, signal?: AbortSignal | null) => Promise<void>;
+    /**
+     * #1422 — status alone cannot always separate "warming" from "answered".
+     * A paired gateway returns 503 for BOTH "still coming up" and the
+     * definitive "the Mac is asleep" (`mac_offline`). Replaying the latter
+     * burns the entire 4.6s budget before surfacing an answer the very first
+     * response already carried, stranding the UI in a loading state.
+     *
+     * Consulted only for an otherwise retry-eligible response, and it must
+     * inspect a CLONE — the original is still handed back to the caller.
+     */
+    isDefinitive?: (response: Response) => boolean | Promise<boolean>;
   },
 ): Promise<Response> {
   let response = await attempt();
@@ -59,6 +70,11 @@ export async function fetchWithColdStartBackoff(
   const sleep = options.sleep ?? delay;
   for (const wait of options.delaysMs ?? GATEWAY_RETRY_DELAYS_MS) {
     if (!isTransientGatewayStatus(response.status)) return response;
+    // Already an answer, not a warming signal — hand it back with its body
+    // intact rather than replaying it.
+    if (options.isDefinitive && (await options.isDefinitive(response))) {
+      return response;
+    }
     // The retry path never reads the body; release it so the connection can
     // be reused for the next attempt.
     await Promise.resolve(response.body?.cancel?.()).catch(() => undefined);
