@@ -176,13 +176,6 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
   const baseUrl = new URL(scope.client.origin()).origin;
   const projectId = scope.projectId.trim();
 
-  // #1422 — no local guard on a missing project. Requiring one here was
-  // circular: it demanded a selection step that does not exist (the id arrives
-  // from a chat deep-link's route params, or from persistence hydration), and
-  // on a cold relaunch it fired in the window before hydration and stuck. The
-  // gateway now anchors a project-less request to RHYTHM_DEFAULT_SESSION_ROOT
-  // and still canonicalizes + containment-checks every path against it, so the
-  // server — not the client — is the authority on scope.
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const request =
       typeof Request !== 'undefined' && input instanceof Request
@@ -210,13 +203,30 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
     };
     delete headers.authorization;
     const sdkPath = parsed.pathname;
-    const gatewayPath =
+    // Owner-unscoped discovery is BY DESIGN project-less — it answers "which of
+    // my chats exist" before any project is known, and the gateway serves it
+    // from its own owner-scoped route.
+    const ownerUnscopedDiscovery =
       sdkPath === '/experimental/session' &&
-        headers['x-rhythm-session-discovery'] === 'owner-unscoped'
-        ? '/mobile-gateway/chat-catalog'
-        : sdkPath === '/event' || sdkPath === '/global/event'
-          ? '/mobile-gateway/events'
-          : `/mobile-gateway/opencode${sdkPath}`;
+      headers['x-rhythm-session-discovery'] === 'owner-unscoped';
+    const gatewayPath = ownerUnscopedDiscovery
+      ? '/mobile-gateway/chat-catalog'
+      : sdkPath === '/event' || sdkPath === '/global/event'
+        ? '/mobile-gateway/events'
+        : `/mobile-gateway/opencode${sdkPath}`;
+
+    // #1422 — every PROJECT-SCOPED route still requires a project. Dropping
+    // this wholesale sent scoped reads out unscoped whenever the id had not
+    // hydrated yet, which is exactly what the guard existed to prevent
+    // (paired-production e2e observed projectId=null on /opencode/*).
+    //
+    // The exemption is only owner-unscoped discovery, where demanding a project
+    // was circular: you cannot know which projects exist until you have
+    // connected and listed your chats. The gateway anchors that request to
+    // RHYTHM_DEFAULT_SESSION_ROOT and still containment-checks every path.
+    if (!projectId && !ownerUnscopedDiscovery) {
+      throw new Error('Select a registered Rhythm project before connecting.');
+    }
 
     const method = init?.method ?? request?.method ?? 'GET';
     let body = init?.body;

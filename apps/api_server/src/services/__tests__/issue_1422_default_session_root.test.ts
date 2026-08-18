@@ -13,6 +13,14 @@ import type { NextFunction, Request, Response } from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Project } from '../../models/project';
+// Static import: vitest hoists vi.mock above it, so the mock is still in place.
+// A top-level `await import()` would work under vitest but breaks `npm run
+// build` (tsc -p tsconfig.json compiles this file and rejects top-level await
+// at the configured module target).
+import {
+  requireMobileProjectScope,
+  resolveMobileProjectPath,
+} from '../mobile_project_scope';
 
 // The default root is read off `env` at call time, so the suite swaps it per
 // case rather than depending on whatever the host machine's ~/Documents is.
@@ -29,10 +37,6 @@ vi.mock('../../config/env', async (importOriginal) => {
     },
   };
 });
-
-const { requireMobileProjectScope, resolveMobileProjectPath } = await import(
-  '../mobile_project_scope'
-);
 
 type FakeRequestInit = {
   projectHeader?: string;
