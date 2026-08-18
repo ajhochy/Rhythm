@@ -19,7 +19,8 @@ export type ExperimentEnrollmentFailureCode =
   | 'prompt_dispatch_failed'
   | 'provider_unavailable'
   | 'invalid_model'
-  | 'prompt_timeout';
+  | 'prompt_timeout'
+  | 'target_drifted';
 
 export const ENROLLMENT_FAILURE_CODES: ReadonlyArray<ExperimentEnrollmentFailureCode> = [
   'pre_dispatch_failed',
@@ -27,6 +28,7 @@ export const ENROLLMENT_FAILURE_CODES: ReadonlyArray<ExperimentEnrollmentFailure
   'provider_unavailable',
   'invalid_model',
   'prompt_timeout',
+  'target_drifted',
 ] as const;
 
 export const ENROLLMENT_FAILURE_CODE_REASONS: Readonly<
@@ -37,6 +39,10 @@ export const ENROLLMENT_FAILURE_CODE_REASONS: Readonly<
   provider_unavailable: 'provider_unavailable',
   invalid_model: 'invalid_model',
   prompt_timeout: 'prompt_timeout',
+  // C2-A — the target AgentConfig's durable fingerprint no longer matches the
+  // one the reservation was made against (a confirmed drift, not a generic
+  // binding failure — see prepareReservedTreatment).
+  target_drifted: 'target_drifted',
 } as const;
 
 /**

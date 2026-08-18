@@ -53,6 +53,7 @@ import {
 } from '../models/proposal_evidence_bundle';
 import {
   validateSystemPromptV1Spec,
+  resolveEffectiveSystemPrompt,
   type SystemPromptV1TreatmentSpec,
 } from '../models/experiment_treatment_adapter';
 import type {
@@ -258,6 +259,23 @@ export interface RunEnrollment {
 }
 
 /**
+ * A run episode ID collided with an ALREADY-BOUND enrollment for a DIFFERENT
+ * profile. This is a fail-closed error, never an ordinary ineligibility: a
+ * caller catching this must send no prompt and inject no treatment, rather
+ * than falling back to dispatching untreated. Carries no raw identifiers (no
+ * runEpisodeId, profileId, or hashes) so it is safe to surface in logs/errors
+ * verbatim.
+ */
+export class RunEnrollmentProfileCollisionError extends Error {
+  constructor() {
+    super(
+      'run episode is already enrolled under a different profile — refusing to reuse or reassign it',
+    );
+    this.name = 'RunEnrollmentProfileCollisionError';
+  }
+}
+
+/**
  * C1 — Reserve a cohort for a run episode BEFORE dispatch.
  *
  * This is the pre-run commitment: it picks the experiment (oldest undecided
@@ -268,12 +286,32 @@ export interface RunEnrollment {
  *
  * Returns the enrollment if reserved, or null if the run is not eligible
  * (optimizer off, no matching experiment, cap exhausted, profile mismatch).
+ *
+ * Throws {@link RunEnrollmentProfileCollisionError} if `runEpisodeId` is
+ * already bound to a DIFFERENT profile's enrollment — a confirmed collision,
+ * never silently resolved to the wrong profile's binding and never treated as
+ * ordinary ineligibility (which would let the caller fall through to an
+ * untreated dispatch). The pre-existing enrollment itself is left untouched.
  */
 export async function reserveRunEnrollment(
   runEpisodeId: string,
   profileId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
 ): Promise<ExperimentEnrollment | null> {
+  // Idempotency comes FIRST: `run_episode_id` is UNIQUE and a committed
+  // reservation's binding must never be re-derived from whatever the
+  // eligibility inputs (policy, target fingerprint, undecided experiments)
+  // happen to look like on a later call for the SAME episode — that would
+  // silently drop an already-reserved enrollment the moment the target drifts
+  // or the optimizer is toggled off, instead of surfacing the drift through
+  // prepareReservedTreatment where it belongs.
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  const existing = await enrollmentsRepo.findByRunEpisodeIdAsync(runEpisodeId);
+  if (existing) {
+    if (existing.profileId !== profileId) throw new RunEnrollmentProfileCollisionError();
+    return existing;
+  }
+
   const policy =
     deps.policy ??
     parseOptimizerPolicy({
@@ -297,8 +335,6 @@ export async function reserveRunEnrollment(
   const match = findEligibleExperiment(undecided, profileId, targetRevisionFingerprint);
   const experiment = match?.experiment;
   if (!experiment) return null;
-
-  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
 
   // Deterministic cohort assignment.
   const assignment = assignSubject({
@@ -328,6 +364,15 @@ export async function reserveRunEnrollment(
     baselineTargetRevisionHash,
     treatmentSpecHash,
   });
+
+  // `reserveAsync` has its own atomic idempotent read-back for a concurrent
+  // insert racing on the same runEpisodeId — re-check here too, so a
+  // concurrent DIFFERENT-profile race is fail-closed the same way the
+  // up-front idempotency check above is, rather than silently handing back
+  // the other profile's binding.
+  if (enrollment && enrollment.profileId !== profileId) {
+    throw new RunEnrollmentProfileCollisionError();
+  }
 
   return enrollment;
 }
@@ -401,6 +446,116 @@ export async function markRunEnrollmentPreDispatchFailed(
   const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
   return enrollmentsRepo.markTreatmentFailedAsync(runEpisodeId, {
     failureCode: 'pre_dispatch_failed',
+  });
+}
+
+/**
+ * C2-A — the narrow, service-owned pre-dispatch preparation gate.
+ *
+ * Called AFTER a reservation exists but BEFORE it is marked dispatched. Never
+ * trusts the reservation's stored hashes as ground truth on their own — it
+ * re-reads the target AgentConfig, recomputes the SAME durable fingerprint
+ * `reserveRunEnrollment` used, and only returns 'ready' when every binding the
+ * reservation depends on still holds:
+ *
+ *   1. the target's CURRENT fingerprint equals baselineTargetRevisionHash
+ *      (else 'target_drifted' — a confirmed target mismatch, the one case
+ *      that earns its own closed failure code);
+ *   2. the experiment still exists and its baseline/candidate specs still
+ *      validate, still target this exact profile/field, and their evidence
+ *      target hash still matches the current fingerprint;
+ *   3. the candidate spec's recomputed hash still equals the reservation's
+ *      treatmentSpecHash (the immutable binding has not been superseded).
+ *
+ * Only on 'ready' does the caller learn the effective system prompt — and
+ * only for the reservation's OWN cohort, never the other arm's.
+ */
+export type ReservedTreatmentPreparation =
+  | { status: 'ready'; systemPromptOverride: string }
+  | { status: 'target_drifted' }
+  | { status: 'invalid_binding' };
+
+export async function prepareReservedTreatment(
+  enrollment: ExperimentEnrollment,
+  deps: ExperimentDeps = {},
+): Promise<ReservedTreatmentPreparation> {
+  try {
+    const profile = new AgentConfigsRepository().getById(enrollment.profileId);
+    if (!profile) return { status: 'invalid_binding' };
+
+    const currentFingerprint = buildProfileRevisionFingerprint(profile);
+    if (currentFingerprint !== enrollment.baselineTargetRevisionHash) {
+      return { status: 'target_drifted' };
+    }
+
+    const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
+    const experiment = await experimentsRepo.findByIdAsync(enrollment.experimentId);
+    if (!experiment) return { status: 'invalid_binding' };
+
+    let baselineSpec: ReturnType<typeof validateSystemPromptV1Spec>;
+    let candidateSpec: ReturnType<typeof validateSystemPromptV1Spec>;
+    try {
+      baselineSpec = validateSystemPromptV1Spec(JSON.parse(experiment.baselineSpecJson));
+      candidateSpec = validateSystemPromptV1Spec(JSON.parse(experiment.candidateSpecJson));
+    } catch {
+      return { status: 'invalid_binding' };
+    }
+    if (!baselineSpec.valid || !candidateSpec.valid) return { status: 'invalid_binding' };
+
+    // Both specs' evidenceTarget must revalidate against the EXACT canonical
+    // ref for this reservation's own profile, not just the current hash — a
+    // ref pointing at a different (or malformed) target must never be treated
+    // as bound to this profile merely because its hash happens to match.
+    const expectedRef = toProfileTargetRef(enrollment.profileId);
+    if (
+      baselineSpec.spec.agentConfigId !== enrollment.profileId ||
+      candidateSpec.spec.agentConfigId !== enrollment.profileId ||
+      baselineSpec.spec.field !== 'system_prompt' ||
+      candidateSpec.spec.field !== 'system_prompt' ||
+      baselineSpec.spec.evidenceTarget.ref !== expectedRef ||
+      candidateSpec.spec.evidenceTarget.ref !== expectedRef ||
+      baselineSpec.spec.evidenceTarget.hash !== currentFingerprint ||
+      candidateSpec.spec.evidenceTarget.hash !== currentFingerprint
+    ) {
+      return { status: 'invalid_binding' };
+    }
+
+    const recomputedTreatmentSpecHash = createHash('sha256')
+      .update(canonicalizeForHash(candidateSpec.spec))
+      .digest('hex');
+    if (recomputedTreatmentSpecHash !== enrollment.treatmentSpecHash) {
+      return { status: 'invalid_binding' };
+    }
+
+    const boundSpec = enrollment.cohort === 'baseline' ? baselineSpec.spec : candidateSpec.spec;
+    return {
+      status: 'ready',
+      systemPromptOverride: resolveEffectiveSystemPrompt(boundSpec, enrollment.cohort),
+    };
+  } catch {
+    // A storage/parser dependency error can carry arbitrary bytes (including
+    // raw prompt/system-prompt content echoed back by a driver) — never
+    // interpolate it into a log line. The closed message below is sufficient
+    // to classify the failure without risking a leak on this safety path.
+    logger.warn(
+      `[org-proposal-experiment] treatment preparation failed for '${enrollment.runEpisodeId}' (non-fatal)`,
+    );
+    return { status: 'invalid_binding' };
+  }
+}
+
+/**
+ * C2-A: terminalize a reserved row as a confirmed target-drift failure. Kept
+ * distinct from `markRunEnrollmentPreDispatchFailed` so the one closed reason
+ * that means "the target moved" is never conflated with the generic
+ * pre-dispatch failure bucket.
+ */
+export async function markRunEnrollmentTargetDrifted(
+  runEpisodeId: string,
+): Promise<ReturnType<AgentOrgExperimentEnrollmentsRepository['markTreatmentFailedAsync']>> {
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  return enrollmentsRepo.markTreatmentFailedAsync(runEpisodeId, {
+    failureCode: 'target_drifted',
   });
 }
 

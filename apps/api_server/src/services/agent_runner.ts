@@ -47,7 +47,10 @@ import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/expe
 import {
   markRunEnrollmentDispatched,
   markRunEnrollmentPreDispatchFailed,
+  markRunEnrollmentTargetDrifted,
+  prepareReservedTreatment,
   reserveRunEnrollment,
+  RunEnrollmentProfileCollisionError,
 } from './org_proposal_experiment_service';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
@@ -1239,6 +1242,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // it still forwards the system override. A genuine built-in ocAgent
     // ('build'/'plan', where ocAgent !== configId) also keeps the override.
     const resolvedProfileId = effectiveConfigId ?? 'claude-code';
+    // C2-A — the reservation's bound cohort spec, resolved and re-verified
+    // just before dispatch. Wins unconditionally over opts.experimentTreatment
+    // (set below only as a fallback for the no-reservation case).
+    let reservedTreatmentOverride: string | null = null;
     if (resolvedRunEpisodeId) {
       const lifecycleFailedMessage =
         'AgentRunner: enrollment lifecycle transition failed before prompt dispatch';
@@ -1246,6 +1253,35 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       try {
         reservedEnrollment = await reserveRunEnrollment(resolvedRunEpisodeId, resolvedProfileId);
         if (reservedEnrollment) {
+          // C2-A — prepare (re-verify target + binding) BEFORE the reserved ->
+          // dispatched transition. A reservation that fails preparation must
+          // never be marked dispatched — it goes reserved -> treatment_failed
+          // directly, and no prompt is ever sent.
+          const preparation = await prepareReservedTreatment(reservedEnrollment);
+          if (preparation.status !== 'ready') {
+            if (preparation.status === 'target_drifted') {
+              await markRunEnrollmentTargetDrifted(resolvedRunEpisodeId).catch(() => {});
+            } else {
+              await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
+            }
+            logger.error(
+              `[AgentRunner] pre-dispatch treatment preparation failed (${preparation.status})`,
+            );
+            _markSessionError(
+              rhythmSessionId,
+              lifecycleFailedMessage,
+              false,
+              resolvedRunEpisodeId,
+            );
+            return {
+              sessionId: rhythmSessionId ?? '',
+              result: '',
+              status: 'error',
+              error: lifecycleFailedMessage,
+            };
+          }
+          reservedTreatmentOverride = preparation.systemPromptOverride;
+
           const dispatchedTransition = await markRunEnrollmentDispatched(resolvedRunEpisodeId);
           if (
             dispatchedTransition.status !== 'applied' &&
@@ -1272,7 +1308,15 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           }
         }
       } catch (err) {
-        if (reservedEnrollment?.state === 'reserved') {
+        // A profile-collision throw means `resolvedRunEpisodeId` is bound to a
+        // DIFFERENT profile's enrollment — never this run's own. Forwarding it
+        // to the terminal hook would let this run's unrelated error finalize
+        // (and potentially terminalize) the OTHER profile's reservation, up to
+        // and including one already `dispatched`. Every other lifecycle error
+        // here concerns THIS run's own reservation and must keep terminalizing
+        // the exact episode, unchanged.
+        const isProfileCollision = err instanceof RunEnrollmentProfileCollisionError;
+        if (!isProfileCollision && reservedEnrollment?.state === 'reserved') {
           await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
         }
         logger.error(
@@ -1282,7 +1326,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           rhythmSessionId,
           lifecycleFailedMessage,
           false,
-          resolvedRunEpisodeId,
+          isProfileCollision ? undefined : resolvedRunEpisodeId,
         );
         return {
           sessionId: rhythmSessionId ?? '',
@@ -1297,12 +1341,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
 
     // C2 — experiment treatment system override (contract docs/ai/contracts/issue-causal-runtime-v2.json, phase C2).
-    // When a valid system-prompt-v1 spec is provided, its cohort-specific effective value
-    // becomes the run's system override unconditionally — even on paths that would
-    // otherwise omit a duplicate (ocAgent === configId). An invalid spec is ignored
-    // (fail-closed: no override, not a crash).
-    let treatmentSystemOverride: string | null = null;
-    if (opts.experimentTreatment) {
+    // A reserved enrollment's bound cohort spec (resolved above) wins
+    // unconditionally — even on paths that would otherwise omit a duplicate
+    // (ocAgent === configId). opts.experimentTreatment is a backward-compatible
+    // fallback used ONLY when no enrollment was reserved for this run episode;
+    // it can never override a reserved binding (C2-A contract). An invalid
+    // fallback spec is ignored (fail-closed: no override, not a crash).
+    let treatmentSystemOverride: string | null = reservedTreatmentOverride;
+    if (treatmentSystemOverride === null && opts.experimentTreatment) {
       const { TREATMENT_ADAPTERS, validateSystemPromptV1Spec, resolveEffectiveSystemPrompt } = await import(
         '../models/experiment_treatment_adapter'
       );

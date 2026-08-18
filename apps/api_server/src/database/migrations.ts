@@ -4066,7 +4066,8 @@ If someone asks for creative work that needs a local capability:
         'prompt_dispatch_failed',
         'provider_unavailable',
         'invalid_model',
-        'prompt_timeout'
+        'prompt_timeout',
+        'target_drifted'
       ))
       OR (NEW.state = 'treatment_failed'
           AND (NEW.failure_code IS NULL OR NEW.failure_reason IS NOT ${canonicalFailureReasonExpr}))
@@ -4099,7 +4100,8 @@ If someone asks for creative work that needs a local capability:
           'prompt_dispatch_failed',
           'provider_unavailable',
           'invalid_model',
-          'prompt_timeout'
+          'prompt_timeout',
+          'target_drifted'
         )
         AND NEW.failure_reason IS ${canonicalFailureReasonExpr}
       )

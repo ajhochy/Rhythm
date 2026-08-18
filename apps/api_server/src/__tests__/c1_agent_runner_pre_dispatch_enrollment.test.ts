@@ -19,6 +19,8 @@ const {
   mockReserveRunEnrollment,
   mockMarkRunEnrollmentDispatched,
   mockMarkRunEnrollmentPreDispatchFailed,
+  mockMarkRunEnrollmentTargetDrifted,
+  mockPrepareReservedTreatment,
 } =
   vi.hoisted(() => ({
     mockCreateSession: vi.fn(),
@@ -27,6 +29,8 @@ const {
     mockReserveRunEnrollment: vi.fn(),
     mockMarkRunEnrollmentDispatched: vi.fn(),
     mockMarkRunEnrollmentPreDispatchFailed: vi.fn(),
+    mockMarkRunEnrollmentTargetDrifted: vi.fn(),
+    mockPrepareReservedTreatment: vi.fn(),
   }));
 
 vi.mock('../services/opencode_engine', () => ({
@@ -47,6 +51,13 @@ vi.mock('../services/org_proposal_experiment_service', () => ({
   reserveRunEnrollment: mockReserveRunEnrollment,
   markRunEnrollmentDispatched: mockMarkRunEnrollmentDispatched,
   markRunEnrollmentPreDispatchFailed: mockMarkRunEnrollmentPreDispatchFailed,
+  markRunEnrollmentTargetDrifted: mockMarkRunEnrollmentTargetDrifted,
+  prepareReservedTreatment: mockPrepareReservedTreatment,
+  // Ordering-only fixtures in this file never throw this — plain `Error`
+  // rejections exercise the generic (non-collision) lifecycle-error branch.
+  // Still exported so AgentRunner's `instanceof` check has a real class to
+  // check against instead of an undefined mock export.
+  RunEnrollmentProfileCollisionError: class RunEnrollmentProfileCollisionError extends Error {},
 }));
 
 let activeDb: Database.Database | null = null;
@@ -83,6 +94,17 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     mockMarkRunEnrollmentPreDispatchFailed.mockResolvedValue({
       status: 'applied',
       current: null,
+    });
+    mockMarkRunEnrollmentTargetDrifted.mockResolvedValue({
+      status: 'applied',
+      current: null,
+    });
+    // Ordering-only fixtures in this file are not exercising C2-A treatment
+    // preparation (see c2_a_reserved_treatment_dispatch.test.ts for that) — a
+    // reserved enrollment here always prepares 'ready' so dispatch proceeds.
+    mockPrepareReservedTreatment.mockResolvedValue({
+      status: 'ready',
+      systemPromptOverride: 'irrelevant-to-this-fixture',
     });
   });
 

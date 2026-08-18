@@ -371,6 +371,97 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
     );
   });
 
+  it('C2-A: the Postgres trigger enforces a legal reserved -> treatment_failed / target_drifted transition and rejects every noncanonical variant with NO partial mutation', async () => {
+    const baseId = `pgdrift-${Date.now()}`;
+    const enrollmentTemplate = {
+      experiment_id: 'experiment-drift-1',
+      proposal_id: 'proposal-drift-1',
+      profile_id: 'profile-drift-1',
+      cohort: 'candidate',
+      assignment_digest: 'assignment-digest-drift',
+      baseline_target_revision_hash: 'baseline-hash-drift',
+      treatment_spec_hash: 'treatment-hash-drift',
+      state: 'reserved',
+      reserved_at: '2026-01-01T00:00:00.000Z',
+    };
+    const columns = ['id', 'run_episode_id', ...Object.keys(enrollmentTemplate)];
+
+    async function insertReserved(id: string) {
+      const row = { id, run_episode_id: `${id}-episode`, ...enrollmentTemplate };
+      await pool.query(
+        `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        columns.map((c) => (row as Record<string, string>)[c]),
+      );
+    }
+
+    async function readRow(id: string) {
+      const { rows } = await pool.query(
+        `SELECT state, failure_code, failure_reason FROM agent_org_experiment_enrollments WHERE id = $1`,
+        [id],
+      );
+      return rows[0] as { state: string; failure_code: string | null; failure_reason: string | null };
+    }
+
+    // ── Legal: reserved -> treatment_failed with canonical target_drifted metadata ──
+    const legalId = `${baseId}-legal`;
+    await insertReserved(legalId);
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments
+          SET state = 'treatment_failed', failure_code = 'target_drifted', failure_reason = 'target_drifted'
+        WHERE id = $1`,
+      [legalId],
+    );
+    const legalAfter = await readRow(legalId);
+    expect(legalAfter).toEqual({
+      state: 'treatment_failed',
+      failure_code: 'target_drifted',
+      failure_reason: 'target_drifted',
+    });
+
+    // ── Rejected: target_drifted with an arbitrary/noncanonical reason ──
+    const arbitraryReasonId = `${baseId}-arbitrary-reason`;
+    await insertReserved(arbitraryReasonId);
+    const beforeArbitraryReason = await readRow(arbitraryReasonId);
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed', failure_code = 'target_drifted', failure_reason = 'the config drifted because someone edited it'
+          WHERE id = $1`,
+        [arbitraryReasonId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    expect(await readRow(arbitraryReasonId)).toEqual(beforeArbitraryReason);
+
+    // ── Rejected: target_drifted with a NULL reason ──
+    const nullReasonId = `${baseId}-null-reason`;
+    await insertReserved(nullReasonId);
+    const beforeNullReason = await readRow(nullReasonId);
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed', failure_code = 'target_drifted', failure_reason = NULL
+          WHERE id = $1`,
+        [nullReasonId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    expect(await readRow(nullReasonId)).toEqual(beforeNullReason);
+
+    // ── Rejected: an invalid/noncanonical failure_code entirely ──
+    const invalidCodeId = `${baseId}-invalid-code`;
+    await insertReserved(invalidCodeId);
+    const beforeInvalidCode = await readRow(invalidCodeId);
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed', failure_code = 'target_drifted_typo', failure_reason = 'target_drifted_typo'
+          WHERE id = $1`,
+        [invalidCodeId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    expect(await readRow(invalidCodeId)).toEqual(beforeInvalidCode);
+  });
+
   it('SEMANTIC: the Postgres created_at DEFAULT is unambiguous ISO-8601 UTC', async () => {
     const id = `pgtsz-${Date.now()}`;
     const row = {

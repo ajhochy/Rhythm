@@ -12,10 +12,11 @@
 
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setDb } from '../../database/db';
 import { runMigrations } from '../../database/migrations';
+import { logger } from '../../utils/logger';
 import {
   PROPOSAL_EVIDENCE_BUNDLE_VERSION,
   type ProposalEvidenceBundle,
@@ -32,9 +33,12 @@ import {
   assignSubjectAsync,
   decideExperiment,
   judgeExperimentAsync,
+  prepareReservedTreatment,
   reserveRunEnrollment,
+  RunEnrollmentProfileCollisionError,
   writeOutcomeStatus,
 } from '../org_proposal_experiment_service';
+import type { ExperimentEnrollment } from '../../models/agent_org_experiment_enrollment';
 
 let db: Database.Database;
 
@@ -874,5 +878,316 @@ describe('W6-c5 pairing reads W4 ledger cohorts and adds no update path', () => 
         .prepare(`UPDATE agent_run_outcomes SET experiment_variant = 'candidate' WHERE root_session_id = ?`)
         .run('ses-late'),
     ).toThrow(/immutable/i);
+  });
+});
+
+describe('C2-A — cross-profile run-episode reuse fails closed', () => {
+  it('throws a typed collision error when a different profile requests an already-bound episode, leaving the original enrollment untouched', async () => {
+    profileTargetFingerprint('collision-profile-a');
+    const { hash: bHash } = profileTargetFingerprint('collision-profile-b');
+    await declareC1Experiment('collision-profile-a', {
+      proposalId: 'prop-collision-a',
+      bundle: bundleForProfile('collision-profile-a', profileTargetFingerprint('collision-profile-a').hash),
+      baselineSpec: systemPromptSpec('collision-profile-a', {}, profileTargetFingerprint('collision-profile-a').hash),
+      candidateSpec: systemPromptSpec(
+        'collision-profile-a',
+        { candidateValue: 'a-candidate' },
+        profileTargetFingerprint('collision-profile-a').hash,
+      ),
+    });
+    await declareC1Experiment('collision-profile-b', {
+      proposalId: 'prop-collision-b',
+      bundle: bundleForProfile('collision-profile-b', bHash),
+      baselineSpec: systemPromptSpec('collision-profile-b', {}, bHash),
+      candidateSpec: systemPromptSpec('collision-profile-b', { candidateValue: 'b-candidate' }, bHash),
+    });
+
+    const runEpisodeId = 'run-episode-shared-by-two-profiles';
+    const original = await reserveRunEnrollment(runEpisodeId, 'collision-profile-a');
+    expect(original).not.toBeNull();
+    expect(original!.profileId).toBe('collision-profile-a');
+
+    await expect(reserveRunEnrollment(runEpisodeId, 'collision-profile-b')).rejects.toThrow(
+      RunEnrollmentProfileCollisionError,
+    );
+
+    const afterCollision = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      runEpisodeId,
+    );
+    expect(afterCollision).toEqual(original);
+    expect(afterCollision!.profileId).toBe('collision-profile-a');
+    expect(afterCollision!.state).toBe('reserved');
+    expect(afterCollision!.failureCode).toBeNull();
+  });
+
+  it('the collision error carries no raw profile/episode identifiers in its message', async () => {
+    profileTargetFingerprint('collision-msg-a');
+    const { hash: bHash } = profileTargetFingerprint('collision-msg-b');
+    await declareC1Experiment('collision-msg-a', {
+      proposalId: 'prop-collision-msg-a',
+      bundle: bundleForProfile('collision-msg-a', profileTargetFingerprint('collision-msg-a').hash),
+      baselineSpec: systemPromptSpec('collision-msg-a', {}, profileTargetFingerprint('collision-msg-a').hash),
+      candidateSpec: systemPromptSpec(
+        'collision-msg-a',
+        { candidateValue: 'a-candidate' },
+        profileTargetFingerprint('collision-msg-a').hash,
+      ),
+    });
+    await declareC1Experiment('collision-msg-b', {
+      proposalId: 'prop-collision-msg-b',
+      bundle: bundleForProfile('collision-msg-b', bHash),
+      baselineSpec: systemPromptSpec('collision-msg-b', {}, bHash),
+      candidateSpec: systemPromptSpec('collision-msg-b', { candidateValue: 'b-candidate' }, bHash),
+    });
+
+    const runEpisodeId = 'run-episode-secret-marker-xyz';
+    await reserveRunEnrollment(runEpisodeId, 'collision-msg-a');
+
+    try {
+      await reserveRunEnrollment(runEpisodeId, 'collision-msg-b');
+      throw new Error('expected reserveRunEnrollment to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunEnrollmentProfileCollisionError);
+      const message = (err as Error).message;
+      expect(message).not.toContain(runEpisodeId);
+      expect(message).not.toContain('collision-msg-a');
+      expect(message).not.toContain('collision-msg-b');
+    }
+  });
+
+  it('same-profile idempotent lookup still returns the existing binding even after policy is switched off and the target drifts', async () => {
+    const { hash } = profileTargetFingerprint('idempotent-profile');
+    await declareC1Experiment('idempotent-profile', {
+      proposalId: 'prop-idempotent',
+      bundle: bundleForProfile('idempotent-profile', hash),
+      baselineSpec: systemPromptSpec('idempotent-profile', {}, hash),
+      candidateSpec: systemPromptSpec('idempotent-profile', { candidateValue: 'idempotent-candidate' }, hash),
+    });
+
+    const runEpisodeId = 'run-episode-idempotent';
+    const original = await reserveRunEnrollment(runEpisodeId, 'idempotent-profile');
+    expect(original).not.toBeNull();
+
+    // Drift the target AFTER reservation.
+    new AgentConfigsRepository().update('idempotent-profile', { systemPrompt: 'drifted' });
+
+    // Toggle the optimizer off — a bare eligibility re-check would normally
+    // refuse everything.
+    const replay = await reserveRunEnrollment(runEpisodeId, 'idempotent-profile', {
+      policy: { mode: 'off', disabledFamilies: new Set() },
+    });
+
+    expect(replay).toEqual(original);
+  });
+});
+
+describe('C2-A — prepareReservedTreatment revalidates evidenceTarget.ref and .hash', () => {
+  function makeEnrollmentFixture(overrides: Partial<ExperimentEnrollment>): ExperimentEnrollment {
+    return {
+      id: 'fixture-enrollment',
+      runEpisodeId: 'fixture-run-episode',
+      experimentId: 'fixture-experiment',
+      proposalId: 'fixture-proposal',
+      profileId: 'fixture-profile',
+      cohort: 'candidate',
+      assignmentDigest: 'fixture-digest',
+      baselineTargetRevisionHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+      treatmentSpecHash: 'fixture-hash',
+      reservedAt: '2026-08-15T00:00:00.000Z',
+      state: 'reserved',
+      failureCode: null,
+      failureReason: null,
+      ...overrides,
+    };
+  }
+
+  async function declareRawExperiment(
+    proposalId: string,
+    baselineSpec: Record<string, unknown>,
+    candidateSpec: Record<string, unknown>,
+    bundleTargetHash: string,
+    profileIdForBundle: string,
+  ) {
+    const experiments = new AgentOrgExperimentsRepository();
+    return experiments.declareAsync({
+      proposalId,
+      adapter: 'paired-cohort-outcome',
+      evidenceBundleJson: JSON.stringify(bundleForProfile(profileIdForBundle, bundleTargetHash)),
+      baselineSpecJson: JSON.stringify(baselineSpec),
+      candidateSpecJson: JSON.stringify(candidateSpec),
+      assignmentKey: `exp-key-${proposalId}`,
+      stoppingRule: { minSamplesPerCohort: 10, minEffect: 0.05 },
+      maxExposure: 100,
+    });
+  }
+
+  it('returns invalid_binding when the BASELINE evidenceTarget.ref does not match the canonical agent_config ref', async () => {
+    const { config, hash } = profileTargetFingerprint('ref-check-baseline');
+    const wrongRef = 'agent_config:some-unrelated-profile';
+
+    const baselineSpec = {
+      ...systemPromptSpec('ref-check-baseline', {}, hash),
+      evidenceTarget: { ref: wrongRef, hash },
+    };
+    const candidateSpec = systemPromptSpec('ref-check-baseline', { candidateValue: 'after' }, hash);
+
+    const exp = await declareRawExperiment(
+      'prop-ref-check-baseline',
+      baselineSpec,
+      candidateSpec,
+      hash,
+      'ref-check-baseline',
+    );
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const enrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'baseline',
+    });
+
+    const result = await prepareReservedTreatment(enrollment);
+    expect(result.status).toBe('invalid_binding');
+  });
+
+  it('returns invalid_binding when the CANDIDATE evidenceTarget.ref does not match the canonical agent_config ref', async () => {
+    const { config, hash } = profileTargetFingerprint('ref-check-candidate');
+    const wrongRef = 'agent_config:some-unrelated-profile';
+
+    const baselineSpec = systemPromptSpec('ref-check-candidate', {}, hash);
+    const candidateSpec = {
+      ...systemPromptSpec('ref-check-candidate', { candidateValue: 'after' }, hash),
+      evidenceTarget: { ref: wrongRef, hash },
+    };
+
+    const exp = await declareRawExperiment(
+      'prop-ref-check-candidate',
+      baselineSpec,
+      candidateSpec,
+      hash,
+      'ref-check-candidate',
+    );
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const enrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'candidate',
+    });
+
+    const result = await prepareReservedTreatment(enrollment);
+    expect(result.status).toBe('invalid_binding');
+  });
+
+  it('returns target_drifted when the current fingerprint no longer matches the reservation binding', async () => {
+    const { config, hash } = profileTargetFingerprint('ref-check-drift');
+    const baselineSpec = systemPromptSpec('ref-check-drift', {}, hash);
+    const candidateSpec = systemPromptSpec('ref-check-drift', { candidateValue: 'after' }, hash);
+
+    const exp = await declareRawExperiment('prop-ref-check-drift', baselineSpec, candidateSpec, hash, 'ref-check-drift');
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const enrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      profileId: config.id,
+      // A stale/forged hash that does not match the profile's real current
+      // fingerprint computed inside prepareReservedTreatment.
+      baselineTargetRevisionHash: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      treatmentSpecHash,
+      cohort: 'candidate',
+    });
+
+    const result = await prepareReservedTreatment(enrollment);
+    expect(result.status).toBe('target_drifted');
+  });
+
+  it('returns ready with the exact bound cohort prompt when ref and hash both validate', async () => {
+    const { config, hash } = profileTargetFingerprint('ref-check-ready');
+    const baselineSpec = systemPromptSpec('ref-check-ready', {}, hash);
+    const candidateSpec = systemPromptSpec('ref-check-ready', { candidateValue: 'after-ready' }, hash);
+
+    const exp = await declareRawExperiment('prop-ref-check-ready', baselineSpec, candidateSpec, hash, 'ref-check-ready');
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const enrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'candidate',
+    });
+
+    const result = await prepareReservedTreatment(enrollment);
+    expect(result.status).toBe('ready');
+    expect(result.status === 'ready' && result.systemPromptOverride).toBe('after-ready');
+  });
+
+  it('never logs raw prompt bytes when a dependency error occurs during preparation', async () => {
+    const { config, hash } = profileTargetFingerprint('log-redaction-profile');
+    const BASELINE_PROMPT = 'You are the baseline redaction-test assistant.';
+    const CANDIDATE_PROMPT = 'You are the candidate redaction-test assistant.';
+    const RAW_PROMPT_SENTINEL = 'SENTINEL-RAW-PROMPT-BYTES-8f3c1a';
+
+    const baselineSpec = systemPromptSpec('log-redaction-profile', {
+      priorValue: BASELINE_PROMPT,
+      currentValue: BASELINE_PROMPT,
+      candidateValue: BASELINE_PROMPT,
+    }, hash);
+    const candidateSpec = systemPromptSpec('log-redaction-profile', {
+      priorValue: BASELINE_PROMPT,
+      currentValue: BASELINE_PROMPT,
+      candidateValue: CANDIDATE_PROMPT,
+    }, hash);
+
+    const exp = await declareRawExperiment(
+      'prop-log-redaction',
+      baselineSpec,
+      candidateSpec,
+      hash,
+      'log-redaction-profile',
+    );
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const enrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'candidate',
+    });
+
+    // A storage/parser dependency failure whose error message happens to
+    // carry raw prompt bytes (e.g. a driver echoing the offending row back in
+    // its error text) must never reach the logger verbatim.
+    const failingExperimentsRepo = {
+      findByIdAsync: async () => {
+        throw new Error(
+          `dependency failure while reading experiment row: baseline="${BASELINE_PROMPT}" candidate="${CANDIDATE_PROMPT}" ${RAW_PROMPT_SENTINEL}`,
+        );
+      },
+    } as unknown as AgentOrgExperimentsRepository;
+
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+
+    const result = await prepareReservedTreatment(enrollment, { experimentsRepo: failingExperimentsRepo });
+
+    expect(result.status).toBe('invalid_binding');
+
+    const loggedArgs = [...warnSpy.mock.calls, ...errorSpy.mock.calls]
+      .flat()
+      .map((arg) => String(arg));
+    for (const logged of loggedArgs) {
+      expect(logged).not.toContain(RAW_PROMPT_SENTINEL);
+      expect(logged).not.toContain(BASELINE_PROMPT);
+      expect(logged).not.toContain(CANDIDATE_PROMPT);
+    }
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });

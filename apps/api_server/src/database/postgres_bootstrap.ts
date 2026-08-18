@@ -1940,7 +1940,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
         'prompt_dispatch_failed',
         'provider_unavailable',
         'invalid_model',
-        'prompt_timeout'
+        'prompt_timeout',
+        'target_drifted'
       ) THEN
         RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
       END IF;
@@ -1951,6 +1952,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
         WHEN 'provider_unavailable' THEN 'provider_unavailable'
         WHEN 'invalid_model' THEN 'invalid_model'
         WHEN 'prompt_timeout' THEN 'prompt_timeout'
+        WHEN 'target_drifted' THEN 'target_drifted'
         ELSE NULL
       END;
 

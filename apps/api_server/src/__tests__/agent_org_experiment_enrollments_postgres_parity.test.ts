@@ -6,15 +6,13 @@ vi.mock('../config/env', () => ({ env: { agentExecutionEnabled: true } }));
 
 import { runMigrations } from '../database/migrations';
 import { runPostgresBootstrap } from '../database/postgres_bootstrap';
+import { ENROLLMENT_FAILURE_CODES } from '../models/agent_org_experiment_enrollment';
 
 const TABLE = 'agent_org_experiment_enrollments';
-const FAILURE_CODES = [
-  'pre_dispatch_failed',
-  'prompt_dispatch_failed',
-  'provider_unavailable',
-  'invalid_model',
-  'prompt_timeout',
-] as const;
+// The canonical closed set, read from the SAME model constant migrations.ts
+// and postgres_bootstrap.ts are built from — not a hand-copied fixture that
+// can silently fall behind when a new code (e.g. target_drifted) is added.
+const FAILURE_CODES = ENROLLMENT_FAILURE_CODES;
 
 function squash(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -65,6 +63,42 @@ async function emittedPostgresSql(): Promise<string> {
   await runPostgresBootstrap(pool);
   await runPostgresBootstrap(pool);
   return query.mock.calls.map(([statement]) => String(statement)).join('\n');
+}
+
+/**
+ * Extract the exact closed set of quoted codes inside the FIRST
+ * `NOT IN ( 'a', 'b', ... )` clause following `marker` in `sql`. Used to prove
+ * the enforced domain is EXACTLY the canonical set — not merely a superset
+ * that happens to contain every canonical code.
+ */
+function extractDomainSet(sql: string, marker: string): string[] {
+  const normalized = squash(sql);
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex < 0) return [];
+  const notInIndex = normalized.indexOf('NOT IN (', markerIndex);
+  if (notInIndex < 0) return [];
+  const open = notInIndex + 'NOT IN ('.length - 1;
+  const close = normalized.indexOf(')', open);
+  if (close < 0) return [];
+  return normalized
+    .slice(open + 1, close)
+    .split(',')
+    .map((s) => s.trim().replace(/^'|'$/g, ''))
+    .filter(Boolean)
+    .sort();
+}
+
+function sqliteEnrollmentTriggerSql(): string {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  runMigrations(db);
+  const row = db
+    .prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_agent_org_experiment_enrollments_state_insert_domain'`,
+    )
+    .get() as { sql: string } | undefined;
+  db.close();
+  return row?.sql ?? '';
 }
 
 describe('C1-C-B3 enrollment Postgres schema parity', () => {
@@ -120,5 +154,30 @@ describe('C1-C-B3 enrollment Postgres schema parity', () => {
     expect(normalized).not.toMatch(
       /(?:DROP TABLE|TRUNCATE|DELETE\s+FROM)\s+(?:TABLE\s+)?agent_org_experiment_enrollments/i,
     );
+  });
+
+  it('the canonical closed set includes target_drifted and the Postgres domain check enforces EXACTLY that set (not a superset)', async () => {
+    const canonical = [...ENROLLMENT_FAILURE_CODES].sort();
+    expect(canonical).toContain('target_drifted');
+
+    const sql = await emittedPostgresSql();
+    const domain = extractDomainSet(
+      sql,
+      'IF NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN',
+    );
+    expect(domain).not.toEqual([]);
+    expect(domain).toEqual(canonical);
+  });
+
+  it('the SQLite insert-domain trigger enforces EXACTLY the same canonical set as Postgres', () => {
+    const canonical = [...ENROLLMENT_FAILURE_CODES].sort();
+    const sqliteTriggerSql = sqliteEnrollmentTriggerSql();
+    expect(sqliteTriggerSql).not.toBe('');
+    const domain = extractDomainSet(
+      sqliteTriggerSql,
+      'NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN',
+    );
+    expect(domain).not.toEqual([]);
+    expect(domain).toEqual(canonical);
   });
 });
