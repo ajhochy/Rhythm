@@ -1,0 +1,181 @@
+{
+  "issue": "post-m1-phase-4",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-4-fixture-playwright.config.ts; npx playwright test --config tests/post-m1-phase-4-live-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p4-c1a",
+      "text": "Fixture session list, detail, create, hard-delete, close, archive, restore, and scope controls are deterministic and make zero HTTP, WebSocket, SDK, filesystem, worktree, or branch calls.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the fixture config on 2026-08-15. Chromium execution is assigned to the orchestrator because this unit is prohibited from launching it."
+    },
+    {
+      "criterion_id": "post-m1-p4-c1b",
+      "text": "Fixture composition with text and fixture attachments, partial streaming, cancel, provider-retry presentation, reconnect, resume, reload, and delete produces the same IDs, transcript parts, statuses, and cleanup state on repeated runs with zero live session calls.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the fixture config on 2026-08-15. Chromium execution is assigned to the orchestrator because this unit is prohibited from launching it."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2a",
+      "text": "Creating a nonce live session with canonical `profileId` returns a local session `id` and a distinct `sdkSessionId`, sends the first prompt through the real provider using the profile route, and reaches persisted `working` then `idle` state.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's nine missing-capability scope. Requires the real provider/sandbox lifecycle suite; page-route interception cannot satisfy the criterion's real-provider clause."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2b",
+      "text": "While the nonce provider turn is `working`, React appends every `message.part.delta` addressed by local session `id`, SDK `messageId`, `partId`, and `field`, so the visible partial output grows beyond the first fragment before `idle`.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. It asserts the complete visible partial before idle, so first-delta deduplication is the failure mechanism."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2c",
+      "text": "After `idle` and renderer reload, the same local session `id` is selected and its transcript contains canonical persisted roles `input` and `output`, stable `sdkMessageId` values, and the complete ordered `parts` arrays without duplicate prompts.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's nine missing-capability scope; the structured-part reload gap is covered separately by post-m1-p4-c2d, but that test must not be reused for this distinct baseline criterion."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2d",
+      "text": "React consumes full `message.part.updated` and `message.updated` frames and preserves canonical `text`, `reasoning`, `tool`, `step-start`, `step-finish`, `compaction`, `file`, and `agent` part types across live rendering and REST reload instead of coercing every part to markdown.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. It supplies canonical part objects at the external HTTP/WS boundaries and asserts semantic renderers before and after reload."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2e",
+      "text": "A user-selected real text file and real image or PDF are sent in `session.input.parts` as canonical `{type:'text',text}` and `{type:'file',mime,filename,url}` parts, reach the real provider, render as attachments, and survive transcript reload.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. It uses Playwright's real file chooser payload and asserts canonical text/file parts at the WS boundary plus reload rendering."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2f",
+      "text": "Loading older live transcript pages sends canonical `limit` and exclusive `before`, prepends each structured message exactly once, and follows `pageInfo.nextCursor` until `pageInfo.hasMore` is false.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. The controlled API returns canonical transcriptPage/pageInfo cursors and the test asserts exclusive before traversal and deduplication."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2g",
+      "text": "React lists live sessions using exactly the canonical scopes `chats`, `scheduled`, and `self_improvement`; switching scope refetches that slice and never sends or persists the display literal `background`.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's requested nine gaps (inventory capability 1). No assertion was weakened or combined with another criterion."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2h",
+      "text": "A nonce session created outside the renderer appears through `session.created` or a true list refresh, subsequent `session.updated` changes update the row, and `session.removed` removes it without a renderer reload.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's requested nine gaps (inventory capability 2). No assertion was weakened or combined with another criterion."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2i",
+      "text": "Close, archive, and restore controls call the live API, persist `closed` or `archivedAt` state, survive reload, and restore the row to the correct canonical scope without substituting local-only group labels for server state.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's requested nine gaps (inventory capability 3). No assertion was weakened or combined with another criterion."
+    },
+    {
+      "criterion_id": "post-m1-p4-c2j",
+      "text": "A live task part opens its child transcript using the parent local session `id` and child `sdkSessionId`, renders the child read-only, and returns to the unchanged parent transcript without treating the child SDK ID as a local row ID.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. The task tool output carries the canonical child SDK ID while the asserted route retains the parent local ID."
+    },
+    {
+      "criterion_id": "post-m1-p4-c3a",
+      "text": "When the WebSocket disconnects, React reconnects with bounded backoff, retains each unsent `session.input` in order, sends it exactly once after readiness, resubscribes by local session `id`, and rehydrates the persisted transcript without stale fixture content.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. A controlled WS close asserts a second connection, ordered exactly-once queued frames, local-id subscription, and detail rehydration."
+    },
+    {
+      "criterion_id": "post-m1-p4-c3b",
+      "text": "After an API and fork-engine bounce, React recovers the same local session `id`, the same persisted `sdkSessionId`, and the same transcript, and a post-bounce prompt creates one canonical `input` row and one provider `output` without duplicate delivery or ID substitution.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's nine missing-capability scope. It requires an orchestrator-managed API/engine bounce and cannot be honestly replaced by page-route interception."
+    },
+    {
+      "criterion_id": "post-m1-p4-c3c",
+      "text": "Cancel posts to `/agent-sessions/:id/cancel` with the local session `id`, aborts the mapped SDK turn, reaches idle without deleting the session, and leaves the persisted partial transcript readable after reload.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. It observes working output, clicks Cancel, asserts POST with the local ID, then reloads the persisted partial transcript."
+    },
+    {
+      "criterion_id": "post-m1-p4-c3d",
+      "text": "Resume posts to `/agent-sessions/:id/resume`, reattaches the existing `sdkSessionId`, rehydrates prior messages before new stream output, and renders an actionable start-fresh state on HTTP 410 without silently creating or substituting an SDK session.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. The controlled 410 response names the persisted sdkSessionId and the UI must expose start-fresh without substitution."
+    },
+    {
+      "criterion_id": "post-m1-p4-c3e",
+      "text": "A canonical transient `session.status` frame with `status:'retrying'`, `attempt`, and `reason` renders those retry details while preserving persisted session status, then clears when a part or non-retry status arrives.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-4-session-lifecycle.live.redspec.ts",
+      "status": "pending",
+      "reason": "Collected by the live config on 2026-08-15; orchestrator must execute it. A canonical controlled bridge frame asserts attempt/reason presentation and clearing on progress."
+    },
+    {
+      "criterion_id": "post-m1-p4-c4a",
+      "text": "Hard-deleting the nonce local session by local `id` removes its `agent_sessions` row and cascaded `agent_session_messages`, removes the mapped SDK session and descendants, clears in-memory routing and stream state, and broadcasts exactly one `session.removed`.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's nine missing-capability scope. Requires a real sandbox cleanup test; a mocked 204 would not satisfy the residue criterion."
+    },
+    {
+      "criterion_id": "post-m1-p4-c4b",
+      "text": "Hard delete with canonical `removeWorktree:true` leaves zero nonce worktree directories and zero nonce entries in `git worktree list`, and removes any nonce branch the test owns without touching pre-existing worktrees or branches.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's nine missing-capability scope. Requires a real isolated worktree and git-registry cleanup test."
+    },
+    {
+      "criterion_id": "post-m1-p4-c4c",
+      "text": "Pass, assertion failure, provider failure, cancel, disconnect, and engine-bounce exits all run idempotent cleanup that leaves zero nonce rows, files, listeners, sockets, worktrees, and branches while preserving all pre-existing resources.",
+      "mode": "live",
+      "test": null,
+      "status": "not_tested",
+      "reason": "Outside this focused unit's nine missing-capability scope. Requires mutation-checked cleanup across real provider/cancel/disconnect/bounce exits."
+    }
+  ],
+  "not_tested": [
+    "post-m1-p4-c2a",
+    "post-m1-p4-c2c",
+    "post-m1-p4-c2g",
+    "post-m1-p4-c2h",
+    "post-m1-p4-c2i",
+    "post-m1-p4-c3b",
+    "post-m1-p4-c4a",
+    "post-m1-p4-c4b",
+    "post-m1-p4-c4c"
+  ],
+  "note": "Inventory source: docs/ai/coverage/react-electron/phase-4-session-lifecycle-inventory.md. This focused unit emitted one executable Playwright criterion for each of the nine missing capabilities named in its task plus the two fixture determinism criteria. Chromium was not launched; collected tests remain pending until orchestrator execution. Canonical boundary vocabulary is profileId, local id, sdkSessionId, providerId/modelId, roles input/output/system, ordered transcript parts, transcriptPage/pageInfo cursors, and session.input.parts."
+}

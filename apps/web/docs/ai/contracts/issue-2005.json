@@ -1,0 +1,138 @@
+{
+  "issue": 2005,
+  "generated": "2026-08-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-2005-c1",
+      "text": "The Projects destination renders one page-projects shell and Projects h1; /projects, template, template-instances, and instance deep links select distinct deterministic surfaces and record the exact template and relevant instance load receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c1: projects route and deep links render distinct real surfaces",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c2",
+      "text": "Template create rejects a blank name without a receipt, create and edit preserve supported name and description fields, and confirmed delete removes the template and its selection with exact POST 201, PATCH 200, and DELETE 204 receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c2: template create edit and delete validate and receipt exactly",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c3",
+      "text": "Template step create and edit validate title and signed offset, preserve assignee, description, and append-only sortOrder, render steps chronologically by offsetDays, and confirmed delete records exact nested-route receipts without inventing a reorder control.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c3: template steps validate preserve ordering and use nested receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c4",
+      "text": "Start Project requires an anchor date, renders a client-side chronological resolved-date preview, accepts an optional instance name, records POST /project-templates/:id/generate {anchorDate,name} -> 201, and shows the generated instance success details.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c4: start project previews validates generates and shows success",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c5",
+      "text": "Active Projects defaults to incomplete instances and steps, Show completed restores finished work without a fake receipt, and completing the final open step derives instance status done while reopening derives active with exact step PATCH receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c5: completion filtering and derived instance status stay consistent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c6",
+      "text": "The project-step inspector exposes Flutter-supported title, notes, scheduled date, due date, and assignee editing, keeps project owner and collaborator metadata inspectable, warns when scheduled after due, and records one exact PATCH 200 receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c6: project step inspector edits supported fields and preserves context",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-2005-c7",
+      "text": "Project collaborator add and remove exclude the owner and existing collaborators, update the visible People row, record exact POST 201 and DELETE 204 receipts plus collection reload, and keep owner-only controls disabled with a truthful forbidden prerequisite for non-owners.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c7: collaborator changes enforce owner rules and exact receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c8",
+      "text": "Milestone add rejects blank title, inserts by sortOrder with POST 201, assigning and ungrouping a step use PATCH {milestoneId}, and delete uses DELETE 204 then visibly moves affected steps to Ungrouped.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c8: milestones add assign ungroup and delete update the timeline",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c9",
+      "text": "Deleting an active project uses the Flutter-exposed instance delete action, removes only that instance, updates the visible count, and records DELETE /project-instances/:id -> 204 without inventing archive or direct instance-status controls.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c9: active project delete removes only its instance with exact receipt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c10",
+      "text": "Loading, empty templates, no active projects, empty template steps, partial completion, server-error, forbidden, unavailable, and readonly states expose their correct escape hatch or prerequisite; Retry recovers without reload and readonly natively disables every mutation while preserving inspection.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c10: projects state matrix exposes recovery empties and prerequisites",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c11",
+      "text": "Every enabled Projects control has a stable kebab-case data-testid and an observable outcome; client-only mode, tab, selection, expansion, filtering, dialog, and preview controls never append fake endpoint receipts, and unsupported API capabilities are not exposed as enabled controls.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c11: enabled controls are live identifiable and receipt honest",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c12",
+      "text": "Representative ready Projects and its template, milestone, collaborator, and project-step dialogs have zero serious or critical axe violations; status changes are live, and dialogs and menus close on Escape and restore focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c12: projects and dialogs are accessible with focus recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c13",
+      "text": "Projects has no page-level horizontal overflow and keeps mode, Start Project, Add Step, and instance inspection usable at 1440, 1024, 768, and 390 CSS pixels, at 200 percent text scale, and under RTL with long CJK and emoji fixture content.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c13: projects remains responsive at required widths text scale and rtl",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c14",
+      "text": "Projects is fixture-only: no non-loopback request is attempted, ids and dates are deterministic, and reload restores the identical seeded templates, instances, steps, collaborators, and milestones instead of persisting prior mutations.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c14: fixture isolation blocks external I O and reload resets deterministically",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2005-c15",
+      "text": "Active Projects renders a compact divided project list on the left and a persistent project-detail inspector on the right; selecting a project keeps the list visible, synchronizes the selected row and inspector, and exposes supported project actions without expanding stacked project cards.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2005-projects.spec.ts",
+      "test_id": "issue-2005-c15: active projects use a persistent list and synchronized detail inspector",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "issue-2005-visual",
+      "reason": "Manual plus screenshot: lead compares Projects against ../rhythm-dashboard-redesign.html for mineral dark blue-green hierarchy, compact density, and dark/light theme parity."
+    },
+    {
+      "criterion_id": "issue-2005-global-gates",
+      "reason": "Lead-run global gates: complete regression suite and Electron audit are outside this page-owner recon contract."
+    }
+  ],
+  "verified": "2026-08-13 full-suite run: 216 passed incl. all Wave-2 contract+page suites (installed Chrome); build + dist smoke green"
+}

@@ -1,0 +1,112 @@
+name: Electron Release
+
+# React/Electron parity program (docs/ai/plans/2026-08-15-post-m1-parity-phases.md, Phase 11).
+# apps/electron is currently the reference/prototype client, not the shipping desktop app
+# (apps/desktop_flutter is) — this workflow exists so a signed, notarized build is possible for
+# parity testing, not so this becomes the primary release channel. Mirrors desktop_release.yml's
+# shape; the Electron shell bundles far less than the Flutter app (no embedded api_server/opencode
+# fork/Node runtime — see apps/electron/scripts/package-mac.mjs), so this pipeline is proportionally
+# smaller.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the v prefix'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the GitHub release as a prerelease'
+        required: true
+        default: true
+        type: boolean
+      release_notes:
+        description: 'Optional release notes override'
+        required: false
+        type: string
+
+jobs:
+  build-macos-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: electron-v${{ inputs.version }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      GOOGLE_DESKTOP_CLIENT_ID: ${{ secrets.GOOGLE_DESKTOP_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        run: |
+          npm --prefix apps/web install
+          npm --prefix apps/electron install
+
+      - name: Typecheck and unit-test the Electron shell
+        working-directory: apps/electron
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build unsigned package
+        working-directory: apps/electron
+        run: npm run package:mac
+
+      - name: Import signing certificate into a temporary keychain
+        run: |
+          set -euo pipefail
+          KEYCHAIN_NAME="electron-build-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$(mktemp -t rhythm-electron-cert).p12"
+          echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_PATH}"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_NAME}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          security import "${CERT_PATH}" -k "${KEYCHAIN_NAME}" -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychain -d user -s "${KEYCHAIN_NAME}" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          rm -f "${CERT_PATH}"
+
+      - name: Sign and notarize
+        working-directory: apps/electron
+        run: npm run sign:mac
+
+      - name: Verify signed bundle
+        run: |
+          APP="apps/electron/dist/Rhythm.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl --assess --type execute --verbose "$APP"
+
+      - name: Packaged smoke against the SIGNED bundle (post-m1-p11-c4)
+        run: |
+          cd apps/web && npm install
+          cd ../electron && npm test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm-electron-macos-${{ inputs.version }}
+          path: |
+            apps/electron/dist/Rhythm.zip
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Rhythm Electron (parity reference) ${{ env.RELEASE_TAG }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: ${{ inputs.release_notes == '' }}
+          body: ${{ inputs.release_notes }}
+          files: |
+            apps/electron/dist/Rhythm.zip

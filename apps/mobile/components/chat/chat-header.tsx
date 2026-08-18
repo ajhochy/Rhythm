@@ -8,6 +8,7 @@ import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
 import { formatEstimatedCost, formatTokenCount, type SessionUsage } from '@/lib/opencode/usage';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
 import { ConversationOverlay } from '@/components/chat/chat-overlay';
 import { styles } from '@/components/chat/chat-view-styles';
@@ -22,7 +23,7 @@ import type {
 type Palette = typeof Colors.light;
 
 type ChatHeaderProps = {
-  connectionStatus: 'idle' | 'connecting' | 'connected' | 'error';
+  connectionStatus: GatewayConnectionStatus;
   availableModels: ModelOption[];
   availableProfiles: AgentOption[];
   availableProviders: ProviderOption[];

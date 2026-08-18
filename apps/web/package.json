@@ -1,0 +1,35 @@
+{
+  "name": "rhythm-desktop-agents",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Deterministic Rhythm Desktop Agents web prototype",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc -b",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "npm run build && playwright test",
+    "test:list": "playwright test --list",
+    "test:external:chrome": "playwright test --config tests/external-host-playwright.config.ts",
+    "test:dist-smoke": "node tests/dist-smoke.mjs",
+    "test:contract": "playwright test tests/contract --workers=1",
+    "test:fixture": "playwright test tests/gateway/gateway.spec.ts tests/gateway/receipt.spec.ts tests/gateway/tasks-gateway.spec.ts tests/gateway/sessions-gateway.spec.ts --workers=1 && playwright test --config tests/gateway/invalid-live-playwright.config.ts",
+    "test:live": "playwright test --config tests/gateway/live-playwright.config.ts",
+    "test:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.49.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

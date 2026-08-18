@@ -1,0 +1,63 @@
+{
+  "issue": "electron-unsigned-package",
+  "generated": "2026-08-15",
+  "test_command": "cd apps/electron && node --test test/electron-unsigned-package.test.mjs",
+  "criteria": [
+    {
+      "criterion_id": "slice-7-c1",
+      "text": "A single repeatable command run from `apps/electron` produces an UNSIGNED macOS `.app` bundle. No code signing, no notarization, no Apple credentials are involved or required.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "slice-7-c1: one command produces the unsigned macOS app bundle",
+      "status": "pass",
+      "reason": "npm run package:mac produces dist/Rhythm.app; verified by contract test 1."
+    },
+    {
+      "criterion_id": "slice-7-c2",
+      "text": "The packaged bundle's web assets byte-match `apps/web/dist` (compare by SHA-256 per file, not by count), preserving the Slice 5 invariant that the shell consumes only `../web/dist` with no divergent renderer copy.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "slice-7-c2: packaged web assets byte-match apps/web/dist by SHA-256",
+      "status": "pass",
+      "reason": "Packaged web assets byte-match apps/web/dist by per-file SHA-256; verified by test 2."
+    },
+    {
+      "criterion_id": "slice-7-c3",
+      "text": "Launching the PACKAGED app (the built `.app` binary \u2014 NOT `electron .` from source) registers the `rhythm` protocol before ready and loads `rhythm://app/index.html#/agents` with the same hardened BrowserWindow options Slice 5 asserts.",
+      "mode": "ui",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "slice-7-c3: packaged binary registers rhythm before ready and loads the hardened agents window",
+      "status": "pass",
+      "reason": "Packaged binary registers rhythm and loads the hardened agents window; verified by test 3."
+    },
+    {
+      "criterion_id": "slice-7-c4",
+      "text": "Packaged LIVE smoke: the packaged app, pointed at the sandbox (API `http://127.0.0.1:4098`, engine `http://127.0.0.1:4097`), reaches Live mode \u2014 the environment receipt reads `Live` \u2014 and completes at least one real read through the live gateway (HTTP 200 from a real `/agent-sessions` or `/tasks` request). No fixture fallback may satisfy this.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "slice-7-c4: packaged live smoke reaches Live and completes a real gateway read",
+      "status": "pass",
+      "reason": "Packaged live smoke reached Live and completed a real gateway read against :4098/:4097; verified by test 4."
+    },
+    {
+      "criterion_id": "slice-7-c5",
+      "text": "Security invariants hold IN THE PACKAGED APP, asserted against the packaged binary: no Node in the renderer, preload exposes only the frozen versioned lifecycle object, and navigation, popups, permissions, downloads, and malformed `rhythm://` requests all fail closed.",
+      "mode": "ui",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "slice-7-c5: packaged binary preserves renderer isolation and fail-closed policies",
+      "status": "pass",
+      "reason": "Packaged binary preserves renderer isolation and fail-closed policies; verified by test 5."
+    },
+    {
+      "criterion_id": "slice-7-c6",
+      "text": "Packaging is deterministic and clean: the artifact lands in a gitignored location, re-running the command reproduces it, and the packaged smoke leaks no disposable rows, listeners, worktrees, or branches.",
+      "mode": "integration",
+      "test_file": "apps/electron/test/electron-unsigned-package.test.mjs",
+      "test_id": "slice-7-c6: packaging is deterministic, gitignored, and leak-free",
+      "status": "pass",
+      "reason": "Deterministic repackage, gitignored artifact, and leak-free: c6 strengthened to assert no persistent userData at ~/Library/Application Support/rhythm-electron-shell and no stray isolated temp dirs. Both assertions mutation-proved to fail against planted leaks."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

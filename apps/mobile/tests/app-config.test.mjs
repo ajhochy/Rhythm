@@ -72,6 +72,11 @@ assert.equal(eas.build['development-simulator'].extends, 'development');
 assert.equal(eas.build['development-simulator'].ios.simulator, true);
 assert.equal(eas.build.preview.distribution, 'internal');
 assert.equal(eas.build.production.autoIncrement, true);
+assert.equal(
+  eas.submit.production.ios.ascAppId,
+  '6796011479',
+  'production submission must target the existing Rhythm Agents App Store record',
+);
 
 // verify:foundation gate — must exist and run the full suite in order
 const pkgForFoundation = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));

@@ -36,8 +36,7 @@ async function importInspectionModule() {
     'utf8',
   );
   const runtimeSource = source.slice(
-    source.indexOf('const SENSITIVE_CONFIG_KEY'),
-    source.indexOf('export async function listOpenCodeSkills'),
+    source.indexOf('function requireData'),
   );
   const output = ts.transpileModule(runtimeSource, {
     compilerOptions: {
@@ -180,6 +179,62 @@ test('issue-1174: config inspection recursively redacts adversarial secrets', as
     safe: { baseURL: 'https://api.example.test', retries: 3 },
   });
   assert.doesNotMatch(JSON.stringify(redacted), /secret-[1-7]/);
+});
+
+function inspectionClient(resourceList) {
+  return {
+    app: { skills: async () => ({ data: [] }) },
+    global: { config: { get: async () => ({ data: {} }) } },
+    experimental: { resource: { list: resourceList } },
+    tool: {
+      ids: async () => ({ data: [] }),
+      list: async () => ({ data: [] }),
+    },
+  };
+}
+
+test('issue-1387: runtime inspection aborts a stalled resource request within its budget', async () => {
+  const { loadOpenCodeInspection } = await importInspectionModule();
+  let receivedSignal;
+  const client = inspectionClient((_parameters, options) => {
+    receivedSignal = options.signal;
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener(
+        'abort',
+        () => reject(new Error('<html>cloudflare timed out</html>')),
+        { once: true },
+      );
+    });
+  });
+  const startedAt = Date.now();
+
+  await assert.rejects(
+    loadOpenCodeInspection(client, undefined, undefined, { timeoutMs: 20 }),
+    (error) => {
+      assert.equal(error.message, 'OpenCode runtime inspection timed out. Try again.');
+      assert.doesNotMatch(error.message, /html|cloudflare/i);
+      return true;
+    },
+  );
+
+  assert.equal(receivedSignal.aborted, true);
+  assert.ok(Date.now() - startedAt < 500, 'inspection should not wait for the upstream 60s timeout');
+});
+
+test('issue-1387: runtime inspection never exposes an upstream HTML error body', async () => {
+  const { loadOpenCodeInspection } = await importInspectionModule();
+  const client = inspectionClient(async () => {
+    throw new Error('<html><title>502 Bad gateway</title>cloudflare</html>');
+  });
+
+  await assert.rejects(loadOpenCodeInspection(client), (error) => {
+    assert.equal(
+      error.message,
+      'OpenCode runtime inspection is temporarily unavailable. Try again.',
+    );
+    assert.doesNotMatch(error.message, /502|html|cloudflare|bad gateway/i);
+    return true;
+  });
 });
 
 test('issue-1174: only genuine user text parts are editable', async () => {

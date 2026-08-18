@@ -399,16 +399,20 @@ const server = http.createServer(async (req, res) => {
       const deviceToken = authorization.startsWith('Device ')
         ? authorization.slice('Device '.length)
         : '';
+      const relayGateway = gatewayHost === 'api.vcrcapps.com';
       const authenticatedDevice = [...state.mobileDevices.values()].find(
         (device) =>
           !device.revoked &&
-          device.gatewayHost === gatewayHost &&
+          (relayGateway || device.gatewayHost === gatewayHost) &&
           device.token === deviceToken,
       );
       const deviceAuthorized = Boolean(authenticatedDevice);
+      const effectiveGatewayHost =
+        authenticatedDevice?.gatewayHost ?? gatewayHost;
       state.mobileEvents.push({
         method: req.method,
-        gatewayHost,
+        gatewayHost: effectiveGatewayHost,
+        transportHost: gatewayHost,
         path: gatewayPath,
         projectId: req.headers['x-rhythm-project-id'] ?? null,
         queryKeys: [...requestUrl.searchParams.keys()].sort(),
@@ -430,7 +434,9 @@ const server = http.createServer(async (req, res) => {
       ) {
         sendJson(res, 200, {
           status: 'ready',
-          hostId: gatewayHost.startsWith('other-') ? 'host-2' : 'host-1',
+          hostId:
+            authenticatedDevice?.hostId ??
+            (gatewayHost.startsWith('other-') ? 'host-2' : 'host-1'),
           ...mobileCompatibility,
         });
         return;
@@ -491,7 +497,7 @@ const server = http.createServer(async (req, res) => {
         const device = state.mobileDevices.get(deviceId);
         if (
           !device ||
-          device.gatewayHost !== gatewayHost ||
+          device.gatewayHost !== effectiveGatewayHost ||
           (authenticatedDevice &&
             !bearerAuthorized &&
             authenticatedDevice.deviceId !== deviceId)
@@ -501,14 +507,14 @@ const server = http.createServer(async (req, res) => {
         }
         if (
           state.mobileOldRevokeFailure &&
-          gatewayHost === 'rhythm-mac.tail1234.ts.net'
+          effectiveGatewayHost === 'rhythm-mac.tail1234.ts.net'
         ) {
           sendJson(res, 503, { error: { code: 'UNAVAILABLE', message: 'Old Mac offline' } });
           return;
         }
         if (
           state.mobileNewRevokeFailure &&
-          gatewayHost === 'other-mac.tail1234.ts.net'
+          effectiveGatewayHost === 'other-mac.tail1234.ts.net'
         ) {
           sendJson(res, 503, { error: { code: 'UNAVAILABLE', message: 'New Mac cleanup failed' } });
           return;
@@ -642,6 +648,7 @@ const server = http.createServer(async (req, res) => {
       const projectId = req.headers['x-rhythm-project-id'];
       const requiresProject =
         gatewayPath === '/mobile-gateway/events' ||
+        gatewayPath === '/mobile-gateway/chat-catalog' ||
         gatewayPath === '/mobile-gateway/profile-catalog' ||
         /^\/mobile-gateway\/sessions\/[^/]+\/state$/.test(gatewayPath) ||
         gatewayPath.startsWith('/mobile-gateway/opencode/');
@@ -718,7 +725,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      if (gatewayPath.startsWith('/mobile-gateway/opencode/')) {
+      if (gatewayPath === '/mobile-gateway/chat-catalog') {
+        pathname = '/experimental/session';
+      } else if (gatewayPath.startsWith('/mobile-gateway/opencode/')) {
         pathname =
           gatewayPath.slice('/mobile-gateway/opencode'.length) || '/';
       } else {

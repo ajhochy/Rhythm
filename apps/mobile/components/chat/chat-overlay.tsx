@@ -4,6 +4,7 @@ import { Button, Text } from 'react-native-paper';
 
 import { Fonts } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
 export function ConversationOverlay({
   connectionStatus,
@@ -13,7 +14,7 @@ export function ConversationOverlay({
   phase,
   sessionTitle,
 }: {
-  connectionStatus?: 'idle' | 'connecting' | 'connected' | 'error';
+  connectionStatus?: GatewayConnectionStatus;
   insetsTop: number;
   latestUserText?: string;
   onStop: () => void;

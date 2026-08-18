@@ -2,6 +2,8 @@ import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
+import { resolveMediaArtifactStorageRoot } from '../config/env';
+import { resolve } from 'node:path';
 import {
   registerGeneratedMediaPart,
   withHostedArtifactMetadata,
@@ -15,6 +17,8 @@ import { queueSkillExtraction } from './skill_extractor';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
+import { opencodeEventHub } from './opencode_event_hub';
+import { getRelayUplinkClient } from './relay_uplink_runtime';
 import { classifyCommands, extractBashCommands } from '../security/command_approval';
 
 /**
@@ -766,6 +770,16 @@ export class OpencodeStreamBridge {
     }, ENGINE_HEALTH_POLL_MS);
     if (typeof watchdog.unref === 'function') watchdog.unref();
     this.globalStream = { abort: sub.abort, watchdog };
+    // #1379 Phase 2 — the consolidated stream is now also the mobile fan-out
+    // source. Marking it live is what lets MobileSseProxy stop dialing the
+    // engine per device; the flag deliberately stays set across a watchdog
+    // resubscribe so a phone rides out an engine restart on a quiet stream
+    // instead of falling back to hammering a dead engine.
+    opencodeEventHub.setLive(true);
+    // Relay uplink (plan S1.1): a (re)established engine stream can mean new
+    // health/fingerprint values — push a fresh health frame to the relay so
+    // its passthrough never serves a stale contract. Fire-and-forget.
+    void getRelayUplinkClient()?.sendHealth().catch(() => {});
     this._listenGlobal(sub.stream).catch((err) =>
       logger.error('[OpencodeStreamBridge] global listener crashed:', err),
     );
@@ -783,8 +797,28 @@ export class OpencodeStreamBridge {
         // The SDK Event union doesn't declare these synthetic types, so compare
         // via a widened view.
         const evType = (event as { type: string }).type;
-        if (evType === 'server.heartbeat' || evType === 'server.connected') continue;
+        if (evType === 'server.heartbeat' || evType === 'server.connected') {
+          // #1379 Phase 2 — mobile subscribers DO need these: they are the only
+          // traffic on an idle stream, and the phone treats any envelope as
+          // proof of liveness before it stands its polling fallback down.
+          this._publishHeartbeatToHub(event);
+          continue;
+        }
         this._relayEvent(event);
+        // Relay rows are the durable record and must precede the corresponding
+        // lossy envelope on the single uplink socket. Replication is fail-soft:
+        // a later reconnect/resync replays anything this live flush misses.
+        try {
+          void Promise.resolve(
+            getRelayUplinkClient()?.flushOutbox(),
+          ).catch(() => {});
+        } catch {
+          // Never let uplink failure escape into the engine event loop.
+        }
+        // Published after the relay so every hub subscriber sees a frame the
+        // mirror has already persisted — the same ordering guarantee the
+        // desktop `broadcast()` path has.
+        this._publishToHub(event);
       }
     } catch (err) {
       logger.error('[OpencodeStreamBridge] global stream error:', err);
@@ -1064,6 +1098,28 @@ export class OpencodeStreamBridge {
     });
   }
 
+  /**
+   * #1379 Phase 2 — republish one `/global/event` frame to the mobile fan-out
+   * hub. `subscribeToGlobalEvents` unwraps the engine's
+   * `{directory, payload}` envelope into `{...payload, __directory}`; the
+   * mobile project filter is fail-closed on the `directory` field, so the
+   * envelope has to be reassembled exactly before it goes out.
+   */
+  private _publishHeartbeatToHub(
+    event: import('@opencode-ai/sdk').RhythmEvent & { __directory?: string },
+  ): void {
+    this._publishToHub(event);
+  }
+
+  private _publishToHub(
+    event: import('@opencode-ai/sdk').RhythmEvent & { __directory?: string },
+  ): void {
+    const { __directory: directory, ...payload } = event;
+    opencodeEventHub.publish(
+      directory === undefined ? { payload } : { directory, payload },
+    );
+  }
+
   private _relayEvent(
     event: import('@opencode-ai/sdk').RhythmEvent,
   ): void {
@@ -1232,6 +1288,18 @@ export class OpencodeStreamBridge {
                 if (sdkMessageId) {
                   this.messagesRepo.upsertPart(localSessionId, sdkMessageId, hostedPart);
                 }
+                void getRelayUplinkClient()?.pushArtifact({
+                  artifactId: artifact.id,
+                  meta: {
+                    contentType: artifact.mime,
+                    size: artifact.size,
+                    checksum: artifact.checksum,
+                  },
+                  filePath: resolve(
+                    resolveMediaArtifactStorageRoot(),
+                    artifact.storageKey,
+                  ),
+                });
               }).catch((error) => {
                 logger.error(
                   '[OpencodeStreamBridge] Failed to register generated media:',
@@ -1384,6 +1452,11 @@ export class OpencodeStreamBridge {
                 dbRole,
                 tokens != null ? JSON.stringify(tokens) : null,
                 cost,
+                // #1379 — store the engine's `info` verbatim so a mirror-served
+                // transcript returns the engine shape rather than a lossy
+                // reconstruction. `error`, `summary`, and `time.completed` exist
+                // only here.
+                JSON.stringify(info),
               );
 
               // #930 — record the turn's user-message id as the revert target
@@ -1659,6 +1732,19 @@ export class OpencodeStreamBridge {
             .catch((err) =>
               logger.error(
                 `[OpencodeStreamBridge] async delegation idle callback failed for ${localSessionId}:`,
+                err,
+              ),
+            );
+          // Import lazily: the continuation service itself imports this bridge
+          // so it can attach a stream before waking a session. A static import
+          // here creates a module cycle that can stall test workers/startup.
+          void import('./agent_approval_continuation_service')
+            .then(({ agentApprovalContinuationService }) =>
+              agentApprovalContinuationService.onSessionIdle(localSessionId),
+            )
+            .catch((err) =>
+              logger.error(
+                `[OpencodeStreamBridge] approval continuation idle callback failed for ${localSessionId}:`,
                 err,
               ),
             );
@@ -2361,6 +2447,10 @@ export class OpencodeStreamBridge {
       clearInterval(this.globalStream.watchdog);
       this.globalStream = null;
     }
+    // #1379 Phase 2 — a deliberate shutdown (unlike a watchdog resubscribe)
+    // really does end the fan-out, so new mobile streams must go back to their
+    // own engine transport rather than subscribing to a hub nobody feeds.
+    opencodeEventHub.setLive(false);
     this.engineIdentityKey = null;
     this.stoppedSessions.clear();
     this.pendingText.clear();

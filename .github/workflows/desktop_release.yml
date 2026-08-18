@@ -47,6 +47,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.44.9'
 
       # #1023 — Pin ONE Node version for the whole release. better-sqlite3 is
       # compiled against this Node's ABI (in every npm install below) AND the

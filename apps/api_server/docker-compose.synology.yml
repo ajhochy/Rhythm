@@ -18,6 +18,24 @@ services:
     volumes:
       - rhythm_api_data:/data
 
+  # Mobile relay (docs/ai/plan-synology-relay.md): same image, RHYTHM_ROLE=relay,
+  # own SQLite in its own volume. Phones reach it at
+  # https://api.vcrcapps.com/relay/* via a Cloudflare public-hostname path rule
+  # (path /relay* -> http://rhythm-relay:4000, ABOVE the rhythm-api catch-all).
+  # Host port 4010 is the LAN fast path for the Mac's uplink dial.
+  rhythm-relay:
+    image: ${RHYTHM_API_IMAGE:-ghcr.io/ajhochy/rhythm-api:main}
+    container_name: rhythm-relay
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    ports:
+      - '4010:4000'
+    env_file:
+      - .env.relay
+    volumes:
+      - rhythm_relay_data:/data
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: rhythm-cloudflared
@@ -30,3 +48,4 @@ services:
 
 volumes:
   rhythm_api_data:
+  rhythm_relay_data:

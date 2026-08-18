@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Electron's V8/JS engine JITs; hardened runtime blocks that without these two. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Electron Framework loads its own bundled dylibs whose signing identity differs from this
+       re-signed app's; without this, hardened runtime's library validation rejects them at load. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- No app-sandbox: same reasoning as apps/desktop_flutter/macos/Runner/Release.entitlements
+       (CLAUDE.md "No app-sandbox") applies here too — the renderer calls the local api_server over
+       loopback HTTP/WebSocket, which network.client covers without full sandbox machinery. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

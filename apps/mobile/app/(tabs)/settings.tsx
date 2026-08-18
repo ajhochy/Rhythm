@@ -82,13 +82,17 @@ export default function SettingsScreen() {
     updateChatPreferences,
     updateSettings,
   } = useOpencode();
-  const displayedConnection: typeof connection = pairedHost.host
-    ? {
-        status: pairedHost.state === 'connected' ? 'connected' : 'error',
+  const displayedConnection: typeof connection = !pairedHost.host
+    ? connection
+    : pairedHost.state !== 'connected'
+      ? {
+        status: 'error',
         message: pairedHost.message,
         checkedAt: connection.checkedAt,
       }
-    : connection;
+      : connection.status === 'connected'
+        ? { ...connection, message: pairedHost.message }
+        : connection;
   const [isConnecting, setIsConnecting] = useState(false);
   const [expandedSection, setExpandedSection] = useState(() => displayedConnection.status === 'connected' ? 'ai' : 'connection');
   const [selectedProviderId, setSelectedProviderId] = useState<string>();

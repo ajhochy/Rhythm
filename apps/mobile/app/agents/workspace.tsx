@@ -26,6 +26,8 @@ import type { Session } from '@/lib/opencode/types';
 import { useOpencode } from '@/providers/opencode-provider';
 import type { ChatPreferences } from '@/providers/opencode-provider-types';
 
+const WORKSPACE_SEARCH_TIMEOUT_MS = 12_000;
+
 export default function AgentWorkspaceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -96,7 +98,10 @@ export default function AgentWorkspaceScreen() {
   const [workspaceSearchResults, setWorkspaceSearchResults] = useState<
     { id: string; title: string; description?: string; path?: string }[]
   >([]);
+  const [workspaceFileSearchResults, setWorkspaceFileSearchResults] = useState<string[]>();
+  const [completedFileSearchQuery, setCompletedFileSearchQuery] = useState<string>();
   const [isSearchingWorkspace, setIsSearchingWorkspace] = useState(false);
+  const [openingWorkspaceFilePath, setOpeningWorkspaceFilePath] = useState<string>();
   const [vcsOutput, setVcsOutput] = useState<{ title: string; content: string }>();
   const [isLoadingVcs, setIsLoadingVcs] = useState(false);
   const [editingFile, setEditingFile] = useState<{ path: string; original: string; value: string }>();
@@ -158,9 +163,31 @@ export default function AgentWorkspaceScreen() {
 
   async function handleWorkspaceSearch() {
     setIsSearchingWorkspace(true);
+    setError(undefined);
+    let fileSearchTimedOut = false;
     try {
       if (fileSearchMode === 'files') {
-        await searchWorkspaceFiles(fileQuery);
+        const query = fileQuery.trim();
+        setWorkspaceFileSearchResults([]);
+        setCompletedFileSearchQuery(undefined);
+        const controller = new AbortController();
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const files = await Promise.race([
+            searchWorkspaceFiles(query, controller.signal),
+            new Promise<never>((_resolve, reject) => {
+              timeout = setTimeout(() => {
+                fileSearchTimedOut = true;
+                controller.abort();
+                reject(new Error('Workspace search timed out. Try again.'));
+              }, WORKSPACE_SEARCH_TIMEOUT_MS);
+            }),
+          ]);
+          setWorkspaceFileSearchResults(files);
+          setCompletedFileSearchQuery(query);
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
         setWorkspaceSearchResults([]);
         return;
       }
@@ -192,7 +219,9 @@ export default function AgentWorkspaceScreen() {
         path: symbol.location.uri.replace(/^file:\/\//, ''),
       })));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not search the workspace.');
+      setError(fileSearchTimedOut
+        ? 'Workspace search timed out. Try again.'
+        : reason instanceof Error ? reason.message : 'Could not search the workspace.');
     } finally {
       setIsSearchingWorkspace(false);
     }
@@ -214,6 +243,18 @@ export default function AgentWorkspaceScreen() {
       setError(reason instanceof Error ? reason.message : 'Could not inspect version control.');
     } finally {
       setIsLoadingVcs(false);
+    }
+  }
+
+  async function handleOpenWorkspaceFile(path: string) {
+    setOpeningWorkspaceFilePath(path);
+    setError(undefined);
+    try {
+      await openWorkspaceFile(path);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not open the file.');
+    } finally {
+      setOpeningWorkspaceFilePath(undefined);
     }
   }
 
@@ -415,17 +456,28 @@ export default function AgentWorkspaceScreen() {
           </View>
           {workspaceFileStatuses.length > 0 ? <Text style={{ color: palette.muted }}>{workspaceFileStatuses.length} changed files</Text> : null}
           {fileSearchMode === 'files'
-            ? workspaceFiles.map((path) => <List.Item key={path} title={path} onPress={() => void openWorkspaceFile(path).catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not open the file.'))} />)
+            ? (workspaceFileSearchResults ?? workspaceFiles).map((path) => (
+                <List.Item
+                  key={path}
+                  title={path}
+                  disabled={openingWorkspaceFilePath === path}
+                  right={openingWorkspaceFilePath === path ? () => <ActivityIndicator accessibilityLabel={`Opening ${path}`} /> : undefined}
+                  onPress={() => void handleOpenWorkspaceFile(path)}
+                />
+              ))
             : workspaceSearchResults.map((result) => (
                 <List.Item
                   key={result.id}
                   title={result.title}
                   description={result.description}
-                  disabled={!result.path}
-                  onPress={result.path ? () => void openWorkspaceFile(result.path!)
-                    .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not open the file.')) : undefined}
+                  disabled={!result.path || openingWorkspaceFilePath === result.path}
+                  right={result.path && openingWorkspaceFilePath === result.path ? () => <ActivityIndicator accessibilityLabel={`Opening ${result.path}`} /> : undefined}
+                  onPress={result.path ? () => void handleOpenWorkspaceFile(result.path!) : undefined}
                 />
               ))}
+          {fileSearchMode === 'files' && completedFileSearchQuery && !isSearchingWorkspace && (workspaceFileSearchResults ?? workspaceFiles).length === 0
+            ? <Text testID="workspace-search-empty" style={{ color: palette.muted }}>No files match “{completedFileSearchQuery}”.</Text>
+            : null}
           <Divider />
           <Text variant="titleSmall" style={[styles.sectionLabel, { color: palette.text }]}>Version control</Text>
           <View style={styles.inlineActions}>

@@ -1,0 +1,33 @@
+.live-artifact-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+.artifact-tablist-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--surface-raised); flex-shrink: 0; }
+
+.artifact-tablist { display: flex; align-items: stretch; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
+
+.artifact-tab {
+  display: flex; align-items: center; gap: 6px; max-width: 220px; padding: 10px 12px;
+  border: none; border-right: 1px solid var(--border); background: transparent; color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; flex-shrink: 0;
+}
+.artifact-tab[aria-selected="true"] { background: var(--bg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent, #4f6af5); }
+.artifact-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifact-tab-close { flex-shrink: 0; border: none; background: transparent; color: inherit; cursor: pointer; padding: 0 2px; line-height: 1; }
+
+.artifact-tab-add { flex-shrink: 0; border: none; border-left: 1px solid var(--border); background: transparent; color: var(--fg); width: 40px; cursor: pointer; font-size: 16px; }
+
+.artifact-tab-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+.live-artifact-surface { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 16px; gap: 12px; }
+.live-artifact-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.live-artifact-toolbar h2 { margin: 0 0 4px; }
+.live-artifact-toolbar p { margin: 0; color: var(--muted); }
+.live-artifact-surface iframe { flex: 1 1 auto; min-height: 0; width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+
+.artifact-picker-search { display: flex; gap: 8px; margin-bottom: 12px; }
+.artifact-picker-search input { flex: 1; }
+.artifact-picker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.artifact-picker-option { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; }
+.artifact-picker-option[aria-selected="true"] { border-color: var(--accent, #4f6af5); }
+
+.artifact-collaborator-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.artifact-collaborator-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; }

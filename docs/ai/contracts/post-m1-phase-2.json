@@ -1,0 +1,125 @@
+{
+  "issue": "post-m1-phase-2",
+  "date": "2026-08-15",
+  "provenance_root": "0b2d3b22d0b9f75ea5b4c0a6962a24751637adf789f3d51b8944c07e418541a4",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-2-fixture-playwright.config.ts --list; cd ../api_server && npx vitest run src/__tests__/post_m1_phase_2_profile_contract.test.ts src/__tests__/post_m1_phase_2_ownership_contract.test.ts --no-file-parallelism; RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/post_m1_phase_2_profile_restart_live_e2e.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p2-c1a",
+      "text": "React/Electron lists and selects profiles by canonical profile `id`/session `profileId`, preserves the API fields used by Flutter, and reads the persisted profile model only from `modelProvider` plus `modelId`; display labels and combined `provider/modelId` text are never treated as persisted identifiers.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-2-profiles.redspec.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Phase 2 fixture config 4/4 after Unit I carried canonical modelProvider/modelId across the gateway. The window-global product test-hook was rejected and replaced with live-mode route interception."
+    },
+    {
+      "criterion_id": "post-m1-p2-c1b",
+      "text": "Creating a React/Electron profile POSTs `/agent-configs` with the Flutter/API profile fields and canonical nullable `modelProvider`/`modelId`, then renders the server-returned profile `id` rather than a client-generated identity.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-2-profiles.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_2_profile_contract.test.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Phase 2 fixture config 4/4 after Unit I carried canonical modelProvider/modelId across the gateway. The window-global product test-hook was rejected and replaced with live-mode route interception."
+    },
+    {
+      "criterion_id": "post-m1-p2-c1c",
+      "text": "Editing a React/Electron profile PATCHes `/agent-configs/:id` with canonical `modelProvider`/`modelId` values (or explicit nulls for no preference), round-trips the server response, and never submits display-only `provider` or `model` fields.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-2-profiles.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_2_profile_contract.test.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Phase 2 fixture config 4/4 after Unit I carried canonical modelProvider/modelId across the gateway. The window-global product test-hook was rejected and replaced with live-mode route interception."
+    },
+    {
+      "criterion_id": "post-m1-p2-c1d",
+      "text": "Starting a React/Electron session sends the selected Rhythm `profileId`; the returned local session `id` and `sdkSessionId` remain distinct, and the session route is exposed as `providerId`/`modelId` without conflating either session identity with the profile ID.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-2-profiles.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_2_profile_restart_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Phase 2 fixture config 4/4 after Unit I carried canonical modelProvider/modelId across the gateway. The window-global product test-hook was rejected and replaced with live-mode route interception."
+    },
+    {
+      "criterion_id": "post-m1-p2-c2a",
+      "text": "After PATCHing a profile's canonical `modelProvider` and `modelId`, stopping and restarting the isolated API preserves exactly those two values in GET `/agent-configs/:id` from the persisted `model_provider`/`model_id` columns.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_2_profile_restart_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Live API+engine restart suite 4/4. Two predicates named a field the fork never writes: the engine stores a session model as { id, providerID, variant }, so modelID was read through a normalizer. The captured engine payload {\"id\":\"gpt-5.6-terra\",\"providerID\":\"openai\"} proved propagation already worked; only the field name was wrong."
+    },
+    {
+      "criterion_id": "post-m1-p2-c2b",
+      "text": "After the API and fork engine restart, a newly created real engine session for that `profileId` executes with the exact engine model object `{providerID: modelProvider, modelID: modelId}` resolved from the persisted profile, not a stale projected value, cache entry, provider label, or combined display string.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_2_profile_restart_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Live API+engine restart suite 4/4. Two predicates named a field the fork never writes: the engine stores a session model as { id, providerID, variant }, so modelID was read through a normalizer. The captured engine payload {\"id\":\"gpt-5.6-terra\",\"providerID\":\"openai\"} proved propagation already worked; only the field name was wrong."
+    },
+    {
+      "criterion_id": "post-m1-p2-c2c",
+      "text": "The restarted session response preserves `profileId`, returns distinct local `id` and `sdkSessionId`, and records the actual session route as `providerId`/`modelId` matching the engine's `{providerID, modelID}` execution pair.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_2_profile_restart_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Live API+engine restart suite 4/4. Two predicates named a field the fork never writes: the engine stores a session model as { id, providerID, variant }, so modelID was read through a normalizer. The captured engine payload {\"id\":\"gpt-5.6-terra\",\"providerID\":\"openai\"} proved propagation already worked; only the field name was wrong."
+    },
+    {
+      "criterion_id": "post-m1-p2-c3a",
+      "text": "An unauthenticated remote caller receives `401` with no profile data and no disclosure of profile existence, names, providers, models, or paths.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_2_ownership_contract.test.ts",
+      "status": "pass",
+      "reason": "Focused real-Express/SQLite API test passed: collection, existing-item, and missing-item requests all returned byte-identical 401 bodies with no profile name, provider/model, or absolute path disclosure."
+    },
+    {
+      "criterion_id": "post-m1-p2-c3b",
+      "text": "Any authenticated caller receives the same global profile catalog; profiles are global per install and are not filtered by user or workspace.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_2_ownership_contract.test.ts",
+      "status": "pass",
+      "reason": "Focused real-Express/SQLite API test passed: two different authenticated users received identical normalized catalogs including the same canonical modelProvider/modelId probe row."
+    },
+    {
+      "criterion_id": "post-m1-p2-c3c",
+      "text": "`AGENT_LOCAL=true` grants full tokenless profile access only through the loopback-bound local agent surface; the local surface guard rejects a non-loopback Host without profile disclosure.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_2_ownership_contract.test.ts",
+      "status": "pass",
+      "reason": "Focused real-Express/SQLite API test passed: tokenless loopback list and canonical PATCH returned 200, while the same collection request with Host `attacker.invalid` returned a redacted 403 FORBIDDEN_ORIGIN."
+    },
+    {
+      "criterion_id": "post-m1-p2-c3d",
+      "text": "Per-user or per-workspace profile ownership isolation is enforced for profile rows.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "No per-user or per-workspace profile ownership exists; re-opens when a workspace model exists."
+    },
+    {
+      "criterion_id": "post-m1-p2-c4a",
+      "text": "The packaged React/Electron profile UI exposes profile list/select/create/edit/delete only through its approved gateway operations and never exposes arbitrary engine config reads/writes, filesystem paths, or direct credential-store operations from the renderer.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-2-profile-security.redspec.ts",
+      "status": "red",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). BLOCKED on smoke drive, not on policy: the packaged profile-security smoke now observes real requests via session.defaultSession.webRequest.onBeforeRequest (an earlier Endpoint-Map scrape was rejected as fabricated evidence). With a default-mode package the renderer never calls /agent-configs; with a live-mode package the smoke reports \"Profile security surface did not render\". Needs a unit to drive the live packaged profile UI reliably."
+    },
+    {
+      "criterion_id": "post-m1-p2-c4b",
+      "text": "Profile/provider/model screens render canonical identifiers only as bounded labels and never render API keys, tokens, secrets, authorization codes, raw engine config objects, absolute credential/config paths, stack traces, or raw provider error bodies.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-2-profile-security.redspec.ts",
+      "status": "pending",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Did not run: the shared beforeAll receipt fails at c4a, so these never executed."
+    },
+    {
+      "criterion_id": "post-m1-p2-c4c",
+      "text": "The unsigned packaged application proves the same profile/provider operation allowlist and redaction rules at the packaged boundary, including that renderer-visible errors and diagnostics contain no credentials, raw engine config, or secret-bearing absolute paths.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-2-profile-security.redspec.ts",
+      "status": "pending",
+      "reason": "Orchestrator-run (Codex cannot launch Chromium under workspace-write). Did not run: the shared beforeAll receipt fails at c4a, so these never executed."
+    }
+  ],
+  "not_tested": [
+    "post-m1-p2-c3d"
+  ],
+  "note": "Phase 2 web RED specs use `.redspec.ts` so the M1 regression suite does not collect deliberately failing contract tests. The packaged c4 suite is additionally gated by RHYTHM_PACKAGED_PROFILE_E2E=1. Rename RED specs only after their criteria are green."
+}

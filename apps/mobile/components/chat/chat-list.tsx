@@ -28,7 +28,6 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
-import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   buildAgentChatReadModel,
   type AgentChatRecord,
@@ -83,7 +82,6 @@ type ChatListProps = {
 export function ChatList({ controller }: ChatListProps) {
   const router = useRouter();
   const opencode = useOpencode();
-  const pairedHost = usePairedHost();
   const chat = useAgentChat();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -220,7 +218,7 @@ export function ChatList({ controller }: ChatListProps) {
               <Text
                 style={{ color: palette.warning }}
                 variant="bodyMedium">
-                {pairedHost.message}
+                {opencode.connection.message}
               </Text>
             </Card.Content>
           </Card>
@@ -247,9 +245,15 @@ export function ChatList({ controller }: ChatListProps) {
           const hiddenSummary = isCollapsed && item.descendantCount > 0
             ? `${item.descendantCount} hidden descendant${item.descendantCount === 1 ? '' : 's'}${item.runningDescendantCount > 0 ? ` · ${item.runningDescendantCount} running` : ''}`
             : '';
+          const mirroredProjectLabel =
+            typeof item.projectName === 'string' && item.projectName.trim()
+              ? item.projectName.trim()
+              : undefined;
           const projectLabel = item.projectId === null
             ? 'Desktop chat'
-            : projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project';
+            : projectsByPath.get(item.projectId ?? '')?.label ??
+              mirroredProjectLabel ??
+              'Unknown project';
           const metadata = [projectLabel, item.status, hiddenSummary]
             .filter(Boolean)
             .join(' · ');

@@ -359,13 +359,13 @@ credential, or webhook secret.
 ### Human prerequisites
 
 - [ ] AJ confirms the test iPhone is signed into the intended Apple test
-  account and Tailscale tailnet.
+  account and has normal internet access to Rhythm Cloud Gateway.
 - [ ] Install or trust the signed development build when iOS prompts. This is
   the first intentionally human-gated step; do not bypass device trust or
   signing controls.
 - [ ] On the Mac, open Rhythm's **Enable Mobile Access** flow and confirm
-  Tailscale Serve reports healthy. Do not expose the OpenCode port directly.
-- [ ] Keep PR #1165 draft and unmerged throughout the matrix.
+  Rhythm Cloud Gateway reports ready. Do not expose the OpenCode port directly.
+- [ ] Keep the current release PR unmerged throughout the pre-merge matrix.
 
 ### Pairing and failure isolation
 
@@ -373,8 +373,9 @@ credential, or webhook secret.
   shown again after pairing.
 - [ ] Confirm the app names the paired Mac and selected Rhythm project without
   exposing a filesystem root.
-- [ ] Turn off only the Mac/Tailscale connection. Paired-Mac screens become
-  offline/read-only while production-owned Email and Gallery remain usable.
+- [ ] Stop only the desktop Mac uplink while leaving Rhythm Cloud Gateway
+  reachable. Paired-Mac screens become offline/read-only while
+  production-owned Email and Gallery remain usable.
 - [ ] Restore the Mac connection and confirm cached views refresh without
   duplicated Activity or transcript entries.
 - [ ] Revoke mobile access from the Mac. The phone loses gateway access and
@@ -391,8 +392,9 @@ credential, or webhook secret.
 - [ ] Send a prompt and observe live SSE updates. Background the app during the
   run, foreground it, and confirm authoritative refresh produces no duplicates.
 - [ ] Open a child session, answer a question, approve and deny a permission,
-  inspect diff/todo/file content, and open the PTY. Confirm PTY text input,
-  output, and resize work.
+  and inspect diff/todo/file content.
+- [ ] Terminal PTY is explicitly deferred from the Cloud Gateway mobile
+  release; do not treat it as a release criterion until that scope is resumed.
 - [ ] In Activity, verify active, waiting, failed, and completed rows; exercise
   source/status filters and pagination; deep-link a session, research run,
   schedule, webhook, and cookbook item to the exact target.
@@ -411,9 +413,10 @@ credential, or webhook secret.
 - [ ] While discovery is still loading, switch paired project scope and open a
   different explicit chat. Delay/restore the old response and confirm it cannot
   replace the selected transcript or introduce duplicate/cross-scope rows.
-- [ ] Drop and restore Mac/Tailscale reachability during that open. Confirm the
-  offline state appears, polling resumes while the stream is unavailable, the
-  stream reconnects, and the recovered transcript contains no duplicate turns.
+- [ ] Drop and restore the desktop Mac uplink during that open while Rhythm
+  Cloud Gateway remains reachable. Confirm the offline state appears, polling
+  resumes while the stream is unavailable, the stream reconnects, and the
+  recovered transcript contains no duplicate turns.
 - [ ] Background/foreground and force-quit/relaunch once during the matrix to
   exercise native timer suspension and UIKit/network lifecycle behavior that
   Jest cannot reproduce.
@@ -487,7 +490,7 @@ must not already exist.
 - [ ] After the full physical matrix passes, AJ explicitly authorizes the
   production EAS build and TestFlight submission.
 - [ ] Verify the submitted TestFlight artifact hash matches the recorded
-  production artifact, then leave PR #1165 draft for AJ's final approval.
+  production artifact and source SHA.
 
 ---
 

@@ -24,6 +24,7 @@ import {
   parseTrustedSecurityContext,
 } from '../services/external_content_security_service';
 import { verifyHumanApprovalSignature } from '../security/human_approval_security';
+import { agentApprovalContinuationService } from '../services/agent_approval_continuation_service';
 
 const repo = new AgentApprovalsRepository();
 const security = new ExternalContentSecurityService();
@@ -41,8 +42,11 @@ export class AgentApprovalsController {
           throw AppError.badRequest('security must be an object');
         }
         const securityInput = body.security as Record<string, unknown>;
+        const trustedContext = parseTrustedSecurityContext(
+          securityInput.context,
+        );
         const binding = security.createApprovalBinding(
-          parseTrustedSecurityContext(securityInput.context),
+          trustedContext,
           parseSecurityAction(securityInput.action),
           parseSecurityPayload(securityInput.payload),
         );
@@ -53,7 +57,11 @@ export class AgentApprovalsController {
           // treated it as a hard stop and abandoned the write.
           res.status(200).json({
             status: 'not_required',
-            reason: 'no_external_content_taint',
+            reason: security.hasExplicitInteractiveApprovalBypass(
+              trustedContext,
+            )
+              ? 'permission_mode_bypass'
+              : 'no_external_content_taint',
           });
           return;
         }
@@ -137,7 +145,7 @@ export class AgentApprovalsController {
     }
   }
 
-  decide(req: Request, res: Response, next: NextFunction): void {
+  async decide(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const body = req.body ?? {};
@@ -183,6 +191,10 @@ export class AgentApprovalsController {
       if (!updated) {
         throw AppError.notFound('agent approval (or it is no longer pending)');
       }
+      // The decision is already durable. Deliver (or durably defer) a
+      // machine-authored continuation before answering an idle-session PATCH
+      // so the approving user never has to type "try again" manually.
+      await agentApprovalContinuationService.onDecision(updated);
       res.json(updated);
     } catch (err) {
       next(err);

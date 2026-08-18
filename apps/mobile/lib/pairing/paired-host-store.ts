@@ -35,6 +35,7 @@ export type PairedHostState =
 export interface PairedHost {
   rhythmUserId: number;
   gatewayUrl: string;
+  relayUrl?: string | null;
   deviceId: string;
   hostId: string;
   deviceName: string;
@@ -60,6 +61,7 @@ export interface PairedHostSnapshot {
 export interface PairingPayload {
   gatewayUrl: string;
   pairingCode: string;
+  relayUrl?: string | null;
 }
 
 export interface PairedHostStoreOptions {
@@ -80,6 +82,7 @@ interface PairingResponse {
   contractFingerprint: string;
   minimumMobileVersion: string;
   features: string[];
+  relayUrl?: unknown;
 }
 
 type HealthResponse = Omit<PairingResponse, 'deviceId' | 'deviceToken'> & {
@@ -128,10 +131,67 @@ function safeGatewayUrl(value: unknown): string {
   ) {
     throw new PairedHostError(
       'invalidPayload',
-      'Pairing requires a private Tailscale gateway.',
+      'Pairing requires a secure Rhythm gateway.',
     );
   }
   return `https://${hostname}`;
+}
+
+const CONFIGURED_RELAY_BASE =
+  (process.env.EXPO_PUBLIC_RHYTHM_RELAY_URL ?? '').trim() ||
+  'https://api.vcrcapps.com/relay';
+
+export function safeRelayUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
+  }
+
+  let configured: URL;
+  let candidate: URL;
+  try {
+    configured = new URL(CONFIGURED_RELAY_BASE);
+    candidate = new URL(value);
+  } catch {
+    throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
+  }
+
+  const configuredPath = configured.pathname.replace(/\/$/, '');
+  const candidatePath = candidate.pathname.replace(/\/$/, '');
+  if (
+    configured.protocol !== 'https:' ||
+    configured.username ||
+    configured.password ||
+    configured.port ||
+    configured.search ||
+    configured.hash ||
+    candidate.protocol !== 'https:' ||
+    candidate.username ||
+    candidate.password ||
+    candidate.port ||
+    candidate.search ||
+    candidate.hash ||
+    candidate.origin !== configured.origin ||
+    candidatePath !== configuredPath
+  ) {
+    throw new PairedHostError('invalidPayload', 'This relay URL is invalid.');
+  }
+
+  return `${configured.origin}${configuredPath}`;
+}
+
+export function effectiveGatewayBase(host: {
+  gatewayUrl: string;
+  relayUrl?: string | null;
+}): string {
+  return host.relayUrl ?? host.gatewayUrl;
+}
+
+function relayUrlFromHealth(value: unknown): string | null {
+  try {
+    return safeRelayUrl(value);
+  } catch {
+    return null;
+  }
 }
 
 export function parsePairingPayload(raw: string): PairingPayload {
@@ -146,10 +206,12 @@ export function parsePairingPayload(raw: string): PairingPayload {
   }
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
+  const allowedKeys = record.relayUrl === undefined
+    ? ['gatewayUrl', 'pairingCode']
+    : ['gatewayUrl', 'pairingCode', 'relayUrl'];
   if (
-    keys.length !== 2 ||
-    keys[0] !== 'gatewayUrl' ||
-    keys[1] !== 'pairingCode' ||
+    keys.length !== allowedKeys.length ||
+    keys.some((key, index) => key !== allowedKeys[index]) ||
     typeof record.pairingCode !== 'string' ||
     record.pairingCode.length < 32 ||
     record.pairingCode.length > 128 ||
@@ -160,6 +222,9 @@ export function parsePairingPayload(raw: string): PairingPayload {
   return {
     gatewayUrl: safeGatewayUrl(record.gatewayUrl),
     pairingCode: record.pairingCode,
+    ...(record.relayUrl === undefined
+      ? {}
+      : { relayUrl: safeRelayUrl(record.relayUrl) }),
   };
 }
 
@@ -228,6 +293,14 @@ function isPairedHost(value: unknown): value is PairedHost {
     Number.isSafeInteger(host.rhythmUserId) &&
     host.rhythmUserId > 0 &&
     typeof host.gatewayUrl === 'string' &&
+    (
+      host.relayUrl === undefined ||
+      host.relayUrl === null ||
+      (
+        typeof host.relayUrl === 'string' &&
+        safeRelayUrl(host.relayUrl) === host.relayUrl
+      )
+    ) &&
     typeof host.deviceId === 'string' &&
     typeof host.hostId === 'string' &&
     typeof host.deviceName === 'string' &&
@@ -296,6 +369,7 @@ export class PairedHostStore {
   private message = 'Pair this iPhone with your Mac to use Rhythm Agents.';
   private operation = 0;
   private accountUserId: number | null = null;
+  private consecutiveRelayReachabilityFailures = 0;
 
   constructor(private readonly options: PairedHostStoreOptions = {}) {}
 
@@ -336,7 +410,8 @@ export class PairedHostStore {
       return null;
     }
     return new PairedMacClient({
-      baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+      baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
+      directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getDeviceToken: async () => {
         const token = await this.getCredential(PAIRED_DEVICE_SECURE_KEY);
         if (!token) throw new Error('Paired-device credential unavailable');
@@ -350,6 +425,9 @@ export class PairedHostStore {
     message: string,
     host: PairedHost | null = this.host,
   ): PairedHostSnapshot {
+    if (state === 'connected') {
+      this.consecutiveRelayReachabilityFailures = 0;
+    }
     this.state = state;
     this.message = message;
     this.host = host;
@@ -377,6 +455,43 @@ export class PairedHostStore {
 
   private resolvedGatewayUrl(gatewayUrl: string): string {
     return this.options.resolveGatewayUrl?.(gatewayUrl) ?? gatewayUrl;
+  }
+
+  /**
+   * Probe the KNOWN relay base for an already-paired host that has no stored
+   * relayUrl, and return a host with relayUrl adopted when the relay is
+   * reachable and advertises a valid one. Never throws — an unreachable relay
+   * returns null so the caller falls back to the stored (Tailscale) path.
+   * The device token is replicated to the relay by the Mac, so the existing
+   * pairing authenticates there without a re-pair.
+   */
+  private async adoptConfiguredRelay(
+    host: PairedHost,
+    token: string,
+    signal?: AbortSignal,
+  ): Promise<{ host: PairedHost; health: HealthResponse } | null> {
+    let relayBase: string;
+    try {
+      relayBase = safeRelayUrl(CONFIGURED_RELAY_BASE);
+    } catch {
+      return null;
+    }
+    try {
+      const relayClient = new PairedMacClient({
+        baseUrl: this.resolvedGatewayUrl(relayBase),
+        directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+        getDeviceToken: async () => token,
+      });
+      const health = await relayClient.request<HealthResponse>(
+        '/mobile-gateway/health',
+        { method: 'GET', signal },
+      );
+      if (health.status !== 'ready') return null;
+      const relayUrl = relayUrlFromHealth(health.relayUrl) ?? relayBase;
+      return { host: { ...host, relayUrl }, health };
+    } catch {
+      return null;
+    }
   }
 
   private neutralizeDeviceToken(): Promise<void> {
@@ -471,14 +586,32 @@ export class PairedHostStore {
           'This iPhone is offline. Your paired Mac is still saved.',
         );
       }
-      const client = new PairedMacClient({
-        baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
-        getDeviceToken: async () => token,
-      });
-      const health = await client.request<HealthResponse>(
-        '/mobile-gateway/health',
-        { method: 'GET', signal },
-      );
+      // Relay-first migration (docs/ai/plan-synology-relay.md): a device paired
+      // before the relay existed has no stored relayUrl, so effectiveGatewayBase
+      // would fall back to the .ts.net gatewayUrl and connect over Tailscale —
+      // and it could only *learn* the relay URL from a health response fetched
+      // over that same Tailscale path (a bootstrap trap). Instead, when the host
+      // carries no relayUrl, probe the KNOWN relay base directly and adopt it, so
+      // the connection and every subsequent read/write/stream go through the
+      // relay with no re-pair. Falls back to the stored path if the relay is
+      // unreachable.
+      const adopted = host.relayUrl
+        ? null
+        : await this.adoptConfiguredRelay(host, token, signal);
+      const connectHost = adopted?.host ?? host;
+      const usingRelay = connectHost.relayUrl != null;
+      // The relay probe already fetched a compatible health payload — reuse it
+      // rather than making a second round trip over the same base.
+      const health =
+        adopted?.health ??
+        (await new PairedMacClient({
+          baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(connectHost)),
+          directBaseUrl: this.resolvedGatewayUrl(connectHost.gatewayUrl),
+          getDeviceToken: async () => token,
+        }).request<HealthResponse>('/mobile-gateway/health', {
+          method: 'GET',
+          signal,
+        }));
       if (operation !== this.operation) return this.snapshot();
       if (health.status !== 'ready') {
         return this.apply(
@@ -488,8 +621,11 @@ export class PairedHostStore {
       }
       const incompatibility = compatibilityError(health);
       if (incompatibility) return this.apply('incompatible', incompatibility);
+      const relayUrl =
+        connectHost.relayUrl ?? relayUrlFromHealth(health.relayUrl);
       const refreshedHost: PairedHost = {
-        ...host,
+        ...connectHost,
+        ...(relayUrl ? { relayUrl } : {}),
         gatewayVersion: health.gatewayVersion,
         rhythmVersion: health.rhythmVersion,
         opencodeVersion: health.opencodeVersion,
@@ -503,7 +639,9 @@ export class PairedHostStore {
       );
       return this.apply(
         'connected',
-        'Connected securely to your Mac over Tailscale.',
+        usingRelay || relayUrl != null
+          ? 'Connected securely to your Mac through Rhythm Cloud Gateway.'
+          : 'Connected securely to your Mac.',
         refreshedHost,
       );
     } catch (error) {
@@ -532,9 +670,18 @@ export class PairedHostStore {
             'This iPhone is offline. Your paired Mac is still saved.',
           );
         }
+        if (this.state === 'connected' && this.host?.relayUrl != null) {
+          // Prompt traffic can briefly delay the independent relay health RPC.
+          // Keep an active transport through one miss; the next bounded probe
+          // still surfaces a sustained outage on the normal five-second cadence.
+          this.consecutiveRelayReachabilityFailures += 1;
+          if (this.consecutiveRelayReachabilityFailures < 2) {
+            return this.snapshot();
+          }
+        }
         return this.apply(
           'tailscaleUnavailable',
-          'Tailscale cannot reach the paired Mac. Open Tailscale and check the Mac is online.',
+          'Rhythm Cloud Gateway cannot reach your Mac. Check that Rhythm is running on the Mac and try again.',
         );
       }
       return this.apply(
@@ -554,6 +701,7 @@ export class PairedHostStore {
     let payload: PairingPayload = {
       gatewayUrl: '',
       pairingCode: '',
+      relayUrl: null,
     };
     let newDeviceToken = '';
     let existingDeviceToken: string | null = null;
@@ -578,7 +726,7 @@ export class PairedHostStore {
         }
       }
       const publicClient = new PublicGatewayClient({
-        baseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
+        baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(payload)),
       });
       const health = await publicClient.requestPublic<HealthResponse>(
         '/mobile-gateway/health',
@@ -626,8 +774,18 @@ export class PairedHostStore {
         response && typeof response.deviceToken === 'string'
           ? response.deviceToken
           : '';
+      const relayUrl =
+        payload.relayUrl ??
+        relayUrlFromHealth(health.relayUrl) ??
+        relayUrlFromHealth(response?.relayUrl);
       const newClient = new PairedMacClient({
-        baseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
+        baseUrl: this.resolvedGatewayUrl(
+          effectiveGatewayBase({
+            gatewayUrl: payload.gatewayUrl,
+            relayUrl,
+          }),
+        ),
+        directBaseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
         getDeviceToken: async () => newDeviceToken,
       });
       const revokeNewDevice = async (): Promise<boolean> => {
@@ -696,6 +854,7 @@ export class PairedHostStore {
       const host: PairedHost = {
         rhythmUserId: response.userId,
         gatewayUrl: payload.gatewayUrl,
+        ...(relayUrl ? { relayUrl } : {}),
         deviceId: response.deviceId,
         hostId: response.hostId,
         deviceName: input.deviceName,
@@ -778,7 +937,8 @@ export class PairedHostStore {
       }
       if (existing && existingDeviceToken && !recycledEndpoint) {
         const oldClient = new PairedMacClient({
-          baseUrl: this.resolvedGatewayUrl(existing.gatewayUrl),
+          baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(existing)),
+          directBaseUrl: this.resolvedGatewayUrl(existing.gatewayUrl),
           getDeviceToken: async () => existingDeviceToken!,
         });
         try {
@@ -837,7 +997,9 @@ export class PairedHostStore {
       }
       return this.apply(
         'connected',
-        'Connected securely to your Mac over Tailscale.',
+        host.relayUrl
+          ? 'Connected securely to your Mac through Rhythm Cloud Gateway.'
+          : 'Connected securely to your Mac.',
         host,
       );
     } catch (error) {
@@ -871,7 +1033,7 @@ export class PairedHostStore {
       this.apply(this.host ? 'offline' : 'unpaired', safe.message, this.host);
       throw safe;
     } finally {
-      payload = { gatewayUrl: '', pairingCode: '' };
+      payload = { gatewayUrl: '', pairingCode: '', relayUrl: null };
       newDeviceToken = '';
       existingDeviceToken = null;
     }
@@ -892,7 +1054,8 @@ export class PairedHostStore {
       );
     }
     const client = new PairedMacClient({
-      baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+      baseUrl: this.resolvedGatewayUrl(effectiveGatewayBase(host)),
+      directBaseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getDeviceToken: async () => deviceToken,
     });
     try {
@@ -909,7 +1072,7 @@ export class PairedHostStore {
           error.status >= 500
         );
       const message = tailnetUnavailable
-        ? 'This iPhone was not revoked and access is still active. Bring the paired Mac online in Tailscale and retry.'
+        ? 'This iPhone was not revoked and access is still active. Bring the paired Mac online in Rhythm and retry.'
         : 'This iPhone was not revoked and access is still active. Retry, or revoke it from Rhythm on the Mac.';
       this.apply(
         tailnetUnavailable ? 'tailscaleUnavailable' : 'unhealthy',

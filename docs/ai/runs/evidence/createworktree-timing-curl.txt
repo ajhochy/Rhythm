@@ -1,0 +1,39 @@
+createworktree timing raw curl evidence — 2026-08-15
+repo=/Users/ajhochhalter/Documents/Rhythm-react-electron-live-suite
+api=http://127.0.0.1:4098
+engine=http://127.0.0.1:4097
+
+Rejected setup sample (excluded from measurements):
+SAMPLE a1 first attempt
+HTTP 400 total_s=0.005954 starttransfer_s=0.005936
+{"name":"BadRequest","data":{"message":"Expected WorktreeCreateInput | null, got undefined","kind":"Payload"}}
+Cause: curl --get moved the JSON payload into the query string. No worktree was created.
+
+Valid engine-only worktree creates:
+SAMPLE a1 first-observed status=200 total_s=0.063340 starttransfer_s=0.063322
+SAMPLE a2 warm          status=200 total_s=0.070330 starttransfer_s=0.070308
+SAMPLE a3 warm          status=200 total_s=0.045492 starttransfer_s=0.045475
+
+Full API isolated session creates:
+SAMPLE b1 first-observed status=201 total_s=2.182925 starttransfer_s=2.182867 id=cad3e0ea-402a-483a-b898-95f04d013c48
+SAMPLE b2 warm          status=201 total_s=1.528129 starttransfer_s=1.528083 id=62ec7897-b992-4663-9f1b-58e88fa704cc
+SAMPLE b3 warm          status=201 total_s=1.556077 starttransfer_s=1.555973 id=5c86b6c4-5eba-4de8-8d08-e9f811acb875
+
+Full API non-isolated session creates:
+SAMPLE c1 first-observed status=201 total_s=0.013497 starttransfer_s=0.013476 id=a714a4e9-b290-4dac-bbe8-8ee3a552e8f2
+SAMPLE c2 warm          status=201 total_s=0.011532 starttransfer_s=0.011512 id=cbaffe5a-87a8-4816-8f6f-915100a63e1c
+SAMPLE c3 warm          status=201 total_s=0.013618 starttransfer_s=0.013600 id=987044b9-896e-45d9-ae8b-9173928c1100
+
+Raw engine MCP status enumeration:
+SAMPLE mcp1 status=200 total_s=0.002351 starttransfer_s=0.002299
+SAMPLE mcp2 status=200 total_s=0.002251 starttransfer_s=0.002200
+SAMPLE mcp3 status=200 total_s=0.013119 starttransfer_s=0.013057
+
+Per-request API cleanup:
+CLEANUP b1 hard-delete status=204 total_s=1.991374 (API log later showed removeWorktree HTTP 400)
+CLEANUP c1 hard-delete status=204 total_s=0.009149
+CLEANUP b2 hard-delete status=204 total_s=0.093840 (API log later showed removeWorktree HTTP 400)
+CLEANUP c2 hard-delete status=204 total_s=0.008005
+CLEANUP b3 hard-delete status=204 total_s=0.174692 (API log later showed removeWorktree HTTP 400)
+CLEANUP c3 hard-delete status=204 total_s=0.008078
+

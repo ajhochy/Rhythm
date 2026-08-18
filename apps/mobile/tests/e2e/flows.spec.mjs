@@ -389,8 +389,8 @@ test('settings explain root-vs-api mismatches and reconnect through a prefixed A
 
     await page.getByTestId('settings-server-url-input').fill(`http://127.0.0.1:${port}`);
     await page.getByTestId('settings-reconnect-button').click();
-    await expect(page.getByText(new RegExp(`OpenCode endpoint not found at http://127.0.0.1:${port}`)).first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText(new RegExp(`http://127.0.0.1:${port}/api`)).first()).toBeVisible();
+    await expect(page.getByText(new RegExp(`OpenCode endpoint not found at http://127.0.0.1:${port}`)).locator('visible=true').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(new RegExp(`http://127.0.0.1:${port}/api`)).locator('visible=true').first()).toBeVisible();
 
     await page.getByTestId('settings-server-url-input').fill(`http://127.0.0.1:${port}/api`);
     await page.getByTestId('settings-reconnect-button').click();

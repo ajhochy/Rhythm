@@ -159,6 +159,7 @@ up() {
     "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
     # The gateway port is a THIRD listener and was previously unset, so the
     # sandbox bound the default 4002 — the port `tailscale serve` publishes to
     # the tailnet, while serving a fully-credentialed copy of the real DB.
@@ -275,6 +276,7 @@ restart() {
     "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
     "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
   )
   local api_pid

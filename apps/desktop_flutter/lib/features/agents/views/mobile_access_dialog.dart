@@ -195,8 +195,9 @@ class _MobileAccessDialogState extends State<MobileAccessDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Connect Rhythm Agents on your iPhone through your private '
-                  'Tailscale network. Nothing is exposed to the public internet.',
+                  'Connect Rhythm Agents on your iPhone through the native '
+                  'Rhythm Cloud Gateway. Your connection is authenticated and '
+                  'encrypted.',
                   style: TextStyle(color: context.rhythm.textSecondary),
                 ),
                 const SizedBox(height: 18),
@@ -315,30 +316,34 @@ class _DiagnosticCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, label, color) = switch (status.state) {
+    final (icon, label, detail, color) = switch (status.state) {
       TailscaleAccessState.missing => (
           Icons.download_outlined,
-          'Tailscale not installed',
+          'Cloud Gateway setup required',
+          'Cloud Gateway setup is unavailable on this Mac.',
           context.rhythm.warning,
         ),
       TailscaleAccessState.loggedOut => (
           Icons.account_circle_outlined,
-          'Tailscale sign-in required',
+          'Cloud Gateway sign-in required',
+          'Sign in on this Mac to finish Cloud Gateway setup.',
           context.rhythm.warning,
         ),
       TailscaleAccessState.wrongTarget => (
           Icons.tune_outlined,
-          'Rhythm access not configured',
+          'Cloud Gateway setup required',
+          'Enable the Cloud Gateway to connect this Mac.',
           context.rhythm.warning,
         ),
       TailscaleAccessState.healthy => (
           Icons.lock_outline,
-          'Private connection ready',
+          'Cloud Gateway ready',
+          'Your Mac is ready to pair with Rhythm Agents.',
           context.rhythm.success,
         ),
     };
     return Container(
-      key: Key('tailscale-status-${status.state.name}'),
+      key: Key('cloud-gateway-status-${status.state.name}'),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
@@ -357,11 +362,11 @@ class _DiagnosticCard extends StatelessWidget {
                 Text(label,
                     style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
-                Text(status.message),
+                Text(detail),
                 if (status.gatewayUrl != null) ...[
                   const SizedBox(height: 4),
                   Text(
-                    status.gatewayUrl!.replaceFirst('https://', ''),
+                    'Secure Cloud Gateway route verified',
                     style: TextStyle(color: context.rhythm.textSecondary),
                   ),
                 ],
@@ -370,13 +375,13 @@ class _DiagnosticCard extends StatelessWidget {
           ),
           if (status.canConfigure)
             FilledButton(
-              key: const Key('configure-tailscale-serve'),
+              key: const Key('configure-cloud-gateway'),
               onPressed: busy ? null : onEnable,
               child: const Text('Enable'),
             )
           else if (status.state != TailscaleAccessState.healthy)
             IconButton(
-              tooltip: 'Refresh Tailscale status',
+              tooltip: 'Refresh Cloud Gateway status',
               onPressed: busy ? null : onRefresh,
               icon: const Icon(Icons.refresh),
             ),

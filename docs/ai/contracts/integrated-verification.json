@@ -1,0 +1,53 @@
+{
+  "issue": "integrated-verification",
+  "date": "2026-08-15",
+  "slice": "slice-8",
+  "test_command": "node --test tools/validation/test/integrated-verification.test.mjs",
+  "entrypoint": "node tools/validation/verify-all.mjs",
+  "summary_artifact": "dist/verification/summary.json",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "slice-8-c1",
+      "text": "A single documented command runs the full verification set (web typecheck, build, fixture, full suite, dist-smoke, gateway specs, live engine-session lifecycle, Electron shell suite, packaged-app suite, parity generate+validate) and exits non-zero if ANY component fails.",
+      "mode": "integration",
+      "test": "tools/validation/test/integrated-verification.test.mjs",
+      "status": "pass",
+      "reason": "node tools/validation/verify-all.mjs runs all 10 components and exits non-zero on any failure; verified green (254 web, 14 fixture, 4 gateway, 1 live, 5 electron shell, 6 packaged, parity 17 behaviors)."
+    },
+    {
+      "criterion_id": "slice-8-c2",
+      "text": "The run is order-independent: executing the live/Playwright suites before the parity check must not change the parity result. Regression guard for Playwright artifacts and .agent-stack contaminating the hermetic corpus.",
+      "mode": "integration",
+      "test": "tools/validation/test/integrated-verification.test.mjs",
+      "status": "pass",
+      "reason": "parity runs after web:live-lifecycle in component order and still passes; behavior taxonomy stable at 17 and generator agrees with the published corpus."
+    },
+    {
+      "criterion_id": "slice-8-c3",
+      "text": "The run writes a machine-readable summary (component -> pass/fail plus counts) to a known path so a gate can consume it without scraping console text.",
+      "mode": "integration",
+      "test": "tools/validation/test/integrated-verification.test.mjs",
+      "status": "pass",
+      "reason": "dist/verification/summary.json emits ok plus per-component name/status/durationMs/counts; path is gitignored and parity-excluded so it cannot contaminate the corpus it reports on."
+    },
+    {
+      "criterion_id": "slice-8-c4",
+      "text": "The run leaves zero residue: no disposable rows, listeners, git worktrees or branches, no apps/web/test-results, no Electron userData outside an isolated temp dir, and the engine restored to local-lean / omlx / gpt-oss-20b-MXFP4-Q8 with no lmstudio auth.",
+      "mode": "integration",
+      "test": "tools/validation/test/integrated-verification.test.mjs",
+      "status": "pass",
+      "reason": "Zero residue verified independently of the summary: no apps/web/test-results, no persistent Electron userData, no isolated temp dirs, no smoke worktrees or branches; engine restored to omlx/gpt-oss-20b-MXFP4-Q8 with no lmstudio auth."
+    },
+    {
+      "criterion_id": "slice-8-c5",
+      "text": "The run never contacts protected ports 4001/4096 and fails loudly when the sandbox (:4098/:4097/:4099) is not up, rather than silently degrading to fixtures.",
+      "mode": "integration",
+      "test": "tools/validation/test/integrated-verification.test.mjs",
+      "status": "pass",
+      "reason": "protectedPorts.contacted is empty and the sandbox preflight is recorded ready on 4098/4097/4099; with no sandbox listening the entrypoint exits 2 naming the sandbox rather than degrading to fixtures."
+    }
+  ],
+  "provenance_root": "0b2d3b22d0b9f75ea5b4c0a6962a24751637adf789f3d51b8944c07e418541a4",
+  "prior_provenance_root": "7658590d08574a47c515a761c89b43aa19b7590a3e8ea674685b3126c402153e"
+}
