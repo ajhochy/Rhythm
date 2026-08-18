@@ -136,6 +136,33 @@ export interface MobileGatewayClientScope {
   projectId: string;
 }
 
+/**
+ * A paired gateway 503 that is a definitive answer ("the Mac is asleep"), not
+ * the warming signal the cold-start budget exists to ride out (#1422).
+ */
+const MAC_OFFLINE_ERRORS = new Set([
+  'mac_offline',
+  'mac_offline_and_mirror_incomplete',
+]);
+
+/** Read a gateway error body without consuming the caller's response. */
+async function readGatewayError(
+  response: Response,
+): Promise<{ body: string; code: unknown }> {
+  const body = await response.clone().text();
+  try {
+    return { body, code: (JSON.parse(body) as { error?: unknown }).error };
+  } catch {
+    return { body, code: undefined };
+  }
+}
+
+async function isMacOfflineAnswer(response: Response): Promise<boolean> {
+  if (response.status !== 503) return false;
+  const { code } = await readGatewayError(response);
+  return typeof code === 'string' && MAC_OFFLINE_ERRORS.has(code);
+}
+
 function headersRecord(value?: HeadersInit): Record<string, string> {
   const result: Record<string, string> = {};
   if (!value) return result;
@@ -149,10 +176,14 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
   const baseUrl = new URL(scope.client.origin()).origin;
   const projectId = scope.projectId.trim();
 
+  // #1422 — no local guard on a missing project. Requiring one here was
+  // circular: it demanded a selection step that does not exist (the id arrives
+  // from a chat deep-link's route params, or from persistence hydration), and
+  // on a cold relaunch it fired in the window before hydration and stuck. The
+  // gateway now anchors a project-less request to RHYTHM_DEFAULT_SESSION_ROOT
+  // and still canonicalizes + containment-checks every path against it, so the
+  // server — not the client — is the authority on scope.
   return async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (!projectId) {
-      throw new Error('Select a registered Rhythm project before connecting.');
-    }
     const request =
       typeof Request !== 'undefined' && input instanceof Request
         ? input
@@ -204,33 +235,27 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
     const retryable =
       method.toUpperCase() === 'GET' && gatewayPath !== '/mobile-gateway/events';
 
+    const requestInit = { ...init, body, headers, method, signal };
     const response = await fetchWithColdStartBackoff(
       () =>
         scope.client.fetchResponse(
           `${gatewayPath}${parsed.search}`,
-          withProjectScope(projectId, {
-            ...init,
-            body,
-            headers,
-            method,
-            signal,
-          }),
+          // A named project still stamps X-Rhythm-Project-ID exactly as before.
+          // Omitting the header is what tells the gateway to use the default
+          // root; withProjectScope throws on an empty id, so it must not run.
+          projectId ? withProjectScope(projectId, requestInit) : requestInit,
       ),
-      { retryable, signal },
+      { retryable, signal, isDefinitive: isMacOfflineAnswer },
     );
     if (response.status === 503) {
-      const body = await response.clone().text();
-      let code: unknown;
-      try {
-        code = (JSON.parse(body) as { error?: unknown }).error;
-      } catch {
-        code = undefined;
-      }
-      if (
-        code === 'mac_offline' ||
-        code === 'mac_offline_and_mirror_incomplete'
-      ) {
-        throw normalizeApiError('paired-mac', response.status, body, undefined);
+      const { body: errorBody, code } = await readGatewayError(response);
+      if (typeof code === 'string' && MAC_OFFLINE_ERRORS.has(code)) {
+        throw normalizeApiError(
+          'paired-mac',
+          response.status,
+          errorBody,
+          undefined,
+        );
       }
     }
     return response;
