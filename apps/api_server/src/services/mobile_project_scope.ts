@@ -7,6 +7,7 @@ import {
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { canonicalize, containsReal } from '../utils/path_containment';
@@ -42,9 +43,42 @@ function unavailableProject(): AppError {
 }
 
 /**
+ * #1422 — the containment root for a session that carries no project.
+ *
+ * Fails CLOSED: a configured root that does not exist, is not a directory, or
+ * cannot be canonicalized raises rather than silently widening scope to the
+ * process cwd or `/`.
+ */
+function resolveDefaultSessionScope(): MobileProjectScope {
+  const configured = env.defaultSessionRoot?.trim();
+  // An empty value must NOT reach canonicalize(): it resolves to the process
+  // cwd, which would silently anchor every project-less session to wherever
+  // the server happens to be running.
+  if (!configured) throw unavailableProject();
+  try {
+    const root = canonicalize(configured);
+    if (!statSync(root).isDirectory() || !containsReal(root, root)) {
+      throw unavailableProject();
+    }
+    // Empty id == "no project", matching how desktop persists an unassigned
+    // session (agent_sessions.project_id NULL / ''). It is deliberately not a
+    // sentinel that could collide with a real opaque project id.
+    return { id: '', root };
+  } catch {
+    throw unavailableProject();
+  }
+}
+
+/**
  * Resolve an active Rhythm project by its opaque repository ID. The caller
  * cannot supply a filesystem root; the canonical root always comes from the
  * persisted project row.
+ *
+ * Deliberately still STRICT about an empty id. The #1422 default-root fallback
+ * lives in requireMobileProjectScope, not here, because this function is also
+ * the per-row validator behind listMobileProjects — falling back here would
+ * make a malformed empty project id resolve to the default root and list
+ * itself as an available project.
  */
 export function resolveMobileProject(
   projectId: unknown,
@@ -216,10 +250,15 @@ export function requireMobileProjectScope(
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       rejectCallerRootOverrides(req);
-      req.mobileProject = resolveMobileProject(
-        req.header('X-Rhythm-Project-ID'),
-        projects,
-      );
+      // #1422 — a request that names a project resolves to that project's real
+      // root; one that names none anchors to the configured default root
+      // instead of 400ing. Either way a root exists, so resolveMobileProjectPath
+      // below still has something to containment-check every path against.
+      const header = req.header('X-Rhythm-Project-ID');
+      req.mobileProject =
+        typeof header === 'string' && header.trim() !== ''
+          ? resolveMobileProject(header, projects)
+          : resolveDefaultSessionScope();
       next();
     } catch (error) {
       next(error instanceof AppError ? error : AppError.internal());
