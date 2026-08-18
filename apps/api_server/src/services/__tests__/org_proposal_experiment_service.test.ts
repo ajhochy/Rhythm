@@ -31,14 +31,17 @@ import {
   assignCohort,
   assignSubject,
   assignSubjectAsync,
+  commitReservedTreatmentDispatch,
   decideExperiment,
   judgeExperimentAsync,
   prepareReservedTreatment,
   reserveRunEnrollment,
   RunEnrollmentProfileCollisionError,
+  TreatmentDispatchCommitError,
   writeOutcomeStatus,
 } from '../org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../../models/agent_org_experiment_enrollment';
+import { AgentOrgTreatmentReceiptsRepository } from '../../repositories/agent_org_treatment_receipts_repository';
 
 let db: Database.Database;
 
@@ -1678,5 +1681,194 @@ describe('C2-A — prepareReservedTreatment revalidates evidenceTarget.ref and .
     expect(serialized).not.toContain(CANDIDATE_PROMPT);
     expect(serialized).not.toContain('SECRET-BASELINE-TEXT-91a2');
     expect(serialized).not.toContain('SECRET-CANDIDATE-TEXT-77b3');
+  });
+});
+
+/**
+ * C2-C — the shared final commit helper. This is the ONLY place a reserved
+ * enrollment may become `dispatched` with a durable receipt; it is designed
+ * to be wired as the real prompt-dispatch boundary's `beforeDispatch` hook.
+ */
+describe('C2-C — commitReservedTreatmentDispatch: the real dispatch-boundary commit', () => {
+  async function setUpReadyReservation(profileId: string, runEpisodeId: string) {
+    const { hash } = profileTargetFingerprint(profileId);
+    await declareC1Experiment(profileId, {
+      proposalId: `prop-${profileId}`,
+      bundle: bundleForProfile(profileId, hash),
+      baselineSpec: systemPromptSpec(profileId, {}, hash),
+      candidateSpec: systemPromptSpec(profileId, { candidateValue: `${profileId}-candidate` }, hash),
+    });
+    const enrollment = await reserveRunEnrollment(runEpisodeId, profileId);
+    if (!enrollment) throw new Error('test setup: expected a reservation');
+    const preparation = await prepareReservedTreatment(enrollment);
+    if (preparation.status !== 'ready') {
+      throw new Error(`test setup: expected ready preparation, got ${preparation.status}`);
+    }
+    return { enrollment, preparation };
+  }
+
+  it('commits the atomic reserved -> dispatched transition and an immutable receipt', async () => {
+    const { enrollment, preparation } = await setUpReadyReservation(
+      'c2c-commit-basic',
+      'run-c2c-commit-basic',
+    );
+
+    const receipt = await commitReservedTreatmentDispatch(enrollment, preparation);
+
+    expect(receipt.runEpisodeId).toBe(enrollment.runEpisodeId);
+    expect(receipt.cohort).toBe(enrollment.cohort);
+    expect(typeof receipt.id).toBe('string');
+
+    const updatedEnrollment = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(updatedEnrollment?.state).toBe('dispatched');
+
+    const storedReceipt = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(storedReceipt).not.toBeNull();
+    expect(storedReceipt?.id).toBe(receipt.id);
+    expect(storedReceipt?.effectivePromptHash).toBe(preparation.receiptMaterial.effectivePromptHash);
+  });
+
+  it('an identical retry (same enrollment, same fresh preparation) is idempotent and reuses the exact receipt', async () => {
+    const { enrollment, preparation } = await setUpReadyReservation(
+      'c2c-commit-idempotent',
+      'run-c2c-commit-idempotent',
+    );
+
+    const first = await commitReservedTreatmentDispatch(enrollment, preparation);
+    const second = await commitReservedTreatmentDispatch(enrollment, preparation);
+    expect(second).toEqual(first);
+
+    const stored = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(stored?.id).toBe(first.id);
+  });
+
+  it('drift between the initial preparation and the real commit blocks the receipt and marks target_drifted', async () => {
+    const profileId = 'c2c-commit-drift';
+    const { enrollment, preparation } = await setUpReadyReservation(profileId, 'run-c2c-commit-drift');
+
+    // The target drifts AFTER the initial (early) preparation but BEFORE the
+    // real dispatch-boundary commit — e.g. skill/memory preface construction
+    // or session creation took long enough for a concurrent config edit to
+    // land in between.
+    new AgentConfigsRepository().update(profileId, {
+      systemPrompt: 'a completely different prompt nobody reserved against',
+    });
+
+    await expect(commitReservedTreatmentDispatch(enrollment, preparation)).rejects.toMatchObject({
+      name: 'TreatmentDispatchCommitError',
+      reason: 'target_drifted',
+    });
+
+    const updatedEnrollment = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(updatedEnrollment?.state).toBe('treatment_failed');
+    expect(updatedEnrollment?.failureCode).toBe('target_drifted');
+
+    const storedReceipt = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(storedReceipt).toBeNull();
+  });
+
+  it('proposal corruption between the initial preparation and the real commit fails closed as pre_dispatch_failed', async () => {
+    const profileId = 'c2c-commit-proposal-corrupt';
+    const { enrollment, preparation } = await setUpReadyReservation(
+      profileId,
+      'run-c2c-commit-proposal-corrupt',
+    );
+
+    const realProposal = await new AgentOrgProposalsRepository().findByIdAsync(enrollment.proposalId);
+    const fakeProposalsRepo = {
+      findByIdAsync: async () => ({ ...realProposal!, kind: 'refine-recipe' }),
+    } as unknown as AgentOrgProposalsRepository;
+
+    await expect(
+      commitReservedTreatmentDispatch(enrollment, preparation, { proposalsRepo: fakeProposalsRepo }),
+    ).rejects.toMatchObject({ name: 'TreatmentDispatchCommitError', reason: 'pre_dispatch_failed' });
+
+    const updatedEnrollment = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(updatedEnrollment?.state).toBe('treatment_failed');
+    expect(updatedEnrollment?.failureCode).toBe('pre_dispatch_failed');
+
+    const storedReceipt = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(storedReceipt).toBeNull();
+  });
+
+  it('a receipt-repository failure surfaces as pre_dispatch_failed and fails closed with no receipt', async () => {
+    const { enrollment, preparation } = await setUpReadyReservation(
+      'c2c-commit-repo-failure',
+      'run-c2c-commit-repo-failure',
+    );
+
+    const failingReceiptsRepo = {
+      dispatchAndFinalizeReceiptAsync: async () => {
+        throw new Error('driver exploded with raw internal bytes');
+      },
+    } as unknown as AgentOrgTreatmentReceiptsRepository;
+
+    await expect(
+      commitReservedTreatmentDispatch(enrollment, preparation, { receiptsRepo: failingReceiptsRepo }),
+    ).rejects.toMatchObject({ name: 'TreatmentDispatchCommitError', reason: 'pre_dispatch_failed' });
+
+    const updatedEnrollment = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      enrollment.runEpisodeId,
+    );
+    expect(updatedEnrollment?.state).toBe('treatment_failed');
+    expect(updatedEnrollment?.failureCode).toBe('pre_dispatch_failed');
+  });
+
+  it('a non-applied/idempotent receipt-repository result (e.g. binding_mismatch) fails closed as pre_dispatch_failed', async () => {
+    const { enrollment, preparation } = await setUpReadyReservation(
+      'c2c-commit-mismatch-result',
+      'run-c2c-commit-mismatch-result',
+    );
+
+    const weirdReceiptsRepo = {
+      dispatchAndFinalizeReceiptAsync: async () => ({
+        status: 'binding_mismatch',
+        receipt: null,
+        enrollment,
+      }),
+    } as unknown as AgentOrgTreatmentReceiptsRepository;
+
+    await expect(
+      commitReservedTreatmentDispatch(enrollment, preparation, { receiptsRepo: weirdReceiptsRepo }),
+    ).rejects.toMatchObject({ name: 'TreatmentDispatchCommitError', reason: 'pre_dispatch_failed' });
+  });
+
+  it('never leaks the run episode id, profile id, or prompt bytes in the thrown error', async () => {
+    const profileId = 'c2c-commit-no-leak';
+    const { enrollment, preparation } = await setUpReadyReservation(profileId, 'run-c2c-commit-no-leak');
+    new AgentConfigsRepository().update(profileId, { systemPrompt: 'drifted-prompt-should-never-leak' });
+
+    let caught: unknown;
+    try {
+      await commitReservedTreatmentDispatch(enrollment, preparation);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TreatmentDispatchCommitError);
+    expect(String(caught)).not.toContain(enrollment.runEpisodeId);
+    expect(String(caught)).not.toContain(profileId);
+    expect(String(caught)).not.toContain('drifted-prompt-should-never-leak');
+  });
+
+  it('never re-derives or trusts caller-supplied treatment material — it only takes an enrollment plus its own fresh preparation', () => {
+    // Structural guarantee: the function signature has no `opts`/spec/prompt
+    // parameter through which a caller could inject an alternate treatment —
+    // only the real reservation plus the exact initial preparation it must
+    // reproduce. Pinned via arity rather than a runtime probe.
+    expect(commitReservedTreatmentDispatch.length).toBe(2);
   });
 });

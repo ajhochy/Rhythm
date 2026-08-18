@@ -37,7 +37,28 @@ import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../models/proposal_evidence_bu
 
 const { mockCreateSession, mockPrompt, mockAbortSession } = vi.hoisted(() => ({
   mockCreateSession: vi.fn(),
-  mockPrompt: vi.fn(),
+  // C2-C: the real OpencodeClientService.prompt now takes a 6th
+  // `beforeDispatch` hook and invokes it between request construction and
+  // the SDK call. The mock must faithfully reproduce that ordering — it
+  // invokes the hook (if supplied) BEFORE returning its canned response —
+  // otherwise reserved enrollments would never reach `dispatched` under
+  // test, even though they do in production.
+  mockPrompt: vi.fn(async (
+    _sessionId: string,
+    _text: string,
+    _model?: unknown,
+    _directory?: string,
+    _opts?: unknown,
+    beforeDispatch?: () => Promise<void>,
+  ) => {
+    if (beforeDispatch) {
+      await beforeDispatch();
+    }
+    return {
+      info: { sessionID: 'sdk-session-c2a' },
+      parts: [{ type: 'text', text: 'Done' }],
+    };
+  }),
   mockAbortSession: vi.fn(),
 }));
 
@@ -196,10 +217,10 @@ describe('C2-A — a real C1 reservation supplies the bound cohort spec at dispa
     makeDb();
     delete process.env.RHYTHM_OPTIMIZER_MODE;
     mockCreateSession.mockResolvedValue({ id: 'sdk-session-c2a' });
-    mockPrompt.mockResolvedValue({
-      info: { sessionID: 'sdk-session-c2a' },
-      parts: [{ type: 'text', text: 'Done' }],
-    });
+    // mockPrompt's hoisted implementation already returns the canned response
+    // AND invokes the beforeDispatch hook — mockResolvedValue would override
+    // that implementation and break C2-C's atomic commit ordering. Clearing
+    // the mock (via clearAllMocks above) restores the hoisted impl.
     mockAbortSession.mockResolvedValue(true);
   });
 

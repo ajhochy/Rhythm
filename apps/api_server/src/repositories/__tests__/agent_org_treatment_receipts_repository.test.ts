@@ -1,10 +1,11 @@
 /**
- * C2-B — the treatment receipt repository.
+ * C2-B/C2-C — the treatment receipt repository.
  *
  * Covers: the atomic reserved -> dispatched + receipt-finalize primitive
  * (rollback on failure, idempotent identical retry, fail-closed mismatched
  * retry), exact binding to the enrollment row (caller input cannot relabel
- * it), immutability, and the no-raw-prompt-bytes guarantee.
+ * it or finalize under stale/foreign safe material), immutability, and the
+ * no-raw-prompt-bytes guarantee.
  */
 
 import { createHash } from 'node:crypto';
@@ -14,8 +15,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import { AgentOrgExperimentEnrollmentsRepository } from '../agent_org_experiment_enrollments_repository';
-import { AgentOrgTreatmentReceiptsRepository } from '../agent_org_treatment_receipts_repository';
-import type { ReserveEnrollmentInput } from '../../models/agent_org_experiment_enrollment';
+import { AgentOrgTreatmentReceiptsRepository, type FinalizeReceiptMaterial } from '../agent_org_treatment_receipts_repository';
+import type { ExperimentEnrollment, ReserveEnrollmentInput } from '../../models/agent_org_experiment_enrollment';
 
 let db: Database.Database;
 
@@ -53,16 +54,31 @@ async function reserve(overrides: Partial<ReserveEnrollmentInput> = {}) {
   });
 }
 
+/** The canonically-correct material for `enrollment`, with any field overridden. */
+function validMaterialFor(
+  enrollment: ExperimentEnrollment,
+  overrides: Partial<FinalizeReceiptMaterial> = {},
+): FinalizeReceiptMaterial {
+  return {
+    profileRevision: 1,
+    targetRef: `agent_config:${enrollment.profileId}`,
+    targetRevisionHash: enrollment.baselineTargetRevisionHash,
+    treatmentSpecHash: enrollment.treatmentSpecHash,
+    effectivePromptHash: hex64('default-effective-prompt'),
+    ...overrides,
+  };
+}
+
 describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', () => {
   it('atomically transitions reserved -> dispatched and finalizes the receipt', async () => {
     const enrollment = await reserve();
     expect(enrollment).not.toBeNull();
 
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const result = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 3,
-      effectivePromptHash: hex64(RAW_CANDIDATE_PROMPT),
-    });
+    const result = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { profileRevision: 3, effectivePromptHash: hex64(RAW_CANDIDATE_PROMPT) }),
+    );
 
     expect(result.status).toBe('applied');
     expect(result.enrollment?.state).toBe('dispatched');
@@ -93,6 +109,9 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
     const result = await receipts.dispatchAndFinalizeReceiptAsync('no-such-episode', {
       profileRevision: 1,
+      targetRef: 'agent_config:profile-1',
+      targetRevisionHash: targetRevisionHash('baseline-1'),
+      treatmentSpecHash: hex64('spec-1'),
       effectivePromptHash: hex64('x'),
     });
     expect(result.status).toBe('missing');
@@ -105,6 +124,9 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
     const result = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
       profileRevision: -1,
+      targetRef: 'not-canonical',
+      targetRevisionHash: 'not-a-valid-hash',
+      treatmentSpecHash: 'not-hex64',
       effectivePromptHash: 'not-a-hex-hash',
     });
 
@@ -124,15 +146,89 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
     expect(count).toBe(0);
   });
 
+  describe('C2-C — binding_mismatch fails closed on stale/foreign safe material', () => {
+    it('rejects a targetRef that does not match the enrollment profile, without mutating anything', async () => {
+      const enrollment = await reserve({ runEpisodeId: 'run-episode-binding-wrong-target-ref' });
+      const receipts = new AgentOrgTreatmentReceiptsRepository(db);
+      const result = await receipts.dispatchAndFinalizeReceiptAsync(
+        enrollment!.runEpisodeId,
+        validMaterialFor(enrollment!, { targetRef: 'agent_config:some-other-profile' }),
+      );
+
+      expect(result.status).toBe('binding_mismatch');
+      expect(result.receipt).toBeNull();
+
+      const stored = db
+        .prepare(`SELECT state FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
+        .get(enrollment!.runEpisodeId) as { state: string };
+      expect(stored.state).toBe('reserved');
+      const count = (
+        db.prepare(`SELECT COUNT(*) AS n FROM agent_org_experiment_treatment_receipts`).get() as { n: number }
+      ).n;
+      expect(count).toBe(0);
+    });
+
+    it('rejects a targetRevisionHash that does not match the enrollment baseline hash (stale target)', async () => {
+      const enrollment = await reserve({ runEpisodeId: 'run-episode-binding-wrong-revision' });
+      const receipts = new AgentOrgTreatmentReceiptsRepository(db);
+      const result = await receipts.dispatchAndFinalizeReceiptAsync(
+        enrollment!.runEpisodeId,
+        validMaterialFor(enrollment!, { targetRevisionHash: targetRevisionHash('a-different-stale-target') }),
+      );
+
+      expect(result.status).toBe('binding_mismatch');
+      expect(result.receipt).toBeNull();
+      const stored = db
+        .prepare(`SELECT state FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
+        .get(enrollment!.runEpisodeId) as { state: string };
+      expect(stored.state).toBe('reserved');
+    });
+
+    it('rejects a treatmentSpecHash that does not match the enrollment binding (foreign spec)', async () => {
+      const enrollment = await reserve({ runEpisodeId: 'run-episode-binding-wrong-spec' });
+      const receipts = new AgentOrgTreatmentReceiptsRepository(db);
+      const result = await receipts.dispatchAndFinalizeReceiptAsync(
+        enrollment!.runEpisodeId,
+        validMaterialFor(enrollment!, { treatmentSpecHash: hex64('a-different-foreign-spec') }),
+      );
+
+      expect(result.status).toBe('binding_mismatch');
+      expect(result.receipt).toBeNull();
+      const stored = db
+        .prepare(`SELECT state FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
+        .get(enrollment!.runEpisodeId) as { state: string };
+      expect(stored.state).toBe('reserved');
+    });
+
+    it('a mismatched binding never mutates an already-finalized receipt on retry', async () => {
+      const enrollment = await reserve({ runEpisodeId: 'run-episode-binding-mismatch-after-success' });
+      const receipts = new AgentOrgTreatmentReceiptsRepository(db);
+      const applied = await receipts.dispatchAndFinalizeReceiptAsync(
+        enrollment!.runEpisodeId,
+        validMaterialFor(enrollment!),
+      );
+      expect(applied.status).toBe('applied');
+
+      const retried = await receipts.dispatchAndFinalizeReceiptAsync(
+        enrollment!.runEpisodeId,
+        validMaterialFor(enrollment!, { targetRef: 'agent_config:someone-elses-profile' }),
+      );
+      expect(retried.status).toBe('binding_mismatch');
+
+      const stillThere = await receipts.findByRunEpisodeIdAsync(enrollment!.runEpisodeId);
+      expect(stillThere).toEqual(applied.receipt);
+    });
+  });
+
   it('refuses to finalize a receipt for an already-dispatched enrollment with no matching receipt (illegal transition)', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-already-dispatched' });
     await new AgentOrgExperimentEnrollmentsRepository(db).markDispatchedAsync(enrollment!.runEpisodeId);
 
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const result = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64('late'),
-    });
+    const result = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { effectivePromptHash: hex64('late') }),
+    );
 
     expect(result.status).toBe('illegal_transition');
     expect(result.receipt).toBeNull();
@@ -148,7 +244,7 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('an identical retry after success is idempotent and returns the exact existing receipt', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-idempotent' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const material = { profileRevision: 2, effectivePromptHash: hex64(RAW_BASELINE_PROMPT) };
+    const material = validMaterialFor(enrollment!, { profileRevision: 2, effectivePromptHash: hex64(RAW_BASELINE_PROMPT) });
 
     const first = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, material);
     expect(first.status).toBe('applied');
@@ -168,16 +264,16 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('a mismatched retry (different effective hash) is fail-closed rejected without mutating the existing receipt', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-mismatch' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const first = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64(RAW_BASELINE_PROMPT),
-    });
+    const first = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { profileRevision: 1, effectivePromptHash: hex64(RAW_BASELINE_PROMPT) }),
+    );
     expect(first.status).toBe('applied');
 
-    const mismatched = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64(RAW_CANDIDATE_PROMPT),
-    });
+    const mismatched = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { profileRevision: 1, effectivePromptHash: hex64(RAW_CANDIDATE_PROMPT) }),
+    );
     expect(mismatched.status).toBe('mismatched_retry');
     expect(mismatched.receipt).toEqual(first.receipt);
 
@@ -192,16 +288,16 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('a mismatched retry (different profileRevision, same effective hash) is fail-closed rejected without mutation', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-mismatch-revision' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const first = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64(RAW_BASELINE_PROMPT),
-    });
+    const first = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { profileRevision: 1, effectivePromptHash: hex64(RAW_BASELINE_PROMPT) }),
+    );
     expect(first.status).toBe('applied');
 
-    const mismatched = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 2,
-      effectivePromptHash: hex64(RAW_BASELINE_PROMPT),
-    });
+    const mismatched = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { profileRevision: 2, effectivePromptHash: hex64(RAW_BASELINE_PROMPT) }),
+    );
     expect(mismatched.status).toBe('mismatched_retry');
     expect(mismatched.receipt).toEqual(first.receipt);
 
@@ -216,10 +312,10 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('persists schema_version durably in the receipts table row — not merely returned in memory', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-schema-version' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const result = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64('schema-version-check'),
-    });
+    const result = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { effectivePromptHash: hex64('schema-version-check') }),
+    );
     expect(result.status).toBe('applied');
     expect(result.receipt?.schemaVersion).toBe(1);
 
@@ -263,29 +359,48 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
     ).toThrow();
   });
 
-  it('rolls back the reserved -> dispatched transition when the receipt INSERT fails AFTER the update (not merely early invalid-material validation)', async () => {
+  it('a corrupted enrollment treatment_spec_hash is caught BEFORE any mutation (invalid_material/binding_mismatch), never a post-UPDATE DB-CHECK rollback', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-post-update-rollback' });
 
     // Corrupt the enrollment's own treatment_spec_hash directly via raw SQL —
     // the enrollments table has no format CHECK on this column, so this
-    // succeeds and is invisible to `isValidMaterial` (which only validates
-    // the caller-supplied `material`, never the enrollment row). The
-    // reserved -> dispatched UPDATE therefore succeeds first; the INSERT that
-    // copies this corrupted hash into the receipts row then fails the
-    // receipts table's own hex64 CHECK — a DB-layer failure AFTER the update,
-    // inside the same transaction.
+    // write succeeds even though the value is not hex64. Before C2-C, a
+    // material payload that blindly mirrored this corrupted value would
+    // reach the receipts table's own hex64 CHECK and fail there, AFTER the
+    // reserved -> dispatched UPDATE had already run (rolled back only by the
+    // repository's own try/catch). C2-C's binding_mismatch/isValidMaterial
+    // checks now close that gap earlier: ANY caller material either (a) is
+    // not valid hex64 itself (rejected pre-transaction as `invalid_material`
+    // — mirroring the corruption exactly is the only way to "match" it, and
+    // that mirror is itself malformed), or (b) is a well-formed, LEGITIMATE
+    // hash that then fails to equal the corrupted stored value
+    // (`binding_mismatch`). Either way NO write happens — the UPDATE never
+    // runs, so there is nothing to roll back.
+    const corruptedTreatmentSpecHash = 'not-a-valid-hex64-hash';
     db.prepare(`UPDATE agent_org_experiment_enrollments SET treatment_spec_hash = ? WHERE run_episode_id = ?`).run(
-      'not-a-valid-hex64-hash',
+      corruptedTreatmentSpecHash,
       enrollment!.runEpisodeId,
     );
 
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    await expect(
-      receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-        profileRevision: 1,
-        effectivePromptHash: hex64('post-update-rollback'),
-      }),
-    ).rejects.toThrow();
+
+    // (a) material mirrors the corrupted value exactly — rejected on format.
+    const mirrored = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
+      profileRevision: 1,
+      targetRef: `agent_config:${enrollment!.profileId}`,
+      targetRevisionHash: enrollment!.baselineTargetRevisionHash,
+      treatmentSpecHash: corruptedTreatmentSpecHash,
+      effectivePromptHash: hex64('post-update-rollback'),
+    });
+    expect(mirrored.status).toBe('invalid_material');
+
+    // (b) material is well-formed but (necessarily) does not match the
+    // corrupted stored value — rejected as a binding mismatch.
+    const legitimate = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { effectivePromptHash: hex64('post-update-rollback') }),
+    );
+    expect(legitimate.status).toBe('binding_mismatch');
 
     const stored = db
       .prepare(`SELECT state FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
@@ -311,12 +426,12 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
     // The public API only accepts (runEpisodeId, material) — there is no
     // parameter through which a caller could pass a different
-    // experimentId/proposalId/profileId/cohort/assignmentDigest, so this test
-    // pins that surface rather than attempting to smuggle one through.
-    const result = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 5,
-      effectivePromptHash: hex64('no-relabel'),
-    });
+    // experimentId/proposalId/cohort/assignmentDigest, so this test pins
+    // that surface rather than attempting to smuggle one through.
+    const result = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { profileRevision: 5, effectivePromptHash: hex64('no-relabel') }),
+    );
 
     expect(result.receipt?.experimentId).toBe('real-experiment');
     expect(result.receipt?.proposalId).toBe('real-proposal');
@@ -326,10 +441,10 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('never stores raw baseline/candidate prompt bytes anywhere in the receipt row', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-no-raw-bytes' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64(RAW_CANDIDATE_PROMPT),
-    });
+    await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { effectivePromptHash: hex64(RAW_CANDIDATE_PROMPT) }),
+    );
 
     const row = db
       .prepare(`SELECT * FROM agent_org_experiment_treatment_receipts WHERE run_episode_id = ?`)
@@ -342,10 +457,10 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('is immutable once finalized — UPDATE and DELETE are both rejected', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-immutable' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64('immutable'),
-    });
+    await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { effectivePromptHash: hex64('immutable') }),
+    );
 
     expect(() =>
       db
@@ -362,10 +477,10 @@ describe('AgentOrgTreatmentReceiptsRepository.dispatchAndFinalizeReceiptAsync', 
   it('findByRunEpisodeIdAsync and findByEnrollmentIdAsync read back the finalized receipt', async () => {
     const enrollment = await reserve({ runEpisodeId: 'run-episode-find' });
     const receipts = new AgentOrgTreatmentReceiptsRepository(db);
-    const applied = await receipts.dispatchAndFinalizeReceiptAsync(enrollment!.runEpisodeId, {
-      profileRevision: 1,
-      effectivePromptHash: hex64('find-me'),
-    });
+    const applied = await receipts.dispatchAndFinalizeReceiptAsync(
+      enrollment!.runEpisodeId,
+      validMaterialFor(enrollment!, { effectivePromptHash: hex64('find-me') }),
+    );
 
     expect(await receipts.findByRunEpisodeIdAsync(enrollment!.runEpisodeId)).toEqual(applied.receipt);
     expect(await receipts.findByEnrollmentIdAsync(enrollment!.id)).toEqual(applied.receipt);

@@ -26,11 +26,26 @@ import {
   TREATMENT_RECEIPT_SCHEMA_VERSION,
   buildTargetRef,
   isHex64,
+  isTargetRevisionHash,
 } from '../models/agent_org_treatment_receipt';
 import { ExperimentEnrollment, ExperimentEnrollmentCohort } from '../models/agent_org_experiment_enrollment';
 
+/**
+ * C2-C — the full safe material a caller must supply to finalize a receipt.
+ * `targetRef`/`targetRevisionHash`/`treatmentSpecHash` are NOT trusted as
+ * ground truth on their own: `dispatchAndFinalizeReceiptAsync` re-checks each
+ * against the enrollment row read fresh inside the transaction and fails
+ * closed (`binding_mismatch`) on any mismatch, so a caller cannot finalize a
+ * receipt under stale or foreign safe material. Never the raw prompt.
+ */
 export interface FinalizeReceiptMaterial {
   profileRevision: number;
+  /** Must equal exactly `agent_config:<enrollment.profileId>`. */
+  targetRef: string;
+  /** Must equal exactly `enrollment.baselineTargetRevisionHash`. */
+  targetRevisionHash: string;
+  /** Must equal exactly `enrollment.treatmentSpecHash`. */
+  treatmentSpecHash: string;
   /** Bare lowercase 64-hex hash of the exact effective system-prompt override — never the prompt bytes. */
   effectivePromptHash: string;
 }
@@ -41,7 +56,8 @@ export type DispatchReceiptStatus =
   | 'missing'
   | 'illegal_transition'
   | 'mismatched_retry'
-  | 'invalid_material';
+  | 'invalid_material'
+  | 'binding_mismatch';
 
 export interface DispatchReceiptResult {
   status: DispatchReceiptStatus;
@@ -130,10 +146,16 @@ function makeInMemoryDb(): Database.Database {
   return db;
 }
 
+const CANONICAL_TARGET_REF_RE = /^agent_config:.+$/;
+
 function isValidMaterial(material: FinalizeReceiptMaterial): boolean {
   return (
     Number.isInteger(material.profileRevision) &&
     material.profileRevision >= 0 &&
+    typeof material.targetRef === 'string' &&
+    CANONICAL_TARGET_REF_RE.test(material.targetRef) &&
+    isTargetRevisionHash(material.targetRevisionHash) &&
+    isHex64(material.treatmentSpecHash) &&
     isHex64(material.effectivePromptHash)
   );
 }
@@ -209,6 +231,22 @@ export class AgentOrgTreatmentReceiptsRepository {
         return { status: 'missing', receipt: null, enrollment: null };
       }
       const enrollment = enrollmentFromRow(enrollmentRow);
+
+      // C2-C — fail closed unless the caller's claimed safe material is
+      // EXACTLY the enrollment's own binding, re-read fresh inside this
+      // transaction. A caller cannot finalize a receipt under stale/foreign
+      // material (e.g. a different profile's target, an old target
+      // revision, or a superseded treatment spec) even if `isValidMaterial`
+      // accepts its shape. No write has occurred yet at this point.
+      const expectedTargetRef = buildTargetRef(enrollment.profileId);
+      if (
+        material.targetRef !== expectedTargetRef ||
+        material.targetRevisionHash !== enrollment.baselineTargetRevisionHash ||
+        material.treatmentSpecHash !== enrollment.treatmentSpecHash
+      ) {
+        this.db.exec('COMMIT');
+        return { status: 'binding_mismatch', receipt: null, enrollment };
+      }
 
       const candidate: TreatmentReceipt = {
         schemaVersion: TREATMENT_RECEIPT_SCHEMA_VERSION,

@@ -154,6 +154,111 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     expect(await bad.promptAsync('sid', 'hi')).toBe(false);
   });
 
+  describe('C2-C — beforeDispatch real prompt-boundary hook', () => {
+    it('prompt(): constructs the request, then runs the hook, then calls the SDK — in that order', async () => {
+      const order: string[] = [];
+      const sdkPrompt = vi.fn().mockImplementation(async (args: { body: Record<string, unknown> }) => {
+        order.push('sdk-call');
+        // The SDK only ever observes the FULLY-CONSTRUCTED request, including
+        // opts.system — never a partial body built before the hook ran.
+        expect(args.body.system).toBe('the-exact-system-override');
+        return { data: { info: { id: 'm1' }, parts: [] }, request: {}, response: {} };
+      });
+      const svc = makeService({ session: { prompt: sdkPrompt } });
+
+      const beforeDispatch = vi.fn().mockImplementation(async () => {
+        order.push('hook');
+      });
+
+      const out = await svc.prompt('sid', 'hello', undefined, undefined, {
+        system: 'the-exact-system-override',
+      }, beforeDispatch);
+
+      expect(out?.info.id).toBe('m1');
+      expect(order).toEqual(['hook', 'sdk-call']);
+      expect(sdkPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('prompt(): a throwing hook blocks the SDK call entirely and propagates a closed error', async () => {
+      const sdkPrompt = vi.fn().mockResolvedValue({
+        data: { info: { id: 'm1' }, parts: [] }, request: {}, response: {},
+      });
+      const svc = makeService({ session: { prompt: sdkPrompt } });
+
+      const rawError = new Error('raw internal secret detail: db-password-123');
+      const beforeDispatch = vi.fn().mockRejectedValue(rawError);
+
+      await expect(
+        svc.prompt('sid', 'hello', undefined, undefined, undefined, beforeDispatch),
+      ).rejects.toThrow();
+      let caught: unknown;
+      try {
+        await svc.prompt('sid', 'hello', undefined, undefined, undefined, beforeDispatch);
+      } catch (err) {
+        caught = err;
+      }
+      expect(String(caught)).not.toContain('db-password-123');
+      expect(sdkPrompt).not.toHaveBeenCalled();
+    });
+
+    it('prompt(): omitting beforeDispatch leaves existing behavior byte-for-byte unchanged', async () => {
+      const sdkPrompt = vi.fn().mockResolvedValue({
+        data: { info: { id: 'm1' }, parts: [{ type: 'text', text: 'hi' }] }, request: {}, response: {},
+      });
+      const svc = makeService({ session: { prompt: sdkPrompt } });
+      const out = await svc.prompt('sid', 'hello');
+      expect(out?.info.id).toBe('m1');
+      expect(sdkPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('promptAsync(): constructs the request, then runs the hook, then calls the SDK — in that order', async () => {
+      const order: string[] = [];
+      const sdkPromptAsync = vi.fn().mockImplementation(async (args: { body: Record<string, unknown> }) => {
+        order.push('sdk-call');
+        expect(args.body.system).toBe('the-exact-system-override');
+        return { data: {}, request: {}, response: {} };
+      });
+      const svc = makeService({ session: { promptAsync: sdkPromptAsync } });
+
+      const beforeDispatch = vi.fn().mockImplementation(async () => {
+        order.push('hook');
+      });
+
+      const ok = await svc.promptAsync(
+        'sid',
+        'hi',
+        undefined,
+        undefined,
+        { system: 'the-exact-system-override' },
+        undefined,
+        beforeDispatch,
+      );
+
+      expect(ok).toBe(true);
+      expect(order).toEqual(['hook', 'sdk-call']);
+      expect(sdkPromptAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('promptAsync(): a throwing hook blocks the SDK call entirely and propagates a closed error', async () => {
+      const sdkPromptAsync = vi.fn().mockResolvedValue({ data: {}, request: {}, response: {} });
+      const svc = makeService({ session: { promptAsync: sdkPromptAsync } });
+
+      const beforeDispatch = vi.fn().mockRejectedValue(new Error('raw internal secret detail'));
+
+      await expect(
+        svc.promptAsync('sid', 'hi', undefined, undefined, undefined, undefined, beforeDispatch),
+      ).rejects.toThrow();
+      expect(sdkPromptAsync).not.toHaveBeenCalled();
+    });
+
+    it('promptAsync(): omitting beforeDispatch leaves existing behavior byte-for-byte unchanged', async () => {
+      const sdkPromptAsync = vi.fn().mockResolvedValue({ data: {}, request: {}, response: {} });
+      const svc = makeService({ session: { promptAsync: sdkPromptAsync } });
+      expect(await svc.promptAsync('sid', 'hi')).toBe(true);
+      expect(sdkPromptAsync).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('abortSession returns true when error is absent', async () => {
     const ok = makeService({
       session: { abort: vi.fn().mockResolvedValue({ data: true, request: {}, response: {} }) },

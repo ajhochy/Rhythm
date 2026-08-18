@@ -72,6 +72,11 @@ import { AgentOrgExperimentEnrollmentsRepository } from '../repositories/agent_o
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 import { validateEvidenceBundle } from './proposal_evidence_validator';
 import { parseStrictJson } from './strict_json';
+import {
+  AgentOrgTreatmentReceiptsRepository,
+  type DispatchReceiptResult,
+  type FinalizeReceiptMaterial,
+} from '../repositories/agent_org_treatment_receipts_repository';
 
 export type Cohort = 'baseline' | 'candidate';
 
@@ -684,6 +689,128 @@ export async function markRunEnrollmentTargetDrifted(
   return enrollmentsRepo.markTreatmentFailedAsync(runEpisodeId, {
     failureCode: 'target_drifted',
   });
+}
+
+/** C2-C — a closed reason code only; never carries profile/run/prompt/hash bytes. */
+export type TreatmentDispatchCommitFailureReason = 'target_drifted' | 'pre_dispatch_failed';
+
+/**
+ * C2-C — thrown by {@link commitReservedTreatmentDispatch}. The message is a
+ * fixed, canonical string keyed only on the closed reason code — never the
+ * caller's enrollment/profile/prompt/hash bytes or a wrapped driver error.
+ */
+export class TreatmentDispatchCommitError extends Error {
+  constructor(readonly reason: TreatmentDispatchCommitFailureReason) {
+    super(`AgentRunner: treatment dispatch commit failed (${reason})`);
+    this.name = 'TreatmentDispatchCommitError';
+  }
+}
+
+/** Safe identity of a committed receipt — never prompt/hash-adjacent secrets beyond what's already public. */
+export interface CommittedTreatmentReceipt {
+  id: string;
+  runEpisodeId: string;
+  cohort: Cohort;
+  finalizedAt: string;
+}
+
+export interface TreatmentDispatchCommitDeps extends ExperimentDeps {
+  receiptsRepo?: AgentOrgTreatmentReceiptsRepository;
+}
+
+function receiptMaterialsEqual(a: TreatmentReceiptMaterial, b: TreatmentReceiptMaterial): boolean {
+  return (
+    a.profileRevision === b.profileRevision &&
+    a.targetRef === b.targetRef &&
+    a.targetRevisionHash === b.targetRevisionHash &&
+    a.treatmentSpecHash === b.treatmentSpecHash &&
+    a.effectivePromptHash === b.effectivePromptHash
+  );
+}
+
+/**
+ * C2-C — the ONLY place a reserved enrollment may become `dispatched` with a
+ * durable receipt. This is meant to be wired as the real prompt-dispatch
+ * boundary's `beforeDispatch` hook (see OpencodeClientService.prompt /
+ * promptAsync): it runs AFTER the exact effective system override is already
+ * baked into the constructed SDK request and IMMEDIATELY BEFORE the real SDK
+ * call, closing the gap between "we prepared a treatment" and "the model saw
+ * it" during which the durable target could still drift (skill/memory
+ * preface construction, an MCP readiness preflight, session creation, etc.
+ * all run in between).
+ *
+ * Re-runs `prepareReservedTreatment` FRESH against the durable
+ * profile/proposal/spec — the caller's `initialPreparation` is never trusted
+ * as still-current on its own — and requires the fresh result to reproduce
+ * the caller's `initialPreparation` EXACTLY (byte-equal system override, and
+ * every safe receiptMaterial field equal). Any drift, corruption, or
+ * mismatch fails closed and marks the reservation terminal; NOTHING here
+ * ever re-reads or trusts a caller-supplied `opts.experimentTreatment` — a
+ * real reservation's binding comes ONLY from the enrollment + durable
+ * target.
+ *
+ * On success, `dispatchAndFinalizeReceiptAsync` performs the atomic
+ * reserved -> dispatched transition AND the immutable receipt insert in one
+ * transaction; only 'applied' (first commit) or 'idempotent' (exact retry)
+ * count as success. Returns only safe receipt identity. Every failure path
+ * throws {@link TreatmentDispatchCommitError} — a closed, generic error with
+ * no profile/run/prompt/hash bytes — so the boundary hook's contract ("a
+ * throwing hook blocks the SDK call") stops dispatch cleanly.
+ */
+export async function commitReservedTreatmentDispatch(
+  enrollment: ExperimentEnrollment,
+  initialPreparation: Extract<ReservedTreatmentPreparation, { status: 'ready' }>,
+  deps: TreatmentDispatchCommitDeps = {},
+): Promise<CommittedTreatmentReceipt> {
+  let fresh: ReservedTreatmentPreparation;
+  try {
+    fresh = await prepareReservedTreatment(enrollment, deps);
+  } catch {
+    await markRunEnrollmentPreDispatchFailed(enrollment.runEpisodeId).catch(() => {});
+    throw new TreatmentDispatchCommitError('pre_dispatch_failed');
+  }
+
+  if (fresh.status === 'target_drifted') {
+    await markRunEnrollmentTargetDrifted(enrollment.runEpisodeId).catch(() => {});
+    throw new TreatmentDispatchCommitError('target_drifted');
+  }
+  if (fresh.status !== 'ready') {
+    await markRunEnrollmentPreDispatchFailed(enrollment.runEpisodeId).catch(() => {});
+    throw new TreatmentDispatchCommitError('pre_dispatch_failed');
+  }
+
+  const reproducesInitialPreparation =
+    fresh.systemPromptOverride === initialPreparation.systemPromptOverride &&
+    receiptMaterialsEqual(fresh.receiptMaterial, initialPreparation.receiptMaterial);
+  if (!reproducesInitialPreparation) {
+    // The durable target/spec moved between the initial (early) preparation
+    // and this real dispatch-boundary re-verification — the same class of
+    // failure `prepareReservedTreatment` itself calls `target_drifted`.
+    await markRunEnrollmentTargetDrifted(enrollment.runEpisodeId).catch(() => {});
+    throw new TreatmentDispatchCommitError('target_drifted');
+  }
+
+  const receiptsRepo = deps.receiptsRepo ?? new AgentOrgTreatmentReceiptsRepository();
+  const material: FinalizeReceiptMaterial = fresh.receiptMaterial;
+  let result: DispatchReceiptResult;
+  try {
+    result = await receiptsRepo.dispatchAndFinalizeReceiptAsync(enrollment.runEpisodeId, material);
+  } catch {
+    await markRunEnrollmentPreDispatchFailed(enrollment.runEpisodeId).catch(() => {});
+    throw new TreatmentDispatchCommitError('pre_dispatch_failed');
+  }
+
+  if ((result.status !== 'applied' && result.status !== 'idempotent') || !result.receipt) {
+    await markRunEnrollmentPreDispatchFailed(enrollment.runEpisodeId).catch(() => {});
+    throw new TreatmentDispatchCommitError('pre_dispatch_failed');
+  }
+
+  return {
+    id: result.receipt.id,
+    runEpisodeId: result.receipt.runEpisodeId,
+    cohort: result.receipt.cohort,
+    finalizedAt: result.receipt.finalizedAt,
+  };
 }
 
 /**

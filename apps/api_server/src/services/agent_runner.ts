@@ -45,13 +45,15 @@ import { resolveProfileScope } from './agent_profile_scope';
 import { partitionResearchMcpPreflight } from './agent_skill_wiring';
 import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/experiment_treatment_adapter';
 import {
-  markRunEnrollmentDispatched,
+  commitReservedTreatmentDispatch,
   markRunEnrollmentPreDispatchFailed,
   markRunEnrollmentTargetDrifted,
   prepareReservedTreatment,
   reserveRunEnrollment,
   RunEnrollmentProfileCollisionError,
+  type ReservedTreatmentPreparation,
 } from './org_proposal_experiment_service';
+import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -1246,6 +1248,15 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // just before dispatch. Wins unconditionally over opts.experimentTreatment
     // (set below only as a fallback for the no-reservation case).
     let reservedTreatmentOverride: string | null = null;
+    // C2-C — the reservation stays `reserved` (no dispatched transition, no
+    // receipt) through skill/memory preface construction and request body
+    // assembly below. The atomic reserved -> dispatched transition AND the
+    // immutable receipt insert happen ONLY inside commitReservedTreatmentDispatch,
+    // wired further down as the real OpencodeClient prompt boundary's
+    // `beforeDispatch` hook — after the exact override is already in the SDK
+    // request and immediately before the real SDK call.
+    let reservedEnrollmentForCommit: ExperimentEnrollment | null = null;
+    let readyPreparationForCommit: Extract<ReservedTreatmentPreparation, { status: 'ready' }> | null = null;
     if (resolvedRunEpisodeId) {
       const lifecycleFailedMessage =
         'AgentRunner: enrollment lifecycle transition failed before prompt dispatch';
@@ -1253,10 +1264,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       try {
         reservedEnrollment = await reserveRunEnrollment(resolvedRunEpisodeId, resolvedProfileId);
         if (reservedEnrollment) {
-          // C2-A — prepare (re-verify target + binding) BEFORE the reserved ->
-          // dispatched transition. A reservation that fails preparation must
-          // never be marked dispatched — it goes reserved -> treatment_failed
-          // directly, and no prompt is ever sent.
+          // C2-A — prepare (re-verify target + binding) early so the exact
+          // override is available to construct the request body below. This
+          // is a pure re-derivation with no side effect on the enrollment —
+          // the real commit (and its own FRESH re-verification) happens only
+          // at the dispatch boundary via commitReservedTreatmentDispatch.
           const preparation = await prepareReservedTreatment(reservedEnrollment);
           if (preparation.status !== 'ready') {
             if (preparation.status === 'target_drifted') {
@@ -1281,31 +1293,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
             };
           }
           reservedTreatmentOverride = preparation.systemPromptOverride;
-
-          const dispatchedTransition = await markRunEnrollmentDispatched(resolvedRunEpisodeId);
-          if (
-            dispatchedTransition.status !== 'applied' &&
-            dispatchedTransition.status !== 'no_op'
-          ) {
-            if (dispatchedTransition.current?.state === 'reserved') {
-              await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
-            }
-            logger.error(
-              '[AgentRunner] pre-dispatch state transition failed',
-            );
-            _markSessionError(
-              rhythmSessionId,
-              lifecycleFailedMessage,
-              false,
-              resolvedRunEpisodeId,
-            );
-            return {
-              sessionId: rhythmSessionId ?? '',
-              result: '',
-              status: 'error',
-              error: lifecycleFailedMessage,
-            };
-          }
+          reservedEnrollmentForCommit = reservedEnrollment;
+          readyPreparationForCommit = preparation;
         }
       } catch (err) {
         // A profile-collision throw means `resolvedRunEpisodeId` is bound to a
@@ -1387,6 +1376,22 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       // hard deny on every tool, not a request the bridge could auto-approve.
       ...(opts.denyAllTools === true ? { tools: { '*': false } } : {}),
     };
+    // C2-C — the real prompt-dispatch boundary hook. When a reservation is
+    // ready, this is the ONLY place the reserved -> dispatched transition and
+    // the immutable receipt insert may happen: OpencodeClientService invokes
+    // it immediately after the exact SDK request (including this override in
+    // `promptOpts.system`) is constructed, and immediately before the real
+    // SDK call. A throwing hook blocks the SDK call entirely.
+    const beforeDispatch =
+      reservedEnrollmentForCommit && readyPreparationForCommit
+        ? async (): Promise<void> => {
+            await commitReservedTreatmentDispatch(
+              reservedEnrollmentForCommit!,
+              readyPreparationForCommit!,
+            );
+          }
+        : undefined;
+
     // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created
     // under effectiveCwd (cwd ?? process.cwd()); every post-creation call MUST
     // use the SAME directory or the engine looks in its default instance, finds
@@ -1394,7 +1399,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // "model produced no output" error on the headless/scheduler path (where
     // the raw `cwd` is undefined). Use effectiveCwd for prompt/listMessages/abort.
     const response = await _withinRunDeadline(
-      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts),
+      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts, beforeDispatch),
       deadlinePolicy,
       'prompt',
       async () =>
@@ -1404,6 +1409,15 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     );
 
     if (!response) {
+      // C2-C — the boundary hook never ran (e.g. client readiness disappeared
+      // between session creation and this call) or ran but the SDK itself
+      // still failed to produce a response. Either way, a still-`reserved`
+      // enrollment must not be left eligible/countable — fail it closed. This
+      // is a harmless no-op (illegal_transition, ignored) when the hook
+      // already committed reserved -> dispatched.
+      if (reservedEnrollmentForCommit) {
+        await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId!).catch(() => {});
+      }
       logger.error('[AgentRunner] prompt returned no response');
       _markSessionError(
         rhythmSessionId,

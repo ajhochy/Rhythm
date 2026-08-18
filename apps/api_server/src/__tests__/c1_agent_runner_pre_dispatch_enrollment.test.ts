@@ -1,9 +1,17 @@
 /**
- * C1 — pre-dispatch experiment enrollment ordering contract.
+ * C1/C2-C — pre-dispatch experiment enrollment ordering contract.
  *
  * Required behavior: AgentRunner must call reserveRunEnrollment() before
- * opencodeClient.prompt() so a stable runEpisodeId is reserved before any
- * model dispatch.
+ * opencodeClient.prompt(), and the reserved -> dispatched transition (with
+ * its immutable receipt) must happen ONLY inside the real prompt-dispatch
+ * boundary's `beforeDispatch` hook — i.e. after `mockPrompt` is invoked
+ * (representing the real OpencodeClientService constructing its SDK
+ * request), immediately before the (mocked) SDK call it wraps. This file
+ * mocks `opencode_engine` wholesale, so `mockPrompt`'s own implementation is
+ * responsible for invoking the passed `beforeDispatch` hook (its 6th
+ * positional argument) to faithfully mirror that real contract — the actual
+ * ordering/throw-propagation guarantee at the OpencodeClientService layer is
+ * pinned independently in opencode_client_service.test.ts.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -17,7 +25,7 @@ const {
   mockPrompt,
   mockAbortSession,
   mockReserveRunEnrollment,
-  mockMarkRunEnrollmentDispatched,
+  mockCommitReservedTreatmentDispatch,
   mockMarkRunEnrollmentPreDispatchFailed,
   mockMarkRunEnrollmentTargetDrifted,
   mockPrepareReservedTreatment,
@@ -27,7 +35,7 @@ const {
     mockPrompt: vi.fn(),
     mockAbortSession: vi.fn(),
     mockReserveRunEnrollment: vi.fn(),
-    mockMarkRunEnrollmentDispatched: vi.fn(),
+    mockCommitReservedTreatmentDispatch: vi.fn(),
     mockMarkRunEnrollmentPreDispatchFailed: vi.fn(),
     mockMarkRunEnrollmentTargetDrifted: vi.fn(),
     mockPrepareReservedTreatment: vi.fn(),
@@ -49,7 +57,7 @@ vi.mock('../services/opencode_engine', () => ({
 
 vi.mock('../services/org_proposal_experiment_service', () => ({
   reserveRunEnrollment: mockReserveRunEnrollment,
-  markRunEnrollmentDispatched: mockMarkRunEnrollmentDispatched,
+  commitReservedTreatmentDispatch: mockCommitReservedTreatmentDispatch,
   markRunEnrollmentPreDispatchFailed: mockMarkRunEnrollmentPreDispatchFailed,
   markRunEnrollmentTargetDrifted: mockMarkRunEnrollmentTargetDrifted,
   prepareReservedTreatment: mockPrepareReservedTreatment,
@@ -80,17 +88,25 @@ function teardownDb(): void {
   }
 }
 
-describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () => {
+describe('C1/C2-C — pre-dispatch enrollment is ordered before prompt dispatch, commit happens only at the real dispatch boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     makeDb();
     mockCreateSession.mockResolvedValue({ id: 'sdk-session-c1' });
-    mockPrompt.mockResolvedValue({
-      info: { sessionID: 'sdk-session-c1' },
-      parts: [{ type: 'text', text: 'Done' }],
+    // Mirrors the real OpencodeClientService.prompt() boundary contract: the
+    // hook (6th positional arg) runs, and only on success does the "SDK
+    // call" (this mock's own resolution) proceed. A throwing hook propagates
+    // unchanged and no "SDK call" (successful resolution) happens.
+    mockPrompt.mockImplementation(async (_sid, _text, _model, _cwd, _opts, beforeDispatch) => {
+      if (beforeDispatch) {
+        await beforeDispatch();
+      }
+      return {
+        info: { sessionID: 'sdk-session-c1' },
+        parts: [{ type: 'text', text: 'Done' }],
+      };
     });
     mockAbortSession.mockResolvedValue(true);
-    mockMarkRunEnrollmentDispatched.mockResolvedValue({ status: 'applied', current: null });
     mockMarkRunEnrollmentPreDispatchFailed.mockResolvedValue({
       status: 'applied',
       current: null,
@@ -99,12 +115,26 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
       status: 'applied',
       current: null,
     });
-    // Ordering-only fixtures in this file are not exercising C2-A treatment
-    // preparation (see c2_a_reserved_treatment_dispatch.test.ts for that) — a
-    // reserved enrollment here always prepares 'ready' so dispatch proceeds.
+    // Ordering-only fixtures in this file are not exercising C2-A/C2-C
+    // treatment preparation/commit details (see c2_a_reserved_treatment_dispatch.test.ts
+    // for that) — a reserved enrollment here always prepares 'ready' and
+    // commits successfully so dispatch proceeds.
     mockPrepareReservedTreatment.mockResolvedValue({
       status: 'ready',
       systemPromptOverride: 'irrelevant-to-this-fixture',
+      receiptMaterial: {
+        profileRevision: 1,
+        targetRef: 'agent_config:agent-1',
+        targetRevisionHash: 'sha256:' + '0'.repeat(64),
+        treatmentSpecHash: '1'.repeat(64),
+        effectivePromptHash: '2'.repeat(64),
+      },
+    });
+    mockCommitReservedTreatmentDispatch.mockResolvedValue({
+      id: 'receipt-id',
+      runEpisodeId: 'irrelevant-to-this-fixture',
+      cohort: 'baseline',
+      finalizedAt: new Date().toISOString(),
     });
   });
 
@@ -131,10 +161,8 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     } as never);
   }
 
-  it('calls reserveRunEnrollment before dispatch transition and prompt', async () => {
-    await mockScope();
-    let sessionId = '';
-    mockReserveRunEnrollment.mockResolvedValue({
+  function reservedFixture(overrides: Record<string, unknown> = {}) {
+    return {
       id: 'enrollment-id',
       runEpisodeId: 'run-episode',
       experimentId: 'exp-1',
@@ -148,7 +176,14 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
       reservedAt: new Date().toISOString(),
       failureCode: null,
       failureReason: null,
-    } as never);
+      ...overrides,
+    };
+  }
+
+  it('reserves before preparing, and the commit hook runs INSIDE prompt() — after prompt() is invoked, before it resolves', async () => {
+    await mockScope();
+    let sessionId = '';
+    mockReserveRunEnrollment.mockResolvedValue(reservedFixture());
     const run = await freshRun();
 
     await run({
@@ -161,13 +196,25 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
 
     expect(mockReserveRunEnrollment).toHaveBeenCalledTimes(1);
     expect(mockReserveRunEnrollment).toHaveBeenCalledWith(sessionId, 'agent-1');
-    expect(mockMarkRunEnrollmentDispatched).toHaveBeenCalledTimes(1);
-    expect(mockMarkRunEnrollmentDispatched).toHaveBeenCalledWith(sessionId);
+    expect(mockPrepareReservedTreatment).toHaveBeenCalledTimes(1);
+    expect(mockPrompt).toHaveBeenCalledTimes(1);
+    expect(mockCommitReservedTreatmentDispatch).toHaveBeenCalledTimes(1);
+
+    // Never a standalone dispatched-transition call outside the hook: the
+    // ONLY dispatch-commit surface is commitReservedTreatmentDispatch, and it
+    // is invoked with the exact reserved enrollment + ready preparation.
+    const [passedEnrollment, passedPreparation] = mockCommitReservedTreatmentDispatch.mock.calls[0];
+    expect(passedEnrollment.runEpisodeId).toBe('run-episode');
+    expect(passedPreparation.status).toBe('ready');
+
     expect(mockReserveRunEnrollment.mock.invocationCallOrder[0]).toBeLessThan(
-      mockMarkRunEnrollmentDispatched.mock.invocationCallOrder[0],
+      mockPrepareReservedTreatment.mock.invocationCallOrder[0],
     );
-    expect(mockMarkRunEnrollmentDispatched.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mockPrepareReservedTreatment.mock.invocationCallOrder[0]).toBeLessThan(
       mockPrompt.mock.invocationCallOrder[0],
+    );
+    expect(mockPrompt.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCommitReservedTreatmentDispatch.mock.invocationCallOrder[0],
     );
   });
 
@@ -221,32 +268,18 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
         runEpisodeId,
       }),
     );
-    expect(mockMarkRunEnrollmentDispatched).not.toHaveBeenCalled();
+    expect(mockCommitReservedTreatmentDispatch).not.toHaveBeenCalled();
   });
 
-  it('returns error and routes dispatch-confirmation errors to terminalization without prompt', async () => {
+  it('returns error and routes preparation failures to terminalization without prompt or commit', async () => {
     await mockScope();
     const outcomeModule = await import('../services/run_outcome_service');
     const outcomeSpy = vi
       .spyOn(outcomeModule, 'recordTerminalOutcome')
       .mockResolvedValue(undefined);
     const runEpisodeId = 'scheduled-occurrence-2026-08-17';
-    mockReserveRunEnrollment.mockResolvedValue({
-      id: 'enrollment-id',
-      runEpisodeId,
-      experimentId: 'exp-1',
-      proposalId: 'proposal-1',
-      profileId: 'agent-1',
-      cohort: 'baseline',
-      assignmentDigest: 'assign',
-      baselineTargetRevisionHash: 'base',
-      treatmentSpecHash: 'treat',
-      state: 'reserved',
-      reservedAt: new Date().toISOString(),
-      failureCode: null,
-      failureReason: null,
-    } as never);
-    mockMarkRunEnrollmentDispatched.mockRejectedValue(new Error('storage failure'));
+    mockReserveRunEnrollment.mockResolvedValue(reservedFixture({ runEpisodeId }));
+    mockPrepareReservedTreatment.mockResolvedValue({ status: 'invalid_binding' });
     const run = await freshRun();
 
     const result = await run({
@@ -256,9 +289,9 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     });
 
     expect(mockReserveRunEnrollment).toHaveBeenCalledWith(runEpisodeId, 'agent-1');
-    expect(mockMarkRunEnrollmentDispatched).toHaveBeenCalledWith(runEpisodeId);
     expect(mockMarkRunEnrollmentPreDispatchFailed).toHaveBeenCalledWith(runEpisodeId);
     expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockCommitReservedTreatmentDispatch).not.toHaveBeenCalled();
     expect(result.status).toBe('error');
     expect(result.error).toContain(
       'AgentRunner: enrollment lifecycle transition failed before prompt dispatch',
@@ -273,93 +306,50 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     );
   });
 
-  it('fails closed when dispatch transition cannot be confirmed', async () => {
+  it('a throwing commit hook (drift/corruption at the real dispatch boundary) blocks the run — no successful dispatch', async () => {
     await mockScope();
-    let sessionId = '';
-    mockReserveRunEnrollment.mockResolvedValue({
-      id: 'enrollment-id',
-      runEpisodeId: 'ep-1',
-      experimentId: 'exp-1',
-      proposalId: 'proposal-1',
-      profileId: 'agent-1',
-      cohort: 'baseline',
-      assignmentDigest: 'assign',
-      baselineTargetRevisionHash: 'base',
-      treatmentSpecHash: 'treat',
-      state: 'reserved',
-      reservedAt: new Date().toISOString(),
-      failureCode: null,
-      failureReason: null,
-    } as never);
-    mockMarkRunEnrollmentDispatched.mockResolvedValue({
-      status: 'illegal_transition',
-      current: {
-        id: 'enrollment-id',
-        runEpisodeId: 'ep-1',
-        experimentId: 'exp-1',
-        proposalId: 'proposal-1',
-        profileId: 'agent-1',
-        cohort: 'candidate',
-        assignmentDigest: 'assign',
-        baselineTargetRevisionHash: 'base',
-        treatmentSpecHash: 'treat',
-        state: 'reserved',
-        reservedAt: new Date().toISOString(),
-        failureCode: null,
-        failureReason: null,
-      } as never,
-    });
+    const runEpisodeId = 'run-episode-commit-throws';
+    mockReserveRunEnrollment.mockResolvedValue(reservedFixture({ runEpisodeId }));
+    const commitError = new Error('AgentRunner: treatment dispatch commit failed (target_drifted)');
+    mockCommitReservedTreatmentDispatch.mockRejectedValue(commitError);
+
     const outcomeModule = await import('../services/run_outcome_service');
     const outcomeSpy = vi
       .spyOn(outcomeModule, 'recordTerminalOutcome')
       .mockResolvedValue(undefined);
-    const run = await freshRun();
 
+    const run = await freshRun();
     const result = await run({
       prompt: 'Hello',
       agentConfigId: 'agent-1',
-      onSessionCreated: (id) => {
-        sessionId = id;
-      },
+      runEpisodeId,
     });
 
-    expect(mockMarkRunEnrollmentDispatched).toHaveBeenCalledTimes(1);
-    expect(mockMarkRunEnrollmentDispatched).toHaveBeenCalledWith(sessionId);
-    expect(mockMarkRunEnrollmentPreDispatchFailed).toHaveBeenCalledWith(sessionId);
-    expect(mockPrompt).not.toHaveBeenCalled();
+    expect(mockPrompt).toHaveBeenCalledTimes(1);
+    expect(mockCommitReservedTreatmentDispatch).toHaveBeenCalledTimes(1);
     expect(result.status).toBe('error');
-    expect(result.error).toContain('enrollment lifecycle');
-    expect(outcomeSpy).toHaveBeenCalledTimes(1);
     expect(outcomeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId,
+        sessionId: expect.any(String),
         terminalStatus: 'error',
-        producedArtifact: false,
-        runEpisodeId: sessionId,
+        runEpisodeId,
       }),
     );
   });
 
-  it('preserves dispatched enrollment path on runtime prompt failure', async () => {
+  it('preserves the dispatched-commit path on a runtime prompt failure occurring AFTER a successful commit', async () => {
     await mockScope();
     const runEpisodeId = 'scheduled-occurrence-2026-08-17';
-    mockReserveRunEnrollment.mockResolvedValue({
-      id: 'enrollment-id',
-      runEpisodeId,
-      experimentId: 'exp-1',
-      proposalId: 'proposal-1',
-      profileId: 'agent-1',
-      cohort: 'baseline',
-      assignmentDigest: 'assign',
-      baselineTargetRevisionHash: 'base',
-      treatmentSpecHash: 'treat',
-      state: 'reserved',
-      reservedAt: new Date().toISOString(),
-      failureCode: null,
-      failureReason: null,
-    } as never);
-    mockMarkRunEnrollmentDispatched.mockResolvedValue({ status: 'applied', current: null });
-    mockPrompt.mockRejectedValueOnce(new Error('provider timeout'));
+    mockReserveRunEnrollment.mockResolvedValue(reservedFixture({ runEpisodeId }));
+    // The hook succeeds (commit applied) but the underlying "SDK call" this
+    // mock represents still fails afterward — mirrors a real provider error
+    // arriving after the boundary hook already committed the receipt.
+    mockPrompt.mockImplementationOnce(async (_sid, _text, _model, _cwd, _opts, beforeDispatch) => {
+      if (beforeDispatch) {
+        await beforeDispatch();
+      }
+      throw new Error('provider timeout');
+    });
 
     const outcomeModule = await import('../services/run_outcome_service');
     const outcomeSpy = vi
@@ -373,7 +363,7 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
       runEpisodeId,
     });
 
-    expect(mockMarkRunEnrollmentDispatched).toHaveBeenCalledWith(runEpisodeId);
+    expect(mockCommitReservedTreatmentDispatch).toHaveBeenCalledTimes(1);
     expect(mockPrompt).toHaveBeenCalled();
     expect(result.status).toBe('error');
     expect(outcomeSpy).toHaveBeenCalledWith(
@@ -386,26 +376,19 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     );
   });
 
-  it('passes explicit runEpisodeId to terminal outcome when prompt returns no response', async () => {
+  it('passes explicit runEpisodeId to terminal outcome when prompt returns no response and fails the still-reserved enrollment', async () => {
     await mockScope();
     const runEpisodeId = 'scheduled-occurrence-2026-08-17-no-response';
-    mockReserveRunEnrollment.mockResolvedValue({
-      id: 'enrollment-id',
-      runEpisodeId,
-      experimentId: 'exp-1',
-      proposalId: 'proposal-1',
-      profileId: 'agent-1',
-      cohort: 'baseline',
-      assignmentDigest: 'assign',
-      baselineTargetRevisionHash: 'base',
-      treatmentSpecHash: 'treat',
-      state: 'reserved',
-      reservedAt: new Date().toISOString(),
-      failureCode: null,
-      failureReason: null,
-    } as never);
-    mockMarkRunEnrollmentDispatched.mockResolvedValue({ status: 'applied', current: null });
-    mockPrompt.mockResolvedValueOnce(null);
+    mockReserveRunEnrollment.mockResolvedValue(reservedFixture({ runEpisodeId }));
+    // The hook never runs to completion in a way that yields a response: the
+    // "SDK call" this mock wraps resolves null even though the hook itself
+    // (still invoked, per the real boundary contract) succeeded.
+    mockPrompt.mockImplementationOnce(async (_sid, _text, _model, _cwd, _opts, beforeDispatch) => {
+      if (beforeDispatch) {
+        await beforeDispatch();
+      }
+      return null;
+    });
 
     const outcomeModule = await import('../services/run_outcome_service');
     const outcomeSpy = vi
@@ -422,6 +405,13 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     expect(mockPrompt).toHaveBeenCalled();
     expect(result.status).toBe('error');
     expect(result.error).toContain('model produced no output');
+    // C2-C — a still-reserved enrollment must never be left eligible after a
+    // failed dispatch attempt. Since the fixture's hook succeeded, this is a
+    // harmless no-op call in this specific scenario (the enrollment is
+    // 'dispatched' from commit's point of view via the mock), but the
+    // runner must still attempt it unconditionally whenever a reservation
+    // was in play.
+    expect(mockMarkRunEnrollmentPreDispatchFailed).toHaveBeenCalledWith(runEpisodeId);
     expect(outcomeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: expect.any(String),
@@ -435,22 +425,7 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
   it('passes explicit runEpisodeId to terminalization on successful completion', async () => {
     await mockScope();
     const runEpisodeId = 'scheduled-occurrence-2026-08-17-success';
-    mockReserveRunEnrollment.mockResolvedValue({
-      id: 'enrollment-id',
-      runEpisodeId,
-      experimentId: 'exp-1',
-      proposalId: 'proposal-1',
-      profileId: 'agent-1',
-      cohort: 'baseline',
-      assignmentDigest: 'assign',
-      baselineTargetRevisionHash: 'base',
-      treatmentSpecHash: 'treat',
-      state: 'reserved',
-      reservedAt: new Date().toISOString(),
-      failureCode: null,
-      failureReason: null,
-    } as never);
-    mockMarkRunEnrollmentDispatched.mockResolvedValue({ status: 'applied', current: null });
+    mockReserveRunEnrollment.mockResolvedValue(reservedFixture({ runEpisodeId }));
 
     const outcomeModule = await import('../services/run_outcome_service');
     const outcomeSpy = vi
@@ -465,6 +440,7 @@ describe('C1 — pre-dispatch enrollment is ordered before prompt dispatch', () 
     });
 
     expect(result.status).toBe('done');
+    expect(mockCommitReservedTreatmentDispatch).toHaveBeenCalledTimes(1);
     expect(outcomeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: expect.any(String),
