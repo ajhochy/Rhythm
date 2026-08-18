@@ -146,12 +146,19 @@ async function seedProfile(): Promise<RevisionedAgentConfig> {
 }
 
 async function declareExperiment(profileTargetHash: string): Promise<void> {
+  // C2-B: a reservable/preparable treatment must be backed by an EXACT
+  // strict refine-config proposal row — kind, targetRef, and changeJson all
+  // bound to this profile/field/candidate value, not merely an experiment
+  // whose specs happen to validate on their own.
   const proposal = await new AgentOrgProposalsRepository().createAsync({
-    kind: 'refine-recipe',
+    kind: 'refine-config',
     risk: 'low',
     status: 'active',
     title: 'C2-A refine the assistant prompt',
-    targetRef: 'recipe:c2a',
+    targetRef: PROFILE_TARGET_REF,
+    changeJson: JSON.stringify({
+      configPatch: { agentConfigId: TEST_PROFILE_ID, field: 'system_prompt', value: CANDIDATE_SYSTEM_PROMPT },
+    }),
   });
   await new AgentOrgExperimentsRepository().declareAsync({
     proposalId: proposal.id,

@@ -2013,6 +2013,86 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
   `);
 
+  // ── C2-B — the durable, immutable, sanitized treatment receipt (Postgres
+  // twin). Column set MUST stay identical to the SQLite migration in
+  // migrations.ts — enforced by skill_schema_parity.test.ts. Closed-domain
+  // CHECKs mirror the SQLite GLOB patterns using Postgres regex; `target_ref`
+  // is bound to `profile_id` in the same row so a caller cannot smuggle a
+  // mismatched ref past the DB layer. Table in its own pool.query with the
+  // closing paren immediately before the backtick or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_treatment_receipts (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES agent_org_experiment_enrollments(id),
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline', 'candidate')),
+      assignment_digest TEXT NOT NULL,
+      adapter TEXT NOT NULL CHECK (adapter = 'system-prompt-v1'),
+      target_ref TEXT NOT NULL CHECK (target_ref = ('agent_config:' || profile_id)),
+      baseline_target_revision_hash TEXT NOT NULL CHECK (baseline_target_revision_hash ~ '^sha256:[0-9a-f]{64}$'),
+      profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+      treatment_spec_hash TEXT NOT NULL CHECK (treatment_spec_hash ~ '^[0-9a-f]{64}$'),
+      effective_prompt_hash TEXT NOT NULL CHECK (effective_prompt_hash ~ '^[0-9a-f]{64}$'),
+      finalized_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_treatment_receipts_experiment
+       ON agent_org_experiment_treatment_receipts(experiment_id)`,
+  );
+
+  // Postgres twin of the SQLite INSERT-binding trigger: a receipt can only be
+  // inserted for an enrollment that exists, is ALREADY `dispatched`, and
+  // matches the receipt's copied binding fields exactly. Real DB-level
+  // enforcement, not merely repository discipline.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_guard_agent_org_experiment_treatment_receipt_binding()
+    RETURNS trigger AS $$
+    DECLARE
+      bound_enrollment RECORD;
+    BEGIN
+      SELECT * INTO bound_enrollment
+        FROM agent_org_experiment_enrollments
+       WHERE id = NEW.enrollment_id;
+
+      IF NOT FOUND
+         OR bound_enrollment.state <> 'dispatched'
+         OR bound_enrollment.run_episode_id <> NEW.run_episode_id
+         OR bound_enrollment.experiment_id <> NEW.experiment_id
+         OR bound_enrollment.proposal_id <> NEW.proposal_id
+         OR bound_enrollment.profile_id <> NEW.profile_id
+         OR bound_enrollment.cohort <> NEW.cohort
+         OR bound_enrollment.assignment_digest <> NEW.assignment_digest
+         OR bound_enrollment.baseline_target_revision_hash <> NEW.baseline_target_revision_hash
+         OR bound_enrollment.treatment_spec_hash <> NEW.treatment_spec_hash
+      THEN
+        RAISE EXCEPTION 'treatment receipt does not match its bound dispatched enrollment';
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_binding
+      ON agent_org_experiment_treatment_receipts;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_binding
+      BEFORE INSERT ON agent_org_experiment_treatment_receipts
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_treatment_receipt_binding();
+  `);
+
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_immutable
+      ON agent_org_experiment_treatment_receipts;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_immutable
+      BEFORE UPDATE OR DELETE ON agent_org_experiment_treatment_receipts
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('treatment receipts are immutable once finalized');
+  `);
+
   // W5-c12: the proposal retirement sidecar. Column set MUST stay identical to
   // the SQLite migration in migrations.ts — enforced by
   // skill_schema_parity.test.ts. Table in its own pool.query with the closing

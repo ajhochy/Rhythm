@@ -4116,4 +4116,85 @@ If someone asks for creative work that needs a local capability:
       SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
     END;
   `);
+
+  // ── C2-B — the durable, immutable, sanitized treatment receipt ───────────
+  //
+  // Bound to exactly one enrollment/run episode (both UNIQUE). Carries only
+  // safe identity/revision/hash evidence — never raw prompt/system-prompt
+  // bytes. `target_ref` and the hash columns are closed-domain CHECKs so a
+  // malformed row can never be inserted in the first place, not merely
+  // rejected by application code. Fully immutable once inserted (see the
+  // no-update/no-delete triggers below) — unlike the enrollment lifecycle
+  // table, a receipt has no legal post-insert transition at all.
+  const HEX64_GLOB = Array(64).fill('[0-9a-f]').join('');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_treatment_receipts (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES agent_org_experiment_enrollments(id),
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline','candidate')),
+      assignment_digest TEXT NOT NULL,
+      adapter TEXT NOT NULL CHECK (adapter = 'system-prompt-v1'),
+      target_ref TEXT NOT NULL CHECK (target_ref = 'agent_config:' || profile_id),
+      baseline_target_revision_hash TEXT NOT NULL CHECK (baseline_target_revision_hash GLOB 'sha256:${HEX64_GLOB}'),
+      profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+      treatment_spec_hash TEXT NOT NULL CHECK (treatment_spec_hash GLOB '${HEX64_GLOB}'),
+      effective_prompt_hash TEXT NOT NULL CHECK (effective_prompt_hash GLOB '${HEX64_GLOB}'),
+      finalized_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_treatment_receipts_experiment
+       ON agent_org_experiment_treatment_receipts(experiment_id)`,
+  );
+
+  // INSERT-time binding guard: a receipt can only be inserted for an
+  // enrollment that (a) exists, (b) is ALREADY `dispatched` at insert time,
+  // and (c) matches the receipt's copied binding fields exactly. This is a
+  // real DB-level enforcement — a raw SQL INSERT that relabels any bound
+  // field, or that fires before the enrollment's own reserved -> dispatched
+  // transition has committed, is rejected here, not merely by the
+  // repository copying fields correctly. DROP+CREATE (not CREATE TRIGGER IF
+  // NOT EXISTS) so a future logic fix redeploys on every boot, mirroring the
+  // enrollment lifecycle triggers above.
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_binding;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_binding
+    BEFORE INSERT ON agent_org_experiment_treatment_receipts
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1 FROM agent_org_experiment_enrollments e
+       WHERE e.id = NEW.enrollment_id
+         AND e.state = 'dispatched'
+         AND e.run_episode_id = NEW.run_episode_id
+         AND e.experiment_id = NEW.experiment_id
+         AND e.proposal_id = NEW.proposal_id
+         AND e.profile_id = NEW.profile_id
+         AND e.cohort = NEW.cohort
+         AND e.assignment_digest = NEW.assignment_digest
+         AND e.baseline_target_revision_hash = NEW.baseline_target_revision_hash
+         AND e.treatment_spec_hash = NEW.treatment_spec_hash
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipt does not match its bound dispatched enrollment');
+    END;
+  `);
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiment_treatment_receipts_no_update
+    BEFORE UPDATE ON agent_org_experiment_treatment_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiment_treatment_receipts_no_delete
+    BEFORE DELETE ON agent_org_experiment_treatment_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
+    END;
+  `);
 }

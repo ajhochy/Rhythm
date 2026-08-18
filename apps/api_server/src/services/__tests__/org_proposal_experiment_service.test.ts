@@ -136,16 +136,47 @@ function systemPromptSpec(
   profileId: string,
   overrides: Record<string, unknown> = {},
   evidenceHash = 'sha256:abc123',
+  currentSystemPrompt = 'before',
 ): Record<string, unknown> {
   return {
     agentConfigId: profileId,
     field: 'system_prompt',
-    priorValue: 'before',
-    currentValue: 'before',
+    priorValue: currentSystemPrompt,
+    currentValue: currentSystemPrompt,
     candidateValue: 'after',
     evidenceTarget: { ref: toProfileTargetRef(profileId), hash: evidenceHash },
     ...overrides,
   };
+}
+
+/**
+ * C2-B — every reservable/preparable treatment must be backed by an exact
+ * strict `refine-config` proposal row. Idempotent by id: a caller that
+ * pre-creates the proposal with a deliberately corrupted shape (wrong
+ * kind/targetRef/changeJson, for the C2-B negative fixtures) and then passes
+ * that same `proposalId` here gets its row left untouched.
+ */
+async function seedTreatmentProposal(
+  proposalId: string,
+  profileId: string,
+  candidateValue: unknown,
+  overrides: Record<string, unknown> = {},
+): Promise<void> {
+  const proposals = new AgentOrgProposalsRepository();
+  const existing = await proposals.findByIdAsync(proposalId);
+  if (existing) return;
+  await proposals.createAsync({
+    id: proposalId,
+    kind: 'refine-config',
+    risk: 'low',
+    status: 'active',
+    title: `treatment binding for ${profileId}`,
+    targetRef: toProfileTargetRef(profileId),
+    changeJson: JSON.stringify({
+      configPatch: { agentConfigId: profileId, field: 'system_prompt', value: candidateValue },
+    }),
+    ...overrides,
+  });
 }
 
 async function declareC1Experiment(
@@ -166,9 +197,16 @@ async function declareC1Experiment(
     candidateSpec = systemPromptSpec(profileId, { candidateValue: 'after-candidate' }),
   } = options;
 
+  const resolvedProposalId = proposalId ?? `prop-${bundle.target.ref}-${Math.random()}`;
+  await seedTreatmentProposal(
+    resolvedProposalId,
+    profileId,
+    (candidateSpec as Record<string, unknown>).candidateValue,
+  );
+
   const experiments = new AgentOrgExperimentsRepository();
   return experiments.declareAsync({
-    proposalId: proposalId ?? `prop-${bundle.target.ref}-${Math.random()}`,
+    proposalId: resolvedProposalId,
     adapter,
     evidenceBundleJson: JSON.stringify(bundle),
     baselineSpecJson: JSON.stringify(baselineSpec),
@@ -365,19 +403,14 @@ describe('C1-B strict enrollment gating and hashing', () => {
   });
 
   it('persists only durable hash artifacts and never raw system prompts', async () => {
-    const { hash } = profileTargetFingerprint('profile-no-raw', 'the profile system prompt bytes must stay private');
+    const REAL_PROMPT = 'the profile system prompt bytes must stay private';
+    const { hash } = profileTargetFingerprint('profile-no-raw', REAL_PROMPT);
 
     await declareC1Experiment('profile-no-raw', {
       proposalId: 'prop-no-raw',
       bundle: bundleForProfile('profile-no-raw', hash),
-      baselineSpec: {
-        ...systemPromptSpec('profile-no-raw', {}, hash),
-        priorValue: 'before',
-      },
-      candidateSpec: {
-        ...systemPromptSpec('profile-no-raw', { candidateValue: 'private-after' }, hash),
-        priorValue: 'before',
-      },
+      baselineSpec: systemPromptSpec('profile-no-raw', {}, hash, REAL_PROMPT),
+      candidateSpec: systemPromptSpec('profile-no-raw', { candidateValue: 'private-after' }, hash, REAL_PROMPT),
     });
 
     const reserved = await reserveRunEnrollment('run-no-raw', 'profile-no-raw');
@@ -393,8 +426,8 @@ describe('C1-B strict enrollment gating and hashing', () => {
     await declareC1Experiment('profile-hash', {
       proposalId: 'prop-hash-1',
       bundle: bundleForProfile('profile-hash', initialHash),
-      baselineSpec: systemPromptSpec('profile-hash', {}, initialHash),
-      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'first' }, initialHash),
+      baselineSpec: systemPromptSpec('profile-hash', {}, initialHash, 'baseline'),
+      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'first' }, initialHash, 'baseline'),
     });
 
     const first = await reserveRunEnrollment('run-hash-1', 'profile-hash');
@@ -419,8 +452,8 @@ describe('C1-B strict enrollment gating and hashing', () => {
     await declareC1Experiment('profile-hash', {
       proposalId: 'prop-hash-2',
       bundle: bundleForProfile('profile-hash', updatedHash),
-      baselineSpec: systemPromptSpec('profile-hash', {}, updatedHash),
-      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'second' }, updatedHash),
+      baselineSpec: systemPromptSpec('profile-hash', {}, updatedHash, 'baseline-updated'),
+      candidateSpec: systemPromptSpec('profile-hash', { candidateValue: 'second' }, updatedHash, 'baseline-updated'),
     });
 
     const second = await reserveRunEnrollment('run-hash-3', 'profile-hash');
@@ -430,6 +463,252 @@ describe('C1-B strict enrollment gating and hashing', () => {
     expect(second!.treatmentSpecHash).not.toBe(first!.treatmentSpecHash);
     expect(second!.baselineTargetRevisionHash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(second!.treatmentSpecHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+/**
+ * C2-B — every one of these plants a proposal whose declared changeJson is
+ * corrupted along exactly ONE dimension (kind, targetRef, JSON shape, a
+ * smuggled key, or the bound field/id/value), keeps everything else — the
+ * experiment's evidence bundle, treatment specs, and durable target — fully
+ * consistent, and asserts `reserveRunEnrollment` refuses to reserve through
+ * that ONE corruption alone. The trailing positive control proves the same
+ * fixture shape actually reserves when nothing is corrupted, so a refusal
+ * above cannot be blamed on an unrelated fixture mistake.
+ */
+describe('C2-B reserveRunEnrollment fails closed on a corrupted backing proposal', () => {
+  it('refuses when the proposal kind is not exactly refine-config', async () => {
+    const { hash } = profileTargetFingerprint('c2b-wrong-kind');
+    const proposalId = 'prop-c2b-wrong-kind';
+    await seedTreatmentProposal(proposalId, 'c2b-wrong-kind', 'after', { kind: 'refine-recipe' });
+    await declareC1Experiment('c2b-wrong-kind', {
+      proposalId,
+      bundle: bundleForProfile('c2b-wrong-kind', hash),
+      baselineSpec: systemPromptSpec('c2b-wrong-kind', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-wrong-kind', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-wrong-kind', 'c2b-wrong-kind')).toBeNull();
+  });
+
+  it('refuses when the proposal targetRef does not name this exact profile', async () => {
+    const { hash } = profileTargetFingerprint('c2b-wrong-target');
+    profileTargetFingerprint('c2b-other-target');
+    const proposalId = 'prop-c2b-wrong-target';
+    await seedTreatmentProposal(proposalId, 'c2b-wrong-target', 'after', {
+      targetRef: toProfileTargetRef('c2b-other-target'),
+    });
+    await declareC1Experiment('c2b-wrong-target', {
+      proposalId,
+      bundle: bundleForProfile('c2b-wrong-target', hash),
+      baselineSpec: systemPromptSpec('c2b-wrong-target', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-wrong-target', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-wrong-target', 'c2b-wrong-target')).toBeNull();
+  });
+
+  it('refuses when changeJson is malformed JSON', async () => {
+    const { hash } = profileTargetFingerprint('c2b-malformed-json');
+    const proposalId = 'prop-c2b-malformed-json';
+    await seedTreatmentProposal(proposalId, 'c2b-malformed-json', 'after', {
+      changeJson: '{"configPatch": { "agentConfigId": "c2b-malformed-json", "field": "system_prompt"',
+    });
+    await declareC1Experiment('c2b-malformed-json', {
+      proposalId,
+      bundle: bundleForProfile('c2b-malformed-json', hash),
+      baselineSpec: systemPromptSpec('c2b-malformed-json', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-malformed-json', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-malformed-json', 'c2b-malformed-json')).toBeNull();
+  });
+
+  it('refuses when changeJson contains a duplicate top-level JSON member', async () => {
+    const { hash } = profileTargetFingerprint('c2b-dup-key');
+    const proposalId = 'prop-c2b-dup-key';
+    const patch = '{"agentConfigId":"c2b-dup-key","field":"system_prompt","value":"after"}';
+    await seedTreatmentProposal(proposalId, 'c2b-dup-key', 'after', {
+      changeJson: `{"configPatch":${patch},"configPatch":${patch}}`,
+    });
+    await declareC1Experiment('c2b-dup-key', {
+      proposalId,
+      bundle: bundleForProfile('c2b-dup-key', hash),
+      baselineSpec: systemPromptSpec('c2b-dup-key', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-dup-key', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-dup-key', 'c2b-dup-key')).toBeNull();
+  });
+
+  it('refuses when changeJson carries a smuggled OUTER key alongside configPatch', async () => {
+    const { hash } = profileTargetFingerprint('c2b-outer-extra');
+    const proposalId = 'prop-c2b-outer-extra';
+    await seedTreatmentProposal(proposalId, 'c2b-outer-extra', 'after', {
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: 'c2b-outer-extra', field: 'system_prompt', value: 'after' },
+        diagnosis: 'smuggled outer key',
+      }),
+    });
+    await declareC1Experiment('c2b-outer-extra', {
+      proposalId,
+      bundle: bundleForProfile('c2b-outer-extra', hash),
+      baselineSpec: systemPromptSpec('c2b-outer-extra', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-outer-extra', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-outer-extra', 'c2b-outer-extra')).toBeNull();
+  });
+
+  it('refuses when configPatch carries a smuggled INNER key', async () => {
+    const { hash } = profileTargetFingerprint('c2b-inner-extra');
+    const proposalId = 'prop-c2b-inner-extra';
+    await seedTreatmentProposal(proposalId, 'c2b-inner-extra', 'after', {
+      changeJson: JSON.stringify({
+        configPatch: {
+          agentConfigId: 'c2b-inner-extra',
+          field: 'system_prompt',
+          value: 'after',
+          concreteFix: 'smuggled inner key',
+        },
+      }),
+    });
+    await declareC1Experiment('c2b-inner-extra', {
+      proposalId,
+      bundle: bundleForProfile('c2b-inner-extra', hash),
+      baselineSpec: systemPromptSpec('c2b-inner-extra', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-inner-extra', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-inner-extra', 'c2b-inner-extra')).toBeNull();
+  });
+
+  it('refuses when configPatch.field is not exactly system_prompt', async () => {
+    const { hash } = profileTargetFingerprint('c2b-wrong-field');
+    const proposalId = 'prop-c2b-wrong-field';
+    await seedTreatmentProposal(proposalId, 'c2b-wrong-field', 'after', {
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: 'c2b-wrong-field', field: 'temperature', value: 'after' },
+      }),
+    });
+    await declareC1Experiment('c2b-wrong-field', {
+      proposalId,
+      bundle: bundleForProfile('c2b-wrong-field', hash),
+      baselineSpec: systemPromptSpec('c2b-wrong-field', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-wrong-field', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-wrong-field', 'c2b-wrong-field')).toBeNull();
+  });
+
+  it('refuses when configPatch.agentConfigId names a different profile than the reservation target', async () => {
+    const { hash } = profileTargetFingerprint('c2b-wrong-agent-id');
+    profileTargetFingerprint('c2b-other-agent-id');
+    const proposalId = 'prop-c2b-wrong-agent-id';
+    await seedTreatmentProposal(proposalId, 'c2b-wrong-agent-id', 'after', {
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: 'c2b-other-agent-id', field: 'system_prompt', value: 'after' },
+      }),
+    });
+    await declareC1Experiment('c2b-wrong-agent-id', {
+      proposalId,
+      bundle: bundleForProfile('c2b-wrong-agent-id', hash),
+      baselineSpec: systemPromptSpec('c2b-wrong-agent-id', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-wrong-agent-id', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-wrong-agent-id', 'c2b-wrong-agent-id')).toBeNull();
+  });
+
+  it('refuses when configPatch.value does not equal the exact candidate value the treatment spec declares', async () => {
+    const { hash } = profileTargetFingerprint('c2b-wrong-value');
+    const proposalId = 'prop-c2b-wrong-value';
+    await seedTreatmentProposal(proposalId, 'c2b-wrong-value', 'a-completely-different-value');
+    await declareC1Experiment('c2b-wrong-value', {
+      proposalId,
+      bundle: bundleForProfile('c2b-wrong-value', hash),
+      baselineSpec: systemPromptSpec('c2b-wrong-value', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-wrong-value', { candidateValue: 'after' }, hash),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-wrong-value', 'c2b-wrong-value')).toBeNull();
+  });
+
+  it('positive control: the identical fixture shape WITHOUT any corruption does reserve', async () => {
+    const { hash } = profileTargetFingerprint('c2b-consistent-control');
+    const proposalId = 'prop-c2b-consistent-control';
+    await seedTreatmentProposal(proposalId, 'c2b-consistent-control', 'after');
+    await declareC1Experiment('c2b-consistent-control', {
+      proposalId,
+      bundle: bundleForProfile('c2b-consistent-control', hash),
+      baselineSpec: systemPromptSpec('c2b-consistent-control', {}, hash),
+      candidateSpec: systemPromptSpec('c2b-consistent-control', { candidateValue: 'after' }, hash),
+    });
+
+    const result = await reserveRunEnrollment('run-c2b-consistent-control', 'c2b-consistent-control');
+    expect(result).not.toBeNull();
+    expect(result!.proposalId).toBe(proposalId);
+  });
+});
+
+/**
+ * C2-B — defense in depth: a spec's `evidenceTarget.ref`/`.hash` can be
+ * perfectly canonical (the ref names this exact profile, the hash equals the
+ * REAL current fingerprint) while the spec's own `priorValue`/`currentValue`
+ * text fields — independent strings — silently diverge from the profile's
+ * actual durable `systemPrompt`. `specsBindToDurableSystemPrompt` is the only
+ * thing standing between that forged content and a reservation.
+ */
+describe('C2-B specs must bind to the durable systemPrompt CONTENT, not merely a matching ref/hash', () => {
+  it('refuses reservation when the BASELINE spec currentValue diverges from the durable systemPrompt', async () => {
+    const { hash } = profileTargetFingerprint('c2b-content-baseline', 'real-durable-prompt');
+    const proposalId = 'prop-c2b-content-baseline';
+    await seedTreatmentProposal(proposalId, 'c2b-content-baseline', 'after');
+    await declareC1Experiment('c2b-content-baseline', {
+      proposalId,
+      bundle: bundleForProfile('c2b-content-baseline', hash),
+      baselineSpec: {
+        ...systemPromptSpec('c2b-content-baseline', {}, hash, 'real-durable-prompt'),
+        currentValue: 'forged-different-text',
+      },
+      candidateSpec: systemPromptSpec('c2b-content-baseline', { candidateValue: 'after' }, hash, 'real-durable-prompt'),
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-content-baseline', 'c2b-content-baseline')).toBeNull();
+  });
+
+  it('refuses reservation when the CANDIDATE spec priorValue diverges from the durable systemPrompt', async () => {
+    const { hash } = profileTargetFingerprint('c2b-content-prior', 'real-durable-prompt-2');
+    const proposalId = 'prop-c2b-content-prior';
+    await seedTreatmentProposal(proposalId, 'c2b-content-prior', 'after');
+    await declareC1Experiment('c2b-content-prior', {
+      proposalId,
+      bundle: bundleForProfile('c2b-content-prior', hash),
+      baselineSpec: systemPromptSpec('c2b-content-prior', {}, hash, 'real-durable-prompt-2'),
+      candidateSpec: {
+        ...systemPromptSpec('c2b-content-prior', { candidateValue: 'after' }, hash, 'real-durable-prompt-2'),
+        priorValue: 'forged-prior-text',
+      },
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-content-prior', 'c2b-content-prior')).toBeNull();
+  });
+
+  it('refuses reservation when the CANDIDATE spec currentValue diverges from the durable systemPrompt', async () => {
+    const { hash } = profileTargetFingerprint('c2b-content-current', 'real-durable-prompt-3');
+    const proposalId = 'prop-c2b-content-current';
+    await seedTreatmentProposal(proposalId, 'c2b-content-current', 'after');
+    await declareC1Experiment('c2b-content-current', {
+      proposalId,
+      bundle: bundleForProfile('c2b-content-current', hash),
+      baselineSpec: systemPromptSpec('c2b-content-current', {}, hash, 'real-durable-prompt-3'),
+      candidateSpec: {
+        ...systemPromptSpec('c2b-content-current', { candidateValue: 'after' }, hash, 'real-durable-prompt-3'),
+        currentValue: 'forged-current-text',
+      },
+    });
+
+    expect(await reserveRunEnrollment('run-c2b-content-current', 'c2b-content-current')).toBeNull();
   });
 });
 
@@ -1008,6 +1287,11 @@ describe('C2-A — prepareReservedTreatment revalidates evidenceTarget.ref and .
     bundleTargetHash: string,
     profileIdForBundle: string,
   ) {
+    await seedTreatmentProposal(
+      proposalId,
+      profileIdForBundle,
+      (candidateSpec as Record<string, unknown>).candidateValue,
+    );
     const experiments = new AgentOrgExperimentsRepository();
     return experiments.declareAsync({
       proposalId,
@@ -1189,5 +1473,210 @@ describe('C2-A — prepareReservedTreatment revalidates evidenceTarget.ref and .
 
     warnSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  it('returns invalid_binding when the CANDIDATE spec currentValue diverges from the durable systemPrompt despite a canonical ref/hash', async () => {
+    const { config, hash } = profileTargetFingerprint('prepare-content-current', 'real-prepare-prompt');
+
+    const baselineSpec = systemPromptSpec('prepare-content-current', {}, hash, 'real-prepare-prompt');
+    const candidateSpec = {
+      ...systemPromptSpec('prepare-content-current', { candidateValue: 'after' }, hash, 'real-prepare-prompt'),
+      currentValue: 'forged-current-text',
+    };
+
+    const exp = await declareRawExperiment(
+      'prop-prepare-content-current',
+      baselineSpec,
+      candidateSpec,
+      hash,
+      'prepare-content-current',
+    );
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const enrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'candidate',
+    });
+
+    const result = await prepareReservedTreatment(enrollment);
+    expect(result.status).toBe('invalid_binding');
+  });
+
+  /**
+   * C2-B — a reservation is legal at the moment it is made, but the proposal
+   * it depends on is a live, mutable row read fresh on every preparation
+   * (never cached from reservation time). If that row is later corrupted —
+   * wrong kind, wrong targetRef, or a tampered candidate value — preparation
+   * must fail closed even though nothing about the reservation/experiment
+   * itself changed. Verified with an INJECTED fake `proposalsRepo` rather
+   * than mutating the real (trigger-immutable) proposal row, since the
+   * dispatch-safety property under test is "prepareReservedTreatment trusts
+   * whatever its proposalsRepo dependency returns for THIS check", not
+   * "the ledger allows post-hoc proposal edits".
+   */
+  describe('a legal reservation still fails preparation closed if the proposal dependency now returns a corrupted binding', () => {
+    async function setUpLegalReservation(profileId: string) {
+      const { config, hash } = profileTargetFingerprint(profileId);
+      const baselineSpec = systemPromptSpec(profileId, {}, hash);
+      const candidateSpec = systemPromptSpec(profileId, { candidateValue: 'after' }, hash);
+      const exp = await declareRawExperiment(`prop-${profileId}`, baselineSpec, candidateSpec, hash, profileId);
+      const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+      const enrollment = makeEnrollmentFixture({
+        experimentId: exp.id,
+        proposalId: exp.proposalId,
+        profileId: config.id,
+        baselineTargetRevisionHash: hash,
+        treatmentSpecHash,
+        cohort: 'candidate',
+      });
+      return { enrollment, exp };
+    }
+
+    it('sanity: the untouched setup DOES prepare ready (positive control)', async () => {
+      const { enrollment } = await setUpLegalReservation('post-corrupt-control');
+      const result = await prepareReservedTreatment(enrollment);
+      expect(result.status).toBe('ready');
+    });
+
+    it('fails closed when the dependency now returns a WRONG-KIND proposal', async () => {
+      const { enrollment, exp } = await setUpLegalReservation('post-corrupt-kind');
+      const realProposal = await new AgentOrgProposalsRepository().findByIdAsync(exp.proposalId);
+      const fakeProposalsRepo = {
+        findByIdAsync: async () => ({ ...realProposal!, kind: 'refine-recipe' }),
+      } as unknown as AgentOrgProposalsRepository;
+
+      const result = await prepareReservedTreatment(enrollment, { proposalsRepo: fakeProposalsRepo });
+      expect(result.status).toBe('invalid_binding');
+    });
+
+    it('fails closed when the dependency now returns a WRONG-TARGET proposal', async () => {
+      const { enrollment, exp } = await setUpLegalReservation('post-corrupt-target');
+      const realProposal = await new AgentOrgProposalsRepository().findByIdAsync(exp.proposalId);
+      const fakeProposalsRepo = {
+        findByIdAsync: async () => ({ ...realProposal!, targetRef: 'agent_config:some-unrelated-profile' }),
+      } as unknown as AgentOrgProposalsRepository;
+
+      const result = await prepareReservedTreatment(enrollment, { proposalsRepo: fakeProposalsRepo });
+      expect(result.status).toBe('invalid_binding');
+    });
+
+    it('fails closed when the dependency now returns a WRONG-VALUE proposal', async () => {
+      const { enrollment, exp } = await setUpLegalReservation('post-corrupt-value');
+      const realProposal = await new AgentOrgProposalsRepository().findByIdAsync(exp.proposalId);
+      const fakeProposalsRepo = {
+        findByIdAsync: async () => ({
+          ...realProposal!,
+          changeJson: JSON.stringify({
+            configPatch: { agentConfigId: 'post-corrupt-value', field: 'system_prompt', value: 'tampered-after-reservation' },
+          }),
+        }),
+      } as unknown as AgentOrgProposalsRepository;
+
+      const result = await prepareReservedTreatment(enrollment, { proposalsRepo: fakeProposalsRepo });
+      expect(result.status).toBe('invalid_binding');
+    });
+
+    it('fails closed when the dependency now returns a proposal with malformed changeJson', async () => {
+      const { enrollment, exp } = await setUpLegalReservation('post-corrupt-malformed');
+      const realProposal = await new AgentOrgProposalsRepository().findByIdAsync(exp.proposalId);
+      const fakeProposalsRepo = {
+        findByIdAsync: async () => ({ ...realProposal!, changeJson: '{not valid json' }),
+      } as unknown as AgentOrgProposalsRepository;
+
+      const result = await prepareReservedTreatment(enrollment, { proposalsRepo: fakeProposalsRepo });
+      expect(result.status).toBe('invalid_binding');
+    });
+  });
+
+  /**
+   * C2-B — the receipt material a later phase persists must be exact and
+   * hash-only. Proven for BOTH cohorts off the SAME experiment/profile so a
+   * reader can see the two prompts and the two hashes actually differ for a
+   * real (non-no-op) candidate, and that neither raw prompt string leaks into
+   * the receipt-safe material at all.
+   */
+  it('produces exact, hash-consistent receiptMaterial for BOTH cohorts, with distinct prompts/hashes and no raw prompt bytes', async () => {
+    const REAL_PROMPT = 'You are the receipt-material baseline assistant. SECRET-BASELINE-TEXT-91a2';
+    const CANDIDATE_PROMPT = 'You are the receipt-material candidate assistant. SECRET-CANDIDATE-TEXT-77b3';
+    const { config, hash } = profileTargetFingerprint('receipt-material-profile', REAL_PROMPT);
+
+    const baselineSpec = systemPromptSpec(
+      'receipt-material-profile',
+      { priorValue: REAL_PROMPT, currentValue: REAL_PROMPT, candidateValue: REAL_PROMPT },
+      hash,
+    );
+    const candidateSpec = systemPromptSpec(
+      'receipt-material-profile',
+      { priorValue: REAL_PROMPT, currentValue: REAL_PROMPT, candidateValue: CANDIDATE_PROMPT },
+      hash,
+    );
+
+    const exp = await declareRawExperiment(
+      'prop-receipt-material',
+      baselineSpec,
+      candidateSpec,
+      hash,
+      'receipt-material-profile',
+    );
+
+    const treatmentSpecHash = createHash('sha256').update(canonicalizeForHash(candidateSpec)).digest('hex');
+    const baselineEnrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      proposalId: exp.proposalId,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'baseline',
+    });
+    const candidateEnrollment = makeEnrollmentFixture({
+      experimentId: exp.id,
+      proposalId: exp.proposalId,
+      profileId: config.id,
+      baselineTargetRevisionHash: hash,
+      treatmentSpecHash,
+      cohort: 'candidate',
+    });
+
+    const baselineResult = await prepareReservedTreatment(baselineEnrollment);
+    const candidateResult = await prepareReservedTreatment(candidateEnrollment);
+    if (baselineResult.status !== 'ready' || candidateResult.status !== 'ready') {
+      throw new Error('expected both cohorts to prepare ready');
+    }
+
+    // The candidate is a real (non-no-op) change: the two cohorts get
+    // different prompts and therefore different effective-prompt hashes.
+    expect(baselineResult.systemPromptOverride).toBe(REAL_PROMPT);
+    expect(candidateResult.systemPromptOverride).toBe(CANDIDATE_PROMPT);
+    expect(baselineResult.systemPromptOverride).not.toBe(candidateResult.systemPromptOverride);
+    expect(baselineResult.receiptMaterial.effectivePromptHash).not.toBe(
+      candidateResult.receiptMaterial.effectivePromptHash,
+    );
+
+    const expectedTargetRef = toProfileTargetRef('receipt-material-profile');
+    const refreshedProfile = new AgentConfigsRepository().getById('receipt-material-profile')!;
+
+    for (const [result, expectedPrompt] of [
+      [baselineResult, REAL_PROMPT],
+      [candidateResult, CANDIDATE_PROMPT],
+    ] as const) {
+      expect(result.receiptMaterial.profileRevision).toBe(refreshedProfile.revision);
+      expect(result.receiptMaterial.targetRef).toBe(expectedTargetRef);
+      expect(result.receiptMaterial.targetRevisionHash).toBe(hash);
+      expect(result.receiptMaterial.treatmentSpecHash).toBe(treatmentSpecHash);
+      expect(result.receiptMaterial.effectivePromptHash).toBe(
+        createHash('sha256').update(expectedPrompt).digest('hex'),
+      );
+      expect(result.receiptMaterial.effectivePromptHash).toMatch(/^[a-f0-9]{64}$/);
+    }
+
+    // No raw prompt bytes anywhere in the persisted-safe receipt material.
+    const serialized = JSON.stringify([baselineResult.receiptMaterial, candidateResult.receiptMaterial]);
+    expect(serialized).not.toContain(REAL_PROMPT);
+    expect(serialized).not.toContain(CANDIDATE_PROMPT);
+    expect(serialized).not.toContain('SECRET-BASELINE-TEXT-91a2');
+    expect(serialized).not.toContain('SECRET-CANDIDATE-TEXT-77b3');
   });
 });

@@ -47,6 +47,8 @@ const TABLES = [
   'agent_org_experiments',
   // C1-C-B3 — durable pre-dispatch enrollment lifecycle.
   'agent_org_experiment_enrollments',
+  // C2-B — the durable, immutable, sanitized treatment receipt.
+  'agent_org_experiment_treatment_receipts',
   // W5 — the retirement sidecar. Was created lazily at runtime by
   // org_proposal_reconciler.ts, SQLite-only and invisible to this guard, which
   // is exactly the drift this list exists to prevent. Now migrated in both

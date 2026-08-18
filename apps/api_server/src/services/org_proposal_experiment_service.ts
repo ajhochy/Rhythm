@@ -53,6 +53,7 @@ import {
 } from '../models/proposal_evidence_bundle';
 import {
   validateSystemPromptV1Spec,
+  validateStrictRefineConfigChange,
   resolveEffectiveSystemPrompt,
   type SystemPromptV1TreatmentSpec,
 } from '../models/experiment_treatment_adapter';
@@ -61,14 +62,16 @@ import type {
   ExperimentDecision,
   ExperimentResults,
 } from '../models/agent_org_experiment';
+import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { AgentRunOutcome } from '../models/agent_run_outcome';
 import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
 import { AgentOrgExperimentEnrollmentsRepository } from '../repositories/agent_org_experiment_enrollments_repository';
 import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 import { validateEvidenceBundle } from './proposal_evidence_validator';
+import { parseStrictJson } from './strict_json';
 
 export type Cohort = 'baseline' | 'candidate';
 
@@ -169,11 +172,81 @@ function buildHashes(input: {
   };
 }
 
-function findEligibleExperiment(
+/**
+ * C2-B — a reservable/preparable system-prompt-v1 treatment must be backed by
+ * an EXACT strict `refine-config` proposal row, not merely by an experiment
+ * whose baseline/candidate specs happen to validate and whose evidence hash
+ * happens to collide. Checks, in order:
+ *
+ *   1. `kind` is exactly `refine-config`;
+ *   2. `targetRef` is exactly `agent_config:<profileId>`;
+ *   3. `changeJson` parses with {@link parseStrictJson} (duplicate-key
+ *      rejecting) into the exact strict shape {@link validateStrictRefineConfigChange}
+ *      accepts — outer `configPatch` only, inner exactly
+ *      `{ agentConfigId, field, value }`, no smuggled keys anywhere;
+ *   4. the patch's `agentConfigId` is the exact profile and `value` is the
+ *      exact candidate value the treatment spec declares.
+ *
+ * Never throws: any parse/shape/lookup failure is a plain `false`, so a
+ * corrupted or unrelated proposal fails the binding closed rather than
+ * surfacing as an unhandled rejection on a hot path.
+ */
+async function validateProposalTreatmentBinding(
+  proposalsRepo: AgentOrgProposalsRepository,
+  proposalId: string,
+  expectedProfileId: string,
+  expectedCandidateValue: string,
+): Promise<boolean> {
+  let proposal: AgentOrgProposal | null;
+  try {
+    proposal = await proposalsRepo.findByIdAsync(proposalId);
+  } catch {
+    return false;
+  }
+  if (!proposal) return false;
+  if (proposal.kind !== 'refine-config') return false;
+  if (proposal.targetRef !== toProfileTargetRef(expectedProfileId)) return false;
+
+  let parsedChange: unknown;
+  try {
+    parsedChange = parseStrictJson(proposal.changeJson ?? '', 'changeJson');
+  } catch {
+    return false;
+  }
+  const validation = validateStrictRefineConfigChange(parsedChange);
+  if (!validation.valid) return false;
+  if (validation.patch.agentConfigId !== expectedProfileId) return false;
+  if (validation.patch.value !== expectedCandidateValue) return false;
+  return true;
+}
+
+/**
+ * C2-B — bind spec CONTENT to the durable target, not merely its hash: the
+ * baseline cohort's effective prompt (`currentValue`) and the candidate
+ * spec's `priorValue`/`currentValue` must equal the profile's CURRENT durable
+ * `systemPrompt` exactly. This is defense in depth alongside the fingerprint
+ * hash equality already enforced elsewhere — a spec whose declared "current"
+ * text silently diverged from the real row can never bind.
+ */
+function specsBindToDurableSystemPrompt(
+  baselineSpec: SystemPromptV1TreatmentSpec,
+  candidateSpec: SystemPromptV1TreatmentSpec,
+  durableSystemPrompt: string | null,
+): boolean {
+  return (
+    baselineSpec.currentValue === durableSystemPrompt &&
+    candidateSpec.priorValue === durableSystemPrompt &&
+    candidateSpec.currentValue === durableSystemPrompt
+  );
+}
+
+async function findEligibleExperiment(
   experiments: AgentOrgExperiment[],
   profileId: string,
+  targetProfile: RevisionedAgentConfig,
   targetRevisionFingerprint: string,
-): EligibleExperimentMatch | null {
+  proposalsRepo: AgentOrgProposalsRepository,
+): Promise<EligibleExperimentMatch | null> {
   const expectedProfileRef = toProfileTargetRef(profileId);
 
   for (const experiment of experiments) {
@@ -217,6 +290,16 @@ function findEligibleExperiment(
     ) {
       continue;
     }
+    if (!specsBindToDurableSystemPrompt(baselineSpec.spec, candidateSpec.spec, targetProfile.systemPrompt)) {
+      continue;
+    }
+    const boundToProposal = await validateProposalTreatmentBinding(
+      proposalsRepo,
+      experiment.proposalId,
+      profileId,
+      candidateSpec.spec.candidateValue,
+    );
+    if (!boundToProposal) continue;
 
     return {
       experiment,
@@ -329,10 +412,18 @@ export async function reserveRunEnrollment(
   if (!targetProfile) return null;
   const targetRevisionFingerprint = buildProfileRevisionFingerprint(targetProfile);
 
-  // Find an experiment whose evidence target matches this run's profile.
-  // In C1 we filter by profileId; C2 will also require the treatment adapter
-  // to support the experiment's proposal shape.
-  const match = findEligibleExperiment(undecided, profileId, targetRevisionFingerprint);
+  // Find an experiment whose evidence target matches this run's profile and
+  // whose treatment specs are backed by an exact strict refine-config
+  // proposal row (C2-B) — never an unrelated proposal that merely shares a
+  // colliding evidence hash.
+  const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const match = await findEligibleExperiment(
+    undecided,
+    profileId,
+    targetProfile,
+    targetRevisionFingerprint,
+    proposalsRepo,
+  );
   const experiment = match?.experiment;
   if (!experiment) return null;
 
@@ -470,8 +561,18 @@ export async function markRunEnrollmentPreDispatchFailed(
  * Only on 'ready' does the caller learn the effective system prompt — and
  * only for the reservation's OWN cohort, never the other arm's.
  */
+/** Safe (never raw-prompt-bearing) material a later phase needs to finalize a receipt. */
+export interface TreatmentReceiptMaterial {
+  profileRevision: number;
+  targetRef: string;
+  targetRevisionHash: string;
+  treatmentSpecHash: string;
+  /** Bare lowercase 64-hex hash of the exact effective system-prompt override. */
+  effectivePromptHash: string;
+}
+
 export type ReservedTreatmentPreparation =
-  | { status: 'ready'; systemPromptOverride: string }
+  | { status: 'ready'; systemPromptOverride: string; receiptMaterial: TreatmentReceiptMaterial }
   | { status: 'target_drifted' }
   | { status: 'invalid_binding' };
 
@@ -527,10 +628,36 @@ export async function prepareReservedTreatment(
       return { status: 'invalid_binding' };
     }
 
+    // C2-B — content-bind both specs to the durable target text (defense in
+    // depth alongside the fingerprint-hash equality above), and require the
+    // experiment's OWN proposal row to be an exact strict refine-config
+    // binding for this profile/candidate value. A proposal corrupted (wrong
+    // kind/target/shape/value) AFTER a legal reservation fails preparation
+    // closed here — no dispatch can occur under an unbound treatment.
+    if (!specsBindToDurableSystemPrompt(baselineSpec.spec, candidateSpec.spec, profile.systemPrompt)) {
+      return { status: 'invalid_binding' };
+    }
+    const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+    const boundToProposal = await validateProposalTreatmentBinding(
+      proposalsRepo,
+      experiment.proposalId,
+      enrollment.profileId,
+      candidateSpec.spec.candidateValue,
+    );
+    if (!boundToProposal) return { status: 'invalid_binding' };
+
     const boundSpec = enrollment.cohort === 'baseline' ? baselineSpec.spec : candidateSpec.spec;
+    const systemPromptOverride = resolveEffectiveSystemPrompt(boundSpec, enrollment.cohort);
     return {
       status: 'ready',
-      systemPromptOverride: resolveEffectiveSystemPrompt(boundSpec, enrollment.cohort),
+      systemPromptOverride,
+      receiptMaterial: {
+        profileRevision: profile.revision,
+        targetRef: expectedRef,
+        targetRevisionHash: currentFingerprint,
+        treatmentSpecHash: enrollment.treatmentSpecHash,
+        effectivePromptHash: createHash('sha256').update(systemPromptOverride).digest('hex'),
+      },
     };
   } catch {
     // A storage/parser dependency error can carry arbitrary bytes (including

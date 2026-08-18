@@ -144,12 +144,18 @@ function session(id: string): void {
 }
 
 async function seedProposal(): Promise<string> {
+  // C2-B: a reservable/preparable treatment must be backed by an EXACT
+  // strict refine-config proposal row bound to this profile/field/candidate
+  // value, not merely an experiment whose specs happen to validate alone.
   const created = await new AgentOrgProposalsRepository().createAsync({
-    kind: 'refine-recipe',
+    kind: 'refine-config',
     risk: 'low',
     status: 'active',
-    title: 'refine the nightly recipe',
-    targetRef: 'recipe:nightly',
+    title: 'refine the nightly recipe agent prompt',
+    targetRef: PROFILE_TARGET_REF,
+    changeJson: JSON.stringify({
+      configPatch: { agentConfigId: TEST_PROFILE_ID, field: 'system_prompt', value: CANDIDATE_SYSTEM_PROMPT },
+    }),
   });
   return created.id;
 }
