@@ -1,6 +1,7 @@
 class AgentApproval {
   AgentApproval({
     required this.id,
+    this.sessionId,
     required this.action,
     required this.preview,
     required this.consequence,
@@ -12,6 +13,7 @@ class AgentApproval {
 
   factory AgentApproval.fromJson(Map<String, dynamic> json) => AgentApproval(
         id: json['id'] as String,
+        sessionId: json['sessionId'] as String?,
         action: json['action'] as String,
         preview: json['preview'] as String?,
         consequence: json['consequence'] as String?,
@@ -23,6 +25,12 @@ class AgentApproval {
       );
 
   final String id;
+
+  /// Local Rhythm session that originated this request.
+  ///
+  /// Null approvals remain available from the global notification surface,
+  /// but are never composed into an arbitrary open transcript.
+  final String? sessionId;
   final String action;
   final String? preview;
   final String? consequence;

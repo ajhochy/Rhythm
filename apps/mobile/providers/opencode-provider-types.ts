@@ -48,6 +48,7 @@ import type {
   ResponseScope as ProviderResponseScope,
   SessionExecutionState,
 } from '@/providers/opencode-provider-utils';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
 export type AgentOption = ProviderAgentOption;
 export type ChatPreferences = ProviderChatPreferences;
@@ -106,7 +107,7 @@ export type OpencodeProject = {
 };
 
 export type ConnectionState = {
-  status: 'idle' | 'connecting' | 'connected' | 'error';
+  status: GatewayConnectionStatus;
   message: string;
   checkedAt?: number;
   projectDirectory?: string;
@@ -224,7 +225,7 @@ export type OpencodeContextValue = {
   workspaceFileStatuses: File[];
   selectedWorkspaceFile?: { path: string; content: FileContent };
   vcsInfo?: VcsInfo;
-  searchWorkspaceFiles: (query: string) => Promise<void>;
+  searchWorkspaceFiles: (query: string, signal?: AbortSignal) => Promise<string[]>;
   listWorkspaceDirectory: (path: string) => Promise<FileNode[]>;
   searchWorkspaceText: (pattern: string) => Promise<WorkspaceTextMatch[]>;
   searchWorkspaceSymbols: (query: string) => Promise<Symbol[]>;

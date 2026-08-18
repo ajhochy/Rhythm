@@ -13,6 +13,10 @@ import {
   asOpenCodeAgentId,
   asRhythmProfileId,
 } from '../models/agent_session';
+import {
+  appendRelayDelete,
+  appendRelayUpsert,
+} from './relay_outbox_repository';
 
 interface AgentSessionRow {
   id: string;
@@ -32,6 +36,7 @@ interface AgentSessionRow {
   model_id: string | null;
   agent_mode: string | null;
   permission_mode: string | null;
+  approval_bypass_explicit: number;
   thinking_budget: number | null;
   fast_mode: number;
   last_preview: string | null;
@@ -107,6 +112,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     modelId: row.model_id ?? null,
     agentMode: row.agent_mode ?? null,
     permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
+    approvalBypassExplicit: row.approval_bypass_explicit === 1,
     thinkingBudget: row.thinking_budget ?? null,
     fastMode: row.fast_mode === 1,
     lastPreview: row.last_preview,
@@ -133,6 +139,18 @@ function rowToModel(row: AgentSessionRow): AgentSession {
 }
 
 export class AgentSessionsRepository {
+  private mutateAndReplicate(
+    id: string,
+    mutation: (db: ReturnType<typeof getDb>) => number,
+  ): number {
+    const db = getDb();
+    return db.transaction(() => {
+      const changes = mutation(db);
+      if (changes > 0) appendRelayUpsert(db, 'agent_sessions', id);
+      return changes;
+    })();
+  }
+
   private upsertMobileOwnershipForPersistedSession(
     db: ReturnType<typeof getDb>,
     localSessionId: string,
@@ -254,6 +272,7 @@ export class AgentSessionsRepository {
         now,
         existingRow.id,
       );
+      appendRelayUpsert(db, 'agent_sessions', existingRow.id);
       this.upsertMobileOwnershipForPersistedSession(
         db,
         existingRow.id,
@@ -296,6 +315,7 @@ export class AgentSessionsRepository {
       now,
       now,
     );
+    appendRelayUpsert(db, 'agent_sessions', childLocalId);
     this.upsertMobileOwnershipForPersistedSession(
       db,
       childLocalId,
@@ -312,14 +332,15 @@ export class AgentSessionsRepository {
     // (e.g. 'self_improvement' from a curator run); otherwise derive
     // 'scheduled' when a scheduled task drives the run, else 'chat'.
     const category = dto.category ?? (dto.scheduledTaskId ? 'scheduled' : 'chat');
-    getDb()
-      .prepare(
+    const db = getDb();
+    db.transaction(() => {
+      db.prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, owner_user_id, parent_session_id,
-            delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            delegation_depth, category, approval_bypass_explicit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -340,9 +361,12 @@ export class AgentSessionsRepository {
         dto.parentSessionId ?? null,
         dto.delegationDepth ?? 0,
         category,
+        dto.approvalBypassExplicit ? 1 : 0,
         now,
         now,
       );
+      appendRelayUpsert(db, 'agent_sessions', id);
+    })();
     return this.findById(id)!;
   }
 
@@ -469,20 +493,20 @@ export class AgentSessionsRepository {
 
   updateStatus(id: string, status: AgentSessionStatus): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET status = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(status, now, id);
+      .run(status, now, id).changes);
   }
 
   updateToken(id: string, token: string): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET session_token = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(token, now, id);
+      .run(token, now, id).changes);
   }
 
   /**
@@ -498,6 +522,7 @@ export class AgentSessionsRepository {
       db.prepare(
         `UPDATE agent_sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`,
       ).run(sdkSessionId, now, id);
+      appendRelayUpsert(db, 'agent_sessions', id);
       this.upsertMobileOwnershipForPersistedSession(
         db,
         id,
@@ -605,6 +630,7 @@ export class AgentSessionsRepository {
           now,
           existing.id,
         );
+        appendRelayUpsert(db, 'agent_sessions', existing.id);
         return this.findById(existing.id);
       }
 
@@ -630,6 +656,7 @@ export class AgentSessionsRepository {
         now,
         now,
       );
+      appendRelayUpsert(db, 'agent_sessions', id);
       return this.findById(id);
     })();
   }
@@ -643,13 +670,13 @@ export class AgentSessionsRepository {
     worktree: { name: string; path: string; branch: string | null },
   ): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions
            SET worktree_name = ?, worktree_path = ?, worktree_branch = ?, updated_at = ?
          WHERE id = ?`,
       )
-      .run(worktree.name, worktree.path, worktree.branch, now, id);
+      .run(worktree.name, worktree.path, worktree.branch, now, id).changes);
   }
 
   /**
@@ -659,13 +686,13 @@ export class AgentSessionsRepository {
    */
   clearWorktree(id: string): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions
            SET worktree_name = NULL, worktree_path = NULL, worktree_branch = NULL, updated_at = ?
          WHERE id = ?`,
       )
-      .run(now, id);
+      .run(now, id).changes);
   }
 
   /**
@@ -674,11 +701,11 @@ export class AgentSessionsRepository {
    */
   setAnthropicAccountId(id: string, accountId: string | null): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET anthropic_account_id = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(accountId, now, id);
+      .run(accountId, now, id).changes);
   }
 
   /**
@@ -692,20 +719,20 @@ export class AgentSessionsRepository {
    */
   setMcpScope(id: string, mcpRole: string | null, mcpAllowedToolsJson: string | null): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET mcp_role = ?, mcp_allowed_tools_json = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(mcpRole, mcpAllowedToolsJson, now, id);
+      .run(mcpRole, mcpAllowedToolsJson, now, id).changes);
   }
 
   updatePreview(id: string, preview: string, lastActivityAt: string): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET last_preview = ?, last_activity_at = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(preview, lastActivityAt, now, id);
+      .run(preview, lastActivityAt, now, id).changes);
   }
 
   markClosed(id: string): void {
@@ -724,14 +751,14 @@ export class AgentSessionsRepository {
   backfillModel(id: string, providerId: string, modelId: string): AgentSession | null {
     if (!providerId || !modelId) return null;
     const now = new Date().toISOString();
-    const result = getDb()
+    const changes = this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions
            SET provider_id = ?, model_id = ?, updated_at = ?
          WHERE id = ? AND (provider_id IS NULL OR provider_id = '')`,
       )
-      .run(providerId, modelId, now, id);
-    return result.changes > 0 ? this.findById(id) : null;
+      .run(providerId, modelId, now, id).changes);
+    return changes > 0 ? this.findById(id) : null;
   }
 
   /**
@@ -741,11 +768,11 @@ export class AgentSessionsRepository {
    */
   setErrorStatus(id: string, message: string): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET status = 'error', status_message = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(message, now, id);
+      .run(message, now, id).changes);
   }
 
   /**
@@ -755,11 +782,11 @@ export class AgentSessionsRepository {
    */
   clearErrorStatus(id: string): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET status = 'working', status_message = NULL, updated_at = ? WHERE id = ? AND status = 'error'`,
       )
-      .run(now, id);
+      .run(now, id).changes);
   }
 
   /** Hard-delete a single session row. Foreign-key cascade removes messages. */
@@ -793,27 +820,29 @@ export class AgentSessionsRepository {
           session.project_id,
         );
       }
-      return db.prepare(`DELETE FROM agent_sessions WHERE id = ?`).run(id).changes;
+      const changes = db.prepare(`DELETE FROM agent_sessions WHERE id = ?`).run(id).changes;
+      if (changes > 0) appendRelayDelete('agent_sessions', id);
+      return changes;
     })();
   }
 
   /** #602 — update agent_kind for agent-less sessions on first model pick. */
   updateAgentKind(id: string, agentKind: string): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET agent_kind = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(agentKind, now, id);
+      .run(agentKind, now, id).changes);
   }
 
   updatePermissionMode(id: string, mode: PermissionMode): void {
     const now = new Date().toISOString();
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET permission_mode = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(mode, now, id);
+      .run(mode, now, id).changes);
   }
 
   updateFields(
@@ -826,6 +855,7 @@ export class AgentSessionsRepository {
       modelId?: string | null;
       agentMode?: string | null;
       permissionMode?: PermissionMode;
+      approvalBypassExplicit?: boolean;
       thinkingBudget?: number | null;
       fastMode?: boolean;
     },
@@ -860,6 +890,10 @@ export class AgentSessionsRepository {
       sets.push('permission_mode = ?');
       values.push(fields.permissionMode);
     }
+    if (fields.approvalBypassExplicit !== undefined) {
+      sets.push('approval_bypass_explicit = ?');
+      values.push(fields.approvalBypassExplicit ? 1 : 0);
+    }
     if (fields.thinkingBudget !== undefined) {
       sets.push('thinking_budget = ?');
       values.push(fields.thinkingBudget);
@@ -872,20 +906,20 @@ export class AgentSessionsRepository {
     sets.push('updated_at = ?');
     values.push(new Date().toISOString());
     values.push(id);
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(`UPDATE agent_sessions SET ${sets.join(', ')} WHERE id = ?`)
-      .run(...values);
+      .run(...values).changes);
   }
 
   /** Set or clear archived_at. Returns the updated row or null if not found. */
   setArchived(id: string, archived: boolean): AgentSession | null {
     const now = new Date().toISOString();
     const archivedAt = archived ? now : null;
-    getDb()
+    this.mutateAndReplicate(id, (db) => db
       .prepare(
         `UPDATE agent_sessions SET archived_at = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(archivedAt, now, id);
+      .run(archivedAt, now, id).changes);
     return this.findById(id);
   }
 
@@ -968,10 +1002,17 @@ export class AgentSessionsRepository {
   }
 
   deleteOlderThan(cutoffIso: string): number {
-    const result = getDb()
-      .prepare(`DELETE FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)
-      .run(cutoffIso);
-    return result.changes;
+    const db = getDb();
+    return db.transaction(() => {
+      const rows = db
+        .prepare(`SELECT id FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)
+        .all(cutoffIso) as Array<{ id: string }>;
+      const changes = db
+        .prepare(`DELETE FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)
+        .run(cutoffIso).changes;
+      for (const row of rows) appendRelayDelete('agent_sessions', row.id);
+      return changes;
+    })();
   }
 
   /**
@@ -1006,14 +1047,20 @@ export class AgentSessionsRepository {
     // This runs boot-only (startAgentSchedulerJob), when nothing is genuinely
     // in-flight, so both 'running' and 'starting' orphans are safe to recover.
     const now = new Date().toISOString();
-    const result = getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const rows = db
+        .prepare(`SELECT id FROM agent_sessions WHERE status IN ('running', 'starting')`)
+        .all() as Array<{ id: string }>;
+      const changes = db.prepare(
         `UPDATE agent_sessions
          SET status = 'error', status_message = ?, updated_at = ?
          WHERE status IN ('running', 'starting')`,
       )
-      .run(message, now);
-    return result.changes;
+        .run(message, now).changes;
+      for (const row of rows) appendRelayUpsert(db, 'agent_sessions', row.id);
+      return changes;
+    })();
   }
 
   /**
@@ -1031,13 +1078,20 @@ export class AgentSessionsRepository {
   ): number {
     const now = Date.now();
     const cutoff = new Date(now - maxAgeMs).toISOString();
-    const result = getDb()
-      .prepare(
+    const db = getDb();
+    return db.transaction(() => {
+      const rows = db.prepare(
+        `SELECT id FROM agent_sessions
+         WHERE status IN ('running', 'starting') AND updated_at < ?`,
+      ).all(cutoff) as Array<{ id: string }>;
+      const changes = db.prepare(
         `UPDATE agent_sessions
          SET status = 'error', status_message = ?, updated_at = ?
          WHERE status IN ('running', 'starting') AND updated_at < ?`,
       )
-      .run(message, new Date(now).toISOString(), cutoff);
-    return result.changes;
+        .run(message, new Date(now).toISOString(), cutoff).changes;
+      for (const row of rows) appendRelayUpsert(db, 'agent_sessions', row.id);
+      return changes;
+    })();
   }
 }

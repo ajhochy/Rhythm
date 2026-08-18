@@ -1,0 +1,72 @@
+{
+  "issue": 0,
+  "generated": "2026-08-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-0-c1",
+      "text": "c1 live launch health proves API 4001 and engine 4096 are connected through the same-origin bridge;",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c1: live bridge reports real API and engine health",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c2",
+      "text": "c2 live session rail renders actual GET /agent-sessions data and visibly identifies Live mode;",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c2: live sessions are exposed with an unmistakable environment receipt",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c3",
+      "text": "c3 selecting a real session loads its real detail/transcript/todos/diff via exact routes;",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c3: selected live session hydration uses exact detail routes",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c4",
+      "text": "c4 WebSocket connection reflects real connection state and updates the UI on a real event;",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c4: same-origin WebSocket bridge exposes the real agents gateway",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c5",
+      "text": "c5 a smoke-prefixed session can be created, renamed, prompted, canceled if needed, and archived with observable server outcomes;",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c5: live smoke lifecycle is constrained to smoke-prefixed recoverable records",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c6",
+      "text": "c6 all existing Agents and Tool controls use real endpoint adapters in Live mode, with fixture mode remaining deterministic;",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c6: live control adapter manifest covers every exact endpoint while fixtures remain explicit",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c7",
+      "text": "c7 network failures never mutate fixture state or pretend success;",
+      "mode": "unit",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c7: failed live requests return truthful errors without fixture fallback",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-0-c8",
+      "text": "c8 the complete existing 58-test web suite remains green and Electron remains absent.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-0-live-mode.spec.ts",
+      "test_id": "issue-0-c8: web suite baseline remains 58 and the project is web-only",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

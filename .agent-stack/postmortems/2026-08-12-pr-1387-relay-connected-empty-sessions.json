@@ -1,0 +1,79 @@
+{
+  "run_id": "2026-08-12-pr-1387-relay-device-smoke",
+  "issue": 1387,
+  "date": "2026-08-12",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "relay-t3-existing-pairing-adoption",
+      "text": "An already-paired phone adopts the configured relay without re-pairing and uses the relay as its effective gateway base.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The physical iPhone retained its existing pairing and Settings displayed: Connected securely to your Mac through the relay. No QR or re-pair flow appeared."
+    },
+    {
+      "criterion_id": "relay-t5-real-phone-session-list",
+      "text": "The phone browses the session list and full transcripts through the relay, including from the replicated mirror when the Mac is unavailable.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "On the physical iPhone, Settings claimed the relay was connected, but Agents showed Chats (0), No chats yet, Reconnect to your paired Mac to load chats, and New chat remained disabled. User report: my guy, it is not loading sessions or anything, it may say its connected, but it aint"
+    },
+    {
+      "criterion_id": "issue-1387-c8",
+      "text": "A routine relay event-stream reconnect during a mobile send does not trigger an immediate paired-host reachability downgrade; the independent bounded health probe remains authoritative.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Physical iPhone reproduction at 2026-08-13T00:22:59Z: prompt and exact assistant reply arrived through the relay, then the open chat was replaced about 10-15 seconds later by 'Rhythm Cloud Gateway cannot reach your Mac' and recovered about five seconds later. The independent 5-second health loop has a 4-second cutoff and its transient failure changes paired-host state, which the chat provider includes in its connection-target identity and therefore treats as a full reconnect."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "ci-red-signal-dismissed",
+      "description": "The existing Mobile CI failure showed Create chat remaining disabled after reachability returned online, but it was initially described as unrelated instead of being treated as a possible preview of the device failure.",
+      "detected_by": "GitHub Actions run 31643892687, issue-1237-c1 failure, compared with the physical iPhone's disabled New chat action."
+    },
+    {
+      "process_category": "premature-release-gating",
+      "description": "PR-level checks were started after one successful send before repeated physical-device reliability and the broader relay-dependent mobile matrix had run.",
+      "detected_by": "User stopped the PR checks after a subsequent send reproduced a disconnect/reconnect and asked for thorough app-wide relay testing first."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/lib/pairing/paired-host-store.ts",
+    "apps/mobile/providers/paired-host-provider.tsx",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/lib/opencode/client.ts",
+    "apps/mobile/tests/paired-host.test.mjs",
+    "apps/mobile/tests/relay-transport-contract.test.ts",
+    "apps/api_server/src/routes/relay_gateway_routes.ts",
+    "apps/api_server/src/services/relay_uplink_client.ts",
+    "apps/api_server/src/services/relay_uplink_server.ts",
+    "apps/api_server/src/services/mobile_mirror_reads.ts",
+    "apps/api_server/src/__tests__/relay_mirror_reads_contract.test.ts"
+  ],
+  "failure_output": "Physical iPhone: initial relay catalog was empty. After catalog fixes, a prompt and reply succeeded, then the app replaced the open chat with 'Rhythm Cloud Gateway cannot reach your Mac' about 10-15 seconds after send and recovered about five seconds later. User: it disconnected, then reconnected, and showed my message, shortly after, the response came.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Add a client-inclusive repeated-send relay contract that overlaps health polling with prompt refreshes and asserts the open chat and connected state never reset on one transient probe failure."
+}

@@ -45,6 +45,9 @@ describe('issue-1171: dedicated mobile gateway listener', () => {
     router.get('/agent-activity', (_req, res) => {
       res.json({ items: [], nextCursor: null });
     });
+    router.get('/chat-catalog', (_req, res) => {
+      res.json([{ id: 'session-1' }]);
+    });
     router.get('/events', (_req, res) => res.json({ stream: 'global' }));
     router.get('/sessions/:id/events', (req, res) => {
       res.json({ stream: req.params.id });
@@ -78,6 +81,7 @@ describe('issue-1171: dedicated mobile gateway listener', () => {
         ['POST', '/mobile-gateway/project', 200],
         ['GET', '/mobile-gateway/projects', 200],
         ['GET', '/mobile-gateway/agent-activity?source=research', 200],
+        ['GET', '/mobile-gateway/chat-catalog?limit=10', 200],
         ['GET', '/mobile-gateway/events', 200],
         ['GET', '/mobile-gateway/sessions/session-1/events', 200],
         ['GET', '/mobile-gateway/opencode/session', 200],

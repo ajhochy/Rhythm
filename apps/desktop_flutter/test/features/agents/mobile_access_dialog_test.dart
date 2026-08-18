@@ -105,6 +105,37 @@ Future<void> disposeDialog(WidgetTester tester) async {
 }
 
 void main() {
+  // Relay-first pairing (docs/ai/plan-synology-relay.md): the QR carries
+  // relayUrl when the server advertises one, so the phone pairs over the relay
+  // rather than Tailscale; it is omitted otherwise.
+  test('qrPayload includes relayUrl when present', () {
+    final payload = jsonDecode(
+      MobilePairingCode(
+        id: 'c',
+        hostId: 'h',
+        code: repeated('b'),
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+        gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+        relayUrl: 'https://api.vcrcapps.com/relay',
+      ).qrPayload,
+    ) as Map<String, dynamic>;
+    expect(payload.keys.toSet(), {'gatewayUrl', 'pairingCode', 'relayUrl'});
+    expect(payload['relayUrl'], 'https://api.vcrcapps.com/relay');
+  });
+
+  test('qrPayload omits relayUrl when absent', () {
+    final payload = jsonDecode(
+      MobilePairingCode(
+        id: 'c',
+        hostId: 'h',
+        code: repeated('b'),
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+        gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+      ).qrPayload,
+    ) as Map<String, dynamic>;
+    expect(payload.containsKey('relayUrl'), isFalse);
+  });
+
   test(
     'mobile access admin requests include the Keychain capability',
     () async {
@@ -140,14 +171,30 @@ void main() {
     },
   );
 
-  group('issue-1171-c1: desktop Tailscale diagnostics', () {
-    final cases = <(TailscaleAccessState, String)>[
-      (TailscaleAccessState.missing, 'Tailscale not installed'),
-      (TailscaleAccessState.loggedOut, 'Tailscale sign-in required'),
-      (TailscaleAccessState.wrongTarget, 'Rhythm access not configured'),
-      (TailscaleAccessState.healthy, 'Private connection ready'),
+  group('issue-1387-c10: desktop Cloud Gateway diagnostics', () {
+    final cases = <(TailscaleAccessState, String, String)>[
+      (
+        TailscaleAccessState.missing,
+        'Cloud Gateway setup required',
+        'Cloud Gateway setup is unavailable on this Mac.',
+      ),
+      (
+        TailscaleAccessState.loggedOut,
+        'Cloud Gateway sign-in required',
+        'Sign in on this Mac to finish Cloud Gateway setup.',
+      ),
+      (
+        TailscaleAccessState.wrongTarget,
+        'Cloud Gateway setup required',
+        'Enable the Cloud Gateway to connect this Mac.',
+      ),
+      (
+        TailscaleAccessState.healthy,
+        'Cloud Gateway ready',
+        'Your Mac is ready to pair with Rhythm Agents.',
+      ),
     ];
-    for (final (state, label) in cases) {
+    for (final (state, label, detail) in cases) {
       testWidgets('renders actionable ${state.name}', (tester) async {
         final dataSource = _FakeMobileAccessDataSource(
           status: MobileAccessStatus(
@@ -156,23 +203,33 @@ void main() {
                     state == TailscaleAccessState.loggedOut
                 ? null
                 : 'https://rhythm-mac.tail1234.ts.net',
-            message: 'diagnostic-${state.name}',
+            message: 'Tailscale diagnostic for ${state.name}',
             canConfigure: state == TailscaleAccessState.wrongTarget,
           ),
         );
         await tester.pumpWidget(wrap(dataSource));
         await settleInitial(tester);
         expect(
-          find.byKey(Key('tailscale-status-${state.name}')),
+          find.byKey(Key('cloud-gateway-status-${state.name}')),
           findsOneWidget,
         );
         expect(find.text(label), findsOneWidget);
-        expect(find.text('diagnostic-${state.name}'), findsOneWidget);
+        expect(find.text(detail), findsOneWidget);
+        final visibleText = tester
+            .widgetList<Text>(find.byType(Text))
+            .map((widget) => widget.data ?? '')
+            .join(' ')
+            .toLowerCase();
+        expect(visibleText, isNot(contains('tailscale')));
+        expect(visibleText, isNot(contains('.ts.net')));
         if (state == TailscaleAccessState.wrongTarget) {
           expect(
-            find.byKey(const Key('configure-tailscale-serve')),
+            find.byKey(const Key('configure-cloud-gateway')),
             findsOneWidget,
           );
+        } else if (state != TailscaleAccessState.healthy) {
+          expect(
+              find.byTooltip('Refresh Cloud Gateway status'), findsOneWidget);
         }
         await disposeDialog(tester);
       });
@@ -193,10 +250,10 @@ void main() {
       );
       await tester.pumpWidget(wrap(dataSource));
       await settleInitial(tester);
-      await tester.tap(find.byKey(const Key('configure-tailscale-serve')));
+      await tester.tap(find.byKey(const Key('configure-cloud-gateway')));
       await tester.pump();
       await tester.pump();
-      expect(find.text('Private connection ready'), findsOneWidget);
+      expect(find.text('Cloud Gateway ready'), findsOneWidget);
       expect(find.byKey(const Key('mobile-pairing-code-card')), findsOneWidget);
       expect(dataSource.generated, 1);
       await disposeDialog(tester);

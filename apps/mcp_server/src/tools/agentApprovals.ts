@@ -15,7 +15,7 @@ export function registerAgentApprovalTools(
   registerTool(
     server,
     "rhythm_request_approval",
-    "Request human approval before taking an irreversible or consequential action. After external content was read, security_action and security_payload are REQUIRED and must exactly match the eventual protected mutation. Security-bound requests never auto-approve. If status is pending, stop until a human approves it.",
+    "Request human approval before taking an irreversible or consequential action. After external content was read, security_action and security_payload are REQUIRED and must exactly match the eventual protected mutation. An interactive session explicitly set to Bypass Permissions proceeds without a Rhythm approval; default interactive sessions remain gated. If status is pending, stop until a human approves it.",
     {
       action: z
         .string()
@@ -121,16 +121,23 @@ export function registerAgentApprovalTools(
             `Rhythm agent server returned ${res.status}: ${String(err.error ?? res.statusText)}`,
           );
         }
-        const data = (await res.json()) as { id: string; status: string };
+        const data = (await res.json()) as {
+          id?: string;
+          status: string;
+          reason?: string;
+        };
         if (data.status === "not_required") {
-          // The session has consumed no external content, so the outbound gate
-          // will allow this action without a token. Be unambiguous that the
-          // agent should carry on — the previous behavior here was a 409 that
-          // read as a refusal and caused agents to abandon the work entirely.
+          // The outbound gate will allow this action without a token either
+          // because the session is clean or because its interactive root has
+          // an explicit bypass marker. Keep the reason accurate and tell the
+          // agent to carry on rather than treating not_required as a refusal.
+          const reason =
+            data.reason === "permission_mode_bypass"
+              ? "this interactive session is in Bypass Permissions mode"
+              : "this session has not consumed external content";
           return toolResult(
-            "No approval is required for this action — this session has not " +
-              "consumed external content. Proceed with the action now, and do " +
-              "NOT pass an approval_id.",
+            `No approval is required for this action — ${reason}. Proceed ` +
+              "with the action now, and do NOT pass an approval_id.",
           );
         }
         if (data.status === "approved") {

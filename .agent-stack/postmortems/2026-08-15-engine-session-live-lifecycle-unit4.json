@@ -1,0 +1,100 @@
+{
+  "run_id": "2026-08-15-engine-session-live-lifecycle-unit4",
+  "issue": 0,
+  "date": "2026-08-15",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "engine-session-live-lifecycle-c4",
+      "text": "advanced React form creates nonce session with real profile + worktree cwd; visible rail local ID equals POST 201 local ID; response SDK ID exists and is distinct.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "All unchanged c4 assertions passed after the measured response observation window was raised from 60s to 90s."
+    },
+    {
+      "criterion_id": "engine-session-live-lifecycle-c5",
+      "text": "reuse Slice 0 deterministic lmstudio / qwen/qwen3-coder-30b loopback provider; provider receives nonce prompt through real API+engine; no fixtures/replay or ports 4001/4096.",
+      "contract_status": "fail",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "The real UI reached c5, but the deterministic provider received zero requests within the unchanged five-second poll."
+    },
+    {
+      "criterion_id": "engine-session-live-lifecycle-c6",
+      "text": "transcript shows first delayed nonce fragment WHILE session working/cancel visible, then full output only after session.status working:false. Enqueue or final-only reload cannot pass.",
+      "contract_status": "fail",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Not reached because c5 failed."
+    },
+    {
+      "criterion_id": "engine-session-live-lifecycle-c7",
+      "text": "after page.reload + observed fresh detail read, same local session and full assistant text reappear from persisted agent_session_messages, not old WS state.",
+      "contract_status": "fail",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Not reached because c5 failed."
+    },
+    {
+      "criterion_id": "engine-session-live-lifecycle-c8",
+      "text": "Delete permanently observes DELETE /agent-sessions/:localId/hard → 204; rail absence persists after reload; local lookup 404; SDK engine lookup 404.",
+      "contract_status": "fail",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Not reached because c5 failed."
+    },
+    {
+      "criterion_id": "engine-session-live-lifecycle-c9",
+      "text": "finally restores exact engine config/profile model fields, closes provider/Vite/WS, leaves zero nonce-owned disposable users/auth sessions/agent sessions/messages/tasks/artifacts/files/listeners on pass or failure.",
+      "contract_status": "fail",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "In-contract cleanup reported zero rows/listeners but files=1; exact manual cleanup subsequently removed the disposable worktree and branch."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "async-stage-latency",
+      "description": "The lifecycle-context worktree stage took 61.151s, exceeding a 60s response observer even though exact curl and mounted-browser controls completed in 2.998s and 1.581s.",
+      "detected_by": "Playwright request timestamp 07:51:10.210Z compared with the controller's post-worktree session insertion at 07:52:11.361Z."
+    },
+    {
+      "process_category": "cleanup-coverage",
+      "description": "Cleanup could delete the session row without removing a worktree whose response path had not been captured or whose later criterion failed.",
+      "detected_by": "c9 files=1 plus git worktree list showing opencode/smoke-f9667006 after repair loop 2."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/web/tests/sessions/session-live-lifecycle.live.spec.ts",
+    "docs/ai/contracts/engine-session-live-lifecycle.json",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-08-14-engine-session-live-lifecycle.md",
+    ".agent-stack/failure-patterns.md",
+    ".agent-stack/postmortems/2026-08-15-engine-session-live-lifecycle-unit4.json"
+  ],
+  "failure_output": "c5 provider must receive one real engine request; Expected: 1; Received: 0. c9 cleanup counts={users:0,authSessions:0,agentSessions:0,messages:0,tasks:0,artifacts:0,files:1,listeners:0}. 1 failed.",
+  "overall_category": "C3",
+  "suggested_follow_up": "In a separately authorized unit, trace the c5 WebSocket prompt from renderer frame through API bridge to engine/provider and make cleanup remove the captured smoke worktree after any post-c4 failure."
+}

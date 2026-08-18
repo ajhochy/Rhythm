@@ -33,8 +33,10 @@ export interface RhythmCloudClientOptions {
 
 /** Options accepted by `PairedMacClient`. */
 export interface PairedMacClientOptions {
-  /** Tailscale HTTPS gateway URL for the paired Mac, e.g. `https://mac.tailnet.ts.net`. */
+  /** Preferred HTTP base URL. May be the path-bearing Synology relay URL. */
   baseUrl: string;
+  /** Direct Tailscale origin used for transports the relay does not support. */
+  directBaseUrl?: string;
   /**
    * Async provider for the current device token.
    * The value returned here is placed in `Authorization: Device <token>`.

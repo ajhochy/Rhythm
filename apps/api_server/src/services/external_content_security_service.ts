@@ -313,6 +313,46 @@ function requireKnownSession(context: TrustedSecurityContext) {
   return session;
 }
 
+const MAX_APPROVAL_BYPASS_ANCESTRY = 32;
+
+/**
+ * Resolve the human's explicit permission choice from the interactive root.
+ *
+ * Delegated children are routinely stamped `bypassPermissions` by the engine,
+ * so their operational mode is never authorization. The durable marker stays
+ * root-owned and is valid only when every row in the bounded lineage remains
+ * interactive. Missing parents, cycles, system sessions, and scheduled runs
+ * all fail closed.
+ */
+function hasExplicitInteractiveApprovalBypass(
+  session: ReturnType<AgentSessionsRepository['findById']> extends infer T
+    ? NonNullable<T>
+    : never,
+): boolean {
+  const seen = new Set<string>();
+  let current = session;
+
+  for (let depth = 0; depth < MAX_APPROVAL_BYPASS_ANCESTRY; depth += 1) {
+    if (seen.has(current.id) || current.isSystem || current.scheduledTaskId) {
+      return false;
+    }
+    seen.add(current.id);
+
+    if (!current.parentSessionId) {
+      return (
+        current.permissionMode === 'bypassPermissions' &&
+        current.approvalBypassExplicit === true
+      );
+    }
+
+    const parent = sessions.findById(current.parentSessionId);
+    if (!parent) return false;
+    current = parent;
+  }
+
+  return false;
+}
+
 function safeDiagnostics(input: unknown): Array<{ patternId: string; class: string }> {
   if (!Array.isArray(input)) return [];
   return input.flatMap((item) => {
@@ -331,6 +371,12 @@ function safeDiagnostics(input: unknown): Array<{ patternId: string; class: stri
 }
 
 export class ExternalContentSecurityService {
+  hasExplicitInteractiveApprovalBypass(
+    context: TrustedSecurityContext,
+  ): boolean {
+    return hasExplicitInteractiveApprovalBypass(requireKnownSession(context));
+  }
+
   markTainted(input: {
     context: TrustedSecurityContext;
     source: string;
@@ -429,6 +475,14 @@ export class ExternalContentSecurityService {
     if (!taint) {
       return null;
     }
+    if (hasExplicitInteractiveApprovalBypass(session)) {
+      logger.warn(
+        `[ExternalContentSecurity] skipped approval request for ${action} because ` +
+          `interactive root session explicitly selected bypassPermissions ` +
+          `(session=${session.id}, taintSource=${taint.source})`,
+      );
+      return null;
+    }
 
     const canonicalPayload = canonicalJson(payload);
     return {
@@ -464,6 +518,14 @@ export class ExternalContentSecurityService {
       return { allowed: true, consumed: false };
     }
     if (!input.approvalId) {
+      if (hasExplicitInteractiveApprovalBypass(session)) {
+        logger.warn(
+          `[ExternalContentSecurity] allowed ${input.action} without an approval ` +
+            `token because the interactive root explicitly selected ` +
+            `bypassPermissions (session=${session.id}, taintSource=${taint.source})`,
+        );
+        return { allowed: true, consumed: false };
+      }
       // An unattended scheduled run has no human to produce an approval token.
       // If the bound profile is explicitly marked auto-approve, authorize here
       // and leave a full audit row behind. Returns null for every other shape,

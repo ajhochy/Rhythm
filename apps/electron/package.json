@@ -1,0 +1,20 @@
+{
+  "name": "rhythm-electron-shell",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "package:mac": "node scripts/package-mac.mjs",
+    "sign:mac": "node scripts/sign-and-notarize-mac.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "smoke": "electron . --smoke",
+    "smoke:missing-dist": "electron . --smoke --missing-dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.0",
+    "typescript": "^5.7.2"
+  }
+}

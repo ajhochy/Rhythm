@@ -16,9 +16,20 @@ export interface ToolTransport {
     path: string,
     init: ToolRequestInit,
   ): Promise<T>;
+  resourceConnection?(
+    path: string,
+    init: { headers?: Record<string, string> },
+  ): Promise<{ url: string; headers: Record<string, string> }>;
+}
+
+export interface GalleryArtifactSource {
+  kind: 'image' | 'video';
+  uri: string;
+  headers: Record<string, string>;
 }
 
 const TOOLS_CACHE_PREFIX = 'rhythm.tools.read-cache.v1';
+const OPTIONAL_PROVIDER_AUTH_TIMEOUT_MS = 2_000;
 
 export interface ToolsCacheScopeInput {
   accountUserId: string | number | null;
@@ -783,7 +794,12 @@ export class RhythmToolsService {
       case 'models': {
         const [providers, auth, config] = await Promise.all([
           this.listProviders(),
-          this.listProviderAuth(),
+          Promise.race([
+            this.listProviderAuth().catch(() => undefined),
+            new Promise<undefined>((resolve) => {
+              setTimeout(resolve, OPTIONAL_PROVIDER_AUTH_TIMEOUT_MS);
+            }),
+          ]),
           this.getConfig(),
         ]);
         response = { providers, auth, config };
@@ -1026,6 +1042,54 @@ export class RhythmToolsService {
     return this.pairedRequest(
       `/mobile-gateway/tools/agent-designs/${encodeURIComponent(id)}`,
     );
+  }
+
+  async getGalleryArtifactSource(
+    item: ToolRecord,
+  ): Promise<GalleryArtifactSource | null> {
+    const artifactType = String(item.artifactType ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/^\./, '');
+    const kind = new Set(['mp4', 'mov', 'm4v', 'webm']).has(artifactType)
+      ? 'video'
+      : new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']).has(artifactType)
+        ? 'image'
+        : null;
+    if (!kind) return null;
+
+    const artifactUrl =
+      typeof item.artifactUrl === 'string' ? item.artifactUrl.trim() : '';
+    if (artifactUrl) {
+      try {
+        const external = new URL(artifactUrl);
+        if (
+          external.protocol === 'https:' &&
+          !external.hostname.toLowerCase().endsWith('.ts.net')
+        ) {
+          return { kind, uri: external.toString(), headers: {} };
+        }
+      } catch {
+        // Relative media-store locators are resolved through the relay below.
+      }
+    }
+
+    if (!this.projectId || !this.paired.resourceConnection) {
+      throw new Error('Artifact unavailable');
+    }
+    const mediaArtifact = artifactUrl.match(/^\/artifacts\/([A-Za-z0-9_-]+)$/);
+    const path = mediaArtifact
+      ? `/mobile-gateway/artifacts/${encodeURIComponent(mediaArtifact[1]!)}`
+      : `/mobile-gateway/tools/agent-designs/${encodeURIComponent(item.id)}/artifact`;
+    const scoped = withProjectScope<ToolRequestInit>(
+      this.projectId,
+      { method: 'GET' },
+      this.abortController.signal,
+    );
+    const connection = await this.paired.resourceConnection(path, {
+      headers: scoped.headers,
+    });
+    return { kind, uri: connection.url, headers: connection.headers };
   }
 
   listSkills(): Promise<unknown> {

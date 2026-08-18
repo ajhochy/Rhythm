@@ -57,7 +57,7 @@ const DEFAULT_COPY: Record<
   },
   'network-failure': {
     title: 'Mac unreachable',
-    message: 'Check this iPhone’s network and Tailscale connection, then try again.',
+    message: 'Check this iPhone’s network and Rhythm Cloud Gateway connection, then try again.',
   },
   'expired-auth': {
     title: 'Sign in again',

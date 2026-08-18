@@ -1,4 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
+import { ResizeMode, Video } from 'expo-av';
+import { Image } from 'expo-image';
 import * as WebBrowser from 'expo-web-browser';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -37,6 +39,7 @@ import {
 } from '@/providers/rhythm-tools-provider';
 import {
   TOOL_SCREEN_MANIFEST,
+  type GalleryArtifactSource,
   type ToolRecord,
   type ToolScreenId,
 } from '@/providers/services/rhythm-tools-service';
@@ -85,6 +88,19 @@ function recordSubtitle(tool: ToolScreenId, item: ToolRecord): string {
       item.updatedAt ??
       '',
   );
+}
+
+function safeGalleryLink(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' &&
+      !url.hostname.toLowerCase().endsWith('.ts.net')
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function confirmAction(title: string, message: string): Promise<boolean> {
@@ -199,7 +215,8 @@ export default function RhythmToolScreen() {
     (entry) => entry.id === params.tool,
   );
   const tool = manifest?.id;
-  const { getState, perform, refresh } = useRhythmTools();
+  const { getGalleryArtifactSource, getState, perform, refresh } =
+    useRhythmTools();
   const {
     chatPreferences,
     completeMcpOAuth,
@@ -230,6 +247,11 @@ export default function RhythmToolScreen() {
   const [oauthCode, setOauthCode] = useState('');
   const [oauthName, setOauthName] = useState('');
   const [providerMethodIndex, setProviderMethodIndex] = useState(0);
+  const [galleryPreview, setGalleryPreview] = useState<{
+    item: ToolRecord;
+    source: GalleryArtifactSource | null;
+    status: 'loading' | 'ready' | 'unavailable';
+  } | null>(null);
 
   useEffect(() => {
     if (tool) void refresh(tool);
@@ -595,6 +617,36 @@ export default function RhythmToolScreen() {
     }
   };
 
+  const openGalleryArtifact = async (item: ToolRecord) => {
+    setGalleryPreview({ item, source: null, status: 'loading' });
+    try {
+      const source = await getGalleryArtifactSource(item);
+      setGalleryPreview((current) =>
+        current?.item.id === item.id
+          ? {
+              item,
+              source,
+              status: source ? 'ready' : 'unavailable',
+            }
+          : current,
+      );
+    } catch {
+      setGalleryPreview((current) =>
+        current?.item.id === item.id
+          ? { item, source: null, status: 'unavailable' }
+          : current,
+      );
+    }
+  };
+
+  const markGalleryArtifactUnavailable = () => {
+    setGalleryPreview((current) =>
+      current
+        ? { ...current, source: null, status: 'unavailable' }
+        : current,
+    );
+  };
+
   const renderActions = (item: ToolRecord) => {
     const title = recordTitle(tool, item);
     switch (tool) {
@@ -929,6 +981,7 @@ export default function RhythmToolScreen() {
             'profiles',
             'cookbook',
             'review',
+            'gallery',
           ].includes(tool)
             ? 'button'
             : undefined
@@ -938,6 +991,8 @@ export default function RhythmToolScreen() {
         onPress={
           tool === 'profiles'
             ? () => openProfile(item)
+            : tool === 'gallery'
+              ? () => void openGalleryArtifact(item)
             : [
                 'brain',
                 'research',
@@ -1328,6 +1383,72 @@ export default function RhythmToolScreen() {
         )}
       </ScrollView>
       <Portal>
+        <Dialog
+          onDismiss={() => setGalleryPreview(null)}
+          visible={galleryPreview !== null}>
+          <Dialog.Title>
+            {galleryPreview?.status === 'unavailable'
+              ? 'Artifact unavailable'
+              : galleryPreview
+                ? recordTitle('gallery', galleryPreview.item)
+                : 'Gallery artifact'}
+          </Dialog.Title>
+          <Dialog.Content style={styles.galleryPreviewContent}>
+            {galleryPreview?.status === 'loading' ? (
+              <Text>Opening securely through Rhythm Cloud Gateway…</Text>
+            ) : null}
+            {galleryPreview?.status === 'ready' &&
+            galleryPreview.source?.kind === 'image' ? (
+              <Image
+                accessibilityLabel={recordTitle('gallery', galleryPreview.item)}
+                contentFit="contain"
+                onError={markGalleryArtifactUnavailable}
+                source={{
+                  uri: galleryPreview.source.uri,
+                  headers: galleryPreview.source.headers,
+                }}
+                style={styles.galleryImage}
+              />
+            ) : null}
+            {galleryPreview?.status === 'ready' &&
+            galleryPreview.source?.kind === 'video' ? (
+              <Video
+                accessibilityLabel={recordTitle('gallery', galleryPreview.item)}
+                onError={markGalleryArtifactUnavailable}
+                resizeMode={ResizeMode.CONTAIN}
+                source={{
+                  uri: galleryPreview.source.uri,
+                  headers: galleryPreview.source.headers,
+                }}
+                style={styles.galleryVideo}
+                useNativeControls
+              />
+            ) : null}
+            {galleryPreview?.status === 'unavailable' ? (
+              <Text>
+                This Gallery item does not have a finished image or video available on mobile.
+              </Text>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            {galleryPreview?.status === 'unavailable' &&
+            safeGalleryLink(
+              galleryPreview.item.projectUrl ?? galleryPreview.item.canvaUrl,
+            ) ? (
+              <Button
+                onPress={() =>
+                  void WebBrowser.openBrowserAsync(
+                    safeGalleryLink(
+                      galleryPreview.item.projectUrl ?? galleryPreview.item.canvaUrl,
+                    )!,
+                  )
+                }>
+                Open project link
+              </Button>
+            ) : null}
+            <Button onPress={() => setGalleryPreview(null)}>Close</Button>
+          </Dialog.Actions>
+        </Dialog>
         <Dialog
           onDismiss={() => setDialog(null)}
           visible={dialog === 'create'}>
@@ -1811,4 +1932,7 @@ const styles = StyleSheet.create({
   modelChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   mono: { fontFamily: 'monospace', fontSize: 12 },
   dialogFields: { gap: 14, paddingVertical: 8 },
+  galleryPreviewContent: { gap: 12 },
+  galleryImage: { height: 320, width: '100%' },
+  galleryVideo: { height: 320, width: '100%' },
 });

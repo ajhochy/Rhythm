@@ -1,7 +1,7 @@
 /**
  * PairedMacClient
  *
- * HTTP client for the paired Mac's mobile gateway (Tailscale HTTPS endpoint).
+ * HTTP client for the paired Mac through the active Cloud Gateway relay.
  *
  * Authorization scheme: `Device <token>` in the `Authorization` header.
  * This intentionally differs from the `Bearer` scheme used by
@@ -25,10 +25,16 @@ import {
 
 export class PairedMacClient {
   private readonly baseUrl: string;
+  private readonly directBaseUrl?: string;
   private readonly getDeviceToken: () => Promise<string>;
 
-  constructor({ baseUrl, getDeviceToken }: PairedMacClientOptions) {
+  constructor({
+    baseUrl,
+    directBaseUrl,
+    getDeviceToken,
+  }: PairedMacClientOptions) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.directBaseUrl = directBaseUrl?.replace(/\/$/, '');
     this.getDeviceToken = getDeviceToken;
   }
 
@@ -86,6 +92,31 @@ export class PairedMacClient {
   }
 
   /**
+   * Resolve a short-lived authenticated HTTP source for native media views.
+   * Resource reads always use the active paired base URL (the Cloud Gateway
+   * relay when configured); the direct PTY fallback is intentionally ignored.
+   */
+  async resourceConnection(
+    path: string,
+    init: { headers?: Record<string, string> } = {},
+  ): Promise<{ url: string; headers: Record<string, string> }> {
+    let token: string;
+    try {
+      token = await this.getDeviceToken();
+    } catch {
+      throw normalizeProviderError('paired-mac');
+    }
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return {
+      url: `${this.baseUrl}${normalizedPath}`,
+      headers: {
+        ...init.headers,
+        Authorization: `Device ${token}`,
+      },
+    };
+  }
+
+  /**
    * Constructs the URL for an SSE event stream on the paired Mac.
    *
    * Does NOT open a connection.  The caller is responsible for creating the
@@ -135,7 +166,10 @@ export class PairedMacClient {
     ptyId: string,
     options: { ticket?: string; cursor?: string } = {},
   ): string {
-    const url = new URL(`${this.baseUrl}/mobile-gateway/pty/${encodeURIComponent(ptyId)}/connect`);
+    const ptyBaseUrl = this.directBaseUrl ?? this.baseUrl;
+    const url = new URL(
+      `${ptyBaseUrl}/mobile-gateway/pty/${encodeURIComponent(ptyId)}/connect`,
+    );
 
     // Protocol conversion: the Tailscale endpoint is always HTTPS, but
     // WebSocket connections require the ws/wss scheme.

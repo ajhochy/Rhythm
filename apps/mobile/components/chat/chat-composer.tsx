@@ -4,6 +4,7 @@ import { Chip, IconButton, Surface, Text } from 'react-native-paper';
 import { Colors } from '@/constants/theme';
 import { styles } from '@/components/chat/chat-view-styles';
 import type { Command } from '@/lib/opencode/types';
+import type { GatewayConnectionStatus } from '@/lib/transport/presence';
 
 type Palette = typeof Colors.light;
 
@@ -15,7 +16,7 @@ const MAX_INPUT_HEIGHT = 132;
 
 type ChatComposerProps = {
   attachments: Attachment[];
-  connectionStatus: 'idle' | 'connecting' | 'connected' | 'error';
+  connectionStatus: GatewayConnectionStatus;
   conversation: { active: boolean; isListening: boolean; phase: string; statusLabel?: string };
   draft: string;
   insetsBottom: number;
@@ -64,7 +65,7 @@ export function ChatComposer({
       ? false
       : showOuterAction === 'send'
         ? ((!draft.trim() && attachments.length === 0) || connectionStatus !== 'connected' || isCreatingSession || isSpeechInputListening)
-        : !currentSessionId || isStoppingSession;
+        : connectionStatus !== 'connected' || !currentSessionId || isStoppingSession;
   const innerActionIcon = hasComposerContent ? 'paperclip' : (isSpeechInputListening ? 'microphone-off' : 'microphone');
   const innerActionDisabled = hasComposerContent
     ? false
@@ -135,7 +136,11 @@ export function ChatComposer({
                editable={!isSpeechInputListening}
                multiline
                scrollEnabled
-               placeholder="Ask anything..."
+               placeholder={
+                 connectionStatus === 'desktop-offline'
+                   ? 'Desktop offline — you can still read sessions'
+                   : 'Ask anything...'
+               }
                placeholderTextColor={palette.muted}
                style={[
                  styles.input,

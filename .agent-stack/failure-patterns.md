@@ -660,3 +660,35 @@
 - **Criteria affected**: issue-1286-c10/c11/c12, chat-switching latency/list stability
 - **Root cause**: server fixes handed to smoke against a pre-fix api_server process; four client defects (scope-flip cache destruction, discovery sweep re-runs, capability catalog cleared without refetch on the detail route, stale refresh timers) invisible to every web-tier gate.
 - **Suggested fix**: mandatory desktop relaunch step before device smoke when apps/api_server changed; add a scope-flip-simulating test tier; on-device probes (hit/miss reasons) as a standard smoke instrument.
+
+## 2026-08-13 — Issue 1387 — Native Cloud Gateway production release
+
+- **Result**: smoke PASS (verification claimed PASS)
+- **Category**: none — no correctness divergence
+- **Criteria affected**: c1-c22 and c24-c27 passed; c23 Terminal intentionally not checked
+- **Root cause**: No product failure; release triage found Flutter toolchain drift, one scheduler timing flake, and missing EAS `ascAppId` submission configuration.
+- **Suggested fix**: Keep desktop Flutter pinned and add the App Store Connect app ID to the production submit profile.
+
+## 2026-08-14 — Issue 1392 — real approval created but desktop notification card remained empty
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C1 — missing contract; process: auth-environment; workflow: W1
+- **Criteria affected**: issue-1392-c1; issue-1392-c2/c3 not reachable
+- **Root cause**: The automated helper test never covered the authenticated polling-to-visible-card boundary, and the production-backed smoke hit the already-tracked #1382 stale-token 401 on every pending-approval poll.
+- **Suggested fix**: Add a client-inclusive contract, use #1382 to restore a valid polling session, and require badge, card, Approve, and Reject smoke before merging.
+- **Follow-up**: existing #1382; keep PR #1393 draft
+
+## 2026-08-14 — Issue 1392 — inline approval delivery smoke succeeded
+
+- **Result**: smoke PASS (verification not yet claimed; no divergence)
+- **Category**: none; process: runtime-resource-contention; workflow: W1
+- **Criteria affected**: issue-1392-c1/c3/c4 passed; c2/c5 not checked in the supplied screenshot
+- **Root cause**: The client had dropped the approval `sessionId`, so requests could not be composed into their originating transcript; native approval routing also did not exist.
+- **Suggested fix**: Keep full PR gates separate from the running debug app and confirm one native-notification activation before handoff.
+## 2026-08-15 — Issue 1392 — unified bell notifications reached macOS
+
+- **Result**: smoke PASS
+- **Category**: none
+- **Criteria affected**: issue-1392-c19 passed; issue-1392-c17/c18 remain contract-tested
+- **Root cause**: Bell notifications previously had multiple delivery paths, and most never called the native notification service.
+- **Suggested fix**: Keep native delivery centralized in `NotificationsController` with startup baselining and ID deduplication.

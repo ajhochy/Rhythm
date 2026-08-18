@@ -126,6 +126,48 @@ export async function requireAuth(
 }
 
 /**
+ * The desktop talks to its loopback API with the production Cloud session
+ * token persisted by the signed app. Require that bearer exactly as
+ * `requireAuth` does, but resolve it through the authoritative Cloud identity
+ * fallback when it is not a session issued by the local SQLite API.
+ */
+export async function requireLocalOrCloudAuth(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const header = req.header('Authorization') ?? '';
+    const match = header.match(/^Bearer\s+(.+)$/i);
+    if (!match) {
+      throw AppError.unauthorized('Missing bearer token');
+    }
+
+    const sessionToken = match[1].trim();
+    let user: User | null = null;
+    try {
+      user = await authService.getUserForSessionToken(sessionToken);
+    } catch {
+      // The Cloud verifier owns the fail-closed fallback and 503 conversion.
+    }
+    if (!user) {
+      user = await authenticateCloudBearer(
+        sessionToken,
+        tokenDigest(sessionToken),
+      );
+    }
+    if (!user) {
+      throw AppError.unauthorized('Invalid session token');
+    }
+
+    req.auth = { sessionToken, user };
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * Local desktop routes remain usable without a token, but when the desktop
  * supplies its normal Bearer token we must attach the same user context as an
  * authenticated deployment. This lets user/project-owned resources created on

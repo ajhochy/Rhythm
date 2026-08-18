@@ -21,15 +21,20 @@ export type DbClient = 'sqlite' | 'postgres';
  * Orthogonal to AGENT_LOCAL (the auth-bypass flag): RHYTHM_ROLE decides whether
  * the surfaces exist; AGENT_LOCAL decides whether auth is bypassed on them.
  */
-export type DeploymentRole = 'all' | 'cloud' | 'local';
+export type DeploymentRole = 'all' | 'cloud' | 'local' | 'relay';
 
 function parseRole(value: string): DeploymentRole {
-  if (value === 'all' || value === 'cloud' || value === 'local') {
+  if (
+    value === 'all' ||
+    value === 'cloud' ||
+    value === 'local' ||
+    value === 'relay'
+  ) {
     return value;
   }
 
   throw new Error(
-    `Unsupported RHYTHM_ROLE "${value}". Expected "all", "cloud", or "local".`,
+    `Unsupported RHYTHM_ROLE "${value}". Expected "all", "cloud", "local", or "relay".`,
   );
 }
 
@@ -327,11 +332,29 @@ export const env = {
   role: deploymentRole,
   /**
    * #755 — single switch every agent-execution gate reads. True for the 'all'
-   * and 'local' roles, false for 'cloud'. Keeping the policy in one derived
-   * boolean means route registration, startup init, and Postgres DDL all gate
-   * on the same condition.
+   * and 'local' roles, false for 'cloud' and 'relay'. Keeping the policy in
+   * one derived boolean means route registration, startup init, and Postgres
+   * DDL all gate on the same condition. The relay never spawns the engine,
+   * scheduler, WS gateway, or the 4002 mobile gateway — it serves the /relay
+   * surface instead (docs/ai/plan-synology-relay.md).
    */
-  agentExecutionEnabled: deploymentRole !== 'cloud',
+  agentExecutionEnabled:
+    deploymentRole !== 'cloud' && deploymentRole !== 'relay',
+  /** True only for the Synology relay container (RHYTHM_ROLE=relay). */
+  isRelayRole: deploymentRole === 'relay',
+  /**
+   * Ordered uplink candidates the MAC dials to reach the relay (LAN first,
+   * tunnel fallback). Empty = uplink disabled. Relay-role processes ignore it.
+   */
+  relayUrls: (process.env.RHYTHM_RELAY_URLS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0),
+  /** Public relay base advertised by the Mac gateway to paired phones. */
+  relayPublicUrl:
+    (process.env.RHYTHM_RELAY_PUBLIC_URL ?? '').trim() || null,
+  /** Cloud bearer the Mac's uplink presents to the relay (plan §2). */
+  relayBearer: (process.env.RHYTHM_RELAY_BEARER ?? '').trim() || null,
   /** #1288 — additive Research Projects surfaces remain opt-in until launched. */
   researchProjectsEnabled:
     (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')
@@ -347,6 +370,12 @@ export const env = {
   dbPassword: process.env.DB_PASSWORD ?? '',
   dbSsl: (process.env.DB_SSL ?? 'false').trim().toLowerCase() === 'true',
   corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0),
+  // Renderer origins the local Electron/dev host is allowed to load from (e.g. the sandbox's
+  // isolated Vite port). Consulted by localAgentSurfaceGuard's origin/host allowlist check below.
+  localRendererOrigins: (process.env.RHYTHM_LOCAL_RENDERER_ORIGINS ?? '')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0),

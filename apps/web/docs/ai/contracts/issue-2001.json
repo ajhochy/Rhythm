@@ -1,0 +1,110 @@
+{
+  "issue": 2001,
+  "generated": "2026-08-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-2001-c1",
+      "text": "The /dashboard route renders the Dashboard page contract inside the selected Rhythm shell.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c1: dashboard route renders the real page contract in the selected shell",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c2",
+      "text": "Focus-for-this-week, today/week/project progress, planning lists, and unread preview match deterministic fixture data and the reference composition.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c2: ready composition and fixture values cover focus planning unread and empties",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c3",
+      "text": "Refresh visibly moves loading to ready or error, Retry recovers without reload, and the complete URL-driven state matrix is deterministic.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c3: refresh and deterministic state matrix recover without reload",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c4",
+      "text": "Every enabled Dashboard control has an observable outcome, and Dashboard dialogs support Escape and focus restoration.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c4: every enabled Dashboard control has an outcome and dialogs restore focus",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c5",
+      "text": "Adding a task validates title, applies schedule and collaborator selections, inserts the task, updates counts, and emits exact POST receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c5: add task validates and applies scheduling and collaborator selections",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c6",
+      "text": "Completing a task updates the correct row and summary through the exact PATCH task receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c6: task completion updates the row and summary with the exact PATCH receipt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c7",
+      "text": "Completing a project step updates only its project row and progress summary through the exact project-step PATCH receipt.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c7: project-step completion updates only its project and summary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c8",
+      "text": "Planner, Projects, Messages, and unread-thread shortcuts navigate to their exact hash routes.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c8: Planner Projects Messages and thread shortcuts use exact routes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c9",
+      "text": "Quick Actions select one action at a time and produce an explicit client-side handoff state rather than a toast-only dead end.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c9: quick actions expose one explicit client-side handoff at a time",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c10",
+      "text": "The representative ready Dashboard has zero serious or critical axe accessibility violations.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c10: ready Dashboard has no serious or critical axe violations",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c11",
+      "text": "Dashboard has no page-level horizontal overflow at 1440, 1024, 768, or 390 CSS pixels and survives RTL, 200% text, forced colors, reduced motion, and long CJK/emoji fixture content.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c11: Dashboard is responsive under narrow and edge-case presentation modes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2001-c12",
+      "text": "Dashboard fixtures are deterministic across reload and never contact non-loopback or production services.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-2001-dashboard.spec.ts",
+      "test_id": "issue-2001-c12: fixture data is reload-stable and network-isolated",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "issue-2001-visual",
+      "reason": "C2 mineral visual parity is verified manually plus screenshot sweep by the lead; not automatable"
+    }
+  ],
+  "verified": "2026-08-13 Wave-1 gate: 118/118 installed-Chrome Playwright (58 baseline + 60 wave-1), build, dist smoke, Electron audit all green"
+}

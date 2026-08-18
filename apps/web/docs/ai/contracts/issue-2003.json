@@ -1,0 +1,138 @@
+{
+  "issue": 2003,
+  "generated": "2026-08-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-2003-c1",
+      "text": "The Tasks destination renders the real page-tasks shell at /tasks, exposes one Tasks h1, records GET /tasks -> 200, and supports deterministic list, board, and selected-task deep links without losing filter state.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c1: tasks route and deep links render the real page shell",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c2",
+      "text": "Search plus Flutter-parity Open/All, date-window, tag, and minimum-priority filters produce deterministic visible rows; list groups use the fixed time buckets, sorting supports due date, created date, status, and title, and clearing each active constraint restores the queue without API receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c2: filters grouping sorting and clear recovery are deterministic",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c3",
+      "text": "List and Board reuse the same filtered task set and selected task; Board exposes Open, In progress, Waiting for reply, and Done counts, and moving a card updates status once with PATCH /tasks/:id {status} -> 200.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c3: list and board preserve selection filters and status movement",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c4",
+      "text": "Inline create rejects a blank title without a receipt, accepts Flutter-supported title, notes, scheduled date, and optional collaborator fields, inserts exactly one task, clears the form, and records the exact 201 task and collaborator receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c4: create validates inserts clears and records exact receipts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c5",
+      "text": "The task inspector edits exactly the Flutter-supported title, notes, due date, scheduled date, preferred agent, and energy fields, keeps project/source and creator metadata read-only, and records PATCH /tasks/:id with those payload keys and a 200 response.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c5: inspector edits supported fields and keeps source metadata read only",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c6",
+      "text": "Completing a task optimistically updates counts and visibility, records status done, and shows exactly Nice work \u2014 one less thing carrying weight. only after success; reopening records status open and does not repeat the affirmation.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c6: complete and reopen update counts receipts and affirmation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c7",
+      "text": "Task collaborator add and remove update the inspector People list, exclude the owner and existing collaborators from candidates, record exact POST 201, DELETE 204, and refresh GET 200 receipts, and surface owner-only forbidden failures truthfully.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c7: collaborator add remove and forbidden outcomes are observable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c8",
+      "text": "Delete requires a destructive confirmation naming the task, Cancel preserves it, Confirm removes it and decrements the visible count, and the ledger records DELETE /tasks/:id -> 204.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c8: delete confirmation cancel and success update list count and receipt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c9",
+      "text": "The deterministic loading, empty, server-error, forbidden, unavailable, and readonly states expose the correct recovery or prerequisite; server Retry recovers without reload, empty focuses create, readonly natively disables every mutation, and interactive no-results can be cleared.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c9: state matrix and no-results expose recovery and prerequisites",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c10",
+      "text": "Saved editable tasks expose the four Flutter quick actions; a chat-style action creates a deterministic task-linked agent session with an exact receipt and navigates to that fixture session, while readonly tasks expose no quick actions.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c10: task quick actions produce a fixture session handoff",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c11",
+      "text": "Every enabled Tasks control has a stable kebab-case data-testid and an observable outcome; client-only controls never append fake endpoint receipts, while unavailable fixture integrations are natively disabled with an accessible visible prerequisite.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c11: enabled controls are identifiable live and receipt-honest",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c12",
+      "text": "Ready Tasks and its inspector have zero serious or critical axe violations; forms and status changes are labelled/live, and dialogs and menus close on Escape and restore focus.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c12: ready and inspector are accessible with focus recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c13",
+      "text": "Tasks has no page-level horizontal overflow and keeps primary actions usable at 1440, 1024, 768, and 390 CSS pixels, at 200 percent text scale, and under RTL with long CJK and emoji fixture content.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c13: tasks remains responsive at required widths text scale and rtl",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c14",
+      "text": "Tasks is fixture-only: no non-loopback request is attempted, all timestamps and ids are deterministic, and reload restores the identical seeded task list instead of persisting prior mutations.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c14: fixture isolation blocks external I O and reload resets deterministically",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2003-c15",
+      "text": "Selecting a task keeps the task queue visible and synchronizes a persistent right-side inspector with editable title, notes, scheduled date, due date, preferred agent, and energy fields plus metadata, people, and actions; the inspector opens directly in edit mode without an additional action or modal.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2003-tasks.spec.ts",
+      "test_id": "issue-2003-c15: selecting a task keeps the queue visible and synchronizes a persistent inspector",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "manual-visual-parity",
+      "reason": "Manual plus screenshot: lead compares the implemented Tasks page against ../rhythm-dashboard-redesign.html for the mineral dark blue-green hierarchy in dark and light themes."
+    },
+    {
+      "criterion_id": "lead-global-gates",
+      "reason": "Lead-run only: complete repository regression count/build and Electron-absence audit are intentionally outside this page-owner contract turn."
+    }
+  ],
+  "verified": "2026-08-13 Wave-1 gate: 118/118 installed-Chrome Playwright (58 baseline + 60 wave-1), build, dist smoke, Electron audit all green"
+}

@@ -1,0 +1,63 @@
+import { defineConfig, type Plugin } from 'vite';
+import react from '@vitejs/plugin-react';
+
+const LIVE_PREFIX = '/__rhythm_live';
+const API_UPSTREAM = 'http://127.0.0.1:4001';
+const ENGINE_UPSTREAM = 'http://127.0.0.1:4096';
+const toolControls = ['/agent-memory', '/agent-research', '/agent-schedules', '/agent-webhooks', '/opencode/skills', '/opencode/commands', '/agent-cookbook', '/agent-org-proposals', '/agents/run-quality', '/integrations/gmail-signals', '/agent-designs'];
+
+function json(response: import('node:http').ServerResponse, status: number, body: unknown) {
+  response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'x-rhythm-environment': 'live', 'cache-control': 'no-store' });
+  response.end(JSON.stringify(body));
+}
+
+async function readJson(url: string) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return response.json() as Promise<Record<string, unknown>>;
+}
+
+function liveMetadata(): Plugin {
+  return {
+    name: 'rhythm-loopback-live-metadata',
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+        if (pathname === `${LIVE_PREFIX}/meta`) return json(response, 200, { mode: 'live', websocket: `${LIVE_PREFIX}/ws/agents`, upstream: 'ws://127.0.0.1:4001/ws/agents', stripsBrowserOriginOnLoopbackHop: true });
+        if (pathname === `${LIVE_PREFIX}/meta/control-map`) return json(response, 200, { modeSwitch: ['live', 'fixtures'], sessionHydration: ['GET /agent-sessions/:id', 'GET /agent-sessions/:id/messages', 'GET /agent-sessions/:id/todo', 'GET /agent-sessions/:id/diff'], controls: toolControls });
+        if (pathname === `${LIVE_PREFIX}/meta/smoke-policy`) return json(response, 200, { requiredNamePrefix: '[SMOKE] Rhythm web live', allowed: ['create', 'read', 'rename', 'prompt', 'cancel', 'archive'], forbidden: ['hard-delete', 'worktree-reset', 'worktree-remove', 'profile-delete', 'webhook-delete', 'proposal-approve', 'proposal-reject'] });
+        if (pathname === `${LIVE_PREFIX}/health`) {
+          try {
+            const [api, engine] = await Promise.all([readJson(`${API_UPSTREAM}/health`), readJson(`${ENGINE_UPSTREAM}/global/health`)]);
+            return json(response, 200, { mode: 'live', api: { connected: true, ...api }, engine: { connected: true, ...engine } });
+          } catch (error) {
+            return json(response, 503, { mode: 'live', api: { connected: false }, engine: { connected: false }, fixtureFallback: false, error: error instanceof Error ? error.message : 'Loopback health failed' });
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
+function stripBrowserHeaders(proxy: { on(event: string, listener: (proxyRequest: { removeHeader(name: string): void; setHeader(name: string, value: string): void }) => void }) {
+  const clean = (proxyRequest: { removeHeader(name: string): void; setHeader(name: string, value: string): void }) => {
+    proxyRequest.removeHeader('origin'); proxyRequest.removeHeader('sec-fetch-site'); proxyRequest.removeHeader('sec-fetch-mode'); proxyRequest.removeHeader('sec-fetch-dest');
+    proxyRequest.setHeader('host', '127.0.0.1:4001');
+  };
+  proxy.on('proxyReq', clean); proxy.on('proxyReqWs', clean);
+}
+
+export default defineConfig({
+  base: './',
+  plugins: [react(), liveMetadata()],
+  server: {
+    host: '127.0.0.1', port: 4173, strictPort: true,
+    proxy: {
+      [`${LIVE_PREFIX}/api`]: { target: API_UPSTREAM, changeOrigin: false, rewrite: (path) => path.replace(`${LIVE_PREFIX}/api`, ''), configure: stripBrowserHeaders },
+      [`${LIVE_PREFIX}/engine`]: { target: ENGINE_UPSTREAM, changeOrigin: false, rewrite: (path) => path.replace(`${LIVE_PREFIX}/engine`, ''), configure: (proxy) => proxy.on('proxyReq', (request) => { request.removeHeader('origin'); request.removeHeader('sec-fetch-site'); request.setHeader('host', '127.0.0.1:4096'); }) },
+      [`${LIVE_PREFIX}/ws/agents`]: { target: 'ws://127.0.0.1:4001', ws: true, changeOrigin: false, rewrite: () => '/ws/agents', configure: stripBrowserHeaders },
+    },
+  },
+  preview: { host: '127.0.0.1', port: 4173, strictPort: true },
+});

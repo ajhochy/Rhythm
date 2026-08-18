@@ -14,7 +14,7 @@ const stateLabels: Record<PairedHostState, string> = {
   pairing: 'Pairing…',
   connected: 'Connected',
   offline: 'iPhone offline',
-  tailscaleUnavailable: 'Tailscale unavailable',
+  tailscaleUnavailable: 'Cloud gateway unavailable',
   accountMismatch: 'Different Rhythm account',
   revoked: 'Access revoked',
   incompatible: 'Update required',
@@ -83,7 +83,7 @@ export function PairedMacSection({
             numberOfLines={1}
             variant="bodySmall"
             style={{ color: palette.text }}>
-            {host.gatewayUrl.replace('https://', '')}
+            {host.relayUrl ? 'Rhythm Cloud Gateway' : 'Secure Mac connection'}
           </Text>
           <Text variant="bodySmall" style={{ color: palette.muted }}>
             {host.features.length} secure mobile capabilities available

@@ -134,7 +134,10 @@ const config: ExpoConfig = {
     ? ['rhythmagents', googleRedirectScheme]
     : 'rhythmagents',
   userInterfaceStyle: 'automatic',
-  newArchEnabled: true,
+  // React Native 0.81's New Architecture can crash while reporting native
+  // module exceptions on physical iOS 26 devices. Keep the iOS app on the
+  // established bridge until that upstream exception path is fixed.
+  newArchEnabled: false,
   android: {
     package: androidPackage,
     versionCode: 7,
@@ -171,6 +174,7 @@ const config: ExpoConfig = {
     },
   },
   plugins: [
+    './plugins/with-ios-fmt-cxx17',
     'expo-router',
     [
       'expo-camera',

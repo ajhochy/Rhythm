@@ -78,7 +78,7 @@ test('issue-1237-c1: Settings and Agents converge on one paired-Mac reachability
   await setReachability(request, 'error');
 
   const settingsOffline = page
-    .getByLabel('Paired Mac status: Tailscale unavailable', { exact: true })
+    .getByLabel('Paired Mac status: Cloud gateway unavailable', { exact: true })
     .locator('visible=true');
   await expect(settingsOffline).toBeVisible({
     timeout: boundedOfflineTimeoutMs,
@@ -92,7 +92,7 @@ test('issue-1237-c1: Settings and Agents converge on one paired-Mac reachability
     page.getByTestId('paired-mac-offline-state').locator('visible=true'),
   ).toBeVisible();
   await expect(
-    page.getByText(/Tailscale cannot reach the paired Mac/i).locator('visible=true').first(),
+    page.getByText(/Rhythm Cloud Gateway cannot reach your Mac/i).locator('visible=true').first(),
   ).toBeVisible();
   await page.screenshot({
     path: `${proofUiDir}/offline.png`,
@@ -134,7 +134,7 @@ test('issue-1237-c2: paired Mac reachability loss becomes offline within the bou
 
   await expect(
     page
-      .getByLabel('Paired Mac status: Tailscale unavailable', { exact: true })
+      .getByLabel('Paired Mac status: Cloud gateway unavailable', { exact: true })
       .locator('visible=true'),
   ).toBeVisible({ timeout: boundedOfflineTimeoutMs });
   expect(Date.now() - startedAt).toBeLessThanOrEqual(
@@ -168,7 +168,7 @@ test('issue-1237-c3: session loading exits to an offline state', async ({
   ).toBeVisible({ timeout: boundedOfflineTimeoutMs });
   await expect(
     page
-      .getByText(/Tailscale cannot reach the paired Mac/i)
+      .getByText(/Rhythm Cloud Gateway cannot reach your Mac/i)
       .locator('visible=true')
       .first(),
   ).toBeVisible();
@@ -187,7 +187,7 @@ test('issue-1237-mutations: paired-Mac mutations stay disabled while offline', a
   await setReachability(request, 'error');
   await expect(
     page
-      .getByLabel('Paired Mac status: Tailscale unavailable', { exact: true })
+      .getByLabel('Paired Mac status: Cloud gateway unavailable', { exact: true })
       .locator('visible=true'),
   ).toBeVisible({ timeout: boundedOfflineTimeoutMs });
   await expect(
@@ -258,9 +258,24 @@ test('issue-1237-c5: automatic reconnect performs one authoritative recovery ref
   ).json();
   const healthRequests = (events) =>
     events.filter((event) => event.path === '/mobile-gateway/health').length;
+  const recoveryHealthEvents = afterRecovery.events
+    .slice(before.events.length)
+    .filter((event) => event.path === '/mobile-gateway/health');
+  // A legacy direct-only record performs one authoritative recovery probe,
+  // then adopts the configured cloud relay. Relay adoption plus the normal
+  // five-second health cadence may add two relay probes while the transcript
+  // rehydrates; per-surface direct probe fan-out must still stay at exactly one.
   expect(
-    healthRequests(afterRecovery.events) - healthRequests(before.events),
-  ).toBe(1);
+    recoveryHealthEvents.filter(
+      (event) => event.transportHost !== 'api.vcrcapps.com',
+    ),
+  ).toHaveLength(1);
+  expect(
+    recoveryHealthEvents.some(
+      (event) => event.transportHost === 'api.vcrcapps.com',
+    ),
+  ).toBe(true);
+  expect(recoveryHealthEvents.length).toBeLessThanOrEqual(3);
 
   await page
     .getByRole('button', { name: 'Back to Agents', exact: true })

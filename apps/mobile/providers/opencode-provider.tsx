@@ -30,6 +30,11 @@ import {
 import { Platform } from 'react-native';
 
 import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
+import { MacOfflineError } from '@/lib/transport/api-error';
+import {
+  connectionStatusForPresence,
+  deriveMacPresence,
+} from '@/lib/transport/presence';
 import {
   buildClient,
   defaultConnectionSettings,
@@ -315,6 +320,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHostRecord = pairedHost.host;
   const pairedHostMessage = pairedHost.message;
   const refreshPairedHost = pairedHost.refresh;
+  const pairedHostRefreshRevision = pairedHost.refreshRevision;
   const pairedHostState = pairedHost.state;
   const rhythmAccount = useRhythmAccount();
   const [settings, setSettings] = useState<OpencodeConnectionSettings>(defaultConnectionSettings);
@@ -322,6 +328,32 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     status: 'idle',
     message: 'Add a server URL and connect to OpenCode.',
   });
+  const [macPresence, setMacPresence] = useState<
+    'online' | 'offline' | 'unknown'
+  >('unknown');
+  const trackMacOffline = useCallback(
+    async <T,>(operation: () => Promise<T>): Promise<T> => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (error instanceof MacOfflineError) {
+          try {
+            const health = await pairedHostClient?.request<unknown>(
+              '/mobile-gateway/health',
+              { method: 'GET' },
+            );
+            setMacPresence(
+              deriveMacPresence(health) === 'online' ? 'online' : 'offline',
+            );
+          } catch {
+            setMacPresence('offline');
+          }
+        }
+        throw error;
+      }
+    },
+    [pairedHostClient],
+  );
   const [activeProjectPath, setActiveProjectPath] = useState<string>();
   const [sessions, setSessions] = useState<MobileSession[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<GlobalSession[]>([]);
@@ -399,6 +431,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const clientGenerationRef = useRef(new WeakMap<object, number>());
   const catalogGenerationRef = useRef(new WeakMap<object, number>());
   const connectionTargetRef = useRef('');
+  const pairedHostRecoveryRevisionRef = useRef(0);
+  const relayPresenceRequestRef = useRef<{
+    client: object;
+    promise: Promise<ReturnType<typeof deriveMacPresence>>;
+  } | null>(null);
   const bootstrapPromiseRef = useRef<Promise<string | undefined> | null>(null);
   const bootstrapTokenRef = useRef<object | undefined>(undefined);
   const conversationPhaseRef = useRef<ConversationPhase>('off');
@@ -893,6 +930,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     setPendingQuestionsBySession(groupPendingRequestsBySession(questions));
   }, [client, isCurrentClient]);
 
+  const buildSessionReadClient = (projectId: string) =>
+    pairedHostClient != null && pairedHostRecord?.relayUrl != null
+      ? buildClient(
+          { ...settingsRef.current, directory: projectId },
+          { client: pairedHostClient, projectId },
+        )
+      : buildScopedClient(projectId);
+
   openProjectSessionRuntimeRef.current = {
     openFromCache(projectId, sessionId) {
       // Cache-first switching: a chat whose transcript is already hydrated
@@ -952,6 +997,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       };
     },
     async confirmProject(projectId) {
+      const canConfirmRelayMirrorWhileDesktopOffline =
+        pairedHostRecord?.relayUrl != null &&
+        (connection.status === 'desktop-offline' ||
+          (connection.status === 'connected' && macPresence === 'offline'));
+      if (canConfirmRelayMirrorWhileDesktopOffline) {
+        // The scoped mirror request below remains authoritative: the relay
+        // validates the paired device and project before returning any row.
+        return true;
+      }
       if (
         connection.status !== 'connected' ||
         (pairedHostRecord && pairedHostState !== 'connected')
@@ -1010,7 +1064,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       session,
       catalog,
     ) {
-      const scopedClient = buildScopedClient(projectId);
+      const scopedClient = buildSessionReadClient(projectId);
       const messagePage = await svcGetSessionMessages(scopedClient, sessionId);
       const messages = messagePage.records;
       const supplemental = Promise.all([
@@ -1267,7 +1321,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       (m) => m.discoverChatCapabilities(
         client,
         activeProjectPath,
-        { includeEngineAgents: !pairedHostClient },
+        {
+          includeEngineAgents: !pairedHostClient,
+          includeProviderAuth: !pairedHostClient,
+        },
       ),
     );
     const agents = pairedHostClient && activeProjectPath
@@ -1424,22 +1481,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           (profile) => profile.opencodeAgentId === preferences.mode,
         );
       const selectedModel = getSelectedModelParts(preferences.modelId);
-      const next = await updateMobileSessionProfileState(
-        pairedHostClient,
-        projectId,
-        sessionId,
-        {
-          profileId: selectedProfile?.profileId ?? null,
-          opencodeAgentId: selectedProfile?.opencodeAgentId ?? null,
-          providerId: selectedModel?.providerID ??
-            preferences.providerId ??
-            null,
-          modelId: selectedModel?.modelID ?? null,
-          thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
-          permissionMode:
-            preferences.permissionMode ??
-            permissionModeForAutoApprove(preferences.autoApprove),
-        },
+      const next = await trackMacOffline(() =>
+        updateMobileSessionProfileState(
+          pairedHostClient,
+          projectId,
+          sessionId,
+          {
+            profileId: selectedProfile?.profileId ?? null,
+            opencodeAgentId: selectedProfile?.opencodeAgentId ?? null,
+            providerId:
+              selectedModel?.providerID ?? preferences.providerId ?? null,
+            modelId: selectedModel?.modelID ?? null,
+            thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
+            permissionMode:
+              preferences.permissionMode ??
+              permissionModeForAutoApprove(preferences.autoApprove),
+          },
+        ),
       );
       if (projectId === activeProjectPath) {
         setSessions((current) =>
@@ -1447,7 +1505,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       return next;
     },
-    [activeProjectPath, availableAgents, pairedHostClient],
+    [activeProjectPath, availableAgents, pairedHostClient, trackMacOffline],
   );
 
   const createSession = useCallback(
@@ -1469,15 +1527,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       preferences ??= chatPreferences;
       const trimmedTitle = title?.trim();
+      const profileId = preferences.profileId;
       const created = pairedHostClient
-        ? projectId && preferences.profileId
-          ? await createMobileGatewaySession(
-              pairedHostClient,
-              projectId,
-              {
+        ? projectId && profileId
+          ? await trackMacOffline(() =>
+              createMobileGatewaySession(pairedHostClient, projectId, {
                 ...(trimmedTitle ? { title: trimmedTitle } : {}),
-                profileId: preferences.profileId,
-              },
+                // The literal `profileId: preferences.profileId` is pinned by
+                // the #1282/#1286 source contracts (scope resolved before any
+                // engine create); the narrowed const only backstops typing.
+                profileId: preferences.profileId ?? profileId,
+              }),
             )
           : undefined
         : (
@@ -1518,6 +1578,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
+      trackMacOffline,
     ],
   );
 
@@ -1782,12 +1843,13 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     }
   }, [client, isCurrentClient]);
 
-  const searchWorkspaceFiles = useCallback(async (query: string) => {
+  const searchWorkspaceFiles = useCallback(async (query: string, signal?: AbortSignal) => {
     const trimmed = query.trim();
-    const nextFiles = trimmed ? (await findFiles(client, trimmed)) || [] : [];
+    const nextFiles = trimmed ? (await findFiles(client, trimmed, false, signal)) || [] : [];
     if (activeProjectPathRef.current === client.__opencode.directory) {
       setWorkspaceFiles(nextFiles);
     }
+    return nextFiles;
   }, [client]);
 
   const listWorkspaceDirectory = useCallback(
@@ -1828,10 +1890,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     if (content.type === 'binary' || content.encoding === 'base64') {
       throw new Error('Binary files cannot be previewed as text.');
     }
-    if (activeProjectPathRef.current === client.__opencode.directory) {
+    if (isCurrentClient(client)) {
       setSelectedWorkspaceFile({ path, content });
     }
-  }, [client]);
+  }, [client, isCurrentClient]);
 
   const saveWorkspaceFile = useCallback(async (path: string, expectedContent: string, content: string) => {
     const latest = await readFile(client, path);
@@ -2182,8 +2244,66 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     clearProjectState();
   }, [clearProjectState]);
 
+  const requestRelayPresence = useCallback(() => {
+    if (!pairedHostClient) {
+      return Promise.resolve('unknown' as const);
+    }
+    const current = relayPresenceRequestRef.current;
+    if (current?.client === pairedHostClient) {
+      return current.promise;
+    }
+
+    const request = pairedHostClient
+      .request<unknown>('/mobile-gateway/health', { method: 'GET' })
+      .then(deriveMacPresence)
+      .finally(() => {
+        if (relayPresenceRequestRef.current?.promise === request) {
+          relayPresenceRequestRef.current = null;
+        }
+      });
+    relayPresenceRequestRef.current = {
+      client: pairedHostClient,
+      promise: request,
+    };
+    return request;
+  }, [pairedHostClient]);
+
+  useEffect(() => {
+    if (!pairedHostClient) {
+      setMacPresence('unknown');
+      return;
+    }
+
+    let cancelled = false;
+    const pollMacPresence = async () => {
+      try {
+        const presence = await requestRelayPresence();
+        if (!cancelled) {
+          setMacPresence(presence);
+        }
+      } catch {
+        // Preserve the last known state until a healthy poll supplies a body.
+      }
+    };
+
+    void pollMacPresence();
+    const interval = setInterval(() => void pollMacPresence(), 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pairedHostClient, requestRelayPresence]);
+
   const connect = useCallback(async () => {
-    if (pairedHostRecord && pairedHostState !== 'connected') {
+    const canHydrateRelayMirrorWhileDesktopOffline =
+      pairedHostClient != null &&
+      pairedHostRecord?.relayUrl != null &&
+      pairedHostState === 'tailscaleUnavailable';
+    if (
+      pairedHostRecord &&
+      pairedHostState !== 'connected' &&
+      !canHydrateRelayMirrorWhileDesktopOffline
+    ) {
       setConnection({
         status: 'error',
         message: pairedHostMessage,
@@ -2222,10 +2342,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       const projectDirectory = catalog.currentProjectPath || catalog.serverRootPath;
 
       setConnection({
-        status: 'connected',
-        message: pairedHostClient
-          ? 'Connected securely to your paired Mac.'
-          : `Connected to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}`,
+        status: canHydrateRelayMirrorWhileDesktopOffline
+          ? 'desktop-offline'
+          : 'connected',
+        message: canHydrateRelayMirrorWhileDesktopOffline
+          ? 'Desktop offline — you can still read sessions.'
+          : pairedHostClient
+            ? 'Connected securely to your paired Mac.'
+            : `Connected to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}`,
         checkedAt: Date.now(),
         projectDirectory,
       });
@@ -2246,6 +2370,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       const reachability = pairedHostClient
         ? await refreshPairedHost()
         : null;
+      const relayPresence =
+        pairedHostClient && pairedHostRecord?.relayUrl != null
+          ? await requestRelayPresence().catch(() => 'unknown' as const)
+          : 'unknown';
+      if (relayPresence === 'offline') {
+        setMacPresence('offline');
+        setConnection({
+          status: 'desktop-offline',
+          message: 'Desktop offline — you can still read sessions.',
+          checkedAt: Date.now(),
+        });
+        return;
+      }
       setServerProjects([]);
       setCurrentProjectPath(undefined);
       setServerRootPath(undefined);
@@ -2275,6 +2412,48 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     pairedHostRecord,
     pairedHostState,
     refreshPairedHost,
+    requestRelayPresence,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isHydrated ||
+      pairedHostRefreshRevision <= pairedHostRecoveryRevisionRef.current
+    ) {
+      return;
+    }
+    pairedHostRecoveryRevisionRef.current = pairedHostRefreshRevision;
+    if (
+      !pairedHostClient ||
+      pairedHostRecord?.relayUrl == null ||
+      (connection.status !== 'error' &&
+        connection.status !== 'desktop-offline')
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    void requestRelayPresence()
+      .then((health) => {
+        if (cancelled) return;
+        const presence = health;
+        setMacPresence(presence);
+        if (presence === 'online') {
+          void connect();
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    connect,
+    connection.status,
+    isHydrated,
+    pairedHostClient,
+    pairedHostRecord?.relayUrl,
+    pairedHostRefreshRevision,
+    requestRelayPresence,
   ]);
 
   const ensureActiveSessionRef = useRef(ensureActiveSession);
@@ -2312,26 +2491,39 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!isHydrated) return;
-    const target = pairedHostClient && pairedHostRecord
-      ? `paired:${pairedHostRecord.rhythmUserId}:${pairedHostRecord.hostId}:${pairedHostRecord.deviceId}:${pairedHostState}`
+    const pairedTarget = pairedHostClient && pairedHostRecord
+      ? `paired:${pairedHostRecord.rhythmUserId}:${pairedHostRecord.hostId}:${pairedHostRecord.deviceId}`
+      : undefined;
+    const target = pairedTarget
+      ? `${pairedTarget}:${pairedHostState}`
       : Platform.OS === 'web'
         ? `direct:${settings.serverUrl}:${settings.username}:${settings.password}`
         : 'native:unpaired';
     if (connectionTargetRef.current === target) return;
+    const preserveProjectState =
+      pairedTarget !== undefined &&
+      pairedHostRecord?.relayUrl != null &&
+      ((connectionTargetRef.current === `${pairedTarget}:connected` &&
+        pairedHostState === 'tailscaleUnavailable') ||
+        (connectionTargetRef.current ===
+          `${pairedTarget}:tailscaleUnavailable` &&
+          pairedHostState === 'connected'));
     connectionTargetRef.current = target;
-    openProjectSessionControllerRef.current?.cancelOpenProjectSession();
-    scopeGenerationRef.current += 1;
-    serverGenerationRef.current += 1;
-    catalogGenerationRef.current.set(
-      catalogClient,
-      serverGenerationRef.current,
-    );
-    activeProjectPathRef.current = undefined;
-    setActiveProjectPath(undefined);
-    clearProjectState();
-    setServerProjects([]);
-    setCurrentProjectPath(undefined);
-    setServerRootPath(undefined);
+    if (!preserveProjectState) {
+      openProjectSessionControllerRef.current?.cancelOpenProjectSession();
+      scopeGenerationRef.current += 1;
+      serverGenerationRef.current += 1;
+      catalogGenerationRef.current.set(
+        catalogClient,
+        serverGenerationRef.current,
+      );
+      activeProjectPathRef.current = undefined;
+      setActiveProjectPath(undefined);
+      clearProjectState();
+      setServerProjects([]);
+      setCurrentProjectPath(undefined);
+      setServerRootPath(undefined);
+    }
     void connect();
   }, [
     clearProjectState,
@@ -3531,7 +3723,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             break;
           }
           setEventStreamStatus('error');
-          if (pairedHostClient && !reachabilityFailureReported) {
+          if (
+            pairedHostClient &&
+            pairedHostRecord?.relayUrl == null &&
+            !reachabilityFailureReported
+          ) {
             reachabilityFailureReported = true;
             void refreshPairedHost();
           }
@@ -3548,7 +3744,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings]);
 
   useEffect(
     () => () => {
@@ -3768,6 +3964,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const conversationActive = conversationPhase !== 'off';
   const conversationStatusLabel = useMemo(() => getConversationStatusLabel(conversationPhase, conversationCurrentActivityLabel), [conversationCurrentActivityLabel, conversationPhase]);
   const sessionPreviewById = useMemo(() => getSessionPreviewById(messagesBySession), [messagesBySession]);
+  const gatewayConnection = useMemo<ConnectionState>(() => {
+    const status = connectionStatusForPresence(connection.status, macPresence);
+    return {
+      ...connection,
+      status,
+      message:
+        status === 'desktop-offline'
+          ? 'Desktop offline — you can still read sessions.'
+          : connection.message,
+    };
+  }, [connection, macPresence]);
 
   const contextValue = useMemo<OpencodeContextValue>(
     () => ({
@@ -3775,7 +3982,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       settings,
       buildScopedClient,
       updateSettings,
-      connection,
+      connection: gatewayConnection,
       projects,
       activeProjectPath,
       activeProject,
@@ -3922,7 +4129,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       activeProject,
       activeProjectPath,
       connect,
-      connection,
+      gatewayConnection,
       currentConfig,
       availableProviders,
       providerAuthMethodsById,

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import test from 'node:test';
 import ts from 'typescript';
 
 await import('./public-gateway-client.test.mjs');
@@ -285,7 +286,7 @@ async function pairedStore() {
   assert.equal(__macRequests().length, 0);
 }
 
-// issue-1171-c4: tailnet failure is distinct from device-offline.
+// issue-1171-c4: gateway failure is distinct from device-offline.
 {
   __reset();
   const store = await pairedStore();
@@ -294,8 +295,126 @@ async function pairedStore() {
   });
   const result = await store.refresh();
   assert.equal(result.state, 'tailscaleUnavailable');
-  assert.match(result.message, /Tailscale/);
+  assert.match(result.message, /Rhythm Cloud Gateway/);
 }
+
+// relay-first migration: an already-paired host with no stored relayUrl probes
+// the KNOWN relay base, adopts it, and connects through the relay — no re-pair.
+{
+  __reset();
+  const store = await pairedStore();
+  const RELAY = 'https://api.vcrcapps.com/relay';
+  __setMacHandler(async (path, init, token, baseUrl) => {
+    // The relay is the ONLY reachable endpoint; the .ts.net direct base fails
+    // (Tailscale off), proving adoption did not depend on Tailscale.
+    if (baseUrl !== RELAY) {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    }
+    return { ...healthResponse, relayUrl: RELAY };
+  });
+  const result = await store.refresh();
+  assert.equal(result.state, 'connected');
+  assert.match(result.message, /Cloud Gateway/i);
+  assert.equal(result.host.relayUrl, RELAY);
+  // Every gateway request rode the relay base, never the .ts.net gateway.
+  for (const call of __macRequests()) assert.equal(call.baseUrl, RELAY);
+}
+
+// relay-first migration: when the relay is unreachable, fall back to the stored
+// direct path unchanged (no relayUrl adopted).
+{
+  __reset();
+  const store = await pairedStore();
+  const RELAY = 'https://api.vcrcapps.com/relay';
+  __setMacHandler(async (path, init, token, baseUrl) => {
+    if (baseUrl === RELAY) {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    }
+    return healthResponse;
+  });
+  const result = await store.refresh();
+  assert.equal(result.state, 'connected');
+  assert.match(result.message, /Connected securely/);
+  assert.equal(result.host.relayUrl, undefined);
+}
+
+// issue-1387-c9: a saved relay path must never blame Tailscale when its own
+// health probe fails.
+{
+  __reset();
+  const RELAY = 'https://api.vcrcapps.com/relay';
+  __setPublicHandler(async (path) =>
+    path === '/mobile-gateway/health'
+      ? { ...healthResponse, relayUrl: RELAY }
+      : pairResponse);
+  const store = new PairedHostStore();
+  store.setAccountUserId(7);
+  await store.pair(
+    JSON.stringify({
+      gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+      pairingCode: CODE,
+      relayUrl: RELAY,
+    }),
+    { userId: 7, deviceName: 'AJ iPhone' },
+  );
+  __setMacHandler(async () => {
+    throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+  });
+  await store.refresh();
+  const result = await store.refresh();
+  assert.equal(result.state, 'tailscaleUnavailable');
+  assert.match(result.message, /Cloud Gateway/i);
+  assert.doesNotMatch(result.message, /Tailscale/i);
+}
+
+// issue-1387-c8: a single four-second relay probe miss during a successful
+// send must not tear down the chat connection. The second consecutive miss
+// surfaces the sustained outage, and recovery restores a fresh one-miss grace
+// period. Regression caught: the first connected assertion fails when
+// PairedHostStore immediately publishes tailscaleUnavailable.
+await test(
+  'issue-1387-c8: one transient relay health-probe miss preserves connected reachability',
+  async () => {
+    __reset();
+    const RELAY = 'https://api.vcrcapps.com/relay';
+    __setPublicHandler(async (path) =>
+      path === '/mobile-gateway/health'
+        ? { ...healthResponse, relayUrl: RELAY }
+        : pairResponse);
+    const store = new PairedHostStore();
+    store.setAccountUserId(7);
+    await store.pair(
+      JSON.stringify({
+        gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+        pairingCode: CODE,
+        relayUrl: RELAY,
+      }),
+      { userId: 7, deviceName: 'AJ iPhone' },
+    );
+
+    __setMacHandler(async () => {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    });
+    const transientMiss = await store.refresh();
+    assert.equal(transientMiss.state, 'connected');
+    assert.match(transientMiss.message, /Cloud Gateway/i);
+
+    const sustainedMiss = await store.refresh();
+    assert.equal(sustainedMiss.state, 'tailscaleUnavailable');
+
+    __setMacHandler(async () => ({
+      ...healthResponse,
+      relayUrl: RELAY,
+      macOnline: false,
+    }));
+    assert.equal((await store.refresh()).state, 'connected');
+
+    __setMacHandler(async () => {
+      throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+    });
+    assert.equal((await store.refresh()).state, 'connected');
+  },
+);
 
 // issue-1171-c4: revocation clears Keychain but retains safe host diagnostics.
 {
