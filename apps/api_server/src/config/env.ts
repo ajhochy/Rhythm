@@ -360,6 +360,22 @@ export const env = {
     (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')
       .trim()
       .toLowerCase() === 'true',
+  /**
+   * #1422 — containment root for mobile sessions that carry no project.
+   *
+   * Desktop already treats `cwd` as the root and `projectId` as an optional
+   * label (agent_sessions_controller.create requires cwd, not projectId), so a
+   * project-less session is legitimate. The mobile gateway inverted that and
+   * made the label mandatory, leaving such sessions with no root at all.
+   *
+   * This is the root they anchor to instead. It is NOT a relaxation: every
+   * path is still canonicalized and checked with containsReal() against
+   * whichever root resolves, and caller-supplied root overrides are still
+   * rejected. It only means a root always exists to check against.
+   */
+  defaultSessionRoot:
+    process.env.RHYTHM_DEFAULT_SESSION_ROOT?.trim() ||
+    path.join(os.homedir(), 'Documents'),
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),

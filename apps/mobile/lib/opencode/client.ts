@@ -136,6 +136,33 @@ export interface MobileGatewayClientScope {
   projectId: string;
 }
 
+/**
+ * A paired gateway 503 that is a definitive answer ("the Mac is asleep"), not
+ * the warming signal the cold-start budget exists to ride out (#1422).
+ */
+const MAC_OFFLINE_ERRORS = new Set([
+  'mac_offline',
+  'mac_offline_and_mirror_incomplete',
+]);
+
+/** Read a gateway error body without consuming the caller's response. */
+async function readGatewayError(
+  response: Response,
+): Promise<{ body: string; code: unknown }> {
+  const body = await response.clone().text();
+  try {
+    return { body, code: (JSON.parse(body) as { error?: unknown }).error };
+  } catch {
+    return { body, code: undefined };
+  }
+}
+
+async function isMacOfflineAnswer(response: Response): Promise<boolean> {
+  if (response.status !== 503) return false;
+  const { code } = await readGatewayError(response);
+  return typeof code === 'string' && MAC_OFFLINE_ERRORS.has(code);
+}
+
 function headersRecord(value?: HeadersInit): Record<string, string> {
   const result: Record<string, string> = {};
   if (!value) return result;
@@ -150,9 +177,6 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
   const projectId = scope.projectId.trim();
 
   return async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (!projectId) {
-      throw new Error('Select a registered Rhythm project before connecting.');
-    }
     const request =
       typeof Request !== 'undefined' && input instanceof Request
         ? input
@@ -179,13 +203,30 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
     };
     delete headers.authorization;
     const sdkPath = parsed.pathname;
-    const gatewayPath =
+    // Owner-unscoped discovery is BY DESIGN project-less — it answers "which of
+    // my chats exist" before any project is known, and the gateway serves it
+    // from its own owner-scoped route.
+    const ownerUnscopedDiscovery =
       sdkPath === '/experimental/session' &&
-        headers['x-rhythm-session-discovery'] === 'owner-unscoped'
-        ? '/mobile-gateway/chat-catalog'
-        : sdkPath === '/event' || sdkPath === '/global/event'
-          ? '/mobile-gateway/events'
-          : `/mobile-gateway/opencode${sdkPath}`;
+      headers['x-rhythm-session-discovery'] === 'owner-unscoped';
+    const gatewayPath = ownerUnscopedDiscovery
+      ? '/mobile-gateway/chat-catalog'
+      : sdkPath === '/event' || sdkPath === '/global/event'
+        ? '/mobile-gateway/events'
+        : `/mobile-gateway/opencode${sdkPath}`;
+
+    // #1422 — every PROJECT-SCOPED route still requires a project. Dropping
+    // this wholesale sent scoped reads out unscoped whenever the id had not
+    // hydrated yet, which is exactly what the guard existed to prevent
+    // (paired-production e2e observed projectId=null on /opencode/*).
+    //
+    // The exemption is only owner-unscoped discovery, where demanding a project
+    // was circular: you cannot know which projects exist until you have
+    // connected and listed your chats. The gateway anchors that request to
+    // RHYTHM_DEFAULT_SESSION_ROOT and still containment-checks every path.
+    if (!projectId && !ownerUnscopedDiscovery) {
+      throw new Error('Select a registered Rhythm project before connecting.');
+    }
 
     const method = init?.method ?? request?.method ?? 'GET';
     let body = init?.body;
@@ -204,33 +245,27 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
     const retryable =
       method.toUpperCase() === 'GET' && gatewayPath !== '/mobile-gateway/events';
 
+    const requestInit = { ...init, body, headers, method, signal };
     const response = await fetchWithColdStartBackoff(
       () =>
         scope.client.fetchResponse(
           `${gatewayPath}${parsed.search}`,
-          withProjectScope(projectId, {
-            ...init,
-            body,
-            headers,
-            method,
-            signal,
-          }),
+          // A named project still stamps X-Rhythm-Project-ID exactly as before.
+          // Omitting the header is what tells the gateway to use the default
+          // root; withProjectScope throws on an empty id, so it must not run.
+          projectId ? withProjectScope(projectId, requestInit) : requestInit,
       ),
-      { retryable, signal },
+      { retryable, signal, isDefinitive: isMacOfflineAnswer },
     );
     if (response.status === 503) {
-      const body = await response.clone().text();
-      let code: unknown;
-      try {
-        code = (JSON.parse(body) as { error?: unknown }).error;
-      } catch {
-        code = undefined;
-      }
-      if (
-        code === 'mac_offline' ||
-        code === 'mac_offline_and_mirror_incomplete'
-      ) {
-        throw normalizeApiError('paired-mac', response.status, body, undefined);
+      const { body: errorBody, code } = await readGatewayError(response);
+      if (typeof code === 'string' && MAC_OFFLINE_ERRORS.has(code)) {
+        throw normalizeApiError(
+          'paired-mac',
+          response.status,
+          errorBody,
+          undefined,
+        );
       }
     }
     return response;

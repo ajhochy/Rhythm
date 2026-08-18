@@ -129,3 +129,71 @@ test('only the gateway transient statuses are treated as retryable', () => {
   assert.equal(isTransientGatewayStatus(500), false);
   assert.equal(isTransientGatewayStatus(429), false);
 });
+
+// ── #1422: a definitive 503 must not be replayed ─────────────────────────────
+//
+// The paired gateway answers 503 for BOTH "still warming" and the definitive
+// "the Mac is asleep" (mac_offline). Replaying the latter burned the whole
+// 4.6s budget before surfacing an answer the first response already carried,
+// which stranded the chat screen in a loading state past its own timeout
+// (issue-1387-c24). `isDefinitive` lets the caller separate the two.
+
+/** A 503 carrying a JSON error body, readable via clone() like a real Response. */
+function offlineResponse(code) {
+  const payload = JSON.stringify({ error: code });
+  return {
+    status: 503,
+    body: null,
+    clone: () => ({ text: async () => payload }),
+  };
+}
+
+test('issue-1422: a definitive mac_offline 503 is returned immediately, not retried', async () => {
+  let calls = 0;
+  const slept = [];
+  const isDefinitive = async (res) => {
+    if (res.status !== 503) return false;
+    const { error } = JSON.parse(await res.clone().text());
+    return error === 'mac_offline' || error === 'mac_offline_and_mirror_incomplete';
+  };
+
+  const result = await fetchWithColdStartBackoff(
+    async () => {
+      calls += 1;
+      return offlineResponse('mac_offline');
+    },
+    { retryable: true, sleep: fakeSleep(slept), isDefinitive },
+  );
+
+  assert.equal(result.status, 503);
+  assert.equal(calls, 1, 'a definitive answer must not be replayed');
+  assert.deepEqual(slept, [], 'no backoff may be spent on a definitive answer');
+});
+
+test('issue-1422: a warming 503 is still retried when isDefinitive says no', async () => {
+  // The predicate must not disable the budget wholesale — an ordinary 503 with
+  // no mac_offline marker is still the cold-start case #1378 exists for.
+  const statuses = [503, 503, 200];
+  let calls = 0;
+  const slept = [];
+
+  const result = await fetchWithColdStartBackoff(
+    async () => response(statuses[calls++]),
+    { retryable: true, sleep: fakeSleep(slept), isDefinitive: async () => false },
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(calls, 3, 'a warming 503 must still be replayed');
+  assert.deepEqual(slept, [400, 1200]);
+});
+
+test('issue-1422: the definitive response keeps its body for the caller', async () => {
+  // The retry path cancels bodies before replaying; a definitive answer must
+  // be handed back intact so the caller can read its error code.
+  const result = await fetchWithColdStartBackoff(
+    async () => offlineResponse('mac_offline_and_mirror_incomplete'),
+    { retryable: true, sleep: fakeSleep([]), isDefinitive: async () => true },
+  );
+  const { error } = JSON.parse(await result.clone().text());
+  assert.equal(error, 'mac_offline_and_mirror_incomplete');
+});
