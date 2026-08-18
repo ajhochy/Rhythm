@@ -1885,6 +1885,132 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
   `);
 
+  // C1-C-B3: Postgres twin of the durable, pre-dispatch enrollment lifecycle.
+  // Keep the CREATE body in its own query so skill_schema_parity.test.ts can
+  // compare it to the real SQLite migration. Existing early deployments can
+  // only lack the failure fields, which are added below without backfill.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_enrollments (
+      id TEXT PRIMARY KEY,
+      run_episode_id TEXT NOT NULL,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline', 'candidate')),
+      assignment_digest TEXT NOT NULL,
+      baseline_target_revision_hash TEXT NOT NULL,
+      treatment_spec_hash TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'reserved'
+        CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
+      failure_code TEXT,
+      failure_reason TEXT,
+      reserved_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `ALTER TABLE agent_org_experiment_enrollments ADD COLUMN IF NOT EXISTS failure_code TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE agent_org_experiment_enrollments ADD COLUMN IF NOT EXISTS failure_reason TEXT`,
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_run_episode
+       ON agent_org_experiment_enrollments(run_episode_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
+       ON agent_org_experiment_enrollments(experiment_id)`,
+  );
+
+  // PostgreSQL behavioral twin of SQLite's C1 lifecycle trigger. The function
+  // owns both insert-domain and update-transition validation so all rejects use
+  // one stable error string and NULL comparisons stay engine-equivalent.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state()
+    RETURNS trigger AS $$
+    DECLARE
+      canonical_failure_reason TEXT;
+    BEGIN
+      IF NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized') THEN
+        RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+      END IF;
+
+      IF NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN (
+        'pre_dispatch_failed',
+        'prompt_dispatch_failed',
+        'provider_unavailable',
+        'invalid_model',
+        'prompt_timeout'
+      ) THEN
+        RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+      END IF;
+
+      canonical_failure_reason := CASE NEW.failure_code
+        WHEN 'pre_dispatch_failed' THEN 'pre_dispatch_failed'
+        WHEN 'prompt_dispatch_failed' THEN 'prompt_dispatch_failed'
+        WHEN 'provider_unavailable' THEN 'provider_unavailable'
+        WHEN 'invalid_model' THEN 'invalid_model'
+        WHEN 'prompt_timeout' THEN 'prompt_timeout'
+        ELSE NULL
+      END;
+
+      IF TG_OP = 'INSERT' THEN
+        IF NEW.state = 'treatment_failed' THEN
+          IF NEW.failure_code IS NULL
+             OR NEW.failure_reason IS DISTINCT FROM canonical_failure_reason THEN
+            RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+          END IF;
+        ELSIF NEW.failure_code IS NOT NULL OR NEW.failure_reason IS NOT NULL THEN
+          RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+        END IF;
+        RETURN NEW;
+      END IF;
+
+      IF NEW.state IS NOT DISTINCT FROM OLD.state
+         AND NEW.failure_code IS NOT DISTINCT FROM OLD.failure_code
+         AND NEW.failure_reason IS NOT DISTINCT FROM OLD.failure_reason THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'reserved'
+         AND NEW.state = 'dispatched'
+         AND NEW.failure_code IS NULL
+         AND NEW.failure_reason IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'reserved'
+         AND NEW.state = 'treatment_failed'
+         AND NEW.failure_code IS NOT NULL
+         AND NEW.failure_reason IS NOT DISTINCT FROM canonical_failure_reason THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'dispatched'
+         AND NEW.state = 'terminalized'
+         AND NEW.failure_code IS NULL
+         AND NEW.failure_reason IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_insert_domain
+      ON agent_org_experiment_enrollments;
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_insert_domain
+      BEFORE INSERT ON agent_org_experiment_enrollments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
+
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_update_domain
+      ON agent_org_experiment_enrollments;
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_update_domain
+      BEFORE UPDATE OF state, failure_code, failure_reason ON agent_org_experiment_enrollments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
+  `);
+
   // W5-c12: the proposal retirement sidecar. Column set MUST stay identical to
   // the SQLite migration in migrations.ts — enforced by
   // skill_schema_parity.test.ts. Table in its own pool.query with the closing

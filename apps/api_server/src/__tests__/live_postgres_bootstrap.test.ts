@@ -193,7 +193,13 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
   it('materialises a non-trivial schema', () => {
     // If the bootstrap silently no-opped, this is the tripwire.
     expect(pgTables.size).toBeGreaterThan(50);
-    for (const t of ['users', 'tasks', 'agent_sessions', 'agent_org_experiments']) {
+    for (const t of [
+      'users',
+      'tasks',
+      'agent_sessions',
+      'agent_org_experiments',
+      'agent_org_experiment_enrollments',
+    ]) {
       expect(pgTables.has(t)).toBe(true);
     }
   });
@@ -269,6 +275,100 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
       [id],
     );
     expect(rows[0].decision).toBe('ship');
+  });
+
+  it('enforces enrollment lifecycle domains and transitions — the Postgres trigger FIRES', async () => {
+    const id = `pgenroll-${Date.now()}`;
+    const enrollment = {
+      id,
+      run_episode_id: `${id}-episode`,
+      experiment_id: 'experiment-1',
+      proposal_id: 'proposal-1',
+      profile_id: 'profile-1',
+      cohort: 'candidate',
+      assignment_digest: 'assignment-digest',
+      baseline_target_revision_hash: 'baseline-hash',
+      treatment_spec_hash: 'treatment-hash',
+      state: 'reserved',
+      reserved_at: '2026-01-01T00:00:00.000Z',
+    };
+    const columns = Object.keys(enrollment);
+    await pool.query(
+      `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+         VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+      Object.values(enrollment),
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        Object.values({ ...enrollment, id: `${id}-duplicate-run` }),
+      ),
+    ).rejects.toThrow(/duplicate key/);
+    await expect(
+      pool.query(
+        `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        Object.values({
+          ...enrollment,
+          id: `${id}-invalid-cohort`,
+          run_episode_id: `${id}-invalid-cohort-episode`,
+          cohort: 'other',
+        }),
+      ),
+    ).rejects.toThrow(/violates check constraint/);
+
+    // Identical writes are legal idempotence, then the normal success path.
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'reserved' WHERE id = $1`,
+      [id],
+    );
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'dispatched' WHERE id = $1`,
+      [id],
+    );
+
+    // Failure metadata cannot hitch a ride on the dispatched → terminalized path.
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'terminalized', failure_code = 'prompt_timeout', failure_reason = 'prompt_timeout'
+          WHERE id = $1`,
+        [id],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'terminalized' WHERE id = $1`,
+      [id],
+    );
+    await expect(
+      pool.query(`UPDATE agent_org_experiment_enrollments SET state = 'reserved' WHERE id = $1`, [id]),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+
+    const failedId = `${id}-failed`;
+    await pool.query(
+      `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+         VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+      Object.values({ ...enrollment, id: failedId, run_episode_id: `${failedId}-episode` }),
+    );
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed',
+                failure_code = 'provider_unavailable',
+                failure_reason = 'arbitrary raw provider detail'
+          WHERE id = $1`,
+        [failedId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments
+          SET state = 'treatment_failed',
+              failure_code = 'provider_unavailable',
+              failure_reason = 'provider_unavailable'
+        WHERE id = $1`,
+      [failedId],
+    );
   });
 
   it('SEMANTIC: the Postgres created_at DEFAULT is unambiguous ISO-8601 UTC', async () => {
