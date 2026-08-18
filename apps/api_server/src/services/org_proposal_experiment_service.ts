@@ -375,6 +375,48 @@ export async function resolveRunEnrollment(
   }
 }
 
+/**
+ * C1-B2 / #737: transition the reservation to dispatched.
+ *
+ * The reservation write must remain observable to the caller. Any repository
+ * error is intentionally surfaced (including `missing`), so the runner can fail
+ * closed rather than silently dispatching when transition state is unknown.
+ */
+export async function markRunEnrollmentDispatched(
+  runEpisodeId: string,
+): Promise<ReturnType<AgentOrgExperimentEnrollmentsRepository['markDispatchedAsync']>> {
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  return enrollmentsRepo.markDispatchedAsync(runEpisodeId);
+}
+
+/**
+ * C1-B2 / #737: transition reserved rows to pre-dispatch-failed.
+ *
+ * Uses the accepted code-only API so downstream reasoning never persists
+ * arbitrary text; failure details are standardized by the enrollment domain.
+ */
+export async function markRunEnrollmentPreDispatchFailed(
+  runEpisodeId: string,
+): Promise<ReturnType<AgentOrgExperimentEnrollmentsRepository['markTreatmentFailedAsync']>> {
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  return enrollmentsRepo.markTreatmentFailedAsync(runEpisodeId, {
+    failureCode: 'pre_dispatch_failed',
+  });
+}
+
+/**
+ * C1-B2 / #737: terminalize a dispatched row before ledger finalization.
+ *
+ * This keeps terminalization independent from outcome finalization so ledger
+ * durability issues cannot block experiment lifecycle completion.
+ */
+export async function markRunEnrollmentTerminalized(
+  runEpisodeId: string,
+): Promise<ReturnType<AgentOrgExperimentEnrollmentsRepository['markTerminalizedAsync']>> {
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  return enrollmentsRepo.markTerminalizedAsync(runEpisodeId);
+}
+
 /** A terminal verdict — persisted to `agent_org_experiments.decision`. */
 export interface ExperimentDecisionResult {
   status: 'decided';

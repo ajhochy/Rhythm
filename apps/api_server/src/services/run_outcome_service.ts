@@ -169,6 +169,7 @@ export interface TerminalRunEvent {
   /** The session that just reached a terminal state — may be a delegated child. */
   sessionId: string;
   terminalStatus: TerminalStatus;
+  runEpisodeId?: string | null;
   /**
    * Whether the turn produced observable output. A boolean ABOUT the output —
    * the output itself never crosses this boundary.
@@ -209,6 +210,17 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
     );
     const repo = new AgentRunOutcomesRepository();
     const rootSessionId = await repo.resolveRootSessionIdAsync(event.sessionId);
+    const runEpisodeId = event.runEpisodeId ?? rootSessionId;
+
+    try {
+      const { markRunEnrollmentTerminalized } = await import(
+        './org_proposal_experiment_service'
+      );
+      await markRunEnrollmentTerminalized(runEpisodeId);
+    } catch (err) {
+      logger.warn('[RunOutcome] terminalization skipped (non-fatal)');
+    }
+
     // The row is keyed on the ROOT run, so its objective evidence must describe
     // the root run too. Reading the child's telemetry produced an outcome that
     // silently ignored the root's own errors.
@@ -258,7 +270,7 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
       }),
     });
   } catch (err) {
-    logger.warn(`[RunOutcome] terminal outcome not recorded (non-fatal): ${String(err)}`);
+    logger.warn('[RunOutcome] terminal outcome not recorded (non-fatal)');
   }
 }
 

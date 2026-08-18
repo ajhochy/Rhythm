@@ -6,11 +6,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import Database from 'better-sqlite3';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import { AgentRunOutcomesRepository } from '../../repositories/agent_run_outcomes_repository';
+import { AgentOrgExperimentEnrollmentsRepository } from '../../repositories/agent_org_experiment_enrollments_repository';
 import { recordTerminalOutcome, recordFeedback } from '../run_outcome_service';
 
 let db: Database.Database;
@@ -24,6 +25,30 @@ function session(id: string, parentId: string | null = null): void {
 
 function outcomeCount(): number {
   return (db.prepare(`SELECT COUNT(*) AS n FROM agent_run_outcomes`).get() as { n: number }).n;
+}
+
+function seedExperiment(params: {
+  id: string;
+  proposalId: string;
+}): void {
+  db.prepare(
+    `
+    INSERT INTO agent_org_experiments
+      (id, proposal_id, adapter, evidence_bundle_json, baseline_spec_json,
+       candidate_spec_json, assignment_key, stopping_rule_json, max_exposure,
+       decision, declared_at)
+    VALUES (?, ?, 'paired-cohort-outcome', '{}', '{}', '{}', 'paired-key',
+            '{}', 10, ?, datetime('now'))`,
+  ).run(params.id, params.proposalId, null);
+}
+
+function seedDispatchedEnrollment(params: { runEpisodeId: string; experimentId: string }): void {
+  db.prepare(
+    `INSERT INTO agent_org_experiment_enrollments
+      (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
+       assignment_digest, baseline_target_revision_hash, treatment_spec_hash, state, reserved_at)
+     VALUES (?, ?, ?, 'proposal-1', 'agent-1', 'baseline', 'assign', 'base', 'treat', 'dispatched', datetime('now'))`,
+  ).run(`enroll-${params.runEpisodeId}`, params.runEpisodeId, params.experimentId);
 }
 
 beforeEach(() => {
@@ -191,6 +216,106 @@ describe('W4-c12 a delegated child resolves to its root run', () => {
       .prepare(`SELECT root_session_id AS r, session_id AS s FROM agent_run_outcomes`)
       .get();
     expect(row).toEqual({ r: 'root-1', s: 'grandchild-1' });
+  });
+});
+
+describe('C1-B2 terminal hook enrollment transition', () => {
+  it('terminalizes a dispatched enrollment by explicit runEpisode even when experiment is decided', async () => {
+    session('root-1');
+    seedExperiment({ id: 'experiment-1', proposalId: 'proposal-1' });
+    db.prepare(`UPDATE agent_org_experiments SET decision = 'promote' WHERE id = 'experiment-1'`).run();
+    seedDispatchedEnrollment({
+      runEpisodeId: 'dispatched-episode-1',
+      experimentId: 'experiment-1',
+    });
+
+    await recordTerminalOutcome({
+      sessionId: 'root-1',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+      runEpisodeId: 'dispatched-episode-1',
+      scheduledOccurrenceId: null,
+    });
+
+    const enrollment = new AgentOrgExperimentEnrollmentsRepository(db).findByRunEpisodeIdAsync('dispatched-episode-1');
+    expect((await enrollment)?.state).toBe('terminalized');
+  });
+
+  it('deduplicates terminal events for explicitly routed dispatched enrollment terminalization', async () => {
+    session('root-1');
+    seedExperiment({ id: 'experiment-2', proposalId: 'proposal-2' });
+    db.prepare(
+      `UPDATE agent_org_experiments SET decision = 'promote' WHERE id = 'experiment-2'`,
+    ).run();
+    seedDispatchedEnrollment({
+      runEpisodeId: 'dispatched-episode-2',
+      experimentId: 'experiment-2',
+    });
+    const event = {
+      sessionId: 'root-1',
+      terminalStatus: 'completed' as const,
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+      runEpisodeId: 'dispatched-episode-2',
+    };
+
+    await recordTerminalOutcome(event);
+    await recordTerminalOutcome(event);
+    await recordTerminalOutcome({ ...event, terminalStatus: 'error' });
+
+    expect(outcomeCount()).toBe(1);
+    const enrollment = new AgentOrgExperimentEnrollmentsRepository(db).findByRunEpisodeIdAsync(
+      'dispatched-episode-2',
+    );
+    expect((await enrollment)?.state).toBe('terminalized');
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`,
+      )
+      .get('dispatched-episode-2');
+    expect(row).toEqual({ n: 1 });
+  });
+
+  it('terminalizes a dispatched enrollment even when outcome finalization fails', async () => {
+    session('root-1');
+    seedExperiment({ id: 'experiment-3', proposalId: 'proposal-3' });
+    seedDispatchedEnrollment({
+      runEpisodeId: 'dispatched-episode-3',
+      experimentId: 'experiment-3',
+    });
+    const finalizeSpy = vi
+      .spyOn(AgentRunOutcomesRepository.prototype, 'finalizeAsync')
+      .mockRejectedValue(new Error('immutable outcome write failed'));
+
+    const event = {
+      sessionId: 'root-1',
+      terminalStatus: 'completed' as const,
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+      runEpisodeId: 'dispatched-episode-3',
+    };
+
+    await expect(recordTerminalOutcome(event)).resolves.toBeUndefined();
+    const enrollment = new AgentOrgExperimentEnrollmentsRepository(db).findByRunEpisodeIdAsync(
+      'dispatched-episode-3',
+    );
+    expect((await enrollment)?.state).toBe('terminalized');
+    expect(outcomeCount()).toBe(0);
+
+    await recordTerminalOutcome(event);
+    await recordTerminalOutcome({ ...event, terminalStatus: 'error' as const });
+
+    expect(outcomeCount()).toBe(0);
+    const duplicated = await db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`,
+      )
+      .get('dispatched-episode-3');
+    expect(duplicated).toEqual({ n: 1 });
+
+    const duplicatedEnrollment = await new AgentOrgExperimentEnrollmentsRepository(db).findByRunEpisodeIdAsync(
+      'dispatched-episode-3',
+    );
+    expect(duplicatedEnrollment?.state).toBe('terminalized');
+    finalizeSpy.mockRestore();
   });
 });
 

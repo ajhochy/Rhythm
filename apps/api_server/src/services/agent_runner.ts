@@ -44,7 +44,11 @@ import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_
 import { resolveProfileScope } from './agent_profile_scope';
 import { partitionResearchMcpPreflight } from './agent_skill_wiring';
 import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/experiment_treatment_adapter';
-import { reserveRunEnrollment } from './org_proposal_experiment_service';
+import {
+  markRunEnrollmentDispatched,
+  markRunEnrollmentPreDispatchFailed,
+  reserveRunEnrollment,
+} from './org_proposal_experiment_service';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -967,6 +971,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     delegationDepth: delegationDepth ?? 0,
     category: category ?? null,
   });
+  const resolvedRunEpisodeId: string | null = explicitRunEpisodeId ?? rhythmSessionId;
   if (rhythmSessionId && opts.onSessionCreated) {
     await opts.onSessionCreated(rhythmSessionId);
   }
@@ -1234,14 +1239,57 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // it still forwards the system override. A genuine built-in ocAgent
     // ('build'/'plan', where ocAgent !== configId) also keeps the override.
     const resolvedProfileId = effectiveConfigId ?? 'claude-code';
-    const resolvedRunEpisodeId = explicitRunEpisodeId ?? rhythmSessionId;
     if (resolvedRunEpisodeId) {
+      const lifecycleFailedMessage =
+        'AgentRunner: enrollment lifecycle transition failed before prompt dispatch';
+      let reservedEnrollment: Awaited<ReturnType<typeof reserveRunEnrollment>> | null = null;
       try {
-        await reserveRunEnrollment(resolvedRunEpisodeId, resolvedProfileId);
+        reservedEnrollment = await reserveRunEnrollment(resolvedRunEpisodeId, resolvedProfileId);
+        if (reservedEnrollment) {
+          const dispatchedTransition = await markRunEnrollmentDispatched(resolvedRunEpisodeId);
+          if (
+            dispatchedTransition.status !== 'applied' &&
+            dispatchedTransition.status !== 'no_op'
+          ) {
+            if (dispatchedTransition.current?.state === 'reserved') {
+              await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
+            }
+            logger.error(
+              '[AgentRunner] pre-dispatch state transition failed',
+            );
+            _markSessionError(
+              rhythmSessionId,
+              lifecycleFailedMessage,
+              false,
+              resolvedRunEpisodeId,
+            );
+            return {
+              sessionId: rhythmSessionId ?? '',
+              result: '',
+              status: 'error',
+              error: lifecycleFailedMessage,
+            };
+          }
+        }
       } catch (err) {
-        logger.warn(
-          `[AgentRunner] pre-run experiment reservation skipped for '${resolvedRunEpisodeId}' (non-fatal): ${String(err)}`,
+        if (reservedEnrollment?.state === 'reserved') {
+          await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
+        }
+        logger.error(
+          '[AgentRunner] pre-dispatch enrollment state transition failed (non-fatal)',
         );
+        _markSessionError(
+          rhythmSessionId,
+          lifecycleFailedMessage,
+          false,
+          resolvedRunEpisodeId,
+        );
+        return {
+          sessionId: rhythmSessionId ?? '',
+          result: '',
+          status: 'error',
+          error: lifecycleFailedMessage,
+        };
       }
     }
 
@@ -1310,12 +1358,12 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     );
 
     if (!response) {
-      logger.error(
-        `[AgentRunner] session ${sessionId}: prompt returned no response (model ${resolvedModel.providerID}/${resolvedModel.modelID} may be invalid or the provider unauthenticated)`,
-      );
+      logger.error('[AgentRunner] prompt returned no response');
       _markSessionError(
         rhythmSessionId,
         `No response from ${resolvedModel.providerID}/${resolvedModel.modelID} — check the model is valid and the provider is authenticated`,
+        false,
+        resolvedRunEpisodeId ?? undefined,
       );
       return {
         sessionId: rhythmSessionId ?? sessionId,
@@ -1436,6 +1484,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         sessionId: rhythmSessionId,
         terminalStatus: 'completed',
         scheduledOccurrenceId: scheduledTaskId ?? null,
+        ...(resolvedRunEpisodeId ? { runEpisodeId: resolvedRunEpisodeId } : {}),
       });
     }
 
@@ -1478,13 +1527,18 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       if (opencodeSessionId) {
         await opencodeClient.abortSession(opencodeSessionId, effectiveCwd).catch(() => {});
       }
-      logger.warn(`[AgentRunner] ${err.message}`);
       // Persist the recovered partial as the preview so an aborted retry
       // still surfaces the real (if incomplete) output instead of just the
       // generic timeout string. The returned `error` still carries the raw
       // timeout message so callers can distinguish "done with a recovered
       // partial" from a clean success.
-      _markSessionError(rhythmSessionId, partial || err.message, partial.length > 0);
+      logger.warn('[AgentRunner] prompt timed out');
+      _markSessionError(
+        rhythmSessionId,
+        partial || err.message,
+        partial.length > 0,
+        resolvedRunEpisodeId ?? undefined,
+      );
       if (rhythmSessionId && partial) {
         try {
           new AgentSessionMessagesRepository().append(rhythmSessionId, 'output', partial, partial);
@@ -1500,8 +1554,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       };
     }
     const errMsg = String(err);
-    logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
-    _markSessionError(rhythmSessionId, errMsg);
+    logger.error('[AgentRunner] unexpected error during run');
+    _markSessionError(rhythmSessionId, errMsg, false, resolvedRunEpisodeId ?? undefined);
     return {
       sessionId: rhythmSessionId ?? '',
       result: '',
@@ -1522,6 +1576,7 @@ function _markSessionError(
   rhythmSessionId: string | null,
   message?: string,
   producedArtifact = false,
+  runEpisodeId?: string,
 ): void {
   if (!rhythmSessionId) return;
   try {
@@ -1541,6 +1596,7 @@ function _markSessionError(
     sessionId: rhythmSessionId,
     terminalStatus: 'error',
     producedArtifact,
+    ...(runEpisodeId ? { runEpisodeId } : {}),
   });
 }
 
