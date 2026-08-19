@@ -1,5 +1,14 @@
 # Rhythm — Project State
 
+Two active, unrelated threads on this repo right now (no file overlap):
+
+1. **Mobile smart-client rebuild** — PR #1383, awaiting manual smoke + merge.
+2. **Numbat OpenCode observability (#1452)** — draft PR pending, awaiting AJ's manual smoke + merge decision.
+
+---
+
+## Thread 1 — Mobile smart-client rebuild
+
 **Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
 **Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
 
@@ -38,9 +47,46 @@ api_server vitest + mobile Playwright each surface ~1 parallel-execution flake p
 DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
 (Both full mobile suites ran clean on #1383.)
 
-## Next step
+## Next step (Thread 1)
 AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
 and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
 ```bash
 cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
 ```
+
+---
+
+## Thread 2 — Numbat OpenCode observability (#1452)
+
+**Focus:** Wire observe-only Numbat OpenCode monitoring into api_server startup — **verification-gate PASSED, draft PR open, awaiting AJ's manual smoke + merge decision.**
+**Branch:** `numbat-opencode-observability` → **PR #1453** (https://github.com/ajhochy/Rhythm/pull/1453). **Do NOT merge** — AJ merges after manual testing.
+
+### What it does
+New `apps/api_server/src/services/numbat_observability_service.ts` spawns
+`numbat hook install --agent opencode --emit all --content preview` at
+api_server startup, wired into the existing `agentExecutionEnabled` block in
+`server.ts` (own try/catch, no change to existing calls). Gated by
+`RHYTHM_NUMBAT_MONITORING_DISABLED=1` (checked first) and best-effort binary
+resolution (`RHYTHM_NUMBAT_BIN_PATH` → `/opt/homebrew/bin/numbat` →
+`/usr/local/bin/numbat` → bare `numbat` on PATH). **Observe-only, local-only,
+no enforcement, no HTTP sink** — numbat's own upstream constraint for the
+`opencode` agent (no `--enforce` flag accepted). Captured data lands in
+numbat's own `$HOME/.numbat/records.ndjson`, wholly separate from Rhythm's
+`run_quality` telemetry (#1069) — no schema/write-path collision.
+
+### Test status
+All 6 automatable acceptance criteria (AC1-AC6) pass with live-sandbox
+evidence: real `numbat` v0.2.0 binary installed and independently
+reproduced by verification-gate (real WS session + tool call → bounded
+`content_preview` NDJSON records, no `enforcement` records, turn completes
+without error). 13/13 unit tests, `tsc --noEmit` clean. AC7/AC8 are
+structural/doc-inspection criteria, recorded `not_tested` with reasoning in
+the contract — not silently marked green.
+
+### Next step (Thread 2)
+AJ: manual-smoke PR #1453 per `docs/testing/manual-smoke.md` §15 ("Numbat
+OpenCode observability hook"), then merge decision.
+
+Full detail: contract `docs/ai/contracts/issue-1452.json`, run note
+`docs/ai/runs/2026-08-18-numbat-opencode-observability.md`, decision record
+`docs/ai/decisions/2026-08-18-numbat-observability-integration.md`.
