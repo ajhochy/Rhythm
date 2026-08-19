@@ -131,6 +131,8 @@ import {
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
 import { resolveKnownMcpServerName } from './mcp_scope_name';
+import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
+import { validateSystemPromptV1Spec } from '../models/experiment_treatment_adapter';
 
 /** Minimal registry shape every generator's `register*Applier` needs. */
 export interface AppliersRegistry {
@@ -803,7 +805,89 @@ function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): Proposa
 }
 
 // ── refine-config ──
-function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationResult {
+
+/**
+ * C4 (docs/ai/contracts/issue-causal-runtime-v2.json, phase C4, requirement
+ * 5) — before a human-approved refine-config apply runs, revalidate against
+ * ANY experiment that already reached a causal verdict for this EXACT
+ * proposal: "durable apply after verified must revalidate evidence,
+ * proposal bytes, tested baseline revision/hash, and tested candidate hash.
+ * Target drift returns conflict and requires a new experiment; it never
+ * applies a stale winner."
+ *
+ * A refine-config proposal with NO experiment (an untested human edit —
+ * this treatment family also supports those) is unaffected: this check is a
+ * no-op when nothing has ever been tested. When an experiment DID reach a
+ * terminal 'promote' decision, the CURRENT durable value must still equal
+ * the exact baseline it was tested against (`candidateSpec.priorValue`),
+ * and the proposal's OWN `change_json` candidate value must still equal the
+ * exact candidate that was tested (`candidateSpec.candidateValue`) — either
+ * drifting since the experiment ran means this would durably apply a
+ * different change than the one that was verified.
+ */
+async function verifyTestedTargetStillMatches(
+  proposal: AgentOrgProposal,
+  patch: ConfigPatch,
+  currentValue: string | null,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  let experiments;
+  try {
+    experiments = await new AgentOrgExperimentsRepository().listByProposalAsync(proposal.id);
+  } catch {
+    // A transient read failure never blocks an UNTESTED proposal's own
+    // apply — it only means this revalidation could not run this time.
+    return { ok: true };
+  }
+  const verifiedExperiment = experiments.find((e) => e.decision === 'promote');
+  if (!verifiedExperiment) return { ok: true };
+
+  let candidateSpec: ReturnType<typeof validateSystemPromptV1Spec>;
+  try {
+    candidateSpec = validateSystemPromptV1Spec(JSON.parse(verifiedExperiment.candidateSpecJson));
+  } catch {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' has a verified experiment whose tested spec can no longer ` +
+        'be read — a new experiment is required',
+    };
+  }
+  if (!candidateSpec.valid) {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' has a verified experiment whose tested spec is no longer ` +
+        'valid — a new experiment is required',
+    };
+  }
+  if (patch.field !== 'system_prompt' || candidateSpec.spec.field !== 'system_prompt') {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' targets a different field than its verified experiment ` +
+        'tested — a new experiment is required',
+    };
+  }
+  if (currentValue !== candidateSpec.spec.priorValue) {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' target has drifted since its experiment was tested — a ` +
+        'new experiment is required',
+    };
+  }
+  if (patch.value !== candidateSpec.spec.candidateValue) {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' change_json no longer matches the exact candidate its ` +
+        'experiment tested — a new experiment is required',
+    };
+  }
+  return { ok: true };
+}
+
+async function validateRefineConfig(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
   const change = parseChange(proposal.changeJson);
   const protectedField = protectedGenericConfigField(change);
   if (protectedField) {
@@ -820,12 +904,31 @@ function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationRes
         'refine-config requires a machine-applyable configPatch {agentConfigId, field, value}; a prose-only diagnosis cannot be auto-applied',
     };
   }
-  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
+  const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+  if (!config) {
     return { valid: false, reason: `refine-config target agent_config '${patch.agentConfigId}' no longer exists` };
   }
+  const testedTargetCheck = await verifyTestedTargetStillMatches(
+    proposal,
+    patch,
+    readAgentConfigField(config, patch.field),
+  );
+  if (!testedTargetCheck.ok) return { valid: false, reason: testedTargetCheck.reason };
   return { valid: true };
 }
 
+/**
+ * Deliberately kept SYNCHRONOUS, unlike {@link validateRefineConfig}: every
+ * real caller (`org_proposal_apply_service.applyProposal`) already runs
+ * `validateProposalChange` — which awaits `validateRefineConfig`, including
+ * its {@link verifyTestedTargetStillMatches} check — and throws BEFORE ever
+ * invoking this applier, in the SAME request with no re-entrant write in
+ * between. Re-deriving the same async check here would be a redundant
+ * second query for no additional safety, and would turn every direct-applier
+ * test in this codebase (which calls appliers synchronously) into a promise
+ * — matching this module's existing pattern of appliers trusting the
+ * validator that already ran, not re-checking business rules themselves.
+ */
 const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => {
   const change = parseChange(proposal.changeJson);
   const protectedField = protectedGenericConfigField(change);

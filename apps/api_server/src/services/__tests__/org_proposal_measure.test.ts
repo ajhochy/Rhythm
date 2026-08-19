@@ -226,6 +226,51 @@ describe('W6-c7 the behavioral re-run is diagnostic only', () => {
     expect(after.outcomeStatus).toBe('regressed');
   });
 
+  it(
+    'C4-7 (causal-runtime-v2): a post-deployment re-run failure still reverts (deployment safety), ' +
+      'but never downgrades a causal outcome_status=verified already set by the experiment runtime',
+    async () => {
+      // docs/ai/contracts/issue-causal-runtime-v2.json phase C4, requirement 7:
+      // "Post-deployment measurement is monitoring, not the source of the
+      // original causal verdict." This is the SAME exact-inverse/CAS revert
+      // path as the sibling 'reproduced failure reverts' test above — the
+      // only difference is the proposal's outcome_status was ALREADY
+      // verified (by org_proposal_experiment_service's controlled
+      // experiment) before this later, unrelated diagnostic re-run ran.
+      await seedMeasuring({
+        id: 'p-rerun-verified',
+        kind: 'refine-config',
+        changeJson: RERUN_CHANGE,
+        beforeSnapshotJson: JSON.stringify({
+          agentConfigId: 'cfg-1',
+          field: 'model',
+          priorValue: 'old-model',
+        }),
+      });
+      new AgentConfigsRepository().insert({ id: 'cfg-1', label: 'cfg-1', icon: 'x' });
+      const before = (await repo().findByIdAsync('p-rerun-verified'))!;
+      const verified = await repo().setOutcomeStatusAtRevisionAsync({
+        proposalId: before.id,
+        expectedRevision: before.revision,
+        outcomeStatus: 'verified',
+      });
+      expect(verified?.outcomeStatus).toBe('verified');
+
+      const outcome = await measureProposal(verified!, {
+        rerunScenario: async () => ({ status: 'failed', reason: 'a later regression reproduced' }),
+      });
+
+      // The revert/deployment-safety half is untouched: a reproduced
+      // failure still reverts, exactly as it would for any other proposal.
+      expect(outcome).toBe('reverted');
+      const after = (await repo().findByIdAsync('p-rerun-verified'))!;
+      expect(after.status).toBe('reverted');
+      // The causal verdict is a SEPARATE axis this diagnostic pass has no
+      // authority over — it is never silently downgraded.
+      expect(after.outcomeStatus).toBe('verified');
+    },
+  );
+
   it('an infra error still SKIPS and leaves the row measuring for a later pass', async () => {
     await seedMeasuring({ id: 'p-infra', kind: 'refine-config', changeJson: RERUN_CHANGE });
     const proposal = (await repo().findByIdAsync('p-infra'))!;

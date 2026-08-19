@@ -66,6 +66,7 @@ import type {
   AgentOrgExperiment,
   ExperimentDecision,
   ExperimentResults,
+  MissingnessSummary,
 } from '../models/agent_org_experiment';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { AgentRunOutcome, UserVerdict } from '../models/agent_run_outcome';
@@ -948,6 +949,82 @@ function collecting(reason: string, results: ExperimentResults | null = null): E
 }
 
 /**
+ * C4 — the fixed-horizon v2 stopping rule's predeclared confidence
+ * criterion (docs/ai/contracts/issue-causal-runtime-v2.json, phase C4).
+ * Closed and immutable, matching EXPERIMENT_ADAPTERS/GUARDRAIL_REGISTRY's
+ * style: NOT a per-bundle or per-experiment declared value. A point
+ * estimate crossing `minEffect` is not enough on its own — without also
+ * requiring statistical significance at a fixed, predeclared level, ANY
+ * interim look that happens to cross `minEffect` by sampling noise would
+ * promote, which is exactly the "optional stopping" failure mode a real
+ * experiment must refuse.
+ *
+ * ponytail: a fixed 95% (z=1.96), not per-bundle configurable — upgrade to a
+ * declared bundle field if a real proposal ever needs a different level.
+ */
+const FIXED_HORIZON_CONFIDENCE_LEVEL = 0.95;
+const FIXED_HORIZON_Z_CRITICAL = 1.96;
+
+/**
+ * C4 — versioned so a stored decision can always be traced to the exact
+ * deterministic procedure that produced it. Bump this string (never mutate
+ * the math behind an already-shipped version) if the procedure ever changes.
+ */
+const ANALYSIS_VERSION = 'fixed-horizon-v2-normal-approx-1';
+
+/**
+ * C4 — deterministic effect + uncertainty for a two-cohort comparison,
+ * suitable for both a strictly binary metric (objective-success-rate,
+ * terminal-error-rate: every observation is 0 or 1) and the bounded
+ * 0/0.5/1 explicit-user-verdict-rate scale, WITHOUT a stats-library
+ * dependency.
+ *
+ * For any [0,1]-bounded random variable with mean `p`, Popoviciu's
+ * inequality bounds its variance by `p(1-p)` (the maximum, achieved by a
+ * two-point {0,1} distribution) — the exact variance a strictly Bernoulli
+ * metric has, and a CONSERVATIVE (never understated) bound for the
+ * 0/0.5/1 metric. Using `p(1-p)/n` as each cohort's variance-of-the-mean is
+ * therefore the same standard error a two-proportion z-test would use, and
+ * never overstates significance for a bounded non-binary metric.
+ */
+function computeFixedHorizonAnalysis(input: {
+  baselineP: number;
+  baselineN: number;
+  candidateP: number;
+  candidateN: number;
+  direction: 'increase' | 'decrease';
+}): {
+  effect: number;
+  standardError: number;
+  ciLower: number;
+  ciUpper: number;
+  significant: boolean;
+} {
+  const varianceBound = (p: number): number => p * (1 - p);
+  const standardError = Math.sqrt(
+    varianceBound(input.baselineP) / input.baselineN +
+      varianceBound(input.candidateP) / input.candidateN,
+  );
+  const raw = input.candidateP - input.baselineP;
+  const effect = input.direction === 'increase' ? raw : -raw;
+  // A zero standard error means every observation in BOTH cohorts landed on
+  // the same extreme (both cohorts entirely 0 or entirely 1) — there is no
+  // sampling variability left to test against, so any nonzero effect is as
+  // significant as this procedure can certify; a zero effect is never
+  // significant regardless of sample size.
+  const significant =
+    standardError === 0 ? effect !== 0 : Math.abs(effect) / standardError >= FIXED_HORIZON_Z_CRITICAL;
+  const marginOfError = standardError === 0 ? 0 : FIXED_HORIZON_Z_CRITICAL * standardError;
+  return {
+    effect,
+    standardError,
+    ciLower: effect - marginOfError,
+    ciUpper: effect + marginOfError,
+    significant,
+  };
+}
+
+/**
  * W6-c12 — all three decisions are reachable on THIS path.
  *
  * Order matters, and every gate before the comparison is a refusal:
@@ -1131,20 +1208,55 @@ export function decideExperiment(input: {
     );
   }
 
-  // `direction` says which way is better; the effect is always signed so that
-  // positive means the candidate improved.
-  const raw = results.candidate.primaryMetricValue - results.baseline.primaryMetricValue;
-  const effect = bundle.primaryMetric.direction === 'increase' ? raw : -raw;
+  // C4 — the fixed-horizon v2 decision: a deterministic, versioned effect +
+  // uncertainty computation, not a bare point-estimate comparison. A point
+  // estimate crossing minEffect is necessary but never sufficient on its
+  // own — this is exactly the "peek once, happen to clear the bar" failure
+  // mode a real experiment must not reward. Only an effect that ALSO clears
+  // the predeclared, closed confidence criterion may promote or regress;
+  // `direction` says which way is better, and `effect` is always signed so
+  // that positive means the candidate improved.
+  const analysis = computeFixedHorizonAnalysis({
+    baselineP: results.baseline.primaryMetricValue,
+    baselineN: results.baseline.sampleCount,
+    candidateP: results.candidate.primaryMetricValue,
+    candidateN: results.candidate.sampleCount,
+    direction: bundle.primaryMetric.direction,
+  });
+  const resultsWithAnalysis: ExperimentResults = {
+    ...results,
+    analysisVersion: ANALYSIS_VERSION,
+    confidenceLevel: FIXED_HORIZON_CONFIDENCE_LEVEL,
+    effect: analysis.effect,
+    standardError: analysis.standardError,
+    ciLower: analysis.ciLower,
+    ciUpper: analysis.ciUpper,
+  };
   const summary =
     `${bundle.primaryMetric.name} baseline=${results.baseline.primaryMetricValue} ` +
-    `candidate=${results.candidate.primaryMetricValue} effect=${effect.toFixed(4)} ` +
-    `(direction=${bundle.primaryMetric.direction}, minEffect=${minEffect})`;
+    `candidate=${results.candidate.primaryMetricValue} effect=${analysis.effect.toFixed(4)} ` +
+    `(direction=${bundle.primaryMetric.direction}, minEffect=${minEffect}, ` +
+    `confidence=${FIXED_HORIZON_CONFIDENCE_LEVEL})`;
 
-  if (effect >= minEffect) return decided('promote', `promote: ${summary}`, results);
-  if (effect <= -minEffect) return decided('regress', `regress: ${summary}`, results);
+  if (analysis.effect >= minEffect) {
+    if (analysis.significant) return decided('promote', `promote: ${summary}`, resultsWithAnalysis);
+    return inconclusive(
+      `the effect meets the predeclared minimum but is not statistically significant at the ` +
+        `predeclared ${(FIXED_HORIZON_CONFIDENCE_LEVEL * 100).toFixed(0)}% confidence level: ${summary}`,
+      resultsWithAnalysis,
+    );
+  }
+  if (analysis.effect <= -minEffect) {
+    if (analysis.significant) return decided('regress', `regress: ${summary}`, resultsWithAnalysis);
+    return inconclusive(
+      `the effect meets the predeclared minimum but is not statistically significant at the ` +
+        `predeclared ${(FIXED_HORIZON_CONFIDENCE_LEVEL * 100).toFixed(0)}% confidence level: ${summary}`,
+      resultsWithAnalysis,
+    );
+  }
   return inconclusive(
     `the move is smaller than the predeclared minimum effect: ${summary}`,
-    results,
+    resultsWithAnalysis,
   );
 }
 
@@ -1192,6 +1304,83 @@ async function resolveExplicitUserVerdictsIfNeeded(
  * an A/A result. Once receipt-backed cohorts reproduce the SAME promote
  * outcome under the SAME stopping rule, this is causal enough to verify.
  */
+/**
+ * C4 — fixed thresholds for the sample-integrity checks a receipt-backed
+ * promote must ALSO clear, on top of statistical significance. Any breach
+ * means the sample cannot be trusted for a causal verdict, so promotion is
+ * refused (pushed to inconclusive) rather than silently promoted through a
+ * compromised sample.
+ *
+ * ponytail: fixed constants, matching GUARDRAIL_REGISTRY's closed/fixed
+ * style — not per-bundle configurable. Upgrade to a declared bundle field if
+ * a real proposal ever needs different bounds.
+ */
+const SAMPLE_RATIO_MIN = 0.5;
+const MAX_MISSING_OUTCOME_RATE = 0.3;
+
+/**
+ * C4 — detect a compromised receipt-backed sample: cohort sizes diverging
+ * far from the declared 1:1 assignment (assignCohort is an even/odd split),
+ * an excessive share of enrolled runs never producing a receipt-backed
+ * outcome, or a receipt-backed outcome whose ledger cohort disagrees with
+ * its OWN enrollment's reserved cohort (a data-integrity failure that would
+ * otherwise silently mislabel a sample). Any hit blocks promotion.
+ */
+async function checkSampleIntegrityAsync(
+  experiment: AgentOrgExperiment,
+  receiptBaseline: AgentRunOutcome[],
+  receiptCandidate: AgentRunOutcome[],
+): Promise<{ failure: string | null; missingness: MissingnessSummary }> {
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  const enrollments = await enrollmentsRepo.listByExperimentAsync(experiment.id);
+  const baselineEnrolled = enrollments.filter((e) => e.cohort === 'baseline').length;
+  const candidateEnrolled = enrollments.filter((e) => e.cohort === 'candidate').length;
+  const missingness: MissingnessSummary = {
+    baselineEnrolled,
+    baselineMissing: Math.max(0, baselineEnrolled - receiptBaseline.length),
+    candidateEnrolled,
+    candidateMissing: Math.max(0, candidateEnrolled - receiptCandidate.length),
+  };
+
+  const nBaseline = receiptBaseline.length;
+  const nCandidate = receiptCandidate.length;
+  const larger = Math.max(nBaseline, nCandidate);
+  const smaller = Math.min(nBaseline, nCandidate);
+  if (larger > 0 && smaller / larger < SAMPLE_RATIO_MIN) {
+    return {
+      failure:
+        `sample-ratio mismatch: baseline=${nBaseline} candidate=${nCandidate} diverges from ` +
+        'the declared 1:1 assignment',
+      missingness,
+    };
+  }
+
+  const enrolledTotal = baselineEnrolled + candidateEnrolled;
+  const receiptTotal = nBaseline + nCandidate;
+  const missingRate = enrolledTotal > 0 ? 1 - receiptTotal / enrolledTotal : 0;
+  if (missingRate > MAX_MISSING_OUTCOME_RATE) {
+    return {
+      failure:
+        `excessive missing outcomes: only ${receiptTotal}/${enrolledTotal} enrolled runs ` +
+        'produced a receipt-backed outcome',
+      missingness,
+    };
+  }
+
+  const enrollmentByEpisode = new Map(enrollments.map((e) => [e.runEpisodeId, e]));
+  for (const outcome of [...receiptBaseline, ...receiptCandidate]) {
+    const enrollment = outcome.runEpisodeId ? enrollmentByEpisode.get(outcome.runEpisodeId) : undefined;
+    if (enrollment && enrollment.cohort !== outcome.experimentVariant) {
+      return {
+        failure: 'treatment-receipt mismatch: an outcome\'s ledger cohort disagrees with its own enrollment',
+        missingness,
+      };
+    }
+  }
+
+  return { failure: null, missingness };
+}
+
 async function gateProductionPromotionAsync(
   experiment: AgentOrgExperiment,
   evaluation: ExperimentEvaluation,
@@ -1223,7 +1412,18 @@ async function gateProductionPromotionAsync(
     explicitUserVerdicts,
   });
   if (receiptEvaluation.status === 'decided' && receiptEvaluation.decision === 'promote') {
-    return receiptEvaluation;
+    const integrity = await checkSampleIntegrityAsync(experiment, receiptBaseline, receiptCandidate);
+    const resultsWithMissingness = receiptEvaluation.results
+      ? { ...receiptEvaluation.results, missingness: integrity.missingness }
+      : receiptEvaluation.results;
+    if (integrity.failure) {
+      return decided(
+        'inconclusive',
+        `promote refused (C4 sample-integrity gate): ${integrity.failure}`,
+        resultsWithMissingness,
+      );
+    }
+    return { ...receiptEvaluation, results: resultsWithMissingness };
   }
 
   return decided(
