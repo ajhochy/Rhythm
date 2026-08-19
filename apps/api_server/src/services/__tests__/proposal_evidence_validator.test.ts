@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EXPERIMENT_ADAPTERS,
   PROPOSAL_EVIDENCE_BUNDLE_VERSION,
+  PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
   type ProposalEvidenceBundle,
 } from '../../models/proposal_evidence_bundle';
 import { validateEvidenceBundle } from '../proposal_evidence_validator';
@@ -212,6 +213,65 @@ describe('C3-4 explicit-user-verdict-rate metric declaration', () => {
       primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
     });
     expect(result.valid).toBe(true);
+  });
+});
+
+describe('C5 proposal-evidence-v2 — builder-produced bundles', () => {
+  /** A complete, current v2 bundle — same floor as v1, plus a typed counter-evidence search. */
+  function makeValidV2Bundle(): Record<string, unknown> {
+    const v1 = makeValidBundle() as unknown as Record<string, unknown>;
+    return {
+      ...v1,
+      version: PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
+      counterEvidenceSearch: {
+        query: "agent_run_outcomes for profile 'cfg-1'",
+        searchedAt: '2026-08-18T00:00:00.000Z',
+        contradictingCount: 0,
+        method: 'same-profile-ledger-scan',
+        coverage: 1,
+      },
+    };
+  }
+
+  it('admits a complete proposal-evidence-v2 bundle', () => {
+    const result = validateEvidenceBundle(makeValidV2Bundle());
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects a v2 bundle missing counterEvidenceSearch.coverage', () => {
+    const bundle = makeValidV2Bundle();
+    const counter = { ...(bundle.counterEvidenceSearch as Record<string, unknown>) };
+    delete counter.coverage;
+    const result = validateEvidenceBundle({ ...bundle, counterEvidenceSearch: counter });
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.reasons.join(' ')).toContain('coverage');
+  });
+
+  it('rejects a v2 bundle whose coverage is out of [0,1]', () => {
+    const bundle = makeValidV2Bundle();
+    const counter = { ...(bundle.counterEvidenceSearch as Record<string, unknown>), coverage: 1.5 };
+    const result = validateEvidenceBundle({ ...bundle, counterEvidenceSearch: counter });
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.reasons.join(' ')).toContain('coverage');
+  });
+
+  it('rejects a v2 bundle with an unknown (untyped) counter-evidence search method', () => {
+    const bundle = makeValidV2Bundle();
+    const counter = { ...(bundle.counterEvidenceSearch as Record<string, unknown>), method: 'vibes-scan' };
+    const result = validateEvidenceBundle({ ...bundle, counterEvidenceSearch: counter });
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.reasons.join(' ')).toContain('method');
+  });
+
+  it('does NOT require coverage/method on a v1 bundle (operator hand-written bundles keep working unchanged)', () => {
+    const result = validateEvidenceBundle(makeValidBundle());
+    expect(result.valid).toBe(true);
+  });
+
+  it('still rejects an unrecognised version outright — v2 is an addition, not a reinterpretation', () => {
+    const result = validateEvidenceBundle({ ...makeValidBundle(), version: 'proposal-evidence-v3' });
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.reasons.join(' ')).toContain('version');
   });
 });
 

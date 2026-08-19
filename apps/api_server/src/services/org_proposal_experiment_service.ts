@@ -152,13 +152,28 @@ interface EligibleExperimentMatch {
   targetRevisionFingerprint: string;
 }
 
-function toProfileTargetRef(profileId: string): string {
+/**
+ * C5 — exported (was module-private) so proposal_evidence_builder.ts can
+ * compute the EXACT SAME target ref this module's own eligibility check
+ * (findEligibleExperiment, below) requires. A second, hand-copied
+ * implementation of "the target ref" is a landmine the day one drifts from
+ * the other; there is exactly one, here.
+ */
+export function toProfileTargetRef(profileId: string): string {
   return `agent_config:${profileId}`;
 }
 
 const SYSTEM_PROMPT_DURABLE_FINGERPRINT_NULL_SENTINEL = '__system-prompt-null__';
 
-function buildProfileRevisionFingerprint(profile: { id: string; revision: number; systemPrompt: string | null }): string {
+/**
+ * C5 — exported for the same reason as {@link toProfileTargetRef}: the
+ * evidence builder must fill `target.hash` with the EXACT fingerprint this
+ * module's eligibility check (`findEligibleExperiment`) will later recompute
+ * and compare against — reusing this function is what makes that equality
+ * possible at all, rather than hoping two independent hash implementations
+ * never diverge.
+ */
+export function buildProfileRevisionFingerprint(profile: { id: string; revision: number; systemPrompt: string | null }): string {
   return `sha256:${createHash('sha256')
     .update(
       canonicalizeForHash({
