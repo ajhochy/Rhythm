@@ -16,6 +16,16 @@ import { isAllowedLocalAgentSurfaceRequest } from '../middleware/local_agent_sur
 import { resolveProfileScope } from './agent_profile_scope';
 import { retainTurn } from './turn_redispatch';
 import type { PermissionMode } from '../models/agent_session';
+import {
+  commitReservedTreatmentDispatch,
+  markRunEnrollmentPreDispatchFailed,
+  markRunEnrollmentTargetDrifted,
+  prepareReservedTreatment,
+  reserveRunEnrollment,
+  RunEnrollmentProfileCollisionError,
+  type ReservedTreatmentPreparation,
+} from './org_proposal_experiment_service';
+import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 
 export interface WsMessage {
   v: 1;
@@ -854,7 +864,10 @@ export async function handleInputFrame(
       cwd?: string,
       opts?: Record<string, unknown>,
       parts?: Array<Record<string, unknown>>,
-    ) => Promise<unknown>;
+      // C2-D (S4) — real prompt-dispatch boundary hook; see
+      // OpencodeClientService.promptAsync's C2-C contract.
+      beforeDispatch?: () => Promise<void>,
+    ) => Promise<boolean>;
 
     // The fork SDK accepts a per-turn `system` field. Keep retrieved context in
     // that hidden seam so message text/parts remain exactly user-authored
@@ -921,6 +934,77 @@ export async function handleInputFrame(
       };
     }
 
+    // C2-D (S4) — interactive WS prompt-dispatch boundary: reserve/prepare an
+    // experiment treatment for this run episode, the same reserve-before-
+    // dispatch + commit-at-dispatch contract C1/C2-C built for the scheduled
+    // path (agent_runner.ts's _runOnce). A reserved cohort's exact bound
+    // system prompt wins UNCONDITIONALLY over the profile's own systemPrompt
+    // and any transient skill/memory preface below — the receipt binds the
+    // effective-prompt HASH to exactly what is sent, so nothing may be
+    // appended after it. `reservedEnrollmentForCommit` +
+    // `readyPreparationForCommit` stay null (no override, no commit hook)
+    // whenever no runEpisodeId was supplied or no experiment matches this
+    // profile — an ordinary interactive turn is completely unaffected.
+    let reservedEnrollmentForCommit: ExperimentEnrollment | null = null;
+    let readyPreparationForCommit: Extract<ReservedTreatmentPreparation, { status: 'ready' }> | null = null;
+    if (perTurnRunEpisodeId) {
+      const resolvedProfileId = scopeAgentId ?? 'claude-code';
+      try {
+        const reservedEnrollment = await reserveRunEnrollment(perTurnRunEpisodeId, resolvedProfileId);
+        if (reservedEnrollment) {
+          // Re-verify target + binding BEFORE the exact override is baked
+          // into sdkOpts.system. The REAL commit (with its own fresh
+          // re-verification) happens only at the dispatch boundary via
+          // commitReservedTreatmentDispatch, below.
+          const preparation = await prepareReservedTreatment(reservedEnrollment);
+          if (preparation.status !== 'ready') {
+            if (preparation.status === 'target_drifted') {
+              await markRunEnrollmentTargetDrifted(perTurnRunEpisodeId).catch(() => {});
+            } else {
+              await markRunEnrollmentPreDispatchFailed(perTurnRunEpisodeId).catch(() => {});
+            }
+            console.error(
+              `[ws_gateway] session ${id}: pre-dispatch treatment preparation failed (${preparation.status})`,
+            );
+            ws.send(
+              JSON.stringify({
+                v: 1,
+                type: 'error',
+                id,
+                message: 'Experiment treatment preparation failed before dispatch — no prompt sent.',
+              }),
+            );
+            return;
+          }
+          sdkOpts = { ...(sdkOpts ?? {}), system: preparation.systemPromptOverride };
+          reservedEnrollmentForCommit = reservedEnrollment;
+          readyPreparationForCommit = preparation;
+        }
+      } catch (err) {
+        // A profile-collision throw means `perTurnRunEpisodeId` is already
+        // bound to a DIFFERENT profile's enrollment — never this run's own.
+        // Leave that reservation untouched; only fail THIS run's own
+        // reservation (if any) closed.
+        const isProfileCollision = err instanceof RunEnrollmentProfileCollisionError;
+        if (!isProfileCollision) {
+          await markRunEnrollmentPreDispatchFailed(perTurnRunEpisodeId).catch(() => {});
+        }
+        console.error(
+          `[ws_gateway] session ${id}: pre-dispatch enrollment state transition failed:`,
+          err,
+        );
+        ws.send(
+          JSON.stringify({
+            v: 1,
+            type: 'error',
+            id,
+            message: 'Experiment enrollment failed before dispatch — no prompt sent.',
+          }),
+        );
+        return;
+      }
+    }
+
     // #930 — retain the original user message plus hidden per-turn system
     // context. Handoff can replay the turn without ever recasting retrieved
     // context as user-authored text.
@@ -943,7 +1027,32 @@ export async function handleInputFrame(
       const { streamBridge } = await import('./opencode_stream_bridge');
       streamBridge.setPendingRunEpisodeId(id, perTurnRunEpisodeId);
     }
-    await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
+    // C2-D (S4) — the real prompt-dispatch boundary hook. When a reservation
+    // is ready, this is the ONLY place the reserved -> dispatched transition
+    // and the immutable receipt insert may happen: OpencodeClientService
+    // invokes it immediately after the exact SDK request (including this
+    // override in sdkOpts.system) is constructed, and immediately before the
+    // real SDK call. A throwing hook blocks the SDK call entirely (caught by
+    // this function's outer catch, below).
+    const beforeDispatch =
+      reservedEnrollmentForCommit && readyPreparationForCommit
+        ? async (): Promise<void> => {
+            await commitReservedTreatmentDispatch(
+              reservedEnrollmentForCommit!,
+              readyPreparationForCommit!,
+            );
+          }
+        : undefined;
+    const promptOk = await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts, beforeDispatch);
+    if (!promptOk && reservedEnrollmentForCommit) {
+      // The boundary hook never ran (client readiness disappeared between
+      // session creation and this call) or ran but the SDK itself still
+      // failed to enqueue the turn. Either way a still-`reserved` enrollment
+      // must not be left eligible/countable — fail it closed. Harmless no-op
+      // (illegal_transition, ignored) when the hook already committed
+      // reserved -> dispatched.
+      await markRunEnrollmentPreDispatchFailed(perTurnRunEpisodeId!).catch(() => {});
+    }
 
     // #929 — evaluateHarvestedDrafts() is NOT called here. `promptFn`
     // (promptAsync) resolves once the turn is submitted to the engine, not
