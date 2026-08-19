@@ -116,6 +116,45 @@ touch occupied sandbox ports, and `down` only signals the PID recorded inside
 its own sandbox directory. Do not enable copied scheduled tasks unless the
 specific task is being tested.
 
+### Numbat OpenCode observability hook (#1452, observe-only)
+
+api_server startup invokes `numbat hook install --agent opencode --emit all
+--content preview` (`services/numbat_observability_service.ts`) whenever the
+`numbat` binary (perplexityai/numbat) is present on the machine — Rhythm never
+bundles/auto-downloads it, so the feature is inert (not broken) until it is
+installed separately (`brew install perplexityai/tap/numbat` or see
+`https://github.com/perplexityai/numbat`). Set
+`RHYTHM_NUMBAT_MONITORING_DISABLED=1` to skip the install entirely (checked
+before any binary resolution or subprocess spawn); override the binary path
+with `RHYTHM_NUMBAT_BIN_PATH` if it is not under `/opt/homebrew/bin`,
+`/usr/local/bin`, or PATH.
+
+The install call only ever passes `--agent opencode --emit all --content
+preview` — no `--enforce` (numbat rejects it for `--agent opencode` upstream
+anyway; it is not a substitute for `rhythm_request_approval`), no `--output
+http`/`--http-url` (local-only, no telemetry sink). numbat writes its own
+auto-loaded global plugin to
+`${XDG_CONFIG_HOME:-~/.config}/opencode/plugins/numbat.ts` — a different
+OpenCode plugin-loading mechanism than Rhythm's `opencode.json` `plugin`
+array, so it does not touch `opencode_plugin_config.ts` or
+`RHYTHM_MANAGED_PLUGIN_NAMES`. With `--emit all`, captured records land at
+`$HOME/.numbat/records.ndjson` (one JSON object per line, `content_preview`
+bounded to <=200 code points, redacted). **numbat never rotates this file
+itself** — that is an operator-managed gap (log forwarder or OS retention
+policy), not something Rhythm builds a replacement for.
+
+```bash
+cd apps/api_server
+npx vitest run src/__tests__/numbat_observability_service.test.ts
+tools/dev/sandbox.sh up
+RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/numbat_observability_live_e2e.test.ts --no-file-parallelism
+tools/dev/sandbox.sh down
+```
+
+The live test resolves the binary itself first and skips gracefully (not a
+failure) when `numbat` is absent on the running machine — see
+`docs/ai/decisions/2026-08-18-numbat-observability-integration.md`.
+
 ### Deep Research sandbox model override
 
 For sandbox/ops verification only, `RHYTHM_RESEARCH_MODEL=provider/modelId`

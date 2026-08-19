@@ -554,6 +554,18 @@ async function main() {
       );
     }
 
+    // #1452 — observe-only Numbat OpenCode monitoring (own try/catch,
+    // independent of the opencode_plugin_config.ts calls above: numbat uses a
+    // completely different OpenCode plugin-loading mechanism — see
+    // numbat_observability_service.ts's module doc and
+    // docs/ai/decisions/2026-08-18-numbat-observability-integration.md).
+    try {
+      const { ensureNumbatObservability } = await import('./services/numbat_observability_service');
+      ensureNumbatObservability();
+    } catch (err) {
+      console.warn('[Numbat] Observability hook install failed (non-fatal):', err);
+    }
+
     // #748 — Start managed headless Chrome on :9222 (non-blocking, failure-tolerant).
     // Controlled by RHYTHM_MANAGED_CHROME env var: set to "0" or "false" to disable.
     const chromeManagementEnabled =

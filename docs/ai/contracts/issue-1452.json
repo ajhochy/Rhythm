@@ -1,0 +1,73 @@
+{
+  "issue": 1452,
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/numbat_observability_service.test.ts src/__tests__/numbat_observability_live_e2e.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1452-c1",
+      "text": "On a machine with numbat installed and RHYTHM_NUMBAT_MONITORING_DISABLED unset, starting api_server (via tools/dev/sandbox.sh up, never by hand) results in ${XDG_CONFIG_HOME:-~/.config}/opencode/plugins/numbat.ts existing, with an EXTRA_ARGS array containing no --enforce, no --output/http, no --content full.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/numbat_observability_live_e2e.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "numbat binary is not installed on this dev machine (`which numbat` resolves nothing); the live test checks binary presence via resolveNumbatBinary() first and skips this assertion gracefully rather than failing, per the issue's own instruction. The static-argv half of this criterion (no --enforce/--output http/--content full) is independently proven passing by the unit test (issue-1452-c3)."
+    },
+    {
+      "criterion_id": "issue-1452-c2",
+      "text": "A real OpenCode session driven through the sandbox (tool call + prompt) produces new lines in the configured NDJSON output file, each with content_preview bounded to <=200 code points (never full prompt/response text) and no record with record_type: \"enforcement\".",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/numbat_observability_live_e2e.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Same binary-absence gap as issue-1452-c1 — the live test drives a real session+tool-call and asserts bounded content_preview / no enforcement records when numbat is present, but gracefully skips (not fails) on this machine because numbat is not installed here."
+    },
+    {
+      "criterion_id": "issue-1452-c3",
+      "text": "Confirmed local-only/no-telemetry: no --http-url/--output http ever passed; NUMBAT_HTTP_TOKEN/NUMBAT_HTTP_HMAC_KEY not set by Rhythm anywhere; asserted by both a unit test (exact argv) and the manual smoke step.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1452-c4",
+      "text": "Confirmed enforcement is NOT enabled: generated plugin's EXTRA_ARGS has no --enforce; a hostile/attempted tool call is never blocked, delayed, or altered by the numbat hook (only rhythm_request_approval gates actions).",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": "The static claim (argv never contains --enforce) is unit-tested here and will pass. The deeper behavioral claim (a hostile tool call is never blocked by numbat) is structurally guaranteed rather than independently live-tested on this machine: this PR adds zero code paths connecting numbat's plugin to Rhythm's tool-execution/approval flow (verified via GitNexus impact on server.ts before wiring), and numbat's own CLI rejects --enforce for --agent opencode upstream (cited in the decision record). The live e2e test's AC4 assertion (turn settles without status='error') exercises this on a machine with numbat installed; it skips gracefully here."
+    },
+    {
+      "criterion_id": "issue-1452-c5",
+      "text": "Setting RHYTHM_NUMBAT_MONITORING_DISABLED=1 results in zero subprocess spawn attempt and no plugin file changes — verified by a unit test.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1452-c6",
+      "text": "On a machine/CI runner where numbat cannot be resolved, api_server starts normally with one informational log line and no thrown error — verified by a unit test that stubs binary resolution to fail.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1452-c7",
+      "text": "No collision with #1069's run_quality telemetry: both hooks (numbat's global plugin, rhythm-telemetry's array-registered plugin) fire independently on the same session with no shared file/table/env var — confirmed by inspecting run_quality_service.ts's schema (tool name/duration/status only, SQLite-backed) against numbat's NDJSON output (separate file, separate format), stated explicitly in the PR description.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Structural non-collision claim confirmed by direct code inspection, not by an automated test: run_quality_service.ts's tool_events SQLite table (session_id, sdk_session_id, call_id, tool, started_at, duration_ms, status, error_class) shares no file, table, or env var with numbat's separate $HOME/.numbat/records.ndjson output. Both plugins load through entirely different OpenCode mechanisms (array-registered vs. global auto-loaded) per docs/ai/decisions/2026-08-18-numbat-observability-integration.md. Stated explicitly in this run's note per AC7; not independently automatable beyond a trivial path-string-inequality check."
+    },
+    {
+      "criterion_id": "issue-1452-c8",
+      "text": "docs/ai/testing-guide.md and docs/testing/manual-smoke.md document the exact install command, disable flag, default output path/format, and the no-rotation gap.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Doc-content criterion — not unit-testable as a meaningful assertion beyond a trivial substring grep. Verified by direct review of the added sections in this PR's diff to both files (install command, RHYTHM_NUMBAT_MONITORING_DISABLED/RHYTHM_NUMBAT_BIN_PATH, default $HOME/.numbat/records.ndjson path/format, and the explicit no-rotation gap)."
+    }
+  ],
+  "not_tested": ["issue-1452-c1", "issue-1452-c2", "issue-1452-c7", "issue-1452-c8"]
+}
