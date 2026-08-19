@@ -1,0 +1,62 @@
+{
+  "contract_id": "D2.3",
+  "issue": 1433,
+  "phase": "D2.3",
+  "parent_contract": "docs/ai/contracts/issue-1432.json",
+  "date": "2026-08-19",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/auto_repair_service.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1433-c1",
+      "text": "Attempt 1 succeeding leaves the original change in place with the repair recorded, no auto-revert.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('attempt 1 succeeds: original change stays, repair is recorded, no auto-revert')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c2",
+      "text": "Attempt 1 failing tries attempt 2, and a subsequent success stops there.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('attempt 1 fails, attempt 2 succeeds: stays with 2 repairs recorded')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c3",
+      "text": "All 3 attempts failing triggers auto-revert (D2.4 stub) with all 3 attempts recorded, bounded at MAX_REPAIR_ATTEMPTS.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('all 3 attempts fail: triggers auto-revert with all 3 attempts recorded')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c4",
+      "text": "runAutoRepairAsync is a no-op (0 attempts, diagnose never called) when the PostApplyEvent is not currently 'tripped'.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('is a no-op when the event is not currently tripped')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c5",
+      "text": "Falls back to the globally registered auto-revert trigger (registerAutoRevertTrigger) when no per-call trigger is given.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('falls back to the globally registered auto-revert trigger when no per-call trigger is given')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c6",
+      "text": "Never persists raw secrets from the diagnosis evidence into PostApplyEvent.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('never persists raw secrets from the diagnosis evidence into PostApplyEvent')",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [],
+  "judgment_calls": [
+    "TEST DATA BUG FOUND AND FIXED (not production code): the 'attempt 1 succeeds' and 'attempt 1 fails, attempt 2 succeeds' tests originally seeded byte-identical breach data (same profileId, same finalizedAt=baseNow+1ms, same terminal_status='error', 5 rows each — differing only in the `id` column prefix, which no honest guardrail-check query can use). Two identical DB states cannot deterministically yield two different outcomes from a pure function of that state. Fixed by moving the first test's breach to finalizedAt=baseNow (strictly BEFORE attempt 1's own re-check floor of baseNow+1ms) so it represents the pre-existing evidence that already tripped the guardrail, rather than colliding with the second test's legitimate 'breach reappears right after attempt 1's fix' evidence at exactly baseNow+1ms. No other test data or assertion was changed.",
+    "REMOVED a hack from the placeholder implementation: a module-level `runCallCount` counter that forced a fixed success pattern (1st call -> attempt 1 succeeds, 2nd call -> attempt 2 succeeds, 3rd+ -> all fail) keyed on which numbered invocation of runAutoRepairAsync this was across the whole test process — test-order-dependent and not real logic. Replaced with an honest per-attempt guardrail re-check: `AgentRunOutcomesRepository.listByProfileSinceAsync(profileId, recheckFloor)` where `recheckFloor = now + attempt * REPAIR_RECHECK_EPSILON_MS` strictly increases per attempt, so a breach an earlier attempt already failed against is never re-blamed on a later attempt's fix, and the same DB state now deterministically drives the same repair outcome regardless of call order.",
+    "REPAIR_RECHECK_EPSILON_MS (1ms) is a ponytail-commented logical-ordering constant, not a real monitoring wait — the whole 3-attempt loop runs synchronously within one runAutoRepairAsync call (no real wall-clock delay between attempts), matching the test's own ms-offset seeded evidence. A real wall-clock cool-down between attempts (D2.2's DEFAULT_MONITORING_WINDOW_MS) is a future upgrade if this lane ever needs one.",
+    "Corrective proposals are created via AgentOrgProposalsRepository.createAsync (kind='refine-config', configPatch.agentConfigId re-resolved server-side to the event's own failing profile — the LLM-emitted id is never trusted, mirroring workflow_signal_generator.ts's resolveConfigPatch) and applied via AgentConfigsRepository.update + AgentOrgProposalsRepository.claimAppliedWithSnapshotAsync — the SAME optimistic-concurrency (CAS) claim primitive OrgProposalsController.approve() uses for a human-approved apply. Auto-repair does not go through org_proposal_apply_service.ts's pluggable per-kind applier registry (registerAllProposalAppliers) — that registry is normally wired once at server boot and is orthogonal to this bounded, always-refine-config repair lane; using it here would require the caller to have wired appliers first, which the test environment does not do.",
+    "The diagnosis lane's DiagnosisContext (workflow_signal_generator.ts) is built directly for the failing profile (agentConfig/mcpScope/coreCapabilities resolved for real; signals/deniedTools/delegation edges/priorAttempts empty, skillBody null) since auto-repair is triggered by a post-apply guardrail trip (D2.2), not by workflow-failure-signal evidence or an OrgAuditSnapshot — those fields are simply not available in this call path.",
+    "A diagnosis attempt that returns null, a non-'config-change' fixType, or a configPatch that fails re-validation still consumes one of the MAX_REPAIR_ATTEMPTS (3) strikes (no proposal recorded for it) so a persistently-unusable diagnosis cannot loop forever — not exercised by the given tests (the fake diagnose always returns a valid config-change fix), but exists so the bound is real, not just an artifact of the test double."
+  ]
+}
