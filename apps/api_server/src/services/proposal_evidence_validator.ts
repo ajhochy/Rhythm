@@ -10,10 +10,12 @@
 
 import {
   EXPERIMENT_ADAPTERS,
-  PRIMARY_METRICS,
+  KNOWN_METRIC_NAMES,
   PROPOSAL_EVIDENCE_BUNDLE_VERSION,
   type ProposalEvidenceBundle,
 } from '../models/proposal_evidence_bundle';
+import { EXPLICIT_USER_VERDICT_METRIC_NAME } from '../models/feedback_metric_adapter';
+import { GUARDRAIL_NAMES, isKnownGuardrailName } from '../models/guardrail_registry';
 
 export type EvidenceValidation =
   | { valid: true; bundle: ProposalEvidenceBundle }
@@ -90,15 +92,33 @@ export function validateEvidenceBundle(input: unknown): EvidenceValidation {
     (metric.direction !== 'increase' && metric.direction !== 'decrease')
   ) {
     reasons.push('primaryMetric must name a metric and the direction that counts as better');
-  } else if (!Object.hasOwn(PRIMARY_METRICS, metric.name as string)) {
+  } else if (!KNOWN_METRIC_NAMES.has(metric.name as string)) {
     reasons.push(
       `primaryMetric.name '${String(metric.name)}' is not a computable metric ` +
-        `(known: ${Object.keys(PRIMARY_METRICS).sort().join(', ')})`,
+        `(known: ${[...KNOWN_METRIC_NAMES].sort().join(', ')})`,
     );
+  } else if (metric.name === EXPLICIT_USER_VERDICT_METRIC_NAME) {
+    // C3 — the feedback-backed metric predeclares its own coverage floor;
+    // objective metrics never go silent so they need no such field.
+    const coverage = metric.minResponseCoverage;
+    if (typeof coverage !== 'number' || !Number.isFinite(coverage) || coverage < 0 || coverage > 1) {
+      reasons.push(
+        `primaryMetric.minResponseCoverage must be a finite number in [0,1] when primaryMetric.name is ` +
+          `'${EXPLICIT_USER_VERDICT_METRIC_NAME}'`,
+      );
+    }
   }
 
   if (!stringArray(input.guardrails) || input.guardrails.length === 0) {
     reasons.push('guardrails must list at least one guardrail');
+  } else {
+    const unknown = input.guardrails.filter((g) => !isKnownGuardrailName(g));
+    if (unknown.length > 0) {
+      reasons.push(
+        `guardrails must be executable typed predicates from the closed registry ` +
+          `(known: ${GUARDRAIL_NAMES.join(', ')}); unrecognised: ${unknown.join(', ')}`,
+      );
+    }
   }
 
   if (!nonEmptyString(input.experimentAdapter)) {

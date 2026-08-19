@@ -130,7 +130,7 @@ function bundle(profileTargetHash: string): Record<string, unknown> {
     target: { ref: PROFILE_TARGET_REF, hash: profileTargetHash },
     expectedOutcome: 'more runs reach an objective success verdict',
     primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
-    guardrails: ['revert if the terminal error rate rises'],
+    guardrails: ['terminal-error-rate'],
     experimentAdapter: 'paired-cohort-outcome',
     rollbackRule: 'restore before_snapshot_json',
     generatorVersion: 'c2a-generator-v1',

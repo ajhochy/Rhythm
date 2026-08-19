@@ -32,8 +32,10 @@ import {
   assignSubject,
   assignSubjectAsync,
   commitReservedTreatmentDispatch,
+  computeDecisionAsync,
   decideExperiment,
   judgeExperimentAsync,
+  markRunEnrollmentPreDispatchFailed,
   prepareReservedTreatment,
   reserveRunEnrollment,
   RunEnrollmentProfileCollisionError,
@@ -65,7 +67,7 @@ function makeValidBundle(): ProposalEvidenceBundle {
     target: { ref: 'agent_configs:cfg-1', hash: 'sha256:abc123' },
     expectedOutcome: 'more successful runs on the research profile',
     primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
-    guardrails: ['terminal-error-rate must not rise'],
+    guardrails: ['terminal-error-rate'],
     experimentAdapter: 'paired-cohort-outcome',
     rollbackRule: 'restore before_snapshot_json and set status=reverted',
     generatorVersion: 'scope-hygiene-generator@3',
@@ -190,6 +192,8 @@ async function declareC1Experiment(
     bundle?: ProposalEvidenceBundle;
     baselineSpec?: Record<string, unknown>;
     candidateSpec?: Record<string, unknown>;
+    stoppingRule?: { minSamplesPerCohort: number; minEffect: number };
+    maxExposure?: number;
   } = {},
 ) {
   const {
@@ -198,6 +202,8 @@ async function declareC1Experiment(
     bundle = bundleForProfile(profileId),
     baselineSpec = systemPromptSpec(profileId),
     candidateSpec = systemPromptSpec(profileId, { candidateValue: 'after-candidate' }),
+    stoppingRule = { minSamplesPerCohort: 10, minEffect: 0.05 },
+    maxExposure = 100,
   } = options;
 
   const resolvedProposalId = proposalId ?? `prop-${bundle.target.ref}-${Math.random()}`;
@@ -215,8 +221,8 @@ async function declareC1Experiment(
     baselineSpecJson: JSON.stringify(baselineSpec),
     candidateSpecJson: JSON.stringify(candidateSpec),
     assignmentKey: `exp-${bundle.target.ref}-${Math.random()}`,
-    stoppingRule: { minSamplesPerCohort: 10, minEffect: 0.05 },
-    maxExposure: 100,
+    stoppingRule,
+    maxExposure,
   });
 }
 
@@ -1871,5 +1877,382 @@ describe('C2-C — commitReservedTreatmentDispatch: the real dispatch-boundary c
     // only the real reservation plus the exact initial preparation it must
     // reproduce. Pinned via arity rather than a runtime probe.
     expect(commitReservedTreatmentDispatch.length).toBe(2);
+  });
+});
+
+/**
+ * C3 — treatment-bound outcomes, executable metrics, and guardrails
+ * (docs/ai/contracts/issue-causal-runtime-v2.json, phase C3).
+ *
+ * Fixed-format fake hashes: these tests reserve+dispatch+finalize receipts
+ * directly through the real repositories (not the full C2 prepare/dispatch
+ * boundary), so they need placeholder hashes that still satisfy the
+ * receipts table's own CHECK constraints (sha256:<64hex> / bare 64hex).
+ */
+const C3_FAKE_TARGET_REVISION_HASH = `sha256:${'d'.repeat(64)}`;
+const C3_FAKE_TREATMENT_SPEC_HASH = 'e'.repeat(64);
+const C3_FAKE_EFFECTIVE_PROMPT_HASH = 'f'.repeat(64);
+
+/** Reserve, dispatch, and finalize a real treatment receipt for one cohort member, then finalize its outcome. */
+async function seedReceiptBackedOutcome(params: {
+  experimentId: string;
+  proposalId: string;
+  profileId: string;
+  cohort: 'baseline' | 'candidate';
+  runEpisodeId: string;
+  success: boolean;
+}): Promise<void> {
+  const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+  await enrollmentsRepo.reserveAsync({
+    maxExposure: 1000,
+    runEpisodeId: params.runEpisodeId,
+    experimentId: params.experimentId,
+    proposalId: params.proposalId,
+    profileId: params.profileId,
+    cohort: params.cohort,
+    assignmentDigest: `digest-${params.runEpisodeId}`,
+    baselineTargetRevisionHash: C3_FAKE_TARGET_REVISION_HASH,
+    treatmentSpecHash: C3_FAKE_TREATMENT_SPEC_HASH,
+  });
+  const receiptsRepo = new AgentOrgTreatmentReceiptsRepository();
+  const result = await receiptsRepo.dispatchAndFinalizeReceiptAsync(params.runEpisodeId, {
+    profileRevision: 1,
+    targetRef: `agent_config:${params.profileId}`,
+    targetRevisionHash: C3_FAKE_TARGET_REVISION_HASH,
+    treatmentSpecHash: C3_FAKE_TREATMENT_SPEC_HASH,
+    effectivePromptHash: C3_FAKE_EFFECTIVE_PROMPT_HASH,
+  });
+  if (result.status !== 'applied') {
+    throw new Error(`test setup: expected receipt to apply, got '${result.status}'`);
+  }
+  await new AgentRunOutcomesRepository().finalizeAsync({
+    rootSessionId: params.runEpisodeId,
+    runEpisodeId: params.runEpisodeId,
+    proposalId: params.proposalId,
+    experimentVariant: params.cohort,
+    terminalStatus: 'completed',
+    objectiveVerdict: params.success ? 'success' : 'failure',
+    objectiveEvidence: {
+      producedArtifact: params.success,
+      errorCount: params.success ? 0 : 1,
+      approvalDenied: false,
+    },
+  });
+}
+
+describe('C3-1 promote is re-enabled once treatment-v2 receipts prove the effect', () => {
+  it('reaches promote/verified when receipt-backed cohorts independently satisfy the stopping rule', async () => {
+    // Bug this catches: the C0 gate that blanket-refused every promote for
+    // 'paired-cohort-outcome' must not become a PERMANENT block — once real
+    // treatment receipts exist and reproduce the effect, promote must be
+    // reachable again (C2's own "re-enable promote... through the
+    // receipt-filtered treatment-v2 path" requirement).
+    const proposalId = 'prop-c3-promote';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'a candidate worth measuring',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), { proposalId });
+
+    for (let i = 0; i < 20; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c3-promote',
+        cohort: 'baseline',
+        runEpisodeId: `c3-promote-b-${i}`,
+        success: i < 10, // 50%
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c3-promote',
+        cohort: 'candidate',
+        runEpisodeId: `c3-promote-c-${i}`,
+        success: i < 18, // 90%
+      });
+    }
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('promote');
+    expect(judged.reason).toMatch(/objective-success-rate/);
+
+    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('verified');
+  });
+
+  it('still refuses promote when the raw comparison favors it but NO receipts back the cohorts', async () => {
+    // Regression guard for the existing C0 behavior: an unfiltered A/A-shaped
+    // effect (no receipts at all) must still be refused, not silently
+    // promoted just because SOME cohort read might now succeed.
+    const proposalId = 'prop-c3-no-receipts';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'a candidate worth measuring',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), { proposalId });
+    const outcomes = new AgentRunOutcomesRepository();
+    for (let i = 0; i < 20; i += 1) {
+      await outcomes.finalizeAsync({
+        rootSessionId: `c3-noreceipt-b-${i}`,
+        proposalId,
+        experimentVariant: 'baseline',
+        terminalStatus: 'completed',
+        objectiveVerdict: i < 10 ? 'success' : 'failure',
+        objectiveEvidence: { producedArtifact: i < 10, errorCount: i < 10 ? 0 : 1, approvalDenied: false },
+      });
+      await outcomes.finalizeAsync({
+        rootSessionId: `c3-noreceipt-c-${i}`,
+        proposalId,
+        experimentVariant: 'candidate',
+        terminalStatus: 'completed',
+        objectiveVerdict: i < 18 ? 'success' : 'failure',
+        objectiveEvidence: { producedArtifact: i < 18, errorCount: i < 18 ? 0 : 1, approvalDenied: false },
+      });
+    }
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('inconclusive');
+    expect(judged.reason).toMatch(/treatment-v2/i);
+
+    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('inconclusive');
+  });
+});
+
+describe('C3-4 explicit-user-verdict-rate: a separate typed metric adapter over append-only feedback', () => {
+  function feedbackBundle(minResponseCoverage: number): ProposalEvidenceBundle {
+    return {
+      ...makeValidBundle(),
+      primaryMetric: { name: 'explicit-user-verdict-rate', direction: 'increase', minResponseCoverage },
+    };
+  }
+
+  async function seedRun(params: {
+    proposalId: string;
+    cohort: 'baseline' | 'candidate';
+    rootSessionId: string;
+    verdict?: 'success' | 'partial' | 'failure';
+    reason?: string;
+  }): Promise<void> {
+    await new AgentRunOutcomesRepository().finalizeAsync({
+      rootSessionId: params.rootSessionId,
+      proposalId: params.proposalId,
+      experimentVariant: params.cohort,
+      terminalStatus: 'completed',
+      objectiveVerdict: 'inconclusive',
+      objectiveEvidence: { producedArtifact: null, errorCount: null, approvalDenied: null },
+    });
+    if (params.verdict) {
+      await new AgentRunOutcomesRepository().appendFeedbackAsync({
+        rootSessionId: params.rootSessionId,
+        source: 'explicit_user',
+        verdict: params.verdict,
+        confidence: 1,
+        reason: params.reason ?? null,
+      });
+    }
+  }
+
+  it('promotes on a real response-rate effect, once treatment-v2 receipts back both cohorts and coverage clears the predeclared minimum', async () => {
+    const proposalId = 'prop-c3-feedback-promote';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, feedbackBundle(0.5), { proposalId });
+
+    // Baseline: 10 receipt-backed runs, all responded, all 'failure' (score 0).
+    for (let i = 0; i < 10; i += 1) {
+      const runEpisodeId = `c3-fb-b-${i}`;
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c3-feedback',
+        cohort: 'baseline',
+        runEpisodeId,
+        success: false,
+      });
+      await new AgentRunOutcomesRepository().appendFeedbackAsync({
+        rootSessionId: runEpisodeId,
+        source: 'explicit_user',
+        verdict: 'failure',
+        confidence: 1,
+      });
+    }
+    // Candidate: 10 receipt-backed runs, all responded, all 'success' (score 1).
+    for (let i = 0; i < 10; i += 1) {
+      const runEpisodeId = `c3-fb-c-${i}`;
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c3-feedback',
+        cohort: 'candidate',
+        runEpisodeId,
+        success: true,
+      });
+      await new AgentRunOutcomesRepository().appendFeedbackAsync({
+        rootSessionId: runEpisodeId,
+        source: 'explicit_user',
+        verdict: 'success',
+        confidence: 1,
+      });
+    }
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('promote');
+    expect(judged.reason).toMatch(/explicit-user-verdict-rate/);
+    expect(judged.results!.baseline.responseRate).toBe(1);
+    expect(judged.results!.candidate.responseRate).toBe(1);
+
+    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('verified');
+  });
+
+  it('stays collecting (never guesses a zero) while response coverage is below the predeclared minimum', async () => {
+    const proposalId = 'prop-c3-feedback-coverage';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, feedbackBundle(0.8), { proposalId, maxExposure: 1000 });
+
+    // 10 runs per cohort, but only 2 responded each — 20% coverage, below the 80% minimum.
+    for (let i = 0; i < 10; i += 1) {
+      await seedRun({
+        proposalId,
+        cohort: 'baseline',
+        rootSessionId: `c3-fbcov-b-${i}`,
+        verdict: i < 2 ? 'failure' : undefined,
+      });
+      await seedRun({
+        proposalId,
+        cohort: 'candidate',
+        rootSessionId: `c3-fbcov-c-${i}`,
+        verdict: i < 2 ? 'success' : undefined,
+      });
+    }
+
+    const judged = await computeDecisionAsync(exp);
+    expect(judged.status).toBe('collecting');
+    expect(judged.reason).toMatch(/response rate/i);
+  });
+
+  it('refuses promotion on a material response-rate imbalance between arms, never regress', async () => {
+    const proposalId = 'prop-c3-feedback-imbalance';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, feedbackBundle(0.1), { proposalId, maxExposure: 1000 });
+
+    const FEEDBACK_SECRET = 'it kept using sk-ant-api03-totallyFakeSecretValue and my board notes';
+
+    // Baseline: 10 runs, ALL respond 'success' (rate 1.0, response rate 100%).
+    for (let i = 0; i < 10; i += 1) {
+      await seedRun({
+        proposalId,
+        cohort: 'baseline',
+        rootSessionId: `c3-fbimb-b-${i}`,
+        verdict: 'success',
+        reason: i === 0 ? FEEDBACK_SECRET : undefined,
+      });
+    }
+    // Candidate: 10 runs, only 2 respond (both 'success') — response rate 20%,
+    // a 80-point gap from baseline's 100%. Candidate's OWN average looks
+    // perfect (1.0), which is exactly the confound this gate exists to catch.
+    for (let i = 0; i < 10; i += 1) {
+      await seedRun({
+        proposalId,
+        cohort: 'candidate',
+        rootSessionId: `c3-fbimb-c-${i}`,
+        verdict: i < 2 ? 'success' : undefined,
+      });
+    }
+
+    const judged = await computeDecisionAsync(exp);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('inconclusive');
+    expect(judged.reason).toMatch(/response-rate imbalance/i);
+    // C3-7 — the result payload names only rates/percentages, never the raw
+    // free-form feedback reason a human typed (which may carry secrets).
+    expect(judged.reason).not.toContain(FEEDBACK_SECRET);
+    expect(JSON.stringify(judged.results)).not.toContain(FEEDBACK_SECRET);
+  });
+});
+
+describe('C3-6 guardrail breach stops new enrollment atomically', () => {
+  it('refuses a new reservation and records a terminal regress once treatment-integrity-failure-rate breaches', async () => {
+    const profileId = 'c3-guardrail-integrity';
+    const { hash } = profileTargetFingerprint(profileId);
+    const exp = await declareC1Experiment(profileId, {
+      bundle: { ...bundleForProfile(profileId, hash), guardrails: ['treatment-integrity-failure-rate'] },
+      baselineSpec: systemPromptSpec(profileId, {}, hash),
+      candidateSpec: systemPromptSpec(profileId, { candidateValue: 'after' }, hash),
+      stoppingRule: { minSamplesPerCohort: 5, minEffect: 0.05 },
+    });
+
+    // 3 healthy reservations, then 2 that fail pre-dispatch: 2/5 = 40% > the
+    // 30% treatment-integrity-failure-rate ceiling.
+    for (let i = 0; i < 3; i += 1) {
+      const enrollment = await reserveRunEnrollment(`c3-integrity-ok-${i}`, profileId);
+      expect(enrollment).not.toBeNull();
+    }
+    for (let i = 0; i < 2; i += 1) {
+      const enrollment = await reserveRunEnrollment(`c3-integrity-fail-${i}`, profileId);
+      expect(enrollment).not.toBeNull();
+      await markRunEnrollmentPreDispatchFailed(`c3-integrity-fail-${i}`);
+    }
+
+    const refused = await reserveRunEnrollment('c3-integrity-next', profileId);
+    expect(refused).toBeNull();
+
+    const stored = await new AgentOrgExperimentsRepository().findByIdAsync(exp.id);
+    expect(stored!.decision).toBe('regress');
+    expect(stored!.decisionReason).toMatch(/treatment-integrity-failure-rate/);
+    // C3-7 — the recorded reason never carries the raw profile id.
+    expect(stored!.decisionReason).not.toContain(profileId);
+
+    // Guardrail enforcement never mutates the durable target.
+    const profile = new AgentConfigsRepository().getById(profileId);
+    expect(profile!.systemPrompt).toBe('before');
+
+    // Once stopped, the experiment stays stopped for a later reservation attempt too.
+    const refusedAgain = await reserveRunEnrollment('c3-integrity-next-2', profileId);
+    expect(refusedAgain).toBeNull();
+  });
+
+  it('does not stop enrollment for a healthy experiment with no guardrail breach', async () => {
+    const profileId = 'c3-guardrail-healthy';
+    const { hash } = profileTargetFingerprint(profileId);
+    await declareC1Experiment(profileId, {
+      bundle: bundleForProfile(profileId, hash),
+      baselineSpec: systemPromptSpec(profileId, {}, hash),
+      candidateSpec: systemPromptSpec(profileId, { candidateValue: 'after' }, hash),
+      stoppingRule: { minSamplesPerCohort: 5, minEffect: 0.05 },
+    });
+
+    for (let i = 0; i < 6; i += 1) {
+      const enrollment = await reserveRunEnrollment(`c3-healthy-${i}`, profileId);
+      expect(enrollment).not.toBeNull();
+    }
   });
 });

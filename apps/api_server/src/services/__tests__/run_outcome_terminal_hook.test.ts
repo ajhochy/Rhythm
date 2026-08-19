@@ -42,13 +42,44 @@ function seedExperiment(params: {
   ).run(params.id, params.proposalId, null);
 }
 
-function seedDispatchedEnrollment(params: { runEpisodeId: string; experimentId: string }): void {
+/** Valid-format (but fake) 64-hex/sha256 identifiers, satisfying the receipts table's CHECK constraints. */
+const FAKE_TARGET_REVISION_HASH = `sha256:${'a'.repeat(64)}`;
+const FAKE_TREATMENT_SPEC_HASH = 'b'.repeat(64);
+const FAKE_EFFECTIVE_PROMPT_HASH = 'c'.repeat(64);
+
+function seedDispatchedEnrollment(params: {
+  runEpisodeId: string;
+  experimentId: string;
+  profileId?: string;
+}): void {
+  const profileId = params.profileId ?? 'agent-1';
   db.prepare(
     `INSERT INTO agent_org_experiment_enrollments
       (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
        assignment_digest, baseline_target_revision_hash, treatment_spec_hash, state, reserved_at)
-     VALUES (?, ?, ?, 'proposal-1', 'agent-1', 'baseline', 'assign', 'base', 'treat', 'dispatched', datetime('now'))`,
-  ).run(`enroll-${params.runEpisodeId}`, params.runEpisodeId, params.experimentId);
+     VALUES (?, ?, ?, 'proposal-1', ?, 'baseline', 'assign', ?, ?, 'dispatched', datetime('now'))`,
+  ).run(
+    `enroll-${params.runEpisodeId}`,
+    params.runEpisodeId,
+    params.experimentId,
+    profileId,
+    FAKE_TARGET_REVISION_HASH,
+    FAKE_TREATMENT_SPEC_HASH,
+  );
+}
+
+/** C3 — a matching finalized treatment receipt, bound to the dispatched enrollment above. */
+function seedTreatmentReceipt(params: { runEpisodeId: string; profileId: string; profileRevision: number }): void {
+  db.prepare(
+    `INSERT INTO agent_org_experiment_treatment_receipts
+       (id, schema_version, enrollment_id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
+        assignment_digest, adapter, target_ref, baseline_target_revision_hash, profile_revision,
+        treatment_spec_hash, effective_prompt_hash, finalized_at)
+     SELECT ?, 1, id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
+        assignment_digest, 'system-prompt-v1', 'agent_config:' || profile_id, baseline_target_revision_hash, ?,
+        treatment_spec_hash, ?, datetime('now')
+       FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`,
+  ).run(`receipt-${params.runEpisodeId}`, params.profileRevision, FAKE_EFFECTIVE_PROMPT_HASH, params.runEpisodeId);
 }
 
 beforeEach(() => {
@@ -316,6 +347,82 @@ describe('C1-B2 terminal hook enrollment transition', () => {
     );
     expect(duplicatedEnrollment?.state).toBe('terminalized');
     finalizeSpy.mockRestore();
+  });
+});
+
+describe('C3-1 outcome identity is populated from the pre-run enrollment, not a nullable guess', () => {
+  it('fills profileId and configRevision from the enrollment/receipt when the caller supplies neither', async () => {
+    // Bug this catches: before C3, `profileId`/`configRevision` on
+    // `agent_run_outcomes` were whatever the terminal-time caller happened to
+    // pass (in production, nothing — every real call site omits them), so
+    // these columns were permanently null even though the run's real
+    // profile/revision identity was already known at RESERVATION time.
+    session('root-1');
+    seedExperiment({ id: 'experiment-c3', proposalId: 'proposal-c3' });
+    seedDispatchedEnrollment({
+      runEpisodeId: 'c3-episode-1',
+      experimentId: 'experiment-c3',
+      profileId: 'profile-c3',
+    });
+    seedTreatmentReceipt({ runEpisodeId: 'c3-episode-1', profileId: 'profile-c3', profileRevision: 7 });
+
+    await recordTerminalOutcome({
+      sessionId: 'root-1',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+      runEpisodeId: 'c3-episode-1',
+    });
+
+    const view = await new AgentRunOutcomesRepository(db).findByRootSessionIdAsync('root-1');
+    expect(view?.outcome.profileId).toBe('profile-c3');
+    expect(view?.outcome.configRevision).toBe(7);
+  });
+
+  it('leaves configRevision null when the enrollment never reached a finalized receipt', async () => {
+    // No receipt exists (e.g. a reservation that never dispatched) — this
+    // must stay null, never a fabricated/guessed number.
+    session('root-1');
+    seedExperiment({ id: 'experiment-c3b', proposalId: 'proposal-c3b' });
+    seedDispatchedEnrollment({
+      runEpisodeId: 'c3-episode-2',
+      experimentId: 'experiment-c3b',
+      profileId: 'profile-c3b',
+    });
+
+    await recordTerminalOutcome({
+      sessionId: 'root-1',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+      runEpisodeId: 'c3-episode-2',
+    });
+
+    const view = await new AgentRunOutcomesRepository(db).findByRootSessionIdAsync('root-1');
+    expect(view?.outcome.profileId).toBe('profile-c3b');
+    expect(view?.outcome.configRevision).toBeNull();
+  });
+
+  it('an explicit caller-supplied profileId/configRevision still wins over the enrollment', async () => {
+    session('root-1');
+    seedExperiment({ id: 'experiment-c3c', proposalId: 'proposal-c3c' });
+    seedDispatchedEnrollment({
+      runEpisodeId: 'c3-episode-3',
+      experimentId: 'experiment-c3c',
+      profileId: 'profile-c3c',
+    });
+    seedTreatmentReceipt({ runEpisodeId: 'c3-episode-3', profileId: 'profile-c3c', profileRevision: 7 });
+
+    await recordTerminalOutcome({
+      sessionId: 'root-1',
+      terminalStatus: 'completed',
+      evidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+      runEpisodeId: 'c3-episode-3',
+      profileId: 'explicit-override',
+      configRevision: 99,
+    });
+
+    const view = await new AgentRunOutcomesRepository(db).findByRootSessionIdAsync('root-1');
+    expect(view?.outcome.profileId).toBe('explicit-override');
+    expect(view?.outcome.configRevision).toBe(99);
   });
 });
 

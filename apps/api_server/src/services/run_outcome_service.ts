@@ -259,8 +259,12 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
       scheduledOccurrenceId: event.scheduledOccurrenceId ?? null,
       experimentVariant: event.experimentVariant ?? enrollment?.experimentVariant ?? null,
       proposalId: event.proposalId ?? enrollment?.proposalId ?? null,
-      profileId: event.profileId ?? null,
-      configRevision: event.configRevision ?? null,
+      // C3 — populated from the pre-run enrollment/receipt (the run's real,
+      // bound identity), never a nullable terminal-time guess. An explicit
+      // caller-supplied value still wins, matching experimentVariant/proposalId
+      // above.
+      profileId: event.profileId ?? enrollment?.profileId ?? null,
+      configRevision: event.configRevision ?? enrollment?.configRevision ?? null,
       terminalStatus: event.terminalStatus,
       objectiveVerdict: finalizeVerdict(event.terminalStatus, evidence),
       objectiveEvidence: evidence,
@@ -270,7 +274,7 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
         // than filled in with the current version (W4-c9).
         tools: event.attribution?.tools ?? telemetry?.tools.map((name) => ({ name })),
         skills: event.attribution?.skills,
-        configRevision: event.configRevision ?? null,
+        configRevision: event.configRevision ?? enrollment?.configRevision ?? null,
       }),
     });
   } catch (err) {

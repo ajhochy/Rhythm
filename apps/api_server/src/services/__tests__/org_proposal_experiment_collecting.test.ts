@@ -66,7 +66,7 @@ function makeValidBundle(overrides: Partial<ProposalEvidenceBundle> = {}): Propo
     target: { ref: 'agent_configs:cfg-1', hash: 'sha256:abc123' },
     expectedOutcome: 'more successful runs on the research profile',
     primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
-    guardrails: ['terminal-error-rate must not rise'],
+    guardrails: ['terminal-error-rate'],
     experimentAdapter: 'paired-cohort-outcome',
     rollbackRule: 'restore before_snapshot_json and set status=reverted',
     generatorVersion: 'scope-hygiene-generator@3',

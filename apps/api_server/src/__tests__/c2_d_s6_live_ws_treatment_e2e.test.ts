@@ -132,7 +132,7 @@ function bundle(hash: string): Record<string, unknown> {
     target: { ref: TARGET_REF, hash },
     expectedOutcome: 'success',
     primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
-    guardrails: ['none'],
+    guardrails: ['terminal-error-rate'],
     experimentAdapter: 'paired-cohort-outcome',
     rollbackRule: 'revert',
     generatorVersion: 'c2d-s6-live-v1',

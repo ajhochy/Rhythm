@@ -150,7 +150,7 @@ describe('issue-1450-c4 — promotion/judgement: receipt-backed filtering exclud
       target: { ref: TARGET_REF, hash },
       expectedOutcome: 'success',
       primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
-      guardrails: ['none'],
+      guardrails: ['terminal-error-rate'],
       experimentAdapter: 'paired-cohort-outcome',
       rollbackRule: 'revert',
       generatorVersion: 'v1',
