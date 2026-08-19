@@ -2147,4 +2147,10 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_org_post_apply_events_profile
        ON agent_org_post_apply_events(profile_id)`,
   );
+
+  // D2.2 (#1432) — Postgres twin of the profile-scoped outcomes index.
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
+       ON agent_run_outcomes(profile_id)`,
+  );
 }

@@ -515,6 +515,28 @@ export class AgentRunOutcomesRepository {
     return result;
   }
 
+  /**
+   * D2.2 (#1432) — the post-apply guardrail monitor's profile-scoped read:
+   * every outcome for `profileId` finalized at/after `sinceIso`, regardless
+   * of which proposal (if any) produced it. This is the general safety-net
+   * read — unlike {@link listByExperimentAsync}, it is not restricted to
+   * rows tagged with an `experiment_variant`, since a post-apply monitor
+   * must watch a profile's runs whether or not the applied change happened
+   * to be run through the formal experiment machinery.
+   */
+  async listByProfileSinceAsync(profileId: string, sinceIso: string): Promise<AgentRunOutcome[]> {
+    const sql = (p1: string, p2: string) =>
+      `SELECT * FROM agent_run_outcomes
+        WHERE profile_id = ${p1} AND finalized_at >= ${p2}
+        ORDER BY finalized_at, id`;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql('$1', '$2'), [profileId, sinceIso]);
+      return (r.rows as OutcomeRow[]).map(outcomeFromRow);
+    }
+    const rows = this.db!.prepare(sql('?', '?')).all(profileId, sinceIso) as OutcomeRow[];
+    return rows.map(outcomeFromRow);
+  }
+
   async listFeedbackAsync(rootSessionId: string): Promise<AgentRunFeedbackEvent[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(

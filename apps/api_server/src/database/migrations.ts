@@ -4253,4 +4253,12 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_agent_org_post_apply_events_profile
        ON agent_org_post_apply_events(profile_id)`,
   );
+
+  // D2.2 (#1432) — the post-apply guardrail monitor's profile-scoped read
+  // (AgentRunOutcomesRepository.listByProfileSinceAsync) is a new query
+  // shape against an existing column; index it rather than scanning.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
+       ON agent_run_outcomes(profile_id)`,
+  );
 }
