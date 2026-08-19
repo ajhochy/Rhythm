@@ -1,0 +1,68 @@
+{
+  "contract_id": "D2.1",
+  "issue": 1431,
+  "phase": "D2.1",
+  "parent_contract": null,
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/models/__tests__/post_apply_event.test.ts src/repositories/__tests__/post_apply_events_repository.test.ts src/__tests__/skill_schema_parity.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1431-c1",
+      "text": "Define a PostApplyEvent model: applied proposal ID, target profile ID, change type (prompt/tool/scope), pre-change CAS snapshot, monitoring window start/end, guardrail status (monitoring/clear/tripped), repair attempts (list of 0-3 corrective proposal IDs), revert status (none/reverted/not_needed/revert_failed), alert payload (JSON, no raw secrets).",
+      "mode": "unit",
+      "test": "apps/api_server/src/models/__tests__/post_apply_event.test.ts; apps/api_server/src/repositories/__tests__/post_apply_events_repository.test.ts ('creates one event carrying every required field with monitoring defaults')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1431-c2",
+      "text": "Additive SQLite + Postgres migration.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/skill_schema_parity.test.ts (table 'agent_org_post_apply_events' added to the TABLES parity loop)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1431-c3",
+      "text": "Repository: create, find-by-proposal-id, update-status. One event per applied proposal.",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/post_apply_events_repository.test.ts (describes: idempotent create, findByProposalIdAsync null-miss, updateStatusAsync transitions + null-miss)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1431-c4",
+      "text": "Migration is additive; SQLite+Postgres parity.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/skill_schema_parity.test.ts ('agent_org_post_apply_events has identical column sets in SQLite and Postgres')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1431-c5",
+      "text": "No raw prompts/secrets/tool payloads persisted.",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/post_apply_events_repository.test.ts ('redacts secret-shaped text out of preChangeSnapshotJson and alertPayloadJson before persisting')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1431-c6",
+      "text": "Repair attempts list is bounded to 0-3 corrective proposal IDs.",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/post_apply_events_repository.test.ts ('caps repairProposalIds at MAX_REPAIR_ATTEMPTS (3)')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1431-c7",
+      "text": "changeType is a closed set (prompt/tool/scope), enforced at the database layer.",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/post_apply_events_repository.test.ts ('rejects an unknown changeType at the database layer (closed CHECK constraint)')",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [],
+  "judgment_calls": [
+    "`preChangeSnapshotJson` is defined as an OPAQUE caller-supplied string in this phase (D2.1 is model+repository+migration only, not the live apply-boundary wiring — that is D2.5). The doc comment directs future callers (D2.2/D2.5) toward the existing `buildProfileRevisionFingerprint`-style hash/revision pointer precedent (org_proposal_experiment_service.ts) rather than a raw prior field value, but D2.1 adds no new hashing helper of its own — reusing the established pattern name-checked in the doc comment, not duplicating it, per the ladder ('already in this codebase? reuse it').",
+    "Secret redaction is enforced INSIDE the repository (via the existing, already-exported `redactSecrets` from run_outcome_service.ts) rather than trusting every future caller to pre-sanitize — matching the codebase's established defense-in-depth precedent (run_outcome_service.ts redacts its own free-text ledger column the same way). No new redaction implementation was written.",
+    "Table has no DB-level state-machine trigger (unlike agent_org_experiment_enrollments / treatment_receipts), matching the simpler `agent_org_proposal_retirements` sidecar precedent — state transitions (guardrail/revert status) are enforced by the repository's `updateStatusAsync`, not a SQL trigger, since D2.1 does not yet define an ordering invariant between guardrailStatus and revertStatus (that lifecycle ordering is D2.2-D2.5's concern) that would need database-level enforcement.",
+    "repair-attempt-count capping in `updateStatusAsync` truncates to the FIRST 3 entries of whatever array the caller passes (not the last 3) — the repository takes a full replacement array per call rather than an append primitive, so 'first 3' preserves attempt order; the real D2.3 3-strike loop is expected to stop appending at 3 itself, making this purely a defensive backstop, not the primary gate.",
+    "No FK on `profile_id` (matching `agent_org_experiment_treatment_receipts.profile_id`'s existing precedent of no FK there either) — a profile/agent_config row can be deleted independently of its post-apply history without an FK violation; `proposal_id` DOES carry a real FK to `agent_org_proposals(id)` since every PostApplyEvent must reference a real, already-persisted proposal by construction (`createAsync` is only ever called after a real apply)."
+  ]
+}

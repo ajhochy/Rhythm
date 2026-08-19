@@ -4218,4 +4218,39 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
        ON agent_run_outcomes(run_episode_id)`,
   );
+
+  // ── D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record ──
+  //
+  // One row per APPLIED proposal (`proposal_id` UNIQUE): the durable trail of
+  // guardrail monitoring (D2.2), up to 3 corrective repair attempts (D2.3),
+  // and an eventual revert or "clear" (D2.4). `pre_change_snapshot_json` is
+  // an opaque CAS pointer — callers are expected to store a revision/
+  // fingerprint, never a raw prior field value — and the repository layer
+  // (post_apply_events_repository.ts) additionally redacts secret shapes out
+  // of both JSON blob columns before every write. Postgres twin in
+  // postgres_bootstrap.ts — enforced by skill_schema_parity.test.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_post_apply_events (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL UNIQUE REFERENCES agent_org_proposals(id),
+      profile_id TEXT NOT NULL,
+      change_type TEXT NOT NULL CHECK (change_type IN ('prompt','tool','scope')),
+      pre_change_snapshot_json TEXT NOT NULL,
+      monitoring_window_start TEXT NOT NULL,
+      monitoring_window_end TEXT NOT NULL,
+      guardrail_status TEXT NOT NULL DEFAULT 'monitoring'
+        CHECK (guardrail_status IN ('monitoring','clear','tripped')),
+      repair_proposal_ids_json TEXT NOT NULL DEFAULT '[]',
+      revert_status TEXT NOT NULL DEFAULT 'none'
+        CHECK (revert_status IN ('none','reverted','not_needed','revert_failed')),
+      alert_payload_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_post_apply_events_profile
+       ON agent_org_post_apply_events(profile_id)`,
+  );
 }
