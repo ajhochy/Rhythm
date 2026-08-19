@@ -15,8 +15,35 @@
  */
 
 import type { AgentRunOutcome } from './agent_run_outcome';
+import { EXPLICIT_USER_VERDICT_METRIC_NAME } from './feedback_metric_adapter';
 
 export const PROPOSAL_EVIDENCE_BUNDLE_VERSION = 'proposal-evidence-v1';
+
+/**
+ * C3 — a stored `success` verdict that DIRECTLY contradicts its own recorded
+ * evidence (an error/aborted terminal status, an explicit "no artifact
+ * produced", or a nonzero recorded error count) is internally inconsistent
+ * and unavailable for causal judgment. The raw immutable ledger row is
+ * untouched — this only changes what `objective-success-rate` counts, never
+ * what is stored — so the sample still counts toward `cohort.length` (the
+ * audit trail/sample size is preserved) but never toward the numerator.
+ *
+ * Deliberately narrow: AMBIGUOUS/absent evidence (`producedArtifact: null`,
+ * the ordinary shape for most of today's ledger rows) is NOT a contradiction
+ * here — that fail-closed rule ("unknown produced artifact never yields
+ * success") already lives at WRITE time in `finalizeVerdict`
+ * (run_outcome_service.ts), which is what actually computes `objectiveVerdict`
+ * for every real run. This check exists for the row a real finalizer could
+ * never have produced in the first place (a corrupted write, a bypassed
+ * finalizer, or a legacy/manual insert) — not to re-litigate every
+ * evidence-light row the deterministic finalizer already handled correctly.
+ */
+function contradictsSuccessVerdict(outcome: AgentRunOutcome): boolean {
+  if (outcome.terminalStatus === 'error' || outcome.terminalStatus === 'aborted') return true;
+  if (outcome.objectiveEvidence.producedArtifact === false) return true;
+  if (outcome.objectiveEvidence.errorCount !== null && outcome.objectiveEvidence.errorCount > 0) return true;
+  return false;
+}
 
 /**
  * The closed metric registry. A primary metric nothing can compute is not a
@@ -24,15 +51,32 @@ export const PROPOSAL_EVIDENCE_BUNDLE_VERSION = 'proposal-evidence-v1';
  * over a cohort of W4 ledger outcomes.
  */
 export const PRIMARY_METRICS: Record<string, (cohort: AgentRunOutcome[]) => number> = {
-  'objective-success-rate': (cohort) =>
-    cohort.length === 0
-      ? 0
-      : cohort.filter((o) => o.objectiveVerdict === 'success').length / cohort.length,
+  'objective-success-rate': (cohort) => {
+    if (cohort.length === 0) return 0;
+    const consistentSuccesses = cohort.filter(
+      (o) => o.objectiveVerdict === 'success' && !contradictsSuccessVerdict(o),
+    ).length;
+    return consistentSuccesses / cohort.length;
+  },
   'terminal-error-rate': (cohort) =>
     cohort.length === 0
       ? 0
       : cohort.filter((o) => o.terminalStatus === 'error').length / cohort.length,
 };
+
+/**
+ * C3 — the closed set of metric NAMES a bundle's `primaryMetric.name` may
+ * hold. `PRIMARY_METRICS` alone is no longer the full picture:
+ * `explicit-user-verdict-rate` (feedback_metric_adapter.ts) reads the
+ * append-only feedback stream, not `AgentRunOutcome[]`, so it cannot be a
+ * `(cohort: AgentRunOutcome[]) => number` function and is never added to
+ * `PRIMARY_METRICS` itself — but it is still a real, closed, predeclared
+ * metric a bundle may name.
+ */
+export const KNOWN_METRIC_NAMES: ReadonlySet<string> = new Set([
+  ...Object.keys(PRIMARY_METRICS),
+  EXPLICIT_USER_VERDICT_METRIC_NAME,
+]);
 
 export interface ExperimentAdapter {
   name: string;
@@ -100,6 +144,13 @@ export interface EvidenceTargetRef {
 export interface PrimaryMetricSpec {
   name: string;
   direction: 'increase' | 'decrease';
+  /**
+   * C3 — REQUIRED only when `name === 'explicit-user-verdict-rate'`: the
+   * predeclared minimum share of a cohort that must have responded before
+   * the metric is available at all (see feedback_metric_adapter.ts). Ignored
+   * for objective metrics, which never go silent.
+   */
+  minResponseCoverage?: number;
 }
 
 export interface ProposalEvidenceBundle {

@@ -29,7 +29,7 @@ export function makeValidBundle(): ProposalEvidenceBundle {
     target: { ref: 'agent_configs:cfg-1', hash: 'sha256:abc123' },
     expectedOutcome: 'fewer failed runs on the research profile',
     primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
-    guardrails: ['terminal-error-rate must not rise'],
+    guardrails: ['terminal-error-rate'],
     experimentAdapter: 'paired-cohort-outcome',
     rollbackRule: 'restore before_snapshot_json and set status=reverted',
     generatorVersion: 'scope-hygiene-generator@3',
@@ -149,6 +149,69 @@ describe('W6-c2 validator refusals', () => {
     for (const junk of [null, undefined, 'a string', 42, []]) {
       expect(validateEvidenceBundle(junk).valid).toBe(false);
     }
+  });
+});
+
+describe('C3-5 closed guardrail registry', () => {
+  it('rejects a free-text guardrail that is not in the closed registry', () => {
+    // Bug this catches: W6 shipped `guardrails: string[]` with no execution —
+    // any human sentence passed. A declaration naming a guardrail that can
+    // never fire must be refused, not silently accepted.
+    const result = validateEvidenceBundle({
+      ...makeValidBundle(),
+      guardrails: ['revert if things look bad'],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.reasons.join(' ')).toMatch(/closed registry/i);
+  });
+
+  it('admits every name in the closed registry', () => {
+    for (const name of ['terminal-error-rate', 'treatment-integrity-failure-rate']) {
+      const result = validateEvidenceBundle({ ...makeValidBundle(), guardrails: [name] });
+      expect(result.valid).toBe(true);
+    }
+  });
+
+  it('rejects a bundle mixing one valid and one unknown guardrail name', () => {
+    const result = validateEvidenceBundle({
+      ...makeValidBundle(),
+      guardrails: ['terminal-error-rate', 'vibes-based-rollback'],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.valid === false && result.reasons.join(' ')).toContain('vibes-based-rollback');
+  });
+});
+
+describe('C3-4 explicit-user-verdict-rate metric declaration', () => {
+  it('is now a computable primaryMetric.name', () => {
+    const result = validateEvidenceBundle({
+      ...makeValidBundle(),
+      primaryMetric: { name: 'explicit-user-verdict-rate', direction: 'increase', minResponseCoverage: 0.5 },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('requires a predeclared minResponseCoverage in [0,1] for this metric', () => {
+    const missing = validateEvidenceBundle({
+      ...makeValidBundle(),
+      primaryMetric: { name: 'explicit-user-verdict-rate', direction: 'increase' },
+    });
+    expect(missing.valid).toBe(false);
+    expect(missing.valid === false && missing.reasons.join(' ')).toContain('minResponseCoverage');
+
+    const outOfRange = validateEvidenceBundle({
+      ...makeValidBundle(),
+      primaryMetric: { name: 'explicit-user-verdict-rate', direction: 'increase', minResponseCoverage: 1.5 },
+    });
+    expect(outOfRange.valid).toBe(false);
+  });
+
+  it('does not require minResponseCoverage for an objective metric', () => {
+    const result = validateEvidenceBundle({
+      ...makeValidBundle(),
+      primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
+    });
+    expect(result.valid).toBe(true);
   });
 });
 

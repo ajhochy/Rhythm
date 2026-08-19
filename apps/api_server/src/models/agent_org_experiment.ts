@@ -45,6 +45,12 @@ export const PROPOSAL_OUTCOME_STATUSES: readonly ProposalOutcomeStatus[] = [
 export interface CohortResult {
   sampleCount: number;
   primaryMetricValue: number;
+  /**
+   * C3 — only populated for the `explicit-user-verdict-rate` metric: the
+   * share of this cohort that had a resolved explicit-user verdict. A safe
+   * NUMBER only, never the feedback text/reason itself.
+   */
+  responseRate?: number;
 }
 
 export interface ExperimentResults {
