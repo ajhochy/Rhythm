@@ -284,6 +284,30 @@ export class OpencodeStreamBridge {
   // agent_session_messages history populated.
   private pendingText = new Map<string, string>();
 
+  /**
+   * C2-D (S3) — the runEpisodeId a `session.input` WS frame supplied for
+   * the turn currently in flight on this local session. Set by
+   * ws_gateway.ts's handleInputFrame right before dispatching the prompt
+   * (scheduled/optimizer-initiated callers driving a run through the
+   * interactive WS path; ordinary human-authored turns never set this).
+   * Single-use: consumeRunEpisodeId reads and clears it so it can never
+   * leak onto an unrelated LATER turn on the same session.
+   */
+  private pendingRunEpisodeId = new Map<string, string>();
+
+  /** ws_gateway.ts calls this right before dispatching the turn's prompt. */
+  setPendingRunEpisodeId(localSessionId: string, runEpisodeId: string): void {
+    this.pendingRunEpisodeId.set(localSessionId, runEpisodeId);
+  }
+
+  /** Read-and-clear so a runEpisodeId only ever binds the ONE turn it named. */
+  private consumeRunEpisodeId(localSessionId: string): string | null {
+    const value = this.pendingRunEpisodeId.get(localSessionId);
+    if (value === undefined) return null;
+    this.pendingRunEpisodeId.delete(localSessionId);
+    return value;
+  }
+
   // OPC-M1-4: Sessions that have been explicitly stopped (via DELETE or
   // close). Events arriving for a stopped session are silently dropped —
   // no WS broadcast, no DB write — so the shared SSE stream can stay alive
@@ -1698,6 +1722,10 @@ export class OpencodeStreamBridge {
             void recordTerminalOutcome({
               sessionId: localSessionId,
               terminalStatus: 'completed',
+              // C2-D (S3) — a scheduled/optimizer-initiated caller driving
+              // this run through the interactive WS path may have supplied
+              // one via the session.input frame; consumed once per turn.
+              runEpisodeId: this.consumeRunEpisodeId(localSessionId),
             });
 
             // #929 / #1109 — schedule (not run) evaluation of any harvested
@@ -1745,6 +1773,8 @@ export class OpencodeStreamBridge {
               sessionId: localSessionId,
               terminalStatus: 'completed',
               producedArtifact: false,
+              // C2-D (S3) — see the sibling call above.
+              runEpisodeId: this.consumeRunEpisodeId(localSessionId),
             });
           }
           // #1123 — callback boundary for additive interactive async
@@ -1998,6 +2028,8 @@ export class OpencodeStreamBridge {
             sessionId: localSessionId,
             terminalStatus: 'error',
             producedArtifact: false,
+            // C2-D (S3) — see the session.idle call sites above.
+            runEpisodeId: this.consumeRunEpisodeId(localSessionId),
           });
           // #1123 — a delegated child failure is still a completion the
           // interactive parent must hear about. Persist the normal error state
@@ -2426,6 +2458,9 @@ export class OpencodeStreamBridge {
     // Also clean up the pending-text accumulator for this session so stale
     // deltas don't linger in memory after the session is closed.
     this.pendingText.delete(localSessionId);
+    // C2-D (S3) — a stopped turn never reaches a terminal event, so its
+    // pending runEpisodeId must not linger and bind some unrelated later turn.
+    this.pendingRunEpisodeId.delete(localSessionId);
     // Drop any pending questions for this session so the recovery poll cannot
     // resurface a card for a session the user has closed.
     const prefix = `${localSessionId}:`;
@@ -2479,6 +2514,7 @@ export class OpencodeStreamBridge {
     this.pendingPermissions.clear();
     this.repliedPermissions.clear();
     this.pendingQuestions.clear();
+    this.pendingRunEpisodeId.clear();
   }
 }
 

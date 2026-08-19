@@ -360,6 +360,17 @@ export async function handleInputFrame(
     budget_tokens?: number;
   } | null;
   const perTurnFastMode = typeof msg.fastMode === 'boolean' ? msg.fastMode : null;
+  // C2-D (S3) — optional per-turn runEpisodeId. Ordinary human-authored
+  // turns from the Flutter composer never send this; it exists so a
+  // scheduled/optimizer-initiated caller driving a run through this
+  // interactive WS path (instead of the HTTP AgentRunner scheduler) can
+  // bind the turn to a pre-reserved experiment cohort. Forwarded to
+  // OpencodeStreamBridge below, which hands it to recordTerminalOutcome
+  // when the turn reaches a terminal event.
+  const perTurnRunEpisodeId =
+    typeof msg.runEpisodeId === 'string' && msg.runEpisodeId.trim().length > 0
+      ? msg.runEpisodeId.trim()
+      : null;
   // OPC-M4-4: per-turn intra-session agent override, never persisted.
   // The Flutter composer sends `agent: <name>` (e.g. 'plan', 'build', or a
   // custom agent name) alongside the session.input frame. The SDK's
@@ -925,6 +936,13 @@ export async function handleInputFrame(
       });
     }
 
+    // C2-D (S3) — bind this turn's runEpisodeId, if the frame supplied one,
+    // BEFORE dispatch so it is already in place no matter how quickly the
+    // engine's session.idle/session.error event races back.
+    if (perTurnRunEpisodeId) {
+      const { streamBridge } = await import('./opencode_stream_bridge');
+      streamBridge.setPendingRunEpisodeId(id, perTurnRunEpisodeId);
+    }
     await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
 
     // #929 — evaluateHarvestedDrafts() is NOT called here. `promptFn`

@@ -1,0 +1,63 @@
+{
+  "issue": 1451,
+  "date": "2026-08-18",
+  "test_command": "npx vitest run src/__tests__/issue_1451_contract.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1451-c1",
+      "text": "WS handshake/connection accepts runEpisodeId (optional, for scheduled/optimizer runs)",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1451_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1451-c2",
+      "text": "AgentRunner receives it via the run input",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1451_contract.test.ts",
+      "status": "pass",
+      "reason": "Already true generically (AgentRunOptions.runEpisodeId, built in C1) for the HTTP/scheduled path; unaffected by this slice. Not re-wired into agent_delegation_service.ts's synchronous delegation caller in this slice \u2014 out of the WS-bridge-to-terminal-hook scope this issue names; the issue-1451-c6 regression test proves the existing AgentRunner-shaped call remains correct after this change."
+    },
+    {
+      "criterion_id": "issue-1451-c3",
+      "text": "Terminal hook invocation includes runEpisodeId",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1451_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1451-c4",
+      "text": "Bridges the gap for interactive/delegated runs that don't go through the HTTP scheduler path",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1451_contract.test.ts",
+      "status": "pass",
+      "reason": "Scoped to the direct interactive WS chat turn (opencode_stream_bridge.ts's session.idle/session.error terminal hooks), matching the acceptance criterion's own test description ('interactive WS run'). Synchronous mid-chat delegation (agent_delegation_service.ts) is a separate call surface not exercised by a WS frame at all and is left untouched."
+    },
+    {
+      "criterion_id": "issue-1451-c5",
+      "text": "Acceptance: Interactive WS run with explicit runEpisodeId produces outcome with correct cohort/proposal, through the real WS bridge code path (not a pure mock of it)",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1451_contract.test.ts",
+      "status": "pass",
+      "reason": "Drives the REAL ws_gateway.ts handleInputFrame and the REAL opencode_stream_bridge.ts streamBridge singleton (fed synthetic engine SSE events via _relayEvent, the same technique issue_636_contract.test.ts uses). Only the true external boundary is faked: the real opencode engine process (promptAsync/allowlist calls) and the model catalog (resolveModelForSessionTurn). Both session.idle (success) and session.error (failure) terminal paths are covered."
+    },
+    {
+      "criterion_id": "issue-1451-c6",
+      "text": "Acceptance: No regression in scheduled/HTTP path",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1451_contract.test.ts",
+      "status": "pass",
+      "reason": "issue-1451-c5's second describe block proves an ordinary interactive turn with NO runEpisodeId on the frame still falls back to rootSessionId exactly as before. issue-1451-c6's own test mirrors agent_runner.ts's exact recordTerminalOutcome call shape (unmodified in this slice) and confirms it still resolves the correct enrollment. Also confirmed by the full pre-existing run_outcome_run_episode_bug.test.ts (S1) suite passing unchanged."
+    },
+    {
+      "criterion_id": "issue-1451-live-sandbox",
+      "text": "Do ONE live sandbox check: tools/dev/sandbox.sh up, exercise a real WS interactive run end-to-end if scriptable; otherwise skip explicitly and rely on the focused test.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "EXPLICITLY SKIPPED, not run. Investigated tools/dev/agent_eval_driver.ts (existing WS-scripting helper) and apps/api_server/src/__tests__/live_e2e_self_improvement_foundation.test.ts (existing live E2E harness) as candidate scriptable paths. Neither can exercise the specific claim this issue's live check would need to prove (an interactive WS run with an explicit runEpisodeId produces an outcome bound to the correct cohort/proposal) because there is NO HTTP route that calls reserveRunEnrollment \u2014 it is an internal service function invoked only by AgentRunner (C1) and (in a future phase, C2-D S4) the WS prompt-dispatch boundary, deliberately not exposed as a callable route. Wiring a reservation trigger into the live surface to make this checkable would be new scaffolding for a capability (WS-boundary reservation) that is explicitly out of this slice's scope (tracked separately as C2-D S4 in #1448). Rather than skip silently or invent that scaffolding, relied on issue-1451-c5's focused test, which already drives 100% real ws_gateway.ts + opencode_stream_bridge.ts production code end-to-end (real handleInputFrame, real streamBridge singleton, real SQLite-backed enrollment/receipt/outcome repositories), faking only the true external boundary (the real opencode engine process + model catalog)."
+    }
+  ],
+  "not_tested": ["issue-1451-live-sandbox"]
+}
