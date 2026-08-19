@@ -1,0 +1,72 @@
+{
+  "contract_id": "causal-runtime-v2-C4",
+  "phase": "C4",
+  "parent_contract": "docs/ai/contracts/issue-causal-runtime-v2.json",
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/org_proposal_experiment_service.test.ts src/services/__tests__/org_proposal_appliers_wiring.test.ts src/services/__tests__/org_proposal_measure.test.ts src/__tests__/org_proposal_apply.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "c4-1",
+      "text": "Use a fixed-horizon v2 stopping rule with minSamplesPerCohort, maxExposure, minimumEffect, and a predeclared confidence criterion. Interim evaluations only collect; do not repeatedly promote through optional stopping.",
+      "mode": "unit+integration",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts (describe: 'C4-1/C4-2 a point estimate crossing minEffect is not enough without statistical significance')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c4-2",
+      "text": "At the terminal horizon compute effect and uncertainty with a deterministic versioned implementation suitable for binary/bounded metrics. Persist analysisVersion and complete cohort/missingness/response summaries.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts ('persists analysisVersion, confidenceLevel, effect, standardError, and a confidence interval on a decided result')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c4-3",
+      "text": "Detect sample-ratio mismatch, excessive missing outcomes, and treatment receipt mismatch; these block promotion.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts (describe: 'C4-3 sample-integrity gates block promotion on a compromised receipt-backed sample')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c4-4",
+      "text": "A promote decision sets causal outcome_status=verified while deployment status stays proposed/approved as appropriate and target bytes remain unchanged.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts (describe: 'C4-4 promote sets outcome_status=verified without touching deployment status or target bytes')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c4-5",
+      "text": "Durable apply after verified must revalidate evidence, proposal bytes, tested baseline revision/hash, and tested candidate hash. Target drift returns conflict and requires a new experiment; it never applies a stale winner.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_appliers_wiring.test.ts (describe: 'C4-5 — refine-config durable apply revalidates against its tested experiment')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c4-6",
+      "text": "Risky kinds remain human-gated. system-prompt-v1 refine-config remains human-gated for durable apply even after verification.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/org_proposal_apply.test.ts (test: 'C4-6 (causal-runtime-v2): refuses a refine-config proposal through the auto path even once its causal experiment has verified it')",
+      "status": "pass",
+      "note": "Already correct before this phase: refine-config is not in LOW_RISK_KINDS, so classifyProposalRisk's fail-closed default already returns 'high' regardless of outcome_status. Proven with a new test, no new gating code added."
+    },
+    {
+      "criterion_id": "c4-7",
+      "text": "Post-deployment measurement is monitoring, not the source of the original causal verdict. Regression uses the existing exact inverse/CAS safety path.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_measure.test.ts (test: 'C4-7 (causal-runtime-v2): a post-deployment re-run failure still reverts (deployment safety), but never downgrades a causal outcome_status=verified already set by the experiment runtime')",
+      "status": "pass",
+      "note": "Already correct before this phase: recordDiagnosticOutcome's existing guard ('if (!current || current.outcomeStatus === 'verified') return;') already refuses to downgrade a verified proposal. Proven with a new regression test built on the existing 'reproduced failure reverts' fixture, no new code added."
+    }
+  ],
+  "not_tested": [],
+  "judgment_calls": [
+    "The predeclared confidence criterion is a FIXED, closed constant (95%, z=1.96) defined in code (FIXED_HORIZON_CONFIDENCE_LEVEL / FIXED_HORIZON_Z_CRITICAL in org_proposal_experiment_service.ts), not a new per-experiment declared field on ExperimentStoppingRule. This matches the ponytail/closed-registry style C3 already established for guardrail thresholds and the response-rate-imbalance ceiling ('fixed constants, not per-bundle configurable... upgrade to a declared bundle field if a real proposal ever needs a different bound') and avoids a repository-level schema/validation change that would have forced every one of the ~50 existing declare() call sites across the test suite to supply a new required field. 'Predeclared' is satisfied (the criterion predates and is independent of any single experiment's data), just not per-experiment configurable in this phase.",
+    "The variance estimate for BOTH strictly-binary metrics (objective-success-rate, terminal-error-rate: every observation is 0 or 1) and the bounded 0/0.5/1 explicit-user-verdict-rate scale uses the SAME p(1-p)/n formula (the standard two-proportion z-test standard error). This is EXACT for a Bernoulli metric and a CONSERVATIVE upper bound for the 0/0.5/1 metric, by Popoviciu's inequality (the maximum variance any [0,1]-bounded random variable can have for a given mean is p(1-p), achieved by a two-point distribution) — so the significance test never OVERSTATES confidence for the non-binary metric, only ever understates it (fail-closed direction). Chosen over a dedicated stats-library dependency per the contract's own guidance ('not a black-box stats library dependency').",
+    "'No repeated promote through optional stopping' is satisfied structurally rather than by adding a NEW gate: (a) decideExperiment's per-call comparison is unchanged in shape — it still runs once per sweep call while an experiment is undecided; (b) recordDecisionAsync's 'WHERE decision IS NULL' fencing (pre-existing, W6/C0) means only the FIRST decisive evaluation for an experiment can ever write decision/results, and judgeExperimentAsync short-circuits on an already-decided experiment. Combined with C4's new requirement that a decision additionally clear statistical significance (not just cross minEffect), an early underpowered look that happens to cross minEffect by noise is now correctly locked as 'inconclusive' (never 'promote') and can never be revisited into a promote by later, more favorable data — proven directly by a new test ('once locked inconclusive for failing significance, a later judge call never re-decides even once more (favorable) data arrives').",
+    "'Complete cohort/missingness/response summaries' — missingness accounting (MissingnessSummary: baseline/candidateEnrolled vs baseline/candidateMissing) is populated ONLY on the receipt-backed promotion gate path (gateProductionPromotionAsync), the one place enrollment counts and receipt-backed outcome counts are both available together. decideExperiment itself stays a pure function of its baseline/candidate cohort arrays (no enrollment/DB access), consistent with its existing design and doc comment ('Writes NOTHING... shared by the persisting path... and the optimizer's shadow-mode report-only sweep'); response-rate summaries (CohortResult.responseRate) were already added in C3 and are unchanged.",
+    "The sample-ratio-mismatch and excessive-missing-outcomes thresholds (SAMPLE_RATIO_MIN=0.5, MAX_MISSING_OUTCOME_RATE=0.3) are fixed constants, matching GUARDRAIL_REGISTRY's and C3's response-rate-imbalance-ceiling's established closed/fixed style — not per-bundle configurable in this phase, with the same declared-bundle-field upgrade path noted via ponytail comments.",
+    "Requirement 5's durable-apply revalidation is wired into validateRefineConfig (org_proposal_appliers_wiring.ts), which org_proposal_apply_service.ts's validateProposalChange already awaits and throws on BEFORE ever invoking the registered applier — not duplicated inside refineConfigApplier itself. refineConfigApplier was deliberately kept SYNCHRONOUS: every real caller runs validateProposalChange first in the same request with no re-entrant write in between, so a second async re-check inside the applier would be a redundant query for no additional safety, and would have turned every existing direct-applier unit test in this codebase (which calls appliers synchronously and asserts a sync throw) into a promise. This was tried and reverted after 2 pre-existing tests in w1_corrective_6_boundaries.test.ts failed (expected `toThrow()` on a promise); the fix (validator-only revalidation) restored all 281 tests in that combined run to green with zero other fixture changes.",
+    "Requirement 5's target-drift check compares the CURRENT literal AgentConfig field value (readAgentConfigField) against the experiment's tested candidateSpec.priorValue directly, rather than recomputing and comparing the full sha256 durable-target fingerprint used elsewhere (buildProfileRevisionFingerprint in org_proposal_experiment_service.ts, currently module-private). Direct value comparison is sufficient (the systemPrompt string IS the durable state that matters for this check) and avoids exporting/duplicating the fingerprint helper for a one-line equality that is already exact.",
+    "Requirements 6 and 7 needed no new production code — both were already correct from the W1/W6 foundation (classifyProposalRisk's fail-closed default; recordDiagnosticOutcome's existing verified-guard). Per the parent's explicit instruction, only proof tests were added, not new gating scaffolding."
+  ]
+}
