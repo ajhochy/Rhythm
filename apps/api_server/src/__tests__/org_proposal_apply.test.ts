@@ -452,6 +452,48 @@ describe('issue-821-c2: applyProposal refuses any high-risk proposal', () => {
     expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('proposed');
   });
 
+  it(
+    'C4-6 (causal-runtime-v2): refuses a refine-config proposal through the auto path even once its ' +
+      "causal experiment has verified it — outcome_status is never a risk override",
+    async () => {
+      // docs/ai/contracts/issue-causal-runtime-v2.json phase C4, requirement 6:
+      // "Risky kinds remain human-gated... a verified experiment does NOT
+      // auto-apply." refine-config (the only shippable treatment family,
+      // system-prompt-v1) is not in LOW_RISK_KINDS, so classifyProposalRisk
+      // already fails it closed to 'high' regardless of outcome_status — this
+      // proves that posture holds end to end rather than assuming it.
+      const { applyProposal } = await import('../services/org_proposal_apply');
+      const { classifyProposalRisk } = await import('../services/org_risk_classifier');
+      const configsRepo = new AgentConfigsRepository();
+      const config = configsRepo.insert({ label: 'refine-config target', icon: 'x', systemPrompt: 'before' });
+      const proposalsRepo = new AgentOrgProposalsRepository();
+      const proposal = await proposalsRepo.createAsync({
+        kind: 'refine-config',
+        risk: 'low', // even a (wrongly) stored 'low' risk column must not matter
+        title: 'refine the system prompt',
+        targetRef: `agent_config:${config.id}`,
+        changeJson: JSON.stringify({
+          configPatch: { agentConfigId: config.id, field: 'system_prompt', value: 'after' },
+        }),
+        dedupKey: 'c4-6:refine-config-verified',
+      });
+      const verified = await proposalsRepo.setOutcomeStatusAtRevisionAsync({
+        proposalId: proposal.id,
+        expectedRevision: proposal.revision,
+        outcomeStatus: 'verified',
+      });
+      expect(verified?.outcomeStatus).toBe('verified');
+
+      expect(classifyProposalRisk({ kind: 'refine-config' })).toBe('high');
+      const result = await applyProposal(verified!);
+      expect(result.status).toBe('refused-high-risk');
+
+      const unchanged = await proposalsRepo.findByIdAsync(proposal.id);
+      expect(unchanged?.status).toBe('proposed');
+      expect(configsRepo.getById(config.id)?.systemPrompt).toBe('before');
+    },
+  );
+
   it.each([
     {
       label: 'field only with null prior',
