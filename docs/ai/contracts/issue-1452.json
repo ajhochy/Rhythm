@@ -9,16 +9,16 @@
       "text": "On a machine with numbat installed and RHYTHM_NUMBAT_MONITORING_DISABLED unset, starting api_server (via tools/dev/sandbox.sh up, never by hand) results in ${XDG_CONFIG_HOME:-~/.config}/opencode/plugins/numbat.ts existing, with an EXTRA_ARGS array containing no --enforce, no --output/http, no --content full.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/numbat_observability_live_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "numbat binary is not installed on this dev machine (`which numbat` resolves nothing); the live test checks binary presence via resolveNumbatBinary() first and skips this assertion gracefully rather than failing, per the issue's own instruction. The static-argv half of this criterion (no --enforce/--output http/--content full) is independently proven passing by the unit test (issue-1452-c3)."
+      "status": "pass",
+      "reason": "Verified for real 2026-08-19 with numbat v0.2.0 installed at /opt/homebrew/bin/numbat. `tools/dev/sandbox.sh up` log: `[INFO] [NumbatObservability] invoked: /opt/homebrew/bin/numbat hook install --agent opencode --emit all --content preview` (not the absent-binary message). The generated file $TMPDIR/rhythm-dev-sandbox/home/.config/opencode/plugins/numbat.ts exists (6813 bytes) with literal `const EXTRA_ARGS = [\"--installed-by=numbat\", \"--emit\", \"all\", \"--output=file\", \"--output-file\", \".../home/.numbat/records.ndjson\"];` — no --enforce, no --output http (only --output=file), no --content full. `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/numbat_observability_live_e2e.test.ts --no-file-parallelism`: AC1's assertion body ran for real (not skipped) and passed."
     },
     {
       "criterion_id": "issue-1452-c2",
       "text": "A real OpenCode session driven through the sandbox (tool call + prompt) produces new lines in the configured NDJSON output file, each with content_preview bounded to <=200 code points (never full prompt/response text) and no record with record_type: \"enforcement\".",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/numbat_observability_live_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Same binary-absence gap as issue-1452-c1 — the live test drives a real session+tool-call and asserts bounded content_preview / no enforcement records when numbat is present, but gracefully skips (not fails) on this machine because numbat is not installed here."
+      "status": "pass",
+      "reason": "Verified for real 2026-08-19: drove a real agent-session + WS prompt (\"Use your shell tool to run `pwd`, then reply with the single word: done.\") through the sandbox. New lines appeared live in $TMPDIR/rhythm-dev-sandbox/home/.numbat/records.ndjson, e.g. `{\"actor\":\"user\",...,\"content_preview\":\"Use your shell tool to run \\`pwd\\`, then reply with the single word: done.\",\"event_type\":\"prompt.user\",\"record_type\":\"event\",...}` and `{\"actor\":\"assistant\",...,\"content_preview\":\"done\",\"event_type\":\"message.assistant\",\"record_type\":\"event\",\"model_provider\":\"openrouter\",...}`. Every new record has record_type \"event\" (never \"enforcement\"); every content_preview present is well under 200 code points. Test note: had to switch the test's throwaway agent from modelProvider 'anthropic' to 'openrouter' (the repo's own established live-e2e convention, e.g. live_e2e_929.test.ts's `MODEL = { provider: 'openrouter', id: '' }`) after discovering 'anthropic' on this machine routes through rhythm-anthropic-accounts' Claude Code Keychain OAuth bridge, which had an unrelated, pre-existing credential failure (\"Claude Code credentials are unavailable or expired\") having nothing to do with numbat — confirmed by the engine log attributing the error entirely to that plugin/credentials_bridge_service.ts, with zero numbat involvement."
     },
     {
       "criterion_id": "issue-1452-c3",
@@ -34,7 +34,7 @@
       "mode": "unit",
       "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
       "status": "pass",
-      "reason": "The static claim (argv never contains --enforce) is unit-tested here and will pass. The deeper behavioral claim (a hostile tool call is never blocked by numbat) is structurally guaranteed rather than independently live-tested on this machine: this PR adds zero code paths connecting numbat's plugin to Rhythm's tool-execution/approval flow (verified via GitNexus impact on server.ts before wiring), and numbat's own CLI rejects --enforce for --agent opencode upstream (cited in the decision record). The live e2e test's AC4 assertion (turn settles without status='error') exercises this on a machine with numbat installed; it skips gracefully here."
+      "reason": "The static claim (argv never contains --enforce) is unit-tested here and will pass. The deeper behavioral claim (a hostile tool call is never blocked by numbat) is structurally guaranteed (this PR adds zero code paths connecting numbat's plugin to Rhythm's tool-execution/approval flow — verified via GitNexus impact on server.ts before wiring — and numbat's own CLI rejects --enforce for --agent opencode upstream, per the decision record) AND now independently live-verified 2026-08-19: the WS-driven session (tool call `pwd` + reply) settled with status not 'error' — the turn completed normally with the assistant's real reply (\"done\") captured in numbat's own NDJSON (`content_preview\":\"done\"`), proving the numbat hook neither blocked, delayed, nor altered the turn. `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/numbat_observability_live_e2e.test.ts --no-file-parallelism` → 2/2 tests green, assertion bodies executed for real (not skipped)."
     },
     {
       "criterion_id": "issue-1452-c5",
@@ -69,5 +69,5 @@
       "reason": "Doc-content criterion — not unit-testable as a meaningful assertion beyond a trivial substring grep. Verified by direct review of the added sections in this PR's diff to both files (install command, RHYTHM_NUMBAT_MONITORING_DISABLED/RHYTHM_NUMBAT_BIN_PATH, default $HOME/.numbat/records.ndjson path/format, and the explicit no-rotation gap)."
     }
   ],
-  "not_tested": ["issue-1452-c1", "issue-1452-c2", "issue-1452-c7", "issue-1452-c8"]
+  "not_tested": ["issue-1452-c7", "issue-1452-c8"]
 }

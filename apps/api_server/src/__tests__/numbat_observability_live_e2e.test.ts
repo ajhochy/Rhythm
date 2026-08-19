@@ -152,7 +152,15 @@ describeLive('live E2E - #1452 numbat observe-only OpenCode monitoring', () => {
           isAgent: true,
           enabled: true,
           sessionSelectable: true,
-          modelProvider: 'anthropic',
+          // ponytail: 'openrouter' matches the established live-e2e convention
+          // (see _live_e2e_guard.ts callers, e.g. live_e2e_929.test.ts's
+          // `MODEL = { provider: 'openrouter', id: '' }`) — 'anthropic' routes
+          // through rhythm-anthropic-accounts' Claude Code Keychain OAuth
+          // bridge, whose credential health is unrelated to numbat and can
+          // fail independently (real failure observed: "Claude Code
+          // credentials are unavailable or expired"), which would make this
+          // test flaky for reasons having nothing to do with #1452.
+          modelProvider: 'openrouter',
           systemPrompt: 'You are a terse test agent. Use tools when asked and answer in one short sentence.',
         }),
       });
