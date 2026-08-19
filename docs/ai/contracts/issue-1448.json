@@ -23,7 +23,7 @@
       "text": "A redispatch/retry of the same runEpisodeId through the WS interactive path (e.g. WS reconnect, or an idempotent retry) reuses the existing reservation and receipt -- exactly one enrollment row and exactly one treatment receipt exist afterward, and no error occurs (no double-reservation, no conflicting second receipt).",
       "mode": "integration",
       "test": "apps/api_server/src/__tests__/c2_d_s4_ws_reserved_treatment_dispatch.test.ts",
-      "status": "failing"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1448-c4",

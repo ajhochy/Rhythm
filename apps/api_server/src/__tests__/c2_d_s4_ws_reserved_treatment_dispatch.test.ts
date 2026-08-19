@@ -37,7 +37,7 @@ import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
-import { setDb } from '../database/db';
+import { setDb, getDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -354,5 +354,78 @@ describe('C2-D (S4) — WS interactive dispatch reserves and finalizes a treatme
       'episode-c2d-s4-no-experiment',
     );
     expect(enrollment).toBeNull();
+  });
+});
+
+describe('C2-D (S5) — redispatch reuse: the same runEpisodeId re-entering the WS boundary is idempotent', () => {
+  it('a WS reconnect/retry that re-sends the same session.input frame (same id, same runEpisodeId) reuses the existing reservation and receipt — no double-reservation, no conflicting second receipt, no error', async () => {
+    // Investigation (recorded in the run note): reserveRunEnrollment's
+    // idempotency check (findByRunEpisodeIdAsync BEFORE any new-reservation
+    // logic, from C1) and dispatchAndFinalizeReceiptAsync's existing-receipt
+    // check (BEFORE the reserved-state guard, from C2-B/C2-C) already make
+    // the full reserve -> prepare -> commit chain idempotent on repeat calls
+    // with the same runEpisodeId — proven in isolation by
+    // org_proposal_experiment_service.test.ts's "same-profile idempotent
+    // lookup" and "an identical retry ... is idempotent" tests. This test
+    // proves the SAME property end-to-end through the real WS boundary S4
+    // just wired: calling the real handleInputFrame a second time for the
+    // same turn (simulating a WS reconnect re-sending the unacknowledged
+    // frame) must not fabricate a second enrollment row, must not throw a
+    // binding_mismatch/illegal_transition error, and must not write a
+    // second, conflicting treatment receipt.
+    await seedProfileAndExperiment();
+    const session = insertSession('c2d-s5-redispatch');
+    sessionMap.set(session.id, 'sdk-c2d-s5-redispatch');
+
+    const runEpisodeId = 'episode-c2d-s5-redispatch';
+    const expectedCohort = assignCohort(ASSIGNMENT_KEY, runEpisodeId);
+    const expectedOverride = expectedCohort === 'baseline' ? BASELINE_PROMPT : CANDIDATE_PROMPT;
+    const frame = {
+      v: 1 as const,
+      type: 'session.input',
+      id: session.id,
+      data: 'hello',
+      runEpisodeId,
+    };
+
+    // First dispatch attempt.
+    await handleInputFrame(makeFakeWs(), frame);
+    expect(promptAsyncSpy).toHaveBeenCalledTimes(1);
+
+    const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+    const receiptsRepo = new AgentOrgTreatmentReceiptsRepository();
+    const firstEnrollment = await enrollmentsRepo.findByRunEpisodeIdAsync(runEpisodeId);
+    const firstReceipt = await receiptsRepo.findByRunEpisodeIdAsync(runEpisodeId);
+    expect(firstEnrollment?.state).toBe('dispatched');
+    expect(firstReceipt).not.toBeNull();
+
+    // Redispatch: the exact same frame re-enters handleInputFrame a second
+    // time (a fresh WS mock, matching a reconnect's fresh socket).
+    await handleInputFrame(makeFakeWs(), frame);
+    expect(promptAsyncSpy).toHaveBeenCalledTimes(2);
+    const secondOpts = promptAsyncSpy.mock.calls[1][4] as Record<string, unknown>;
+    // Bug this catches: a redispatch that fails preparation/commit would
+    // either throw (surfaced as a WS error frame, no dispatch) or silently
+    // dispatch under a DIFFERENT (re-derived, not reused) prompt/receipt.
+    expect(secondOpts.system).toBe(expectedOverride);
+
+    const secondEnrollment = await enrollmentsRepo.findByRunEpisodeIdAsync(runEpisodeId);
+    const secondReceipt = await receiptsRepo.findByRunEpisodeIdAsync(runEpisodeId);
+    expect(secondEnrollment).toEqual(firstEnrollment);
+    expect(secondReceipt).toEqual(firstReceipt);
+    expect(secondReceipt?.id).toBe(firstReceipt?.id);
+
+    // Exactly one enrollment row and exactly one receipt row exist for this
+    // episode — a raw count, not just a single-row lookup, so a redispatch
+    // that inserted a SECOND (unreachable-by-unique-lookup) row would fail
+    // this even if findByRunEpisodeIdAsync happened to still return one.
+    const enrollmentCount = getDb()
+      .prepare(`SELECT COUNT(*) as n FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
+      .get(runEpisodeId) as { n: number };
+    const receiptCount = getDb()
+      .prepare(`SELECT COUNT(*) as n FROM agent_org_experiment_treatment_receipts WHERE run_episode_id = ?`)
+      .get(runEpisodeId) as { n: number };
+    expect(enrollmentCount.n).toBe(1);
+    expect(receiptCount.n).toBe(1);
   });
 });
