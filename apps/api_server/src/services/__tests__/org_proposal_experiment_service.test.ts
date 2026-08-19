@@ -226,6 +226,7 @@ function cohort(n: number, successes: number, variant: string): AgentRunOutcome[
     id: `out-${variant}-${i}`,
     rootSessionId: `ses-${variant}-${i}`,
     sessionId: null,
+    runEpisodeId: null,
     scheduledOccurrenceId: null,
     experimentVariant: variant,
     proposalId: 'prop-1',

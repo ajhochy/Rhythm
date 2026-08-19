@@ -252,6 +252,10 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
     await repo.finalizeAsync({
       rootSessionId,
       sessionId: event.sessionId,
+      // C2-D (S2) — persist the SAME runEpisodeId already used above to
+      // resolve the enrollment, so a later receipt-backed cohort read can
+      // join outcomes to their treatment receipt by this id.
+      runEpisodeId,
       scheduledOccurrenceId: event.scheduledOccurrenceId ?? null,
       experimentVariant: event.experimentVariant ?? enrollment?.experimentVariant ?? null,
       proposalId: event.proposalId ?? enrollment?.proposalId ?? null,

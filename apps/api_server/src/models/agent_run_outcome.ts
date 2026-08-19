@@ -64,6 +64,14 @@ export interface AgentRunOutcome {
   id: string;
   rootSessionId: string;
   sessionId: string | null;
+  /**
+   * C2-D (S2) — the run episode this outcome belongs to. `null` for any
+   * outcome finalized before this column existed. Joined against
+   * `agent_org_experiment_treatment_receipts.run_episode_id` to read only
+   * receipt-proved (actually treated) runs — see
+   * AgentRunOutcomesRepository.listReceiptBackedByExperimentAsync.
+   */
+  runEpisodeId: string | null;
   scheduledOccurrenceId: string | null;
   experimentVariant: string | null;
   proposalId: string | null;

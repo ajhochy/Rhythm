@@ -4197,4 +4197,25 @@ If someone asks for creative work that needs a local capability:
       SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
     END;
   `);
+
+  // ── C2-D (S2) — bind outcomes to their run episode ────────────────────────
+  //
+  // Additive: NULL for every outcome finalized before this column existed.
+  // `run_episode_id` is what `agent_org_experiment_treatment_receipts` is
+  // ALSO keyed on (UNIQUE there), so a caller can join the two tables to read
+  // only outcomes whose run received a real, receipt-proved treatment — see
+  // AgentRunOutcomesRepository.listReceiptBackedByExperimentAsync. Not made
+  // UNIQUE here: unlike the receipt/enrollment tables, this ledger's own
+  // identity is `root_session_id`, and a pre-existing row backfilled later is
+  // not this migration's concern.
+  const outcomeColsRunEpisode = (
+    db.pragma('table_info(agent_run_outcomes)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!outcomeColsRunEpisode.includes('run_episode_id')) {
+    db.exec(`ALTER TABLE agent_run_outcomes ADD COLUMN run_episode_id TEXT`);
+  }
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
+       ON agent_run_outcomes(run_episode_id)`,
+  );
 }

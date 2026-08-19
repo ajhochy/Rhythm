@@ -2106,4 +2106,16 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       retired_at TEXT NOT NULL
     )
   `);
+
+  // C2-D (S2): bind outcomes to their run episode (Postgres twin). Column set
+  // MUST stay identical to the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Single-line ALTER on purpose — the parser
+  // only reads single-line `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_run_outcomes ADD COLUMN IF NOT EXISTS run_episode_id TEXT;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
+       ON agent_run_outcomes(run_episode_id)`,
+  );
 }

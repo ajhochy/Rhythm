@@ -39,6 +39,7 @@ interface OutcomeRow {
   id: string;
   root_session_id: string;
   session_id: string | null;
+  run_episode_id: string | null;
   scheduled_occurrence_id: string | null;
   experiment_variant: string | null;
   proposal_id: string | null;
@@ -66,6 +67,8 @@ interface FeedbackRow {
 export interface FinalizeOutcomeInput {
   rootSessionId: string;
   sessionId?: string | null;
+  /** C2-D (S2) — the run episode this outcome belongs to; see the model. */
+  runEpisodeId?: string | null;
   scheduledOccurrenceId?: string | null;
   experimentVariant?: string | null;
   proposalId?: string | null;
@@ -103,6 +106,7 @@ function outcomeFromRow(row: OutcomeRow): AgentRunOutcome {
     id: row.id,
     rootSessionId: row.root_session_id,
     sessionId: row.session_id ?? null,
+    runEpisodeId: row.run_episode_id ?? null,
     scheduledOccurrenceId: row.scheduled_occurrence_id ?? null,
     experimentVariant: row.experiment_variant ?? null,
     proposalId: row.proposal_id ?? null,
@@ -294,6 +298,7 @@ export class AgentRunOutcomesRepository {
       id: newLedgerId(),
       root_session_id: input.rootSessionId,
       session_id: input.sessionId ?? null,
+      run_episode_id: input.runEpisodeId ?? null,
       scheduled_occurrence_id: input.scheduledOccurrenceId ?? null,
       experiment_variant: input.experimentVariant ?? null,
       proposal_id: input.proposalId ?? null,
@@ -309,10 +314,10 @@ export class AgentRunOutcomesRepository {
     if (env.dbClient === 'postgres') {
       await getPostgresPool().query(
         `INSERT INTO agent_run_outcomes
-           (id, root_session_id, session_id, scheduled_occurrence_id, experiment_variant,
+           (id, root_session_id, session_id, run_episode_id, scheduled_occurrence_id, experiment_variant,
             proposal_id, profile_id, config_revision, terminal_status, objective_verdict,
             objective_evidence_json, attribution_json, finalized_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          ON CONFLICT (root_session_id) DO NOTHING`,
         Object.values(row),
       );
@@ -320,10 +325,10 @@ export class AgentRunOutcomesRepository {
       this.db!
         .prepare(
           `INSERT INTO agent_run_outcomes
-             (id, root_session_id, session_id, scheduled_occurrence_id, experiment_variant,
+             (id, root_session_id, session_id, run_episode_id, scheduled_occurrence_id, experiment_variant,
               proposal_id, profile_id, config_revision, terminal_status, objective_verdict,
               objective_evidence_json, attribution_json, finalized_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT (root_session_id) DO NOTHING`,
         )
         .run(...Object.values(row));
@@ -422,6 +427,54 @@ export class AgentRunOutcomesRepository {
       return (r.rows as OutcomeRow[]).map(outcomeFromRow);
     }
     const rows = this.db!.prepare(sql('?')).all(proposalId) as OutcomeRow[];
+    return rows.map(outcomeFromRow);
+  }
+
+  /**
+   * C2-D (S2) — the receipt-backed cohort read. Same shape as
+   * {@link listByExperimentAsync}, plus an INNER JOIN requiring a matching
+   * `agent_org_experiment_treatment_receipts` row for the exact same
+   * `run_episode_id`, bound to this exact experiment and proposal. An
+   * outcome from an untreated dispatch (no receipt — e.g. `treatment_failed`
+   * or a pre-C2-D run with no episode id at all), or one whose receipt
+   * belongs to a different experiment/proposal, is never counted here.
+   *
+   * This is the capability the C2 contract's global invariant requires
+   * ("no experiment may establish outcome_status=verified unless both
+   * cohorts contain valid, finalized treatment receipts..."). Wiring it into
+   * the live judge/promote path is C3/C4 (tracked separately in #1448); this
+   * method exists and is proven correct here so that wiring is additive.
+   */
+  async listReceiptBackedByExperimentAsync(
+    experimentId: string,
+    proposalId: string,
+  ): Promise<AgentRunOutcome[]> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT o.* FROM agent_run_outcomes o
+           JOIN agent_org_experiment_treatment_receipts r
+             ON r.run_episode_id = o.run_episode_id
+          WHERE o.proposal_id = $1
+            AND o.experiment_variant IS NOT NULL
+            AND r.experiment_id = $2
+            AND r.proposal_id = $1
+          ORDER BY o.finalized_at, o.id`,
+        [proposalId, experimentId],
+      );
+      return (r.rows as OutcomeRow[]).map(outcomeFromRow);
+    }
+    const rows = this.db!
+      .prepare(
+        `SELECT o.* FROM agent_run_outcomes o
+           JOIN agent_org_experiment_treatment_receipts r
+             ON r.run_episode_id = o.run_episode_id
+          WHERE o.proposal_id = ?
+            AND o.experiment_variant IS NOT NULL
+            AND r.experiment_id = ?
+            AND r.proposal_id = ?
+          ORDER BY o.finalized_at, o.id`,
+      )
+      .all(proposalId, experimentId, proposalId) as OutcomeRow[];
     return rows.map(outcomeFromRow);
   }
 
