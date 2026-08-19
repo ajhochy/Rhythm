@@ -479,6 +479,25 @@ export class AgentRunOutcomesRepository {
   }
 
   /**
+   * C5 — every finalized outcome for one profile, regardless of experiment
+   * membership. This is the evidence builder's fact source
+   * (proposal_evidence_builder.ts): unlike {@link listByExperimentAsync},
+   * which only returns COHORT-labelled rows for one experiment, this reads
+   * the profile's entire behavioral history so a NEW proposal (with no
+   * experiment yet) can still be evidenced from real prior facts.
+   */
+  async listByProfileAsync(profileId: string): Promise<AgentRunOutcome[]> {
+    const sql = (placeholder: string) =>
+      `SELECT * FROM agent_run_outcomes WHERE profile_id = ${placeholder} ORDER BY finalized_at, id`;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql('$1'), [profileId]);
+      return (r.rows as OutcomeRow[]).map(outcomeFromRow);
+    }
+    const rows = this.db!.prepare(sql('?')).all(profileId) as OutcomeRow[];
+    return rows.map(outcomeFromRow);
+  }
+
+  /**
    * C3 — the LATEST explicit-user verdict per root session, batched. Same
    * "last one wins" precedence as {@link findByRootSessionIdAsync}'s
    * `explicitUserVerdict`, just resolved for many rows at once so the
