@@ -30,24 +30,21 @@
       "text": "A real baseline and a real candidate run through the actual WS interactive path for a declared system-prompt-v1 experiment receive distinct effective system prompts.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "requires RHYTHM_LIVE_E2E=1 sandbox run (tools/dev/sandbox.sh) -- not yet executed"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1448-c5",
       "text": "Both runs produce finalized treatment receipts with distinct effective hashes.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "requires RHYTHM_LIVE_E2E=1 sandbox run (tools/dev/sandbox.sh) -- not yet executed"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1448-c6",
       "text": "Durable AgentConfig target bytes are unchanged after both runs.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "requires RHYTHM_LIVE_E2E=1 sandbox run (tools/dev/sandbox.sh) -- not yet executed"
+      "status": "pass"
     }
   ],
   "not_tested": []
