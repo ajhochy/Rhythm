@@ -2256,3 +2256,339 @@ describe('C3-6 guardrail breach stops new enrollment atomically', () => {
     }
   });
 });
+
+/**
+ * C4 — fixed-horizon decision and tested-candidate promotion
+ * (docs/ai/contracts/issue-causal-runtime-v2.json, phase C4).
+ */
+describe('C4-1/C4-2 a point estimate crossing minEffect is not enough without statistical significance', () => {
+  it('stays inconclusive (never promote) when the effect clears minEffect but the sample is too noisy to be significant', async () => {
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle());
+    // baseline 40%, candidate 60% — a 0.20 point-estimate effect, well past
+    // minEffect (0.05), but at n=30/cohort the sampling noise alone can
+    // produce this gap; the fixed-horizon criterion must refuse it.
+    const result = decideExperiment({
+      experiment: exp,
+      baseline: cohort(30, 12, 'baseline'),
+      candidate: cohort(30, 18, 'candidate'),
+    });
+    if (result.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(result.decision).toBe('inconclusive');
+    expect(result.reason).toMatch(/not statistically significant/i);
+  });
+
+  it('promotes once the SAME effect size is backed by enough samples to be statistically significant', async () => {
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle());
+    // The identical 40%/60% point estimate, 10x the samples.
+    const result = decideExperiment({
+      experiment: exp,
+      baseline: cohort(300, 120, 'baseline'),
+      candidate: cohort(300, 180, 'candidate'),
+    });
+    if (result.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(result.decision).toBe('promote');
+  });
+
+  it('persists analysisVersion, confidenceLevel, effect, standardError, and a confidence interval on a decided result', async () => {
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle());
+    const result = decideExperiment({
+      experiment: exp,
+      baseline: cohort(300, 120, 'baseline'),
+      candidate: cohort(300, 180, 'candidate'),
+    });
+    if (result.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(result.results!.analysisVersion).toBe('fixed-horizon-v2-normal-approx-1');
+    expect(result.results!.confidenceLevel).toBe(0.95);
+    expect(result.results!.effect).toBeCloseTo(0.2, 5);
+    expect(result.results!.standardError).toBeGreaterThan(0);
+    expect(result.results!.ciLower).toBeLessThan(result.results!.effect!);
+    expect(result.results!.ciUpper).toBeGreaterThan(result.results!.effect!);
+  });
+
+  it('once locked inconclusive for failing significance, a later judge call never re-decides even once more (favorable) data arrives', async () => {
+    // This is the concrete "no peeking-and-promoting" proof: the FIRST
+    // terminal look is the only one that ever counts. A verdict locked while
+    // underpowered can never be revisited into a promote just because more
+    // (now favorable) data trickles in afterward.
+    const proposals = new AgentOrgProposalsRepository();
+    await proposals.createAsync({ id: 'prop-1', kind: 'refine-skill', risk: 'low', title: 'x' });
+    const outcomes = new AgentRunOutcomesRepository();
+    const finalizeOne = (rootSessionId: string, variant: string, success: boolean) =>
+      outcomes.finalizeAsync({
+        rootSessionId,
+        proposalId: 'prop-1',
+        experimentVariant: variant,
+        terminalStatus: 'completed',
+        objectiveVerdict: success ? 'success' : 'failure',
+        objectiveEvidence: { producedArtifact: null, errorCount: null, approvalDenied: null },
+      });
+    for (let i = 0; i < 30; i += 1) {
+      await finalizeOne(`ses-b-${i}`, 'baseline', i < 12); // 40%
+      await finalizeOne(`ses-c-${i}`, 'candidate', i < 18); // 60% — same noisy fixture as above
+    }
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle());
+
+    const firstJudged = await judgeExperimentAsync(exp.id);
+    if (firstJudged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(firstJudged.decision).toBe('inconclusive');
+
+    // More data arrives, now overwhelmingly favoring the candidate — but the
+    // experiment is already decided, so this must never flip the verdict.
+    for (let i = 30; i < 300; i += 1) {
+      await finalizeOne(`ses-b-${i}`, 'baseline', false);
+      await finalizeOne(`ses-c-${i}`, 'candidate', true);
+    }
+    const rejudged = await judgeExperimentAsync(exp.id);
+    if (rejudged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(rejudged.decision).toBe('inconclusive');
+
+    const proposal = await proposals.findByIdAsync('prop-1');
+    expect(proposal!.outcomeStatus).toBe('inconclusive');
+  });
+});
+
+describe('C4-3 sample-integrity gates block promotion on a compromised receipt-backed sample', () => {
+  it('refuses to promote on a sample-ratio mismatch even when the effect is large and significant', async () => {
+    const proposalId = 'prop-c4-ratio-mismatch';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), {
+      proposalId,
+      stoppingRule: { minSamplesPerCohort: 2, minEffect: 0.05 },
+    });
+
+    for (let i = 0; i < 20; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-ratio',
+        cohort: 'baseline',
+        runEpisodeId: `c4-ratio-b-${i}`,
+        success: i < 10,
+      });
+    }
+    // Only 2 receipt-backed candidate runs against 20 baseline — a 1:10
+    // split, nowhere near the declared 1:1 assignment.
+    for (let i = 0; i < 2; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-ratio',
+        cohort: 'candidate',
+        runEpisodeId: `c4-ratio-c-${i}`,
+        success: true,
+      });
+    }
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('inconclusive');
+    expect(judged.reason).toMatch(/sample-ratio mismatch/i);
+
+    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('inconclusive');
+  });
+
+  it('refuses to promote when too many enrolled runs never produced a receipt-backed outcome', async () => {
+    const proposalId = 'prop-c4-missing-outcomes';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), {
+      proposalId,
+      stoppingRule: { minSamplesPerCohort: 5, minEffect: 0.05 },
+    });
+
+    for (let i = 0; i < 10; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-missing',
+        cohort: 'baseline',
+        runEpisodeId: `c4-missing-b-${i}`,
+        success: i < 5,
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-missing',
+        cohort: 'candidate',
+        runEpisodeId: `c4-missing-c-${i}`,
+        success: i < 9,
+      });
+    }
+    // 10 more baseline reservations that NEVER dispatch/finalize a receipt —
+    // 10/30 (33%) of all enrolled runs are missing, past the 30% ceiling,
+    // even though the receipt-backed cohorts are perfectly 1:1.
+    const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+    for (let i = 0; i < 10; i += 1) {
+      await enrollmentsRepo.reserveAsync({
+        maxExposure: 1000,
+        runEpisodeId: `c4-missing-orphan-${i}`,
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-missing',
+        cohort: 'baseline',
+        assignmentDigest: `digest-orphan-${i}`,
+        baselineTargetRevisionHash: C3_FAKE_TARGET_REVISION_HASH,
+        treatmentSpecHash: C3_FAKE_TREATMENT_SPEC_HASH,
+      });
+    }
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('inconclusive');
+    expect(judged.reason).toMatch(/excessive missing outcomes/i);
+  });
+
+  it("refuses to promote when a receipt-backed outcome's ledger cohort disagrees with its own enrollment", async () => {
+    const proposalId = 'prop-c4-receipt-mismatch';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), {
+      proposalId,
+      stoppingRule: { minSamplesPerCohort: 5, minEffect: 0.05 },
+    });
+
+    for (let i = 0; i < 10; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-mismatch',
+        cohort: 'baseline',
+        runEpisodeId: `c4-mismatch-b-${i}`,
+        success: i < 5,
+      });
+    }
+    for (let i = 0; i < 9; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-c4-mismatch',
+        cohort: 'candidate',
+        runEpisodeId: `c4-mismatch-c-${i}`,
+        success: true,
+      });
+    }
+
+    // Reserve + dispatch + finalize ONE receipt exactly as a real 'candidate'
+    // run, then finalize its LEDGER outcome under the WRONG cohort label.
+    // `agent_run_outcomes` is insert-once/immutable (no UPDATE can reach
+    // this), and the receipt itself always copies its cohort verbatim from
+    // the enrollment — this simulates the one class of bug (a wiring gap
+    // between the terminal hook's own cohort read and the receipt's) this
+    // defense-in-depth check exists for, via a legal INSERT of a
+    // mislabeled row rather than an illegal UPDATE.
+    const mismatchRunEpisodeId = 'c4-mismatch-wrong-label';
+    const mismatchEnrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+    await mismatchEnrollmentsRepo.reserveAsync({
+      maxExposure: 1000,
+      runEpisodeId: mismatchRunEpisodeId,
+      experimentId: exp.id,
+      proposalId,
+      profileId: 'profile-c4-mismatch',
+      cohort: 'candidate',
+      assignmentDigest: `digest-${mismatchRunEpisodeId}`,
+      baselineTargetRevisionHash: C3_FAKE_TARGET_REVISION_HASH,
+      treatmentSpecHash: C3_FAKE_TREATMENT_SPEC_HASH,
+    });
+    const mismatchReceiptResult = await new AgentOrgTreatmentReceiptsRepository().dispatchAndFinalizeReceiptAsync(
+      mismatchRunEpisodeId,
+      {
+        profileRevision: 1,
+        targetRef: 'agent_config:profile-c4-mismatch',
+        targetRevisionHash: C3_FAKE_TARGET_REVISION_HASH,
+        treatmentSpecHash: C3_FAKE_TREATMENT_SPEC_HASH,
+        effectivePromptHash: C3_FAKE_EFFECTIVE_PROMPT_HASH,
+      },
+    );
+    if (mismatchReceiptResult.status !== 'applied') {
+      throw new Error(`test setup: expected receipt to apply, got '${mismatchReceiptResult.status}'`);
+    }
+    await new AgentRunOutcomesRepository().finalizeAsync({
+      rootSessionId: mismatchRunEpisodeId,
+      runEpisodeId: mismatchRunEpisodeId,
+      proposalId,
+      experimentVariant: 'baseline', // WRONG — the enrollment/receipt say 'candidate'
+      terminalStatus: 'completed',
+      objectiveVerdict: 'success',
+      objectiveEvidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+    });
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('inconclusive');
+    expect(judged.reason).toMatch(/treatment-receipt mismatch/i);
+  });
+});
+
+describe('C4-4 promote sets outcome_status=verified without touching deployment status or target bytes', () => {
+  it('leaves proposal.status and the target AgentConfig unchanged after a receipt-backed promote', async () => {
+    const proposalId = 'prop-c4-deploy-status';
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const created = await proposalsRepo.createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const profile = new AgentConfigsRepository().insert({
+      id: 'profile-c4-deploy',
+      label: 'profile-c4-deploy',
+      icon: 'x',
+      systemPrompt: 'before',
+    });
+
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), { proposalId });
+    for (let i = 0; i < 20; i += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: profile.id,
+        cohort: 'baseline',
+        runEpisodeId: `c4-deploy-b-${i}`,
+        success: i < 10,
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: profile.id,
+        cohort: 'candidate',
+        runEpisodeId: `c4-deploy-c-${i}`,
+        success: i < 18,
+      });
+    }
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('promote');
+
+    const proposal = await proposalsRepo.findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('verified');
+    // Deployment status is a completely separate axis from the causal
+    // outcome — the judge path never touches it.
+    expect(proposal!.status).toBe(created.status);
+
+    const reloadedProfile = new AgentConfigsRepository().getById(profile.id);
+    expect(reloadedProfile!.systemPrompt).toBe('before');
+  });
+});

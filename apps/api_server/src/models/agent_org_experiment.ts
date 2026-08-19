@@ -53,9 +53,41 @@ export interface CohortResult {
   responseRate?: number;
 }
 
+/**
+ * C4 — per-cohort enrollment/receipt accounting for the sample-integrity
+ * gate (docs/ai/contracts/issue-causal-runtime-v2.json, phase C4). Only
+ * populated on the receipt-backed promotion path (org_proposal_experiment_
+ * service.ts's gateProductionPromotionAsync), which is the one place both
+ * enrollment and receipt-backed outcome counts are available together.
+ */
+export interface MissingnessSummary {
+  baselineEnrolled: number;
+  baselineMissing: number;
+  candidateEnrolled: number;
+  candidateMissing: number;
+}
+
 export interface ExperimentResults {
   baseline: CohortResult;
   candidate: CohortResult;
+  /**
+   * C4 — the exact deterministic procedure version that produced `effect`/
+   * `standardError`/`ciLower`/`ciUpper` below. Absent on rows written before
+   * C4 (or on results carried over from an older analysis). A stored
+   * decision is only trustworthy when read against the version that
+   * produced it — never reinterpreted under today's rules.
+   */
+  analysisVersion?: string;
+  /** C4 — the predeclared, closed confidence criterion (e.g. 0.95) this decision was judged against. */
+  confidenceLevel?: number;
+  /** C4 — the direction-adjusted effect (positive means the candidate improved). */
+  effect?: number;
+  /** C4 — normal-approximation standard error of `effect`, from a conservative [0,1]-bounded variance estimate. */
+  standardError?: number;
+  ciLower?: number;
+  ciUpper?: number;
+  /** C4 — populated only by the receipt-backed promotion gate (see MissingnessSummary). */
+  missingness?: MissingnessSummary;
 }
 
 /**
