@@ -246,7 +246,7 @@ export async function recordTerminalOutcome(event: TerminalRunEvent): Promise<vo
         ? null
         : await (async () => {
             const { resolveRunEnrollment } = await import('./org_proposal_experiment_service');
-            return resolveRunEnrollment(rootSessionId);
+            return resolveRunEnrollment(runEpisodeId);
           })();
 
     await repo.finalizeAsync({
