@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 
 import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
+import { ENROLLMENT_FAILURE_CODES, ENROLLMENT_FAILURE_CODE_REASONS } from '../models/agent_org_experiment_enrollment';
 import {
   LEGACY_MEMORY_CONSOLIDATION_PROMPT_V1,
   MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
@@ -4022,12 +4023,199 @@ If someone asks for creative work that needs a local capability:
       assignment_digest TEXT NOT NULL,
       baseline_target_revision_hash TEXT NOT NULL,
       treatment_spec_hash TEXT NOT NULL,
-      state TEXT NOT NULL DEFAULT 'reserved',
+      state TEXT NOT NULL DEFAULT 'reserved'
+        CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
+      failure_code TEXT,
+      failure_reason TEXT,
       reserved_at TEXT NOT NULL
     );
   `);
+
+  const enrollmentCols = (db.pragma('table_info(agent_org_experiment_enrollments)') as {
+    name: string;
+  }[]).map((c) => c.name);
+  if (!enrollmentCols.includes('failure_code')) {
+    db.exec(`ALTER TABLE agent_org_experiment_enrollments ADD COLUMN failure_code TEXT`);
+  }
+  if (!enrollmentCols.includes('failure_reason')) {
+    db.exec(`ALTER TABLE agent_org_experiment_enrollments ADD COLUMN failure_reason TEXT`);
+  }
+
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
        ON agent_org_experiment_enrollments(experiment_id)`,
+  );
+
+  const canonicalFailureReasonCases = ENROLLMENT_FAILURE_CODES.map((code) => {
+    const reason = ENROLLMENT_FAILURE_CODE_REASONS[code];
+    const escapedReason = reason.replace(/'/g, "''");
+    return ` WHEN '${code}' THEN '${escapedReason}'`;
+  }).join('\n');
+  const canonicalFailureReasonExpr = `(CASE NEW.failure_code ${canonicalFailureReasonCases} ELSE NULL END)`;
+
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_insert_domain;
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_update_domain;
+
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_insert_domain
+    BEFORE INSERT ON agent_org_experiment_enrollments
+    FOR EACH ROW
+    WHEN NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')
+      OR (NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN (
+        'pre_dispatch_failed',
+        'prompt_dispatch_failed',
+        'provider_unavailable',
+        'invalid_model',
+        'prompt_timeout',
+        'target_drifted'
+      ))
+      OR (NEW.state = 'treatment_failed'
+          AND (NEW.failure_code IS NULL OR NEW.failure_reason IS NOT ${canonicalFailureReasonExpr}))
+      OR (NEW.state IN ('reserved', 'dispatched', 'terminalized')
+          AND (NEW.failure_code IS NOT NULL OR NEW.failure_reason IS NOT NULL))
+    BEGIN
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
+    END;
+
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_update_domain
+    BEFORE UPDATE OF state, failure_code, failure_reason
+    ON agent_org_experiment_enrollments
+    FOR EACH ROW
+    WHEN NOT (
+      -- unchanged state + unchanged metadata is a legal idempotent write
+      (NEW.state = OLD.state
+       AND NEW.failure_code IS OLD.failure_code
+       AND NEW.failure_reason IS OLD.failure_reason)
+      OR (
+        OLD.state = 'reserved'
+        AND NEW.state = 'dispatched'
+        AND NEW.failure_code IS NULL
+        AND NEW.failure_reason IS NULL
+      )
+      OR (
+        OLD.state = 'reserved'
+        AND NEW.state = 'treatment_failed'
+        AND NEW.failure_code IN (
+          'pre_dispatch_failed',
+          'prompt_dispatch_failed',
+          'provider_unavailable',
+          'invalid_model',
+          'prompt_timeout',
+          'target_drifted'
+        )
+        AND NEW.failure_reason IS ${canonicalFailureReasonExpr}
+      )
+      OR (
+        OLD.state = 'dispatched'
+        AND NEW.state = 'terminalized'
+        AND NEW.failure_code IS NULL
+        AND NEW.failure_reason IS NULL
+      )
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
+    END;
+  `);
+
+  // ── C2-B — the durable, immutable, sanitized treatment receipt ───────────
+  //
+  // Bound to exactly one enrollment/run episode (both UNIQUE). Carries only
+  // safe identity/revision/hash evidence — never raw prompt/system-prompt
+  // bytes. `target_ref` and the hash columns are closed-domain CHECKs so a
+  // malformed row can never be inserted in the first place, not merely
+  // rejected by application code. Fully immutable once inserted (see the
+  // no-update/no-delete triggers below) — unlike the enrollment lifecycle
+  // table, a receipt has no legal post-insert transition at all.
+  const HEX64_GLOB = Array(64).fill('[0-9a-f]').join('');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_treatment_receipts (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES agent_org_experiment_enrollments(id),
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline','candidate')),
+      assignment_digest TEXT NOT NULL,
+      adapter TEXT NOT NULL CHECK (adapter = 'system-prompt-v1'),
+      target_ref TEXT NOT NULL CHECK (target_ref = 'agent_config:' || profile_id),
+      baseline_target_revision_hash TEXT NOT NULL CHECK (baseline_target_revision_hash GLOB 'sha256:${HEX64_GLOB}'),
+      profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+      treatment_spec_hash TEXT NOT NULL CHECK (treatment_spec_hash GLOB '${HEX64_GLOB}'),
+      effective_prompt_hash TEXT NOT NULL CHECK (effective_prompt_hash GLOB '${HEX64_GLOB}'),
+      finalized_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_treatment_receipts_experiment
+       ON agent_org_experiment_treatment_receipts(experiment_id)`,
+  );
+
+  // INSERT-time binding guard: a receipt can only be inserted for an
+  // enrollment that (a) exists, (b) is ALREADY `dispatched` at insert time,
+  // and (c) matches the receipt's copied binding fields exactly. This is a
+  // real DB-level enforcement — a raw SQL INSERT that relabels any bound
+  // field, or that fires before the enrollment's own reserved -> dispatched
+  // transition has committed, is rejected here, not merely by the
+  // repository copying fields correctly. DROP+CREATE (not CREATE TRIGGER IF
+  // NOT EXISTS) so a future logic fix redeploys on every boot, mirroring the
+  // enrollment lifecycle triggers above.
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_binding;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_binding
+    BEFORE INSERT ON agent_org_experiment_treatment_receipts
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1 FROM agent_org_experiment_enrollments e
+       WHERE e.id = NEW.enrollment_id
+         AND e.state = 'dispatched'
+         AND e.run_episode_id = NEW.run_episode_id
+         AND e.experiment_id = NEW.experiment_id
+         AND e.proposal_id = NEW.proposal_id
+         AND e.profile_id = NEW.profile_id
+         AND e.cohort = NEW.cohort
+         AND e.assignment_digest = NEW.assignment_digest
+         AND e.baseline_target_revision_hash = NEW.baseline_target_revision_hash
+         AND e.treatment_spec_hash = NEW.treatment_spec_hash
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipt does not match its bound dispatched enrollment');
+    END;
+  `);
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiment_treatment_receipts_no_update
+    BEFORE UPDATE ON agent_org_experiment_treatment_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiment_treatment_receipts_no_delete
+    BEFORE DELETE ON agent_org_experiment_treatment_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
+    END;
+  `);
+
+  // ── C2-D (S2) — bind outcomes to their run episode ────────────────────────
+  //
+  // Additive: NULL for every outcome finalized before this column existed.
+  // `run_episode_id` is what `agent_org_experiment_treatment_receipts` is
+  // ALSO keyed on (UNIQUE there), so a caller can join the two tables to read
+  // only outcomes whose run received a real, receipt-proved treatment — see
+  // AgentRunOutcomesRepository.listReceiptBackedByExperimentAsync. Not made
+  // UNIQUE here: unlike the receipt/enrollment tables, this ledger's own
+  // identity is `root_session_id`, and a pre-existing row backfilled later is
+  // not this migration's concern.
+  const outcomeColsRunEpisode = (
+    db.pragma('table_info(agent_run_outcomes)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!outcomeColsRunEpisode.includes('run_episode_id')) {
+    db.exec(`ALTER TABLE agent_run_outcomes ADD COLUMN run_episode_id TEXT`);
+  }
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
+       ON agent_run_outcomes(run_episode_id)`,
   );
 }

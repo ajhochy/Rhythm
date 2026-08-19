@@ -1885,6 +1885,214 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
   `);
 
+  // C1-C-B3: Postgres twin of the durable, pre-dispatch enrollment lifecycle.
+  // Keep the CREATE body in its own query so skill_schema_parity.test.ts can
+  // compare it to the real SQLite migration. Existing early deployments can
+  // only lack the failure fields, which are added below without backfill.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_enrollments (
+      id TEXT PRIMARY KEY,
+      run_episode_id TEXT NOT NULL,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline', 'candidate')),
+      assignment_digest TEXT NOT NULL,
+      baseline_target_revision_hash TEXT NOT NULL,
+      treatment_spec_hash TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'reserved'
+        CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
+      failure_code TEXT,
+      failure_reason TEXT,
+      reserved_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `ALTER TABLE agent_org_experiment_enrollments ADD COLUMN IF NOT EXISTS failure_code TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE agent_org_experiment_enrollments ADD COLUMN IF NOT EXISTS failure_reason TEXT`,
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_run_episode
+       ON agent_org_experiment_enrollments(run_episode_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
+       ON agent_org_experiment_enrollments(experiment_id)`,
+  );
+
+  // PostgreSQL behavioral twin of SQLite's C1 lifecycle trigger. The function
+  // owns both insert-domain and update-transition validation so all rejects use
+  // one stable error string and NULL comparisons stay engine-equivalent.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state()
+    RETURNS trigger AS $$
+    DECLARE
+      canonical_failure_reason TEXT;
+    BEGIN
+      IF NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized') THEN
+        RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+      END IF;
+
+      IF NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN (
+        'pre_dispatch_failed',
+        'prompt_dispatch_failed',
+        'provider_unavailable',
+        'invalid_model',
+        'prompt_timeout',
+        'target_drifted'
+      ) THEN
+        RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+      END IF;
+
+      canonical_failure_reason := CASE NEW.failure_code
+        WHEN 'pre_dispatch_failed' THEN 'pre_dispatch_failed'
+        WHEN 'prompt_dispatch_failed' THEN 'prompt_dispatch_failed'
+        WHEN 'provider_unavailable' THEN 'provider_unavailable'
+        WHEN 'invalid_model' THEN 'invalid_model'
+        WHEN 'prompt_timeout' THEN 'prompt_timeout'
+        WHEN 'target_drifted' THEN 'target_drifted'
+        ELSE NULL
+      END;
+
+      IF TG_OP = 'INSERT' THEN
+        IF NEW.state = 'treatment_failed' THEN
+          IF NEW.failure_code IS NULL
+             OR NEW.failure_reason IS DISTINCT FROM canonical_failure_reason THEN
+            RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+          END IF;
+        ELSIF NEW.failure_code IS NOT NULL OR NEW.failure_reason IS NOT NULL THEN
+          RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+        END IF;
+        RETURN NEW;
+      END IF;
+
+      IF NEW.state IS NOT DISTINCT FROM OLD.state
+         AND NEW.failure_code IS NOT DISTINCT FROM OLD.failure_code
+         AND NEW.failure_reason IS NOT DISTINCT FROM OLD.failure_reason THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'reserved'
+         AND NEW.state = 'dispatched'
+         AND NEW.failure_code IS NULL
+         AND NEW.failure_reason IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'reserved'
+         AND NEW.state = 'treatment_failed'
+         AND NEW.failure_code IS NOT NULL
+         AND NEW.failure_reason IS NOT DISTINCT FROM canonical_failure_reason THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'dispatched'
+         AND NEW.state = 'terminalized'
+         AND NEW.failure_code IS NULL
+         AND NEW.failure_reason IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_insert_domain
+      ON agent_org_experiment_enrollments;
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_insert_domain
+      BEFORE INSERT ON agent_org_experiment_enrollments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
+
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_update_domain
+      ON agent_org_experiment_enrollments;
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_update_domain
+      BEFORE UPDATE OF state, failure_code, failure_reason ON agent_org_experiment_enrollments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
+  `);
+
+  // ── C2-B — the durable, immutable, sanitized treatment receipt (Postgres
+  // twin). Column set MUST stay identical to the SQLite migration in
+  // migrations.ts — enforced by skill_schema_parity.test.ts. Closed-domain
+  // CHECKs mirror the SQLite GLOB patterns using Postgres regex; `target_ref`
+  // is bound to `profile_id` in the same row so a caller cannot smuggle a
+  // mismatched ref past the DB layer. Table in its own pool.query with the
+  // closing paren immediately before the backtick or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_treatment_receipts (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES agent_org_experiment_enrollments(id),
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline', 'candidate')),
+      assignment_digest TEXT NOT NULL,
+      adapter TEXT NOT NULL CHECK (adapter = 'system-prompt-v1'),
+      target_ref TEXT NOT NULL CHECK (target_ref = ('agent_config:' || profile_id)),
+      baseline_target_revision_hash TEXT NOT NULL CHECK (baseline_target_revision_hash ~ '^sha256:[0-9a-f]{64}$'),
+      profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+      treatment_spec_hash TEXT NOT NULL CHECK (treatment_spec_hash ~ '^[0-9a-f]{64}$'),
+      effective_prompt_hash TEXT NOT NULL CHECK (effective_prompt_hash ~ '^[0-9a-f]{64}$'),
+      finalized_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_treatment_receipts_experiment
+       ON agent_org_experiment_treatment_receipts(experiment_id)`,
+  );
+
+  // Postgres twin of the SQLite INSERT-binding trigger: a receipt can only be
+  // inserted for an enrollment that exists, is ALREADY `dispatched`, and
+  // matches the receipt's copied binding fields exactly. Real DB-level
+  // enforcement, not merely repository discipline.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_guard_agent_org_experiment_treatment_receipt_binding()
+    RETURNS trigger AS $$
+    DECLARE
+      bound_enrollment RECORD;
+    BEGIN
+      SELECT * INTO bound_enrollment
+        FROM agent_org_experiment_enrollments
+       WHERE id = NEW.enrollment_id;
+
+      IF NOT FOUND
+         OR bound_enrollment.state <> 'dispatched'
+         OR bound_enrollment.run_episode_id <> NEW.run_episode_id
+         OR bound_enrollment.experiment_id <> NEW.experiment_id
+         OR bound_enrollment.proposal_id <> NEW.proposal_id
+         OR bound_enrollment.profile_id <> NEW.profile_id
+         OR bound_enrollment.cohort <> NEW.cohort
+         OR bound_enrollment.assignment_digest <> NEW.assignment_digest
+         OR bound_enrollment.baseline_target_revision_hash <> NEW.baseline_target_revision_hash
+         OR bound_enrollment.treatment_spec_hash <> NEW.treatment_spec_hash
+      THEN
+        RAISE EXCEPTION 'treatment receipt does not match its bound dispatched enrollment';
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_binding
+      ON agent_org_experiment_treatment_receipts;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_binding
+      BEFORE INSERT ON agent_org_experiment_treatment_receipts
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_treatment_receipt_binding();
+  `);
+
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_immutable
+      ON agent_org_experiment_treatment_receipts;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_immutable
+      BEFORE UPDATE OR DELETE ON agent_org_experiment_treatment_receipts
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('treatment receipts are immutable once finalized');
+  `);
+
   // W5-c12: the proposal retirement sidecar. Column set MUST stay identical to
   // the SQLite migration in migrations.ts — enforced by
   // skill_schema_parity.test.ts. Table in its own pool.query with the closing
@@ -1898,4 +2106,16 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       retired_at TEXT NOT NULL
     )
   `);
+
+  // C2-D (S2): bind outcomes to their run episode (Postgres twin). Column set
+  // MUST stay identical to the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Single-line ALTER on purpose — the parser
+  // only reads single-line `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_run_outcomes ADD COLUMN IF NOT EXISTS run_episode_id TEXT;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
+       ON agent_run_outcomes(run_episode_id)`,
+  );
 }

@@ -1,0 +1,38 @@
+{
+  "issue": 1450,
+  "date": "2026-08-18",
+  "test_command": "npx vitest run src/__tests__/issue_1450_contract.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1450-c1",
+      "text": "Schema: Add run_episode_id column to agent_run_outcomes table (SQLite migration + Postgres bootstrap)",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1450_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1450-c2",
+      "text": "Repository: Update AgentRunOutcomesRepository.finalizeAsync to accept and persist run_episode_id",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1450_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1450-c3",
+      "text": "Service: recordTerminalOutcome passes the computed runEpisodeId to the repository",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1450_contract.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1450-c4",
+      "text": "Promotion/Judgement: Filter outcomes by valid receipt existence — only runs with a matching agent_org_treatment_receipts row for the same run_episode_id count toward cohort statistics",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1450_contract.test.ts",
+      "status": "pass",
+      "reason": "Implemented as a new repository capability (AgentRunOutcomesRepository.listReceiptBackedByExperimentAsync) proven by RED->GREEN tests to correctly join/filter on run_episode_id against agent_org_experiment_treatment_receipts. NOT wired into the existing judgeExperimentAsync/computeDecisionAsync production call sites in this slice: the tracking issue #1448 explicitly splits that wiring into separate future phases (\"C3: Judgement/adjudication gated by receipts\" and \"C4: Promotion gated by receipt-filtered outcomes\", both listed as \"Not started\"). Wiring it into computeDecisionAsync now would silently change interim results/decision counts for ~20 pre-existing tests across 3 files (org_proposal_experiment_service.test.ts, org_proposal_experiment_collecting.test.ts, experiment_cohort_wiring_contract.test.ts) that seed outcomes without receipts today — out of this slice's bounded scope. Recorded as a scoping decision, not a gap: the capability exists, is tested, and is additive-only."
+    }
+  ],
+  "not_tested": []
+}

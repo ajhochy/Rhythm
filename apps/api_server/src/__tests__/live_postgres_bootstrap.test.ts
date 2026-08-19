@@ -65,6 +65,8 @@
  *    does not run a single repository or route against it.
  */
 
+import { createHash } from 'node:crypto';
+
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -193,7 +195,13 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
   it('materialises a non-trivial schema', () => {
     // If the bootstrap silently no-opped, this is the tripwire.
     expect(pgTables.size).toBeGreaterThan(50);
-    for (const t of ['users', 'tasks', 'agent_sessions', 'agent_org_experiments']) {
+    for (const t of [
+      'users',
+      'tasks',
+      'agent_sessions',
+      'agent_org_experiments',
+      'agent_org_experiment_enrollments',
+    ]) {
       expect(pgTables.has(t)).toBe(true);
     }
   });
@@ -269,6 +277,454 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
       [id],
     );
     expect(rows[0].decision).toBe('ship');
+  });
+
+  it('enforces enrollment lifecycle domains and transitions — the Postgres trigger FIRES', async () => {
+    const id = `pgenroll-${Date.now()}`;
+    const enrollment = {
+      id,
+      run_episode_id: `${id}-episode`,
+      experiment_id: 'experiment-1',
+      proposal_id: 'proposal-1',
+      profile_id: 'profile-1',
+      cohort: 'candidate',
+      assignment_digest: 'assignment-digest',
+      baseline_target_revision_hash: 'baseline-hash',
+      treatment_spec_hash: 'treatment-hash',
+      state: 'reserved',
+      reserved_at: '2026-01-01T00:00:00.000Z',
+    };
+    const columns = Object.keys(enrollment);
+    await pool.query(
+      `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+         VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+      Object.values(enrollment),
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        Object.values({ ...enrollment, id: `${id}-duplicate-run` }),
+      ),
+    ).rejects.toThrow(/duplicate key/);
+    await expect(
+      pool.query(
+        `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        Object.values({
+          ...enrollment,
+          id: `${id}-invalid-cohort`,
+          run_episode_id: `${id}-invalid-cohort-episode`,
+          cohort: 'other',
+        }),
+      ),
+    ).rejects.toThrow(/violates check constraint/);
+
+    // Identical writes are legal idempotence, then the normal success path.
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'reserved' WHERE id = $1`,
+      [id],
+    );
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'dispatched' WHERE id = $1`,
+      [id],
+    );
+
+    // Failure metadata cannot hitch a ride on the dispatched → terminalized path.
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'terminalized', failure_code = 'prompt_timeout', failure_reason = 'prompt_timeout'
+          WHERE id = $1`,
+        [id],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'terminalized' WHERE id = $1`,
+      [id],
+    );
+    await expect(
+      pool.query(`UPDATE agent_org_experiment_enrollments SET state = 'reserved' WHERE id = $1`, [id]),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+
+    const failedId = `${id}-failed`;
+    await pool.query(
+      `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+         VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+      Object.values({ ...enrollment, id: failedId, run_episode_id: `${failedId}-episode` }),
+    );
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed',
+                failure_code = 'provider_unavailable',
+                failure_reason = 'arbitrary raw provider detail'
+          WHERE id = $1`,
+        [failedId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments
+          SET state = 'treatment_failed',
+              failure_code = 'provider_unavailable',
+              failure_reason = 'provider_unavailable'
+        WHERE id = $1`,
+      [failedId],
+    );
+  });
+
+  it('C2-B: the Postgres treatment-receipt insert-binding and immutability triggers FIRE against a real dispatched enrollment', async () => {
+    const id = `pgreceipt-${Date.now()}`;
+    const hex64 = (seed: string) =>
+      createHash('sha256').update(seed).digest('hex');
+    const enrollment = {
+      id,
+      run_episode_id: `${id}-episode`,
+      experiment_id: 'receipt-experiment-1',
+      proposal_id: 'receipt-proposal-1',
+      profile_id: 'receipt-profile-1',
+      cohort: 'candidate',
+      assignment_digest: 'receipt-assignment-digest-1',
+      baseline_target_revision_hash: `sha256:${hex64(`${id}-baseline`)}`,
+      treatment_spec_hash: hex64(`${id}-spec`),
+      state: 'reserved',
+      reserved_at: '2026-01-01T00:00:00.000Z',
+    };
+    const enrollmentColumns = Object.keys(enrollment);
+    await pool.query(
+      `INSERT INTO agent_org_experiment_enrollments (${enrollmentColumns.join(', ')})
+         VALUES (${enrollmentColumns.map((_, index) => `$${index + 1}`).join(', ')})`,
+      Object.values(enrollment),
+    );
+
+    function receiptRow(overrides: Record<string, unknown> = {}) {
+      return {
+        id: `${id}-receipt`,
+        schema_version: 1,
+        enrollment_id: enrollment.id,
+        run_episode_id: enrollment.run_episode_id,
+        experiment_id: enrollment.experiment_id,
+        proposal_id: enrollment.proposal_id,
+        profile_id: enrollment.profile_id,
+        cohort: enrollment.cohort,
+        assignment_digest: enrollment.assignment_digest,
+        adapter: 'system-prompt-v1',
+        target_ref: `agent_config:${enrollment.profile_id}`,
+        baseline_target_revision_hash: enrollment.baseline_target_revision_hash,
+        profile_revision: 1,
+        treatment_spec_hash: enrollment.treatment_spec_hash,
+        effective_prompt_hash: hex64(`${id}-effective`),
+        finalized_at: '2026-01-01T00:00:00.000Z',
+        ...overrides,
+      };
+    }
+    async function insertReceipt(row: Record<string, unknown>) {
+      const columns = Object.keys(row);
+      return pool.query(
+        `INSERT INTO agent_org_experiment_treatment_receipts (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        Object.values(row),
+      );
+    }
+    async function expectRejectedWithNoRow(
+      row: Record<string, unknown>,
+      matcher: RegExp,
+    ) {
+      await expect(insertReceipt(row)).rejects.toThrow(matcher);
+      const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM agent_org_experiment_treatment_receipts WHERE id = $1`,
+        [row.id],
+      );
+      expect(rows[0].n).toBe(0);
+    }
+
+    // Rejected: the enrollment is still `reserved`, not `dispatched`.
+    await expectRejectedWithNoRow(
+      receiptRow(),
+      /does not match its bound dispatched enrollment/,
+    );
+
+    // Transition to dispatched — mirrors the repository's own reserved ->
+    // dispatched + insert-receipt ordering.
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments SET state = 'dispatched' WHERE id = $1`,
+      [enrollment.id],
+    );
+
+    // A second, unrelated, already-dispatched enrollment whose bound fields
+    // all differ from `enrollment`'s — used below to prove that pointing a
+    // receipt's enrollment_id at a REAL row is not enough; every copied
+    // binding field must also match THAT row.
+    const otherId = `${id}-other`;
+    const otherEnrollment = {
+      id: otherId,
+      run_episode_id: `${otherId}-episode`,
+      experiment_id: 'receipt-experiment-2',
+      proposal_id: 'receipt-proposal-2',
+      profile_id: 'receipt-profile-2',
+      cohort: 'candidate',
+      assignment_digest: 'receipt-assignment-digest-2',
+      baseline_target_revision_hash: `sha256:${hex64(`${otherId}-baseline`)}`,
+      treatment_spec_hash: hex64(`${otherId}-spec`),
+      state: 'dispatched',
+      reserved_at: '2026-01-01T00:00:00.000Z',
+    };
+    const otherEnrollmentColumns = Object.keys(otherEnrollment);
+    await pool.query(
+      `INSERT INTO agent_org_experiment_enrollments (${otherEnrollmentColumns.join(', ')})
+         VALUES (${otherEnrollmentColumns.map((_, index) => `$${index + 1}`).join(', ')})`,
+      Object.values(otherEnrollment),
+    );
+
+    const BINDING_MISMATCH = /does not match its bound dispatched enrollment/;
+    const CHECK_VIOLATION = /violates check constraint/;
+
+    // Table-driven: every noncanonical variant must be rejected, and none may
+    // leave a partial row behind — checked per-attempt via a unique receipt id.
+    const variants: Array<{
+      label: string;
+      overrides: Record<string, unknown>;
+      matcher: RegExp;
+    }> = [
+      {
+        label: 'nonexistent-enrollment-id',
+        overrides: { enrollment_id: `${id}-does-not-exist` },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-enrollment-id',
+        // Points at a REAL, dispatched enrollment — but every other field
+        // below still describes the ORIGINAL enrollment, so nothing matches.
+        overrides: { enrollment_id: otherId },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-run-episode-id',
+        overrides: { run_episode_id: `${id}-wrong-episode` },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-experiment-id',
+        overrides: { experiment_id: 'wrong-experiment' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-proposal-id',
+        overrides: { proposal_id: 'wrong-proposal' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-profile-id',
+        // target_ref is recomputed to be CANONICAL for the wrong profile_id,
+        // so the local CHECK passes and the binding trigger is what fires.
+        overrides: { profile_id: 'wrong-profile', target_ref: 'agent_config:wrong-profile' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-cohort',
+        overrides: { cohort: 'baseline' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-assignment-digest',
+        overrides: { assignment_digest: 'wrong-assignment-digest' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-baseline-target-revision-hash',
+        overrides: {
+          baseline_target_revision_hash: `sha256:${hex64('wrong-baseline')}`,
+        },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-treatment-spec-hash',
+        overrides: { treatment_spec_hash: hex64('wrong-spec') },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'wrong-target-ref',
+        overrides: { target_ref: 'agent_config:some-other-profile' },
+        matcher: CHECK_VIOLATION,
+      },
+      {
+        // baseline_target_revision_hash is one of the fields the BEFORE
+        // INSERT binding trigger compares against the dispatched enrollment,
+        // and that trigger fires before table CHECK constraints are
+        // evaluated — so an invalid value here never reaches the CHECK,
+        // it trips the binding guard first.
+        label: 'invalid-baseline-target-hash-format',
+        overrides: { baseline_target_revision_hash: 'not-a-hex-hash' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        // Same trigger-order reasoning as above: treatment_spec_hash is
+        // enrollment-bound, so the binding trigger fires first.
+        label: 'invalid-treatment-spec-hash-format',
+        overrides: { treatment_spec_hash: 'not-a-hex-hash' },
+        matcher: BINDING_MISMATCH,
+      },
+      {
+        label: 'invalid-effective-prompt-hash-format',
+        overrides: { effective_prompt_hash: 'not-a-hex-hash' },
+        matcher: CHECK_VIOLATION,
+      },
+      {
+        label: 'invalid-adapter',
+        overrides: { adapter: 'system-prompt-v2' },
+        matcher: CHECK_VIOLATION,
+      },
+      {
+        label: 'invalid-profile-revision',
+        overrides: { profile_revision: -1 },
+        matcher: CHECK_VIOLATION,
+      },
+      {
+        label: 'invalid-schema-version',
+        overrides: { schema_version: 2 },
+        matcher: CHECK_VIOLATION,
+      },
+      {
+        // cohort is also enrollment-bound and compared by the BEFORE INSERT
+        // binding trigger before the CHECK constraint runs, so an invalid
+        // cohort value trips the binding guard first, not the CHECK.
+        label: 'invalid-cohort',
+        overrides: { cohort: 'other' },
+        matcher: BINDING_MISMATCH,
+      },
+    ];
+
+    for (const variant of variants) {
+      await expectRejectedWithNoRow(
+        receiptRow({ id: `${id}-receipt-${variant.label}`, ...variant.overrides }),
+        variant.matcher,
+      );
+    }
+
+    // No attempt above — legal or otherwise — left a row behind for the
+    // enrollment under test.
+    const noPartialRow = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM agent_org_experiment_treatment_receipts WHERE enrollment_id = $1`,
+      [enrollment.id],
+    );
+    expect(noPartialRow.rows[0].n).toBe(0);
+
+    // Legal: the receipt matches the now-dispatched enrollment exactly.
+    await insertReceipt(receiptRow());
+    const readback = await pool.query(
+      `SELECT * FROM agent_org_experiment_treatment_receipts WHERE enrollment_id = $1`,
+      [enrollment.id],
+    );
+    expect(readback.rows).toHaveLength(1);
+    expect(readback.rows[0].effective_prompt_hash).toBe(hex64(`${id}-effective`));
+
+    // Immutable: UPDATE and DELETE are both rejected, and the original row
+    // remains exactly as inserted.
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_treatment_receipts SET profile_revision = 99 WHERE enrollment_id = $1`,
+        [enrollment.id],
+      ),
+    ).rejects.toThrow(/treatment receipts are immutable once finalized/);
+    await expect(
+      pool.query(`DELETE FROM agent_org_experiment_treatment_receipts WHERE enrollment_id = $1`, [enrollment.id]),
+    ).rejects.toThrow(/treatment receipts are immutable once finalized/);
+    const afterAttempts = await pool.query(
+      `SELECT * FROM agent_org_experiment_treatment_receipts WHERE enrollment_id = $1`,
+      [enrollment.id],
+    );
+    expect(afterAttempts.rows).toEqual(readback.rows);
+  });
+
+  it('C2-A: the Postgres trigger enforces a legal reserved -> treatment_failed / target_drifted transition and rejects every noncanonical variant with NO partial mutation', async () => {
+    const baseId = `pgdrift-${Date.now()}`;
+    const enrollmentTemplate = {
+      experiment_id: 'experiment-drift-1',
+      proposal_id: 'proposal-drift-1',
+      profile_id: 'profile-drift-1',
+      cohort: 'candidate',
+      assignment_digest: 'assignment-digest-drift',
+      baseline_target_revision_hash: 'baseline-hash-drift',
+      treatment_spec_hash: 'treatment-hash-drift',
+      state: 'reserved',
+      reserved_at: '2026-01-01T00:00:00.000Z',
+    };
+    const columns = ['id', 'run_episode_id', ...Object.keys(enrollmentTemplate)];
+
+    async function insertReserved(id: string) {
+      const row = { id, run_episode_id: `${id}-episode`, ...enrollmentTemplate };
+      await pool.query(
+        `INSERT INTO agent_org_experiment_enrollments (${columns.join(', ')})
+           VALUES (${columns.map((_, index) => `$${index + 1}`).join(', ')})`,
+        columns.map((c) => (row as Record<string, string>)[c]),
+      );
+    }
+
+    async function readRow(id: string) {
+      const { rows } = await pool.query(
+        `SELECT state, failure_code, failure_reason FROM agent_org_experiment_enrollments WHERE id = $1`,
+        [id],
+      );
+      return rows[0] as { state: string; failure_code: string | null; failure_reason: string | null };
+    }
+
+    // ── Legal: reserved -> treatment_failed with canonical target_drifted metadata ──
+    const legalId = `${baseId}-legal`;
+    await insertReserved(legalId);
+    await pool.query(
+      `UPDATE agent_org_experiment_enrollments
+          SET state = 'treatment_failed', failure_code = 'target_drifted', failure_reason = 'target_drifted'
+        WHERE id = $1`,
+      [legalId],
+    );
+    const legalAfter = await readRow(legalId);
+    expect(legalAfter).toEqual({
+      state: 'treatment_failed',
+      failure_code: 'target_drifted',
+      failure_reason: 'target_drifted',
+    });
+
+    // ── Rejected: target_drifted with an arbitrary/noncanonical reason ──
+    const arbitraryReasonId = `${baseId}-arbitrary-reason`;
+    await insertReserved(arbitraryReasonId);
+    const beforeArbitraryReason = await readRow(arbitraryReasonId);
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed', failure_code = 'target_drifted', failure_reason = 'the config drifted because someone edited it'
+          WHERE id = $1`,
+        [arbitraryReasonId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    expect(await readRow(arbitraryReasonId)).toEqual(beforeArbitraryReason);
+
+    // ── Rejected: target_drifted with a NULL reason ──
+    const nullReasonId = `${baseId}-null-reason`;
+    await insertReserved(nullReasonId);
+    const beforeNullReason = await readRow(nullReasonId);
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed', failure_code = 'target_drifted', failure_reason = NULL
+          WHERE id = $1`,
+        [nullReasonId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    expect(await readRow(nullReasonId)).toEqual(beforeNullReason);
+
+    // ── Rejected: an invalid/noncanonical failure_code entirely ──
+    const invalidCodeId = `${baseId}-invalid-code`;
+    await insertReserved(invalidCodeId);
+    const beforeInvalidCode = await readRow(invalidCodeId);
+    await expect(
+      pool.query(
+        `UPDATE agent_org_experiment_enrollments
+            SET state = 'treatment_failed', failure_code = 'target_drifted_typo', failure_reason = 'target_drifted_typo'
+          WHERE id = $1`,
+        [invalidCodeId],
+      ),
+    ).rejects.toThrow(/agent_org_experiment_enrollments state transition is invalid/);
+    expect(await readRow(invalidCodeId)).toEqual(beforeInvalidCode);
   });
 
   it('SEMANTIC: the Postgres created_at DEFAULT is unambiguous ISO-8601 UTC', async () => {

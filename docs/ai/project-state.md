@@ -1,121 +1,103 @@
-# Rhythm — Project State
+# Rhythm — Project State (worktree: causal-runtime-v2-codex)
 
 ## Current focus
 
-The self-improvement engine foundation (W1–W7) is complete and integrated on one branch, awaiting
-manual smoke and a human merge decision. The Cloud Gateway/mobile release work that preceded it is
-done: hosted API/relay and desktop `v0.18.58` released, iOS `1.0.8 (6)` uploaded to App Store Connect.
+Extending the accepted self-improvement-engine foundation (W1–W7, PR #1398) with the
+**causal-runtime-v2** campaign: a truthful pre-deployment causal experiment runtime and
+calibration layer, contracted in `docs/ai/contracts/issue-causal-runtime-v2.json` (phases C0–C6),
+tracked in GitHub issue #1448. Goal: no experiment can report `verified` without real
+treatment-bound receipts from both cohorts, and only a tested exact candidate can be CAS-applied.
 
 ## Active branch / PR
 
-- **PR #1398** — `self-improvement-engine-foundation` → `main`. Draft, never merged. ~85 commits,
-  ~150 files. This is the active work.
-- Prior Cloud Gateway PRs #1388 / #1389 / #1390 all merged.
+- Branch: `agent-stack/si-causal-runtime-v2-codex` (this worktree). No PR opened for this branch
+  yet — work continues past the foundation's PR #1398, which stays draft/unmerged and unaffected.
+- Head commit: `11b3b06d` — `test(optimizer): prove WS redispatch reuse is already idempotent`
+  (C2-D S5 / #1448), on top of `156b4a6f` (C2-D S4). A live coding-agent session was actively
+  committing to this branch while this snapshot was written (S4 and S5 both landed within minutes
+  of each other) — re-check `git log`/`git status` before assuming this is still the head.
 
 ## In progress
 
-- Awaiting a manual smoke of the optimizer's approve/revert path on a real machine, then a human
-  merge decision on #1398. Nothing else is blocked.
-- Apple processing for iOS build 6 (unrelated to #1398).
+Accepted so far (each parent-verified: focused tests + build + `tsc --noEmit` clean, run by the
+orchestrator, not just builder-claimed):
+
+- **C0** `97871dd4` — truthful collecting/inconclusive verdict hotfix.
+- **C1** `d0466e50` — pre-run episode enrollment + atomic exposure reservation, Postgres parity.
+- **C2-A** `c303c47e` — dispatch bound cohort treatments.
+- **C2-B** `83cf6d42` — persist immutable treatment receipts.
+- **C2-C** `019a9c78` — wire atomic treatment receipt at the real prompt-dispatch boundary.
+- **C2-D (S1)** `12f80482` / #1449 — fixed `run_outcome_service.ts` resolving enrollment via
+  `rootSessionId` instead of the computed `runEpisodeId`.
+- **C2-D (S2)** `1306a3ea` / #1450 — `run_episode_id` column on `agent_run_outcomes`
+  (SQLite + Postgres) and a new, tested `listReceiptBackedByExperimentAsync` repository method.
+  Deliberately **not** wired into the live `judgeExperimentAsync`/`computeDecisionAsync` call
+  sites yet — that swap is explicitly deferred to C3/C4 (see Risks).
+- **C2-D (S3)** `391dd5aa` / #1451 — threaded `runEpisodeId` through `ws_gateway.ts` →
+  `opencode_stream_bridge.ts`'s three terminal-hook call sites so interactive WS runs record
+  outcomes against the right enrollment. Live sandbox check explicitly skipped (no live-triggerable
+  surface exists yet for it; relies on a focused test driving the real WS bridge code).
+- **C2-D (S4)** `156b4a6f` — interactive WS reservation/receipt at the `promptAsync` boundary in
+  `ws_gateway.ts`, mirroring `agent_runner.ts`'s C1/C2-C reserve-before-dispatch +
+  commit-at-dispatch contract. Orchestrator re-ran the combined S4+S5 test file (5/5 pass),
+  `tsc --noEmit` (clean), `npm run build` (clean), and `git diff --check` over the S4..S5 commit
+  range (clean).
+- **C2-D (S5)** `11b3b06d` — idempotent redispatch/retry reuse. Investigation found the existing
+  reserve/prepare/commit chain (`reserveRunEnrollment`'s idempotency check +
+  `dispatchAndFinalizeReceiptAsync`'s existing-receipt check) was already correct through the S4 WS
+  boundary; a new test proves it, **no production code changed**. Verified together with S4 above
+  (same file, same gate run).
+
+Not started:
+
+- **C2-D (S6)** live isolated-sandbox WS E2E (baseline vs. candidate, distinct effective prompts,
+  no durable mutation) — in flight in a separate coding-agent session as of this writing.
+  `issue-1448.json` criteria c4–c6 are still **UNVERIFIED**, pending a `RHYTHM_LIVE_E2E=1` sandbox
+  run. The only remaining open item under #1448's C2-D scope.
+- S4–S6 exist only as rows in #1448's tracking table, not yet filed as their own GitHub issues
+  (unlike S1/#1449, S2/#1450, S3/#1451).
+
+Not started: **C3** (treatment-bound outcomes/executable metrics/guardrails), **C4** (fixed-horizon
+decision + tested-candidate promotion), **C5** (automatic evidence construction), **C6** (versioned
+calibration + operator/release surface). Per the contract's own phase list each blocks specific
+downstream work until it lands (C3 needs receipt-filtered outcomes from S2 wired in; C4 needs C3;
+C5 and C6 are prerequisites named by later-phase dependency notes for further D-series work after
+C6 — do not start those before C3–C6 land).
+
+**Gate policy for this campaign (AJ's explicit direction):** the full `apps/api_server` suite is
+deferred to the end of the whole C2-D→C6 sequence, not rerun after every slice. Only focused tests
++ build + `tsc --noEmit` are verified per slice. Do not claim a full-suite pass until that final run
+actually happens.
 
 ## Risks / known issues
 
-- **GitNexus reports risk CRITICAL for #1398** — 153 files, 624 symbols, 20 affected execution
-  flows. The blast radius is the `agent_configs` / `agent_org_proposals` read-write paths, which is
-  exactly what the revision-CAS work set out to change, so it is consistent with the design rather
-  than evidence of an accident. It runs through the human approval path and wants a human's eyes.
-- **W6 `verified` does not yet mean what its name claims.** Cohort assignment is wired and
-  `verified` is reachable, but nothing applies the baseline/candidate specs per run — the change is
-  already deployed to everyone by the time a run enrols, so a `promote` today is effectively an A/A
-  result over an already-deployed change. Bounded by shadow-by-default (never writes an outcome) and
-  by requiring an operator-declared experiment. Per-run spec application is the follow-up.
-- **The `created_at` timezone fix is Stage 1 of 2.** Fresh databases now emit ISO-8601 UTC and match
-  Postgres. ALREADY-MIGRATED databases are untouched — `CREATE TABLE IF NOT EXISTS` makes the DDL
-  change inert on them — so existing installs keep the 7-hour skew and the pre-existing mixed-format
-  ordering bug. Stage 2 needs a 12-step rebuild of 60 tables, including two immutable ledger tables
-  that physically reject UPDATE, and revision-preserving handling for the CAS-token tables.
-- **Postgres CI has never actually executed on GitHub Actions** — the job is written and proven
-  locally against the same image and command, but the runner-side wiring is unverified until a PR
-  touching `apps/api_server/**` triggers it.
-- `tools/dev/sandbox.sh` READS the live Rhythm database in its only supported bring-up
-  (`sqlite3 "$LIVE_DB" ".backup"`). Point `RHYTHM_LIVE_DB_PATH` at a disposable file to avoid it.
-- The GitNexus MCP tool cannot read the current index (built v42, server reads v41). Use the CLI.
+- **Receipt filtering exists but isn't load-bearing yet.** S2 built `listReceiptBackedByExperimentAsync`
+  as a real, tested, additive capability, but the live promotion path
+  (`judgeExperimentAsync`/`computeDecisionAsync`) still counts unfiltered outcomes — wiring it in is
+  explicitly C3/C4 scope ("Not started"). Until then, C0's fail-closed
+  "paired-cohort-outcome cannot verify without treatment-v2 receipts" guard is the only thing
+  preventing an A/A experiment from promoting.
+- **S6 unverified:** no live sandbox run has proven baseline/candidate runs get distinct effective
+  prompts through the real WS path, or that target bytes stay unchanged. `tools/dev/sandbox.sh`
+  reads the live Rhythm DB on its only supported bring-up — point `RHYTHM_LIVE_DB_PATH` at a
+  disposable file before running it for S6/C6 checks.
+- No GitHub issues filed yet for S4/S5/S6 individually — only tracked as rows under #1448.
 
 ## Test status
 
-- API suite on the integrated head: **563 files / 5,225 tests passed, 176 skipped, exit 0**.
-  `npm run build` 0, `npx tsc --noEmit` 0. Node v22.23.1.
-- Live E2E (`RHYTHM_LIVE_E2E=1`, isolated sandbox): **8/8 passed, twice consecutively** — the first
-  execution of that suite in its history.
-- Live Postgres bootstrap (`RHYTHM_LIVE_PG=1`, disposable container): **6/6 passed**, no
-  expected-fails remaining.
-- Independent reviews: one per work package, plus a first integrated cross-package review
-  (ACCEPT WITH CHANGES — three P1s found and fixed) and a static security review (two P2s found and
-  fixed).
-- Suite flakiness: one uncaptured single-test failure in one of three consecutive runs before the
-  final merge; the three runs after it were clean. Root cause of the earlier rotating flake was
-  fixed (IPv6-wildcard test listeners being hijacked on loopback).
+- Per-slice only, per the campaign's deferred-full-suite gate policy — no full `apps/api_server`
+  suite run has happened on this branch since `1a35f352`.
+- C0, C1, C2-A/B/C, C2-D S1–S5: each parent-verified at its head with focused tests + build +
+  `tsc --noEmit` clean (see each phase's run note / `docs/ai/contracts/issue-14{49,50,51}.json` +
+  `issue-1448.json`).
+- S6: no run yet — requires `RHYTHM_LIVE_E2E=1` against the isolated sandbox.
 
 ## Next step
 
-**Live desktop smoke PASSED** on real data — see `docs/ai/runs/2026-08-15-live-desktop-smoke.md`.
-Shadow generated 5 proposals and mutated nothing; a legacy revert refused without touching
-permissions; a full approve→revert loop on a new-engine proposal restored the scope byte-for-byte;
-and a revert that lost a CAS race to a concurrent human edit refused rather than clobbering it.
-
-Remaining for a human: (1) decide whether the desktop UI should have a Revert control — today
-approve is in the app but revert is API-only; (2) the merge decision on #1398; (3) the release. Full detail in `docs/ai/runs/2026-08-14-self-improvement-engine-foundation.md`.
-
-## Recent coding-agent runs
-
-- 2026-08-14 — W1 corrective cycle 2 on `agent-stack/si-scope-safety`: removed the unattended scope
-  mutation lane; added recursive ambiguous-scope refusal, projection-result compensation gates,
-  non-null local operator attribution with exact atomic change binding, and reserved-identifier
-  rejection. Parent Node 22 corrective gate: 213 passed with 1 existing skip, including 19/19 real
-  HTTP route tests rerun outside the worker sandbox; API build and static scan passed. This work is
-  verification-pending, not finally approved; independent review remains. See
-  `docs/ai/runs/2026-08-14-w1-scope-safety.md`.
-
-### 2026-08-14 — W1 corrective cycle 3
-- Files modified: scope apply/revert services, proposal controller/apply contract comments, fixed-field
-  config CAS, focused API/repository/route/core-permission tests, and the W1 contract/run evidence.
-- Checks run: RED proofs recorded in the run note; Node 22 non-socket corrective gate PASS (11 files,
-  257 passed, 1 existing skip); parent Node 22 complete gate PASS (12 files, 284 passed, 1 existing
-  skip, including 23/23 real HTTP route tests); API build PASS.
-- Decisions made: retain `scope-delta-v2` for removal-only rollback and add sibling `scope-state-v2`
-  for mixed/add/core exact-state rollback; share deferred CAS/projection/compensation mechanics.
-- Deviations from spec: no live server or live DB was started.
-- Concerns: independent review of `47bd426e` found seven P1 fail-closed blockers spanning semantic
-  snapshot validation, ambiguous payloads, risk gating, exact change binding, and status-failure
-  compensation. Status is corrective-in-progress; W1 remains unaccepted and unmerged.
-
-### 2026-08-14 — W1 corrective cycle 4
-- Files modified: one strict scope mutation/snapshot contract, human approval wiring, scope revert
-  lifecycle/risk classification, focused API tests, and W1 contract/run evidence.
-- Checks run under Node 22: parent complete 13-file gate passed 323 tests with 1 existing skip,
-  including 23/23 real HTTP route tests and 39/39 corrective-4 regressions; API build passed.
-- Decisions made: bind both v2 snapshots to allowed kind and exact `change_json` bytes, independently
-  replay prior/change/applied semantics at revert, and compensate failed final status transitions by
-  exact CAS plus reprojection without overwriting concurrent target bytes.
-- Deviations from spec: all five temporary reviewer probes were replaced by equivalent committed
-  in-memory SQLite regressions; no live DB, persistent server, network, W2/W3, or integration work ran.
-- Concerns: both fresh independent review lanes failed exact head `4406a1ce`. Parent reran their
-  in-memory probes and reproduced eleven unique blockers. Corrective 5 is rejected and superseded.
-
-### 2026-08-14 — W1 corrective cycle 5
-- Both independent corrective-4 review lanes failed at exact head `db78072b`: semantic review found
-  seven P1/spec blockers and lifecycle review found three P1/spec blockers.
-- Parent reproduced the duplicate-key, scope-smuggling, null-unrestricted, mislabeled-gating,
-  stale-status-race, and ambiguous-commit split-brain probes under Node 22.
-- Decision: stop patching one-sided compensation. Corrective 5 requires duplicate-aware JSON,
-  one shared scope-bearing detector, source-status CAS for SQLite/Postgres proposal transitions, and
-  an atomic scope target/status revert primitive with fail-closed projection compensation.
-- Status is architecture-redesign-in-progress; W1 remains unaccepted and unmerged.
-- Implementation now has strict duplicate-aware JSON, shared recursive scope detection, source-status
-  CAS, an atomic SQLite scope revert/inverse primitive, PostgreSQL split-store refusal, and runtime
-  actor binding. Parent Node 22 verification passed the exact 14-file matrix with 396 tests and 1
-  existing skip, including the real HTTP route suite; API build, adversarial reproducers, and diff
-  checks passed, but the broader adversarial review exposed uncovered lifecycle and boundary flaws.
-- Corrective 6 redesigns the durable pair around an intermediate approval/apply state, monotonic
-  proposal/config revisions, revision-fenced latest-state projection, durable reconciliation, strict
-  parsing at every lifecycle boundary, and field-specific runtime semantics.
+**S6** (live sandbox WS E2E, in flight) → **C3** (treatment-bound outcomes/guardrails) →
+**C4** (fixed-horizon decision/promotion) → **C5** (evidence construction) → **C6**
+(calibration/operator surface). File a GitHub issue for S6 before/at the point work begins on it,
+matching the S1–S3 pattern. Once C2-D (S1–S6) is fully accepted, merge this worktree's branch into
+`self-improvement-engine-foundation` (the integration branch backing draft PR #1398), push, and
+confirm CI green before continuing to C3. Full `apps/api_server` suite, Flutter format/analyze/
+tests/build, and desktop UI reconciliation are deferred to C6 per the contract's `ship_gate`.

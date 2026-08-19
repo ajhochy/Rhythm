@@ -1,0 +1,51 @@
+{
+  "issue": 1448,
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/c2_d_s4_ws_reserved_treatment_dispatch.test.ts src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1448-c1",
+      "text": "For interactive WS dispatch with a runEpisodeId bound to a declared system-prompt-v1 experiment, the exact reserved cohort's system prompt is sent to the SDK as the effective system override (unconditionally replacing the profile's own systemPrompt and any transient skill/memory preface), and an immutable treatment receipt is finalized with the enrollment transitioning reserved -> dispatched.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/c2_d_s4_ws_reserved_treatment_dispatch.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1448-c2",
+      "text": "If the durable target drifts between reservation and WS dispatch, no prompt is sent through the WS path and the enrollment is marked treatment_failed with a target_drifted reason.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/c2_d_s4_ws_reserved_treatment_dispatch.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1448-c3",
+      "text": "A redispatch/retry of the same runEpisodeId through the WS interactive path (e.g. WS reconnect, or an idempotent retry) reuses the existing reservation and receipt -- exactly one enrollment row and exactly one treatment receipt exist afterward, and no error occurs (no double-reservation, no conflicting second receipt).",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/c2_d_s4_ws_reserved_treatment_dispatch.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1448-c4",
+      "text": "A real baseline and a real candidate run through the actual WS interactive path for a declared system-prompt-v1 experiment receive distinct effective system prompts.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1448-c5",
+      "text": "Both runs produce finalized treatment receipts with distinct effective hashes.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1448-c6",
+      "text": "Durable AgentConfig target bytes are unchanged after both runs.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/c2_d_s6_live_ws_treatment_e2e.test.ts",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

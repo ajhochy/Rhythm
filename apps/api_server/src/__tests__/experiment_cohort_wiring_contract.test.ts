@@ -18,6 +18,7 @@
  * file goes red — which is the point.
  */
 
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import type { NextFunction, Request, Response } from 'express';
@@ -26,10 +27,64 @@ import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
+import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
 import { OrgProposalsController } from '../controllers/org_proposals_controller';
-import { assignCohort, reserveRunEnrollment } from '../services/org_proposal_experiment_service';
+import {
+  assignCohort,
+  reserveRunEnrollment,
+  markRunEnrollmentDispatched,
+} from '../services/org_proposal_experiment_service';
 import { recordTerminalOutcome } from '../services/run_outcome_service';
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../models/proposal_evidence_bundle';
+
+const TEST_PROFILE_ID = 'test-profile';
+const BASELINE_SYSTEM_PROMPT = 'You are the nightly recipe agent (baseline).';
+const CANDIDATE_SYSTEM_PROMPT = 'You are the nightly recipe agent (refined candidate).';
+const PROFILE_TARGET_REF = `agent_config:${TEST_PROFILE_ID}`;
+
+/**
+ * Mirrors the canonical hashing pattern in
+ * org_proposal_experiment_service.test.ts (lines 69-145) — this is a
+ * test-only recomputation of the production durable target fingerprint, not
+ * a new export from production code.
+ */
+function canonicalizeForHash(input: unknown): string {
+  if (Array.isArray(input)) {
+    return `[${input.map((item) => canonicalizeForHash(item)).join(',')}]`;
+  }
+  if (input && typeof input === 'object') {
+    const entries = Object.keys(input as Record<string, unknown>)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalizeForHash((input as Record<string, unknown>)[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(input);
+}
+
+function durableTargetFingerprint(profile: RevisionedAgentConfig): string {
+  return `sha256:${createHash('sha256')
+    .update(
+      canonicalizeForHash({
+        id: profile.id,
+        revision: profile.revision,
+        systemPrompt: profile.systemPrompt ?? '__system-prompt-null__',
+      }),
+    )
+    .digest('hex')}`;
+}
+
+function systemPromptSpec(candidateValue: string, profileTargetHash: string): Record<string, unknown> {
+  return {
+    agentConfigId: TEST_PROFILE_ID,
+    field: 'system_prompt',
+    priorValue: BASELINE_SYSTEM_PROMPT,
+    currentValue: BASELINE_SYSTEM_PROMPT,
+    candidateValue,
+    evidenceTarget: { ref: PROFILE_TARGET_REF, hash: profileTargetHash },
+  };
+}
+
+let profileTargetHash: string;
 
 // The optimizer run loop builds an audit snapshot from the engine. Same mock
 // shape the other full-loop contract tests use (issue_936_contract.test.ts).
@@ -61,7 +116,7 @@ function bundle(): Record<string, unknown> {
       searchedAt: new Date().toISOString(),
       contradictingCount: 0,
     },
-    target: { ref: 'recipe:nightly', hash: 'sha256:deadbeef' },
+    target: { ref: PROFILE_TARGET_REF, hash: profileTargetHash },
     expectedOutcome: 'more runs reach an objective success verdict',
     primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
     guardrails: ['revert if the terminal error rate rises'],
@@ -89,12 +144,18 @@ function session(id: string): void {
 }
 
 async function seedProposal(): Promise<string> {
+  // C2-B: a reservable/preparable treatment must be backed by an EXACT
+  // strict refine-config proposal row bound to this profile/field/candidate
+  // value, not merely an experiment whose specs happen to validate alone.
   const created = await new AgentOrgProposalsRepository().createAsync({
-    kind: 'refine-recipe',
+    kind: 'refine-config',
     risk: 'low',
     status: 'active',
-    title: 'refine the nightly recipe',
-    targetRef: 'recipe:nightly',
+    title: 'refine the nightly recipe agent prompt',
+    targetRef: PROFILE_TARGET_REF,
+    changeJson: JSON.stringify({
+      configPatch: { agentConfigId: TEST_PROFILE_ID, field: 'system_prompt', value: CANDIDATE_SYSTEM_PROMPT },
+    }),
   });
   return created.id;
 }
@@ -125,8 +186,8 @@ async function declareViaRoute(
       params: { id: proposalId },
       body: {
         evidenceBundle: bundle(),
-        baselineSpec: { note: 'unchanged recipe' },
-        candidateSpec: { note: 'refined recipe' },
+        baselineSpec: systemPromptSpec(BASELINE_SYSTEM_PROMPT, profileTargetHash),
+        candidateSpec: systemPromptSpec(CANDIDATE_SYSTEM_PROMPT, profileTargetHash),
         assignmentKey: ASSIGNMENT_KEY,
         stoppingRule: { minSamplesPerCohort: 3, minEffect: 0.2 },
         maxExposure: 100,
@@ -158,10 +219,32 @@ function sessionsPerCohort(count: number): { baseline: string[]; candidate: stri
   return { baseline, candidate };
 }
 
-async function driveRun(sessionId: string, succeeded: boolean): Promise<void> {
+/** C1: reserve enrollment before dispatch. */
+async function reserveRun(sessionId: string): Promise<Awaited<ReturnType<typeof reserveRunEnrollment>>> {
   session(sessionId);
-  // C1: reserve enrollment before dispatch
-  await reserveRunEnrollment(sessionId, 'test-profile');
+  return reserveRunEnrollment(sessionId, TEST_PROFILE_ID);
+}
+
+/**
+ * Mirror the shipped AgentRunner lifecycle: a reserved run is marked
+ * dispatched before the prompt runs — reserved -> terminalized directly is
+ * an illegal transition the B1 guard rejects. Overflow/refused runs never
+ * reserved (reservation === null) must not be marked. This is the only
+ * dispatch simulation in this file.
+ */
+async function finishRun(
+  sessionId: string,
+  reservation: Awaited<ReturnType<typeof reserveRunEnrollment>>,
+  succeeded: boolean,
+): Promise<void> {
+  if (reservation) {
+    const transition = await markRunEnrollmentDispatched(sessionId);
+    if (transition.status !== 'applied' && transition.status !== 'no_op') {
+      throw new Error(
+        `driveRun fixture: expected reserved->dispatched to apply or no-op, got "${transition.status}" for ${sessionId}`,
+      );
+    }
+  }
   await recordTerminalOutcome({
     sessionId,
     terminalStatus: succeeded ? 'completed' : 'error',
@@ -173,11 +256,24 @@ async function driveRun(sessionId: string, succeeded: boolean): Promise<void> {
   });
 }
 
+async function driveRun(sessionId: string, succeeded: boolean): Promise<void> {
+  const reservation = await reserveRun(sessionId);
+  await finishRun(sessionId, reservation, succeeded);
+}
+
 beforeEach(() => {
   setDb(makeDb());
   listMcp.mockReset().mockResolvedValue({});
   listSkills.mockReset().mockResolvedValue([]);
   delete process.env.RHYTHM_OPTIMIZER_MODE;
+
+  const profile = new AgentConfigsRepository().insert({
+    id: TEST_PROFILE_ID,
+    label: TEST_PROFILE_ID,
+    icon: 'x',
+    systemPrompt: BASELINE_SYSTEM_PROMPT,
+  });
+  profileTargetHash = durableTargetFingerprint(profile);
 });
 
 describe('the terminal hook assigns a cohort before the ledger row is written', () => {
@@ -198,13 +294,21 @@ describe('the terminal hook assigns a cohort before the ledger row is written', 
     const proposalId = await seedProposal();
     await declareViaRoute(proposalId, { maxExposure: 2 });
 
-    for (const id of ['cap-a', 'cap-b', 'cap-c', 'cap-d']) await driveRun(id, true);
+    // The C1 cap is atomic over CONCURRENT commitment (reserved/dispatched,
+    // not lifetime totals — see agent_org_experiment_enrollments_repository's
+    // COUNT_ACTIVE), so the reservations must be interleaved before any of
+    // them finalizes: reserving all four while the first two are still
+    // in-flight is what actually exercises the cap.
+    const ids = ['cap-a', 'cap-b', 'cap-c', 'cap-d'];
+    const reservations = new Map<string, Awaited<ReturnType<typeof reserveRun>>>();
+    for (const id of ids) reservations.set(id, await reserveRun(id));
+    for (const id of ids) await finishRun(id, reservations.get(id) ?? null, true);
 
     const outcomes = new AgentRunOutcomesRepository();
     // Exactly the cap is enrolled; the overflow rows exist but carry no cohort,
     // so they can never be counted into either arm.
     expect(await outcomes.listByExperimentAsync(proposalId)).toHaveLength(2);
-    for (const id of ['cap-a', 'cap-b', 'cap-c', 'cap-d']) {
+    for (const id of ids) {
       const view = await outcomes.findByRootSessionIdAsync(id);
       expect(view).not.toBeNull();
     }

@@ -92,3 +92,63 @@ export function resolveEffectiveSystemPrompt(
 ): string {
   return cohort === 'baseline' ? spec.currentValue : spec.candidateValue;
 }
+
+/**
+ * C2-B — the strict `refine-config` proposal `changeJson` shape a
+ * reservable/preparable system-prompt-v1 treatment must be backed by.
+ *
+ * Deliberately narrower than the general refine-config applier's accepted
+ * changeJson (which may also carry `diagnosis`/`concreteFix`/etc for human
+ * review): a proposal that backs a running experiment's treatment must have
+ * an unambiguous, minimal payload — outer `configPatch` only, inner exactly
+ * `{ agentConfigId, field, value }` — so no smuggled key can ever influence
+ * what gets dispatched as an "exact" candidate/baseline prompt.
+ */
+export interface RefineConfigChangePatch {
+  agentConfigId: string;
+  field: 'system_prompt';
+  value: string;
+}
+
+export type RefineConfigChangeValidation =
+  | { valid: true; patch: RefineConfigChangePatch }
+  | { valid: false; reasons: string[] };
+
+const CHANGE_JSON_KEYS = ['configPatch'];
+const CONFIG_PATCH_KEYS = ['agentConfigId', 'field', 'value'];
+
+export function validateStrictRefineConfigChange(input: unknown): RefineConfigChangeValidation {
+  if (!isPlainObject(input)) {
+    return { valid: false, reasons: ['the change payload must be a JSON object'] };
+  }
+
+  const reasons: string[] = [];
+
+  const extraKeys = Object.keys(input).filter((k) => !CHANGE_JSON_KEYS.includes(k));
+  if (extraKeys.length > 0) {
+    reasons.push(`unsupported/smuggled key(s): ${extraKeys.sort().join(', ')}`);
+  }
+
+  const patch = input.configPatch;
+  if (!isPlainObject(patch)) {
+    reasons.push('configPatch must be an object carrying { agentConfigId, field, value }');
+    return { valid: false, reasons };
+  }
+
+  const patchExtras = Object.keys(patch).filter((k) => !CONFIG_PATCH_KEYS.includes(k));
+  if (patchExtras.length > 0) {
+    reasons.push(`configPatch carries unsupported/smuggled key(s): ${patchExtras.sort().join(', ')}`);
+  }
+  if (!nonEmptyString(patch.agentConfigId)) {
+    reasons.push('configPatch.agentConfigId must name the exact AgentConfig target');
+  }
+  if (patch.field !== 'system_prompt') {
+    reasons.push(`configPatch.field must be 'system_prompt' (got '${String(patch.field)}')`);
+  }
+  if (typeof patch.value !== 'string') {
+    reasons.push('configPatch.value must be a string');
+  }
+
+  if (reasons.length > 0) return { valid: false, reasons };
+  return { valid: true, patch: patch as unknown as RefineConfigChangePatch };
+}

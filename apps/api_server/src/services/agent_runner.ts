@@ -44,6 +44,16 @@ import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_
 import { resolveProfileScope } from './agent_profile_scope';
 import { partitionResearchMcpPreflight } from './agent_skill_wiring';
 import { TREATMENT_ADAPTERS, resolveEffectiveSystemPrompt } from '../models/experiment_treatment_adapter';
+import {
+  commitReservedTreatmentDispatch,
+  markRunEnrollmentPreDispatchFailed,
+  markRunEnrollmentTargetDrifted,
+  prepareReservedTreatment,
+  reserveRunEnrollment,
+  RunEnrollmentProfileCollisionError,
+  type ReservedTreatmentPreparation,
+} from './org_proposal_experiment_service';
+import type { ExperimentEnrollment } from '../models/agent_org_experiment_enrollment';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -411,10 +421,16 @@ export interface AgentRunOptions {
    * still honors `modelOverride` first (never downgraded for budget), then
    * the profile's `model_tier_hint` (if set) or this task kind's default
    * tier, narrowed to the cheapest ADEQUATE authed route and downgraded
-   * further if the target provider is near its usage budget. Every decision
-   * is logged as one structured `[ModelRouting]` line (see #819 org audit).
-   */
+  * further if the target provider is near its usage budget. Every decision
+  * is logged as one structured `[ModelRouting]` line (see #819 org audit).
+  */
   taskKind?: string | null;
+  /**
+   * C1 — stable per-run episode identifier for experiment pre-reservation.
+   * When provided, this exact value is forwarded to `reserveRunEnrollment()`
+   * instead of any generated fallback.
+   */
+  runEpisodeId?: string | null;
 }
 
 export interface AgentRunResult {
@@ -780,6 +796,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     modelOverride,
     taskKind,
     category,
+    runEpisodeId: explicitRunEpisodeId,
   } = opts;
 
   // #1135 — enforce the independent security lock before consuming a
@@ -959,6 +976,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     delegationDepth: delegationDepth ?? 0,
     category: category ?? null,
   });
+  const resolvedRunEpisodeId: string | null = explicitRunEpisodeId ?? rhythmSessionId;
   if (rhythmSessionId && opts.onSessionCreated) {
     await opts.onSessionCreated(rhythmSessionId);
   }
@@ -1225,16 +1243,101 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // mcpRoleConfig, NOT via the profile's own .md) keeps its existing behavior:
     // it still forwards the system override. A genuine built-in ocAgent
     // ('build'/'plan', where ocAgent !== configId) also keeps the override.
+    const resolvedProfileId = effectiveConfigId ?? 'claude-code';
+    // C2-A — the reservation's bound cohort spec, resolved and re-verified
+    // just before dispatch. Wins unconditionally over opts.experimentTreatment
+    // (set below only as a fallback for the no-reservation case).
+    let reservedTreatmentOverride: string | null = null;
+    // C2-C — the reservation stays `reserved` (no dispatched transition, no
+    // receipt) through skill/memory preface construction and request body
+    // assembly below. The atomic reserved -> dispatched transition AND the
+    // immutable receipt insert happen ONLY inside commitReservedTreatmentDispatch,
+    // wired further down as the real OpencodeClient prompt boundary's
+    // `beforeDispatch` hook — after the exact override is already in the SDK
+    // request and immediately before the real SDK call.
+    let reservedEnrollmentForCommit: ExperimentEnrollment | null = null;
+    let readyPreparationForCommit: Extract<ReservedTreatmentPreparation, { status: 'ready' }> | null = null;
+    if (resolvedRunEpisodeId) {
+      const lifecycleFailedMessage =
+        'AgentRunner: enrollment lifecycle transition failed before prompt dispatch';
+      let reservedEnrollment: Awaited<ReturnType<typeof reserveRunEnrollment>> | null = null;
+      try {
+        reservedEnrollment = await reserveRunEnrollment(resolvedRunEpisodeId, resolvedProfileId);
+        if (reservedEnrollment) {
+          // C2-A — prepare (re-verify target + binding) early so the exact
+          // override is available to construct the request body below. This
+          // is a pure re-derivation with no side effect on the enrollment —
+          // the real commit (and its own FRESH re-verification) happens only
+          // at the dispatch boundary via commitReservedTreatmentDispatch.
+          const preparation = await prepareReservedTreatment(reservedEnrollment);
+          if (preparation.status !== 'ready') {
+            if (preparation.status === 'target_drifted') {
+              await markRunEnrollmentTargetDrifted(resolvedRunEpisodeId).catch(() => {});
+            } else {
+              await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
+            }
+            logger.error(
+              `[AgentRunner] pre-dispatch treatment preparation failed (${preparation.status})`,
+            );
+            _markSessionError(
+              rhythmSessionId,
+              lifecycleFailedMessage,
+              false,
+              resolvedRunEpisodeId,
+            );
+            return {
+              sessionId: rhythmSessionId ?? '',
+              result: '',
+              status: 'error',
+              error: lifecycleFailedMessage,
+            };
+          }
+          reservedTreatmentOverride = preparation.systemPromptOverride;
+          reservedEnrollmentForCommit = reservedEnrollment;
+          readyPreparationForCommit = preparation;
+        }
+      } catch (err) {
+        // A profile-collision throw means `resolvedRunEpisodeId` is bound to a
+        // DIFFERENT profile's enrollment — never this run's own. Forwarding it
+        // to the terminal hook would let this run's unrelated error finalize
+        // (and potentially terminalize) the OTHER profile's reservation, up to
+        // and including one already `dispatched`. Every other lifecycle error
+        // here concerns THIS run's own reservation and must keep terminalizing
+        // the exact episode, unchanged.
+        const isProfileCollision = err instanceof RunEnrollmentProfileCollisionError;
+        if (!isProfileCollision && reservedEnrollment?.state === 'reserved') {
+          await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId).catch(() => {});
+        }
+        logger.error(
+          '[AgentRunner] pre-dispatch enrollment state transition failed (non-fatal)',
+        );
+        _markSessionError(
+          rhythmSessionId,
+          lifecycleFailedMessage,
+          false,
+          isProfileCollision ? undefined : resolvedRunEpisodeId,
+        );
+        return {
+          sessionId: rhythmSessionId ?? '',
+          result: '',
+          status: 'error',
+          error: lifecycleFailedMessage,
+        };
+      }
+    }
+
     const runningAsOwnAgent =
       !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
 
     // C2 — experiment treatment system override (contract docs/ai/contracts/issue-causal-runtime-v2.json, phase C2).
-    // When a valid system-prompt-v1 spec is provided, its cohort-specific effective value
-    // becomes the run's system override unconditionally — even on paths that would
-    // otherwise omit a duplicate (ocAgent === configId). An invalid spec is ignored
-    // (fail-closed: no override, not a crash).
-    let treatmentSystemOverride: string | null = null;
-    if (opts.experimentTreatment) {
+    // A reserved enrollment's bound cohort spec (resolved above) wins
+    // unconditionally — even on paths that would otherwise omit a duplicate
+    // (ocAgent === configId). opts.experimentTreatment is a backward-compatible
+    // fallback used ONLY when no enrollment was reserved for this run episode;
+    // it can never override a reserved binding (C2-A contract). An invalid
+    // fallback spec is ignored (fail-closed: no override, not a crash).
+    let treatmentSystemOverride: string | null = reservedTreatmentOverride;
+    if (treatmentSystemOverride === null && opts.experimentTreatment) {
       const { TREATMENT_ADAPTERS, validateSystemPromptV1Spec, resolveEffectiveSystemPrompt } = await import(
         '../models/experiment_treatment_adapter'
       );
@@ -1273,6 +1376,22 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       // hard deny on every tool, not a request the bridge could auto-approve.
       ...(opts.denyAllTools === true ? { tools: { '*': false } } : {}),
     };
+    // C2-C — the real prompt-dispatch boundary hook. When a reservation is
+    // ready, this is the ONLY place the reserved -> dispatched transition and
+    // the immutable receipt insert may happen: OpencodeClientService invokes
+    // it immediately after the exact SDK request (including this override in
+    // `promptOpts.system`) is constructed, and immediately before the real
+    // SDK call. A throwing hook blocks the SDK call entirely.
+    const beforeDispatch =
+      reservedEnrollmentForCommit && readyPreparationForCommit
+        ? async (): Promise<void> => {
+            await commitReservedTreatmentDispatch(
+              reservedEnrollmentForCommit!,
+              readyPreparationForCommit!,
+            );
+          }
+        : undefined;
+
     // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created
     // under effectiveCwd (cwd ?? process.cwd()); every post-creation call MUST
     // use the SAME directory or the engine looks in its default instance, finds
@@ -1280,7 +1399,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // "model produced no output" error on the headless/scheduler path (where
     // the raw `cwd` is undefined). Use effectiveCwd for prompt/listMessages/abort.
     const response = await _withinRunDeadline(
-      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts),
+      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts, beforeDispatch),
       deadlinePolicy,
       'prompt',
       async () =>
@@ -1290,12 +1409,21 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     );
 
     if (!response) {
-      logger.error(
-        `[AgentRunner] session ${sessionId}: prompt returned no response (model ${resolvedModel.providerID}/${resolvedModel.modelID} may be invalid or the provider unauthenticated)`,
-      );
+      // C2-C — the boundary hook never ran (e.g. client readiness disappeared
+      // between session creation and this call) or ran but the SDK itself
+      // still failed to produce a response. Either way, a still-`reserved`
+      // enrollment must not be left eligible/countable — fail it closed. This
+      // is a harmless no-op (illegal_transition, ignored) when the hook
+      // already committed reserved -> dispatched.
+      if (reservedEnrollmentForCommit) {
+        await markRunEnrollmentPreDispatchFailed(resolvedRunEpisodeId!).catch(() => {});
+      }
+      logger.error('[AgentRunner] prompt returned no response');
       _markSessionError(
         rhythmSessionId,
         `No response from ${resolvedModel.providerID}/${resolvedModel.modelID} — check the model is valid and the provider is authenticated`,
+        false,
+        resolvedRunEpisodeId ?? undefined,
       );
       return {
         sessionId: rhythmSessionId ?? sessionId,
@@ -1416,6 +1544,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         sessionId: rhythmSessionId,
         terminalStatus: 'completed',
         scheduledOccurrenceId: scheduledTaskId ?? null,
+        ...(resolvedRunEpisodeId ? { runEpisodeId: resolvedRunEpisodeId } : {}),
       });
     }
 
@@ -1458,13 +1587,18 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       if (opencodeSessionId) {
         await opencodeClient.abortSession(opencodeSessionId, effectiveCwd).catch(() => {});
       }
-      logger.warn(`[AgentRunner] ${err.message}`);
       // Persist the recovered partial as the preview so an aborted retry
       // still surfaces the real (if incomplete) output instead of just the
       // generic timeout string. The returned `error` still carries the raw
       // timeout message so callers can distinguish "done with a recovered
       // partial" from a clean success.
-      _markSessionError(rhythmSessionId, partial || err.message, partial.length > 0);
+      logger.warn('[AgentRunner] prompt timed out');
+      _markSessionError(
+        rhythmSessionId,
+        partial || err.message,
+        partial.length > 0,
+        resolvedRunEpisodeId ?? undefined,
+      );
       if (rhythmSessionId && partial) {
         try {
           new AgentSessionMessagesRepository().append(rhythmSessionId, 'output', partial, partial);
@@ -1480,8 +1614,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       };
     }
     const errMsg = String(err);
-    logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
-    _markSessionError(rhythmSessionId, errMsg);
+    logger.error('[AgentRunner] unexpected error during run');
+    _markSessionError(rhythmSessionId, errMsg, false, resolvedRunEpisodeId ?? undefined);
     return {
       sessionId: rhythmSessionId ?? '',
       result: '',
@@ -1502,6 +1636,7 @@ function _markSessionError(
   rhythmSessionId: string | null,
   message?: string,
   producedArtifact = false,
+  runEpisodeId?: string,
 ): void {
   if (!rhythmSessionId) return;
   try {
@@ -1521,6 +1656,7 @@ function _markSessionError(
     sessionId: rhythmSessionId,
     terminalStatus: 'error',
     producedArtifact,
+    ...(runEpisodeId ? { runEpisodeId } : {}),
   });
 }
 

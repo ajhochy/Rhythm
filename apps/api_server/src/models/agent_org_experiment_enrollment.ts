@@ -14,12 +14,42 @@
 
 export type ExperimentEnrollmentCohort = 'baseline' | 'candidate';
 
+export type ExperimentEnrollmentFailureCode =
+  | 'pre_dispatch_failed'
+  | 'prompt_dispatch_failed'
+  | 'provider_unavailable'
+  | 'invalid_model'
+  | 'prompt_timeout'
+  | 'target_drifted';
+
+export const ENROLLMENT_FAILURE_CODES: ReadonlyArray<ExperimentEnrollmentFailureCode> = [
+  'pre_dispatch_failed',
+  'prompt_dispatch_failed',
+  'provider_unavailable',
+  'invalid_model',
+  'prompt_timeout',
+  'target_drifted',
+] as const;
+
+export const ENROLLMENT_FAILURE_CODE_REASONS: Readonly<
+  Record<ExperimentEnrollmentFailureCode, string>
+> = {
+  pre_dispatch_failed: 'pre_dispatch_failed',
+  prompt_dispatch_failed: 'prompt_dispatch_failed',
+  provider_unavailable: 'provider_unavailable',
+  invalid_model: 'invalid_model',
+  prompt_timeout: 'prompt_timeout',
+  // C2-A — the target AgentConfig's durable fingerprint no longer matches the
+  // one the reservation was made against (a confirmed drift, not a generic
+  // binding failure — see prepareReservedTreatment).
+  target_drifted: 'target_drifted',
+} as const;
+
 /**
- * Nonterminal by default (`reserved`). `treatment_failed` is the only
- * terminal state this phase writes, and only on a dispatch failure — see
- * required_behavior for C1. Other terminal states arrive with C2/C3.
+ * Nonterminal by default (`reserved`). Active reservations are `reserved` and
+ * `dispatched`; terminal rows are `treatment_failed` and `terminalized`.
  */
-export type ExperimentEnrollmentState = 'reserved' | 'treatment_failed';
+export type ExperimentEnrollmentState = 'reserved' | 'dispatched' | 'treatment_failed' | 'terminalized';
 
 export interface ExperimentEnrollment {
   id: string;
@@ -33,10 +63,13 @@ export interface ExperimentEnrollment {
   treatmentSpecHash: string;
   reservedAt: string;
   state: ExperimentEnrollmentState;
+  failureCode: ExperimentEnrollmentFailureCode | null;
+  failureReason: string | null;
 }
 
 export interface ReserveEnrollmentInput {
   id?: string;
+  maxExposure: number;
   runEpisodeId: string;
   experimentId: string;
   proposalId: string;

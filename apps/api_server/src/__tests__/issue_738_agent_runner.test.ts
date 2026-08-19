@@ -82,12 +82,15 @@ describe('#738 — AgentRunner', () => {
     // hardcoded default: anthropic / claude-sonnet-4-6.
     // #1002: post-creation calls are directory-scoped to effectiveCwd
     // (cwd ?? process.cwd()); with no cwd passed, that resolves to process.cwd().
+    // C2-C: prompt now takes an optional 6th `beforeDispatch` hook (undefined
+    // here — no experiment reservation in this test).
     expect(mockPrompt).toHaveBeenCalledWith(
       'sdk-session-1',
       'Say hello',
       { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
       process.cwd(),
       expect.objectContaining({ permissionMode: 'bypassPermissions' }),
+      undefined,
     );
   });
 

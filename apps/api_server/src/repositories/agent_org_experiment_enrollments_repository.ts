@@ -14,12 +14,56 @@ import Database from 'better-sqlite3';
 
 import { getDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
-import type {
+import {
   ExperimentEnrollment,
   ExperimentEnrollmentCohort,
+  ENROLLMENT_FAILURE_CODES,
+  ENROLLMENT_FAILURE_CODE_REASONS,
+  ExperimentEnrollmentFailureCode,
   ExperimentEnrollmentState,
   ReserveEnrollmentInput,
 } from '../models/agent_org_experiment_enrollment';
+
+const MAX_RESERVATION_RETRIES = 3;
+const BUSY_RETRY_DELAY_MS = 10;
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
+export interface EnrollmentFailure {
+  failureCode: ExperimentEnrollmentFailureCode;
+}
+
+export type EnrollmentTransitionStatus =
+  | 'applied'
+  | 'no_op'
+  | 'missing'
+  | 'illegal_transition'
+  | 'invalid_failure';
+
+export interface EnrollmentTransitionResult {
+  status: EnrollmentTransitionStatus;
+  current: ExperimentEnrollment | null;
+}
+
+function isRetryableReservationError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  const message = String(error);
+  return (
+    code === 'SQLITE_BUSY' ||
+    code === 'SQLITE_LOCKED' ||
+    /database is (?:busy|locked)/i.test(message) ||
+    /SQLITE_(?:BUSY|LOCKED)/i.test(message)
+  );
+}
+
+function isDuplicateEpisodeError(error: unknown): boolean {
+  const message = String(error);
+  return /SQLITE_CONSTRAINT/.test(message) && /run_episode_id/.test(message);
+}
 
 interface EnrollmentRow {
   id: string;
@@ -33,6 +77,8 @@ interface EnrollmentRow {
   treatment_spec_hash: string;
   state: string;
   reserved_at: string;
+  failure_code: string | null;
+  failure_reason: string | null;
 }
 
 function rowToModel(row: EnrollmentRow): ExperimentEnrollment {
@@ -48,7 +94,15 @@ function rowToModel(row: EnrollmentRow): ExperimentEnrollment {
     treatmentSpecHash: row.treatment_spec_hash,
     state: row.state as ExperimentEnrollmentState,
     reservedAt: row.reserved_at,
+    failureCode: (row.failure_code ?? null) as ExperimentEnrollmentFailureCode | null,
+    failureReason: row.failure_reason ?? null,
   };
+}
+
+function normalizeFailureCode(value: string): ExperimentEnrollmentFailureCode | null {
+  return (ENROLLMENT_FAILURE_CODES as readonly string[]).includes(value)
+    ? (value as ExperimentEnrollmentFailureCode)
+    : null;
 }
 
 function makeInMemoryDb(): Database.Database {
@@ -60,6 +114,9 @@ function makeInMemoryDb(): Database.Database {
 
 export class AgentOrgExperimentEnrollmentsRepository {
   private db: Database.Database;
+
+  private readonly COUNT_ACTIVE =
+    `SELECT COUNT(*) as n FROM agent_org_experiment_enrollments WHERE experiment_id = ? AND state IN ('reserved', 'dispatched')`;
 
   constructor(db?: Database.Database) {
     if (db) {
@@ -78,7 +135,11 @@ export class AgentOrgExperimentEnrollmentsRepository {
    * existing reservation for `runEpisodeId` is returned unchanged rather than
    * duplicated or overwritten.
    */
-  async reserveAsync(input: ReserveEnrollmentInput): Promise<ExperimentEnrollment> {
+  async reserveAsync(input: ReserveEnrollmentInput): Promise<ExperimentEnrollment | null> {
+    if (!Number.isInteger(input.maxExposure) || input.maxExposure <= 0) {
+      throw new Error(`agent org experiment enrollment: maxExposure must be a positive integer`);
+    }
+
     for (const [field, value] of Object.entries({
       runEpisodeId: input.runEpisodeId,
       experimentId: input.experimentId,
@@ -96,9 +157,6 @@ export class AgentOrgExperimentEnrollmentsRepository {
       throw new Error(`agent org experiment enrollment: cohort must be 'baseline' or 'candidate'`);
     }
 
-    const existing = await this.findByRunEpisodeIdAsync(input.runEpisodeId);
-    if (existing) return existing;
-
     const row = {
       id: input.id ?? crypto.randomUUID(),
       run_episode_id: input.runEpisodeId,
@@ -113,40 +171,79 @@ export class AgentOrgExperimentEnrollmentsRepository {
       reserved_at: new Date().toISOString(),
     };
 
-    try {
-      this.db
-        .prepare(
-          `INSERT INTO agent_org_experiment_enrollments
-             (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
-              assignment_digest, baseline_target_revision_hash, treatment_spec_hash, state, reserved_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        )
-        .run(
-          row.id,
-          row.run_episode_id,
-          row.experiment_id,
-          row.proposal_id,
-          row.profile_id,
-          row.cohort,
-          row.assignment_digest,
-          row.baseline_target_revision_hash,
-          row.treatment_spec_hash,
-          row.state,
-          row.reserved_at,
-        );
-    } catch (err) {
-      // A concurrent reserver for the same episode lost the race to the
-      // UNIQUE constraint — read back the winner instead of failing.
-      if (/unique/i.test(String(err))) {
-        const winner = await this.findByRunEpisodeIdAsync(input.runEpisodeId);
-        if (winner) return winner;
+    for (let attempt = 1; attempt <= MAX_RESERVATION_RETRIES; attempt += 1) {
+      try {
+        const reserve = (): ExperimentEnrollment | null => {
+          this.db.exec('BEGIN IMMEDIATE');
+
+          const existing = this.db
+            .prepare(`SELECT * FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
+            .get(row.run_episode_id) as EnrollmentRow | undefined;
+          if (existing) {
+            this.db.exec('COMMIT');
+            return rowToModel(existing);
+          }
+
+          const active = this.db.prepare(this.COUNT_ACTIVE).get(input.experimentId) as { n: number };
+          if (active.n >= input.maxExposure) {
+            this.db.exec('COMMIT');
+            return null;
+          }
+
+          this.db
+            .prepare(
+              `INSERT INTO agent_org_experiment_enrollments
+                 (id, run_episode_id, experiment_id, proposal_id, profile_id, cohort,
+                  assignment_digest, baseline_target_revision_hash, treatment_spec_hash, state, reserved_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+            )
+            .run(
+              row.id,
+              row.run_episode_id,
+              row.experiment_id,
+              row.proposal_id,
+              row.profile_id,
+              row.cohort,
+              row.assignment_digest,
+              row.baseline_target_revision_hash,
+              row.treatment_spec_hash,
+              row.state,
+              row.reserved_at,
+            );
+
+          const stored = this.db
+            .prepare(`SELECT * FROM agent_org_experiment_enrollments WHERE run_episode_id = ?`)
+            .get(row.run_episode_id) as EnrollmentRow | undefined;
+          if (!stored) {
+            throw new Error(`agent org experiment enrollment '${row.id}' was not persisted`);
+          }
+
+          this.db.exec('COMMIT');
+          return rowToModel(stored);
+        };
+
+        return reserve();
+      } catch (err) {
+        if (this.db.inTransaction) {
+          this.db.exec('ROLLBACK');
+        }
+
+        if (isDuplicateEpisodeError(err)) {
+          const winner = await this.findByRunEpisodeIdAsync(input.runEpisodeId);
+          if (winner) return winner;
+          throw err;
+        }
+
+        if (isRetryableReservationError(err) && attempt < MAX_RESERVATION_RETRIES) {
+          await delay(BUSY_RETRY_DELAY_MS * attempt);
+          continue;
+        }
+
+        throw err;
       }
-      throw err;
     }
 
-    const stored = await this.findByRunEpisodeIdAsync(input.runEpisodeId);
-    if (!stored) throw new Error(`agent org experiment enrollment '${row.id}' was not persisted`);
-    return stored;
+    return null;
   }
 
   async findByRunEpisodeIdAsync(runEpisodeId: string): Promise<ExperimentEnrollment | null> {
@@ -161,5 +258,120 @@ export class AgentOrgExperimentEnrollmentsRepository {
       .prepare(`SELECT * FROM agent_org_experiment_enrollments WHERE experiment_id = ?`)
       .all(experimentId) as EnrollmentRow[];
     return rows.map(rowToModel);
+  }
+
+  async markDispatchedAsync(runEpisodeId: string): Promise<EnrollmentTransitionResult> {
+    const current = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!current) {
+      return { status: 'missing', current: null };
+    }
+    if (current.state === 'dispatched') {
+      return { status: 'no_op', current };
+    }
+    if (current.state !== 'reserved') {
+      return { status: 'illegal_transition', current };
+    }
+
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_experiment_enrollments
+         SET state = ?, failure_code = NULL, failure_reason = NULL
+       WHERE run_episode_id = ? AND state = ?`,
+      )
+      .run('dispatched', runEpisodeId, 'reserved');
+
+    if (result.changes === 1) {
+      const updated = await this.findByRunEpisodeIdAsync(runEpisodeId);
+      return { status: 'applied', current: updated };
+    }
+
+    const latest = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!latest) {
+      return { status: 'missing', current: null };
+    }
+    if (latest.state === 'dispatched') {
+      return { status: 'no_op', current: latest };
+    }
+    return { status: 'illegal_transition', current: latest };
+  }
+
+  async markTreatmentFailedAsync(
+    runEpisodeId: string,
+    failure: EnrollmentFailure,
+  ): Promise<EnrollmentTransitionResult> {
+    const current = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!current) {
+      return { status: 'missing', current: null };
+    }
+    if (current.state === 'treatment_failed') {
+      return { status: 'no_op', current };
+    }
+    if (current.state !== 'reserved') {
+      return { status: 'illegal_transition', current };
+    }
+
+    const failureCode = normalizeFailureCode(failure.failureCode);
+    if (!failureCode) {
+      return { status: 'invalid_failure', current };
+    }
+
+    const failureReason = ENROLLMENT_FAILURE_CODE_REASONS[failureCode];
+
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_experiment_enrollments
+         SET state = ?, failure_code = ?, failure_reason = ?
+       WHERE run_episode_id = ? AND state = ?`,
+      )
+      .run('treatment_failed', failureCode, failureReason ?? null, runEpisodeId, 'reserved');
+
+    if (result.changes === 1) {
+      const updated = await this.findByRunEpisodeIdAsync(runEpisodeId);
+      return { status: 'applied', current: updated };
+    }
+
+    const latest = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!latest) {
+      return { status: 'missing', current: null };
+    }
+    if (latest.state === 'treatment_failed') {
+      return { status: 'no_op', current: latest };
+    }
+    return { status: 'illegal_transition', current: latest };
+  }
+
+  async markTerminalizedAsync(runEpisodeId: string): Promise<EnrollmentTransitionResult> {
+    const current = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!current) {
+      return { status: 'missing', current: null };
+    }
+    if (current.state === 'terminalized') {
+      return { status: 'no_op', current };
+    }
+    if (current.state !== 'dispatched') {
+      return { status: 'illegal_transition', current };
+    }
+
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_experiment_enrollments
+         SET state = ?, failure_code = NULL, failure_reason = NULL
+       WHERE run_episode_id = ? AND state = ?`,
+      )
+      .run('terminalized', runEpisodeId, 'dispatched');
+
+    if (result.changes === 1) {
+      const updated = await this.findByRunEpisodeIdAsync(runEpisodeId);
+      return { status: 'applied', current: updated };
+    }
+
+    const latest = await this.findByRunEpisodeIdAsync(runEpisodeId);
+    if (!latest) {
+      return { status: 'missing', current: null };
+    }
+    if (latest.state === 'terminalized') {
+      return { status: 'no_op', current: latest };
+    }
+    return { status: 'illegal_transition', current: latest };
   }
 }
