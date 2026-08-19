@@ -31,6 +31,7 @@ import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals
 import { revertProposal } from '../services/org_proposal_apply';
 import { measureProposal } from '../services/org_proposal_measure';
 import { validateEvidenceBundle } from '../services/proposal_evidence_validator';
+import { buildProposalEvidenceAsync } from '../services/proposal_evidence_builder';
 import {
   applyProposal,
   hasSecurityNote,
@@ -65,9 +66,16 @@ export class OrgProposalsController {
    * a thousand runs later.
    *
    * Deliberately a human path, and deliberately not policy-gated — same
-   * authority as approve/revert. Nothing auto-declares: a bundle requires a
-   * counter-evidence search and source event IDs that no generator produces
-   * today, and synthesising those would be fabricated evidence.
+   * authority as approve/revert.
+   *
+   * C5 — an operator MAY still hand-supply `evidenceBundle` (unchanged
+   * behavior: validated exactly as before). When it is omitted, this route
+   * calls the deterministic evidence builder (proposal_evidence_builder.ts)
+   * to construct one from real durable facts, then validates THAT bundle
+   * through the exact same `validateEvidenceBundle` — never a separate,
+   * looser path for builder-produced evidence. If no bundle is supplied and
+   * none can be built (no qualifying facts, missing target state, an
+   * unsupported kind, etc.), this is a 400, not a fabricated bundle.
    */
   async declareExperiment(req: Request, res: Response, next: NextFunction) {
     try {
@@ -76,7 +84,17 @@ export class OrgProposalsController {
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
 
       const body = (req.body ?? {}) as Record<string, unknown>;
-      const validation = validateEvidenceBundle(body.evidenceBundle);
+      let evidenceBundleInput = body.evidenceBundle;
+      if (evidenceBundleInput === undefined || evidenceBundleInput === null) {
+        const built = await buildProposalEvidenceAsync(proposal);
+        if (!built.ok) {
+          throw AppError.badRequest(
+            `Proposal ${id}: no evidence bundle was supplied and none could be built: ${built.reason}`,
+          );
+        }
+        evidenceBundleInput = built.bundle;
+      }
+      const validation = validateEvidenceBundle(evidenceBundleInput);
       if (!validation.valid) {
         throw AppError.badRequest(
           `Proposal ${id}: the evidence bundle is not valid: ${validation.reasons.join('; ')}`,
