@@ -478,6 +478,43 @@ export class AgentRunOutcomesRepository {
     return rows.map(outcomeFromRow);
   }
 
+  /**
+   * C3 — the LATEST explicit-user verdict per root session, batched. Same
+   * "last one wins" precedence as {@link findByRootSessionIdAsync}'s
+   * `explicitUserVerdict`, just resolved for many rows at once so the
+   * explicit-user-verdict-rate metric (feedback_metric_adapter.ts) is not an
+   * N+1 query per cohort member. A root session absent from the returned map
+   * never responded — the caller must read that as `null`, never as a score.
+   *
+   * ponytail: one query plus an in-memory scan, not a window function — cohort
+   * sizes here are small (self-improvement experiments, not high-traffic
+   * production tables). Revisit if a cohort ever runs into the thousands.
+   */
+  async listLatestExplicitUserVerdictsAsync(
+    rootSessionIds: string[],
+  ): Promise<Map<string, UserVerdict>> {
+    const result = new Map<string, UserVerdict>();
+    if (rootSessionIds.length === 0) return result;
+    const unique = [...new Set(rootSessionIds)];
+    const placeholders = unique.map((_, i) => (env.dbClient === 'postgres' ? `$${i + 1}` : '?')).join(',');
+    const sql = `SELECT root_session_id, verdict, seq FROM agent_run_feedback_events
+                  WHERE root_session_id IN (${placeholders}) AND source = 'explicit_user'
+                  ORDER BY root_session_id, seq, created_at, id`;
+    let rows: Array<{ root_session_id: string; verdict: string }>;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql, unique);
+      rows = r.rows as Array<{ root_session_id: string; verdict: string }>;
+    } else {
+      rows = this.db!.prepare(sql).all(...unique) as Array<{ root_session_id: string; verdict: string }>;
+    }
+    // Ascending order, so the last write for a given id wins — same
+    // precedence rule `latestVerdict` applies above.
+    for (const row of rows) {
+      result.set(row.root_session_id, row.verdict as UserVerdict);
+    }
+    return result;
+  }
+
   async listFeedbackAsync(rootSessionId: string): Promise<AgentRunFeedbackEvent[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(

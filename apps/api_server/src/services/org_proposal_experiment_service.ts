@@ -52,6 +52,11 @@ import {
   type ProposalEvidenceBundle,
 } from '../models/proposal_evidence_bundle';
 import {
+  EXPLICIT_USER_VERDICT_METRIC_NAME,
+  computeExplicitUserVerdictRate,
+} from '../models/feedback_metric_adapter';
+import { evaluateGuardrails } from '../models/guardrail_registry';
+import {
   validateSystemPromptV1Spec,
   validateStrictRefineConfigChange,
   resolveEffectiveSystemPrompt,
@@ -63,7 +68,7 @@ import type {
   ExperimentResults,
 } from '../models/agent_org_experiment';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
-import type { AgentRunOutcome } from '../models/agent_run_outcome';
+import type { AgentRunOutcome, UserVerdict } from '../models/agent_run_outcome';
 import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_repository';
@@ -318,6 +323,59 @@ async function findEligibleExperiment(
   return null;
 }
 
+/**
+ * C3 — evaluate an eligible experiment's DECLARED guardrails (closed
+ * registry, guardrail_registry.ts) against its receipt-backed outcomes and
+ * enrollment history. A breach stops new enrollment: it records a terminal
+ * `regress` decision (idempotent — a race that beats this to
+ * `recordDecisionAsync` just means the experiment was already stopped, which
+ * is the same outcome) and returns true so the caller refuses to reserve.
+ * Never mutates the durable target — this is a ledger/decision write only.
+ *
+ * Fails OPEN on an internal error (a DB read failing here is a transient
+ * fault, not a proven breach) — matching `resolveRunEnrollment`'s posture of
+ * "non-fatal, log and continue" for the same class of failure.
+ */
+async function guardrailsBreachedAsync(
+  match: EligibleExperimentMatch,
+  deps: ExperimentDeps,
+): Promise<boolean> {
+  try {
+    const outcomesRepo = deps.outcomesRepo ?? new AgentRunOutcomesRepository();
+    const enrollmentsRepo = new AgentOrgExperimentEnrollmentsRepository();
+    const [outcomes, enrollments] = await Promise.all([
+      outcomesRepo.listReceiptBackedByExperimentAsync(match.experiment.id, match.experiment.proposalId),
+      enrollmentsRepo.listByExperimentAsync(match.experiment.id),
+    ]);
+    const evaluations = evaluateGuardrails(match.evidenceBundle.guardrails, {
+      outcomes,
+      enrollments,
+      minSampleCount: match.experiment.stoppingRule.minSamplesPerCohort,
+    });
+    const breach = evaluations.find((e) => e.breached);
+    if (!breach) return false;
+
+    const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
+    await experimentsRepo
+      .recordDecisionAsync(
+        match.experiment.id,
+        'regress',
+        `guardrail '${breach.guardrail}' breached: rate=${breach.rate.toFixed(4)} over ${breach.sampleCount} samples`,
+      )
+      .catch(() => {
+        // Already decided by a racing check (or a prior sweep) — the
+        // experiment is stopped either way, which is all this call needs.
+      });
+    await writeOutcomeStatus(match.experiment.proposalId, 'regressed', deps.proposalsRepo).catch(() => {});
+    return true;
+  } catch (err) {
+    logger.warn(
+      `[org-proposal-experiment] guardrail evaluation skipped for '${match.experiment.id}' (non-fatal): ${String(err)}`,
+    );
+    return false;
+  }
+}
+
 /** Live exposure is the number of ledger rows already enrolled in the experiment. */
 export async function assignSubjectAsync(
   experimentId: string,
@@ -344,6 +402,16 @@ export interface RunEnrollment {
   proposalId: string;
   experimentVariant: Cohort;
   runEpisodeId: string;
+  /** C3 — the profile this run's treatment was bound to, off the pre-run reservation. Never a terminal-time guess. */
+  profileId: string;
+  /**
+   * C3 — the durable AgentConfig revision the treatment was actually
+   * dispatched against, read from this run episode's OWN finalized treatment
+   * receipt (`profileRevision`, never mutated after C2's dispatch-time
+   * check). Null when no receipt exists yet (e.g. a reservation that never
+   * reached dispatch) — never fabricated.
+   */
+  configRevision: number | null;
 }
 
 /**
@@ -432,6 +500,12 @@ export async function reserveRunEnrollment(
   const experiment = match?.experiment;
   if (!experiment) return null;
 
+  // C3 — a breached guardrail stops new enrollment before assignment. The
+  // terminal decision this records makes the experiment absent from every
+  // FUTURE `listUndecidedAsync()` call on its own, so this check does not
+  // need to re-run per reservation once it has fired once.
+  if (await guardrailsBreachedAsync(match, deps)) return null;
+
   // Deterministic cohort assignment.
   const assignment = assignSubject({
     assignmentKey: experiment.assignmentKey,
@@ -503,10 +577,17 @@ export async function resolveRunEnrollment(
     const experiment = await experimentsRepo.findByIdAsync(enrollment.experimentId);
     if (!experiment || experiment.decision) return null;
 
+    // C3 — the config revision the run executed under comes from its OWN
+    // finalized treatment receipt, never a terminal-time guess. Absent for a
+    // reservation that never reached dispatch.
+    const receipt = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(runEpisodeId);
+
     return {
       proposalId: enrollment.proposalId,
       experimentVariant: enrollment.cohort,
       runEpisodeId: enrollment.runEpisodeId,
+      profileId: enrollment.profileId,
+      configRevision: receipt?.profileRevision ?? null,
     };
   } catch (err) {
     logger.warn(
@@ -881,8 +962,15 @@ export function decideExperiment(input: {
   experiment: AgentOrgExperiment;
   baseline: AgentRunOutcome[];
   candidate: AgentRunOutcome[];
+  /**
+   * C3 — the latest explicit-user verdict per root session, keyed by
+   * `rootSessionId`. Only consulted when the bundle's `primaryMetric.name`
+   * is `explicit-user-verdict-rate`; a run absent from this map is read as
+   * "no response", never a score. Omit entirely for objective metrics.
+   */
+  explicitUserVerdicts?: ReadonlyMap<string, UserVerdict>;
 }): ExperimentEvaluation {
-  const { experiment, baseline, candidate } = input;
+  const { experiment, baseline, candidate, explicitUserVerdicts } = input;
 
   let parsed: unknown = null;
   try {
@@ -920,11 +1008,53 @@ export function decideExperiment(input: {
     );
   }
 
-  const metric = PRIMARY_METRICS[bundle.primaryMetric.name];
-  const results: ExperimentResults = {
-    baseline: { sampleCount: baseline.length, primaryMetricValue: metric(baseline) },
-    candidate: { sampleCount: candidate.length, primaryMetricValue: metric(candidate) },
-  };
+  // C3 — `explicit-user-verdict-rate` reads the append-only FEEDBACK stream
+  // instead of objective evidence, so it needs its own resolution path (it is
+  // never added to PRIMARY_METRICS, which is fixed to `(cohort:
+  // AgentRunOutcome[]) => number`). `responseRate` is tracked per cohort so a
+  // material imbalance between arms can refuse promotion below, and a
+  // response rate below the bundle's predeclared minimum coverage makes the
+  // metric value itself unavailable (never zero, never guessed).
+  const isFeedbackMetric = bundle.primaryMetric.name === EXPLICIT_USER_VERDICT_METRIC_NAME;
+  let results: ExperimentResults;
+  let baselineResponseRate: number | null = null;
+  let candidateResponseRate: number | null = null;
+  let metricUnavailableReason: string | null = null;
+
+  if (isFeedbackMetric) {
+    const minCoverage = bundle.primaryMetric.minResponseCoverage ?? 1;
+    const verdictsOf = (cohort: AgentRunOutcome[]): Array<UserVerdict | null> =>
+      cohort.map((o) => explicitUserVerdicts?.get(o.rootSessionId) ?? null);
+    const baselineMetric = computeExplicitUserVerdictRate(verdictsOf(baseline), minCoverage);
+    const candidateMetric = computeExplicitUserVerdictRate(verdictsOf(candidate), minCoverage);
+    baselineResponseRate = baselineMetric.responseRate;
+    candidateResponseRate = candidateMetric.responseRate;
+    results = {
+      baseline: {
+        sampleCount: baseline.length,
+        primaryMetricValue: baselineMetric.value ?? 0,
+        responseRate: baselineMetric.responseRate,
+      },
+      candidate: {
+        sampleCount: candidate.length,
+        primaryMetricValue: candidateMetric.value ?? 0,
+        responseRate: candidateMetric.responseRate,
+      },
+    };
+    if (baselineMetric.value === null || candidateMetric.value === null) {
+      metricUnavailableReason =
+        `explicit-user-verdict-rate is unavailable: baseline response rate ` +
+        `${(baselineMetric.responseRate * 100).toFixed(1)}%, candidate response rate ` +
+        `${(candidateMetric.responseRate * 100).toFixed(1)}%, minimum required ` +
+        `${(minCoverage * 100).toFixed(1)}%`;
+    }
+  } else {
+    const metric = PRIMARY_METRICS[bundle.primaryMetric.name];
+    results = {
+      baseline: { sampleCount: baseline.length, primaryMetricValue: metric(baseline) },
+      candidate: { sampleCount: candidate.length, primaryMetricValue: metric(candidate) },
+    };
+  }
 
   // C0 — an empty or undersized cohort is NONTERMINAL. Interim results are
   // recomputable on the next sweep and must never freeze a proposal's
@@ -960,6 +1090,47 @@ export function decideExperiment(input: {
     return collecting(reason, results);
   }
 
+  // C3 — the feedback metric can go silent even once the SAMPLE floor is
+  // met (enough runs, not enough responses). Below the predeclared minimum
+  // response coverage the metric value itself is unavailable — collecting
+  // while more responses may still arrive, terminal inconclusive once
+  // `maxExposure` is reached, exactly mirroring the undersized-sample
+  // handling above, just gated on responses instead of runs.
+  if (metricUnavailableReason) {
+    const eligibleExposure = results.baseline.sampleCount + results.candidate.sampleCount;
+    if (eligibleExposure >= experiment.maxExposure) {
+      return inconclusive(
+        `terminal: maximum exposure (${eligibleExposure}/${experiment.maxExposure}) reached — ` +
+          metricUnavailableReason,
+        results,
+      );
+    }
+    return collecting(metricUnavailableReason, results);
+  }
+
+  // C3 — refuse promotion on a MATERIAL response-rate imbalance between
+  // arms: differential non-response is exactly the kind of confound
+  // (differential attrition) that can make an average-of-responders
+  // comparison meaningless even when each arm's own average looks fine.
+  // Always inconclusive, never regress — an imbalance is a data-quality
+  // problem, not evidence the candidate is worse.
+  //
+  // ponytail: a fixed 0.2 (20 percentage points) ceiling, not per-bundle
+  // configurable — upgrade to a declared bundle field if a real proposal
+  // ever needs a different bar.
+  const RESPONSE_RATE_IMBALANCE_MAX = 0.2;
+  if (
+    baselineResponseRate !== null &&
+    candidateResponseRate !== null &&
+    Math.abs(baselineResponseRate - candidateResponseRate) > RESPONSE_RATE_IMBALANCE_MAX
+  ) {
+    return inconclusive(
+      `promotion refused: material response-rate imbalance between arms (baseline ` +
+        `${(baselineResponseRate * 100).toFixed(1)}%, candidate ${(candidateResponseRate * 100).toFixed(1)}%)`,
+      results,
+    );
+  }
+
   // `direction` says which way is better; the effect is always signed so that
   // positive means the candidate improved.
   const raw = results.candidate.primaryMetricValue - results.baseline.primaryMetricValue;
@@ -985,48 +1156,91 @@ const OUTCOME_BY_DECISION = {
 } as const;
 
 /**
- * C0 — temporary fail-closed promotion gate for PRODUCTION reads only.
- *
- * `decideExperiment` is left alone: paired-cohort-outcome's raw comparison is
- * still a real, testable decision-table result (promote stays reachable
- * there, deliberately, so the pure comparison itself keeps being provable).
- * What this refuses is treating that raw comparison as PROOF outside a test:
- * paired-cohort-outcome randomly splits enrolled runs, but nothing yet
- * applies a differential treatment per run (that is C1/C2) — the proposal's
- * change is already live for the whole population by the time any run
- * enrols. So today a `promote` from this adapter attests that a randomised
- * split of an already-uniform population differed past the stopping rule,
- * which is an A/A result, not a causal effect. Remove this gate only once a
- * receipt-filtered treatment-v2 adapter exists and an experiment's adapter
- * carries it.
+ * C3 — peek at a bundle's `primaryMetric.name` (WITHOUT the full validator —
+ * `decideExperiment` runs that itself) purely to decide whether fetching
+ * feedback is worth it. A broken/foreign bundle here just means "don't
+ * bother fetching feedback"; `decideExperiment`'s own validation still
+ * produces the correct refusal either way.
  */
-function gateProductionPromotion(
+async function resolveExplicitUserVerdictsIfNeeded(
+  experiment: AgentOrgExperiment,
+  outcomes: AgentRunOutcome[],
+  outcomesRepo: AgentRunOutcomesRepository,
+): Promise<ReadonlyMap<string, UserVerdict> | undefined> {
+  try {
+    const parsed = JSON.parse(experiment.evidenceBundleJson) as { primaryMetric?: { name?: unknown } };
+    if (parsed?.primaryMetric?.name !== EXPLICIT_USER_VERDICT_METRIC_NAME) return undefined;
+  } catch {
+    return undefined;
+  }
+  if (outcomes.length === 0) return new Map();
+  return outcomesRepo.listLatestExplicitUserVerdictsAsync(outcomes.map((o) => o.rootSessionId));
+}
+
+/**
+ * C3 — promote is real only once RECEIPT-BACKED (treatment-v2) cohorts
+ * INDEPENDENTLY reproduce it against the SAME predeclared stopping rule.
+ *
+ * `decideExperiment` is left alone: paired-cohort-outcome's raw comparison
+ * over the UNFILTERED ledger is still a real, testable decision-table result
+ * (promote/regress/inconclusive all stay reachable there, deliberately, so
+ * the pure comparison itself keeps being provable and regress/inconclusive
+ * stay reachable through the normal sweep without needing receipts to exist
+ * yet). What this refuses is treating an UNFILTERED promote as PROOF: absent
+ * real treatment-v2 receipts proving BOTH cohorts actually received their
+ * bound treatment, a `promote` from this adapter cannot be told apart from
+ * an A/A result. Once receipt-backed cohorts reproduce the SAME promote
+ * outcome under the SAME stopping rule, this is causal enough to verify.
+ */
+async function gateProductionPromotionAsync(
   experiment: AgentOrgExperiment,
   evaluation: ExperimentEvaluation,
-): ExperimentEvaluation {
+  outcomesRepo: AgentRunOutcomesRepository,
+): Promise<ExperimentEvaluation> {
   if (
-    evaluation.status === 'decided' &&
-    evaluation.decision === 'promote' &&
-    experiment.adapter === 'paired-cohort-outcome'
+    evaluation.status !== 'decided' ||
+    evaluation.decision !== 'promote' ||
+    experiment.adapter !== 'paired-cohort-outcome'
   ) {
-    return decided(
-      'inconclusive',
-      `promote refused (C0 fail-closed gate): 'paired-cohort-outcome' has no treatment-v2 ` +
-        `receipts yet, so this randomised split cannot be distinguished from an A/A result — ` +
-        `${evaluation.reason}`,
-      evaluation.results,
-    );
+    return evaluation;
   }
-  return evaluation;
+
+  const receiptBacked = await outcomesRepo.listReceiptBackedByExperimentAsync(
+    experiment.id,
+    experiment.proposalId,
+  );
+  const receiptBaseline = receiptBacked.filter((o) => o.experimentVariant === 'baseline');
+  const receiptCandidate = receiptBacked.filter((o) => o.experimentVariant === 'candidate');
+  const explicitUserVerdicts = await resolveExplicitUserVerdictsIfNeeded(
+    experiment,
+    receiptBacked,
+    outcomesRepo,
+  );
+  const receiptEvaluation = decideExperiment({
+    experiment,
+    baseline: receiptBaseline,
+    candidate: receiptCandidate,
+    explicitUserVerdicts,
+  });
+  if (receiptEvaluation.status === 'decided' && receiptEvaluation.decision === 'promote') {
+    return receiptEvaluation;
+  }
+
+  return decided(
+    'inconclusive',
+    `promote refused (C3 fail-closed gate): 'paired-cohort-outcome' has no treatment-v2 ` +
+      `receipt-backed cohorts reproducing this effect — ${evaluation.reason}`,
+    evaluation.results,
+  );
 }
 
 /**
  * Read the cohorts from W4's ledger and decide. Writes NOTHING — this is the
  * whole of the computation, shared by the persisting path below and by the
  * optimizer's shadow-mode report-only sweep, so the two can never drift into
- * disagreeing about what the verdict would have been. Also applies the C0
- * production promotion gate, so shadow's "would decide" report is truthful
- * about what the acting path would actually persist.
+ * disagreeing about what the verdict would have been. Also applies the C3
+ * receipt-backed production promotion gate, so shadow's "would decide"
+ * report is truthful about what the acting path would actually persist.
  */
 export async function computeDecisionAsync(
   experiment: AgentOrgExperiment,
@@ -1034,12 +1248,11 @@ export async function computeDecisionAsync(
 ): Promise<ExperimentEvaluation> {
   const outcomesRepo = deps.outcomesRepo ?? new AgentRunOutcomesRepository();
   const enrolled = await outcomesRepo.listByExperimentAsync(experiment.proposalId);
-  const evaluation = decideExperiment({
-    experiment,
-    baseline: enrolled.filter((o) => o.experimentVariant === 'baseline'),
-    candidate: enrolled.filter((o) => o.experimentVariant === 'candidate'),
-  });
-  return gateProductionPromotion(experiment, evaluation);
+  const baseline = enrolled.filter((o) => o.experimentVariant === 'baseline');
+  const candidate = enrolled.filter((o) => o.experimentVariant === 'candidate');
+  const explicitUserVerdicts = await resolveExplicitUserVerdictsIfNeeded(experiment, enrolled, outcomesRepo);
+  const evaluation = decideExperiment({ experiment, baseline, candidate, explicitUserVerdicts });
+  return gateProductionPromotionAsync(experiment, evaluation, outcomesRepo);
 }
 
 /**
