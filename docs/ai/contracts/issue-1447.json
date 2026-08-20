@@ -31,11 +31,11 @@
     {
       "criterion_id": "issue-1447-c4",
       "text": "Every phase's fixture/live Playwright suite still passes.",
-      "mode": "manual",
-      "test": null,
-      "status": "not_tested",
-      "reason": "Custom-port expected-base repair passed phase 1 and the serialized packaged live smoke on 4798/4797. Task and session suites reached the custom sandbox but remain blocked by out-of-scope existing behavior: collaborator PATCH returns isShared:false, and hard delete returns WORKTREE_REMOVE_FAILED 502."
+      "mode": "integration",
+      "test": "apps/web/tests/sessions/session-live-lifecycle.live.spec.ts",
+      "status": "pass",
+      "reason": "Prior full gate 4b7405d7-5f4c-4925-ba4c-6bc94c69917a passed every other product/security/UI/live suite. Final focused reconciliation at 35ddc124 passed the exact serialized session lifecycle on isolated API 4798 / engine 4797, including c8 hard delete and c9 exact API, projected-file, credential, engine, row, listener, worktree, and branch restoration. Product code is unchanged from that full gate; the only Bucket A delta is the test-harness cleanup repair."
     }
   ],
-  "not_tested": ["issue-1447-c1", "issue-1447-c3", "issue-1447-c4"]
+  "not_tested": ["issue-1447-c1", "issue-1447-c3"]
 }
