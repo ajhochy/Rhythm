@@ -333,6 +333,110 @@ void main() {
 
       expect(find.textContaining('No native tool access'), findsOneWidget);
     });
+
+    testWidgets('permission rows expose associated 44px actions and removal', (
+      tester,
+    ) async {
+      // Regression: compact segmented controls lose their row association and
+      // expose sub-44px pointer targets; Bash removal is also unnamed.
+      final config = _makeConfig(
+        corePermissionsJson: jsonEncode({
+          'bash': {'rm *': 'ask'},
+        }),
+      );
+      final configsDs = _RecordingAgentConfigsDataSource(config);
+      final semantics = tester.ensureSemantics();
+
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
+      await tester.pumpAndSettle();
+      await _expandToolPermissions(tester);
+
+      final readSelector =
+          find.byKey(const ValueKey('permission-selector-read'));
+      await _scrollIntoView(tester, readSelector);
+      expect(
+        find.bySemanticsLabel('Read permission actions'),
+        findsOneWidget,
+      );
+      final selectorSize = tester.getSize(readSelector);
+      expect(selectorSize.height, greaterThanOrEqualTo(44));
+      expect(selectorSize.width / 3, greaterThanOrEqualTo(44));
+
+      final bashSelector =
+          find.byKey(const ValueKey('bash-pattern-selector-rm *'));
+      await _scrollIntoView(tester, bashSelector);
+      expect(
+        find.bySemanticsLabel('Bash pattern rm * permission actions'),
+        findsOneWidget,
+      );
+      expect(tester.getSize(bashSelector).height, greaterThanOrEqualTo(44));
+
+      final remove = find.byKey(const ValueKey('bash-pattern-remove-rm *'));
+      expect(
+        find.bySemanticsLabel('Remove Bash pattern rm *'),
+        findsOneWidget,
+      );
+      expect(tester.getSize(remove).width, greaterThanOrEqualTo(44));
+      expect(tester.getSize(remove).height, greaterThanOrEqualTo(44));
+      semantics.dispose();
+
+      await _scrollIntoView(tester, readSelector);
+      await tester.tap(
+        find.descendant(of: readSelector, matching: find.text('Allow')),
+      );
+      await _scrollIntoView(tester, remove);
+      await tester.tap(remove);
+      await tester.pumpAndSettle();
+      await _tapSave(tester);
+
+      expect(
+        jsonDecode(configsDs.lastUpdatePatch?['corePermissionsJson'] as String),
+        {'read': 'allow'},
+      );
+    });
+
+    testWidgets('golden: expanded fully-denied Tool Permissions section', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(800, 1000);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final config = _makeConfig(
+        corePermissionsJson: jsonEncode({
+          for (final key in const [
+            'read',
+            'edit',
+            'glob',
+            'grep',
+            'list',
+            'bash',
+            'task',
+            'external_directory',
+            'todowrite',
+            'question',
+            'webfetch',
+            'websearch',
+            'skill',
+          ])
+            key: 'deny',
+        }),
+      );
+      final configsDs = _RecordingAgentConfigsDataSource(config);
+
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
+      await tester.pumpAndSettle();
+      await _expandToolPermissions(tester);
+
+      expect(
+        find.byType(AgentProfileSheet),
+        matchesGoldenFile(
+          'goldens/agent_profile_tool_permissions_fully_denied.png',
+        ),
+      );
+    });
   });
 
   group('AgentProfileSheet — "Show in agent picker" toggle (#1079)', () {

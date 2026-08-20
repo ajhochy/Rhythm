@@ -152,6 +152,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? worktreeName,
   }) async {
     lastCreateProfileId = profileId;
+    lastCreateAgentId = agentId;
     if (createSessionError != null) throw createSessionError!;
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
@@ -159,6 +160,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   /// #889: the profileId passed to the most recent createSession call, so tests
   /// can assert default-agent resolution.
   String? lastCreateProfileId;
+  String? lastCreateAgentId;
 
   /// #1154 — When set, [createSession] throws this instead of returning a
   /// session, so tests can assert how `AgentsController` surfaces a
@@ -466,6 +468,31 @@ void main() {
         );
         await c.createSession(cwd: '/tmp');
         expect(fakeRepo.lastCreateProfileId, equals('research'));
+      },
+    );
+
+    test(
+      '#1421 public create resolves both ids from the available catalog',
+      () async {
+        // Regression: null/empty synchronous resolvers can leave either public
+        // create identifier unset even though the server catalog has a profile.
+        fakeRepo.availableAgentsToReturn = const [
+          AgentInfo(
+            name: 'rhythm-setup',
+            builtIn: false,
+            profileId: 'rhythm-setup',
+            profileAvailability: 'available',
+          ),
+        ];
+        final c = build(
+          resolver: () => null,
+          availableProfileResolver: () => '',
+        );
+
+        await c.createSession(cwd: '/tmp');
+
+        expect(fakeRepo.lastCreateAgentId, equals('rhythm-setup'));
+        expect(fakeRepo.lastCreateProfileId, equals('rhythm-setup'));
       },
     );
 

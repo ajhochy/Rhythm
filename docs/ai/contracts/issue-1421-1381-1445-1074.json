@@ -17,7 +17,7 @@
       "text": "surface the failure to the user instead of failing silently",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
+      "status": "not_tested",
       "reason": "Manual smoke must force the instant + New create call to fail and confirm a visible SnackBar; the private production callback has no existing injectable widget boundary."
     },
     {
@@ -33,7 +33,7 @@
       "text": "Survives app restart (server-persisted ids reload).",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
+      "status": "not_tested",
       "reason": "Requires restarting the signed-in desktop app against persisted server preferences; sandbox use is forbidden for this bucket."
     },
     {
@@ -57,8 +57,8 @@
       "text": "add an observable signal so a disabled/failed uplink is not silent",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
-      "reason": "Manual launch log check must cover missing bearer and server connection failure without touching live ports 4001/4096."
+      "status": "not_tested",
+      "reason": "Automated loopback coverage proves the sanitized failed-pass retry warning while the client remains running; manual packaged-app startup must still confirm the missing-bearer warning and real-remote failure in durable logs without touching live ports 4001/4096."
     },
     {
       "criterion_id": "issue-1074-c1",
