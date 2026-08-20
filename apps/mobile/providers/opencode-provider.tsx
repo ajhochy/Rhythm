@@ -2260,8 +2260,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     }
 
     const request = pairedHostClient
-      .request<unknown>('/mobile-gateway/health', { method: 'GET' })
-      .then(deriveMacPresence)
+      .healthResponse()
+      .then(async (response) =>
+        response.status === 503
+          ? 'offline' as const
+          : deriveMacPresence(await response.json()),
+      )
       .finally(() => {
         if (relayPresenceRequestRef.current?.promise === request) {
           relayPresenceRequestRef.current = null;
@@ -2272,13 +2276,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       promise: request,
     };
     return request;
-  }, [pairedHostClient]);
-
-  useEffect(() => {
-    if (!pairedHostClient) return;
-    // ponytail: one health read warms DNS/TLS/uplink state without touching
-    // session discovery, so the exact chat remains pinned.
-    void pairedHostClient.prewarm?.();
   }, [pairedHostClient]);
 
   useEffect(() => {
