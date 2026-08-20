@@ -1,15 +1,16 @@
 # Rhythm — Project State
 
 ## Current focus
-Bucket A task-sharing prerequisite is fixed and verified. MEGA PR #1368 remains merged; its new
-surfaces remain off by default (`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`,
-`RHYTHM_MCP_APPS_MODE=off`). Mobile smart-client rebuild PR #1383 is complete and still awaits
-manual smoke and human merge.
+Bucket A task-sharing prerequisite is fixed, verified, and open as draft PR #1463. Preserve the
+parallel Org Optimizer workflow and verified draft PRs #1383, #1453, #1459, #1460, #1461, and
+#1462; none should merge before its documented manual smoke.
 
 ## Active branch / PR
-- Current prerequisite branch: `codex/mega-prereq-task-sharing` at `44c4c904`; no draft PR yet.
+- Current prerequisite branch: `codex/mega-prereq-task-sharing` → draft PR #1463.
 - Mobile rebuild: `mobile/smart-client-rebuild` → draft PR #1383. Do not merge; AJ merges after
   manual on-device testing.
+- Other verified drafts: H1 #1459, mobile relay #1460, H2 #1461, Electron packaging #1462;
+  Numbat observability #1453 remains active and separate.
 
 ## In progress
 - The prerequisite unblocks Bucket A final verification. Contract
@@ -38,5 +39,5 @@ manual smoke and human merge.
   untouched.
 
 ## Next step
-Run Bucket A final verification against the verified prerequisite; the prerequisite draft PR has
-not been opened. Separately, AJ should manual-smoke PR #1383 on-device before merging.
+Run Bucket A final verification against prerequisite PR #1463 and H2 PR #1461. Keep every draft
+unmerged until its documented manual smoke is complete.
