@@ -1,0 +1,25 @@
+{
+  "issue": 1402,
+  "date": "2026-08-19",
+  "test_command": "cd apps/electron && node --test test/issue-1402-packaged-api-server.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1402-c1",
+      "text": "`package-mac.mjs` bundles a built `apps/api_server` (compiled `dist/`, `node_modules` with native deps rebuilt for the packaged Node/Electron ABI, `.mcp-roles`) into `Contents/Resources/api_server`, following the SAME SHAPE `tools/release/*.sh` + `.github/workflows/desktop_release.yml` already use for the Flutter app's bundled CLI server.",
+      "mode": "integration",
+      "test": "apps/electron/test/issue-1402-packaged-api-server.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1402-c2",
+      "text": "A packaged `dist/Rhythm.app`, run on a machine with NO monorepo checkout, successfully spawns its own api_server via the bundled path (NOT the dev-mode fallback) and reaches `Live`.",
+      "mode": "live",
+      "test": "apps/electron/test/issue-1402-packaged-api-server.test.mjs",
+      "status": "UNVERIFIED",
+      "reason": "The deterministic standalone fixture proves bundled Node/server selection and fail-closed behavior with no checkout. Reaching Live remains a clean-machine packaged-app smoke: this run could not launch a package-owned api_server because the dispatch requires all server-dependent verification to use the 4298/4297 sandbox, while the integrated Electron runtime intentionally owns 4098/4097."
+    }
+  ],
+  "not_tested": ["issue-1402-c2"]
+}
