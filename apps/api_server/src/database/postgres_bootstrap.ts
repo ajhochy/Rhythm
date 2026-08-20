@@ -2132,70 +2132,102 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // The trigger is dropped only for the one-time legacy-column backfill, and
   // that drop/backfill/recreate sequence is transactional: a failed ALTER,
   // UPDATE, or index build can never leave the ledger unprotected.
-  const calibrationShape = await pool.query<{ table_exists: boolean; owner_exists: boolean }>(`
-    SELECT
-      to_regclass('public.calibration_observations') IS NOT NULL AS table_exists,
-      EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'calibration_observations'
-          AND column_name = 'owner_id'
-      ) AS owner_exists
-  `);
-  const needsCalibrationBackfill =
-    calibrationShape.rows[0]?.table_exists === true &&
-    calibrationShape.rows[0]?.owner_exists !== true;
-  await pool.query('BEGIN');
+  const calibrationClient = await pool.connect();
   try {
+    await calibrationClient.query('BEGIN');
+    const calibrationShape = await calibrationClient.query<{
+      table_exists: boolean;
+      owner_exists: boolean;
+      owner_fk_exists: boolean;
+    }>(`
+      SELECT
+        to_regclass('public.calibration_observations') IS NOT NULL AS table_exists,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'calibration_observations'
+            AND column_name = 'owner_id'
+        ) AS owner_exists,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = 'public'
+            AND t.relname = 'calibration_observations'
+            AND c.contype = 'f'
+            AND pg_get_constraintdef(c.oid) LIKE '%(owner_id)%'
+        ) AS owner_fk_exists
+    `);
+    const shape = calibrationShape.rows[0];
+    const needsCalibrationBackfill =
+      shape?.table_exists === true &&
+      (shape.owner_exists !== true || shape.owner_fk_exists === true);
     if (needsCalibrationBackfill) {
-      await pool.query(
+      await calibrationClient.query(
         `DROP TRIGGER IF EXISTS trg_calibration_observations_immutable ON calibration_observations`,
       );
     }
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS calibration_observations (
-      id TEXT PRIMARY KEY,
-      owner_id INTEGER,
-      source_event_id TEXT NOT NULL,
-      observation_type TEXT NOT NULL,
-      proposal_id TEXT NOT NULL,
-      experiment_id TEXT,
-      generator_version TEXT NOT NULL,
-      detector_version TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      treatment_version TEXT NOT NULL,
-      metric_version TEXT NOT NULL,
-      initial_confidence DOUBLE PRECISION NOT NULL,
-      human_decision TEXT,
-      experiment_decision TEXT,
-      experiment_effect DOUBLE PRECISION,
-      post_deploy_regression DOUBLE PRECISION,
-      revision INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
-      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
-    )
-  `);
-  // Additive backfill for a database that already created the table in its
-  // pre-repair shape. Never inferred: owner stays NULL, source_event_id
-  // becomes the row's own immutable id, observation_type becomes 'legacy'.
-  await pool.query(`
-    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER;
-    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS source_event_id TEXT;
-    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS observation_type TEXT NOT NULL DEFAULT 'legacy';
-    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
-    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS experiment_id TEXT;
-    UPDATE calibration_observations SET source_event_id = id WHERE source_event_id IS NULL;
-    ALTER TABLE calibration_observations ALTER COLUMN source_event_id SET NOT NULL;
-  `);
-  await pool.query(
-    `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
-       ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
-  );
-  await pool.query(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
-       ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
-  );
-    await pool.query(`
+    await calibrationClient.query(`
+      CREATE TABLE IF NOT EXISTS calibration_observations (
+        id TEXT PRIMARY KEY,
+        owner_id INTEGER,
+        source_event_id TEXT NOT NULL,
+        observation_type TEXT NOT NULL,
+        proposal_id TEXT NOT NULL,
+        experiment_id TEXT,
+        generator_version TEXT NOT NULL,
+        detector_version TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        treatment_version TEXT NOT NULL,
+        metric_version TEXT NOT NULL,
+        initial_confidence DOUBLE PRECISION NOT NULL,
+        human_decision TEXT,
+        experiment_decision TEXT,
+        experiment_effect DOUBLE PRECISION,
+        post_deploy_regression DOUBLE PRECISION,
+        revision INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+        updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+      )
+    `);
+    // Additive backfill for a database that already created the table in its
+    // pre-repair shape. Never inferred: owner stays NULL, source_event_id
+    // becomes the row's own immutable id, observation_type becomes 'legacy'.
+    await calibrationClient.query(`
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER;
+      DO $$
+      DECLARE owner_fk_name TEXT;
+      BEGIN
+        FOR owner_fk_name IN
+          SELECT c.conname
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = 'public'
+            AND t.relname = 'calibration_observations'
+            AND c.contype = 'f'
+            AND pg_get_constraintdef(c.oid) LIKE '%(owner_id)%'
+        LOOP
+          EXECUTE format('ALTER TABLE calibration_observations DROP CONSTRAINT %I', owner_fk_name);
+        END LOOP;
+      END $$;
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS source_event_id TEXT;
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS observation_type TEXT NOT NULL DEFAULT 'legacy';
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS experiment_id TEXT;
+      UPDATE calibration_observations SET source_event_id = id WHERE source_event_id IS NULL;
+      ALTER TABLE calibration_observations ALTER COLUMN source_event_id SET NOT NULL;
+    `);
+    await calibrationClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
+         ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
+    );
+    await calibrationClient.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
+         ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
+    );
+    await calibrationClient.query(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -2209,10 +2241,12 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
         END IF;
       END $$;
     `);
-    await pool.query('COMMIT');
+    await calibrationClient.query('COMMIT');
   } catch (error) {
-    await pool.query('ROLLBACK');
+    await calibrationClient.query('ROLLBACK');
     throw error;
+  } finally {
+    calibrationClient.release();
   }
 
   // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
