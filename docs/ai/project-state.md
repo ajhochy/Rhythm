@@ -2,11 +2,11 @@
 
 ## Current focus
 
-#1375 purge-only transcript-share retention is verified at `1175a4c9`; no draft PR is open. Bucket E remains open as draft PR #1467, and all previously active PR and Org Optimizer workflows remain unchanged.
+#1375 purge-only transcript-share retention is verified and open as draft PR #1469. #1425 remains explicitly deferred and open. All previously active PR and Org Optimizer workflows remain unchanged.
 
 ## Active branch / PR
 
-- #1375: `codex/mega-f-purge-only` at `1175a4c9`; verified, draft PR not opened.
+- #1375: `codex/mega-f-purge-only` → draft PR #1469; verified.
 - Bucket E: `codex/mega-e-artifact-storage` → draft PR #1467; depends on HIGH-risk Postgres prerequisite #1464.
 - Preserve active work and recorded statuses: Org Optimizer and PRs #1383, #1453, #1459, #1460, #1461, #1462, #1463, #1464, #1465, and #1467.
 
@@ -32,4 +32,4 @@
 
 ## Next step
 
-Open a draft PR for verified #1375 when requested, with the rollout backlog warning. Keep #1425 separate and do not merge or deploy; continue existing manual handoffs for PRs through #1467 and Org Optimizer.
+AJ: review draft PR #1469 and count due rows before enabling the purge flag. Keep #1425 separate and open; do not merge or deploy before the documented handoffs.
