@@ -9,6 +9,8 @@ import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
 import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
 import type { AgentDesign } from '../gateway/designs';
+import type { SkillEntry } from '../gateway/skills';
+import type { Profile } from '../types';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
@@ -543,21 +545,100 @@ function WebhooksTool() {
   </ToolFrame>;
 }
 
-type ManagedItem = { id: string; name: string; description: string; source: string; managed: boolean; body: string; score?: string; uses?: number };
+type ManagedItem = { id: string; name: string; description: string; source: string; managed: boolean; body: string };
 function ManagedCatalog({ kind }: { kind: 'skills' | 'playbooks' }) {
   const isSkills = kind === 'skills'; const title = isSkills ? 'Skills' : 'Playbooks'; const singular = isSkills ? 'skill' : 'playbook'; const base = isSkills ? '/opencode/skills' : '/opencode/commands'; const { notify } = useFixtures();
-  const [items, setItems] = useState<ManagedItem[]>(isSkills ? [{ id: 'verification', name: 'verification', description: 'Run evidence-backed checks before handoff.', source: 'managed', managed: true, body: '# Verification\n\nBuild, test, and report exact evidence.', score: '82', uses: 14 }, { id: 'research', name: 'research', description: 'Find and synthesize source-backed context.', source: 'org', managed: false, body: '# Research\n\nRead-only organization skill.', score: '76', uses: 9 }] : [{ id: 'review', name: 'review', description: 'Review the active project and report prioritized findings.', source: 'command', managed: true, body: 'Review $ARGUMENTS and cite the affected files.' }, { id: 'status', name: 'status', description: 'Summarize the current session state.', source: 'built-in', managed: false, body: 'Read-only built-in command.' }]);
-  const [selectedId, setSelectedId] = useState(items[0].id); const [query, setQuery] = useState(''); const [editing, setEditing] = useState<ManagedItem | 'new' | null>(null); const [deleting, setDeleting] = useState<ManagedItem | null>(null); const listRoute = isSkills ? `${base}?withMetadata=true` : base; const [trace, setTrace] = useState<Trace>({ method: 'GET', route: listRoute, detail: `${title} catalog loaded` }); const visible = items.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())); const selected = items.find((item) => item.id === selectedId) ?? items[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
-  const save = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const name = String(data.get('name')).trim(); const next = { id: name, name, description: String(data.get('description')), source: 'managed', managed: true, body: String(data.get('body')), score: isSkills ? '-' : undefined, uses: isSkills ? 0 : undefined }; if (editing === 'new') { setItems((current) => [...current, next]); setSelectedId(next.id); record('POST', base, `${singular} created with its exact managed content shape`); } else if (editing) { setItems((current) => current.map((item) => item.id === editing.id ? { ...item, ...next, id: editing.id, name: editing.name } : item)); record('PUT', `${base}/${encodeURIComponent(editing.name)}`, `${singular} content updated`); } setEditing(null); };
-  return <ToolFrame slug={kind} title={title} description={isSkills ? 'Search live engine skills, inspect source and measurement metadata, and author Rhythm-managed capabilities.' : 'Manage the custom slash commands that appear in the Agents composer.'} trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => { record(isSkills ? 'POST' : 'GET', isSkills ? '/system/refresh' : base, `${title} refreshed`); }} data-testid={`${kind}-refresh`}><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid={`${kind}-new`}><Icon name="plus" size={14} />New {singular}</button></>}>
+  const [items, setItems] = useState<ManagedItem[]>(isSkills ? [{ id: 'verification', name: 'verification', description: 'Fixture skill for deterministic UI checks.', source: 'fixture', managed: true, body: '# Verification\n\nFixture content only.' }, { id: 'research', name: 'research', description: 'Read-only fixture skill.', source: 'fixture', managed: false, body: '# Research\n\nFixture content only.' }] : [{ id: 'review', name: 'review', description: 'Review the active project and report prioritized findings.', source: 'command', managed: true, body: 'Review $ARGUMENTS and cite the affected files.' }, { id: 'status', name: 'status', description: 'Summarize the current session state.', source: 'built-in', managed: false, body: 'Read-only built-in command.' }]);
+  const [selectedId, setSelectedId] = useState(items[0].id); const [query, setQuery] = useState(''); const [editing, setEditing] = useState<ManagedItem | 'new' | null>(null); const [deleting, setDeleting] = useState<ManagedItem | null>(null); const listRoute = isSkills ? 'fixture://skills' : base; const [trace, setTrace] = useState<Trace>({ method: isSkills ? 'LOCAL' : 'GET', route: listRoute, detail: `${title} fixture loaded` }); const visible = items.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())); const selected = items.find((item) => item.id === selectedId) ?? items[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
+  const save = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const name = String(data.get('name')).trim(); const next = { id: name, name, description: String(data.get('description')), source: isSkills ? 'fixture' : 'managed', managed: true, body: String(data.get('body')) }; const route = isSkills ? `fixture://skills/${encodeURIComponent(name)}` : base; if (editing === 'new') { setItems((current) => [...current, next]); setSelectedId(next.id); record(isSkills ? 'LOCAL' : 'POST', route, `${singular} fixture created`); } else if (editing) { setItems((current) => current.map((item) => item.id === editing.id ? { ...item, ...next, id: editing.id, name: editing.name } : item)); record(isSkills ? 'LOCAL' : 'PUT', isSkills ? `fixture://skills/${encodeURIComponent(editing.name)}` : `${base}/${encodeURIComponent(editing.name)}`, `${singular} fixture updated`); } setEditing(null); };
+  return <ToolFrame slug={kind} title={title} description={isSkills ? 'Deterministic fixture skills for UI preview only. Switch to Live mode to inspect or edit the engine catalog.' : 'Manage the custom slash commands that appear in the Agents composer.'} trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => { record(isSkills ? 'LOCAL' : 'GET', listRoute, `${title} fixture refreshed`); }} data-testid={`${kind}-refresh`}><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid={`${kind}-new`}><Icon name="plus" size={14} />New {singular}</button></>}>
     {!isSkills && <div className="tool-notice"><Icon name="command" size={15} /><span>Managed playbooks appear as <strong>/slash commands</strong> in every session composer after refresh.</span></div>}
     <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search {kind}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${kind} by name or description…`} data-testid={`${kind}-search`} /></label><span>{visible.length} {kind}</span></div>
     {visible.length === 0 && <div className="tool-search-empty" data-testid={`${kind}-no-results`}><EmptyState title={`No ${kind} match`}>Try another term or clear the search to restore the full catalog.</EmptyState><button className="secondary-button" type="button" onClick={() => setQuery('')} data-testid={`${kind}-clear-search`}><Icon name="close" size={14} />Clear search</button></div>}
     {visible.length > 0 &&
-    <div className="tool-split"><aside className="tool-rail">{visible.map((item) => <button type="button" className={item.id === selected.id ? 'selected' : ''} key={item.id} onClick={() => { setSelectedId(item.id); record('GET', `${base}/${encodeURIComponent(item.name)}/content`, `${singular} content opened`); }} data-testid={`${kind}-item-${item.id}`}><strong>{isSkills ? item.name : `/${item.name}`}</strong><small>{item.source} · {item.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{isSkills ? selected.name : `/${selected.name}`}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid={`${kind}-edit`}><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid={`${kind}-delete`}><Icon name="delete" size={13} />Delete</button></div>}</header>{isSkills && <dl className="tool-properties"><div><dt>Capabilities</dt><dd>Files · verification · scoped shell</dd></div><div><dt>Post score</dt><dd>{selected.score ?? 'Not measured'}</dd></div><div><dt>Uses</dt><dd>{selected.uses ?? 0}</dd></div><div><dt>Source</dt><dd>{selected.source}</dd></div></dl>}<pre className="managed-body">{selected.body}</pre></section></div>
+    <div className="tool-split"><aside className="tool-rail">{visible.map((item) => <button type="button" className={item.id === selected.id ? 'selected' : ''} key={item.id} onClick={() => { setSelectedId(item.id); record(isSkills ? 'LOCAL' : 'GET', isSkills ? `fixture://skills/${encodeURIComponent(item.name)}` : `${base}/${encodeURIComponent(item.name)}/content`, `${singular} fixture opened`); }} data-testid={`${kind}-item-${item.id}`}><strong>{isSkills ? item.name : `/${item.name}`}</strong><small>{item.source} · {item.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{isSkills ? selected.name : `/${selected.name}`}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid={`${kind}-edit`}><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid={`${kind}-delete`}><Icon name="delete" size={13} />Delete</button></div>}</header><pre className="managed-body">{selected.body}</pre></section></div>
     }
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? `New ${singular}` : `Edit ${singular}`} description={isSkills ? 'Managed skills are discovered through the engine store.' : 'The template is invoked from the composer as a slash command.'} testId={`${kind}-editor`} wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description : ''} /></label><label className="field span-2">{isSkills ? 'SKILL.md content' : 'Command template'}<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? editing.body : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid={`${kind}-save`}>Save</button></footer></form></FocusDialog>
-    <ConfirmDialog open={Boolean(deleting)} title={`Delete ${title.slice(0, -1)}`} description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed ${singular} from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `${base}/${encodeURIComponent(deleting.name)}`, `${singular} deleted`); setSelectedId(items.find((item) => item.id !== deleting.id)?.id || ''); setDeleting(null); }} testId={`${kind}-delete-dialog`} />
+    <ConfirmDialog open={Boolean(deleting)} title={`Delete ${title.slice(0, -1)}`} description={deleting ? `Delete “${deleting.name}” from this ${isSkills ? 'fixture' : 'catalog'}?` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record(isSkills ? 'LOCAL' : 'DELETE', isSkills ? `fixture://skills/${encodeURIComponent(deleting.name)}` : `${base}/${encodeURIComponent(deleting.name)}`, `${singular} fixture deleted`); setSelectedId(items.find((item) => item.id !== deleting.id)?.id || ''); setDeleting(null); }} testId={`${kind}-delete-dialog`} />
+  </ToolFrame>;
+}
+
+function LiveSkillsTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [query, setQuery] = useState('');
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [content, setContent] = useState('');
+  const [editing, setEditing] = useState<SkillEntry | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<SkillEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/opencode/skills?withMetadata=true', detail: 'Loading live skill catalog' });
+  const visible = skills.filter((skill) => `${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+  const selected = visible.find((skill) => skill.name === selectedName) ?? visible[0] ?? null;
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.skills!.list(true);
+      setSkills(next);
+      setSelectedName((current) => (current && next.some((skill) => skill.name === current) ? current : (next[0]?.name ?? null)));
+      setTrace({ method: 'GET', route: '/opencode/skills?withMetadata=true', detail: `${next.length} live skills loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Skill catalog failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selected) { setContent(''); return; }
+    let active = true;
+    gateway.domains.skills!.content(selected.name).then((next) => { if (active) setContent(next.content); }).catch(() => { if (active) setContent(''); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.name]);
+
+  const refresh = async () => {
+    try {
+      await gateway.domains.skills!.reload();
+      setTrace({ method: 'POST', route: '/system/refresh', detail: 'Engine skill catalog refreshed' });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Skill refresh failed'); }
+  };
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const name = String(data.get('name')).trim();
+    const input = { description: String(data.get('description') || '').trim() || undefined, content: String(data.get('body')) };
+    try {
+      if (editing === 'new') {
+        await gateway.domains.skills!.create({ name, ...input });
+        setTrace({ method: 'POST', route: '/opencode/skills', detail: `Managed skill ${name} created` });
+      } else if (editing) {
+        await gateway.domains.skills!.update(editing.name, input);
+        setTrace({ method: 'PUT', route: `/opencode/skills/${encodeURIComponent(editing.name)}`, detail: `Managed skill ${editing.name} updated` });
+      }
+      setEditing(null);
+      setSelectedName(name);
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Skill save failed'); }
+  };
+
+  const remove = async (skill: SkillEntry) => {
+    try {
+      await gateway.domains.skills!.remove(skill.name);
+      setTrace({ method: 'DELETE', route: `/opencode/skills/${encodeURIComponent(skill.name)}`, detail: `Managed skill ${skill.name} deleted` });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Skill delete failed'); }
+    setDeleting(null);
+  };
+
+  return <ToolFrame slug="skills" title="Skills" description="Search the live engine skill catalog, inspect real metadata, and author Rhythm-managed capabilities." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void refresh()} data-testid="skills-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="skills-new"><Icon name="plus" size={14} />New skill</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="skills-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search skills</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search skills by name or description…" data-testid="skills-search" /></label><span>{visible.length} skills</span></div>
+    {!error && visible.length === 0 && <EmptyState title="No managed skills found">Create a managed skill or refresh after adding one to the engine.</EmptyState>}
+    {selected && <div className="tool-split"><aside className="tool-rail">{visible.map((skill) => <button type="button" className={skill.name === selected.name ? 'selected' : ''} key={skill.name} onClick={() => setSelectedName(skill.name)} data-testid={`skills-item-${skill.name}`}><strong>{skill.name}</strong><small>{skill.source} · {skill.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{selected.name}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="skills-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="skills-delete"><Icon name="delete" size={13} />Delete</button></div>}</header><dl className="tool-properties"><div><dt>Status</dt><dd>{selected.metadata?.status ?? 'Not measured'}</dd></div><div><dt>Version</dt><dd>{selected.metadata?.version ?? 1}</dd></div><div><dt>Post score</dt><dd>{selected.metadata?.postScore ?? 'Not measured'}</dd></div><div><dt>Uses</dt><dd>{selected.metadata?.uses ?? 'Not measured'}</dd></div></dl><pre className="managed-body">{content || 'Loading…'}</pre></section></div>}
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New skill' : 'Edit skill'} description="Managed skills are discovered through the engine store." testId="skills-editor" wide><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description ?? '' : ''} /></label><label className="field span-2">SKILL.md content<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? content : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="skills-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete skill" description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed skill from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="skills-delete-dialog" />
   </ToolFrame>;
 }
 
@@ -842,6 +923,18 @@ function EmailTool() {
 // (GET /agent-designs/:id/artifact) instead of just recording a fixture trace, and "Launch Creative
 // Media" seeds the new session from this design's own canonical `id` in the POST /agent-sessions
 // body — never a locally re-typed title/type/project summary.
+const imageArtifactTypes = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
+const videoArtifactTypes = new Set(['mp4', 'webm', 'mov']);
+
+function DesignPreview({ design }: { design: AgentDesign }) {
+  const type = design.artifactType?.toLowerCase() ?? '';
+  const previewUrl = design.thumbnailUrl ?? ((imageArtifactTypes.has(type) || videoArtifactTypes.has(type)) ? design.artifactUrl : null);
+  if (videoArtifactTypes.has(type) && design.artifactUrl) return <><video src={design.artifactUrl} poster={design.thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" /><span>{design.artifactType}</span></>;
+  if (previewUrl) return <><img src={previewUrl} alt="" /><span>{design.artifactType ?? 'unknown'}</span></>;
+  // ponytail: the API's thumbnailUrl is nullable, so rows without a real asset stay honest.
+  return <><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></>;
+}
+
 function LiveGalleryTool() {
   const gateway = useGateway();
   const { notify } = useFixtures();
@@ -883,7 +976,7 @@ function LiveGalleryTool() {
     {!error && designs.length === 0 && <EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState>}
     {selected && <section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><h2>{selected.title ?? selected.id}</h2><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section>}
     <div className="design-grid" aria-label="Creative Media artifacts">{designs.map((design) => <article className={design.id === selected?.id ? 'selected' : ''} key={design.id} data-testid={`design-${design.id}`}>
-      <button className="design-preview" type="button" onClick={() => setSelectedId(design.id)} aria-label={`Select ${design.title ?? design.id}`}><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></button>
+      <button className="design-preview" type="button" onClick={() => setSelectedId(design.id)} aria-label={`Select ${design.title ?? design.id}`}><DesignPreview design={design} /></button>
       <h2>{design.title ?? design.id}</h2>
       <p>{design.provider ?? 'unknown provider'}</p>
       <footer>
@@ -908,9 +1001,32 @@ function SettingsTool() {
   return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Connected · local workspace</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
 }
 
+function LiveSettingsTool() {
+  const gateway = useGateway();
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
+
+  const load = async () => {
+    setError(null);
+    try {
+      const next = await gateway.domains.sessions!.profiles();
+      setProfiles(next);
+      setTrace({ method: 'GET', route: '/agent-configs', detail: `${next.length} agent profiles loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Agent settings failed to load'); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <ToolFrame slug="agent-settings" title="Agent settings" description="Live execution defaults from the configured agent profiles." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="agent-settings-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {!error && profiles.length === 0 && <EmptyState title="No agent profiles configured">Create an agent profile before starting a configured session.</EmptyState>}
+    <div className="tool-list">{profiles.map((profile) => <article className="tool-row settings-row" key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar">{profile.icon}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}</small></span>{profile.isDefault && <span className="kind-badge">Default</span>}</article>)}</div>
+  </ToolFrame>;
+}
+
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool /> : <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

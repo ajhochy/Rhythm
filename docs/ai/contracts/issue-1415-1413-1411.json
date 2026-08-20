@@ -1,0 +1,49 @@
+{
+  "issue": "1415,1413,1411",
+  "date": "2026-08-19",
+  "test_command": "cd apps/web && node --test src/components/ToolWorkspace.contract.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1415-c1",
+      "text": "Render a real preview when the artifact response includes a thumbnail/poster URL — <img> for image types, <video> (or <img poster>) for video.",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": "The executable source contract and TypeScript build verify preview URL consumption and media rendering."
+    },
+    {
+      "criterion_id": "issue-1415-c2",
+      "text": "Fall back to the generic icon only when no preview asset is available.",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": "The executable source contract verifies the generic icon remains only in the no-preview branch."
+    },
+    {
+      "criterion_id": "issue-1413-c1",
+      "text": "Add a LiveSkillsTool following the exact sibling live-tool pattern and branch Skills between live and fixture modes.",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": "The executable source contract verifies LiveSkillsTool uses the existing skills gateway and the mode branch selects it."
+    },
+    {
+      "criterion_id": "issue-1413-c2",
+      "text": "Remove fake Skills metrics and false route traces from the fixture path, or make the fixture path explicitly honest about being fixture.",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": "The executable source contract verifies fixture://skills labeling and the absence of fixture Post score/Uses metrics."
+    },
+    {
+      "criterion_id": "issue-1411-c1",
+      "text": "Add a LiveSettingsTool mirroring the sibling live-tool pattern, wired to the real agent-settings/config surface, and branch it from the fixture SettingsTool.",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": "The executable source contract verifies LiveSettingsTool reads /agent-configs through sessions.profiles() and the live branch selects it."
+    }
+  ],
+  "not_tested": []
+}
