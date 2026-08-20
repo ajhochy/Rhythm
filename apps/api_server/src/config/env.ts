@@ -360,6 +360,16 @@ export const env = {
     (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')
       .trim()
       .toLowerCase() === 'true',
+  /** C6 (#1448) — treatment-v2 ships disabled; when off it is never considered for promotion. */
+  treatmentV2Enabled:
+    (process.env.RHYTHM_TREATMENT_V2_ENABLED ?? '')
+      .trim()
+      .toLowerCase() === 'true',
+  /** C6 (#1448) — calibration ships disabled; when off no calibration observations are persisted. */
+  calibrationEnabled:
+    (process.env.RHYTHM_CALIBRATION_ENABLED ?? '')
+      .trim()
+      .toLowerCase() === 'true',
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),

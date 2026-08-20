@@ -1337,7 +1337,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // it can never override a reserved binding (C2-A contract). An invalid
     // fallback spec is ignored (fail-closed: no override, not a crash).
     let treatmentSystemOverride: string | null = reservedTreatmentOverride;
-    if (treatmentSystemOverride === null && opts.experimentTreatment) {
+    // C6 item 1 — the opts.experimentTreatment fallback applies ONLY when
+    // treatment-v2 is enabled. Disabled means every run is an ordinary
+    // untreated dispatch, never a fabricated experiment error.
+    if (treatmentSystemOverride === null && env.treatmentV2Enabled && opts.experimentTreatment) {
       const { TREATMENT_ADAPTERS, validateSystemPromptV1Spec, resolveEffectiveSystemPrompt } = await import(
         '../models/experiment_treatment_adapter'
       );

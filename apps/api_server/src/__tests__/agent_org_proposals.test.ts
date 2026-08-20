@@ -65,6 +65,8 @@ describe('issue-817-c1: agent_org_proposals table exists in SQLite with the spec
       'revision',
       'reconciliation_reason',
       'owner_user_id',
+      'diagnosis_confidence',
+      'diagnosis_confidence_version',
       // W6-c8 — additive outcome authority, distinct from `status`.
       'outcome_status',
       'created_at',
@@ -149,6 +151,9 @@ describe('issue-817-c4: AgentOrgProposal model has fromJson/toJson matching all 
       measureReason: null,
       reconciliationReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       outcomeStatus: 'unproven' as const,
       revision: 0,
       createdAt: '2026-07-02T00:00:00.000Z',

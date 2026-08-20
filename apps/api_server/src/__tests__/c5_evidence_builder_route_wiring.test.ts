@@ -42,6 +42,8 @@ async function seedProposal(): Promise<string> {
     risk: 'high',
     status: 'proposed',
     title: 'refine the nightly recipe agent prompt',
+    diagnosisConfidence: 0.8,
+    diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
     targetRef: PROFILE_TARGET_REF,
     changeJson: JSON.stringify({
       configPatch: { agentConfigId: PROFILE_ID, field: 'system_prompt', value: CANDIDATE_PROMPT },

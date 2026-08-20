@@ -32,6 +32,7 @@ import { revertProposal } from '../services/org_proposal_apply';
 import { measureProposal } from '../services/org_proposal_measure';
 import { validateEvidenceBundle } from '../services/proposal_evidence_validator';
 import { buildProposalEvidenceAsync } from '../services/proposal_evidence_builder';
+import { attachExperimentSummariesAsync } from '../services/proposal_experiment_summary_service';
 import {
   applyProposal,
   hasSecurityNote,
@@ -140,7 +141,22 @@ export class OrgProposalsController {
     try {
       const status = typeof req.query.status === 'string' ? req.query.status : 'proposed';
       const proposals = await repo().listByStatusAsync(status);
-      res.json(proposals);
+      // C6-3 — additive per-proposal experiment/deployment summary (collecting
+      // progress, eligible/missing counts, treatment integrity, guardrail
+      // status, terminal reason, tested spec hashes, stale-before-apply
+      // conflict). Every existing field on `proposals` is untouched.
+      const withSummaries = await attachExperimentSummariesAsync(proposals);
+      if (status === 'proposed') {
+        withSummaries.sort((a, b) => {
+          const aConfidence = a.experimentSummary.calibratedConfidence;
+          const bConfidence = b.experimentSummary.calibratedConfidence;
+          if (aConfidence !== null && bConfidence !== null) return bConfidence - aConfidence;
+          if (aConfidence !== null) return -1;
+          if (bConfidence !== null) return 1;
+          return 0;
+        });
+      }
+      res.json(withSummaries);
     } catch (err) {
       next(err);
     }

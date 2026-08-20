@@ -13,9 +13,10 @@
  * See docs/ai/contracts/issue-1451.json for the criterion -> test mapping.
  */
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
+import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
@@ -166,6 +167,8 @@ async function seedReservedEnrollment(runEpisodeId: string): Promise<{ proposalI
   return { proposalId: enrollment.proposalId, cohort: enrollment.cohort };
 }
 
+let originalTreatmentV2Enabled: boolean;
+
 beforeEach(() => {
   vi.clearAllMocks();
   sessionMap.clear();
@@ -174,6 +177,14 @@ beforeEach(() => {
   runMigrations(db);
   setDb(db);
   process.env.RHYTHM_OPTIMIZER_MODE = 'shadow';
+  // C6 item 1 — this suite exercises the real reserve/prepare/commit chain,
+  // which now requires treatment-v2 to be enabled.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
+});
+
+afterEach(() => {
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 describe('issue-1451-c1 — WS session.input frame accepts an optional runEpisodeId', () => {

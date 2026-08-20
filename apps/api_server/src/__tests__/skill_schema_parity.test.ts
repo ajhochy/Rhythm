@@ -61,6 +61,8 @@ const TABLES = [
   'agent_configs',
   // D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record.
   'agent_org_post_apply_events',
+  // C6 — the versioned calibration observation ledger.
+  'calibration_observations',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */

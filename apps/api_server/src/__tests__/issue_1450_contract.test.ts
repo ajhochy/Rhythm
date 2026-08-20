@@ -9,8 +9,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
@@ -26,6 +27,7 @@ import { recordTerminalOutcome } from '../services/run_outcome_service';
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../models/proposal_evidence_bundle';
 
 let db: Database.Database;
+let originalTreatmentV2Enabled: boolean;
 
 beforeEach(() => {
   db = new Database(':memory:');
@@ -33,6 +35,14 @@ beforeEach(() => {
   runMigrations(db);
   setDb(db);
   process.env.RHYTHM_OPTIMIZER_MODE = 'shadow';
+  // C6 item 1 — this suite exercises the real reserve/prepare/commit chain,
+  // which now requires treatment-v2 to be enabled.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
+});
+
+afterEach(() => {
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 describe('issue-1450-c1 — run_episode_id is additive in both engines', () => {

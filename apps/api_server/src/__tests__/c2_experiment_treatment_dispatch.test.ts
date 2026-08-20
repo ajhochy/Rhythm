@@ -18,6 +18,7 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { env } from '../config/env';
 
 const { mockCreateSession, mockPrompt, mockAbortSession } = vi.hoisted(() => ({
   mockCreateSession: vi.fn(),
@@ -63,6 +64,8 @@ const SPEC = {
   evidenceTarget: { ref: 'agent_configs/agent-1', hash: 'sha256:abc' },
 };
 
+let originalTreatmentV2Enabled: boolean;
+
 describe('C2 — experiment treatment wired into the prompt dispatch boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -73,9 +76,14 @@ describe('C2 — experiment treatment wired into the prompt dispatch boundary', 
       parts: [{ type: 'text', text: 'Done' }],
     });
     mockAbortSession.mockResolvedValue(true);
+    // C6 item 1 — the opts.experimentTreatment fallback this suite exercises
+    // now applies only when treatment-v2 is enabled.
+    originalTreatmentV2Enabled = env.treatmentV2Enabled;
+    env.treatmentV2Enabled = true;
   });
 
   afterEach(() => {
+    env.treatmentV2Enabled = originalTreatmentV2Enabled;
     teardownDb();
     vi.restoreAllMocks();
   });
@@ -157,5 +165,21 @@ describe('C2 — experiment treatment wired into the prompt dispatch boundary', 
 
     const opts = mockPrompt.mock.calls[0][4] as Record<string, unknown>;
     expect(opts.system).toBe(SPEC.candidateValue);
+  });
+
+  it('C6 item 1 — the override never applies when treatment-v2 is disabled; dispatch is ordinary and untreated', async () => {
+    env.treatmentV2Enabled = false;
+    await mockScope();
+    const run = await freshRun();
+    await run({
+      prompt: 'Hello',
+      experimentTreatment: { adapter: 'system-prompt-v1', cohort: 'candidate', spec: SPEC },
+    } as never);
+
+    const opts = mockPrompt.mock.calls[0][4] as Record<string, unknown>;
+    // Bug this catches: a disabled flag that still forwarded the
+    // caller-supplied fallback spec as if it were a real experiment.
+    expect(opts.system).not.toBe(SPEC.candidateValue);
+    expect(opts.system).not.toBe(SPEC.currentValue);
   });
 });

@@ -48,6 +48,8 @@ import { AgentRunOutcomesRepository } from '../repositories/agent_run_outcomes_r
 const MIN_QUALIFYING_FACTS = 1;
 
 const EVIDENCE_BUILDER_VERSION = 'proposal-evidence-builder-v1';
+/** C6 (repair item 3) — versioned identity of {@link isQualifyingFailure}, the detector that selects evidence below. */
+const EVIDENCE_DETECTOR_VERSION = 'qualifying-failure-detector-v1';
 
 export type EvidenceBuildResult =
   | { ok: true; bundle: ProposalEvidenceBundle; qualifyingFactIds: string[] }
@@ -78,6 +80,27 @@ export async function buildProposalEvidenceAsync(
       reason:
         `evidence builder only supports 'refine-config' (system-prompt-v1) proposals today, ` +
         `got '${proposal.kind}' — this proposal remains unexperimentable/human-only`,
+    };
+  }
+
+  // C6 (repair item 3) — proposal-evidence-v2 REQUIRES a truthful
+  // initialConfidence (validator-enforced). The builder never invents one:
+  // it only ever reads the proposal's OWN durable diagnosisConfidence,
+  // mapped once at creation from the generator's high/medium/low verdict.
+  // Absent means "no durable generator confidence available" — fail closed,
+  // the proposal remains human-only (an operator may still hand-supply a
+  // bundle with an honest confidence), never a fabricated number.
+  if (
+    typeof proposal.diagnosisConfidence !== 'number' ||
+    !Number.isFinite(proposal.diagnosisConfidence) ||
+    !proposal.diagnosisConfidenceVersion
+  ) {
+    return {
+      ok: false,
+      reason:
+        `evidence builder: proposal ${proposal.id} has no durable generator confidence ` +
+        '(diagnosisConfidence) to report — this proposal remains unexperimentable/human-only ' +
+        'rather than fabricating one',
     };
   }
 
@@ -181,6 +204,12 @@ export async function buildProposalEvidenceAsync(
       'revert to the exact prior system prompt recorded in the tested candidateSpec.priorValue via the existing refine-config revert path',
     generatorVersion: EVIDENCE_BUILDER_VERSION,
     confidenceCalibrationVersion: 'uncalibrated',
+    // C6 (repair item 3) — the proposal's OWN durable confidence, never a
+    // second guess computed here (checked non-null above).
+    initialConfidence: proposal.diagnosisConfidence!,
+    detectorVersion: EVIDENCE_DETECTOR_VERSION,
+    treatmentVersion: 'system-prompt-v1',
+    metricVersion: `${metricName}-v1`,
   };
 
   return { ok: true, bundle, qualifyingFactIds: qualifying.map((f) => f.id) };

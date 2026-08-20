@@ -59,8 +59,10 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
               iconTheme: IconThemeData(color: context.rhythm.textSecondary),
               actions: [
                 IconButton(
-                  icon:
-                      Icon(Icons.refresh, color: context.rhythm.textSecondary),
+                  icon: Icon(
+                    Icons.refresh,
+                    color: context.rhythm.textSecondary,
+                  ),
                   tooltip: 'Refresh',
                   onPressed: () {
                     controller.refresh();
@@ -86,10 +88,7 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
               ),
             ),
             body: TabBarView(
-              children: [
-                _buildBody(context, controller),
-                const _AppliedTab(),
-              ],
+              children: [_buildBody(context, controller), const _AppliedTab()],
             ),
           ),
         );
@@ -308,6 +307,46 @@ String _deploymentLabel(String status) {
   }
 }
 
+/// C6-3 — plain language for the additive experiment summary. Kept in the
+/// same "never a negative-sounding default" style as [_outcomeLabel].
+String _collectingProgressLabel(String progress) {
+  switch (progress) {
+    case 'collecting':
+      return 'Still gathering results';
+    case 'decided':
+      return 'Finished testing';
+    default:
+      return 'Not tested yet';
+  }
+}
+
+String _treatmentIntegrityLabel(String status) {
+  switch (status) {
+    case 'ok':
+      return 'Working normally';
+    case 'degraded':
+      return 'Some test runs failed to apply';
+    default:
+      return 'Not enough data yet';
+  }
+}
+
+String _guardrailStatusLabel(String status) {
+  switch (status) {
+    case 'ok':
+      return 'No safety limits triggered';
+    case 'breached':
+      return 'A safety limit was triggered';
+    default:
+      return 'Not enough data yet';
+  }
+}
+
+String? _shortSha256(String? hash) {
+  if (hash == null || !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(hash)) return null;
+  return 'sha256:${hash.substring(0, 12).toLowerCase()}';
+}
+
 class _AppliedTab extends StatefulWidget {
   const _AppliedTab();
 
@@ -368,11 +407,7 @@ class _AppliedTabState extends State<_AppliedTab> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.done_all,
-                  size: 56,
-                  color: context.rhythm.textMuted,
-                ),
+                Icon(Icons.done_all, size: 56, color: context.rhythm.textMuted),
                 const SizedBox(height: 16),
                 Text(
                   'No changes are in use yet',
@@ -498,6 +533,10 @@ class _AppliedCard extends StatelessWidget {
     // those only the ones carrying a versioned rollback record.
     final canRevert =
         proposal.status == 'active' && !proposal.revertNeedsOperator;
+    final testedBaseline =
+        _shortSha256(proposal.experimentSummary?.testedBaselineHash);
+    final testedCandidate =
+        _shortSha256(proposal.experimentSummary?.testedCandidateHash);
 
     return Container(
       decoration: BoxDecoration(
@@ -537,6 +576,50 @@ class _AppliedCard extends StatelessWidget {
             label: 'Is it helping?',
             value: _outcomeLabel(proposal.outcomeStatus),
           ),
+          if (proposal.experimentSummary?.hasExperiment ?? false) ...[
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Testing',
+              value: _collectingProgressLabel(
+                proposal.experimentSummary!.collectingProgress,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Checked runs',
+              value: '${proposal.experimentSummary!.eligibleCount} ok, '
+                  '${proposal.experimentSummary!.missingCount} missing',
+            ),
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Reliability',
+              value: _treatmentIntegrityLabel(
+                proposal.experimentSummary!.treatmentIntegrity,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Safety checks',
+              value: _guardrailStatusLabel(
+                proposal.experimentSummary!.guardrailStatus,
+              ),
+            ),
+            if (testedBaseline != null) ...[
+              const SizedBox(height: 4),
+              _FactRow(label: 'Tested baseline', value: testedBaseline),
+            ],
+            if (testedCandidate != null) ...[
+              const SizedBox(height: 4),
+              _FactRow(label: 'Tested candidate', value: testedCandidate),
+            ],
+            if (proposal.experimentSummary!.terminalReason != null) ...[
+              const SizedBox(height: 4),
+              _FactRow(
+                label: 'Why it stopped',
+                value: proposal.experimentSummary!.terminalReason!,
+              ),
+            ],
+          ],
           const SizedBox(height: 14),
           if (canRevert)
             SizedBox(
@@ -640,6 +723,52 @@ class _FactRow extends StatelessWidget {
   }
 }
 
+/// C6-3 — a refine-config proposal whose experiment already promoted a
+/// candidate, but whose live target drifted again before a human approved
+/// it. Shown only on the pre-apply review card ([_ProposalCard]):
+/// [OrgProposal.experimentSummary]'s `staleBeforeApplyConflict` is only ever
+/// true while the proposal is still `proposed`/`approved`/`failed` — once
+/// applied, "before it can be applied" no longer applies, so this banner is
+/// never shown on [_AppliedCard].
+class _StaleConflictBanner extends StatelessWidget {
+  const _StaleConflictBanner({required this.proposalId});
+
+  final String proposalId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: ValueKey('stale-conflict-$proposalId'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.warning),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_outlined,
+            size: 15,
+            color: context.rhythm.warning,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This was tested, but the settings changed again since then '
+              '— it needs to be tested again before it can be trusted.',
+              style:
+                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Proposal card
 // ---------------------------------------------------------------------------
@@ -725,8 +854,10 @@ class _ProposalCardState extends State<_ProposalCard> {
             const SizedBox(height: 6),
             Text(
               proposal.rationale!,
-              style:
-                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
             ),
           ],
           const SizedBox(height: 12),
@@ -734,6 +865,11 @@ class _ProposalCardState extends State<_ProposalCard> {
           if (needsNote) ...[
             const SizedBox(height: 12),
             _SecurityNoteBlock(proposal: proposal),
+          ],
+          if (proposal.experimentSummary?.staleBeforeApplyConflict ??
+              false) ...[
+            const SizedBox(height: 12),
+            _StaleConflictBanner(proposalId: proposal.id),
           ],
           const SizedBox(height: 10),
           InkWell(
@@ -1017,11 +1153,7 @@ class _ProposalChangeBlock extends StatelessWidget {
     final directChanges = change.entries
         .where((entry) => entry.key != 'agentConfigId' && entry.value is! Map)
         .map(
-          (entry) => _FieldChange(
-            entry.key,
-            before?[entry.key],
-            entry.value,
-          ),
+          (entry) => _FieldChange(entry.key, before?[entry.key], entry.value),
         )
         .toList();
     return directChanges.isEmpty ? null : directChanges;
@@ -1065,10 +1197,14 @@ class _ProposalChangeBlock extends StatelessWidget {
     return labels[field] ??
         field
             .replaceAllMapped(
-                RegExp(r'([a-z])([A-Z])'), (match) => '${match[1]} ${match[2]}')
+              RegExp(r'([a-z])([A-Z])'),
+              (match) => '${match[1]} ${match[2]}',
+            )
             .replaceAll('_', ' ')
             .replaceFirstMapped(
-                RegExp(r'^.'), (match) => match[0]!.toUpperCase());
+              RegExp(r'^.'),
+              (match) => match[0]!.toUpperCase(),
+            );
   }
 
   static String _displayValue(Object? value) {
