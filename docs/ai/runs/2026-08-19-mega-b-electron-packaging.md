@@ -1,10 +1,10 @@
 ---
 date: 2026-08-19
 repo: Rhythm
-branch: codex/mega-b-electron-packaging
+branch: codex/mega-b-electron-packaging-pr
 pr: null
 issues: [1402]
-status: ready_for_verification
+status: verified
 tags: [run, Rhythm]
 ---
 
@@ -80,4 +80,16 @@ All resources are staged before the existing final ad-hoc `codesign --deep`; the
 - After: 491,436 KiB.
 - Delta: 241,540 KiB (235.88 MiB), comprising api_server 125,600 KiB and packaged Node 114,752 KiB.
 
-Required manual/verification-gate target: on a clean disposable Mac/user with no Rhythm checkout and free 4098/4097, launch `dist/Rhythm.app`, observe agent-server status `Live`, and inspect the child argv/cwd to confirm `Contents/Resources/node/bin/node Contents/Resources/api_server/dist/server.js` with cwd `Contents/Resources/api_server`. Signing/notarization additionally requires the documented Apple credentials; no credentials are needed for the ad-hoc local smoke.
+The prior standalone process-to-Live target is satisfied by the final gate below. Real signing/notarization still requires the documented Apple credentials; no such credentials were used here.
+
+## Final standalone gate — 2026-08-20
+
+- Rebuilt `apps/api_server` and `dist/Rhythm.app` from `9359b0cc`; ad-hoc `codesign --verify --deep --strict` passed.
+- Copied `Rhythm.app` to `/tmp/rhythm-mega-b-standalone`, with temporary HOME, userData, DB, vault, skills, live-artifact storage, disposable Keychain, and gateway `:4993`. The test used package-owned `:4098/:4097`; protected `:4001/:4096` were not touched.
+- Process evidence: the app-owned child command was `/private/tmp/rhythm-mega-b-standalone/Rhythm.app/Contents/Resources/node/bin/node /private/tmp/rhythm-mega-b-standalone/Rhythm.app/Contents/Resources/api_server/dist/server.js --parent-pid=<app-pid>`, cwd `Contents/Resources/api_server`, with no checkout path.
+- Live evidence: `/health` returned `status=ok`; `/opencode/health` returned `status=ready` and `bridgeLive=true`; the external packaged smoke emitted `environment.mode=Live` and a real `GET /agent-sessions` status 200 with `fixtureFallback=false`; shutdown released all package-owned listeners.
+- Native probe: Node `v22.23.0`, ABI `127`, arm64; in-memory `better-sqlite3` query returned `1`; `node-pty.spawn` was a function. App size: 491,432 KiB; API payload: 125,600 KiB; Node payload: 114,752 KiB.
+- Focused issue contract: 2/2 pass. Full Electron suite: 32/34; the two notification tests fail identically on `origin/main` and are outside bucket B. `npm run typecheck` has the same 12 `src/artifact-policy.mjs` errors on `origin/main`; changed-file JS typecheck passed.
+- Package scan found no `.env`, DB, auth/credential/key, private-key, known token-prefix, temporary HOME, or checkout-path leakage. `.mcp-roles` is present as expected.
+- Real Developer ID signing, notarization, Gatekeeper assessment, and a separate physical clean-Mac launch remain manual release items.
+- Orchestrator GitNexus `detect_changes(compare main)` after the gate: LOW risk, three changed symbols, zero affected indexed processes.

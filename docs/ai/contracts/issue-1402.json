@@ -17,9 +17,9 @@
       "text": "A packaged `dist/Rhythm.app`, run on a machine with NO monorepo checkout, successfully spawns its own api_server via the bundled path (NOT the dev-mode fallback) and reaches `Live`.",
       "mode": "live",
       "test": "apps/electron/test/issue-1402-packaged-api-server.test.mjs",
-      "status": "UNVERIFIED",
-      "reason": "The deterministic standalone fixture proves bundled Node/server selection and fail-closed behavior with no checkout. Reaching Live remains a clean-machine packaged-app smoke: this run could not launch a package-owned api_server because the dispatch requires all server-dependent verification to use the 4298/4297 sandbox, while the integrated Electron runtime intentionally owns 4098/4097."
+      "status": "pass",
+      "reason": "Final gate copied Rhythm.app outside every checkout, used a temporary HOME/userData and isolated ports, then observed the app-owned child argv as Contents/Resources/node/bin/node + Contents/Resources/api_server/dist/server.js, API /health OK, /opencode/health ready, a packaged live-smoke receipt with environment.mode=Live and a real 200 /agent-sessions read, and clean shutdown."
     }
   ],
-  "not_tested": ["issue-1402-c2"]
+  "not_tested": []
 }
