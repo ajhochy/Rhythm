@@ -22,7 +22,23 @@ storage, or run slots.
 It uses API port `4098`, engine port `4097`, a SQLite `.backup` copy, and a
 temporary HOME. It disables every copied scheduled task before launch.
 
+**`up` requires four explicit env vars naming an operator-sanitized fixture —
+there is no default copied-data source (issue-c6 item 6):**
+`RHYTHM_APPROVED_FIXTURE_ROOT` (a directory containing only sanitized
+fixtures), `RHYTHM_LIVE_DB_PATH` (a read-only SQLite file under that root),
+`RHYTHM_SANDBOX_OPENCODE_CONFIG` (a read-only directory or `opencode.json`
+under that root, declaring a non-empty `mcp` map and `optimizer.mode` of
+`shadow` if declared at all), and `RHYTHM_SANDBOX_DIR` (must canonicalize
+under `/private/tmp` or `/var/folders`). `up` fails closed before any process
+launch if any of these are missing, outside the approved root, writable,
+nested inside the sandbox dir, or resolve to one of the two hardcoded
+prohibited live paths. See `validate_copied_data_inputs` in `sandbox.sh` and
+`tools/dev/sandbox_guard_test.sh` for the exact rules and rejection tests.
+
 ```bash
+RHYTHM_APPROVED_FIXTURE_ROOT=/path/to/sanitized/fixtures \
+RHYTHM_LIVE_DB_PATH=/path/to/sanitized/fixtures/rhythm.db \
+RHYTHM_SANDBOX_OPENCODE_CONFIG=/path/to/sanitized/fixtures/opencode-config \
 tools/dev/sandbox.sh up
 tools/dev/sandbox.sh status
 tools/dev/sandbox.sh down

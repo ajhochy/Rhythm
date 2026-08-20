@@ -24,6 +24,7 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
+import { env } from '../config/env';
 import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
@@ -211,6 +212,8 @@ async function mockScope(overrides: Record<string, unknown> = {}) {
   } as never);
 }
 
+let originalTreatmentV2Enabled: boolean;
+
 describe('C2-A — a real C1 reservation supplies the bound cohort spec at dispatch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -222,9 +225,14 @@ describe('C2-A — a real C1 reservation supplies the bound cohort spec at dispa
     // that implementation and break C2-C's atomic commit ordering. Clearing
     // the mock (via clearAllMocks above) restores the hoisted impl.
     mockAbortSession.mockResolvedValue(true);
+    // C6 item 1 — this suite exercises the real reserve/prepare/commit chain,
+    // which now requires treatment-v2 to be enabled.
+    originalTreatmentV2Enabled = env.treatmentV2Enabled;
+    env.treatmentV2Enabled = true;
   });
 
   afterEach(() => {
+    env.treatmentV2Enabled = originalTreatmentV2Enabled;
     teardownDb();
     vi.restoreAllMocks();
   });

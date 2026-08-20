@@ -73,6 +73,7 @@ describe('issue-826: human-gate review queue API', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.stubEnv('AGENT_LOCAL', 'true');
+    vi.stubEnv('RHYTHM_CALIBRATION_ENABLED', 'true');
 
     const { setDb } = await import('../database/db');
     const { runMigrations } = await import('../database/migrations');
@@ -120,6 +121,62 @@ describe('issue-826: human-gate review queue API', () => {
     expect(body).toHaveLength(1);
     expect(body[0].kind).toBe('create-agent');
     expect(body.every((p) => p.status === 'proposed')).toBe(true);
+  });
+
+  it('task-c6-calibration-c6: proposed queue ranks calibrated confidence descending, then uncalibrated, stably', async () => {
+    const { AgentOrgExperimentsRepository } = await import('../repositories/agent_org_experiments_repository');
+    const { CalibrationObservationsRepository } = await import('../repositories/calibration_observations_repository');
+    const experiments = new AgentOrgExperimentsRepository();
+    const observations = new CalibrationObservationsRepository();
+    const makeBundle = (generatorVersion: string) => ({
+      version: 'proposal-evidence-v2',
+      sourceEvidence: { sessionIds: ['ses-1'], eventIds: [] },
+      counterEvidenceSearch: { query: 'q', searchedAt: '2026-08-20T00:00:00.000Z', contradictingCount: 0, method: 'same-profile-ledger-scan', coverage: 1 },
+      target: { ref: 'agent_config:1', hash: 'sha256:abc' }, expectedOutcome: 'better',
+      primaryMetric: { name: 'objective-success-rate', direction: 'increase' }, guardrails: ['terminal-error-rate'],
+      experimentAdapter: 'single-replay', rollbackRule: 'restore', generatorVersion,
+      confidenceCalibrationVersion: 'confidence-v1', initialConfidence: 0.5,
+      detectorVersion: 'det-ranking', treatmentVersion: 'system-prompt-v1', metricVersion: 'metric-ranking',
+    });
+    const high = await repo.createAsync({ kind: 'refine-config', risk: 'high', title: 'old calibrated high' });
+    const low = await repo.createAsync({ kind: 'refine-config', risk: 'high', title: 'middle calibrated low' });
+    const uncalibratedOlder = await repo.createAsync({ kind: 'refine-config', risk: 'high', title: 'older uncalibrated' });
+    const uncalibrated = await repo.createAsync({ kind: 'refine-config', risk: 'high', title: 'new uncalibrated' });
+    db.prepare('UPDATE agent_org_proposals SET created_at = ? WHERE id = ?').run('2026-08-20T00:00:00.000Z', high.id);
+    db.prepare('UPDATE agent_org_proposals SET created_at = ? WHERE id = ?').run('2026-08-20T00:01:00.000Z', low.id);
+    db.prepare('UPDATE agent_org_proposals SET created_at = ? WHERE id = ?').run('2026-08-20T00:01:30.000Z', uncalibratedOlder.id);
+    db.prepare('UPDATE agent_org_proposals SET created_at = ? WHERE id = ?').run('2026-08-20T00:02:00.000Z', uncalibrated.id);
+
+    for (const [proposal, generatorVersion, decision] of [
+      [high, 'gen-ranking-high', 'promote'],
+      [low, 'gen-ranking-low', 'regress'],
+      [uncalibratedOlder, 'gen-ranking-uncalibrated-older', null],
+      [uncalibrated, 'gen-ranking-uncalibrated', null],
+    ] as const) {
+      await experiments.declareAsync({
+        proposalId: proposal.id, adapter: 'single-replay', evidenceBundleJson: JSON.stringify(makeBundle(generatorVersion)),
+        baselineSpecJson: '{}', candidateSpecJson: '{}', assignmentKey: proposal.id,
+        stoppingRule: { minSamplesPerCohort: 1, minEffect: 0.1 }, maxExposure: 2,
+      });
+      if (decision) {
+        for (let i = 0; i < 5; i += 1) {
+          await observations.createAsync({
+            scope: { kind: 'system-global' }, sourceEventId: `${proposal.id}-${i}`, observationType: 'experiment-decision',
+            proposalId: proposal.id, generatorVersion, detectorVersion: 'det-ranking', kind: 'refine-config',
+            treatmentVersion: 'system-prompt-v1', metricVersion: 'metric-ranking', initialConfidence: 0.5,
+            humanDecision: null, experimentDecision: decision,
+          });
+        }
+      }
+    }
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals?status=proposed`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string; experimentSummary: { calibrationStatus: string; calibratedConfidence: number | null } }>;
+    expect(body.map((p) => p.id)).toEqual([high.id, low.id, uncalibrated.id, uncalibratedOlder.id]);
+    expect(body.map((p) => [p.experimentSummary.calibrationStatus, p.experimentSummary.calibratedConfidence])).toEqual([
+      ['calibrated', 1], ['calibrated', 0], ['uncalibrated', null], ['uncalibrated', null],
+    ]);
   });
 
   it('issue-826-c2/#1175-c19: approve records the authenticated actor and ignores hostile reviewer input', async () => {

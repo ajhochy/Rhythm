@@ -59,6 +59,8 @@ const TABLES = [
   // list. They are the hottest dual-engine tables in the app; keep them here.
   'agent_sessions',
   'agent_configs',
+  // C6 — the versioned calibration observation ledger.
+  'calibration_observations',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */

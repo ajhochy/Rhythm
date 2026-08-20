@@ -9,6 +9,7 @@ import Database from 'better-sqlite3';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { runMigrations } from '../../database/migrations';
+import { env } from '../../config/env';
 import { setDb } from '../../database/db';
 import { AgentRunOutcomesRepository } from '../../repositories/agent_run_outcomes_repository';
 import { AgentOrgExperimentEnrollmentsRepository } from '../../repositories/agent_org_experiment_enrollments_repository';
@@ -82,15 +83,23 @@ function seedTreatmentReceipt(params: { runEpisodeId: string; profileId: string;
   ).run(`receipt-${params.runEpisodeId}`, params.profileRevision, FAKE_EFFECTIVE_PROMPT_HASH, params.runEpisodeId);
 }
 
+let originalTreatmentV2Enabled: boolean;
+
 beforeEach(() => {
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   setDb(db);
+  // C6 item 1 — resolveRunEnrollment (called via recordTerminalOutcome) now
+  // requires treatment-v2 to be enabled; this suite seeds real enrollment
+  // rows and asserts they get resolved.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
 });
 
 afterEach(() => {
   db.close();
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 /**

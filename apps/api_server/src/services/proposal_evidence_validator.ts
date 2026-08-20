@@ -165,6 +165,32 @@ export function validateEvidenceBundle(input: unknown): EvidenceValidation {
     reasons.push('confidenceCalibrationVersion must record the calibration in force');
   }
 
+  if (isV2) {
+    // C6 (repair item 3) — proposal-evidence-v2 ONLY: a truthful, versioned
+    // calibration identity. Never required on v1 (a v1 bundle has no
+    // initialConfidence/detectorVersion/treatmentVersion/metricVersion
+    // concept at all).
+    if (
+      typeof input.initialConfidence !== 'number' ||
+      !Number.isFinite(input.initialConfidence) ||
+      input.initialConfidence < 0 ||
+      input.initialConfidence > 1
+    ) {
+      reasons.push(
+        `initialConfidence must be a finite number in [0,1] for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`,
+      );
+    }
+    if (!nonEmptyString(input.detectorVersion)) {
+      reasons.push(`detectorVersion must record the detector version for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`);
+    }
+    if (!nonEmptyString(input.treatmentVersion)) {
+      reasons.push(`treatmentVersion must record the treatment version for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`);
+    }
+    if (!nonEmptyString(input.metricVersion)) {
+      reasons.push(`metricVersion must record the metric version for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`);
+    }
+  }
+
   if (reasons.length > 0) return { valid: false, reasons };
   return { valid: true, bundle: input as unknown as ProposalEvidenceBundle };
 }

@@ -19,7 +19,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { env } from '../config/env';
 import Database from 'better-sqlite3';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -261,11 +262,17 @@ async function driveRun(sessionId: string, succeeded: boolean): Promise<void> {
   await finishRun(sessionId, reservation, succeeded);
 }
 
+let originalTreatmentV2Enabled: boolean;
+
 beforeEach(() => {
   setDb(makeDb());
   listMcp.mockReset().mockResolvedValue({});
   listSkills.mockReset().mockResolvedValue([]);
   delete process.env.RHYTHM_OPTIMIZER_MODE;
+  // C6 item 1 — this suite exercises the real reserve/prepare/commit chain
+  // through the shipping surfaces, which now requires treatment-v2 enabled.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
 
   const profile = new AgentConfigsRepository().insert({
     id: TEST_PROFILE_ID,
@@ -274,6 +281,10 @@ beforeEach(() => {
     systemPrompt: BASELINE_SYSTEM_PROMPT,
   });
   profileTargetHash = durableTargetFingerprint(profile);
+});
+
+afterEach(() => {
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 describe('the terminal hook assigns a cohort before the ledger row is written', () => {

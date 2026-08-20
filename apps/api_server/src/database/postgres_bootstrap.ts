@@ -2118,4 +2118,76 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
        ON agent_run_outcomes(run_episode_id)`,
   );
+
+  // C6 — versioned calibration observations (Postgres twin). Column set MUST
+  // stay identical to the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Reuses the existing rhythm_reject_ledger_write
+  // trigger function (already defined above) for the same no-update/no-delete
+  // guarantee as agent_run_outcomes / treatment receipts.
+  //
+  // C6 (repair item 2) — owner_id follows the nullable-owner convention of
+  // agent_org_proposals.owner_user_id (#1175): NULL means system-global.
+  // The trigger is dropped BEFORE the additive ALTERs/backfill below and
+  // recreated after, so the one-time backfill UPDATE is never blocked by
+  // the immutability guard it is about to restore.
+  await pool.query(
+    `DROP TRIGGER IF EXISTS trg_calibration_observations_immutable ON calibration_observations`,
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS calibration_observations (
+      id TEXT PRIMARY KEY,
+      owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      source_event_id TEXT NOT NULL,
+      observation_type TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      experiment_id TEXT,
+      generator_version TEXT NOT NULL,
+      detector_version TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      treatment_version TEXT NOT NULL,
+      metric_version TEXT NOT NULL,
+      initial_confidence DOUBLE PRECISION NOT NULL,
+      human_decision TEXT,
+      experiment_decision TEXT,
+      experiment_effect DOUBLE PRECISION,
+      post_deploy_regression DOUBLE PRECISION,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  // Additive backfill for a database that already created the table in its
+  // pre-repair shape. Never inferred: owner stays NULL, source_event_id
+  // becomes the row's own immutable id, observation_type becomes 'legacy'.
+  await pool.query(`
+    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS source_event_id TEXT;
+    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS observation_type TEXT NOT NULL DEFAULT 'legacy';
+    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
+    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS experiment_id TEXT;
+    UPDATE calibration_observations SET source_event_id = id WHERE source_event_id IS NULL;
+    ALTER TABLE calibration_observations ALTER COLUMN source_event_id SET NOT NULL;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
+       ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
+       ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
+  );
+  await pool.query(`
+    CREATE TRIGGER trg_calibration_observations_immutable
+      BEFORE UPDATE OR DELETE ON calibration_observations
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('calibration observations are immutable once recorded');
+  `);
+
+  // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
+  // proposal creation from the generator's own high/medium/low diagnosis
+  // verdict. Column set MUST stay identical to migrations.ts — enforced by
+  // skill_schema_parity.test.ts.
+  await pool.query(`
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence DOUBLE PRECISION;
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence_version TEXT;
+  `);
 }

@@ -53,6 +53,8 @@ async function seedRefineConfigProposal(overrides: Record<string, unknown> = {})
     risk: 'high',
     status: 'proposed',
     title: 'refine the nightly recipe agent prompt',
+    diagnosisConfidence: 0.8,
+    diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
     targetRef: toProfileTargetRef(PROFILE_ID),
     changeJson: JSON.stringify({
       configPatch: { agentConfigId: PROFILE_ID, field: 'system_prompt', value: CANDIDATE_PROMPT },

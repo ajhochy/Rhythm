@@ -223,6 +223,10 @@ describe('C5 proposal-evidence-v2 — builder-produced bundles', () => {
     return {
       ...v1,
       version: PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
+      initialConfidence: 0.8,
+      detectorVersion: 'behavioral-fact-v1',
+      treatmentVersion: 'system-prompt-v1',
+      metricVersion: 'objective-success-v1',
       counterEvidenceSearch: {
         query: "agent_run_outcomes for profile 'cfg-1'",
         searchedAt: '2026-08-18T00:00:00.000Z',

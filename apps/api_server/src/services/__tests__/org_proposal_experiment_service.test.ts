@@ -12,13 +12,15 @@
 
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { env } from '../../config/env';
 import { setDb } from '../../database/db';
 import { runMigrations } from '../../database/migrations';
 import { logger } from '../../utils/logger';
 import {
   PROPOSAL_EVIDENCE_BUNDLE_VERSION,
+  PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
   type ProposalEvidenceBundle,
 } from '../../models/proposal_evidence_bundle';
 import type { AgentRunOutcome } from '../../models/agent_run_outcome';
@@ -44,14 +46,26 @@ import {
 } from '../org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../../models/agent_org_experiment_enrollment';
 import { AgentOrgTreatmentReceiptsRepository } from '../../repositories/agent_org_treatment_receipts_repository';
+import { CalibrationObservationsRepository } from '../../repositories/calibration_observations_repository';
+import { UsersRepository } from '../../repositories/users_repository';
 
 let db: Database.Database;
+let originalTreatmentV2Enabled: boolean;
 
 beforeEach(() => {
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   setDb(db);
+  // C6 item 1 — this file's reserve/prepare/commit describes exercise the
+  // real chain, which now requires treatment-v2 to be enabled. judge/decide
+  // describes are unaffected either way.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
+});
+
+afterEach(() => {
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 /** An otherwise-complete, current-version bundle. Every case mutates a copy. */
@@ -2590,5 +2604,106 @@ describe('C4-4 promote sets outcome_status=verified without touching deployment 
 
     const reloadedProfile = new AgentConfigsRepository().getById(profile.id);
     expect(reloadedProfile!.systemPrompt).toBe('before');
+  });
+});
+
+describe('C6 production decision calibration recording', () => {
+  const calibrationBundle = (initialConfidence = 0.8): ProposalEvidenceBundle => ({
+    ...makeValidBundle(),
+    version: PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
+    counterEvidenceSearch: {
+      ...makeValidBundle().counterEvidenceSearch,
+      method: 'same-profile-ledger-scan',
+      coverage: 1,
+    },
+    experimentAdapter: 'single-replay',
+    initialConfidence,
+    detectorVersion: 'qualifying-failure-v1',
+    treatmentVersion: 'system-prompt-v1',
+    metricVersion: 'objective-success-rate-v1',
+  });
+
+  it('task-c6-calibration-c1: records one immutable owner-scoped decision observation and retry reuses it', async () => {
+    const original = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    try {
+      const owner = new UsersRepository().create({ name: 'Calibration Owner', email: 'calibration-owner-1@example.com' });
+      const proposal = await new AgentOrgProposalsRepository().createAsync({
+        id: 'prop-c6-observation',
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'calibration source',
+        ownerUserId: owner.id,
+        diagnosisConfidence: 0.8,
+        diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
+      });
+      const experiment = await declare(new AgentOrgExperimentsRepository(), calibrationBundle(), {
+        proposalId: proposal.id,
+      });
+
+      await judgeExperimentAsync(experiment.id);
+      await judgeExperimentAsync(experiment.id);
+
+      const rows = await new CalibrationObservationsRepository().listAllForLocalAdminAsync();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        ownerId: owner.id,
+        sourceEventId: `experiment-decision:${experiment.id}`,
+        observationType: 'experiment-decision',
+        proposalId: proposal.id,
+        experimentId: experiment.id,
+        generatorVersion: 'scope-hygiene-generator@3',
+        detectorVersion: 'qualifying-failure-v1',
+        kind: 'refine-config',
+        treatmentVersion: 'system-prompt-v1',
+        metricVersion: 'objective-success-rate-v1',
+        initialConfidence: 0.8,
+        experimentDecision: 'inconclusive',
+        postDeployRegression: null,
+      });
+    } finally {
+      env.calibrationEnabled = original;
+    }
+  });
+
+  it('task-c6-calibration-c2: skips recording when durable proposal confidence is unavailable', async () => {
+    const original = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    try {
+      const owner = new UsersRepository().create({ name: 'Calibration Owner', email: 'calibration-owner-2@example.com' });
+      const proposal = await new AgentOrgProposalsRepository().createAsync({
+        id: 'prop-c6-no-confidence',
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'missing durable confidence',
+        ownerUserId: owner.id,
+      });
+      const experiment = await declare(new AgentOrgExperimentsRepository(), calibrationBundle(), {
+        proposalId: proposal.id,
+      });
+
+      await judgeExperimentAsync(experiment.id);
+
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toEqual([]);
+
+      const versionedProposal = await new AgentOrgProposalsRepository().createAsync({
+        id: 'prop-c6-no-version',
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'missing durable evidence version',
+        ownerUserId: owner.id,
+        diagnosisConfidence: 0.8,
+        diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
+      });
+      const missingVersionBundle = calibrationBundle() as ProposalEvidenceBundle & { detectorVersion?: string };
+      delete missingVersionBundle.detectorVersion;
+      const missingVersionExperiment = await declare(new AgentOrgExperimentsRepository(), missingVersionBundle, {
+        proposalId: versionedProposal.id,
+      });
+      await judgeExperimentAsync(missingVersionExperiment.id);
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toEqual([]);
+    } finally {
+      env.calibrationEnabled = original;
+    }
   });
 });

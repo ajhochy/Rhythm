@@ -205,4 +205,22 @@ export interface ProposalEvidenceBundle {
   rollbackRule: string;
   generatorVersion: string;
   confidenceCalibrationVersion: string;
+  /**
+   * C6 (repair item 3) — REQUIRED on `proposal-evidence-v2` bundles only
+   * (validated by proposal_evidence_validator.ts); absent on v1. A truthful,
+   * never-fabricated [0,1] confidence: the deterministic evidence builder
+   * (proposal_evidence_builder.ts) populates it ONLY from a proposal's
+   * durable `diagnosisConfidence` (mapped once, at proposal creation, from
+   * the generator's own high/medium/low verdict — see
+   * DIAGNOSIS_CONFIDENCE_MAPPING_VERSION). When that durable field is
+   * absent, the builder fails closed (the proposal stays human-only) rather
+   * than inventing a number.
+   */
+  initialConfidence?: number;
+  /** C6 (repair item 3) — REQUIRED on v2 bundles: the versioned qualifying-failure detector that selected the evidence. */
+  detectorVersion?: string;
+  /** C6 (repair item 3) — REQUIRED on v2 bundles: the versioned treatment adapter (e.g. `system-prompt-v1`). */
+  treatmentVersion?: string;
+  /** C6 (repair item 3) — REQUIRED on v2 bundles: the versioned primary metric (e.g. `objective-success-rate-v1`). */
+  metricVersion?: string;
 }

@@ -4218,4 +4218,109 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
        ON agent_run_outcomes(run_episode_id)`,
   );
+
+  // ── C6 — versioned calibration observations ───────────────────────────────
+  //
+  // Append-only ledger: one row per real observation (an experiment/human
+  // decision, plus any later post-deploy regression measurement) for a
+  // generator/detector/kind/treatment/metric version family. Deliberately
+  // NOT unique on the family tuple — many observations legitimately share the
+  // same family over time, and it is exactly that accumulation the
+  // calibration snapshot (calibration_snapshot_service.ts) reads to decide
+  // whether the family has enough evidence to be calibrated at all. No
+  // update/delete path: an observation is written once and never mutated,
+  // enforced below the same way agent_org_experiments' spec columns are.
+  //
+  // C6 (repair item 2) — owner_id follows the nullable-owner convention of
+  // agent_org_proposals.owner_user_id (#1175): NULL means system-global.
+  // source_event_id + observation_type (+ owner) are UNIQUE via the
+  // COALESCE expression index below, so a caller may safely re-attempt
+  // recording the SAME deterministic event without ever duplicating it.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS calibration_observations (
+      id TEXT PRIMARY KEY,
+      owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      source_event_id TEXT NOT NULL,
+      observation_type TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      experiment_id TEXT,
+      generator_version TEXT NOT NULL,
+      detector_version TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      treatment_version TEXT NOT NULL,
+      metric_version TEXT NOT NULL,
+      initial_confidence REAL NOT NULL,
+      human_decision TEXT,
+      experiment_decision TEXT,
+      experiment_effect REAL,
+      post_deploy_regression REAL,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+
+  // Additive backfill for a DB that already created the table in its
+  // pre-repair shape (no owner_id/source_event_id/observation_type/
+  // proposal_id/experiment_id columns). Never inferred: owner stays NULL,
+  // source_event_id becomes the row's own immutable id, observation_type
+  // becomes 'legacy'. The immutable no-update trigger (created below) is
+  // dropped for the duration of this ONE backfill UPDATE and recreated
+  // immediately after — this block runs at most once per database, gated
+  // on the column check, exactly like every other guarded ALTER in this file.
+  const calibrationObservationCols = (
+    db.pragma('table_info(calibration_observations)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!calibrationObservationCols.includes('owner_id')) {
+    db.exec(`
+      ALTER TABLE calibration_observations ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE calibration_observations ADD COLUMN source_event_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE calibration_observations ADD COLUMN observation_type TEXT NOT NULL DEFAULT 'legacy';
+      ALTER TABLE calibration_observations ADD COLUMN proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
+      ALTER TABLE calibration_observations ADD COLUMN experiment_id TEXT;
+      DROP TRIGGER IF EXISTS calibration_observations_no_update;
+      UPDATE calibration_observations SET source_event_id = id WHERE source_event_id = '';
+      CREATE TRIGGER calibration_observations_no_update
+      BEFORE UPDATE ON calibration_observations
+      BEGIN
+        SELECT RAISE(ABORT, 'calibration observations are immutable once recorded');
+      END;
+    `);
+  }
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
+       ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
+  );
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
+       ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
+  );
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS calibration_observations_no_update
+    BEFORE UPDATE ON calibration_observations
+    BEGIN
+      SELECT RAISE(ABORT, 'calibration observations are immutable once recorded');
+    END;
+    CREATE TRIGGER IF NOT EXISTS calibration_observations_no_delete
+    BEFORE DELETE ON calibration_observations
+    BEGIN
+      SELECT RAISE(ABORT, 'calibration observations are immutable once recorded');
+    END;
+  `);
+
+  // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
+  // proposal creation from the generator's own high/medium/low diagnosis
+  // verdict. Never inferred/backfilled for pre-existing rows — both stay
+  // NULL, matching the additive-nullable-column convention used throughout
+  // this file (e.g. owner_user_id above).
+  const proposalDiagnosisConfidenceCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!proposalDiagnosisConfidenceCols.includes('diagnosis_confidence')) {
+    db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN diagnosis_confidence REAL`);
+  }
+  if (!proposalDiagnosisConfidenceCols.includes('diagnosis_confidence_version')) {
+    db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN diagnosis_confidence_version TEXT`);
+  }
 }

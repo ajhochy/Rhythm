@@ -44,6 +44,7 @@
 
 import { createHash } from 'node:crypto';
 
+import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { parseOptimizerPolicy, type OptimizerPolicy } from './org_optimizer_policy';
 import {
@@ -470,6 +471,13 @@ export async function reserveRunEnrollment(
   profileId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
 ): Promise<ExperimentEnrollment | null> {
+  // C6 item 1 — treatment-v2 ships disabled by default
+  // (RHYTHM_TREATMENT_V2_ENABLED). Checked BEFORE the existing-enrollment
+  // idempotency lookup below: disabled means "never reserve a new cohort",
+  // full stop — not "look up what may already exist". A run dispatched while
+  // the flag is off is an ordinary untreated dispatch, never an experiment.
+  if (!env.treatmentV2Enabled) return null;
+
   // Idempotency comes FIRST: `run_episode_id` is UNIQUE and a committed
   // reservation's binding must never be re-derived from whatever the
   // eligibility inputs (policy, target fingerprint, undecided experiments)
@@ -575,6 +583,9 @@ export async function resolveRunEnrollment(
   runEpisodeId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
 ): Promise<RunEnrollment | null> {
+  // C6 item 1 — disabled runs cannot attach experimental outcomes, even if a
+  // reservation exists from before the flag was turned off.
+  if (!env.treatmentV2Enabled) return null;
   try {
     const policy =
       deps.policy ??
@@ -682,6 +693,12 @@ export async function prepareReservedTreatment(
   enrollment: ExperimentEnrollment,
   deps: ExperimentDeps = {},
 ): Promise<ReservedTreatmentPreparation> {
+  // C6 item 1 — a reservation made while the flag was on cannot be prepared
+  // (or, downstream in commitReservedTreatmentDispatch, committed) once the
+  // flag is off. This is the fail-closed path that keeps
+  // commitReservedTreatmentDispatch from ever reaching a receipt write for a
+  // now-disabled reservation.
+  if (!env.treatmentV2Enabled) return { status: 'invalid_binding' };
   try {
     const profile = new AgentConfigsRepository().getById(enrollment.profileId);
     if (!profile) return { status: 'invalid_binding' };
@@ -1491,6 +1508,8 @@ export async function judgeExperimentAsync(
   // ledger that has moved on, and every re-run bumped the proposal's CAS
   // revision for a fact that did not change.
   if (experiment.decision) {
+    const { recordExperimentDecisionObservationAsync } = await import('./calibration_observation_service');
+    await recordExperimentDecisionObservationAsync(experiment);
     return decided(experiment.decision, experiment.decisionReason ?? 'already decided', experiment.results);
   }
 
@@ -1508,7 +1527,9 @@ export async function judgeExperimentAsync(
   if (evaluation.results && !experiment.results) {
     await experimentsRepo.recordResultsAsync(experiment.id, evaluation.results);
   }
-  await experimentsRepo.recordDecisionAsync(experiment.id, evaluation.decision, evaluation.reason);
+  const decidedExperiment = await experimentsRepo.recordDecisionAsync(experiment.id, evaluation.decision, evaluation.reason);
+  const { recordExperimentDecisionObservationAsync } = await import('./calibration_observation_service');
+  await recordExperimentDecisionObservationAsync(decidedExperiment);
 
   await writeOutcomeStatus(
     experiment.proposalId,

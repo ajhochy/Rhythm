@@ -18,13 +18,120 @@ SHUTDOWN_FILE="$SB/shutdown.requested"
 FOREGROUND_PID_FILE="$SB/foreground_holder.pid"
 SHUTDOWN_ACK_FILE="$SB/shutdown.acknowledged"
 ENGINE_BIN="$ENGINE_DIR/dist/opencode-darwin-arm64/bin/opencode"
-LIVE_DB="${RHYTHM_LIVE_DB_PATH:-$HOME/Library/Application Support/Rhythm/rhythm.db}"
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
 require_free_port() { [[ -z "$(listener "$1")" ]] || fail "port :$1 is occupied; refusing to touch it"; }
 process_executable() {
   lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+}
+
+# ── Copied-data preflight guard (issue-c6 item 6) ───────────────────────────
+#
+# `up` copies a live-looking SQLite DB and an opencode config into a
+# throwaway sandbox. Before this guard, that source defaulted to this
+# operator's REAL rhythm.db/opencode config with no override required — the
+# exact footgun this guard closes. `up` now REQUIRES four explicit env vars
+# naming an operator-sanitized fixture; there is no default source.
+
+canon() {
+  realpath -- "$1" 2>/dev/null || fail "cannot resolve path (does not exist): $1"
+}
+
+# Canonicalizes a path that may not exist yet (e.g. RHYTHM_SANDBOX_DIR before
+# `up` creates it) by resolving its parent and re-appending the leaf name.
+canon_maybe_missing() {
+  local p="$1" dir base
+  if [[ -e "$p" ]]; then
+    canon "$p"
+    return
+  fi
+  dir="$(dirname -- "$p")"
+  base="$(basename -- "$p")"
+  [[ -d "$dir" ]] || fail "cannot resolve path (parent directory missing): $p"
+  printf '%s/%s\n' "$(canon "$dir")" "$base"
+}
+
+require_nonempty_env() {
+  local name="$1"
+  [[ -n "${!name:-}" ]] || fail "$name must be set explicitly — 'up' has no default copied-data source"
+}
+
+# The sanitized config must be real: a valid JSON opencode config carrying at
+# least one MCP server entry (an empty map is not a usable fixture). Optimizer
+# mode is a Rhythm runtime setting, not an OpenCode config key; it is validated
+# separately from RHYTHM_OPTIMIZER_MODE below.
+validate_sanitized_config() {
+  local config_path="$1"
+  local json_file="$config_path"
+  [[ -f "$json_file" ]] || json_file="$config_path/opencode.json"
+  [[ -f "$json_file" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG has no opencode.json: $config_path"
+  command -v jq >/dev/null || fail 'jq is required to validate the sandbox opencode config'
+  jq -e . "$json_file" >/dev/null 2>&1 || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG's opencode.json is not valid JSON: $json_file"
+  local mcp_count
+  mcp_count="$(jq '(.mcp // {}) | length' "$json_file")"
+  [[ "$mcp_count" -gt 0 ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG's opencode.json declares an empty MCP map: $json_file"
+}
+
+# The single preflight gate `up` calls before touching a process or a file
+# outside $SB. Every check fails closed (`fail` exits nonzero) — there is no
+# partial/best-effort acceptance.
+validate_copied_data_inputs() {
+  require_nonempty_env RHYTHM_APPROVED_FIXTURE_ROOT
+  require_nonempty_env RHYTHM_LIVE_DB_PATH
+  require_nonempty_env RHYTHM_SANDBOX_OPENCODE_CONFIG
+  require_nonempty_env RHYTHM_SANDBOX_DIR
+
+  [[ -e "$RHYTHM_APPROVED_FIXTURE_ROOT" ]] || fail "RHYTHM_APPROVED_FIXTURE_ROOT does not exist: $RHYTHM_APPROVED_FIXTURE_ROOT"
+  [[ -f "$RHYTHM_LIVE_DB_PATH" ]] || fail "RHYTHM_LIVE_DB_PATH does not exist: $RHYTHM_LIVE_DB_PATH"
+  [[ -e "$RHYTHM_SANDBOX_OPENCODE_CONFIG" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG does not exist: $RHYTHM_SANDBOX_OPENCODE_CONFIG"
+
+  local fixture_root db_path config_path sandbox_dir prohibited
+  fixture_root="$(canon "$RHYTHM_APPROVED_FIXTURE_ROOT")"
+  db_path="$(canon "$RHYTHM_LIVE_DB_PATH")"
+  config_path="$(canon "$RHYTHM_SANDBOX_OPENCODE_CONFIG")"
+  sandbox_dir="$(canon_maybe_missing "$RHYTHM_SANDBOX_DIR")"
+
+  for prohibited in \
+    "$(canon_maybe_missing "$HOME/Library/Application Support/Rhythm/rhythm.db")" \
+    "$(canon_maybe_missing "$HOME/.local/share/opencode/opencode.db")"
+  do
+    [[ "$db_path" != "$prohibited" ]] || fail "RHYTHM_LIVE_DB_PATH resolves to a prohibited live path: $db_path"
+    [[ "$config_path" != "$prohibited" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG resolves to a prohibited live path: $config_path"
+  done
+
+  case "$db_path" in
+    "$fixture_root"/*|"$fixture_root") ;;
+    *) fail "RHYTHM_LIVE_DB_PATH must be under RHYTHM_APPROVED_FIXTURE_ROOT ($fixture_root): $db_path" ;;
+  esac
+  case "$config_path" in
+    "$fixture_root"/*|"$fixture_root") ;;
+    *) fail "RHYTHM_SANDBOX_OPENCODE_CONFIG must be under RHYTHM_APPROVED_FIXTURE_ROOT ($fixture_root): $config_path" ;;
+  esac
+
+  [[ ! -w "$db_path" ]] || fail "RHYTHM_LIVE_DB_PATH must be read-only (chmod a-w it first): $db_path"
+  if [[ -f "$config_path" ]]; then
+    [[ ! -w "$config_path" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG must be read-only (chmod a-w it first): $config_path"
+  fi
+
+  case "$sandbox_dir" in
+    /private/tmp/*|/var/folders/*|/private/var/folders/*) ;;
+    *) fail "RHYTHM_SANDBOX_DIR must resolve under /private/tmp or /var/folders: $sandbox_dir" ;;
+  esac
+
+  case "$db_path" in
+    "$sandbox_dir"/*|"$sandbox_dir") fail "RHYTHM_LIVE_DB_PATH must not be inside RHYTHM_SANDBOX_DIR: $db_path" ;;
+  esac
+  case "$config_path" in
+    "$sandbox_dir"/*|"$sandbox_dir") fail "RHYTHM_SANDBOX_OPENCODE_CONFIG must not be inside RHYTHM_SANDBOX_DIR: $config_path" ;;
+  esac
+
+  local db_client="${DB_CLIENT:-sqlite}"
+  [[ "$db_client" == "sqlite" ]] || fail "sandbox copied-data mode requires DB_CLIENT=sqlite, got '$db_client'"
+  local optimizer_mode="${RHYTHM_OPTIMIZER_MODE:-shadow}"
+  [[ "$optimizer_mode" == "shadow" ]] || fail "sandbox copied-data mode requires RHYTHM_OPTIMIZER_MODE=shadow, got '$optimizer_mode'"
+
+  validate_sanitized_config "$config_path"
 }
 
 validate_port() {
@@ -48,11 +155,23 @@ copy_runtime_files() {
   local sandbox_home="$SB/home"
   mkdir -p "$sandbox_home/.config/opencode" "$sandbox_home/.local/share/opencode" "$SB/vault" "$SB/live-artifacts"
   chmod 700 "$SB" "$sandbox_home"
-  if [[ -f "$HOME/.local/share/opencode/auth.json" ]]; then
-    cp "$HOME/.local/share/opencode/auth.json" "$sandbox_home/.local/share/opencode/auth.json"
+
+  # Copied ONLY from the approved, read-only, operator-sanitized
+  # RHYTHM_SANDBOX_OPENCODE_CONFIG fixture (validated by
+  # validate_copied_data_inputs before `up` ever reaches this point) — never
+  # from this operator's live $HOME.
+  local config_src="$RHYTHM_SANDBOX_OPENCODE_CONFIG"
+  local config_json="$config_src"
+  [[ -f "$config_json" ]] || config_json="$config_src/opencode.json"
+  if [[ -f "$config_json" ]]; then
+    cp "$config_json" "$sandbox_home/.config/opencode/opencode.json"
+    chmod u+w "$sandbox_home/.config/opencode/opencode.json"
   fi
-  if [[ -d "$HOME/.config/opencode/skills" ]]; then
-    cp -R "$HOME/.config/opencode/skills" "$sandbox_home/.config/opencode/"
+  if [[ -d "$config_src" && -f "$config_src/auth.json" ]]; then
+    cp "$config_src/auth.json" "$sandbox_home/.local/share/opencode/auth.json"
+  fi
+  if [[ -d "$config_src" && -d "$config_src/skills" ]]; then
+    cp -R "$config_src/skills" "$sandbox_home/.config/opencode/"
   fi
 }
 
@@ -166,17 +285,17 @@ up() {
   )
   local api_pid
 
+  validate_copied_data_inputs
   safe_sandbox_path
   [[ ! -e "$PID_FILE" ]] || fail "sandbox already has $PID_FILE; run '$0 status' or '$0 down'"
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
   require_free_port "$GATEWAY_PORT"
   command -v sqlite3 >/dev/null || fail 'sqlite3 is required'
-  [[ -f "$LIVE_DB" ]] || fail "live SQLite DB not found: $LIVE_DB"
 
   mkdir -p "$SB"
   copy_runtime_files
-  sqlite3 "$LIVE_DB" ".backup '$SB/rhythm.db'"
+  sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/rhythm.db'"
   if [[ "$(sqlite3 "$SB/rhythm.db" "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_scheduled_tasks';")" == "1" ]]; then
     sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
   fi
@@ -316,19 +435,24 @@ usage() {
   printf 'Usage: %s {up [--foreground]|restart|down|status}\n' "$0" >&2
 }
 
-case "${1:-}" in
-  up)
-    case "${2:-}" in
-      '') up background ;;
-      --foreground)
-        [[ "$#" -eq 2 ]] || { usage; exit 2; }
-        up foreground
-        ;;
-      *) usage; exit 2 ;;
-    esac
-    ;;
-  down) down ;;
-  restart) restart ;;
-  status) status ;;
-  *) usage; exit 2 ;;
-esac
+# Only dispatch when EXECUTED directly. A test harness sources this file to
+# call validate_copied_data_inputs / canon / etc. in isolation — sourcing
+# must never trigger a CLI action or `usage; exit 2`.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-}" in
+    up)
+      case "${2:-}" in
+        '') up background ;;
+        --foreground)
+          [[ "$#" -eq 2 ]] || { usage; exit 2; }
+          up foreground
+          ;;
+        *) usage; exit 2 ;;
+      esac
+      ;;
+    down) down ;;
+    restart) restart ;;
+    status) status ;;
+    *) usage; exit 2 ;;
+  esac
+fi

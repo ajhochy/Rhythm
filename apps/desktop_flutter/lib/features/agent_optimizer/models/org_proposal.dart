@@ -31,11 +31,13 @@ class OrgProposal {
     this.postScore,
     this.measureReason,
     this.decidedByUserId,
+    this.experimentSummary,
     required this.createdAt,
     required this.updatedAt,
   });
 
   factory OrgProposal.fromJson(Map<String, dynamic> json) {
+    final summaryJson = json['experimentSummary'];
     return OrgProposal(
       id: asString(json['id']) ?? '',
       auditRunId: asString(json['auditRunId']),
@@ -56,6 +58,9 @@ class OrgProposal {
       postScore: asInt(json['postScore']),
       measureReason: asString(json['measureReason']),
       decidedByUserId: asInt(json['decidedByUserId']),
+      experimentSummary: summaryJson is Map<String, dynamic>
+          ? ExperimentSummary.fromJson(summaryJson)
+          : null,
       createdAt: asString(json['createdAt']) ?? '',
       updatedAt: asString(json['updatedAt']) ?? '',
     );
@@ -88,6 +93,14 @@ class OrgProposal {
   final int? postScore;
   final String? measureReason;
   final int? decidedByUserId;
+
+  /// C6-3 — additive experiment/deployment summary (collecting progress,
+  /// eligible/missing counts, treatment integrity, guardrail status,
+  /// terminal reason, tested spec fingerprints, stale-before-apply
+  /// conflict). Null when no experiment has ever been declared for this
+  /// proposal. Deliberately separate from [status]/[outcomeStatus], which
+  /// remain the deployment/causal-outcome authorities.
+  final ExperimentSummary? experimentSummary;
   final String createdAt;
   final String updatedAt;
 
@@ -188,4 +201,56 @@ class OrgProposal {
       return null;
     }
   }
+}
+
+/// C6-3 — mirrors the server's `ExperimentSummary`
+/// (proposal_experiment_summary_service.ts). Read-only display data: never
+/// used to gate any client-side action, matching the server's own
+/// ranking/display-only invariant for calibration and experiment summaries.
+class ExperimentSummary {
+  const ExperimentSummary({
+    required this.collectingProgress,
+    required this.eligibleCount,
+    required this.missingCount,
+    required this.treatmentIntegrity,
+    required this.guardrailStatus,
+    this.terminalReason,
+    this.testedBaselineHash,
+    this.testedCandidateHash,
+    required this.staleBeforeApplyConflict,
+  });
+
+  factory ExperimentSummary.fromJson(Map<String, dynamic> json) {
+    return ExperimentSummary(
+      collectingProgress:
+          asString(json['collectingProgress']) ?? 'no_experiment',
+      eligibleCount: asInt(json['eligibleCount']) ?? 0,
+      missingCount: asInt(json['missingCount']) ?? 0,
+      treatmentIntegrity: asString(json['treatmentIntegrity']) ?? 'unknown',
+      guardrailStatus: asString(json['guardrailStatus']) ?? 'unknown',
+      terminalReason: asString(json['terminalReason']),
+      testedBaselineHash: asString(json['testedBaselineHash']),
+      testedCandidateHash: asString(json['testedCandidateHash']),
+      staleBeforeApplyConflict: json['staleBeforeApplyConflict'] == true,
+    );
+  }
+
+  /// 'no_experiment' | 'collecting' | 'decided'.
+  final String collectingProgress;
+  final int eligibleCount;
+  final int missingCount;
+
+  /// 'ok' | 'degraded' | 'unknown'.
+  final String treatmentIntegrity;
+
+  /// 'ok' | 'breached' | 'unknown'.
+  final String guardrailStatus;
+  final String? terminalReason;
+
+  /// sha256 fingerprints only — never the raw spec/prompt bytes.
+  final String? testedBaselineHash;
+  final String? testedCandidateHash;
+  final bool staleBeforeApplyConflict;
+
+  bool get hasExperiment => collectingProgress != 'no_experiment';
 }

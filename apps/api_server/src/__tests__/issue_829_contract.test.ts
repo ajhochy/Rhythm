@@ -289,6 +289,9 @@ describe('issue-829-c4: approval routes through the EXISTING HMAC/SSRF webhook-c
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -361,6 +364,9 @@ describe('issue-829-c4: approval routes through the EXISTING HMAC/SSRF webhook-c
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
