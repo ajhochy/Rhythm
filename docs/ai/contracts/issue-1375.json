@@ -1,0 +1,49 @@
+{
+  "issue": 1375,
+  "date": "2026-08-20",
+  "test_command": "npx vitest run src/__tests__/issue_1375_transcript_share_retention.test.ts src/__tests__/issue_1375_transcript_share_retention_postgres.test.ts src/__tests__/issue_1375_transcript_share_purge_startup.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1375-c1",
+      "text": "New shares default 90 days instead of 30.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1375_transcript_share_retention.test.ts",
+      "status": "pass",
+      "reason": "Route-level test drives authenticated POST /agent-sessions/:id/shares without expiresAt and asserts both the returned and persisted expiry; the same test verifies the repository fallback."
+    },
+    {
+      "criterion_id": "issue-1375-c2",
+      "text": "purgeDueSnapshots purges only snapshots at least 30 days past expires_at or revoked_at; writes a content-free delete audit and deletes the shared_transcripts row in one transaction; recently expired and NULL/NULL rows survive; rollback leaves no partial audit.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1375_transcript_share_retention.test.ts; apps/api_server/src/__tests__/issue_1375_transcript_share_retention_postgres.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1375-c3",
+      "text": "The purge is idempotent and leaves source sessions and message raw bytes byte-identical after two purges, including against disposable Postgres.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1375_transcript_share_retention.test.ts; apps/api_server/src/__tests__/issue_1375_transcript_share_retention_postgres.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1375-c4",
+      "text": "The boot sweep and daily timer start exactly once only when VITEST is not true, RHYTHM_TRANSCRIPT_SHARE_PURGE_ENABLED is true, and dbClient is postgres; each false condition independently prevents startup.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1375_transcript_share_purge_startup.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1375-c5",
+      "text": "No schema or column changes and no #1425 sharing UI/API, Flutter, route, reviewHash, publication, signing, attestation, migration, or batching work is included; the shared-transcripts controller may change only its existing default expiration from 30 to 90 days; rollout warns operators to count due rows before enabling and add SKIP LOCKED batches for a large backlog.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Independent compare-main diff inspection at f0bf3003 found no schema, migration, Flutter, mobile, OpenCode, review, reviewHash, publication, signing, attestation, or batching files/lines. The controller diff is exactly one replacement of its prior 30-day literal with SharedTranscriptsRepository.defaultExpirationMs. The run note warns operators to count due rows before opt-in enablement and to add bounded SKIP LOCKED batches if backlog is material."
+    }
+  ],
+  "not_tested": []
+}

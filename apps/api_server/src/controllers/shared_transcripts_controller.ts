@@ -8,7 +8,7 @@ import {
 } from '../services/transcript_share_sanitizer';
 
 const repo = new SharedTranscriptsRepository();
-const DEFAULT_EXPIRATION_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_EXPIRATION_MS = SharedTranscriptsRepository.defaultExpirationMs;
 
 function isAdmin(req: Request): boolean {
   return req.auth?.user.role === 'admin' || req.auth?.user.role === 'system';

@@ -129,6 +129,12 @@ async function main() {
     );
   }
 
+  // #1375 — destructive snapshot purge is opt-in and production-Postgres only.
+  const { startTranscriptSharePurgeJobIfEnabled } = await import(
+    './jobs/transcript_share_purge_job'
+  );
+  startTranscriptSharePurgeJobIfEnabled({ env: process.env, dbClient: env.dbClient });
+
   // #1309 — sweep expired unpinned media at boot and daily. This runs in both
   // local and cloud roles because either can own the configured durable root.
   if (process.env.VITEST !== 'true') {
