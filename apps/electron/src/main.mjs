@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, net, Notification, protocol, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -50,8 +50,88 @@ if (hasSingleInstanceLock) {
   let mainWindow;
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
+  /** @type {Map<string, Notification>} */
+  const nativeNotificationRegistry = new Map();
+  /** @type {Array<{ family: 'approval', sessionId: string, approvalId: string }>} */
+  const pendingNativeNotificationActivations = [];
+  let rendererReady = false;
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
+
+  /** @param {unknown} value */
+  const safeNotificationId = (value) => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
+
+  /** @param {unknown} value @returns {{ family: 'approval', sessionId: string, approvalId: string } | null} */
+  const validateNativeNotificationTarget = (value) => {
+    if (!value || typeof value !== 'object') return null;
+    const { family, sessionId, approvalId } = /** @type {Record<string, unknown>} */ (value);
+    if (family !== 'approval' || !safeNotificationId(sessionId) || !safeNotificationId(approvalId)) return null;
+    return {
+      family,
+      sessionId: /** @type {string} */ (sessionId),
+      approvalId: /** @type {string} */ (approvalId),
+    };
+  };
+
+  /** @param {unknown} target */
+  const routeNativeNotificationActivation = (target) => {
+    const validated = validateNativeNotificationTarget(target);
+    if (!validated) return false;
+    if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
+      pendingNativeNotificationActivations.push(validated);
+      return true;
+    }
+    const url = new URL('rhythm://app/index.html');
+    url.hash = `/agents?sessionId=${encodeURIComponent(validated.sessionId)}&approvalId=${encodeURIComponent(validated.approvalId)}`;
+    void mainWindow.loadURL(url.toString());
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return true;
+  };
+
+  /** @param {string} approvalId */
+  const cancelNativeNotification = (approvalId) => {
+    const notification = nativeNotificationRegistry.get(approvalId);
+    if (!notification) return;
+    notification.close();
+    nativeNotificationRegistry.delete(approvalId);
+  };
+
+  /** @param {unknown} payload */
+  const syncNativeApprovalNotifications = (payload) => {
+    if (!Array.isArray(payload) || payload.length > 100) return;
+    const approvals = payload.flatMap((value) => {
+      if (!value || typeof value !== 'object') return [];
+      const approval = /** @type {Record<string, unknown>} */ (value);
+      const target = validateNativeNotificationTarget({ family: 'approval', sessionId: approval.sessionId, approvalId: approval.id });
+      return target && approval.status === 'pending' ? [target] : [];
+    });
+    const pendingIds = new Set(approvals.map(({ approvalId }) => approvalId));
+    for (const approvalId of nativeNotificationRegistry.keys()) {
+      if (!pendingIds.has(approvalId)) cancelNativeNotification(approvalId);
+    }
+    if (!Notification.isSupported()) return;
+    for (const target of approvals) {
+      if (nativeNotificationRegistry.has(target.approvalId)) continue;
+      const notification = new Notification({
+        title: 'Approval requested',
+        body: 'An agent action needs your approval.',
+      });
+      notification.on('click', () => routeNativeNotificationActivation(target));
+      notification.on('close', () => {
+        if (nativeNotificationRegistry.get(target.approvalId) === notification) {
+          nativeNotificationRegistry.delete(target.approvalId);
+        }
+      });
+      nativeNotificationRegistry.set(target.approvalId, notification);
+      notification.show();
+    }
+  };
+
+  ipcMain.on('rhythm:approval-notifications:sync', (event, payload) => {
+    if (event.sender !== mainWindow?.webContents) return;
+    syncNativeApprovalNotifications(payload);
+  });
 
   ipcMain.handle('rhythm:auth:google-sign-in', () => {
     if (!googleSignInInFlight) {
@@ -82,7 +162,11 @@ if (hasSingleInstanceLock) {
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
   ipcMain.handle('rhythm:human-approval:capability', () => humanApprovalSigner.capability());
-  ipcMain.handle('rhythm:human-approval:sign-decision', (_event, decision) => humanApprovalSigner.signDecision(decision));
+  ipcMain.handle('rhythm:human-approval:sign-decision', async (_event, decision) => {
+    const signature = await humanApprovalSigner.signDecision(decision);
+    cancelNativeNotification(decision.approvalId);
+    return signature;
+  });
   agentServer.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
   });
@@ -140,9 +224,10 @@ if (hasSingleInstanceLock) {
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
-    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-      denials.permission = true;
-      callback(false);
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      const notificationPermission = permission === 'notifications' && webContents === mainWindow?.webContents;
+      if (!notificationPermission) denials.permission = true;
+      callback(notificationPermission);
     });
     session.defaultSession.on('will-download', (event) => {
       denials.download = true;
@@ -210,7 +295,14 @@ if (hasSingleInstanceLock) {
       denials.popup = true;
       return { action: 'deny' };
     });
+    mainWindow.webContents.on('did-finish-load', () => {
+      rendererReady = true;
+      for (const activation of pendingNativeNotificationActivations.splice(0)) {
+        routeNativeNotificationActivation(activation);
+      }
+    });
     await mainWindow.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
+    await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
     pendingDeepLink = null;
 
     if (!isSmoke) return;
