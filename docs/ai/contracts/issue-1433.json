@@ -1,0 +1,122 @@
+{
+  "contract_id": "D2.3",
+  "issue": 1433,
+  "phase": "D2.3",
+  "parent_contract": "docs/ai/contracts/issue-1432.json",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/auto_repair_service.test.ts",
+  "waiver": null,
+  "superseded_note": "SECOND PASS (independent review, 2026-08-20): the 2026-08-19 implementation this contract originally certified was CRITICALLY FLAWED — REPAIR_RECHECK_EPSILON_MS=1 declared a repair 'clear' the instant it landed, because no run outcome could possibly exist yet at now()+1ms; every repair attempt in real production timing would pass trivially regardless of whether it actually fixed anything. runAutoRepairAsync is now a durable, evidence-gated state machine: one decision per call (matching one real sweep tick), never declares success/failure without sufficient REAL post-repair outcomes (the SAME D2.2 guardrail registry + DEFAULT_MIN_GUARDRAIL_SAMPLE_COUNT threshold), and truthfully accounts for non-actionable diagnoses and infra failures. See auto_repair_service.ts's module doc comment and docs/ai/runs/2026-08-19-d2-lifecycle-independent-review.md.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1433-c1",
+      "text": "Attempt 1 lands its config mutation and reports 'pending' while awaiting real post-repair evidence — no evidence yet must NOT be treated as success.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('attempt 1 lands the mutation and reports pending until sufficient evidence exists')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c1b",
+      "text": "Below-threshold post-repair evidence (fewer than DEFAULT_MIN_GUARDRAIL_SAMPLE_COUNT samples) stays 'pending'; sufficient CLEAN evidence reports 'repaired', settles the original proposal to active, and leaves the original change in place.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('below-threshold evidence stays pending; sufficient clean evidence reports repaired')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c2",
+      "text": "Sufficient still-breaching evidence for attempt 1 advances to attempt 2 (a fresh diagnose call, a second repair proposal), never re-declaring the same attempt.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('still-breaching evidence with sufficient sample advances to the next attempt')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c3",
+      "text": "All 3 attempts fail with EVIDENCE-CONFIRMED breaches (never a same-tick fabrication) -> triggers auto-revert with all 3 attempts recorded, bounded at MAX_REPAIR_ATTEMPTS.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('all 3 attempts fail with evidence-confirmed breaches: triggers auto-revert with all 3 attempts recorded')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c4",
+      "text": "runAutoRepairAsync is a no-op (0 attempts, diagnose never called) when the PostApplyEvent is not currently 'tripped'.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('is a no-op when the event is not currently tripped')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c5",
+      "text": "Falls back to the globally registered auto-revert trigger (registerAutoRevertTrigger) when no per-call trigger is given; awaits the trigger's own persistence before reporting 'exhausted'.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('falls back to the globally registered auto-revert trigger when no per-call trigger is given'; 'awaits auto-revert persistence before reporting exhausted')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c6",
+      "text": "Never persists raw secrets from the diagnosis evidence into PostApplyEvent.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('never persists raw secrets from the diagnosis evidence into PostApplyEvent')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c7",
+      "text": "Diagnosis/provider/parse unavailable (throws, returns null, or exceeds the per-event timeout) defers WITHOUT consuming a repair strike; the hung-diagnosis case must resolve within the timeout rather than blocking the sweep.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('defers a transient diagnosis failure...', 'defers a null diagnosis response...', 'defers a hung diagnosis call once the per-event timeout elapses...')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c8",
+      "text": "A genuine, parseable diagnosis that is not actionable here (wrong fixType, a protected/unresolvable configPatch, a vanished target) consumes a TRUTHFUL attempt (repairAttemptCount) with NO proposal recorded — the alert trail must never claim more repairs than were actually applied.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('does not let unattended repair mutate protected allowedSkillsJson scope, and truthfully records the attempt'; 'a genuine but non-actionable diagnosis (wrong fixType) consumes a truthful attempt with no proposal')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c9",
+      "text": "A CAS write conflict (the live agent_configs value/revision drifted since it was last observed — e.g. a concurrent human edit) during an attempt's config mutation defers WITHOUT consuming a strike, and never overwrites the concurrent edit.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('CAS write conflict (concurrent edit during proposal creation) defers without consuming a strike')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c10",
+      "text": "Crash/restart resume: a proposed-but-not-yet-claimed repair attempt (durable dedup-keyed proposal row + config mutation already landed) resumes on the next call WITHOUT a second mutation and without minting a duplicate proposal for the same attempt.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('crash/resume: a proposed-but-not-yet-claimed attempt resumes without a second mutation')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c11",
+      "text": "Live proof against the real running scheduler/fork engine: a landed repair attempt with zero real post-repair evidence stays tripped across multiple real sweep ticks (never a same-tick fabricated pass), and the gate is responsive once fed real clean evidence.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_apply_lifecycle_repair_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed against an isolated sandbox (ports 4297/4298/4299, distinct from any concurrently running worktree sandbox). Real diagnosis call landed one repair attempt; the event correctly stayed 'tripped' for >1 real 1-minute cron tick with no evidence, then moved to 'clear' once real clean evidence was seeded — total wall time ~146s.",
+      "third_pass_note": "FINAL LIVE PASS (2026-08-20): buildRepairDiagnosisContext now receives bounded post-apply-regression WorkflowFailureSignals derived from the same D2.2 guardrail registry and sample threshold; insufficient evidence defers without diagnosis or strike. In the isolated 4297/4298/4299 sandbox, real guardrail evidence produced a real diagnosis and one repair proposal, no post-repair evidence remained pending across a scheduler tick, and five clean outcomes settled the event clear/not_needed with the original proposal active and no alert. 1/1 live test passed in 160.53s."
+    },
+    {
+      "criterion_id": "issue-1433-c12",
+      "text": "A repair attempt's config mutation lands but the live-served opencode profile file's projection is blocked/failed/missing: the proposal is NOT claimed (stays 'proposed', no strike consumed, outcome 'deferred'); a later call that resumes the SAME attempt retries projection only (never re-mutates, never re-CASes) and, once projection settles, claims the proposal and records the attempt.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('finding #1: a landed config mutation is NOT claimed while the profile-file projection is blocked; a retry that projects cleanly settles without re-mutating')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1433-c13",
+      "text": "Before diagnosing a new attempt, runAutoRepairAsync looks up whether a durable dedup-keyed proposal already exists for that exact attempt number and, if so, resumes it directly WITHOUT calling diagnose at all — a hung/throwing diagnose implementation must never be invoked when a durable attempt already exists (crash-resume safety independent of diagnosis availability).",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts ('finding #2: resumes a durable proposed-but-unmutated attempt BEFORE diagnosing again — a failing diagnose must never be invoked when a durable attempt already exists')",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [],
+  "judgment_calls": [
+    "REPLACED the flawed same-tick 'no evidence yet = success' design entirely: runAutoRepairAsync now processes exactly ONE decision per call and reads all durable state (repairAttemptCount, repairRecheckAfter, repairProposalIdsJson) fresh from the PostApplyEvent every time — it is meant to be called on every scheduler sweep tick (post_apply_lifecycle.ts's sweepPostApplyLifecycleAsync now calls it unconditionally for every tripped, non-terminal event, not just once).",
+    "Evidence sufficiency reuses the EXACT D2.2 guardrail registry (models/guardrail_registry.ts's evaluateGuardrails) and threshold (post_apply_monitor.ts's exported DEFAULT_MIN_GUARDRAIL_SAMPLE_COUNT) rather than a second, independently-tuned threshold — one definition of 'enough samples to trust,' never two that can drift apart.",
+    "Crash-safety for the config mutation + proposal creation/claim triad: every attempt is idempotency-keyed (`post-apply-repair:<proposalId>:attempt:<n>`) and the pre-mutation snapshot (including the value the attempt WILL apply) is persisted on the proposal row's before_snapshot_json BEFORE any live mutation runs — a resumed call after a crash reads that durable snapshot rather than re-deriving 'prior value' from a possibly-already-mutated live config, so it can never double-mutate the same attempt.",
+    "The config-field write now goes through a real value+revision CAS primitive (compareAndSetConfigField, shared with the revert path) instead of an unconditional AgentConfigsRepository.update() — a concurrent human/automation edit to the SAME field during the repair window is detected and refused rather than silently overwritten.",
+    "The protected-field refusal in resolveRepairConfigPatch now reuses UNSAFE_WHOLE_FIELD_SCOPE_FIELDS (org_proposal_apply.ts) — the SAME set the human apply/revert paths already enforce — instead of a bespoke single-field ('allowedSkillsJson') check, so it can never drift if that protected set ever grows.",
+    "THIRD PASS (this repair): landConfigFieldWithProjection (org_proposal_apply.ts) is the shared primitive behind issue-1433-c12 AND issue-1434-c14 (revert) — one definition of 'a config-field mutation is settled' (value CAS + profile-projection gate), reused by repair-attempt landing and revert restoration so they can never drift on what counts as a completed mutation.",
+    "THIRD PASS: resuming a durable attempt (issue-1433-c13) now happens BEFORE diagnosis unconditionally, not only after a detected crash — the dedup-key lookup runs on every 'make new attempt' entry into the state machine, so the fresh-diagnosis path is reached only when no durable row exists yet for that exact attempt number."
+  ]
+}

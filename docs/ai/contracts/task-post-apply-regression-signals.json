@@ -1,0 +1,41 @@
+{
+  "issue": "task-post-apply-regression-signals",
+  "date": "2026-08-20",
+  "test_command": "npx vitest run src/services/__tests__/auto_repair_service.test.ts src/services/generators/__tests__/workflow_signal_generator.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-post-apply-regression-signals-c1",
+      "text": "New repair diagnosis receives exact breached post-apply guardrail signals with bounded durable IDs, actual samples, safe evidence, and stable deduplication.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-post-apply-regression-signals-c2",
+      "text": "Insufficient or non-breached evidence defers without diagnosis or strike consumption.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-post-apply-regression-signals-c3",
+      "text": "Existing durable repair attempts resume before signal derivation.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_repair_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-post-apply-regression-signals-c4",
+      "text": "post-apply-regression is a diagnosable workflow failure category.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/generators/__tests__/workflow_signal_generator.test.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

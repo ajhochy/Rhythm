@@ -29,6 +29,7 @@ import { DeniedToolEventsRepository } from '../../../repositories/denied_tool_ev
 import { resetProposalPluginsForTests } from '../../org_proposal_apply_service';
 import type { OrgAuditSnapshot } from '../../org_audit_service';
 import type { WorkflowFailureSignal } from '../../workflow_failure_signal_extractor';
+import type { DiagnosisContext } from '../workflow_signal_generator';
 
 // ── opencode_engine mock — mirrors org_audit_service.test.ts / issue_850_contract.test.ts ──
 const listMcp = vi.fn();
@@ -184,6 +185,38 @@ describe('issue-935-c2: behavioral categories map to create-recipe', () => {
     const change = JSON.parse(created[0].changeJson!);
     expect(typeof change.title).toBe('string');
     expect(typeof change.steps_json).toBe('string');
+  });
+});
+
+describe('post-apply regression diagnosis', () => {
+  it('treats post-apply-regression as a diagnosable workflow signal', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({ id: 'secretary', label: 'Secretary', icon: 'x' });
+    const signal = makeSignal({
+      category: 'post-apply-regression',
+      sessionIds: ['outcome-1'],
+      count: 5,
+      confidence: 'high',
+      evidence: 'proposalId=proposal-1 guardrail=terminal-error-rate rate=1 sampleCount=5',
+      dedupToken: 'proposal-1:terminal-error-rate',
+    });
+    let receivedSignals: WorkflowFailureSignal[] | undefined;
+    const diagnose = vi.fn(async (ctx: DiagnosisContext) => {
+      receivedSignals = ctx.signals;
+      return {
+        diagnosis: 'external regression',
+        rootCause: 'external' as const,
+        fixType: 'external-noop' as const,
+        concreteFix: 'none',
+        confidence: 'high' as const,
+      };
+    });
+
+    const { generateDiagnosisProposals } = await import('../workflow_signal_generator');
+    await generateDiagnosisProposals(baseSnapshot([signal]), { configsRepo, diagnose });
+
+    expect(diagnose).toHaveBeenCalledTimes(1);
+    expect(receivedSignals).toEqual([signal]);
   });
 });
 

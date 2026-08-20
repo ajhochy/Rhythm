@@ -59,6 +59,8 @@ const TABLES = [
   // list. They are the hottest dual-engine tables in the app; keep them here.
   'agent_sessions',
   'agent_configs',
+  // D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record.
+  'agent_org_post_apply_events',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */

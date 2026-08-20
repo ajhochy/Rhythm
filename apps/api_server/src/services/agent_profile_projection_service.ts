@@ -202,6 +202,24 @@ export function projectLatestAgentProfile(
 }
 
 /**
+ * True for every {@link ProjectionOutcome} a caller may safely treat as
+ * "the mutation is settled" — the served opencode file is either now
+ * consistent with the database (`projected`/`stale`, the latter still wrote
+ * the CURRENT row) or correctly has no file at all (`not-applicable`).
+ *
+ * False for `blocked` / `failed` / `missing`: the database value changed but
+ * the file the engine actually reads was NOT updated to match (or the row
+ * vanished right after). A caller that mutated `agent_configs` and got one of
+ * these back must NOT report its own operation (a repair, a revert) as
+ * settled — see docs/ai/runs for the D2 post-apply lifecycle finding this
+ * closes: a "successful" repair/revert whose live-served profile still
+ * reflects the OLD value is not actually successful yet.
+ */
+export function isProjectionSettled(outcome: ProjectionOutcome): boolean {
+  return outcome.kind !== 'blocked' && outcome.kind !== 'failed' && outcome.kind !== 'missing';
+}
+
+/**
  * For callers that have just written a row and want it projected. The row is
  * used ONLY for its id and revision — the boundary still re-reads the latest
  * config itself, so a caller holding a row across an await cannot overwrite a

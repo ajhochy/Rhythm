@@ -47,6 +47,7 @@ import {
   AgentConfigsRepository,
   type AgentConfig,
   type AgentConfigInput,
+  type RevisionedAgentConfig,
 } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import {
@@ -54,8 +55,10 @@ import {
   type AgentScheduledTask,
 } from '../repositories/agent_scheduled_tasks_repository';
 import {
+  isProjectionSettled,
   projectAgentProfileAfterWrite,
   projectLatestAgentProfile,
+  type ProjectionCause,
 } from './agent_profile_projection_service';
 import { classifyAmbiguousScopePair } from './scope_pair_classification';
 import {
@@ -84,6 +87,7 @@ import {
   type ScopeRemovalKind,
 } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
+import { extractValidatedConfigPatch } from './org_proposal_apply_service';
 
 export type ApplyOutcome = 'applied-ok' | 'refused-high-risk' | 'skipped';
 
@@ -150,6 +154,16 @@ export interface ConfigFieldSnapshot {
   field: ConfigFieldName;
   /** Prior value in the same representation {@link readAgentConfigField} yields. */
   priorValue: string | null;
+  /**
+   * The value the apply/repair write actually landed, in the same
+   * representation. Optional for backward compatibility with snapshots
+   * written before this field existed (which restore unconditionally, with
+   * no CAS — see the revert branch below). When present, revert only
+   * restores `priorValue` if the LIVE field still equals this exact value —
+   * a concurrent edit (human or another automation) is detected and refused
+   * rather than silently overwritten.
+   */
+  expectedAppliedValue?: string | null;
 }
 
 const CONFIG_FIELD_NAMES = new Set<string>([...CONFIG_PATCH_FIELDS, ...SCOPE_PATCH_FIELDS]);
@@ -161,13 +175,32 @@ export function isConfigFieldName(v: unknown): v is ConfigFieldName {
 export function isConfigFieldSnapshot(v: unknown): v is ConfigFieldSnapshot {
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
-  return (
-    typeof c.agentConfigId === 'string' &&
-    isConfigFieldName(c.field) &&
-    'priorValue' in c &&
-    (typeof c.priorValue === 'string' || c.priorValue === null)
-  );
+  if (
+    !(
+      typeof c.agentConfigId === 'string' &&
+      isConfigFieldName(c.field) &&
+      'priorValue' in c &&
+      (typeof c.priorValue === 'string' || c.priorValue === null)
+    )
+  ) {
+    return false;
+  }
+  if ('expectedAppliedValue' in c) {
+    return typeof c.expectedAppliedValue === 'string' || c.expectedAppliedValue === null;
+  }
+  return true;
 }
+
+/**
+ * Fields whose {@link ConfigFieldSnapshot} is a whole-field snapshot with no
+ * exact post-apply value — restoring by field alone can't distinguish a safe
+ * rollback from clobbering a LATER operator edit to that same field, so a
+ * whole-field revert of any of these must always fail closed (see the
+ * `revertProposal` refusal branch below). #1434: shared with D2.4's
+ * `auto_revert_service.ts` so the human `/revert` path and the unattended
+ * auto-revert path can never drift apart on which fields this applies to.
+ */
+export const UNSAFE_WHOLE_FIELD_SCOPE_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson'] as const;
 
 /**
  * Read one logical field off a live agent_configs row in the representation
@@ -225,6 +258,104 @@ export function agentConfigFieldPatch(
     case 'system_prompt':
       return { systemPrompt: value };
   }
+}
+
+/** Map an `agentConfigFieldPatch()` result's camelCase keys to their real DB columns. */
+const AGENT_CONFIG_INPUT_COLUMN_BY_KEY: Record<string, string> = {
+  modelProvider: 'model_provider',
+  modelId: 'model_id',
+  allowedMcpsJson: 'allowed_mcps_json',
+  allowedSkillsJson: 'allowed_skills_json',
+  corePermissionsJson: 'core_permissions_json',
+  allowedDelegatesJson: 'allowed_delegates_json',
+  systemPrompt: 'system_prompt',
+};
+
+/** Re-key an `agentConfigFieldPatch()` result to the exact columns it touches. */
+function configFieldColumns(field: ConfigFieldName, value: string | null): Record<string, string | null> {
+  const patch = agentConfigFieldPatch(field, value);
+  const columns: Record<string, string | null> = {};
+  for (const [key, v] of Object.entries(patch)) {
+    columns[AGENT_CONFIG_INPUT_COLUMN_BY_KEY[key]] = v as string | null;
+  }
+  return columns;
+}
+
+/**
+ * Compare-and-set one {@link ConfigFieldName} scalar at an explicit expected
+ * prior value + revision, reusing {@link AgentConfigsRepository.compareAndSetColumnsAtRevision}
+ * (the same generic CAS primitive, never raw SQL). The repair write
+ * (auto_repair_service.ts) and the config-field revert restore below both
+ * route through this, so a concurrent edit (human or another automation)
+ * during either window is detected and refused, never silently overwritten.
+ * `model` alone spans two columns (model_provider/model_id); both are
+ * derived from the SAME representation {@link readAgentConfigField} /
+ * {@link agentConfigFieldPatch} already use, so there is no separate
+ * model-splitting logic to keep in sync.
+ */
+export function compareAndSetConfigField(
+  configsRepo: AgentConfigsRepository,
+  id: string,
+  field: ConfigFieldName,
+  expectedPriorValue: string | null,
+  expectedRevision: number,
+  nextValue: string | null,
+): RevisionedAgentConfig | null {
+  return configsRepo.compareAndSetColumnsAtRevision(
+    id,
+    configFieldColumns(field, nextValue),
+    configFieldColumns(field, expectedPriorValue),
+    expectedRevision,
+  );
+}
+
+export type ConfigFieldLandOutcome =
+  /** The field now equals `targetValue` (written this call, or already landed by a prior crashed call) AND the live profile file is confirmed consistent with it (or correctly absent). */
+  | { status: 'landed'; config: RevisionedAgentConfig }
+  /** The live field matched neither `expectedCurrentValue` nor `targetValue`, or the target row vanished — a real concurrent edit; nothing was mutated. */
+  | { status: 'conflict' }
+  /** The field value is correct (written this call, or already landed), but {@link isProjectionSettled} is false for the resulting projection — the served opencode file does not (yet) match. */
+  | { status: 'projection-not-settled'; config: RevisionedAgentConfig };
+
+/**
+ * Idempotent, crash-safe "make this agent_configs field equal `targetValue`,
+ * and don't report it settled until the live opencode profile file is
+ * consistent with that too" — the one primitive D2.3's repair-attempt landing
+ * and D2.4/#857's config-field revert restore both need, so they can never
+ * drift on either half of "did this actually take effect."
+ *
+ * Safe to call again after ANY outcome: if the field already equals
+ * `targetValue` (a resumed call after a crash, or after a prior call's
+ * projection failed post-write), the CAS write is skipped entirely — only
+ * projection is retried — so a resumed caller never mutates (or re-CASes)
+ * twice for the same logical transition.
+ */
+export function landConfigFieldWithProjection(
+  configsRepo: AgentConfigsRepository,
+  id: string,
+  field: ConfigFieldName,
+  expectedCurrentValue: string | null,
+  targetValue: string | null,
+  cause: ProjectionCause,
+): ConfigFieldLandOutcome {
+  const live = configsRepo.getById(id);
+  if (!live) return { status: 'conflict' };
+  const liveValue = readAgentConfigField(live, field);
+  let landed: RevisionedAgentConfig;
+  if (liveValue === targetValue) {
+    // Already the target value — never re-write (and never re-CAS) an
+    // already-landed transition; only projection needs retrying.
+    landed = live;
+  } else {
+    const cas = compareAndSetConfigField(configsRepo, id, field, expectedCurrentValue, live.revision, targetValue);
+    if (!cas) return { status: 'conflict' };
+    landed = cas;
+  }
+  const projection = projectAgentProfileAfterWrite(landed, cause);
+  if (!isProjectionSettled(projection)) {
+    return { status: 'projection-not-settled', config: landed };
+  }
+  return { status: 'landed', config: landed };
 }
 
 /**
@@ -685,6 +816,20 @@ async function recordRevertReconciliation(
 }
 
 /**
+ * For the `isConfigFieldSnapshot` restore branch only: overrides which value
+ * is expected to be CURRENTLY live for the CAS check, in place of the
+ * snapshot's own `expectedAppliedValue`. Needed when one or more repair
+ * attempts have legitimately mutated the SAME field on top of the original
+ * apply (D2.4 auto-revert unwinding a whole D2.3 repair chain) — the
+ * original snapshot's own `expectedAppliedValue` is stale in that case, but
+ * the rollback TARGET (`priorValue`) is unaffected. Ignored for any other
+ * snapshot kind.
+ */
+export interface RevertConfigFieldOverride {
+  expectedCurrentValue: string | null;
+}
+
+/**
  * Restore a measuring proposal to its `before_snapshot_json` state and mark
  * it `reverted`. NEVER throws. The row is retained (not deleted) so the
  * dedup guard continues to treat the change as seen. `patch` (optional) is
@@ -696,6 +841,7 @@ export async function revertProposal(
   proposal: AgentOrgProposal,
   deps: ApplyDeps = {},
   patch?: RevertPatch,
+  configFieldOverride?: RevertConfigFieldOverride,
 ): Promise<RevertOutcome> {
   try {
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
@@ -727,7 +873,20 @@ export async function revertProposal(
       return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
-    const isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(change);
+    // #1434 root-cause fix: narrow past a genuinely validated refine-config
+    // `configPatch` (shared with org_proposal_apply_service.ts's apply-time
+    // preflight) before the scope-bearing check below. Without this, a
+    // legitimate `{configPatch:{agentConfigId,field,value}}` refine-config
+    // change_json was ALWAYS misclassified as scope-bearing — a bare
+    // `{agentConfigId, field, value}` object is detected as scope-bearing on
+    // its own, regardless of its parent key — and every refine-config revert
+    // (including this service's own auto-revert callers) was refused as
+    // 'unsafe-legacy-scope' before it could ever reach the config-field
+    // restore branch below. `UNSAFE_WHOLE_FIELD_SCOPE_FIELDS` further down
+    // still refuses a whole-field revert of allowedMcpsJson/allowedSkillsJson/
+    // corePermissionsJson, so narrowing here does not weaken that guard.
+    const { outsideConfigPatch } = extractValidatedConfigPatch(change);
+    const isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(outsideConfigPatch);
     const hasScopeSnapshotVersion = isScopeSnapshotVersion(snapshot);
     if (isScopeBearing && !hasScopeSnapshotVersion) {
       logger.warn(`[org-proposal-apply] refusing invalid/legacy scope revert for '${proposal.id}'`);
@@ -933,9 +1092,7 @@ export async function revertProposal(
       }
     } else if (
       isConfigFieldSnapshot(snapshot) &&
-      (snapshot.field === 'allowedMcpsJson' ||
-        snapshot.field === 'allowedSkillsJson' ||
-        snapshot.field === 'corePermissionsJson')
+      (UNSAFE_WHOLE_FIELD_SCOPE_FIELDS as readonly string[]).includes(snapshot.field)
     ) {
       logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
       return 'unsafe-legacy-scope';
@@ -944,9 +1101,78 @@ export async function revertProposal(
       // snapshot {agentConfigId, field, priorValue}; restore the field to its
       // prior value and re-project the opencode agent file the same way the
       // REST config-update path does after any config mutation.
-      configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
-      const restored = configsRepo.getById(snapshot.agentConfigId);
-      if (restored) projectAgentProfileAfterWrite(restored, 'scope-revert');
+      //
+      // ROOT-CAUSE FIX (D2 post-apply lifecycle repair): the write to
+      // agent_configs and the projection to the live opencode profile file
+      // are NOT atomic with each other. Reporting this revert `'reverted'`
+      // (a terminal proposal status) the instant the DB half lands — while
+      // ignoring a `blocked`/`failed`/`missing` projection outcome — leaves
+      // the served profile still reflecting the OLD value while the
+      // proposal claims the change is fully undone. `landConfigFieldWithProjection`
+      // gates on BOTH halves; a not-yet-settled projection returns 'conflict'
+      // here (proposal stays at its current, non-terminal status — safely
+      // retryable) instead of falling through to the unconditional
+      // `updateStatusAsync(proposal.id, 'reverted', ...)` below. A retry
+      // re-enters this branch, finds the field already at `priorValue`, and
+      // retries ONLY the projection — never a second write.
+      const expectedCurrentValue = configFieldOverride
+        ? configFieldOverride.expectedCurrentValue
+        : snapshot.expectedAppliedValue;
+      if (expectedCurrentValue !== undefined) {
+        // #1434-c2 root-cause fix: value+revision CAS at the agent_configs
+        // field boundary — restore priorValue ONLY if the live field still
+        // equals the value expected to currently be live. A later operator
+        // edit (or another automation) to the same field is detected and
+        // refused rather than silently overwritten; the human /revert path
+        // and every unattended auto-revert share this one guard
+        // (compareAndSetConfigField, never duplicated). `configFieldOverride`
+        // (set by auto-revert when 1+ repairs mutated this SAME field on top
+        // of the original apply) anchors the CAS to the CHAIN's latest known
+        // value instead of this proposal's own now-stale `expectedAppliedValue`.
+        const result = landConfigFieldWithProjection(
+          configsRepo,
+          snapshot.agentConfigId,
+          snapshot.field,
+          expectedCurrentValue,
+          snapshot.priorValue,
+          'scope-revert',
+        );
+        if (result.status === 'conflict') {
+          logger.warn(
+            `[org-proposal-apply] config field revert CAS conflict for '${proposal.id}' — ` +
+            'live value has drifted since apply',
+          );
+          return 'conflict';
+        }
+        if (result.status === 'projection-not-settled') {
+          logger.warn(
+            `[org-proposal-apply] config field revert landed for '${proposal.id}' but the ` +
+            'profile projection is not yet settled — leaving the proposal retryable',
+          );
+          return 'conflict';
+        }
+      } else {
+        // Legacy snapshot written before expectedAppliedValue existed — no
+        // safe CAS target to compare against; fall back to the original
+        // unconditional restore, still gated on projection settling before
+        // this revert can be reported as terminal.
+        if (!configsRepo.getById(snapshot.agentConfigId)) {
+          logger.warn(`[org-proposal-apply] config field revert target vanished for '${proposal.id}'`);
+          return 'conflict';
+        }
+        configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
+        const restored = configsRepo.getById(snapshot.agentConfigId);
+        const projection = restored
+          ? projectAgentProfileAfterWrite(restored, 'scope-revert')
+          : ({ kind: 'missing' } as const);
+        if (!isProjectionSettled(projection)) {
+          logger.warn(
+            `[org-proposal-apply] legacy config field revert landed for '${proposal.id}' but the ` +
+            'profile projection is not yet settled — leaving the proposal retryable',
+          );
+          return 'conflict';
+        }
+      }
     } else if (isScheduledTaskFieldSnapshot(snapshot)) {
       // #981 — refine-task: restore the scheduled-task field the applier
       // overwrote to its exact prior value via updateAsync (no raw SQL).

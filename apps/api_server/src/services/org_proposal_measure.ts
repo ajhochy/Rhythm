@@ -72,6 +72,8 @@ import { parseStrictJson } from './strict_json';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { ScoreCall, SkillPurpose } from './skill_refiner';
 import type { ExercisedToolsTelemetry } from './org_exercised_tools_resolver';
+import { PostApplyEventsRepository } from '../repositories/post_apply_events_repository';
+import { env } from '../config/env';
 
 export type MeasureOutcome =
   | 'kept'
@@ -258,6 +260,16 @@ export async function measureProposal(
         `[org-proposal-measure] '${proposal.id}' is not in status=measuring (got '${proposal.status}') — skipping`,
       );
       return 'skipped';
+    }
+
+    if (env.dbClient !== 'postgres') {
+      const lifecycle = await new PostApplyEventsRepository().findByProposalIdAsync(proposal.id);
+      if (lifecycle?.guardrailStatus === 'monitoring' || lifecycle?.guardrailStatus === 'tripped') {
+        logger.info(
+          `[org-proposal-measure] '${proposal.id}' owned by post-apply lifecycle (${lifecycle.guardrailStatus}) — skipping`,
+        );
+        return 'skipped';
+      }
     }
 
     if (proposal.changeJson !== null && proposal.changeJson !== undefined) {

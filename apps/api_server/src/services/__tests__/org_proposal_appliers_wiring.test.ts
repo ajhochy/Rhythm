@@ -348,3 +348,50 @@ describe('C4-5 — refine-config durable apply revalidates against its tested ex
     expect(configsRepo.getById(profile.id)?.systemPrompt).toBe('after');
   });
 });
+
+describe('D2.5 — direct post-apply eligibility metadata', () => {
+  it.each([
+    { field: 'model', value: 'anthropic/after', changeType: 'prompt' },
+    { field: 'system_prompt', value: 'after prompt', changeType: 'prompt' },
+    { field: 'allowedDelegatesJson', value: '["worker"]', changeType: 'tool' },
+  ] as const)('refine-config $field emits $changeType metadata', async ({ field, value, changeType }) => {
+    // Regression caught: an eligible existing-row mutation is applied but is
+    // not enrolled under the approved prompt/tool lifecycle classification.
+    const { registerAllProposalAppliers } = await import('../org_proposal_appliers_wiring');
+    const { applyProposal } = await import('../org_proposal_apply_service');
+    const { AgentOrgProposalsRepository } = await import('../../repositories/agent_org_proposals_repository');
+    registerAllProposalAppliers();
+    const configsRepo = new AgentConfigsRepository();
+    const profile = configsRepo.insert({ label: `metadata-${field}`, icon: 'x' });
+    const proposal = await new AgentOrgProposalsRepository().createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      status: 'proposed',
+      title: `metadata ${field}`,
+      dedupKey: `metadata-${field}`,
+      changeJson: JSON.stringify({ configPatch: { agentConfigId: profile.id, field, value } }),
+    });
+
+    const result = await applyProposal(proposal);
+    expect(result.postApplyTarget).toEqual({ profileId: profile.id, changeType });
+  });
+
+  it.each(['allowedSkillsJson', 'allowedMcpsJson'] as const)(
+    'refine-config never enrolls protected %s mutations',
+    async (field) => {
+      const { registerAllProposalAppliers } = await import('../org_proposal_appliers_wiring');
+      const { applyProposal } = await import('../org_proposal_apply_service');
+      const { AgentOrgProposalsRepository } = await import('../../repositories/agent_org_proposals_repository');
+      registerAllProposalAppliers();
+      const profile = new AgentConfigsRepository().insert({ label: `protected-${field}`, icon: 'x' });
+      const proposal = await new AgentOrgProposalsRepository().createAsync({
+        kind: 'refine-config', risk: 'high', status: 'proposed', title: `protected ${field}`,
+        dedupKey: `protected-${field}`,
+        changeJson: JSON.stringify({ configPatch: { agentConfigId: profile.id, field, value: '[]' } }),
+      });
+
+      await expect(applyProposal(proposal)).rejects.toThrow(/protected scope field/);
+      expect(new AgentConfigsRepository().getById(profile.id)?.[field]).toBeNull();
+    },
+  );
+});

@@ -106,6 +106,7 @@ const CATEGORY_TITLES: Record<string, string> = {
   'stale-redo': 'confirm an issue is truly fixed before closing it out',
   'repeated-correction': 'clarify requirements before implementing',
   'tool-unavailable-attempted': 'check tool availability before retrying',
+  'post-apply-regression': 'repair a post-apply guardrail regression',
 };
 
 function profileLabel(agentConfigId: string | null): string {
@@ -326,6 +327,7 @@ const DIAGNOSABLE_CATEGORIES: ReadonlySet<WorkflowFailureCategory> = new Set([
   'repeated-correction',
   'stale-redo',
   'external-abort',
+  'post-apply-regression',
 ]);
 
 /**

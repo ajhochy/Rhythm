@@ -92,6 +92,8 @@ describe('issue-826: human-gate review queue API', () => {
   afterEach(async () => {
     await closeServer();
     vi.restoreAllMocks();
+    vi.doUnmock('../services/post_apply_lifecycle');
+    vi.doUnmock('../services/org_proposal_measure');
     vi.unstubAllEnvs();
     vi.resetModules();
   });
@@ -204,6 +206,95 @@ describe('issue-826: human-gate review queue API', () => {
     const stored = await repo.findByIdAsync(proposal.id);
     expect(stored?.status).toBe('rejected');
   });
+
+  it.each([
+    {
+      lane: 'generic refine-config',
+      kind: 'refine-config',
+      field: 'model' as const,
+      before: 'anthropic/before',
+      after: 'anthropic/after',
+      expectedStatus: 'applied',
+      change: (id: string) => ({ configPatch: { agentConfigId: id, field: 'model', value: 'anthropic/after' } }),
+    },
+    {
+      lane: 'scope refine-scope',
+      kind: 'refine-scope',
+      field: 'allowedSkillsJson' as const,
+      before: '["skill-a"]',
+      after: '["skill-a","skill-b"]',
+      expectedStatus: 'measuring',
+      change: (id: string) => ({ scopePatch: { agentConfigId: id, field: 'allowedSkillsJson', add: ['skill-b'] } }),
+    },
+  ])(
+    'D2.5: $lane preserves committed approval when lifecycle enrollment rejects',
+    async ({ lane, kind, field, before, after, expectedStatus, change }) => {
+      // Regression caught: post-commit enrollment failure reaches next(err),
+      // returning 500 even though the proposal and target mutation committed.
+      await closeServer();
+      vi.resetModules();
+      const secret = `injected-lifecycle-secret-${lane}`;
+      const finalize = vi.fn().mockRejectedValue(new Error(secret));
+      vi.doMock('../services/post_apply_lifecycle', async (importOriginal) => ({
+        ...(await importOriginal<typeof import('../services/post_apply_lifecycle')>()),
+        finalizePostApplyLifecycleAsync: finalize,
+      }));
+      const measure = vi.fn().mockResolvedValue(undefined);
+      vi.doMock('../services/org_proposal_measure', async (importOriginal) => ({
+        ...(await importOriginal<typeof import('../services/org_proposal_measure')>()),
+        measureProposal: measure,
+      }));
+
+      const { setDb } = await import('../database/db');
+      const { runMigrations } = await import('../database/migrations');
+      const { createApp } = await import('../app');
+      const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+      const { AgentOrgProposalsRepository } = await import('../repositories/agent_org_proposals_repository');
+      const { registerAllProposalAppliers } = await import('../services/org_proposal_appliers_wiring');
+      const { logger } = await import('../utils/logger');
+      const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+      db = makeDb();
+      runMigrations(db);
+      setDb(db);
+      repo = new AgentOrgProposalsRepository(db);
+      registerAllProposalAppliers();
+      ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
+
+      const configsRepo = new AgentConfigsRepository();
+      const config = configsRepo.insert({
+        label: `failure isolation ${lane}`,
+        icon: 'shield',
+        ...(field === 'model'
+          ? { modelProvider: 'anthropic', modelId: 'before' }
+          : { allowedSkillsJson: before }),
+      });
+      const proposal = await repo.createAsync({
+        kind,
+        risk: 'high',
+        status: 'proposed',
+        title: `failure isolation ${lane}`,
+        dedupKey: `failure-isolation-${lane}`,
+        changeJson: JSON.stringify(change(config.id)),
+      });
+
+      const response = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, {
+        method: 'POST',
+      });
+
+      expect(response.status).toBe(200);
+      expect((await response.json()) as { status: string }).toMatchObject({ status: expectedStatus });
+      expect((await repo.findByIdAsync(proposal.id))?.status).toBe(expectedStatus);
+      const updated = configsRepo.getById(config.id)!;
+      expect(field === 'model' ? `${updated.modelProvider}/${updated.modelId}` : updated[field]).toBe(after);
+      expect(finalize).toHaveBeenCalledTimes(1);
+      expect(measure).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(secret);
+    },
+  );
 
   it('issue-826-c4: approve refused (4xx) for external-adoption without provenance_json', async () => {
     // Bug this catches: approve applying an external-adoption proposal

@@ -270,3 +270,33 @@ describe('C5 listByProfileAsync — the evidence builder\'s fact source', () => 
     expect(await repo.listByProfileAsync('never-run-profile')).toEqual([]);
   });
 });
+
+describe('D2.2 (#1432) profile-scoped since query', () => {
+  function insertOutcome(over: {
+    id: string;
+    profileId: string;
+    finalizedAt: string;
+    terminalStatus?: string;
+  }): void {
+    db.prepare(
+      `INSERT INTO agent_run_outcomes
+         (id, session_id, root_session_id, profile_id, terminal_status, objective_verdict, finalized_at)
+       VALUES (?, ?, ?, ?, ?, 'success', ?)`,
+    ).run(over.id, over.id, over.id, over.profileId, over.terminalStatus ?? 'completed', over.finalizedAt);
+  }
+
+  it('returns only outcomes for the given profile finalized at/after the given timestamp', async () => {
+    insertOutcome({ id: 'o-before', profileId: 'profile-1', finalizedAt: '2026-08-17T23:00:00.000Z' });
+    insertOutcome({ id: 'o-after', profileId: 'profile-1', finalizedAt: '2026-08-18T01:00:00.000Z' });
+    // Regression this catches: a naive query missing the profile_id filter
+    // would leak another profile's runs into this profile's guardrail check.
+    insertOutcome({ id: 'o-other-profile', profileId: 'profile-2', finalizedAt: '2026-08-18T02:00:00.000Z' });
+
+    const results = await repo.listByProfileSinceAsync('profile-1', '2026-08-18T00:00:00.000Z');
+    expect(results.map((o) => o.id)).toEqual(['o-after']);
+  });
+
+  it('returns [] for a profile with no outcomes in the window', async () => {
+    expect(await repo.listByProfileSinceAsync('no-such-profile', '2026-08-18T00:00:00.000Z')).toEqual([]);
+  });
+});

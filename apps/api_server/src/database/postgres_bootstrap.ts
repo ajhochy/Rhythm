@@ -2118,4 +2118,51 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
        ON agent_run_outcomes(run_episode_id)`,
   );
+
+  // D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record
+  // (Postgres twin). Column set MUST stay identical to the SQLite migration
+  // in migrations.ts — enforced by skill_schema_parity.test.ts. Table in its
+  // own pool.query with the closing paren immediately before the backtick or
+  // the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_post_apply_events (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL UNIQUE REFERENCES agent_org_proposals(id),
+      profile_id TEXT NOT NULL,
+      change_type TEXT NOT NULL CHECK (change_type IN ('prompt', 'tool', 'scope')),
+      pre_change_snapshot_json TEXT NOT NULL,
+      monitoring_window_start TEXT NOT NULL,
+      monitoring_window_end TEXT NOT NULL,
+      guardrail_status TEXT NOT NULL DEFAULT 'monitoring'
+        CHECK (guardrail_status IN ('monitoring', 'clear', 'tripped')),
+      repair_proposal_ids_json TEXT NOT NULL DEFAULT '[]',
+      revert_status TEXT NOT NULL DEFAULT 'none'
+        CHECK (revert_status IN ('none', 'reverted', 'not_needed', 'revert_failed')),
+      alert_payload_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_post_apply_events_profile
+       ON agent_org_post_apply_events(profile_id)`,
+  );
+
+  // D2.2 (#1432) — Postgres twin of the profile-scoped outcomes index.
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
+       ON agent_run_outcomes(profile_id)`,
+  );
+
+  // D2.3 (#1433, second pass) — durable repair-attempt state machine
+  // (Postgres twin). Column set MUST stay identical to the SQLite migration
+  // in migrations.ts — enforced by skill_schema_parity.test.ts. Single-line
+  // ALTERs on purpose — the parser only reads single-line
+  // `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_attempt_count INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_recheck_after TEXT;
+  `);
 }

@@ -274,6 +274,37 @@ describe('issue-828-c4: approval runs the curated-install/skill-create path, nev
     expect(installCalled).toBeTruthy();
     expect(alignmentCheckCalled).toBe(true);
     expect(result.measurable).toBe(false);
+    // D2.5 exclusion: MCP adoption has external side effects and its generic
+    // whole-field allowedMcps restore is intentionally refused as unsafe.
+    expect(result.postApplyTarget).toBeUndefined();
+  });
+
+  it('does not enroll external skill adoption with incomplete side-effect rollback', async () => {
+    const { registerExternalAdoptionApplier } = await import('../external_discovery_generator');
+    registerExternalAdoptionApplier(registerProposalApplier, {
+      installCuratedMcp: async () => ({ changed: false, registered: false }),
+      installSkill: async () => ({
+        created: true,
+        beforeSnapshotJson: JSON.stringify({ skillWasAbsent: true, adoptedSkillName: 'adopted-skill' }),
+        changeJson: JSON.stringify({ skillName: 'adopted-skill', priorBody: '', revisedBody: 'body' }),
+      }),
+      checkAlignment: async () => ({ aligned: true }),
+    });
+    const proposal = await new AgentOrgProposalsRepository().createAsync({
+      kind: 'external-adoption', risk: 'high', external: 1, title: 'Adopt skill',
+      targetRef: 'skill:adopted-skill',
+      changeJson: JSON.stringify({ candidateKind: 'skill', skillName: 'adopted-skill' }),
+      provenanceJson: JSON.stringify(FULL_PROVENANCE),
+      dedupKey: 'external-adoption:skill:adopted-skill',
+    });
+
+    const { applyProposal } = await import('../../org_proposal_apply_service');
+    const result = await applyProposal(proposal);
+
+    expect(result.measurable).toBe(true);
+    // D2.5 exclusion: skill creation/grants and managed-file side effects do
+    // not yet have one versioned race-safe rollback contract.
+    expect(result.postApplyTarget).toBeUndefined();
   });
 
   it('refuses (throws inside applyProposal is not expected — applier must report failure) when the post-install alignment guard fails', async () => {

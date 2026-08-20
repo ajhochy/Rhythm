@@ -65,7 +65,8 @@ export type WorkflowFailureCategory =
   | 'missing-scope'
   | 'tool-unavailable-attempted'
   | 'repeated-correction'
-  | 'external-abort';
+  | 'external-abort'
+  | 'post-apply-regression';
 
 /**
  * Only present when category='delegate-result'. See {@link classifyDelegateOutcome}

@@ -574,6 +574,7 @@ function prepareDeferredHumanScopeMutation(input: {
       priorValue: input.priorValue,
       nextValue: input.nextValue,
     },
+    postApplyTarget: { profileId: input.agentConfigId, changeType: 'scope' },
   };
 }
 
@@ -942,17 +943,29 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   if (!config) throw AppError.badRequest(`refine-config target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
+  // #1434-c2: record the exact post-apply value alongside priorValue so a
+  // later revert (human /revert or auto-revert) can CAS against it —
+  // restoring priorValue only if the live field still equals THIS value,
+  // never blindly overwriting a later operator edit to the same field.
   const beforeSnapshotJson = JSON.stringify({
     agentConfigId: patch.agentConfigId,
     field: patch.field,
     priorValue,
+    expectedAppliedValue: patch.value,
   });
 
   configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, patch.value));
   const updated = configsRepo.getById(patch.agentConfigId);
   if (updated) projectAgentProfileAfterWrite(updated, 'config-update');
 
-  return { measurable: true, beforeSnapshotJson };
+  return {
+    measurable: true,
+    beforeSnapshotJson,
+    postApplyTarget: {
+      profileId: patch.agentConfigId,
+      changeType: patch.field === 'allowedDelegatesJson' ? 'tool' : 'prompt',
+    },
+  };
 };
 
 // ── refine-scope ──
