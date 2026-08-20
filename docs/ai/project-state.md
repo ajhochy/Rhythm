@@ -7,7 +7,7 @@
 
 ## Active branch / PR
 
-- Bucket C: `codex/mega-c-relay-mobile` at `79f322fa`; draft PR not opened. Verification PASS `8bf3d599-d0fe-4958-a4f5-8dc8040b7b8c`, preserving full gate evidence from `7a446d94-fedc-4059-ab51-c66eee52a531`.
+- Bucket C: `codex/mega-c-relay-mobile` → draft PR #1460. Verification PASS `8bf3d599-d0fe-4958-a4f5-8dc8040b7b8c`, preserving full gate evidence from `7a446d94-fedc-4059-ab51-c66eee52a531`.
 - Org Optimizer/self-improvement: `agent-stack/si-causal-runtime-v2-codex`; issue #1448 continues beyond unaffected foundation draft PR #1398.
 - Mobile smart client: `mobile/smart-client-rebuild` → PR #1383; manual smoke pending.
 - Numbat observability: `numbat-opencode-observability` → PR #1453; manual smoke pending.
@@ -35,4 +35,4 @@
 
 ## Next step
 
-Open the Bucket C draft PR, then hand off the remaining archive, TestFlight, and physical-iPhone checks to AJ. Keep Org Optimizer, PR #1383, PR #1453, and PR #1459 workflows unchanged.
+AJ: run the remaining archive, TestFlight, and physical-iPhone checks on draft PR #1460. Keep Org Optimizer, PR #1383, PR #1453, and PR #1459 workflows unchanged.
