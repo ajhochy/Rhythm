@@ -36,7 +36,7 @@ function seedIdentity(db: Db, nonce: string, name: string) {
 async function startLiveWeb(token: string) {
   const vite = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '4175'], {
     cwd: new URL('../..', import.meta.url),
-    env: { ...process.env, VITE_RHYTHM_GATEWAY_MODE: 'live', VITE_RHYTHM_API_BASE: apiBase, VITE_RHYTHM_ENGINE_BASE: engineBase, VITE_RHYTHM_LIVE_TOKEN: token },
+    env: { ...process.env, VITE_RHYTHM_GATEWAY_MODE: 'live', VITE_RHYTHM_API_BASE: apiBase, VITE_RHYTHM_ENGINE_BASE: engineBase, VITE_RHYTHM_PRODUCTION_API_BASE: apiBase, VITE_RHYTHM_LIVE_TOKEN: token },
     stdio: 'ignore',
   });
   await new Promise((resolve) => setTimeout(resolve, 1_000));

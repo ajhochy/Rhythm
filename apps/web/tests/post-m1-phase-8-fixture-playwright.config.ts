@@ -23,11 +23,12 @@ export default defineConfig({
     locale: 'en-US',
     colorScheme: 'light',
     serviceWorkers: 'block',
+    bypassCSP: true,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 npm run dev -- --host 127.0.0.1 --port 4178',
+    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_PRODUCTION_API_BASE=http://127.0.0.1:4198 npm run dev -- --host 127.0.0.1 --port 4178',
     url: 'http://127.0.0.1:4178',
     reuseExistingServer: false,
     timeout: 30_000,

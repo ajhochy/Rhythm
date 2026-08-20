@@ -83,7 +83,7 @@ test('slice-2-c5: API and engine health failures remain separate live errors', a
     return new Response(JSON.stringify({ healthy: true }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   // Disposable dummy token: satisfies the Slice 3 explicit-token requirement so this test reaches its original assertions; never sent anywhere real.
-  const live = gateway.createLiveGateway({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', taskToken: 'disposable-dummy-token' }, fetcher);
+  const live = gateway.createLiveGateway({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com', taskToken: 'disposable-dummy-token' }, fetcher);
   await expect(live.health.api()).rejects.toThrow(/API.*503/i);
   await expect(live.health.engine()).resolves.toMatchObject({ service: 'engine', state: 'healthy' });
 });
@@ -95,7 +95,7 @@ test('slice-2-c7: failed live requests cannot return fixture data', async () => 
   if (!gateway) return;
   // Disposable dummy token: satisfies the Slice 3 explicit-token requirement so this test reaches its original assertions; never sent anywhere real.
   const live = gateway.createLiveGateway(
-    { apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', taskToken: 'disposable-dummy-token' },
+    { apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com', taskToken: 'disposable-dummy-token' },
     async () => { throw new TypeError('connection refused'); },
   );
   await expect(live.health.api()).rejects.toThrow(/API.*connection refused/i);

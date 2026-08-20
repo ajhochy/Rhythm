@@ -48,6 +48,7 @@ export interface RendererGateway {
 export interface LiveGatewayConfig {
   apiBase: string;
   engineBase: string;
+  productionApiBase: string;
   taskToken?: string;
 }
 
@@ -55,6 +56,7 @@ export interface GatewayEnvironment {
   mode?: string;
   apiBase?: string;
   engineBase?: string;
+  productionApiBase?: string;
   taskToken?: string;
 }
 
@@ -68,6 +70,16 @@ export function validateLiveBase(value: string | undefined, service: GatewayServ
     throw new Error(`Live configuration error: ${service} base must be exactly ${expected}`);
   }
   return expected;
+}
+
+export function validateProductionApiBase(value: string | undefined): string {
+  try {
+    const url = new URL(value ?? '');
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    throw new Error('Live configuration error: production API base must be an HTTP(S) URL without credentials, query, or fragment');
+  }
 }
 
 const unsupported = (mode: GatewayMode, operation: string) =>
@@ -88,6 +100,7 @@ export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
 export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = fetch): RendererGateway {
   const apiBase = validateLiveBase(config.apiBase, 'api');
   const engineBase = validateLiveBase(config.engineBase, 'engine');
+  const productionApiBase = validateProductionApiBase(config.productionApiBase);
 
   const check = async (service: GatewayService, url: string): Promise<GatewayHealth> => {
     try {
@@ -109,19 +122,19 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
     // every real user. Two wiring units independently reached for it because these domains were not
     // exposed here yet.
     domains: {
-      tasks: createLiveTasksGateway(apiBase, config.taskToken),
+      tasks: createLiveTasksGateway(productionApiBase, config.taskToken),
       sessions: createLiveSessionsGateway(apiBase, config.taskToken),
-      dashboard: createLiveDashboardGateway(apiBase, config.taskToken),
-      planner: createLivePlannerGateway(apiBase, config.taskToken),
-      rhythms: createLiveRhythmsGateway(apiBase, config.taskToken),
-      projects: createLiveProjectsGateway(apiBase, config.taskToken),
-      messages: createLiveMessagesGateway(apiBase, config.taskToken),
-      facilities: createLiveFacilitiesGateway(apiBase, config.taskToken),
-      automations: createLiveAutomationsGateway(apiBase, config.taskToken),
-      integrations: createLiveIntegrationsGateway(apiBase, config.taskToken),
-      liveArtifacts: createLiveArtifactsGateway(apiBase, config.taskToken),
-      userPreferences: createLiveUserPreferencesGateway(apiBase, config.taskToken),
-      notifications: createLiveNotificationsGateway(apiBase, config.taskToken),
+      dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken),
+      planner: createLivePlannerGateway(productionApiBase, config.taskToken),
+      rhythms: createLiveRhythmsGateway(productionApiBase, config.taskToken),
+      projects: createLiveProjectsGateway(productionApiBase, config.taskToken),
+      messages: createLiveMessagesGateway(productionApiBase, config.taskToken),
+      facilities: createLiveFacilitiesGateway(productionApiBase, config.taskToken),
+      automations: createLiveAutomationsGateway(productionApiBase, config.taskToken),
+      integrations: createLiveIntegrationsGateway(productionApiBase, config.taskToken),
+      liveArtifacts: createLiveArtifactsGateway(productionApiBase, config.taskToken),
+      userPreferences: createLiveUserPreferencesGateway(productionApiBase, config.taskToken),
+      notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken),
       memory: createLiveMemoryGateway(apiBase, config.taskToken),
       permissions: createLivePermissionGateway(apiBase, config.taskToken),
       approvals: createLiveApprovalGateway(apiBase, config.taskToken),
@@ -149,7 +162,12 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
   if (environment.mode !== 'live') {
     throw new Error('Live configuration error: gateway mode must be fixture or live');
   }
-  return createLiveGateway({ apiBase: environment.apiBase ?? '', engineBase: environment.engineBase ?? '', taskToken: environment.taskToken });
+  return createLiveGateway({
+    apiBase: environment.apiBase ?? '',
+    engineBase: environment.engineBase ?? '',
+    productionApiBase: environment.productionApiBase ?? '',
+    taskToken: environment.taskToken,
+  });
 }
 import { createLiveTasksGateway, type TaskGateway } from './tasks';
 import { createLiveSessionsGateway, type SessionGateway } from './sessions';

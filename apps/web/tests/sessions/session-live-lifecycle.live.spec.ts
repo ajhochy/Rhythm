@@ -76,6 +76,7 @@ async function startLiveWeb(token: string) {
       ...process.env,
       VITE_RHYTHM_GATEWAY_MODE: 'live',
       VITE_RHYTHM_API_BASE: apiBase,
+      VITE_RHYTHM_PRODUCTION_API_BASE: apiBase,
       VITE_RHYTHM_ENGINE_BASE: engineBase,
       VITE_RHYTHM_LIVE_TOKEN: token,
     },
