@@ -110,7 +110,24 @@ async function main() {
     logger.warn(`[server] advisory check failed (non-fatal): ${String(err)}`);
   }
 
+  const {
+    diagnoseLiveArtifactContent,
+    verifyLiveArtifactStorageDir,
+  } = await import('./services/live_artifact_storage');
+  // #1396: abort rather than advertise healthy when the configured mount is unusable.
+  await verifyLiveArtifactStorageDir();
   await initDb();
+
+  const missingArtifactContent = await diagnoseLiveArtifactContent();
+  if (missingArtifactContent.length > 0) {
+    const sample = missingArtifactContent
+      .slice(0, 20)
+      .map(({ artifactId, kind }) => `${artifactId}:${kind}`)
+      .join(',');
+    logger.error(
+      `[server] LIVE_ARTIFACT_CONTENT_MISSING count=${missingArtifactContent.length} artifacts=${sample}; restore artifact bytes from backup or rebuild affected revisions`,
+    );
+  }
 
   // #1309 — sweep expired unpinned media at boot and daily. This runs in both
   // local and cloud roles because either can own the configured durable root.

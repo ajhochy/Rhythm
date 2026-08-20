@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto';
-import { readFile, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { constants } from 'node:fs';
+import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { env } from '../config/env';
+import { env, resolveLiveArtifactStorageDir } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type { LiveArtifactBundle } from '../models/live_artifact';
@@ -12,6 +13,69 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 const artifactRoot = (id: string) => path.join(env.liveArtifactStorageDir, id);
 
 type ContentKind = 'bundle' | 'state';
+
+export interface MissingLiveArtifactContent {
+  artifactId: string;
+  kind: ContentKind;
+  hash: string;
+}
+
+/** Fail boot before a bad mount can advertise a healthy API (#1396). */
+export async function verifyLiveArtifactStorageDir(
+  storageDir = resolveLiveArtifactStorageDir(),
+): Promise<void> {
+  const probe = path.join(storageDir, `.rhythm-storage-probe-${process.pid}-${randomUUID()}`);
+  try {
+    await mkdir(storageDir, { recursive: true });
+    await access(storageDir, constants.R_OK | constants.W_OK);
+    await readdir(storageDir);
+    await writeFile(probe, 'ok', { flag: 'wx' });
+    await readFile(probe, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
+    throw new Error(
+      `LIVE_ARTIFACT_STORAGE_DIR is not readable and writable at resolved path "${storageDir}" (${code})`,
+      { cause: error },
+    );
+  } finally {
+    await rm(probe, { force: true }).catch(() => undefined);
+  }
+}
+
+async function legacyContentExists(row: MissingLiveArtifactContent): Promise<boolean> {
+  const root = artifactRoot(row.artifactId);
+  const files = row.kind === 'bundle'
+    ? ['index.html', 'styles.css', 'app.js'].map((file) => path.join(root, 'bundles', row.hash, file))
+    : [path.join(root, 'state', `${row.hash}.json`)];
+  return (await Promise.all(files.map((file) => access(file, constants.R_OK).then(() => true).catch(() => false))))
+    .every(Boolean);
+}
+
+/** Find published pointers with no database or legacy-disk content (#1394). */
+export async function diagnoseLiveArtifactContent(): Promise<MissingLiveArtifactContent[]> {
+  const sql = `
+    SELECT a.id AS artifact_id, 'bundle' AS kind, a.current_bundle_hash AS hash
+      FROM live_artifacts a
+      LEFT JOIN live_artifact_contents c
+        ON c.artifact_id = a.id AND c.kind = 'bundle' AND c.hash = a.current_bundle_hash
+      WHERE a.deleted_at IS NULL AND c.artifact_id IS NULL
+    UNION ALL
+    SELECT a.id AS artifact_id, 'state' AS kind, a.current_state_hash AS hash
+      FROM live_artifacts a
+      LEFT JOIN live_artifact_contents c
+        ON c.artifact_id = a.id AND c.kind = 'state' AND c.hash = a.current_state_hash
+      WHERE a.deleted_at IS NULL AND c.artifact_id IS NULL`;
+  const rows = env.dbClient === 'postgres'
+    ? (await getPostgresPool().query<{ artifact_id: string; kind: ContentKind; hash: string }>(sql)).rows
+    : getDb().prepare(sql).all() as { artifact_id: string; kind: ContentKind; hash: string }[];
+  const candidates = rows.map((row) => ({
+    artifactId: row.artifact_id,
+    kind: row.kind,
+    hash: row.hash,
+  }));
+  const existence = await Promise.all(candidates.map(legacyContentExists));
+  return candidates.filter((_, index) => !existence[index]);
+}
 
 /**
  * Content is stored in the database alongside the revision rows that reference
@@ -25,10 +89,8 @@ type ContentKind = 'bundle' | 'state';
  * database, so existing artifacts migrate themselves on first access with no
  * separate backfill step and no downtime.
  *
- * NOTE: the relay's mobile file artifacts also live under
- * LIVE_ARTIFACT_STORAGE_DIR (flat `<id>` + `<id>.meta.json`, see
- * relay_uplink_server.storeArtifact). Those are a different feature with
- * different lifecycle and are deliberately NOT moved here.
+ * Relay mobile files use the partitioned `relay-artifacts/` child. Reads keep
+ * a legacy root fallback so production files migrate without a big-bang move.
  */
 export class LiveArtifactStorage {
   private fail(error: unknown, artifactId: string, kind: ContentKind, op: 'read' | 'write'): never {
