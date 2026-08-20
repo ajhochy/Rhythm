@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, net, Notification, protocol, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -25,6 +25,37 @@ if (process.env.RHYTHM_SHELL_USER_DATA) app.setPath('userData', process.env.RHYT
 else if (smokeUserDataPath) app.setPath('userData', smokeUserDataPath);
 // Registered before the lock check so an instance that yields still reaps the directory it created.
 if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { recursive: true, force: true }));
+
+const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
+/** @param {unknown} value */
+const normalizeProductionApiBase = (value) => {
+  const url = new URL(typeof value === 'string' ? value.trim() : '');
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error('Production API URL must be HTTP(S) without credentials, query, or fragment');
+  }
+  return url.toString().replace(/\/$/, '');
+};
+const loadProductionApiBase = () => {
+  if (process.env.RHYTHM_PRODUCTION_API_URL) return normalizeProductionApiBase(process.env.RHYTHM_PRODUCTION_API_URL);
+  try {
+    return normalizeProductionApiBase(JSON.parse(readFileSync(productionApiConfigPath, 'utf8')).serverUrl);
+  } catch {
+    return normalizeProductionApiBase(RHYTHM_AUTH_API_BASE);
+  }
+};
+let productionApiBase = loadProductionApiBase();
+/** @param {unknown} value */
+const saveProductionApiBase = (value) => {
+  const serverUrl = normalizeProductionApiBase(value);
+  const temporaryPath = `${productionApiConfigPath}.tmp`;
+  mkdirSync(dirname(productionApiConfigPath), { recursive: true });
+  writeFileSync(temporaryPath, `${JSON.stringify({ serverUrl }, null, 2)}\n`, { mode: 0o600 });
+  renameSync(temporaryPath, productionApiConfigPath);
+  productionApiBase = serverUrl;
+  process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
+  return serverUrl;
+};
+process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
@@ -144,6 +175,10 @@ if (hasSingleInstanceLock) {
     }
     return googleSignInInFlight;
   });
+  ipcMain.handle('rhythm:production-api:set', (event, value) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('Production API URL update denied');
+    return saveProductionApiBase(value);
+  });
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
@@ -220,7 +255,15 @@ if (hasSingleInstanceLock) {
         return new Response('Forbidden', { status: 403 });
       }
       const file = resolveAsset(url.pathname);
-      return file ? net.fetch(pathToFileURL(file).toString()) : new Response('Not found', { status: 404 });
+      if (!file) return new Response('Not found', { status: 404 });
+      if (url.pathname === '/index.html') {
+        const productionOrigin = new URL(productionApiBase).origin;
+        return readFile(file, 'utf8').then((html) => new Response(
+          html.replace('connect-src ', `connect-src ${productionOrigin} `),
+          { headers: { 'content-type': 'text/html; charset=utf-8' } },
+        ));
+      }
+      return net.fetch(pathToFileURL(file).toString());
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
@@ -315,6 +358,7 @@ if (hasSingleInstanceLock) {
       configured: {
         apiBase: Boolean(window.rhythmShell?.gateway?.apiBase),
         engineBase: Boolean(window.rhythmShell?.gateway?.engineBase),
+        productionApiBase: Boolean(window.rhythmShell?.gateway?.productionApiBase),
       },
     },
     auth: {

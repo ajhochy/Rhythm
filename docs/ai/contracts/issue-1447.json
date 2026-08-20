@@ -1,0 +1,41 @@
+{
+  "issue": 1447,
+  "date": "2026-08-19",
+  "test_command": "node --test tests/contract/issue-1447-gateway.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1447-c1",
+      "text": "A real, non-fixture launch of the Electron app: sign in with Google (real production OAuth, already works) and see the user's own REAL tasks/rhythms/projects/messages/facilities — not empty, not fixture, not local-sandbox data.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Requires AJ's real production credentials and visual confirmation; the coding agent must not access or mutate the real account."
+    },
+    {
+      "criterion_id": "issue-1447-c2",
+      "text": "Agent-specific features (sessions, memory, mcp, skills, schedules — whichever your research confirms belong there) continue working against the locally-spawned agent server exactly as today.",
+      "mode": "integration",
+      "test": "apps/web/tests/contract/issue-1447-gateway.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1447-c3",
+      "text": "npm run typecheck clean in BOTH apps/web and apps/electron.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Web typecheck exits 0. Electron reports only the 12 dispatched pre-existing artifact-policy.mjs errors; changed Electron files report no errors."
+    },
+    {
+      "criterion_id": "issue-1447-c4",
+      "text": "Every phase's fixture/live Playwright suite still passes.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Fixture/contract/auth and phases 2/5/6/7/8 pass serially; sandbox-dependent phase 1/3/4/9/10 and gateway live suites remain for the integrated verification gate."
+    }
+  ],
+  "not_tested": ["issue-1447-c1", "issue-1447-c4"]
+}
