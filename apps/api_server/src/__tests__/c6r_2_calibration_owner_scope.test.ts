@@ -27,7 +27,7 @@ beforeEach(() => {
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   setDb(db);
-  // owner_id REFERENCES users(id) — real rows so the FK constraint holds.
+  // Real owner rows exercise historical owner provenance and deletion.
   db.prepare(`INSERT INTO users (id, name, email) VALUES (1, 'Owner One', 'owner1@example.test')`).run();
   db.prepare(`INSERT INTO users (id, name, email) VALUES (2, 'Owner Two', 'owner2@example.test')`).run();
   db.prepare(`INSERT INTO users (id, name, email) VALUES (5, 'Owner Five', 'owner5@example.test')`).run();
@@ -286,5 +286,24 @@ describe('C6 item 2 — the new columns stay covered by the existing immutabilit
     expect(() =>
       db.prepare(`UPDATE calibration_observations SET owner_id = 9 WHERE id = ?`).run(created!.id),
     ).toThrow(/immutable/);
+  });
+
+  it('keeps historical owner provenance without blocking user deletion', async () => {
+    const created = await new CalibrationObservationsRepository().createAsync({
+      ...FAMILY,
+      scope: { kind: 'owner', ownerId: 5 },
+      sourceEventId: 'deleted-owner-history',
+      observationType: 'experiment-decision',
+      proposalId: 'p1',
+      initialConfidence: 0.5,
+      humanDecision: null,
+    });
+
+    db.prepare(`DELETE FROM users WHERE id = 5`).run();
+
+    expect(db.prepare(`SELECT id FROM users WHERE id = 5`).get()).toBeUndefined();
+    expect(
+      (db.prepare(`SELECT owner_id FROM calibration_observations WHERE id = ?`).get(created!.id) as { owner_id: number }).owner_id,
+    ).toBe(5);
   });
 });

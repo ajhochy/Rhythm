@@ -36,17 +36,18 @@ tags: [run, Rhythm, C6]
 ## Checks
 
 - Node 22 TypeScript and API build: pass.
-- Full API suite: **592 files / 5,530 tests passed**, 107 files / 180 tests
+- Full API suite: **592 files / 5,532 tests passed**, 107 files / 181 tests
   skipped, zero failures.
 - Focused production calibration/ranking suite: **163/163**.
 - Former inherited-environment failures: **43/43**.
 - Repaired C5/schema/load suites: **104/104** serial.
-- Disposable Postgres 16 bootstrap/parity/immutability: **9/9**.
+- Disposable Postgres 16 bootstrap/parity/immutability and historical owner
+  deletion: **10/10**.
 - Flutter format/analyze: pass; 315 pre-existing infos, zero warnings/errors.
 - Full Flutter suite: **1,234/1,234**.
 - macOS release build: `Rhythm.app`, 73 MB; executable SHA-256
   `e01d8c4a51046772ed34ad5e506df5ef301613e8abd7f27503af2ee39bafcc86`.
-- Sandbox guard: **14/14**.
+- Sandbox guard: **15/15**.
 - Real isolated WS baseline/candidate treatment gate: **1/1**; distinct
   effective prompt/receipt hashes and unchanged durable target bytes.
 - Synthetic-fixture shadow zero-mutation gate: **1/1** after the real 90-second

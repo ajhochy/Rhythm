@@ -2125,18 +2125,37 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // trigger function (already defined above) for the same no-update/no-delete
   // guarantee as agent_run_outcomes / treatment receipts.
   //
-  // C6 (repair item 2) — owner_id follows the nullable-owner convention of
-  // agent_org_proposals.owner_user_id (#1175): NULL means system-global.
-  // The trigger is dropped BEFORE the additive ALTERs/backfill below and
-  // recreated after, so the one-time backfill UPDATE is never blocked by
-  // the immutability guard it is about to restore.
-  await pool.query(
-    `DROP TRIGGER IF EXISTS trg_calibration_observations_immutable ON calibration_observations`,
-  );
+  // C6 (repair item 2) — owner_id is historical ledger provenance, not a live
+  // user reference. A foreign key with ON DELETE SET NULL would internally
+  // UPDATE this immutable row and make user deletion impossible.
+  //
+  // The trigger is dropped only for the one-time legacy-column backfill, and
+  // that drop/backfill/recreate sequence is transactional: a failed ALTER,
+  // UPDATE, or index build can never leave the ledger unprotected.
+  const calibrationShape = await pool.query<{ table_exists: boolean; owner_exists: boolean }>(`
+    SELECT
+      to_regclass('public.calibration_observations') IS NOT NULL AS table_exists,
+      EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'calibration_observations'
+          AND column_name = 'owner_id'
+      ) AS owner_exists
+  `);
+  const needsCalibrationBackfill =
+    calibrationShape.rows[0]?.table_exists === true &&
+    calibrationShape.rows[0]?.owner_exists !== true;
+  await pool.query('BEGIN');
+  try {
+    if (needsCalibrationBackfill) {
+      await pool.query(
+        `DROP TRIGGER IF EXISTS trg_calibration_observations_immutable ON calibration_observations`,
+      );
+    }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS calibration_observations (
       id TEXT PRIMARY KEY,
-      owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      owner_id INTEGER,
       source_event_id TEXT NOT NULL,
       observation_type TEXT NOT NULL,
       proposal_id TEXT NOT NULL,
@@ -2160,7 +2179,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // pre-repair shape. Never inferred: owner stays NULL, source_event_id
   // becomes the row's own immutable id, observation_type becomes 'legacy'.
   await pool.query(`
-    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER;
     ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS source_event_id TEXT;
     ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS observation_type TEXT NOT NULL DEFAULT 'legacy';
     ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
@@ -2176,11 +2195,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
        ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
   );
-  await pool.query(`
-    CREATE TRIGGER trg_calibration_observations_immutable
-      BEFORE UPDATE OR DELETE ON calibration_observations
-      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('calibration observations are immutable once recorded');
-  `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_trigger
+          WHERE tgname = 'trg_calibration_observations_immutable'
+            AND tgrelid = 'calibration_observations'::regclass
+        ) THEN
+          CREATE TRIGGER trg_calibration_observations_immutable
+            BEFORE UPDATE OR DELETE ON calibration_observations
+            FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('calibration observations are immutable once recorded');
+        END IF;
+      END $$;
+    `);
+    await pool.query('COMMIT');
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    throw error;
+  }
 
   // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
   // proposal creation from the generator's own high/medium/low diagnosis

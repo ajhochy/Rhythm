@@ -279,6 +279,39 @@ describeLive('live Postgres bootstrap (RHYTHM_LIVE_PG=1)', () => {
     expect(rows[0].decision).toBe('ship');
   });
 
+  it('enforces calibration immutability without blocking deletion of the historical owner', async () => {
+    const suffix = `${Date.now()}`;
+    const user = await pool.query<{ id: number }>(
+      `INSERT INTO users(name, email, role)
+       VALUES ('Calibration Owner', $1, 'admin') RETURNING id`,
+      [`calibration-owner-${suffix}@example.test`],
+    );
+    const observationId = `calibration-${suffix}`;
+    await pool.query(
+      `INSERT INTO calibration_observations(
+         id, owner_id, source_event_id, observation_type, proposal_id,
+         generator_version, detector_version, kind, treatment_version,
+         metric_version, initial_confidence
+       ) VALUES ($1,$2,$3,'experiment-decision','proposal-1','gen-v1','det-v1',
+                 'refine-config','system-prompt-v1','metric-v1',0.5)`,
+      [observationId, user.rows[0].id, `event-${suffix}`],
+    );
+
+    await expect(
+      pool.query(`UPDATE calibration_observations SET initial_confidence = 0.9 WHERE id = $1`, [observationId]),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      pool.query(`DELETE FROM calibration_observations WHERE id = $1`, [observationId]),
+    ).rejects.toThrow(/immutable/);
+
+    await pool.query(`DELETE FROM users WHERE id = $1`, [user.rows[0].id]);
+    const row = await pool.query<{ owner_id: number }>(
+      `SELECT owner_id FROM calibration_observations WHERE id = $1`,
+      [observationId],
+    );
+    expect(row.rows[0].owner_id).toBe(user.rows[0].id);
+  });
+
   it('enforces enrollment lifecycle domains and transitions — the Postgres trigger FIRES', async () => {
     const id = `pgenroll-${Date.now()}`;
     const enrollment = {

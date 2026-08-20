@@ -18,8 +18,9 @@
  * {@link CalibrationOwnerScope}. There is no implicit "list everything"
  * method: a caller that genuinely needs a cross-owner admin view must name
  * that intent explicitly (see {@link listAllForLocalAdminAsync}), so a
- * future caller can never accidentally leak one user's calibration evidence
- * into another's ranking view.
+ * future caller can never accidentally mix one owner's observations into
+ * another owner's calibrated family. Visibility of aggregate proposal
+ * summaries remains the org-proposals surface's separate authorization policy.
  */
 import Database from 'better-sqlite3';
 

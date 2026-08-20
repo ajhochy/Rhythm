@@ -4231,15 +4231,16 @@ If someone asks for creative work that needs a local capability:
   // update/delete path: an observation is written once and never mutated,
   // enforced below the same way agent_org_experiments' spec columns are.
   //
-  // C6 (repair item 2) — owner_id follows the nullable-owner convention of
-  // agent_org_proposals.owner_user_id (#1175): NULL means system-global.
+  // C6 (repair item 2) — owner_id is historical ledger provenance, not a live
+  // user reference. A foreign key with ON DELETE SET NULL would internally
+  // UPDATE this immutable row and make user deletion impossible.
   // source_event_id + observation_type (+ owner) are UNIQUE via the
   // COALESCE expression index below, so a caller may safely re-attempt
   // recording the SAME deterministic event without ever duplicating it.
   db.exec(`
     CREATE TABLE IF NOT EXISTS calibration_observations (
       id TEXT PRIMARY KEY,
-      owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      owner_id INTEGER,
       source_event_id TEXT NOT NULL,
       observation_type TEXT NOT NULL,
       proposal_id TEXT NOT NULL,
@@ -4273,7 +4274,7 @@ If someone asks for creative work that needs a local capability:
   ).map((c) => c.name);
   if (!calibrationObservationCols.includes('owner_id')) {
     db.exec(`
-      ALTER TABLE calibration_observations ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE calibration_observations ADD COLUMN owner_id INTEGER;
       ALTER TABLE calibration_observations ADD COLUMN source_event_id TEXT NOT NULL DEFAULT '';
       ALTER TABLE calibration_observations ADD COLUMN observation_type TEXT NOT NULL DEFAULT 'legacy';
       ALTER TABLE calibration_observations ADD COLUMN proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';

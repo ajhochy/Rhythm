@@ -1,6 +1,13 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { env } from '../config/env';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
+import { CalibrationObservationsRepository } from '../repositories/calibration_observations_repository';
+import { computeCalibrationSnapshotAsync } from '../services/calibration_snapshot_service';
+import { classifyProposalRisk, requiresSecurityNote } from '../services/org_risk_classifier';
 
 describe('C6 calibration remains ranking-only', () => {
   it('task-c6-calibration-c7: auto-apply, risk, promotion, CAS, authorization, and approval gates do not consume calibration', () => {
@@ -31,5 +38,52 @@ describe('C6 calibration remains ranking-only', () => {
       expect(source, relativePath).not.toContain('buildExperimentSummaryAsync');
       expect(source, relativePath).not.toContain('attachExperimentSummariesAsync');
     }
+  });
+
+  it('keeps observable risk and human-gate classification identical after a family becomes calibrated', async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+    const originalEnabled = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    const input = { kind: 'refine-skill', changeJson: '{}' };
+    const before = {
+      risk: classifyProposalRisk(input),
+      securityNote: requiresSecurityNote(input.kind),
+    };
+    const repo = new CalibrationObservationsRepository();
+    for (let index = 0; index < 5; index += 1) {
+      await repo.createAsync({
+        scope: { kind: 'system-global' },
+        sourceEventId: `ranking-only-${index}`,
+        observationType: 'experiment-decision',
+        proposalId: `proposal-${index}`,
+        generatorVersion: 'gen-v1',
+        detectorVersion: 'det-v1',
+        kind: 'refine-skill',
+        treatmentVersion: 'system-prompt-v1',
+        metricVersion: 'metric-v1',
+        initialConfidence: 0.8,
+        humanDecision: 'approve',
+        experimentDecision: 'promote',
+      });
+    }
+    const snapshot = await computeCalibrationSnapshotAsync(
+      {
+        generatorVersion: 'gen-v1',
+        detectorVersion: 'det-v1',
+        kind: 'refine-skill',
+        treatmentVersion: 'system-prompt-v1',
+        metricVersion: 'metric-v1',
+      },
+      { kind: 'system-global' },
+    );
+    expect(snapshot.status).toBe('calibrated');
+    expect({
+      risk: classifyProposalRisk(input),
+      securityNote: requiresSecurityNote(input.kind),
+    }).toEqual(before);
+    env.calibrationEnabled = originalEnabled;
+    db.close();
   });
 });

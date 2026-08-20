@@ -87,14 +87,17 @@ validate_copied_data_inputs() {
   [[ -e "$RHYTHM_SANDBOX_OPENCODE_CONFIG" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG does not exist: $RHYTHM_SANDBOX_OPENCODE_CONFIG"
 
   local fixture_root db_path config_path sandbox_dir prohibited
+  local prohibited_rhythm_db prohibited_opencode_db
   fixture_root="$(canon "$RHYTHM_APPROVED_FIXTURE_ROOT")"
   db_path="$(canon "$RHYTHM_LIVE_DB_PATH")"
   config_path="$(canon "$RHYTHM_SANDBOX_OPENCODE_CONFIG")"
   sandbox_dir="$(canon_maybe_missing "$RHYTHM_SANDBOX_DIR")"
 
-  for prohibited in \
-    "$(canon_maybe_missing "$HOME/Library/Application Support/Rhythm/rhythm.db")" \
-    "$(canon_maybe_missing "$HOME/.local/share/opencode/opencode.db")"
+  prohibited_rhythm_db="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$HOME/Library/Application Support/Rhythm/rhythm.db")" \
+    || fail 'cannot canonicalize prohibited Rhythm DB path'
+  prohibited_opencode_db="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$HOME/.local/share/opencode/opencode.db")" \
+    || fail 'cannot canonicalize prohibited OpenCode DB path'
+  for prohibited in "$prohibited_rhythm_db" "$prohibited_opencode_db"
   do
     [[ "$db_path" != "$prohibited" ]] || fail "RHYTHM_LIVE_DB_PATH resolves to a prohibited live path: $db_path"
     [[ "$config_path" != "$prohibited" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG resolves to a prohibited live path: $config_path"

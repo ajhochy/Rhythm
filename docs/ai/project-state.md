@@ -9,7 +9,8 @@ surface on top of accepted C0-C5.
 
 - Branch: `agent-stack/si-causal-runtime-v2-codex`
 - Base head before C6: `89c300d8`
-- C6 changes are uncommitted pending final staged scan/commit.
+- C6 implementation commit: `9d7201b2`; adversarial evidence fixes:
+  `bac8e699`; final schema/evidence review fixes pending commit.
 - Integration branch / draft PR: `self-improvement-engine-foundation`, PR #1398.
 
 ## State
@@ -25,17 +26,17 @@ surface on top of accepted C0-C5.
 
 ## Verification
 
-- API: 5,530/5,530 pass; 180 skipped; zero failures.
+- API: 5,532/5,532 pass; 181 skipped; zero failures.
 - Production calibration/ranking: 163/163.
-- Postgres: 9/9.
+- Postgres: 10/10.
 - Flutter: 1,234/1,234; analyze/build pass; release app 73 MB.
 - WS baseline/candidate: 1/1.
 - Synthetic shadow zero-mutation: 1/1; source DB/config hashes unchanged.
-- Sandbox guard: 14/14.
+- Sandbox guard: 15/15.
 - GitNexus: UNKNOWN due stale/version-mismatched index.
 
 ## Next
 
-Stage and commit C6 to an immutable head, merge it into the foundation branch,
-then run a fresh independent adversarial review against the immutable integrated
-SHA before unblocking D1/D3/D4.
+Run the focused SQLite/Postgres/sandbox evidence checks, commit the final review
+fixes, and rerun the short immutable-head adversarial review before integration
+and unblocking D1/D3/D4.

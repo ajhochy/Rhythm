@@ -165,5 +165,13 @@ assert_case 'schema-valid OpenCode config accepted' ok '' \
   "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" "RHYTHM_LIVE_DB_PATH=$DB" \
   "RHYTHM_SANDBOX_OPENCODE_CONFIG=$NO_OPTIMIZER_DIR" "RHYTHM_SANDBOX_DIR=$SANDBOX_DIR"
 
+# ── 12. Missing live-data parent directories do not weaken or break preflight ─
+FRESH_HOME="$FIXTURE_ROOT/fresh-home"
+mkdir -p "$FRESH_HOME"
+assert_case 'safe fixture accepted when live-data parents do not exist' ok '' \
+  "HOME=$FRESH_HOME" "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" \
+  "RHYTHM_LIVE_DB_PATH=$DB" "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" \
+  "RHYTHM_SANDBOX_DIR=$SANDBOX_DIR"
+
 printf '\nsandbox_guard_test: %d passed, %d failed\n' "$pass" "$fail_count"
 [[ "$fail_count" -eq 0 ]]

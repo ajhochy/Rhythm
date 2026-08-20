@@ -33,4 +33,6 @@ if (process.env.RHYTHM_LIVE_E2E !== '1') {
   process.env.MEMORY_VAULT_SUBDIR = 'memory';
   process.env.AGENT_LOCAL = 'false';
   process.env.PORT = '0';
+  process.env.RHYTHM_TREATMENT_V2_ENABLED = 'false';
+  process.env.RHYTHM_CALIBRATION_ENABLED = 'false';
 }
