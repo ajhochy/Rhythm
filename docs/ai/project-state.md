@@ -1,46 +1,36 @@
 # Rhythm — Project State
 
-**Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
-**Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
+## Current focus
 
-## What shipped
-MEGA PR #1368 **merged** (all 59 issues; new surfaces off by default:
-`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`, `RHYTHM_MCP_APPS_MODE=off`).
+- **Bucket B Electron packaging (#1402):** automated verification passed on a clean main-based branch; draft PR not opened yet.
+- Preserve unrelated active work: Org Optimizer/self-improvement #1448, mobile smart-client PR #1383, Numbat observability PR #1453, H1 Flutter fixes PR #1459, Bucket C relay/mobile PR #1460, and H2 API/OCU PR #1461.
 
-#1368 lifted the **React Native** halves of the mobile workstream off its branch
-(`f4c7c352`) while the server halves landed. PR #1383 restores that RN transport:
-#1270 profile fallback · #1308/#1311 attachment-limit constant · #1364/#1366
-session-lifecycle fencing · #1247 SSE permission replay. Five commits, one per issue.
+## Active branch / PR
 
-#1363 (binding-repair CLI) was never reverted — server-side, already on main, verified intact.
+- Bucket B: `codex/mega-b-electron-packaging-pr` at `4646a26c`; verification PASS `c7ebbf4b-dd51-4910-8974-2dac01b564c7`, preserving functional evidence from `537f0468-010a-47ec-a1e0-c24385e6f593`; no draft PR yet.
+- Org Optimizer/self-improvement: `agent-stack/si-causal-runtime-v2-codex`; issue #1448 continues beyond unaffected foundation draft PR #1398.
+- Mobile smart client: PR #1383; manual smoke pending. Numbat observability: PR #1453; manual smoke pending.
+- H1 Flutter fixes: draft PR #1459. Bucket C relay/mobile: draft PR #1460. H2 API/OCU: draft PR #1461; their recorded manual checks remain pending.
 
-## Test status (PR #1383)
-- mobile: tsc clean, eslint 0 errors, **Jest 61/61**, **Playwright 71/71**, `test:ci:static` exit 0,
-  contract green (**136 ops**) — matches mega-HEAD parity exactly.
-- api_server: mobile gateway + proxy 17/17; `session_binding_cleanup` 3/3.
-- **Contract anchors untouched → no fingerprint bump, no re-pair.**
+## In progress
 
-## Two regressions found during the rebuild
-1. `eas.json` lost `ascAppId` (revert reset it pre-#1175) — non-interactive TestFlight submit would
-   prompt and fail. Restored + the iOS preflight now requires a non-empty `ascAppId` (it previously
-   accepted an empty `ios: {}`).
-2. `issue-1247.test.mjs` was orphaned (no npm script ever ran it). Wired into `test:ci:static`.
+- Bucket B contains six issue files. Contract `docs/ai/contracts/issue-1402.json`: **2/2 pass**; run note `docs/ai/runs/2026-08-19-mega-b-electron-packaging.md`.
+- A real standalone package outside the checkout spawned bundled Node and `Resources/api_server/dist/server.js`; `/health` was OK, the engine became ready, and `/agent-sessions` returned 200 without fixture fallback.
+- Org Optimizer C2-D S6 remains the next live-sandbox slice before C3–C6; its fail-closed promotion guard remains in place while receipt filtering is not load-bearing.
 
-## NOT started — #1378 / #1379 smart-client plan
-`docs/ai/plan-mobile-smart-client.md` is a **proposed** plan to make the phone a client of the
-api_server mirror instead of a raw-engine proxy (Phases 0–4). It is unrelated to PR #1383's six
-issues and is **unimplemented**. Its four open decisions still need a call before Phase 1/2 —
-chiefly mirror authority vs. live backfill, and whether new mobile-native DTOs get a contract
-version separate from the engine fingerprint.
+## Risks / known issues
 
-## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
-(Both full mobile suites ran clean on #1383.)
+- The package adds **235.88 MiB**.
+- Release validation still requires Developer ID signing, notarization, Gatekeeper, a separate physical clean-Mac launch, and confirmation of compatible engine availability.
+- PR #1383, PR #1453, PR #1459, PR #1460, and PR #1461 retain their previously recorded manual-smoke requirements.
+
+## Test status
+
+- Bucket B contract **2/2 passed**.
+- Standalone runtime evidence passed with no fixture fallback.
+- Native ABI127 arm64 validation passed: `better-sqlite3` and `node-pty` loaded; secret scan was clean; ad-hoc codesign was valid.
+- Org Optimizer and PRs #1383, #1453, #1459, #1460, and #1461 retain their previously recorded verification status.
 
 ## Next step
-AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
-and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
-```bash
-cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
-```
+
+Open the Bucket B draft PR, then hand off the remaining release checks. Keep Org Optimizer and PRs #1383, #1453, #1459, #1460, and #1461 unchanged.
