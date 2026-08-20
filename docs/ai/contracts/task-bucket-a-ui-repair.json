@@ -1,0 +1,57 @@
+{
+  "issue": "task-bucket-a-ui-repair",
+  "date": "2026-08-19",
+  "test_command": "node --test src/components/ToolWorkspace.contract.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-bucket-a-ui-repair-c1",
+      "text": "image/video onError reaches fallback",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-ui-repair-c2",
+      "text": "list loading status is distinct from genuine empty",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-ui-repair-c3",
+      "text": "skill-content error does not remain “Loading…”",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-ui-repair-c4",
+      "text": "fixture Settings says not connected",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-ui-repair-c5",
+      "text": "Live Settings does not render asset paths raw",
+      "mode": "ui",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-ui-repair-c6",
+      "text": "emoji/supplementary initial is not split",
+      "mode": "unit",
+      "test": "apps/web/src/components/ToolWorkspace.contract.test.mjs",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

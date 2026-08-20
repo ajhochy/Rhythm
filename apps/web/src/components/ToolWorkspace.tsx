@@ -14,6 +14,7 @@ import type { Profile } from '../types';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
+import { profileAvatarLabel } from './Profiles';
 import { navigate } from './Shell';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
@@ -573,25 +574,36 @@ function LiveSkillsTool() {
   const [editing, setEditing] = useState<SkillEntry | 'new' | null>(null);
   const [deleting, setDeleting] = useState<SkillEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/opencode/skills?withMetadata=true', detail: 'Loading live skill catalog' });
   const visible = skills.filter((skill) => `${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
   const selected = visible.find((skill) => skill.name === selectedName) ?? visible[0] ?? null;
 
   const load = async () => {
     setError(null);
+    setLoading(true);
     try {
       const next = await gateway.domains.skills!.list(true);
       setSkills(next);
       setSelectedName((current) => (current && next.some((skill) => skill.name === current) ? current : (next[0]?.name ?? null)));
       setTrace({ method: 'GET', route: '/opencode/skills?withMetadata=true', detail: `${next.length} live skills loaded` });
     } catch (err) { setError(err instanceof Error ? err.message : 'Skill catalog failed to load'); }
+    finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!selected) { setContent(''); return; }
+    if (!selected) { setContent(''); setContentLoading(false); setContentError(null); return; }
     let active = true;
-    gateway.domains.skills!.content(selected.name).then((next) => { if (active) setContent(next.content); }).catch(() => { if (active) setContent(''); });
+    setContent('');
+    setContentError(null);
+    setContentLoading(true);
+    gateway.domains.skills!.content(selected.name)
+      .then((next) => { if (active) setContent(next.content); })
+      .catch((err) => { if (active) setContentError(err instanceof Error ? err.message : 'Skill content failed to load'); })
+      .finally(() => { if (active) setContentLoading(false); });
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.name]);
@@ -634,9 +646,10 @@ function LiveSkillsTool() {
 
   return <ToolFrame slug="skills" title="Skills" description="Search the live engine skill catalog, inspect real metadata, and author Rhythm-managed capabilities." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void refresh()} data-testid="skills-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="skills-new"><Icon name="plus" size={14} />New skill</button></>}>
     {error && <section className="tool-state-panel error" role="alert" data-testid="skills-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {loading && <p role="status">Loading skills…</p>}
     <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search skills</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search skills by name or description…" data-testid="skills-search" /></label><span>{visible.length} skills</span></div>
-    {!error && visible.length === 0 && <EmptyState title="No managed skills found">Create a managed skill or refresh after adding one to the engine.</EmptyState>}
-    {selected && <div className="tool-split"><aside className="tool-rail">{visible.map((skill) => <button type="button" className={skill.name === selected.name ? 'selected' : ''} key={skill.name} onClick={() => setSelectedName(skill.name)} data-testid={`skills-item-${skill.name}`}><strong>{skill.name}</strong><small>{skill.source} · {skill.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{selected.name}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="skills-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="skills-delete"><Icon name="delete" size={13} />Delete</button></div>}</header><dl className="tool-properties"><div><dt>Status</dt><dd>{selected.metadata?.status ?? 'Not measured'}</dd></div><div><dt>Version</dt><dd>{selected.metadata?.version ?? 1}</dd></div><div><dt>Post score</dt><dd>{selected.metadata?.postScore ?? 'Not measured'}</dd></div><div><dt>Uses</dt><dd>{selected.metadata?.uses ?? 'Not measured'}</dd></div></dl><pre className="managed-body">{content || 'Loading…'}</pre></section></div>}
+    {!loading && !error && visible.length === 0 && <EmptyState title="No managed skills found">Create a managed skill or refresh after adding one to the engine.</EmptyState>}
+    {selected && <div className="tool-split"><aside className="tool-rail">{visible.map((skill) => <button type="button" className={skill.name === selected.name ? 'selected' : ''} key={skill.name} onClick={() => setSelectedName(skill.name)} data-testid={`skills-item-${skill.name}`}><strong>{skill.name}</strong><small>{skill.source} · {skill.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{selected.name}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="skills-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="skills-delete"><Icon name="delete" size={13} />Delete</button></div>}</header><dl className="tool-properties"><div><dt>Status</dt><dd>{selected.metadata?.status ?? 'Not measured'}</dd></div><div><dt>Version</dt><dd>{selected.metadata?.version ?? 1}</dd></div><div><dt>Post score</dt><dd>{selected.metadata?.postScore ?? 'Not measured'}</dd></div><div><dt>Uses</dt><dd>{selected.metadata?.uses ?? 'Not measured'}</dd></div></dl><pre className="managed-body" role={contentError ? 'alert' : undefined}>{contentError ?? (contentLoading ? 'Loading…' : content)}</pre></section></div>}
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New skill' : 'Edit skill'} description="Managed skills are discovered through the engine store." testId="skills-editor" wide><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description ?? '' : ''} /></label><label className="field span-2">SKILL.md content<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? content : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="skills-save">Save</button></footer></form></FocusDialog>
     <ConfirmDialog open={Boolean(deleting)} title="Delete skill" description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed skill from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="skills-delete-dialog" />
   </ToolFrame>;
@@ -927,10 +940,11 @@ const imageArtifactTypes = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']
 const videoArtifactTypes = new Set(['mp4', 'webm', 'mov']);
 
 function DesignPreview({ design }: { design: AgentDesign }) {
+  const [failed, setFailed] = useState(false);
   const type = design.artifactType?.toLowerCase() ?? '';
   const previewUrl = design.thumbnailUrl ?? ((imageArtifactTypes.has(type) || videoArtifactTypes.has(type)) ? design.artifactUrl : null);
-  if (videoArtifactTypes.has(type) && design.artifactUrl) return <><video src={design.artifactUrl} poster={design.thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" /><span>{design.artifactType}</span></>;
-  if (previewUrl) return <><img src={previewUrl} alt="" /><span>{design.artifactType ?? 'unknown'}</span></>;
+  if (!failed && videoArtifactTypes.has(type) && design.artifactUrl) return <><video src={design.artifactUrl} poster={design.thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" onError={() => setFailed(true)} /><span>{design.artifactType}</span></>;
+  if (!failed && previewUrl) return <><img src={previewUrl} alt="" onError={() => setFailed(true)} /><span>{design.artifactType ?? 'unknown'}</span></>;
   // ponytail: the API's thumbnailUrl is nullable, so rows without a real asset stay honest.
   return <><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></>;
 }
@@ -998,29 +1012,33 @@ function GalleryTool() {
 
 function SettingsTool() {
   const [trace, setTrace] = useState<Trace>({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults loaded' });
-  return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Connected · local workspace</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
+  return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Fixture preview · not connected</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
 }
 
 function LiveSettingsTool() {
   const gateway = useGateway();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
 
   const load = async () => {
     setError(null);
+    setLoading(true);
     try {
       const next = await gateway.domains.sessions!.profiles();
       setProfiles(next);
       setTrace({ method: 'GET', route: '/agent-configs', detail: `${next.length} agent profiles loaded` });
     } catch (err) { setError(err instanceof Error ? err.message : 'Agent settings failed to load'); }
+    finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <ToolFrame slug="agent-settings" title="Agent settings" description="Live execution defaults from the configured agent profiles." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
     {error && <section className="tool-state-panel error" role="alert" data-testid="agent-settings-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
-    {!error && profiles.length === 0 && <EmptyState title="No agent profiles configured">Create an agent profile before starting a configured session.</EmptyState>}
-    <div className="tool-list">{profiles.map((profile) => <article className="tool-row settings-row" key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar">{profile.icon}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}</small></span>{profile.isDefault && <span className="kind-badge">Default</span>}</article>)}</div>
+    {loading && <p role="status">Loading agent settings…</p>}
+    {!loading && !error && profiles.length === 0 && <EmptyState title="No agent profiles configured">Create an agent profile before starting a configured session.</EmptyState>}
+    <div className="tool-list">{profiles.map((profile) => <article className="tool-row settings-row" key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}</small></span>{profile.isDefault && <span className="kind-badge">Default</span>}</article>)}</div>
   </ToolFrame>;
 }
 
