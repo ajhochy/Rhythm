@@ -791,6 +791,9 @@ async function main() {
   // Synology relay uplink (docs/ai/plan-synology-relay.md). Only the Mac
   // dials out, and only when a relay is configured; the relay/cloud roles
   // never run this (no mobile gateway to dispatch against).
+  if (env.relayUrls.length > 0 && !env.relayBearer) {
+    logger.warn('[relay] uplink disabled: bearer is not configured');
+  }
   if (
     env.agentExecutionEnabled &&
     mobileGatewayServer &&

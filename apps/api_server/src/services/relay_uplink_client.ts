@@ -188,6 +188,9 @@ export class RelayUplinkClient {
         backoffMs = this.reconnectBaseMs;
         await this.waitForRedial(backoffMs);
       } else {
+        logger.warn(
+          `[RelayUplinkClient] uplink pass failed; retrying in ${backoffMs}ms`,
+        );
         await this.waitForRedial(backoffMs);
         backoffMs = Math.min(
           this.reconnectMaxMs,
