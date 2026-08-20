@@ -34,6 +34,12 @@ const agentServer = Object.freeze({
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
 });
+// Renderer code can only reconcile pending approval IDs with the main process. Main validates the
+// closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
+window.addEventListener('rhythm:approval-notifications', (event) => {
+  if (!(event instanceof CustomEvent)) return;
+  ipcRenderer.send('rhythm:approval-notifications:sync', event.detail);
+});
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 5,
   appVersion,

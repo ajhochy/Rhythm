@@ -1,0 +1,33 @@
+{
+  "issue": 1401,
+  "date": "2026-08-19",
+  "test_command": "cd apps/electron && node --test test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1401-c1",
+      "text": "apps/electron/src/main.mjs imports Notification from 'electron', requests permission, presents native OS notifications, keeps a dedup registry (Map/Set), and cancels resolved asks (.close()/.destroy()).",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-7-native-notifications.test.mjs",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1401-c2",
+      "text": "apps/electron/src/preload.cjs exposes NO arbitrary renderer-controlled notification/signing primitive.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-7-native-notifications.test.mjs",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1401-c3",
+      "text": "Both test files above pass.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-7-native-notifications.test.mjs; apps/electron/test/post-m1-phase-7-packaged-notifications.test.mjs",
+      "status": "pass",
+      "reason": null
+    }
+  ],
+  "not_tested": []
+}
