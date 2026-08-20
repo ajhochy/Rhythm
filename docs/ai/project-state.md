@@ -1,46 +1,42 @@
 # Rhythm — Project State
 
-**Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
-**Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
+## Current focus
+Bucket A task-sharing prerequisite is fixed and verified. MEGA PR #1368 remains merged; its new
+surfaces remain off by default (`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`,
+`RHYTHM_MCP_APPS_MODE=off`). Mobile smart-client rebuild PR #1383 is complete and still awaits
+manual smoke and human merge.
 
-## What shipped
-MEGA PR #1368 **merged** (all 59 issues; new surfaces off by default:
-`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`, `RHYTHM_MCP_APPS_MODE=off`).
+## Active branch / PR
+- Current prerequisite branch: `codex/mega-prereq-task-sharing` at `44c4c904`; no draft PR yet.
+- Mobile rebuild: `mobile/smart-client-rebuild` → draft PR #1383. Do not merge; AJ merges after
+  manual on-device testing.
 
-#1368 lifted the **React Native** halves of the mobile workstream off its branch
-(`f4c7c352`) while the server halves landed. PR #1383 restores that RN transport:
-#1270 profile fallback · #1308/#1311 attachment-limit constant · #1364/#1366
-session-lifecycle fencing · #1247 SSE permission replay. Five commits, one per issue.
+## In progress
+- The prerequisite unblocks Bucket A final verification. Contract
+  `docs/ai/contracts/task-bucket-a-task-sharing-prereq.json` passed 1/1.
+- PR #1383 restores the React Native transport for #1270, #1308/#1311, #1364/#1366, and #1247.
+  Its rebuild also restored the TestFlight `ascAppId` guard and wired the orphaned #1247 test into
+  static CI. Server-side #1363 remained on main and was verified intact.
+- The #1378/#1379 smart-client plan remains proposed and unimplemented; its authority and contract
+  versioning decisions remain open.
 
-#1363 (binding-repair CLI) was never reverted — server-side, already on main, verified intact.
+## Risks / known issues
+- Bucket A exposed a pre-existing main bug: collaborator PATCH responses falsely returned
+  `isShared: false` because `findById` omitted the list-ownership expression. The prerequisite
+  branch fixes it: owners remain false and collaborators return true.
+- Existing full-suite parallel flakes may still occur in api_server vitest or mobile Playwright;
+  isolated reruns pass.
+- PR #1383 still needs the #1364 on-device ready-state smoke check.
 
-## Test status (PR #1383)
-- mobile: tsc clean, eslint 0 errors, **Jest 61/61**, **Playwright 71/71**, `test:ci:static` exit 0,
-  contract green (**136 ops**) — matches mega-HEAD parity exactly.
-- api_server: mobile gateway + proxy 17/17; `session_binding_cleanup` 3/3.
-- **Contract anchors untouched → no fingerprint bump, no re-pair.**
-
-## Two regressions found during the rebuild
-1. `eas.json` lost `ascAppId` (revert reset it pre-#1175) — non-interactive TestFlight submit would
-   prompt and fail. Restored + the iOS preflight now requires a non-empty `ascAppId` (it previously
-   accepted an empty `ios: {}`).
-2. `issue-1247.test.mjs` was orphaned (no npm script ever ran it). Wired into `test:ci:static`.
-
-## NOT started — #1378 / #1379 smart-client plan
-`docs/ai/plan-mobile-smart-client.md` is a **proposed** plan to make the phone a client of the
-api_server mirror instead of a raw-engine proxy (Phases 0–4). It is unrelated to PR #1383's six
-issues and is **unimplemented**. Its four open decisions still need a call before Phase 1/2 —
-chiefly mirror authority vs. live backfill, and whether new mobile-native DTOs get a contract
-version separate from the engine fingerprint.
-
-## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
-(Both full mobile suites ran clean on #1383.)
+## Test status
+- Prerequisite verification PASS `bc34d61b-8165-455a-9019-b9c791736dc2`: focused 5/5, repo
+  24/24, controller 26/26, API 4480, and live 9 flows. Owner false, collaborator true,
+  unauthenticated 401, and cleanup complete. See
+  `docs/ai/runs/2026-08-20-task-sharing-prereq.md`.
+- PR #1383 remains green: mobile tsc/eslint, Jest 61/61, Playwright 71/71, static CI and 136-op
+  contract; api_server gateway/proxy 17/17 and session-binding cleanup 3/3. Contract anchors were
+  untouched.
 
 ## Next step
-AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
-and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
-```bash
-cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
-```
+Run Bucket A final verification against the verified prerequisite; the prerequisite draft PR has
+not been opened. Separately, AJ should manual-smoke PR #1383 on-device before merging.
