@@ -18,6 +18,7 @@
 
 import type { FetchFn, PairedMacClientOptions } from './types';
 import { normalizeProviderError } from './api-error';
+import { fetchWithColdStartBackoff } from '@/lib/opencode/cold-start-retry';
 import {
   executeAuthenticatedFetch,
   executeRequest,
@@ -89,6 +90,29 @@ export class PairedMacClient {
       init,
       fetchFn,
     });
+  }
+
+  /** Warm the relay transport without surfacing offline as an action error. */
+  async prewarm(fetchFn: FetchFn = fetch): Promise<boolean> {
+    try {
+      const response = await fetchWithColdStartBackoff(
+        () =>
+          this.fetchResponse(
+            '/mobile-gateway/health',
+            { method: 'GET' },
+            fetchFn,
+          ),
+        {
+          retryable: true,
+          // 503 is the gateway's definitive calm-offline answer. Warmup
+          // failures use 504, so only those spend the cold-start budget.
+          isDefinitive: (candidate) => candidate.status === 503,
+        },
+      );
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   /**

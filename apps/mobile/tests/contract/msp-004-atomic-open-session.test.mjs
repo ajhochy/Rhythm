@@ -234,7 +234,11 @@ test('issue-4-c3: the documented loading deadline terminates in timeout', async 
   clock.advance(harness.api.OPEN_PROJECT_SESSION_TIMEOUT_MS);
   const result = await opening;
 
-  assert.equal(harness.api.OPEN_PROJECT_SESSION_TIMEOUT_MS, 15_000);
+  assert.equal(
+    harness.api.OPEN_PROJECT_SESSION_TIMEOUT_MS,
+    40_000,
+    'cold gateway retries must remain inside one user-visible open attempt',
+  );
   assert.equal(result.kind, 'timeout');
   assert.equal(harness.commits.length, 0);
   pending.resolve({});

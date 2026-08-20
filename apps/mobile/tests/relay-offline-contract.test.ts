@@ -51,6 +51,15 @@ function makeClient() {
 }
 
 describe('Track 6 contract — MacOfflineError mapping', () => {
+  it('issue-1446: pre-warm consumes a transient MacOfflineError', async () => {
+    const client = makeClient();
+    await expect(
+      client.prewarm(
+        stubFetch(503, { error: 'mac_offline' }),
+      ),
+    ).resolves.toBe(false);
+  });
+
   it('maps 503 mac_offline to MacOfflineError', async () => {
     const client = makeClient();
     await expect(
