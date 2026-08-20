@@ -1849,3 +1849,121 @@ describe('issue-821-c5: unexpected errors never throw into the caller', () => {
     expect(outcome).toBe('skipped');
   });
 });
+
+describe('#1434 root-cause fix: revertProposal narrows a validated refine-config configPatch', () => {
+  // Bug this catches: containsScopeBearingPayload({configPatch:{agentConfigId,
+  // field,value}}) is true on its own (a bare {agentConfigId,field,value}
+  // object is detected as scope-bearing regardless of its parent key), so
+  // EVERY refine-config revert was misclassified as scope-bearing and
+  // refused as 'unsafe-legacy-scope' before it could ever reach the
+  // config-field restore branch below — including the human #857 manual
+  // /revert path and D2.4's auto_revert_service.ts. revertProposal now narrows
+  // past a genuinely validated configPatch (extractValidatedConfigPatch,
+  // shared with org_proposal_apply_service.ts) before the scope-bearing
+  // check, so a real refine-config revert succeeds instead of being refused.
+  it('reverts a refine-config proposal with a validated {agentConfigId,field,value} configPatch instead of refusing it as unsafe-legacy-scope', async () => {
+    const { revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Root-cause refine-config target',
+      icon: 'x',
+      modelProvider: 'anthropic',
+      modelId: 'claude-opus',
+    });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Swap model back',
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: config.id, field: 'model', value: 'anthropic/claude-opus' },
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'model',
+        priorValue: 'anthropic/claude-haiku',
+      }),
+      dedupKey: `1434-root-cause:refine-config:${config.id}`,
+    });
+    forceAppliedScopeFixture(proposal.id);
+    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+
+    const outcome = await revertProposal(measuring!);
+
+    expect(outcome).toBe('reverted');
+    const restored = configsRepo.getById(config.id);
+    expect(`${restored?.modelProvider}/${restored?.modelId}`).toBe('anthropic/claude-haiku');
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+  });
+
+  it('still refuses a whole-field revert of allowedSkillsJson via a refine-config configPatch (UNSAFE_WHOLE_FIELD_SCOPE_FIELDS)', async () => {
+    // The narrowing above must not weaken this existing security guard: an
+    // otherwise-validated configPatch targeting a legacy-scope field is
+    // still refused, because a whole-field snapshot can't distinguish a
+    // safe rollback from clobbering a LATER operator edit to that field.
+    const { revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const applied = JSON.stringify(['triage', 'follow-up']);
+    const config = configsRepo.insert({
+      label: 'Root-cause refine-config scope target',
+      icon: 'x',
+      allowedSkillsJson: applied,
+    });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Swap allowedSkillsJson back',
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: config.id, field: 'allowedSkillsJson', value: applied },
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedSkillsJson',
+        priorValue: JSON.stringify(['triage']),
+      }),
+      dedupKey: `1434-root-cause:refine-config-scope:${config.id}`,
+    });
+    forceAppliedScopeFixture(proposal.id);
+    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+
+    const outcome = await revertProposal(measuring!);
+
+    expect(outcome).toBe('unsafe-legacy-scope');
+    expect(configsRepo.getById(config.id)?.allowedSkillsJson).toBe(applied);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('measuring');
+  });
+
+  it('fails closed for an unrecognized refine-config field without writing config', async () => {
+    const { revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Malformed refine-config target',
+      icon: 'x',
+      modelProvider: 'anthropic',
+      modelId: 'claude-opus',
+    });
+    const before = JSON.stringify(configsRepo.getById(config.id));
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Unsupported temperature patch',
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: config.id, field: 'temperature', value: '0.2' },
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'model',
+        priorValue: 'anthropic/claude-haiku',
+      }),
+      dedupKey: `1434-root-cause:unrecognized-config-field:${config.id}`,
+    });
+    forceAppliedScopeFixture(proposal.id);
+    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+
+    expect(await revertProposal(measuring!)).toBe('unsafe-legacy-scope');
+    expect(JSON.stringify(configsRepo.getById(config.id))).toBe(before);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('measuring');
+  });
+});

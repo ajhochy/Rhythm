@@ -35,6 +35,7 @@
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { containsScopeBearingPayload } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
+import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -202,9 +203,71 @@ const PROTECTED_SCOPE_FIELDS = new Set([
   'allowedSkillsJson',
   'corePermissionsJson',
 ]);
+const CONFIG_PATCH_FIELD_SET = new Set<string>(CONFIG_PATCH_FIELDS);
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A `configPatch` subtree that genuinely matches the machine-applyable shape. */
+export interface ValidatedConfigPatch {
+  agentConfigId: string;
+  field: (typeof CONFIG_PATCH_FIELDS)[number];
+  value: unknown;
+}
+
+function isValidatedConfigPatchShape(value: unknown): value is ValidatedConfigPatch {
+  if (!isPlainRecord(value)) return false;
+  if (typeof value.agentConfigId !== 'string') return false;
+  if (typeof value.field !== 'string' || !CONFIG_PATCH_FIELD_SET.has(value.field)) return false;
+  if (!('value' in value)) return false;
+  const extras = Object.keys(value).filter(
+    (key) => key !== 'agentConfigId' && key !== 'field' && key !== 'value',
+  );
+  return extras.length === 0;
+}
+
+/**
+ * Split a genuinely validated `configPatch` ({agentConfigId, field, value},
+ * field in {@link CONFIG_PATCH_FIELDS}, no extra keys) out of a refine-config
+ * `changeJson` payload, re-attaching `agentConfigId` to the remainder so a
+ * scope-bearing check on "everything outside the patch" still sees it.
+ *
+ * #1434 root-cause fix: this narrowing was previously inlined only in this
+ * module's `strictChangeJsonPreflight`. `org_proposal_apply.ts`'s
+ * `revertProposal` ran `containsScopeBearingPayload` on the RAW `changeJson`
+ * (no narrowing), which meant EVERY refine-config revert was misclassified
+ * as scope-bearing and refused as `'unsafe-legacy-scope'` before it ever
+ * reached its real config-field restore branch —
+ * `containsScopeBearingPayload({configPatch:{agentConfigId,field,value}})`
+ * is `true` on its own, since a bare `{agentConfigId, field, value}` object
+ * is itself detected as scope-bearing regardless of its parent key. Both
+ * modules now share this exact narrowing so they can never drift apart on
+ * what counts as a validated machine-apply patch vs. an actual scope-bearing
+ * mutation.
+ *
+ * Returns `{configPatch: null, outsideConfigPatch: parsed}` — i.e. NO
+ * narrowing — whenever `parsed` isn't a plain object or `configPatch` isn't
+ * exactly that validated shape. A malformed or unexpected-shape payload
+ * fails closed: the caller's scope-bearing check then runs against the FULL
+ * payload, unnarrowed.
+ */
+export function extractValidatedConfigPatch(parsed: unknown): {
+  configPatch: ValidatedConfigPatch | null;
+  outsideConfigPatch: unknown;
+} {
+  if (!isPlainRecord(parsed)) return { configPatch: null, outsideConfigPatch: parsed };
+  const rawConfigPatch = parsed.configPatch;
+  if (!isValidatedConfigPatchShape(rawConfigPatch)) {
+    return { configPatch: null, outsideConfigPatch: parsed };
+  }
+  const outsideConfigPatch: Record<string, unknown> = Object.fromEntries(
+    Object.entries(parsed).filter(([key]) => key !== 'configPatch'),
+  );
+  if (!Object.prototype.hasOwnProperty.call(outsideConfigPatch, 'agentConfigId')) {
+    outsideConfigPatch.agentConfigId = rawConfigPatch.agentConfigId;
+  }
+  return { configPatch: rawConfigPatch, outsideConfigPatch };
 }
 
 function createAgentInspectionPayload(parsed: unknown): unknown {
@@ -264,19 +327,8 @@ function strictChangeJsonPreflight(proposal: AgentOrgProposal): void {
         );
       }
     }
-    const outsideConfigPatch = change
-      ? Object.fromEntries(Object.entries(change).filter(([key]) => key !== 'configPatch'))
-      : parsed;
-    if (
-      isPlainRecord(outsideConfigPatch) &&
-      configPatch &&
-      !Object.prototype.hasOwnProperty.call(outsideConfigPatch, 'agentConfigId')
-    ) {
-      outsideConfigPatch.agentConfigId = configPatch.agentConfigId;
-    }
-    if (
-      containsScopeBearingPayload(configPatch ? outsideConfigPatch : parsed)
-    ) {
+    const { outsideConfigPatch } = extractValidatedConfigPatch(parsed);
+    if (containsScopeBearingPayload(outsideConfigPatch)) {
       throw new Error("proposal kind 'refine-config' cannot carry a protected scope mutation");
     }
     return;

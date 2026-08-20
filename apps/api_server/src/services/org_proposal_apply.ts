@@ -84,6 +84,7 @@ import {
   type ScopeRemovalKind,
 } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
+import { extractValidatedConfigPatch } from './org_proposal_apply_service';
 
 export type ApplyOutcome = 'applied-ok' | 'refused-high-risk' | 'skipped';
 
@@ -168,6 +169,17 @@ export function isConfigFieldSnapshot(v: unknown): v is ConfigFieldSnapshot {
     (typeof c.priorValue === 'string' || c.priorValue === null)
   );
 }
+
+/**
+ * Fields whose {@link ConfigFieldSnapshot} is a whole-field snapshot with no
+ * exact post-apply value — restoring by field alone can't distinguish a safe
+ * rollback from clobbering a LATER operator edit to that same field, so a
+ * whole-field revert of any of these must always fail closed (see the
+ * `revertProposal` refusal branch below). #1434: shared with D2.4's
+ * `auto_revert_service.ts` so the human `/revert` path and the unattended
+ * auto-revert path can never drift apart on which fields this applies to.
+ */
+export const UNSAFE_WHOLE_FIELD_SCOPE_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson'] as const;
 
 /**
  * Read one logical field off a live agent_configs row in the representation
@@ -727,7 +739,20 @@ export async function revertProposal(
       return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
-    const isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(change);
+    // #1434 root-cause fix: narrow past a genuinely validated refine-config
+    // `configPatch` (shared with org_proposal_apply_service.ts's apply-time
+    // preflight) before the scope-bearing check below. Without this, a
+    // legitimate `{configPatch:{agentConfigId,field,value}}` refine-config
+    // change_json was ALWAYS misclassified as scope-bearing — a bare
+    // `{agentConfigId, field, value}` object is detected as scope-bearing on
+    // its own, regardless of its parent key — and every refine-config revert
+    // (including this service's own auto-revert callers) was refused as
+    // 'unsafe-legacy-scope' before it could ever reach the config-field
+    // restore branch below. `UNSAFE_WHOLE_FIELD_SCOPE_FIELDS` further down
+    // still refuses a whole-field revert of allowedMcpsJson/allowedSkillsJson/
+    // corePermissionsJson, so narrowing here does not weaken that guard.
+    const { outsideConfigPatch } = extractValidatedConfigPatch(change);
+    const isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(outsideConfigPatch);
     const hasScopeSnapshotVersion = isScopeSnapshotVersion(snapshot);
     if (isScopeBearing && !hasScopeSnapshotVersion) {
       logger.warn(`[org-proposal-apply] refusing invalid/legacy scope revert for '${proposal.id}'`);
@@ -933,9 +958,7 @@ export async function revertProposal(
       }
     } else if (
       isConfigFieldSnapshot(snapshot) &&
-      (snapshot.field === 'allowedMcpsJson' ||
-        snapshot.field === 'allowedSkillsJson' ||
-        snapshot.field === 'corePermissionsJson')
+      (UNSAFE_WHOLE_FIELD_SCOPE_FIELDS as readonly string[]).includes(snapshot.field)
     ) {
       logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
       return 'unsafe-legacy-scope';

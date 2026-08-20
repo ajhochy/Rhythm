@@ -37,12 +37,16 @@ got a full-suite + Flutter + GitNexus final pass before the draft PR):
   the placeholder. Details: `docs/ai/runs/2026-08-19-d2-3-auto-repair-service.md`,
   `docs/ai/contracts/issue-1433.json` (6/6 pass).
 
+Implemented, under verification:
+
+- **D2.4** (#1434) — auto-revert with a redacted full-trail alert after all
+  repair attempts fail. Restoration routes through `revertProposal`; the
+  verification repairs add deterministic proposal-CAS race coverage,
+  malformed refine-config fail-closed coverage, exact full-trail assertions,
+  and safe failure logging. Draft PR #1454 remains open.
+
 Not started:
 
-- **D2.4** (#1434) — auto-revert with alert after all repair attempts fail.
-  `auto_repair_service.ts` already has the trigger registry
-  (`registerAutoRevertTrigger`) wired and calling it on exhaustion; D2.4's
-  job is the alert/notification side.
 - **D2.5** (#1435) — full lifecycle wiring. `runAutoRepairAsync` currently
   has **zero real call sites** — `post_apply_monitor.ts`'s
   `registerAutoRepairTrigger` seam is still a log-only stub. Wiring monitor
@@ -62,6 +66,10 @@ Not started:
   logic with no new HTTP/WS entry point exercised deterministically by the
   contract test; nothing user-facing to smoke-test yet. D2.5 (real wiring)
   will need one.
+- D2.4 verification attempted the required sandbox lifecycle, but startup is
+  blocked before services launch by missing `@opentui/solid/preload`; cleanup
+  passed. Do not mutate dependencies or hand-start api_server. D2.5 owns the
+  first live route/wiring.
 
 ## Test status
 
@@ -73,12 +81,19 @@ Not started:
   diff's files); Flutter `dart format` + `flutter analyze` clean; GitNexus
   `detect_changes()` — 4 files, 0 changed symbols (new files), risk low.
 - No full-suite run has happened since `1a35f352` other than the D2.3 pass
-  above — that pass covers everything through `a8f0607d`.
+  above until the D2.4 verification-repair run.
+- D2.4 verification repair: focused suites 116/116 and the 9-file regression
+  set 359/359; `tsc --noEmit` and build pass. Full api_server suite: 694 files
+  / 5675 tests — 5488 passed, 7 failed, 180 skipped. The 7 failures are the
+  unchanged documented baseline across issue_1219_memory_provenance,
+  delegation_caller_identity, issue_1135_audit_lock_contract,
+  memory_index_rebuild, and memory_injection.
 
 ## Next step
 
-D2.4 (#1434, auto-revert-with-alert) next, then D2.5 (#1435, real lifecycle
-wiring — the first point `runAutoRepairAsync` gets a live call site).
+D2.4 (#1434, auto-revert-with-alert) is implemented and under verification;
+D2.5 (#1435, real lifecycle wiring — the first point `runAutoRepairAsync`
+gets a live call site) remains next and not started.
 PR #1454 stays draft until AJ manually smokes it; do not merge. Once D2's
 whole lifecycle (D2.1–D2.5) is accepted, fold this branch back per this
 campaign's established merge pattern (see prior `merge: causal-runtime-v2 …`
