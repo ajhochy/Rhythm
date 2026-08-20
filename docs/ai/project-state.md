@@ -1,46 +1,39 @@
 # Rhythm — Project State
 
-**Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
-**Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
+## Current focus
 
-## What shipped
-MEGA PR #1368 **merged** (all 59 issues; new surfaces off by default:
-`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`, `RHYTHM_MCP_APPS_MODE=off`).
+- **H1 Flutter fixes (#1421, #1381, #1445, #1074):** verified and ready for a draft PR.
+- Preserve the unrelated active workflows: Org Optimizer/self-improvement issue #1448, mobile smart-client PR #1383, and Numbat OpenCode observability PR #1453.
 
-#1368 lifted the **React Native** halves of the mobile workstream off its branch
-(`f4c7c352`) while the server halves landed. PR #1383 restores that RN transport:
-#1270 profile fallback · #1308/#1311 attachment-limit constant · #1364/#1366
-session-lifecycle fencing · #1247 SSE permission replay. Five commits, one per issue.
+## Active branch / PR
 
-#1363 (binding-repair CLI) was never reverted — server-side, already on main, verified intact.
+- H1: `codex/mega-h1-flutter-fixes` at `2011d6c2`; verification PASS `dff115db-33d1-45b8-b4f1-1c14f7516a35`; draft PR not opened yet.
+- Org Optimizer/self-improvement: `agent-stack/si-causal-runtime-v2-codex`; issue #1448 continues beyond foundation draft PR #1398, which remains unaffected.
+- Mobile smart client: `mobile/smart-client-rebuild` → PR #1383. Do not merge before manual smoke.
+- Numbat observability: `numbat-opencode-observability` → PR #1453. Do not merge before manual smoke.
 
-## Test status (PR #1383)
-- mobile: tsc clean, eslint 0 errors, **Jest 61/61**, **Playwright 71/71**, `test:ci:static` exit 0,
-  contract green (**136 ops**) — matches mega-HEAD parity exactly.
-- api_server: mobile gateway + proxy 17/17; `session_binding_cleanup` 3/3.
-- **Contract anchors untouched → no fingerprint bump, no re-pair.**
+## In progress
 
-## Two regressions found during the rebuild
-1. `eas.json` lost `ascAppId` (revert reset it pre-#1175) — non-interactive TestFlight submit would
-   prompt and fail. Restored + the iOS preflight now requires a non-empty `ascAppId` (it previously
-   accepted an empty `ios: {}`).
-2. `issue-1247.test.mjs` was orphaned (no npm script ever ran it). Wired into `test:ci:static`.
+- H1 automated verification is complete. Contract: `docs/ai/contracts/issue-1421-1381-1445-1074.json`; run note: `docs/ai/runs/2026-08-19-mega-h1-flutter-fixes.md`.
+- Contract result: 9 passed and 3 explicit manual `not_tested` criteria.
+- Org Optimizer causal-runtime C2-D S6 remains the next live-sandbox slice before C3–C6.
+- PR #1453 remains observe-only/local-only Numbat monitoring, separate from Rhythm run-quality telemetry.
 
-## NOT started — #1378 / #1379 smart-client plan
-`docs/ai/plan-mobile-smart-client.md` is a **proposed** plan to make the phone a client of the
-api_server mirror instead of a raw-engine proxy (Phases 0–4). It is unrelated to PR #1383's six
-issues and is **unimplemented**. Its four open decisions still need a call before Phase 1/2 —
-chiefly mirror authority vs. live backfill, and whether new mobile-native DTOs get a contract
-version separate from the engine fingerprint.
+## Risks / known issues
 
-## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
-(Both full mobile suites ran clean on #1383.)
+- H1 still requires manual smoke for the instant-create failure SnackBar, signed-in packaged-artifact restart persistence, and packaged startup against the real remote relay.
+- H1 introduces no destructive migration or schema change.
+- Org Optimizer receipt filtering is not yet load-bearing; its existing fail-closed guard remains the promotion protection until C3/C4.
+- PR #1383 still requires on-device ready-state smoke; PR #1453 still requires its documented Numbat hook smoke.
+
+## Test status
+
+- H1 Flutter: format and analyze passed; focused 80/80; golden 11/11; full 1226/1226.
+- H1 API: typecheck and build passed; relay 10/10; full suite 4480 executed passed, 168 skipped.
+- Sandbox live relay evidence passed with sanitized output; protected ports remained intact.
+- Org Optimizer remains on its recorded per-slice focused-test/build/typecheck gate; its full API suite is deferred to the campaign ship gate.
+- PR #1383 remains green on its recorded mobile/API gates. PR #1453 remains verified with live-sandbox evidence, 13/13 unit tests, and clean TypeScript typecheck.
 
 ## Next step
-AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
-and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
-```bash
-cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
-```
+
+Open the H1 draft PR, then hand off the three remaining H1 manual-smoke checks to AJ. Keep the Org Optimizer, PR #1383, and PR #1453 workflows unchanged.
