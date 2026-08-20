@@ -2,12 +2,12 @@
 
 ## Current focus
 
-- **Bucket H2 API/OCU (#1058, #1063, #1088):** automated verification passed; draft PR not yet opened.
+- **Bucket H2 API/OCU (#1058, #1063, #1088):** automated verification passed; draft PR #1461 open.
 - Preserve unrelated active work: Org Optimizer/self-improvement #1448, mobile smart-client PR #1383, Numbat observability PR #1453, H1 Flutter fixes PR #1459, and Bucket C relay/mobile PR #1460.
 
 ## Active branch / PR
 
-- H2: `codex/mega-h2-api-ocu` at `da22022e`; verification PASS `e75c2091-c349-4c24-85b3-52469ea58f95`, preserving functional evidence from `721a2db7-14da-4d11-915d-22a478abd6f1`; no draft PR yet.
+- H2: `codex/mega-h2-api-ocu` → draft PR #1461; verification PASS `e75c2091-c349-4c24-85b3-52469ea58f95`, preserving functional evidence from `721a2db7-14da-4d11-915d-22a478abd6f1`.
 - Org Optimizer/self-improvement: `agent-stack/si-causal-runtime-v2-codex`; issue #1448 continues beyond unaffected foundation draft PR #1398.
 - Mobile smart client: `mobile/smart-client-rebuild` → PR #1383; manual smoke pending.
 - Numbat observability: `numbat-opencode-observability` → PR #1453; manual smoke pending.
@@ -35,4 +35,4 @@
 
 ## Next step
 
-Open the H2 draft PR, then hand off the prudent transcript-header placement/tooltip smoke. Keep Org Optimizer, PR #1383, PR #1453, PR #1459, and PR #1460 workflows unchanged.
+AJ: run the prudent transcript-header placement/tooltip smoke on draft PR #1461. Keep Org Optimizer, PR #1383, PR #1453, PR #1459, and PR #1460 workflows unchanged.
