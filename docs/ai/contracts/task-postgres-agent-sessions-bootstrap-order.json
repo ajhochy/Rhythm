@@ -57,14 +57,14 @@
       "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c8",
       "text": "role separation tests",
       "mode": "integration",
-      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "test": "apps/api_server/src/__tests__/issue_755_role_separation.test.ts + apps/api_server/src/__tests__/relay_role.test.ts",
       "status": "pass"
     },
     {
       "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c9",
       "text": "full API build/typecheck",
       "mode": "integration",
-      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "test": "apps/api_server: npm run build && node_modules/.bin/tsc --noEmit",
       "status": "pass"
     }
   ],
