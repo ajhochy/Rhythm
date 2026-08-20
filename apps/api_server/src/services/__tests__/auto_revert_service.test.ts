@@ -166,6 +166,9 @@ describe('D2.4 runAutoRevertAsync', () => {
     const persisted = await eventsRepo.findByProposalIdAsync('proposal-original');
     expect(persisted?.revertStatus).toBe('revert_failed');
     expect(persisted?.alertPayloadJson).toBeTruthy();
+    const alert = JSON.parse(persisted!.alertPayloadJson!);
+    expect(alert.revert.outcome).toBe('revert_failed');
+    expect(alert.revert.conflict.reason).toBe('proposal-cas-conflict');
     expect(warn).toHaveBeenCalledWith("[auto-revert] revert_failed for proposal 'proposal-original'");
   });
 

@@ -18,7 +18,7 @@
       "criterion_id": "issue-1434-c2",
       "text": "CAS revert fails (target drifted) -> `revert_failed` recorded with conflict details.",
       "mode": "unit",
-      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('proposal CAS race: records proposal-cas-conflict, leaves the live profile byte-exact, and persists the alert')",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('proposal CAS race: records proposal-cas-conflict, leaves the live profile byte-exact, and persists the alert'); the persisted alert directly asserts revert.outcome=revert_failed and revert.conflict.reason=proposal-cas-conflict",
       "status": "pass"
     },
     {
@@ -32,14 +32,14 @@
       "criterion_id": "issue-1434-c4",
       "text": "No raw secrets in the alert or auto-revert failure logs.",
       "mode": "unit",
-      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('never persists raw secret-shaped text from repair rationale into the alert payload' + exact safe logger assertion in the proposal CAS race test)",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts (secret-redaction test plus exact safe logger assertion)",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1434-c5",
       "text": "Focused tests pass (RED -> GREEN).",
       "mode": "unit",
-      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts (whole file — 7 tests; verification-repair RED was the exact safe logger assertion exposing serialized conflict details)",
+      "test": "The maintained 9-file D2.4 regression command passes 359 tests.",
       "status": "pass"
     },
     {
@@ -51,47 +51,50 @@
     },
     {
       "criterion_id": "issue-1434-c7",
-      "text": "SECURITY FIX: refuse a whole-field revert of a legacy-scope field (allowedMcpsJson / allowedSkillsJson / corePermissionsJson) even after all repairs are exhausted, mirroring org_proposal_apply.ts's revertProposal() guard that this service otherwise bypasses (containsScopeBearingPayload). Without this, auto-revert could silently clobber a later operator scope edit with no human in the loop.",
+      "text": "Auto-revert routes through revertProposal and therefore inherits UNSAFE_WHOLE_FIELD_SCOPE_FIELDS: a whole-field allowedSkillsJson revert is refused, the live value remains unchanged, revert_failed is persisted, and the alert is persisted.",
       "mode": "unit",
       "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('security fix (#1434): refuses a whole-field revert of allowedSkillsJson even after all 3 repairs are exhausted, and leaves the live config byte-for-byte unchanged')",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1434-c8",
-      "text": "ROOT-CAUSE FIX (folded into this contract, second session): org_proposal_apply.ts's revertProposal() must correctly handle a refine-config proposal with a validated {agentConfigId,field,value} configPatch — restoring benign fields, refusing legacy-scope fields, and failing closed without a write for malformed/unrecognized fields — instead of misclassifying every valid changeJson or narrowing an unsupported patch.",
+      "text": "revertProposal handles a refine-config proposal with a validated {agentConfigId,field,value} configPatch: benign fields restore, legacy-scope fields are refused, and malformed or unrecognized fields fail closed without a write.",
       "mode": "unit",
-      "test": "apps/api_server/src/__tests__/org_proposal_apply.test.ts ('#1434 root-cause fix: revertProposal narrows a validated refine-config configPatch' — 3 cases: benign field reverts, allowedSkillsJson whole-field revert refused, temperature field refused with no write)",
+      "test": "apps/api_server/src/__tests__/org_proposal_apply.test.ts ('#1434 root-cause fix: revertProposal narrows a validated refine-config configPatch')",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1434-c9",
-      "text": "The configPatch narrowing used to distinguish a validated machine-apply patch from an actual scope-bearing mutation is a single shared helper (extractValidatedConfigPatch), reused by both org_proposal_apply_service.ts's apply-time preflight and org_proposal_apply.ts's revertProposal, so the two can never drift apart on what counts as validated.",
+      "text": "extractValidatedConfigPatch is shared by apply and revert paths and requires field to be a member of CONFIG_PATCH_FIELDS.",
       "mode": "unit",
-      "test": "apps/api_server/src/__tests__/w1_corrective_6_boundaries.test.ts (existing narrowing/extras/protected-field regression suite, re-verified green after the extraction) + apps/api_server/src/__tests__/org_proposal_apply.test.ts ('#1434 root-cause fix' block)",
+      "test": "apps/api_server/src/__tests__/w1_corrective_6_boundaries.test.ts plus apps/api_server/src/__tests__/org_proposal_apply.test.ts",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1434-c10",
-      "text": "auto_revert_service.ts routes restoration through revertProposal instead of the hand-rolled agentConfigFieldPatch/readAgentConfigField/projectAgentProfileAfterWrite sequence, and the interim UNSAFE_WHOLE_FIELD_SCOPE_FIELDS guard added in session 631c9409 is deleted (revertProposal now enforces the identical property natively) — the allowedSkillsJson regression test (issue-1434-c7) stays green, now satisfied by revertProposal's own refusal.",
+      "text": "auto_revert_service routes restoration and scope enforcement through the single revertProposal path.",
       "mode": "unit",
-      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts (all 7 tests, including the c2 CAS-race and c7 security regressions, passing via the shared revertProposal path)",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts, including the CAS-race and allowedSkillsJson security regressions",
       "status": "pass"
     }
   ],
   "not_tested": [],
-  "judgment_calls": [
-    "SHARP-EDGE HAZARD VERDICT (requested by dispatch): PostApplyEvent.preChangeSnapshotJson IS run through redactSecrets() at write time (post_apply_events_repository.ts createAsync/updateStatusAsync), same as alert_payload_json. If it were ever used as the restoration source for a live config write, a secret-shaped priorValue would restore as the literal string '[redacted]' — real corruption. This service does NOT use preChangeSnapshotJson for restoration at all; it restores from AgentOrgProposal.beforeSnapshotJson (a separate column on agent_org_proposals), which is NEVER routed through redactSecrets (confirmed: only post_apply_events_repository.ts imports/calls redactSecrets; agent_org_proposals_repository.ts does not). Pinned by the 'sharp edge' test, which plants a Bearer-shaped string as a system_prompt priorValue and asserts the restored live config equals it byte-exact (not '[redacted]'). Conclusion: NOT a hazard for this implementation. Follow-up worth filing: if a future caller (D2.5) ever repurposes preChangeSnapshotJson as a restoration source instead of the documented opaque CAS pointer, it will hit exactly this corruption bug — the model's own doc comment already warns against this, but there's no type-level enforcement.",
-    "SECOND SHARP EDGE FOUND (not asked for, but load-bearing for this implementation): org_proposal_apply.ts's revertProposal() — the codebase's own existing generic revert primitive, and the naive candidate for 'the existing CAS revert path' — cannot be reused here. Its containsScopeBearingPayload() legacy-scope guard refuses ANY changeJson whose payload contains `agentConfigId` alongside a `field`/`value` key anywhere in the object tree, unless the beforeSnapshotJson also carries a scope-v2 `version` tag. That is exactly the shape refineConfigApplier's own validator requires for a machine-applyable refine-config patch ('a machine-applyable configPatch {agentConfigId, field, value}') and the shape D2.3's repair proposals use. Empirically confirmed: containsScopeBearingPayload({configPatch:{agentConfigId,field:'model',value:'x'}}) === true. Routing this service's real-world changeJson through revertProposal would refuse EVERY revert as 'unsafe-legacy-scope'. Worked around by calling the same underlying exported primitives revertProposal's own isConfigFieldSnapshot branch uses (agentConfigFieldPatch, readAgentConfigField, projectAgentProfileAfterWrite with cause 'scope-revert') directly, bypassing the buggy gate — not by modifying revertProposal itself (out of scope for D2.4; the gap looks pre-existing and would also affect a human's #857 manual /revert of any refine-config proposal with a full field+value configPatch, independent of this feature — worth its own follow-up issue).",
-    "Restoration requires the proposal state machine's applied -> measuring hop (ALLOWED_TRANSITIONS forbids applied -> reverted directly) before it can reach 'reverted'. That transition is CAS-guarded with expectedRevision = the proposal's own revision read moments earlier — this IS the drift/conflict detector for issue-1434-c2 (a concurrently-touched original proposal, e.g. a human revert or the unrelated org-optimizer measure sweep picking it up first, fails this check and/or the preceding proposal.status !== 'applied' guard, never silently clobbering whatever state it's actually in).",
-    "Alert payload (`{proposalId, profileId, changeType, originalChange, repairAttempts, revert, generatedAt}`) is written through PostApplyEventsRepository.updateStatusAsync, which already redacts alert_payload_json via redactSecrets before persisting — this service does not redact manually, it relies on the existing repository-level guard (same defense-in-depth precedent documented on the PostApplyEvent model).",
-    "No existing file was modified — auto_revert_service.ts and its test are the only two new files, per the dispatch's explicit expectation.",
-    "SECURITY FOLLOW-UP FIX (post-review, same session's contract, second pass): the ORIGINAL implementation above missed that org_proposal_apply.ts's revertProposal() refuses a whole-field revert of allowedMcpsJson/allowedSkillsJson/corePermissionsJson ('unsafe-legacy-scope') — a guard this service's direct-helper-reuse strategy silently bypassed, since it calls agentConfigFieldPatch/readAgentConfigField directly rather than through revertProposal. allowedSkillsJson is a real reachable target: it is in CONFIG_PATCH_FIELDS (a legal refine-config repair target used by D2.3's own auto-repair) AND in the refused set. Fixed by exporting UNSAFE_WHOLE_FIELD_SCOPE_FIELDS from org_proposal_apply.ts (previously an inline literal in the revertProposal else-if) and adding the identical refusal check in auto_revert_service.ts before the field restore, so both paths share one source of truth and can never drift. allowedDelegatesJson (also in CONFIG_PATCH_FIELDS) is deliberately NOT in the refused set, matching revertProposal's existing established scope exactly — not tightened beyond it. Falsification: the new regression test was confirmed to fail (outcome 'reverted' instead of 'revert_failed', live config silently clobbered) with the guard temporarily disabled, then confirmed green again with it restored.",
-    "ROOT-CAUSE FIX (third session, this dispatch): the 'second sharp edge' from the first session — 'revertProposal cannot be reused, containsScopeBearingPayload refuses every configPatch{agentConfigId,field,value}' — was itself the bug, not a fixed constraint to route around. Root cause: at org_proposal_apply.ts's revertProposal() line ~741 (`isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(change)`), `change` for a refine-config proposal is the RAW changeJson `{configPatch:{agentConfigId,field,value}}`. containsScopeBearingPayload treats a bare {agentConfigId,field,value} object as scope-bearing on its own (target=true via the agentConfigId key, operation=true via the field+value keys, at ANY depth in the tree — combine() propagates a child's `detected` upward regardless of the parent's own keys), so this was true unconditionally for every refine-config revert, never reaching the isConfigFieldSnapshot restore branch (~951) or the UNSAFE_WHOLE_FIELD_SCOPE_FIELDS refusal branch (~946) that already existed for exactly this snapshot shape.",
-    "The apply path (org_proposal_apply_service.ts's strictChangeJsonPreflight, lines ~248-283 before this fix) already solved the identical problem for its own refine-config gate: it narrows past a validated configPatch (splitting it out of the payload, re-attaching agentConfigId to the remainder) before running containsScopeBearingPayload on 'everything outside the patch'. Extracted that inline narrowing into a new exported function, extractValidatedConfigPatch(parsed), shared by BOTH modules — org_proposal_apply_service.ts's preflight now calls it instead of hand-rolling the same logic, and org_proposal_apply.ts's revertProposal calls it too. 'Validated' is stricter than the apply path's original inline check: extractValidatedConfigPatch additionally requires configPatch.field to be a genuine CONFIG_PATCH_FIELDS member (org_diagnosis_types.ts:116), not just any {agentConfigId,field,value}-shaped object with no extra keys — a malformed/unrecognized field now fails closed (no narrowing, full-payload scope check) rather than silently narrowing. Verified this stricter check does not regress any existing passing test: grepped every configPatch.field value used across the test suite (model, allowedSkillsJson, system_prompt, temperature) and confirmed the one non-CONFIG_PATCH_FIELDS value ('temperature') only appears in org_proposal_experiment_service.test.ts, which tests reserveRunEnrollment, not strictChangeJsonPreflight/validateProposalChange — unaffected.",
-    "No circular import risk: org_proposal_apply_service.ts (and its own imports — scope_mutation_contract.ts, strict_json.ts, org_diagnosis_types.ts) do not import org_proposal_apply.ts anywhere, so org_proposal_apply.ts importing extractValidatedConfigPatch FROM org_proposal_apply_service.ts is a one-directional edge. Confirmed by grep before adding the import.",
-    "Test-by-test review of every pre-existing assertion the dispatch flagged as currently expecting revertProposal(...) === 'unsafe-legacy-scope' (org_proposal_apply.test.ts lines ~262,343,587,614,746; w1_corrective_4_contract.test.ts line ~364): ALL SIX use a scope-mutation proposal kind (tighten-scope/prune-scope/refine-scope/broaden-scope), where `isScopeMutationKind` is already true and short-circuits `isScopeBearing` to true via the `||` regardless of the containsScopeBearingPayload narrowing — none of them exercise a refine-config (or any other non-scope-kind) changeJson shaped like a configPatch, so NONE of them were affected by this fix. Re-ran all six files after the fix: 358 tests across auto_revert_service/auto_repair_service/org_proposal_apply/issue_857_contract/w1_corrective_4/w1_corrective_5/w1_corrective_6_boundaries/w1_corrective_6_revisions/agent_org_proposals — all pass unchanged, zero assertion edits needed. This was verified by reading each flagged test's full context (kind + changeJson) before running anything, not assumed.",
-    "auto_revert_service.ts's interim UNSAFE_WHOLE_FIELD_SCOPE_FIELDS guard (added second pass, session 631c9409) is DELETED. runAutoRevertAsync now: (1) still performs its own CAS-guarded applied->measuring transition (revertProposal does not do this hop — ALLOWED_TRANSITIONS forbids applied->reverted directly, and revertProposal expects a proposal already at a revertable status), then (2) calls revertProposal(measuring, {proposalsRepo, configsRepo}) for the actual restore/refusal + the final measuring->reverted transition, then (3) keeps an independent post-write verification (re-reading the live field and comparing to the snapshot's priorValue) as defense-in-depth on top of revertProposal's own write. revertProposal's own UNSAFE_WHOLE_FIELD_SCOPE_FIELDS branch now supplies the exact same refusal the interim guard used to hand-roll — mapped onto 'revert_failed' with {reason:'unsafe-legacy-scope', field, proposalId}, matching the existing alert/status contract. All 7 auto_revert_service.test.ts assertions (including the allowedSkillsJson security regression, issue-1434-c7) pass unchanged.",
-    "Genuine RED->GREEN evidence for the specific root-cause fix (added retroactively for this dispatch, since implementation began before a dedicated failing test existed for THIS exact defect): added two new focused tests to org_proposal_apply.test.ts under '#1434 root-cause fix: revertProposal narrows a validated refine-config configPatch' — one asserting a benign refine-config field (model) now reverts instead of refusing, one asserting allowedSkillsJson is still refused (the narrowing must not weaken the existing security guard). Falsified the first test by git-stashing org_proposal_apply.ts + org_proposal_apply_service.ts back to their pre-fix state and re-running: confirmed RED ('unsafe-legacy-scope' instead of 'reverted'), then restored the fix (git stash pop) and confirmed GREEN. The second (already-correct-behavior) test passed in both states, as expected.",
-    "Full apps/api_server suite after the fix: 582 files / 5672 tests — 5485 passed, 7 failed, 107 skipped. All 7 failures independently confirmed pre-existing/unrelated (issue_1219_memory_provenance x2, memory_injection x2, delegation_caller_identity x1, issue_1135_audit_lock_contract x1, memory_index_rebuild x1) — grepped each failing file for any import of org_proposal_apply/org_proposal_apply_service/auto_revert_service and found none. Matches this dispatch's own documented known-unrelated-failure list exactly."
-  ]
+  "current_evidence": {
+    "files": [
+      "apps/api_server/src/services/org_proposal_apply.ts",
+      "apps/api_server/src/services/org_proposal_apply_service.ts",
+      "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "apps/api_server/src/services/auto_revert_service.ts",
+      "apps/api_server/src/services/__tests__/auto_revert_service.test.ts",
+      "docs/ai/contracts/issue-1434.json",
+      "docs/ai/runs/2026-08-19-d2-4-auto-revert-service.md",
+      "docs/ai/project-state.md"
+    ],
+    "focused": "9 files / 359 tests pass",
+    "independent_full_suite": "694 files / 5675 tests: 5488 pass, 7 known unrelated fail, 180 skipped",
+    "typecheck": "pass",
+    "build": "pass",
+    "gitnexus_risk": "UNKNOWN because the index points at a stale checkout and cannot map the worktree symbols",
+    "sandbox": "BLOCKED before services launch by missing @opentui/solid/preload; cleanup passed"
+  }
 }
