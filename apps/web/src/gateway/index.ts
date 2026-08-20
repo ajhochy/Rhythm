@@ -48,6 +48,9 @@ export interface RendererGateway {
 export interface LiveGatewayConfig {
   apiBase: string;
   engineBase: string;
+  productionApiBase: string;
+  expectedApiBase?: string;
+  expectedEngineBase?: string;
   taskToken?: string;
 }
 
@@ -55,6 +58,9 @@ export interface GatewayEnvironment {
   mode?: string;
   apiBase?: string;
   engineBase?: string;
+  productionApiBase?: string;
+  expectedApiBase?: string;
+  expectedEngineBase?: string;
   taskToken?: string;
 }
 
@@ -62,12 +68,31 @@ type Fetcher = typeof fetch;
 
 const ports: Record<GatewayService, string> = { api: '4098', engine: '4097' };
 
-export function validateLiveBase(value: string | undefined, service: GatewayService): string {
-  const expected = `http://127.0.0.1:${ports[service]}`;
+export function validateLiveBase(value: string | undefined, service: GatewayService, expectedValue?: string): string {
+  const fallback = `http://127.0.0.1:${ports[service]}`;
+  let expected: string;
+  try {
+    const url = new URL(expectedValue ?? fallback);
+    const port = Number(url.port);
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || port < 1024 || port > 65535 || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error();
+    expected = `http://127.0.0.1:${port}`;
+  } catch {
+    throw new Error(`Live configuration error: trusted ${service} expected base must be plain loopback HTTP on an unprivileged port`);
+  }
   if (!value || (value !== expected && value !== `${expected}/`)) {
     throw new Error(`Live configuration error: ${service} base must be exactly ${expected}`);
   }
   return expected;
+}
+
+export function validateProductionApiBase(value: string | undefined): string {
+  try {
+    const url = new URL(value ?? '');
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    throw new Error('Live configuration error: production API base must be an HTTP(S) URL without credentials, query, or fragment');
+  }
 }
 
 const unsupported = (mode: GatewayMode, operation: string) =>
@@ -86,8 +111,10 @@ export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
 }
 
 export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = fetch): RendererGateway {
-  const apiBase = validateLiveBase(config.apiBase, 'api');
-  const engineBase = validateLiveBase(config.engineBase, 'engine');
+  const apiBase = validateLiveBase(config.apiBase, 'api', config.expectedApiBase);
+  const engineBase = validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
+  if (apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
+  const productionApiBase = validateProductionApiBase(config.productionApiBase);
 
   const check = async (service: GatewayService, url: string): Promise<GatewayHealth> => {
     try {
@@ -109,19 +136,19 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
     // every real user. Two wiring units independently reached for it because these domains were not
     // exposed here yet.
     domains: {
-      tasks: createLiveTasksGateway(apiBase, config.taskToken),
+      tasks: createLiveTasksGateway(productionApiBase, config.taskToken),
       sessions: createLiveSessionsGateway(apiBase, config.taskToken),
-      dashboard: createLiveDashboardGateway(apiBase, config.taskToken),
-      planner: createLivePlannerGateway(apiBase, config.taskToken),
-      rhythms: createLiveRhythmsGateway(apiBase, config.taskToken),
-      projects: createLiveProjectsGateway(apiBase, config.taskToken),
-      messages: createLiveMessagesGateway(apiBase, config.taskToken),
-      facilities: createLiveFacilitiesGateway(apiBase, config.taskToken),
-      automations: createLiveAutomationsGateway(apiBase, config.taskToken),
-      integrations: createLiveIntegrationsGateway(apiBase, config.taskToken),
-      liveArtifacts: createLiveArtifactsGateway(apiBase, config.taskToken),
-      userPreferences: createLiveUserPreferencesGateway(apiBase, config.taskToken),
-      notifications: createLiveNotificationsGateway(apiBase, config.taskToken),
+      dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken),
+      planner: createLivePlannerGateway(productionApiBase, config.taskToken),
+      rhythms: createLiveRhythmsGateway(productionApiBase, config.taskToken),
+      projects: createLiveProjectsGateway(productionApiBase, config.taskToken),
+      messages: createLiveMessagesGateway(productionApiBase, config.taskToken),
+      facilities: createLiveFacilitiesGateway(productionApiBase, config.taskToken),
+      automations: createLiveAutomationsGateway(productionApiBase, config.taskToken),
+      integrations: createLiveIntegrationsGateway(productionApiBase, config.taskToken),
+      liveArtifacts: createLiveArtifactsGateway(productionApiBase, config.taskToken),
+      userPreferences: createLiveUserPreferencesGateway(productionApiBase, config.taskToken),
+      notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken),
       memory: createLiveMemoryGateway(apiBase, config.taskToken),
       permissions: createLivePermissionGateway(apiBase, config.taskToken),
       approvals: createLiveApprovalGateway(apiBase, config.taskToken),
@@ -149,7 +176,14 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
   if (environment.mode !== 'live') {
     throw new Error('Live configuration error: gateway mode must be fixture or live');
   }
-  return createLiveGateway({ apiBase: environment.apiBase ?? '', engineBase: environment.engineBase ?? '', taskToken: environment.taskToken });
+  return createLiveGateway({
+    apiBase: environment.apiBase ?? '',
+    engineBase: environment.engineBase ?? '',
+    productionApiBase: environment.productionApiBase ?? '',
+    expectedApiBase: environment.expectedApiBase,
+    expectedEngineBase: environment.expectedEngineBase,
+    taskToken: environment.taskToken,
+  });
 }
 import { createLiveTasksGateway, type TaskGateway } from './tasks';
 import { createLiveSessionsGateway, type SessionGateway } from './sessions';

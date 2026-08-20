@@ -6,10 +6,14 @@ const runtimeValue = (name) => {
   const value = process.env[name]?.trim();
   return value || undefined;
 };
-const gateway = Object.freeze({
+const gateway = Object.freeze(Object.defineProperties({
   apiBase: runtimeValue('RHYTHM_LIVE_API_URL'),
   engineBase: runtimeValue('RHYTHM_LIVE_ENGINE_URL'),
-});
+}, {
+  // ponytail: keep the established enumerable bridge receipt stable while extending it additively.
+  productionApiBase: { value: runtimeValue('RHYTHM_PRODUCTION_API_URL') },
+  setProductionApiBase: { value: (/** @type {string} */ value) => ipcRenderer.invoke('rhythm:production-api:set', value) },
+}));
 const auth = Object.freeze({
   signInWithGoogle: () => ipcRenderer.invoke('rhythm:auth:google-sign-in'),
 });
@@ -33,6 +37,12 @@ const agentServer = Object.freeze({
     ipcRenderer.on('rhythm:agent-server:status-changed', listener);
     return () => ipcRenderer.removeListener('rhythm:agent-server:status-changed', listener);
   },
+});
+// Renderer code can only reconcile pending approval IDs with the main process. Main validates the
+// closed approval/session target schema and owns all text, presentation, dedupe, and navigation.
+window.addEventListener('rhythm:approval-notifications', (event) => {
+  if (!(event instanceof CustomEvent)) return;
+  ipcRenderer.send('rhythm:approval-notifications:sync', event.detail);
 });
 contextBridge.exposeInMainWorld('rhythmShell', Object.freeze({
   version: 5,

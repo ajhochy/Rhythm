@@ -2,11 +2,12 @@ import { expect, request as playwrightRequest, test, type APIRequestContext, typ
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
-import { access } from 'node:fs/promises';
+import { access, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { liveEnvironment } from '../live-environment';
 
-const apiBase = 'http://127.0.0.1:4098';
-const engineBase = 'http://127.0.0.1:4097';
+const { apiBase, engineBase, wsBase } = liveEnvironment();
 const providerPort = 1234;
 const vitePort = 4175;
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH;
@@ -14,6 +15,7 @@ const live = process.env.RHYTHM_LIVE_E2E === '1';
 const requireApi = createRequire(new URL('../../../api_server/package.json', import.meta.url));
 
 test.skip(!live, 'requires RHYTHM_LIVE_E2E=1');
+test.use({ bypassCSP: true });
 test.setTimeout(600_000);
 
 type Db = {
@@ -76,7 +78,10 @@ async function startLiveWeb(token: string) {
       ...process.env,
       VITE_RHYTHM_GATEWAY_MODE: 'live',
       VITE_RHYTHM_API_BASE: apiBase,
+      VITE_RHYTHM_EXPECTED_API_BASE: apiBase,
+      VITE_RHYTHM_PRODUCTION_API_BASE: apiBase,
       VITE_RHYTHM_ENGINE_BASE: engineBase,
+      VITE_RHYTHM_EXPECTED_ENGINE_BASE: engineBase,
       VITE_RHYTHM_LIVE_TOKEN: token,
     },
     stdio: 'ignore',
@@ -243,6 +248,12 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
   let provider: Awaited<ReturnType<typeof startDelayedProvider>> | undefined;
   let profile: Profile | undefined;
   let initialEngineModel: unknown = null;
+  let initialEngineModelSnapshotted = false;
+  let projectedProfilePath = '';
+  let projectedProfileInitiallyExisted = false;
+  let projectedProfileSnapshotTaken = false;
+  let originalProjectedProfileBytes: Buffer | undefined;
+  let lmStudioCredentialAdded = false;
   let localId = '';
   let sdkId = '';
   let worktreePath = '';
@@ -264,7 +275,7 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
   });
 
   page.on('websocket', (socket) => {
-    if (socket.url() !== 'ws://127.0.0.1:4098/ws/agents') return;
+    if (socket.url() !== `${wsBase}/ws/agents`) return;
     socket.on('framesent', (event) => wsFramesSent.push(event.payload));
     socket.on('framereceived', (event) => wsFramesReceived.push(event.payload));
   });
@@ -273,8 +284,17 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
     const profiles = await json<Profile[]>(await request.get(`${apiBase}/agent-configs`, { headers: authHeaders(identity.token) }), 200);
     profile = profiles.find((item) => item.id === 'local-lean') ?? profiles.find((item) => item.enabled && !item.locked && item.sessionSelectable !== false);
     expect(profile, 'c4 requires a selectable real profile from GET /agent-configs').toBeTruthy();
+    projectedProfilePath = join(dirname(dbPath!), 'home', '.config', 'opencode', 'agents', `${profile!.id}.md`);
+    try {
+      originalProjectedProfileBytes = await readFile(projectedProfilePath);
+      projectedProfileInitiallyExisted = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    projectedProfileSnapshotTaken = true;
     const agentName = profile!.ocAgent || profile!.id;
     initialEngineModel = engineAgentModel(await engineConfig(request), agentName);
+    initialEngineModelSnapshotted = true;
     const engineBeforeCredentialWrite = await json<{ healthy: boolean; bootId: string }>(
       await request.get(`${engineBase}/global/health`), 200,
     );
@@ -284,6 +304,7 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
 
     provider = await startDelayedProvider(nonce);
     await json(await request.post(`${apiBase}/opencode/auth/lmstudio`, { data: { apiKey: `throwaway-${nonce}` } }), 200);
+    lmStudioCredentialAdded = true;
     const patchedProfile = await json<Profile>(await request.patch(`${apiBase}/agent-configs/${profile!.id}`, {
       headers: authHeaders(identity.token), data: { modelProvider: 'lmstudio', modelId: 'qwen/qwen3-coder-30b' },
     }), 200);
@@ -421,7 +442,8 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
     primaryError = error;
   } finally {
     const cleanupRequest = await playwrightRequest.newContext({ timeout: 60_000 });
-    let cleanupError: unknown;
+    const cleanupErrors: unknown[] = [];
+    const recordCleanupError = (error: unknown) => cleanupErrors.push(error);
     try {
       try {
         if (localId) await cleanupRequest.delete(`${apiBase}/agent-sessions/${localId}/hard`, {
@@ -433,58 +455,116 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
         } finally {
           try {
             if (profile) {
-              await cleanupRequest.patch(`${apiBase}/agent-configs/${profile.id}`, {
+              await json<Profile>(await cleanupRequest.patch(`${apiBase}/agent-configs/${profile.id}`, {
                 headers: authHeaders(identity.token), data: { modelProvider: profile.modelProvider, modelId: profile.modelId },
                 timeout: 60_000,
-              }).catch((error) => { cleanupError ??= error; });
+              }), 200);
             }
-            if (!initiallyAuthed) await cleanupRequest.delete(`${engineBase}/auth/lmstudio`, { timeout: 60_000 }).catch((error) => { cleanupError ??= error; });
+          } catch (error) {
+            recordCleanupError(error);
           } finally {
-            await page.close().catch(() => undefined);
-            await stop(vite);
-            await closeServer(provider?.server);
-            removeDisposableWorktree(worktreePath, worktreeName);
-
-            const cleanup = openDb();
-            if (localId) cleanup.prepare('DELETE FROM agent_session_messages WHERE session_id = ?').run(localId);
-            cleanup.prepare('DELETE FROM agent_sessions WHERE owner_user_id = ? OR name = ?').run(identity.userId, sessionName);
-            cleanup.prepare('DELETE FROM tasks WHERE owner_id = ?').run(identity.userId);
-            cleanup.prepare('DELETE FROM sessions WHERE user_id = ?').run(identity.userId);
-            cleanup.prepare('DELETE FROM users WHERE id = ?').run(identity.userId);
-            const counts = {
-              users: count(cleanup, 'SELECT COUNT(*) AS count FROM users WHERE email = ?', identity.email),
-              authSessions: count(cleanup, 'SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?', identity.userId),
-              agentSessions: count(cleanup, 'SELECT COUNT(*) AS count FROM agent_sessions WHERE owner_user_id = ? OR name = ?', identity.userId, sessionName),
-              messages: count(cleanup, 'SELECT COUNT(*) AS count FROM agent_session_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE owner_user_id = ? OR name = ?)', identity.userId, sessionName),
-              tasks: count(cleanup, 'SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ?', identity.userId),
-              artifacts: count(cleanup, 'SELECT COUNT(*) AS count FROM live_artifacts WHERE owner_user_id = ?', identity.userId),
-              files: worktreePath ? await access(worktreePath).then(() => 1).catch(() => 0) : 0,
-              listeners: listenerCount(providerPort) + listenerCount(vitePort),
-            };
-            cleanup.close();
-            console.log(`engine-session-live-lifecycle-c9 cleanup counts=${JSON.stringify(counts)}`);
-            expect(counts, 'c9 must leave zero nonce-owned disposable rows, files, or listeners').toEqual({ users: 0, authSessions: 0, agentSessions: 0, messages: 0, tasks: 0, artifacts: 0, files: 0, listeners: 0 });
-            // A create that outlives the test's patience still completes server-side, so a worktree
-            // and branch can appear AFTER the failure path began — localId is unset in that case, so
-            // the targeted removal above cannot reach them. Sweep, then assert, using the same helper
-            // the test uses at startup.
-            removeStaleSmokeWorktrees();
-            expect(smokeGitState(), 'c9 must leave zero nonce-owned git worktrees or branches').toEqual({ worktrees: 0, branches: 0 });
-            if (profile) {
-              const restored = await json<Profile>(await cleanupRequest.get(`${apiBase}/agent-configs/${profile.id}`, { headers: authHeaders(identity.token) }), 200);
-              expect({ modelProvider: restored.modelProvider, modelId: restored.modelId }, 'c9 must restore exact profile model fields').toEqual({ modelProvider: profile.modelProvider, modelId: profile.modelId });
-              expect(engineAgentModel(await engineConfig(cleanupRequest), profile.ocAgent || profile.id), 'c9 must restore the exact engine agent model field').toEqual(initialEngineModel);
+            try {
+              if (lmStudioCredentialAdded) {
+                const credentialResponse = await cleanupRequest.delete(`${engineBase}/auth/lmstudio`, { timeout: 60_000 });
+                expect(credentialResponse.ok(), 'c9 must remove the temporary lmstudio credential').toBe(true);
+              }
+            } catch (error) {
+              recordCleanupError(error);
+            } finally {
+              try {
+                if (projectedProfileSnapshotTaken) {
+                  if (projectedProfileInitiallyExisted) await writeFile(projectedProfilePath, originalProjectedProfileBytes!);
+                  else await rm(projectedProfilePath, { force: true });
+                }
+              } catch (error) {
+                recordCleanupError(error);
+              } finally {
+                try {
+                  if (projectedProfileSnapshotTaken) {
+                    const reloadResponse = await cleanupRequest.post(`${engineBase}/config/reload`, { timeout: 60_000 });
+                    expect(reloadResponse.ok(), 'c9 engine config reload after exact projected-file restoration must succeed').toBe(true);
+                  }
+                } catch (error) {
+                  recordCleanupError(error);
+                } finally {
+                  try {
+                    if (profile) {
+                      const restored = await json<Profile>(await cleanupRequest.get(`${apiBase}/agent-configs/${profile.id}`, { headers: authHeaders(identity.token) }), 200);
+                      expect({ modelProvider: restored.modelProvider, modelId: restored.modelId }, 'c9 must restore exact profile model fields').toEqual({ modelProvider: profile.modelProvider, modelId: profile.modelId });
+                    }
+                  } catch (error) {
+                    recordCleanupError(error);
+                  }
+                  try {
+                    if (projectedProfileSnapshotTaken) {
+                      let restoredProjectedProfileBytes: Buffer | undefined;
+                      try {
+                        restoredProjectedProfileBytes = await readFile(projectedProfilePath);
+                      } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                      }
+                      expect(restoredProjectedProfileBytes !== undefined, 'c9 must restore exact projected profile file existence').toBe(projectedProfileInitiallyExisted);
+                      if (projectedProfileInitiallyExisted) {
+                        expect(restoredProjectedProfileBytes, 'c9 must restore exact projected profile file bytes').toEqual(originalProjectedProfileBytes);
+                      }
+                    }
+                  } catch (error) {
+                    recordCleanupError(error);
+                  }
+                  try {
+                    if (profile && initialEngineModelSnapshotted) {
+                      expect(engineAgentModel(await engineConfig(cleanupRequest), profile.ocAgent || profile.id), 'c9 must restore the exact engine agent model field').toEqual(initialEngineModel);
+                    }
+                  } catch (error) {
+                    recordCleanupError(error);
+                  }
+                }
+              }
             }
           }
+
+          await page.close().catch(() => undefined);
+          await stop(vite);
+          await closeServer(provider?.server);
+          removeDisposableWorktree(worktreePath, worktreeName);
+
+          const cleanup = openDb();
+          if (localId) cleanup.prepare('DELETE FROM agent_session_messages WHERE session_id = ?').run(localId);
+          cleanup.prepare('DELETE FROM agent_sessions WHERE owner_user_id = ? OR name = ?').run(identity.userId, sessionName);
+          cleanup.prepare('DELETE FROM tasks WHERE owner_id = ?').run(identity.userId);
+          cleanup.prepare('DELETE FROM sessions WHERE user_id = ?').run(identity.userId);
+          cleanup.prepare('DELETE FROM users WHERE id = ?').run(identity.userId);
+          const counts = {
+            users: count(cleanup, 'SELECT COUNT(*) AS count FROM users WHERE email = ?', identity.email),
+            authSessions: count(cleanup, 'SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?', identity.userId),
+            agentSessions: count(cleanup, 'SELECT COUNT(*) AS count FROM agent_sessions WHERE owner_user_id = ? OR name = ?', identity.userId, sessionName),
+            messages: count(cleanup, 'SELECT COUNT(*) AS count FROM agent_session_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE owner_user_id = ? OR name = ?)', identity.userId, sessionName),
+            tasks: count(cleanup, 'SELECT COUNT(*) AS count FROM tasks WHERE owner_id = ?', identity.userId),
+            artifacts: count(cleanup, 'SELECT COUNT(*) AS count FROM live_artifacts WHERE owner_user_id = ?', identity.userId),
+            files: worktreePath ? await access(worktreePath).then(() => 1).catch(() => 0) : 0,
+            listeners: listenerCount(providerPort) + listenerCount(vitePort),
+          };
+          cleanup.close();
+          console.log(`engine-session-live-lifecycle-c9 cleanup counts=${JSON.stringify(counts)}`);
+          expect(counts, 'c9 must leave zero nonce-owned disposable rows, files, or listeners').toEqual({ users: 0, authSessions: 0, agentSessions: 0, messages: 0, tasks: 0, artifacts: 0, files: 0, listeners: 0 });
+          // A create that outlives the test's patience still completes server-side, so a worktree
+          // and branch can appear AFTER the failure path began — localId is unset in that case, so
+          // the targeted removal above cannot reach them. Sweep, then assert, using the same helper
+          // the test uses at startup.
+          removeStaleSmokeWorktrees();
+          expect(smokeGitState(), 'c9 must leave zero nonce-owned git worktrees or branches').toEqual({ worktrees: 0, branches: 0 });
         }
       }
     } catch (error) {
-      cleanupError ??= error;
+      recordCleanupError(error);
     } finally {
       await cleanupRequest.dispose().catch(() => undefined);
     }
+    const cleanupError = cleanupErrors.length > 0
+      ? new AggregateError(cleanupErrors, 'engine-session-live-lifecycle-c9 cleanup failed')
+      : undefined;
     if (primaryError) {
-      if (cleanupError) console.error('engine-session-live-lifecycle-c9 secondary cleanup error:', cleanupError instanceof Error ? cleanupError.message : cleanupError);
+      if (cleanupError) console.error('engine-session-live-lifecycle-c9 secondary cleanup error:', cleanupError);
       throw primaryError;
     }
     if (cleanupError) throw cleanupError;

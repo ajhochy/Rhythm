@@ -24,7 +24,7 @@ async function installAuthenticatedHost(page: Page) {
       configurable: true,
       value: Object.freeze({
         version: 9,
-        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097' }),
+        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'http://127.0.0.1:4098' }),
         auth: Object.freeze({
           signInWithGoogle: async () => ({
             sessionToken: 'phase-9-owner-token',
