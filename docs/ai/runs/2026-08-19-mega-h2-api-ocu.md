@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/mega-h2-api-ocu
 pr: null
 issues: [1058, 1063, 1088]
-status: blocked
+status: failed
 tags: [run, Rhythm]
 ---
 
@@ -70,3 +70,16 @@ tags: [run, Rhythm]
 - GitNexus reported no HIGH or CRITICAL impact. `_TranscriptHeader` was LOW; private AgentRunner symbols were unresolved/UNKNOWN.
 - Primary-root algorithm: registered project cwd → first validated `worktree` entry from `git -C <linked> worktree list --porcelain` (including a valid bare entry) → existing linked-path fallback. Git/protocol failures return null; destructive engine calls still fail closed and retain local metadata.
 - Deletion ordering/fail-closed proof: unit invocation order asserts engine `deleteSession` before `removeWorktree`; a false worktree removal returns 502 while preserving worktree name/path/branch and the local row. Omitted `removeWorktree` still performs no worktree cleanup.
+
+### H2 full gate recheck after repair 1 — 2026-08-20
+
+- Branch/commit: `codex/mega-h2-api-ocu` at `c515ce6edf92793ad6cf65d6a37b6b4fcba829fa`.
+- Fork/API builds: `bun run build --single` and `npm run build` — **pass**. Sandbox used only `/tmp/rhythm-dev-sandbox-mega-h2-recheck`, API `4698`, engine `4697`; protected listeners remained API `4001` PID 30369 and engine `4096` PID 30381.
+- Focused H2 tests: `npx vitest run src/__tests__/issue_1058_isolate_worktree.test.ts src/__tests__/issue_738_agent_runner.test.ts src/__tests__/issue_1063_1066_vcs_shell_init.test.ts src/__tests__/opencode_worktrees_routes.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/repositories/agent_configs_repository.test.ts --no-file-parallelism` — **pass, 122/122**. Existing destroy/reset/remove contracts — **pass, 5/5**.
+- Live #1058: `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4698 DB_PATH=/tmp/rhythm-dev-sandbox-mega-h2-recheck/rhythm.db RHYTHM_LIVE_DB_PATH=/tmp/rhythm-dev-sandbox-mega-h2-recheck/rhythm.db RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-mega-h2-recheck npx vitest run src/__tests__/live_e2e_1057_worktree.test.ts --no-file-parallelism` — **pass, 2/2**. A separate throwaway-repo probe proved metadata persistence, default KEEP with 204 and residue present, explicit removal with 204, exact linked directory absent, and exact branch ref absent.
+- Live #1088: same isolated sandbox with `RHYTHM_LIVE_MODEL_PROVIDER=google RHYTHM_LIVE_MODEL_ID=gemini-2.5-flash` — **pass, 1/1**. The test asserted projected `mode: all`, accepted schedule, terminal `completed_no_op`, `agentKind === cfg.id`, and nonempty assistant output. A safe database receipt confirmed provider `google`, model `gemini-2.5-flash`, and nonempty assistant output without printing content or credentials.
+- Flutter: format **pass, 507 files / 0 changed**; analyze **exit 0** with 311 infos; header tests and golden compare **pass, 13/13**. Golden `ocu_1063_branch_dirty_header.png` is 1200×180, 177 colors, dominant-pixel ratio 0.9358, nonblank, and is captured through `TranscriptHeaderTestHarness`.
+- Migration safety/parity: SQLite and Postgres both contain additive nullable `worktree_name`, `worktree_path`, and `worktree_branch`; SQLite guards all three with `PRAGMA`-derived column checks; no destructive token was found in the #1058 migration section.
+- Full checks: clean-shell API suite **pass, 4484 passed / 169 skipped**; Flutter suite **pass, 1222/1222**; macOS debug Xcode build **BUILD SUCCEEDED**; `ai-workflow checks --level pr` — **all 16 stages pass**.
+- GitNexus comparison was unavailable because `.gitnexus/run.cjs` is absent in both the worktree and manager checkout. The destructive worktree path was manually treated as **HIGH** and reviewed with live residue assertions plus fail-closed/order contracts.
+- Gate status remains **failed** because the canonical mobile web E2E stage rewrote 13 tracked, unrelated `.proof/**.png` files. Verification policy forbids this agent from restoring Git state; those unexpected files must be restored and ownership/status hygiene rechecked before PR.

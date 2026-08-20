@@ -97,9 +97,9 @@
       "text": "The hidden specialist runs end-to-end through the real scheduler, AgentRunner, and engine as its real profile.",
       "mode": "live",
       "test": "apps/api_server/src/__tests__/live_e2e_1088_hidden_schedulable.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Isolated live run reached completed_no_op but the configured model provider returned an insufficient-credits environment failure and produced empty assistant output."
+      "status": "pass",
+      "reason": null
     }
   ],
-  "not_tested": ["issue-1088-c3"]
+  "not_tested": []
 }
