@@ -91,6 +91,11 @@ export function resolveLiveArtifactStorageDir(): string {
   return expandHome(process.env.LIVE_ARTIFACT_STORAGE_DIR ?? path.join(process.cwd(), 'live-artifacts'));
 }
 
+/** Partition relay file artifacts from live-artifact directories (#1397). */
+export function resolveRelayArtifactStorageDir(): string {
+  return path.join(resolveLiveArtifactStorageDir(), 'relay-artifacts');
+}
+
 /** Filesystem root for checksum-addressed generated media bytes (#1309). */
 export function resolveMediaArtifactStorageRoot(): string {
   const appDataDir = path.dirname(

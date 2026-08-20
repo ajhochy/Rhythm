@@ -3,7 +3,10 @@ import type { NextFunction, Request, Response } from 'express';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { resolveLiveArtifactStorageDir } from '../config/env';
+import {
+  resolveLiveArtifactStorageDir,
+  resolveRelayArtifactStorageDir,
+} from '../config/env';
 import { AppError } from '../errors/app_error';
 import { requireMobileDevice } from '../middleware/mobile_device_auth';
 import type {
@@ -441,29 +444,32 @@ export function createRelayGatewayRouter(
         return;
       }
 
-      const storageDir = resolveLiveArtifactStorageDir();
-      const artifactPath = join(storageDir, artifactId);
-      const metadataPath = join(storageDir, `${artifactId}.meta.json`);
-      try {
-        const bytes = await readFile(artifactPath);
-        let contentType = 'application/octet-stream';
+      const storageDir = resolveRelayArtifactStorageDir();
+      for (const candidateDir of [storageDir, resolveLiveArtifactStorageDir()]) {
+        const artifactPath = join(candidateDir, artifactId);
+        const metadataPath = join(candidateDir, `${artifactId}.meta.json`);
         try {
-          const metadata = JSON.parse(
-            await readFile(metadataPath, 'utf8'),
-          ) as { contentType?: unknown };
-          if (typeof metadata.contentType === 'string') {
-            contentType = metadata.contentType;
+          const bytes = await readFile(artifactPath);
+          let contentType = 'application/octet-stream';
+          try {
+            const metadata = JSON.parse(
+              await readFile(metadataPath, 'utf8'),
+            ) as { contentType?: unknown };
+            if (typeof metadata.contentType === 'string') {
+              contentType = metadata.contentType;
+            }
+          } catch {
+            // Missing or malformed metadata falls back to generic binary bytes.
           }
-        } catch {
-          // Missing or malformed metadata falls back to generic binary bytes.
-        }
-        res.setHeader('content-type', contentType);
-        res.status(200).send(bytes);
-        return;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          next(error);
+          res.setHeader('content-type', contentType);
+          res.status(200).send(bytes);
           return;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'ENOENT' && code !== 'EISDIR' && code !== 'ENOTDIR') {
+            next(error);
+            return;
+          }
         }
       }
 
@@ -487,9 +493,9 @@ export function createRelayGatewayRouter(
           try {
             await mkdir(storageDir, { recursive: true });
             await Promise.all([
-              writeFile(artifactPath, bytes),
+              writeFile(join(storageDir, artifactId), bytes),
               writeFile(
-                metadataPath,
+                join(storageDir, `${artifactId}.meta.json`),
                 JSON.stringify({ contentType }),
               ),
             ]);
