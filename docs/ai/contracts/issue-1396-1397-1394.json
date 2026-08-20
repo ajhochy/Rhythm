@@ -1,16 +1,16 @@
 {
   "issue": "1396,1397,1394",
   "date": "2026-08-19",
-  "test_command": "npx vitest run src/services/__tests__/live_artifact_storage_safety.test.ts src/__tests__/relay_artifacts_contract.test.ts",
+  "test_command": "npx vitest run src/__tests__/issue_1396_storage_startup_abort.test.ts src/__tests__/relay_artifacts_contract.test.ts src/services/__tests__/live_artifact_storage_safety.test.ts src/__tests__/live_artifact_content_storage.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     {
       "criterion_id": "issue-1396-c1",
       "text": "On boot, the configured artifact storage target is verified readable AND writable; failure aborts startup with an actionable message naming the resolved path and the variable that set it.",
-      "mode": "unit",
-      "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1396_storage_startup_abort.test.ts",
       "status": "pass",
-      "reason": ""
+      "reason": "The built dist/server.js exits 1 for both a missing child under a mode-0500 parent and an existing mode-0500 directory; each error names LIVE_ARTIFACT_STORAGE_DIR and the resolved path, and neither process logs a listening banner."
     },
     {
       "criterion_id": "issue-1397-c1",
@@ -18,14 +18,14 @@
       "mode": "integration",
       "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts; apps/api_server/src/__tests__/relay_artifacts_contract.test.ts",
       "status": "pass",
-      "reason": ""
+      "reason": "apps/api_server/src/__tests__/relay_artifacts_contract.test.ts boots real primary and relay-role Express servers, pairs over real HTTP/WebSocket surfaces, and writes through the real LIVE_ARTIFACT_STORAGE_DIR contract."
     },
     {
       "criterion_id": "issue-1394-c1",
       "text": "Record old/new Compose project names, actual volume names, mount source, and whether the prior volume still exists; unknown facts are labeled unknown rather than inferred.",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
+      "status": "not_tested",
       "reason": "not_tested — requires Synology host access; the diagnosis document supplies operator commands and labels all facts UNKNOWN."
     },
     {
@@ -57,7 +57,7 @@
       "text": "Document a safe backup and recovery procedure for artifact bundle/state bytes alongside the existing Postgres backup procedure.",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
+      "status": "not_tested",
       "reason": "not_tested — documentation accuracy and operator execution require manual review."
     }
   ],

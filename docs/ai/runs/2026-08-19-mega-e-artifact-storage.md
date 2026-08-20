@@ -18,6 +18,9 @@ tags: [run, Rhythm]
 - Required an explicit existing Synology API volume name, added pre/post
   checksum checks, incident diagnosis commands, and backup/recovery guidance.
 - Added focused startup, diagnostic, Compose, and relay migration tests.
+- Added `apps/api_server/src/__tests__/issue_1396_storage_startup_abort.test.ts`,
+  which spawns the built server and proves two real filesystem permission
+  failures abort before any listening banner.
 
 # Checks
 
@@ -34,6 +37,18 @@ tags: [run, Rhythm]
 - `git diff --check` — pass.
 - Live sandbox — not run by instruction; the orchestrator owns serial sandbox
   verification because ports 4098/4097 are singleton resources.
+- `npm run build` — pass; generated `dist/server.js` before the process test.
+- `npx tsc --noEmit` — pass (no output, exit 0).
+- `npx vitest run src/__tests__/issue_1396_storage_startup_abort.test.ts --no-file-parallelism`
+  — pass, 1/1. Both child processes exited `1`; neither output contained a
+  `Rhythm API listening` or `Rhythm mobile gateway listening` banner.
+- Evidence capture command:
+  `npx vitest run src/__tests__/issue_1396_storage_startup_abort.test.ts --no-file-parallelism --disableConsoleIntercept --reporter=verbose`
+  — pass, 1/1. Exact actionable lines observed:
+  - `Error: LIVE_ARTIFACT_STORAGE_DIR is not readable and writable at resolved path "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/rhythm-1396-startup-hG303H/readonly-parent/missing" (EACCES)`; exit `1`.
+  - `Error: LIVE_ARTIFACT_STORAGE_DIR is not readable and writable at resolved path "/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/rhythm-1396-startup-hG303H/readonly-existing" (EACCES)`; exit `1`.
+- `npx vitest run src/__tests__/relay_artifacts_contract.test.ts src/services/__tests__/live_artifact_storage_safety.test.ts src/__tests__/live_artifact_content_storage.test.ts --no-file-parallelism`
+  — pass, 21/21 across 3 files.
 
 # Notes
 
@@ -52,3 +67,21 @@ tags: [run, Rhythm]
 - GitNexus had indexed file nodes but no symbols/relationships for the scoped
   TypeScript files, so pre-edit impact calls returned UNKNOWN rather than a
   usable risk graph.
+- Confirmed `server.ts` startup ordering before spawning: storage import at
+  lines 113–116, `await verifyLiveArtifactStorageDir()` at 118,
+  `await initDb()` at 119, and `httpServer.listen(...)` at 796. No engine
+  initialization, port reclamation, process signaling, or listener starts
+  before the storage verifier.
+- WAIVED: pre-implementation failing run is inapplicable because this dispatch adds evidence for already-implemented behavior and forbids product changes absent a defect; verification is the new built-server process contract passing both real permission failures.
+- #1394-c4 was not expanded into this spawned-process test: proving both the
+  operator startup diagnostic and client path non-disclosure would require a
+  successfully booted listening server, explicitly outside this no-sandbox
+  abort-only dispatch. Existing focused coverage remains unchanged.
+- Live-port proof before and after the spawned-process checks was unchanged:
+  `127.0.0.1:4001` remained Node PID `30369`, and `127.0.0.1:4096` remained
+  OpenCode PID `30381`. The test used child-only ports `4990`/`4991`; neither
+  aborting child reached a listening banner.
+- GitNexus `detect_changes(scope=all, worktree=...)` reported low risk, zero
+  changed symbols, and zero affected processes. Its diff scanner reported the
+  two tracked docs; the new untracked test is separately visible in
+  `git status --short`.
