@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/mega-e-artifact-storage
 pr: null
 issues: [1396, 1397, 1394]
-status: ready_for_verification
+status: blocked
 tags: [run, Rhythm]
 ---
 
@@ -85,3 +85,74 @@ tags: [run, Rhythm]
   changed symbols, and zero affected processes. Its diff scanner reported the
   two tracked docs; the new untracked test is separately visible in
   `git status --short`.
+
+## 2026-08-20 final Bucket E repair
+
+### Contract
+
+- `docs/ai/contracts/issue-1396-1397-1394.json`
+- WAIVED: this repair adds verification evidence and contract hygiene for
+  already-implemented behavior and forbids product changes absent a proven
+  defect; verification is the real Postgres built-server startup contract plus
+  exact real-router client non-disclosure assertions.
+- #1394-c2 now has explicit evidence for the required external Compose volume
+  identity. #1394-c4 is `not_tested`, not pass, because its Postgres proof is
+  blocked before server launch by a real bootstrap failure.
+
+### Files
+
+- Added `apps/api_server/src/__tests__/issue_1394_postgres_startup_diagnostic.test.ts`.
+  It reuses the existing `postgres:16` + `runPostgresBootstrap` harness, creates
+  a unique disposable schema, seeds one current artifact with absent bundle and
+  state content, starts only built `dist/server.js` on API `4994`, engine `4995`,
+  gateway `4996`, and asserts health plus the exact path-free startup diagnostic.
+  Its `finally` stops the child, drops the schema, closes pools, and removes the
+  temporary HOME/storage root.
+- Strengthened `apps/api_server/src/__tests__/live_artifacts.test.ts` so both
+  detail and render assert the exact client payload
+  `{error:{code:"INTERNAL_ERROR",message:"Live artifact content unavailable"}}`
+  and reject filesystem layout, `ENOENT`, stack, and storage-variable leakage.
+- Product code was not changed.
+
+### Checks
+
+- `npm run build` — pass (`tsc -p tsconfig.json` and postbuild).
+- `npx vitest run src/__tests__/live_artifacts.test.ts --no-file-parallelism`
+  — pass, 27/27. The real Express/router detail and render responses match the
+  exact generic error payload and expose no path or stack.
+- Disposable Postgres attempt 1:
+  `RHYTHM_LIVE_POSTGRES_DIAGNOSTIC=1 RHYTHM_LIVE_POSTGRES_URL=<throwaway> npx vitest run src/__tests__/issue_1394_postgres_startup_diagnostic.test.ts --no-file-parallelism --disableConsoleIntercept --reporter=verbose`
+  — failed before child startup: `relation "agent_sessions" does not exist` at
+  `runPostgresBootstrap` (`postgres_bootstrap.ts:1087`).
+- Disposable Postgres attempt 2 with `RHYTHM_ROLE=all` — same failure.
+- Existing harness confirmation:
+  `AGENT_LOCAL=true RHYTHM_LIVE_POSTGRES_BOOTSTRAP=1 RHYTHM_LIVE_POSTGRES_URL=<throwaway> npx vitest run src/__tests__/postgres_bootstrap_live.test.ts --no-file-parallelism`
+  — failed identically on a fresh unique schema. This proves the blocker is the
+  current bootstrap, not the new test harness.
+- Contract JSON invariant — pass: every pass status has a nonempty reason and
+  every `not_tested` criterion has a nonempty reason and matching list entry.
+- `git diff --check` — pass. `git diff --name-only` contains only the owned route
+  test and contract/run docs; `git status --short` additionally shows the owned
+  untracked Postgres test.
+- GitNexus `detect_changes(scope=all, worktree=...)` — low risk, zero indexed
+  changed symbols/processes across three tracked files; the untracked Postgres
+  test is separately accounted for by `git status`.
+
+### Notes
+
+- Existing Postgres convention used: cached `postgres:16` image, unique
+  container name and host port `55494`, unique schema, and `runPostgresBootstrap`.
+  Each shell command installed an EXIT/INT/TERM trap and removed its container;
+  the test also owns schema/process/filesystem cleanup.
+- Docker daemon `29.2.1` was healthy and the cached Postgres image was present.
+- Protected listeners were observed before testing at API `4001` PID `30369`,
+  engine `4096` PID `30381`, sandbox engine `4097` PID `90691`, and sandbox API
+  `4098` PID `90638`; none was targeted. Final inspection preserved `4001` PID
+  `30369` and `4096` PID `30381`; `4097`/`4098` had become free independently.
+  The new contract reserved only `4994`/`4995`/`4996` after confirming those
+  ports free, and final inspection found `4994`/`4995`/`4996`/`55494` free with
+  no `rhythm-1394` containers left.
+- Per dispatch, a real product defect stops this tests/docs-only repair. No
+  attempt was made to change `postgres_bootstrap.ts` or bypass Postgres with
+  SQLite. The remaining requested Bucket E focused 21/21 and startup-abort
+  suites were not rerun after the stop condition.

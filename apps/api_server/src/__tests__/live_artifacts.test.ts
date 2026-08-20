@@ -401,12 +401,20 @@ describe('live artifacts (AV-02)', () => {
     await rm(path.join(env.liveArtifactStorageDir, artifact.id), { recursive: true, force: true });
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(owner.id) });
+    const responseBody = await json(response);
     const logged = JSON.stringify(error.mock.calls);
     expect(response.status).toBe(500);
-    expect(JSON.stringify(await json(response))).not.toMatch(/state|bundles|ENOENT|\n\s+at\s/);
+    expect(responseBody).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Live artifact content unavailable' },
+    });
+    expect(JSON.stringify(responseBody)).not.toMatch(/\/state\/|\/bundles\/|ENOENT|\n\s+at\s|LIVE_ARTIFACT_STORAGE_DIR/);
     expect(logged).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
     expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'state', op: 'read', code: 'ENOENT' });
-    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(500);
+    const renderResponse = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    expect(renderResponse.status).toBe(500);
+    expect(await json(renderResponse)).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Live artifact content unavailable' },
+    });
     expect(JSON.stringify(error.mock.calls)).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
     expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'bundle', op: 'read', code: 'ENOENT' });
     error.mockRestore();

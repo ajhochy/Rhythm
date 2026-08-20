@@ -1,7 +1,7 @@
 {
   "issue": "1396,1397,1394",
-  "date": "2026-08-19",
-  "test_command": "npx vitest run src/__tests__/issue_1396_storage_startup_abort.test.ts src/__tests__/relay_artifacts_contract.test.ts src/services/__tests__/live_artifact_storage_safety.test.ts src/__tests__/live_artifact_content_storage.test.ts --no-file-parallelism",
+  "date": "2026-08-20",
+  "test_command": "npx vitest run src/__tests__/issue_1396_storage_startup_abort.test.ts src/__tests__/relay_artifacts_contract.test.ts src/services/__tests__/live_artifact_storage_safety.test.ts src/__tests__/live_artifact_content_storage.test.ts src/__tests__/live_artifacts.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     {
@@ -34,7 +34,7 @@
       "mode": "unit",
       "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts",
       "status": "pass",
-      "reason": ""
+      "reason": "docker-compose.synology.yml declares rhythm_api_data with the explicit external identity name: ${RHYTHM_API_DATA_VOLUME:?Set RHYTHM_API_DATA_VOLUME to the existing API data volume name}; the focused test asserts this required identity, so Compose project and working-directory-derived names cannot silently replace it during image pulls, Watchtower recreation, or supported deploy commands."
     },
     {
       "criterion_id": "issue-1394-c3",
@@ -47,10 +47,10 @@
     {
       "criterion_id": "issue-1394-c4",
       "text": "Detect Postgres rows whose current bundle/state hashes point to missing content, and surface an actionable operator diagnostic without exposing internal paths or credentials to clients.",
-      "mode": "unit",
-      "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts",
-      "status": "pass",
-      "reason": ""
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1394_postgres_startup_diagnostic.test.ts; apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "not_tested",
+      "reason": "not_tested — the exact real Express client response passed, but the disposable Postgres startup proof is blocked before server launch because the existing runPostgresBootstrap harness fails on a fresh schema with relation \"agent_sessions\" does not exist at postgres_bootstrap.ts:1087. Product-code repair is outside this tests/docs-only dispatch."
     },
     {
       "criterion_id": "issue-1394-c5",
@@ -61,5 +61,5 @@
       "reason": "not_tested — documentation accuracy and operator execution require manual review."
     }
   ],
-  "not_tested": ["issue-1394-c1", "issue-1394-c5"]
+  "not_tested": ["issue-1394-c1", "issue-1394-c4", "issue-1394-c5"]
 }
