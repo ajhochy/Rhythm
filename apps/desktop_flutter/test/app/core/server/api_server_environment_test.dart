@@ -205,5 +205,40 @@ void main() {
 
       expect(env.containsKey('RHYTHM_RELAY_BEARER'), isFalse);
     });
+
+    test('#1445 seeds the documented cloud RHYTHM_RELAY_URLS candidate', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        relaySessionToken: 'persisted-token',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_RELAY_URLS'],
+        'wss://api.vcrcapps.com/relay/uplink',
+      );
+    });
+
+    test('#1445 preserves an explicit LAN-first relay candidate list', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'RHYTHM_RELAY_URLS':
+              'ws://rhythm-nas:4010/relay/uplink,wss://api.vcrcapps.com/relay/uplink',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        relaySessionToken: 'persisted-token',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_RELAY_URLS'],
+        'ws://rhythm-nas:4010/relay/uplink,wss://api.vcrcapps.com/relay/uplink',
+      );
+    });
   });
 }

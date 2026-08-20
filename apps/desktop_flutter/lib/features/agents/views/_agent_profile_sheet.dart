@@ -1939,6 +1939,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     final overrideCount =
         _corePermissions.keys.where((k) => k != 'bash').length +
             (_corePermissions.containsKey('bash') ? 1 : 0);
+    final allKnownDenied = _kKnownPermissionKeys.every((key) {
+      final value = _corePermissions[key];
+      if (key != 'bash') return value == 'deny';
+      if (value == 'deny') return true;
+      return value is Map && value['*'] == 'deny';
+    });
 
     return RhythmDisclosure(
       title: 'Tool Permissions',
@@ -1952,6 +1958,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             'Unset rows use the engine default for this tool.',
             style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
           ),
+          if (allKnownDenied) ...[
+            const SizedBox(height: 8),
+            _denyAllBanner(
+              'No native tool access (deny-all) — agent cannot use built-in tools',
+            ),
+          ],
           const SizedBox(height: 12),
           for (final key in _kKnownPermissionKeys.where((k) => k != 'bash'))
             _buildPermissionRow(key),

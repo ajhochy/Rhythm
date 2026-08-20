@@ -75,7 +75,14 @@ class _FakeAgentsRepository implements AgentsRepository {
   bool disposeCalled = false;
   final List<Map<String, dynamic>> sentMessages = [];
   List<AgentSession> sessionsToReturn = [];
-  List<AgentInfo> availableAgentsToReturn = const [];
+  List<AgentInfo> availableAgentsToReturn = const [
+    AgentInfo(
+      name: 'rhythm-setup',
+      builtIn: false,
+      profileId: 'rhythm-setup',
+      profileAvailability: 'available',
+    ),
+  ];
   List<PermissionAskedMessage> pendingPermissionsToReturn = const [];
   final List<({String sessionId, String permissionId, String response})>
       permissionResponses = [];
@@ -413,12 +420,16 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('createSession default agent (#889/#890)', () {
-    AgentsController build({String? Function()? resolver}) {
+    AgentsController build({
+      String? Function()? resolver,
+      String? Function()? availableProfileResolver,
+    }) {
       final c = AgentsController(
         fakeRepo,
         _FakeAgentServerController(ready: true, anyAgent: true),
         _FakeLocalNotificationService(),
         _FakeNotificationsController(),
+        managerAgentNameResolver: availableProfileResolver,
         configuredDefaultAgentResolver: resolver,
       );
       addTearDown(c.dispose);
@@ -426,11 +437,13 @@ void main() {
     }
 
     test(
-      'defaults to Secretary (the seeded hub) when no override is configured',
+      '#1421 defaults to an actually available profile, not hardcoded Secretary',
       () async {
-        // `controller` (from setUp) has no configuredDefaultAgentResolver.
-        await controller.createSession(cwd: '/tmp');
-        expect(fakeRepo.lastCreateProfileId, equals('secretary'));
+        final c = build(availableProfileResolver: () => 'rhythm-setup');
+
+        await c.createSession(cwd: '/tmp');
+
+        expect(fakeRepo.lastCreateProfileId, equals('rhythm-setup'));
       },
     );
 
@@ -445,11 +458,14 @@ void main() {
     );
 
     test(
-      'override returning null falls back to the seeded Secretary default',
+      '#1421 stale configured default falls back to an available profile',
       () async {
-        final c = build(resolver: () => null);
+        final c = build(
+          resolver: () => null,
+          availableProfileResolver: () => 'research',
+        );
         await c.createSession(cwd: '/tmp');
-        expect(fakeRepo.lastCreateProfileId, equals('secretary'));
+        expect(fakeRepo.lastCreateProfileId, equals('research'));
       },
     );
 

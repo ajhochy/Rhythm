@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 
 import '../../../features/notifications/data/human_approval_signer.dart';
 
+const defaultRelayUrls = 'wss://api.vcrcapps.com/relay/uplink';
+
 /// Distinct failure modes for [ApiServerService.start].
 enum AgentServerFailureReason {
   nodeNotFound,
@@ -76,6 +78,9 @@ Map<String, String> buildApiServerEnvironment({
   }
   if (mcpRolesDir != null && !baseEnv.containsKey('MCP_ROLES_DIR')) {
     env['MCP_ROLES_DIR'] = mcpRolesDir;
+  }
+  if ((baseEnv['RHYTHM_RELAY_URLS'] ?? '').isEmpty) {
+    env['RHYTHM_RELAY_URLS'] = defaultRelayUrls;
   }
   // Relay uplink (docs/ai/plan-synology-relay.md): seed the bearer the
   // server's RelayUplinkClient authenticates with. An explicit non-empty
@@ -248,6 +253,17 @@ class ApiServerService {
       relaySessionToken = await _relaySessionTokenProvider?.call();
     } catch (_) {
       relaySessionToken = null; // fail-soft: uplink stays disabled
+    }
+    if (relaySessionToken == null || relaySessionToken.isEmpty) {
+      stderr.writeln(
+        '[ApiServerService] Relay uplink disabled: no persisted cloud session token.',
+      );
+    } else {
+      final relayUrls =
+          Platform.environment['RHYTHM_RELAY_URLS'] ?? defaultRelayUrls;
+      stdout.writeln(
+        '[ApiServerService] Relay uplink configured; api_server will dial $relayUrls.',
+      );
     }
 
     try {

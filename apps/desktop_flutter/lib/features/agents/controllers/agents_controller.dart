@@ -1936,19 +1936,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // yet OR has no authorized entries, pass null through to the repository
     // — the server will respond with 400 ('agent not configured') and we
     // surface that to the user verbatim (consistent with existing 4xx UX).
-    final resolvedAgentId = agentId ?? _resolveDefaultAgentIdForCreate() ?? '';
     // OPC-#713: signal that a create is in-flight so the view can show an
     // optimistic loading indicator while the SDK session spins up.
     _creating = true;
     notifyListeners();
     try {
+      final explicitRole = (mcpRole ?? '').trim();
+      final resolvedDefault = agentId == null && explicitRole.isEmpty
+          ? await _resolveDefaultAgentForCreate(cwd)
+          : null;
+      final resolvedAgentId = agentId ??
+          (explicitRole.isNotEmpty ? explicitRole : null) ??
+          resolvedDefault?.agentId;
       final session = await _repository.createSession(
         // #1365: persist the effective profile binding — an explicit profileId,
         // else the explicit/resolved default agent — so the session row is not
         // left Unassigned (which mobile would then display).
-        profileId:
-            profileId ?? (resolvedAgentId.isEmpty ? agentId : resolvedAgentId),
-        agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
+        profileId: profileId ?? resolvedDefault?.profileId ?? resolvedAgentId,
+        agentId: resolvedAgentId,
         taskId: taskId,
         cwd: cwd,
         name: name,
@@ -1992,35 +1997,44 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Picks the default agent for `createSession` callers that haven't chosen
-  /// one. Returns null when the catalog hasn't loaded yet or has no authorized
-  /// entries — caller surfaces an error in that case.
+  /// one. The loaded Agent Profiles are preferred; if that catalog is still
+  /// warming on a fresh install, the server's current available-agent catalog
+  /// is the authority. No profile slug is assumed to exist.
   ///
   /// #890: resolution order is
   ///   1. The app-level "Default profile" override from
   ///      [_configuredDefaultAgentResolver], IF it matches an `authorized`
   ///      catalog entry with a non-empty agent slug. An override pointing at
   ///      a since-removed/unauthorized profile is ignored (falls through).
-  ///   2. Secretary (#889) — the seeded default hub; delegates domain work to
-  ///      specialists and coding to the workflow-orchestrator.
-  ///   3. The first authorized catalog entry (#653).
-  String? _resolveDefaultAgentIdForCreate() {
-    // The default agent is an agent PROFILE (ocAgent, e.g. 'secretary'), which
-    // the server resolves — NOT a `_catalog` entry. `_catalog` lists only
-    // engine kinds (claude-code/codex/gemini-cli/opencode), so gating the
-    // profile default on catalog membership never matched and silently fell
-    // through to an engine kind (the #889/#890 bug). Return the profile
-    // directly instead.
-    // #890: the user-configured "Default profile" override wins.
+  ///   2. The first selectable profile resolved by AgentConfigsController.
+  ///   3. The first available profile returned by the server catalog.
+  Future<({String agentId, String? profileId})?> _resolveDefaultAgentForCreate(
+      String cwd) async {
     final override = _configuredDefaultAgentResolver?.call();
-    if (override != null && override.isNotEmpty) return override;
-    // #889: Secretary is the seeded product-default hub (always seeded), which
-    // then delegates domain work to specialists and coding to the
-    // workflow-orchestrator.
-    return _secretaryAgentSlug;
+    if (override != null && override.isNotEmpty) {
+      return (agentId: override, profileId: override);
+    }
+    final availableProfile = _managerAgentNameResolver?.call();
+    if (availableProfile != null && availableProfile.isNotEmpty) {
+      return (agentId: availableProfile, profileId: availableProfile);
+    }
+    try {
+      final agents = await _repository.fetchAvailableAgents(cwd: cwd);
+      for (final agent in agents) {
+        if (agent.profileAvailability == 'available' &&
+            agent.executionAgentId.isNotEmpty) {
+          return (
+            agentId: agent.executionAgentId,
+            profileId: agent.profileId,
+          );
+        }
+      }
+    } catch (_) {
+      // The create endpoint remains the final authority and surfaces its own
+      // user-facing validation error if the catalog is temporarily unavailable.
+    }
+    return null;
   }
-
-  /// Stable engine-agent slug for the Secretary manager profile (#888/#889).
-  static const String _secretaryAgentSlug = 'secretary';
 
   // ==========================================================================
   // Issue #653: client-owned composer drafts

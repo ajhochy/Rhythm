@@ -241,6 +241,13 @@ class _AgentsViewState extends State<AgentsView> {
     final session = await ctrl.createSession(cwd: cwd);
     if (session != null) {
       ctrl.selectSession(session.id);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ctrl.error ?? 'Failed to create session.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 

@@ -1,0 +1,105 @@
+{
+  "issue": "1421,1381,1445,1074",
+  "date": "2026-08-19",
+  "test_command": "flutter test test/features/agents/agents_controller_test.dart test/features/live_artifacts/issue_1381_artifact_persistence_test.dart test/app/core/server/api_server_environment_test.dart test/features/agents/agent_profile_permissions_and_picker_test.dart",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1421-c1",
+      "text": "resolve the default agent from the actual available/authorized profile catalog rather than a hardcoded literal",
+      "mode": "unit",
+      "test": "apps/desktop_flutter/test/features/agents/agents_controller_test.dart",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1421-c2",
+      "text": "surface the failure to the user instead of failing silently",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Manual smoke must force the instant + New create call to fail and confirm a visible SnackBar; the private production callback has no existing injectable widget boundary."
+    },
+    {
+      "criterion_id": "issue-1381-c1",
+      "text": "Import an artifact, navigate away and back -> it persists without re-importing.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/live_artifacts/issue_1381_artifact_persistence_test.dart",
+      "status": "pass",
+      "reason": "Existing focused widget regression test already exercises the shipping parent-owned controller remount path."
+    },
+    {
+      "criterion_id": "issue-1381-c2",
+      "text": "Survives app restart (server-persisted ids reload).",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Requires restarting the signed-in desktop app against persisted server preferences; sandbox use is forbidden for this bucket."
+    },
+    {
+      "criterion_id": "issue-1381-c3",
+      "text": "A focused controller/widget test: import -> simulate navigation/reset -> tabs still present.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/live_artifacts/issue_1381_artifact_persistence_test.dart",
+      "status": "pass",
+      "reason": "Existing test simulates the actual app_shell navigate-away/remount trigger and asserts the shared controller tab remains."
+    },
+    {
+      "criterion_id": "issue-1445-c1",
+      "text": "seed RHYTHM_RELAY_URLS alongside the bearer",
+      "mode": "unit",
+      "test": "apps/desktop_flutter/test/app/core/server/api_server_environment_test.dart",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1445-c2",
+      "text": "add an observable signal so a disabled/failed uplink is not silent",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Manual launch log check must cover missing bearer and server connection failure without touching live ports 4001/4096."
+    },
+    {
+      "criterion_id": "issue-1074-c1",
+      "text": "New Tool Permissions section in AgentProfileSheet: rows per known key (read, edit, bash, webfetch, websearch, task, external_directory, question, todowrite, skill, glob, grep, list — hide exotic keys behind Advanced)",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agent_profile_permissions_and_picker_test.dart",
+      "status": "pass",
+      "reason": "Existing widget implementation and focused tests cover the section and persisted known-key controls."
+    },
+    {
+      "criterion_id": "issue-1074-c2",
+      "text": "Tri-state control Ask/Allow/Deny with engine default as the UNSET state",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agent_profile_permissions_and_picker_test.dart",
+      "status": "pass",
+      "reason": "Existing focused tests cover set and re-tap-to-unset behavior."
+    },
+    {
+      "criterion_id": "issue-1074-c3",
+      "text": "Bash row supports simple pattern entries (add pattern -> ask/allow/deny)",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agent_profile_permissions_and_picker_test.dart",
+      "status": "pass",
+      "reason": "Existing focused tests cover add, retoggle, remove, and JSON persistence."
+    },
+    {
+      "criterion_id": "issue-1074-c4",
+      "text": "Load/save through the agent_configs data source",
+      "mode": "integration",
+      "test": "apps/desktop_flutter/test/features/agents/agent_profile_permissions_and_picker_test.dart",
+      "status": "pass",
+      "reason": "The widget test loads AgentConfig.corePermissionsJson and asserts the AgentConfigsDataSource update patch."
+    },
+    {
+      "criterion_id": "issue-1074-c5",
+      "text": "Visual consistency with existing allowlist sections, including deny-all-style banners when everything is denied",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/agent_profile_permissions_and_picker_test.dart",
+      "status": "pass",
+      "reason": null
+    }
+  ],
+  "not_tested": ["issue-1421-c2", "issue-1381-c2", "issue-1445-c2"]
+}

@@ -300,6 +300,39 @@ void main() {
 
       expect(configsDs.lastUpdatePatch?['corePermissionsJson'], isNull);
     });
+
+    testWidgets('all known tools denied shows a deny-all warning banner', (
+      tester,
+    ) async {
+      final config = _makeConfig(
+        corePermissionsJson: jsonEncode({
+          for (final key in const [
+            'read',
+            'edit',
+            'glob',
+            'grep',
+            'list',
+            'bash',
+            'task',
+            'external_directory',
+            'todowrite',
+            'question',
+            'webfetch',
+            'websearch',
+            'skill',
+          ])
+            key: 'deny',
+        }),
+      );
+      final configsDs = _RecordingAgentConfigsDataSource(config);
+
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
+      await tester.pumpAndSettle();
+      await _expandToolPermissions(tester);
+
+      expect(find.textContaining('No native tool access'), findsOneWidget);
+    });
   });
 
   group('AgentProfileSheet — "Show in agent picker" toggle (#1079)', () {
