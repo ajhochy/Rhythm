@@ -96,7 +96,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
       if (sessionGatewayMode === 'live') {
         await createLiveSession({
           name: name.trim(), cwd, profileId, isolateWorktree, worktreeName: worktreeName || undefined,
-          branch: newBranchMode ? newBranch : branch, createBranch: newBranchMode, stash: stashConfirmed ? 'stash' : 'discard',
+          branch: newBranchMode ? newBranch : branch || undefined, createBranch: newBranchMode, stash: stashConfirmed ? 'stash' : 'discard',
         });
       } else {
         await Promise.resolve();
@@ -190,11 +190,12 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
         <label className="field span-2">Session name<span>Required</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Fix auth bug" required data-autofocus data-testid="advanced-name" /></label>
         <label className="field span-2">Linked task<span>Optional · non-done tasks</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)} data-testid="advanced-task"><option value="">No task linked</option><option value="task-review-handoff">Review service handoff</option><option value="task-check-relay">Check relay recovery</option></select></label>
         {sessionGatewayMode === 'live' && <label className="field span-2">Agent profile<span>Required</span><select value={profileId} onChange={(event) => setProfileId(event.target.value)} required data-testid="advanced-profile">{profiles.filter((profile) => profile.enabled && profile.selectable).map((profile) => <option value={profile.id} key={profile.id}>{profile.label}</option>)}</select></label>}
-        <label className="field span-2">Working directory<div className="field-with-action"><input value={cwd} onChange={(event) => setCwd(event.target.value)} required data-testid="advanced-cwd" /><button type="button" onClick={() => { setCwd('/workspace/rhythm'); notify('Fixture folder selected'); }} data-testid="advanced-browse">Browse…</button></div></label>
+        <label className="field span-2">Working directory<div className="field-with-action"><input value={cwd} onChange={(event) => { setCwd(event.target.value); setBranch(''); setNewBranchMode(false); setNewBranch(''); setPendingBranch(null); }} required data-testid="advanced-cwd" /><button type="button" onClick={() => { setCwd('/workspace/rhythm'); notify('Fixture folder selected'); }} data-testid="advanced-browse">Browse…</button></div></label>
         <label className="switch-row span-2"><input type="checkbox" checked={isolateWorktree} onChange={(event) => setIsolateWorktree(event.target.checked)} data-testid="advanced-isolate-worktree" /><span><strong>Run in isolated worktree</strong><small>Creates a separate git worktree so edits do not touch this working directory.</small></span></label>
         {isolateWorktree && <label className="field span-2">Worktree name<span>Optional</span><input value={worktreeName} onChange={(event) => setWorktreeName(event.target.value)} placeholder="release-readiness" data-testid="advanced-worktree-name" /></label>}
         <fieldset className="branch-options span-2"><legend>Branch</legend>{newBranchMode ? <div className="field-with-action"><input value={newBranch} onChange={(event) => setNewBranch(event.target.value)} placeholder="new-branch-name" aria-label="New branch name" data-testid="advanced-new-branch" /><button type="button" onClick={() => { setNewBranchMode(false); setNewBranch(''); }}>Cancel</button></div> : sessionGatewayMode === 'live'
           ? <select value={branch} onChange={(event) => selectBranch(event.target.value)} aria-label="Branch" data-testid="advanced-branch">
+              {branch === '' && <option value="">Use cwd's current branch</option>}
               <option value={liveBranches?.current ?? selected.branch}>Current · {liveBranches?.current ?? selected.branch}</option>
               {(liveBranches?.recent ?? []).filter((name) => name !== (liveBranches?.current ?? selected.branch)).map((name) => <option value={name} key={`recent-${name}`}>{name} · recent</option>)}
               {(liveBranches?.local ?? []).filter((name) => name !== (liveBranches?.current ?? selected.branch) && !(liveBranches?.recent ?? []).includes(name)).map((name) => <option value={name} key={`local-${name}`}>{name} · local</option>)}
