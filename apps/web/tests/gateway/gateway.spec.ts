@@ -63,6 +63,46 @@ test('slice-2-c3: live bases accept only exact loopback HTTP ports', async () =>
   }
 });
 
+test('bucket-a-repair-c1: trusted alternate expected bases accept only matching distinct unprivileged loopback ports', async () => {
+  // Regression caught: custom-port verification either remains pinned to 4098/4097 or accepts an arbitrary configured URL.
+  const gateway = await loadGateway();
+  expect(gateway, 'renderer gateway module must exist').not.toBeNull();
+  if (!gateway) return;
+  expect(gateway.validateLiveBase('http://127.0.0.1:4798', 'api', 'http://127.0.0.1:4798')).toBe('http://127.0.0.1:4798');
+  expect(gateway.validateLiveBase('http://127.0.0.1:4797/', 'engine', 'http://127.0.0.1:4797')).toBe('http://127.0.0.1:4797');
+  expect(() => gateway.composeGateway({
+    mode: 'live',
+    apiBase: 'http://127.0.0.1:4798',
+    engineBase: 'http://127.0.0.1:4797',
+    productionApiBase: 'http://127.0.0.1:4798',
+    expectedApiBase: 'http://127.0.0.1:4798',
+    expectedEngineBase: 'http://127.0.0.1:4797',
+    taskToken: 'disposable-repair-token',
+  })).not.toThrow();
+
+  for (const expected of [
+    'file:///tmp/api',
+    'http://user@127.0.0.1:4798',
+    'http://127.0.0.1:4798/path',
+    'http://127.0.0.1:4798?query=1',
+    'http://127.0.0.1:4798#fragment',
+    'http://127.0.0.1:1023',
+    'http://localhost:4798',
+  ]) {
+    expect(() => gateway.validateLiveBase(expected, 'api', expected), expected).toThrow(/live configuration/i);
+  }
+  expect(() => gateway.validateLiveBase('http://127.0.0.1:4798', 'api', 'http://127.0.0.1:4799')).toThrow(/live configuration/i);
+  expect(() => gateway.composeGateway({
+    mode: 'live',
+    apiBase: 'http://127.0.0.1:4798',
+    engineBase: 'http://127.0.0.1:4798',
+    productionApiBase: 'http://127.0.0.1:4798',
+    expectedApiBase: 'http://127.0.0.1:4798',
+    expectedEngineBase: 'http://127.0.0.1:4798',
+    taskToken: 'disposable-repair-token',
+  })).toThrow(/distinct/i);
+});
+
 test('slice-2-c4: explicit live configuration failure never composes fixture', async () => {
   // Regression caught: an invalid explicit live request silently downgrades to fixtures.
   const gateway = await loadGateway();

@@ -8,7 +8,7 @@
     "package:mac": "node scripts/package-mac.mjs",
     "sign:mac": "node scripts/sign-and-notarize-mac.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
     "smoke": "electron . --smoke",
     "smoke:missing-dist": "electron . --smoke --missing-dist"
   },

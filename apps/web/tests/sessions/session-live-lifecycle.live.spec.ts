@@ -4,9 +4,9 @@ import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { access } from 'node:fs/promises';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { liveEnvironment } from '../live-environment';
 
-const apiBase = 'http://127.0.0.1:4098';
-const engineBase = 'http://127.0.0.1:4097';
+const { apiBase, engineBase, wsBase } = liveEnvironment();
 const providerPort = 1234;
 const vitePort = 4175;
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH;
@@ -14,6 +14,7 @@ const live = process.env.RHYTHM_LIVE_E2E === '1';
 const requireApi = createRequire(new URL('../../../api_server/package.json', import.meta.url));
 
 test.skip(!live, 'requires RHYTHM_LIVE_E2E=1');
+test.use({ bypassCSP: true });
 test.setTimeout(600_000);
 
 type Db = {
@@ -76,8 +77,10 @@ async function startLiveWeb(token: string) {
       ...process.env,
       VITE_RHYTHM_GATEWAY_MODE: 'live',
       VITE_RHYTHM_API_BASE: apiBase,
+      VITE_RHYTHM_EXPECTED_API_BASE: apiBase,
       VITE_RHYTHM_PRODUCTION_API_BASE: apiBase,
       VITE_RHYTHM_ENGINE_BASE: engineBase,
+      VITE_RHYTHM_EXPECTED_ENGINE_BASE: engineBase,
       VITE_RHYTHM_LIVE_TOKEN: token,
     },
     stdio: 'ignore',
@@ -265,7 +268,7 @@ test('engine-session-live-lifecycle-c4-c9: real UI creates, streams, reloads, an
   });
 
   page.on('websocket', (socket) => {
-    if (socket.url() !== 'ws://127.0.0.1:4098/ws/agents') return;
+    if (socket.url() !== `${wsBase}/ws/agents`) return;
     socket.on('framesent', (event) => wsFramesSent.push(event.payload));
     socket.on('framereceived', (event) => wsFramesReceived.push(event.payload));
   });

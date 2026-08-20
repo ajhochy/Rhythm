@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, net, Notification, protocol, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
@@ -10,6 +10,7 @@ import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.m
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
+import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -27,34 +28,8 @@ else if (smokeUserDataPath) app.setPath('userData', smokeUserDataPath);
 if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { recursive: true, force: true }));
 
 const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
-/** @param {unknown} value */
-const normalizeProductionApiBase = (value) => {
-  const url = new URL(typeof value === 'string' ? value.trim() : '');
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw new Error('Production API URL must be HTTP(S) without credentials, query, or fragment');
-  }
-  return url.toString().replace(/\/$/, '');
-};
-const loadProductionApiBase = () => {
-  if (process.env.RHYTHM_PRODUCTION_API_URL) return normalizeProductionApiBase(process.env.RHYTHM_PRODUCTION_API_URL);
-  try {
-    return normalizeProductionApiBase(JSON.parse(readFileSync(productionApiConfigPath, 'utf8')).serverUrl);
-  } catch {
-    return normalizeProductionApiBase(RHYTHM_AUTH_API_BASE);
-  }
-};
-let productionApiBase = loadProductionApiBase();
-/** @param {unknown} value */
-const saveProductionApiBase = (value) => {
-  const serverUrl = normalizeProductionApiBase(value);
-  const temporaryPath = `${productionApiConfigPath}.tmp`;
-  mkdirSync(dirname(productionApiConfigPath), { recursive: true });
-  writeFileSync(temporaryPath, `${JSON.stringify({ serverUrl }, null, 2)}\n`, { mode: 0o600 });
-  renameSync(temporaryPath, productionApiConfigPath);
-  productionApiBase = serverUrl;
-  process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
-  return serverUrl;
-};
+const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
+let productionApiBase = productionApiConfig.load();
 process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -175,10 +150,15 @@ if (hasSingleInstanceLock) {
     }
     return googleSignInInFlight;
   });
-  ipcMain.handle('rhythm:production-api:set', (event, value) => {
-    if (event.sender !== mainWindow?.webContents) throw new Error('Production API URL update denied');
-    return saveProductionApiBase(value);
-  });
+  ipcMain.handle('rhythm:production-api:set', createProductionApiSetHandler({
+    allowedSender: () => mainWindow?.webContents,
+    save: async (value) => {
+      const serverUrl = await productionApiConfig.save(value);
+      productionApiBase = serverUrl;
+      process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
+      return serverUrl;
+    },
+  }));
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
@@ -257,9 +237,12 @@ if (hasSingleInstanceLock) {
       const file = resolveAsset(url.pathname);
       if (!file) return new Response('Not found', { status: 404 });
       if (url.pathname === '/index.html') {
-        const productionOrigin = new URL(productionApiBase).origin;
+        const apiOrigin = new URL(process.env.RHYTHM_LIVE_API_URL ?? AGENT_SERVER_BASE_URL).origin;
+        const engineOrigin = new URL(process.env.RHYTHM_LIVE_ENGINE_URL ?? `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`).origin;
+        const websocketOrigin = apiOrigin.replace(/^http:/, 'ws:');
+        const connectOrigins = [...new Set([new URL(productionApiBase).origin, apiOrigin, engineOrigin, websocketOrigin])].join(' ');
         return readFile(file, 'utf8').then((html) => new Response(
-          html.replace('connect-src ', `connect-src ${productionOrigin} `),
+          html.replace('connect-src ', `connect-src ${connectOrigins} `),
           { headers: { 'content-type': 'text/html; charset=utf-8' } },
         ));
       }

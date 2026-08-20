@@ -49,6 +49,8 @@ export interface LiveGatewayConfig {
   apiBase: string;
   engineBase: string;
   productionApiBase: string;
+  expectedApiBase?: string;
+  expectedEngineBase?: string;
   taskToken?: string;
 }
 
@@ -57,6 +59,8 @@ export interface GatewayEnvironment {
   apiBase?: string;
   engineBase?: string;
   productionApiBase?: string;
+  expectedApiBase?: string;
+  expectedEngineBase?: string;
   taskToken?: string;
 }
 
@@ -64,8 +68,17 @@ type Fetcher = typeof fetch;
 
 const ports: Record<GatewayService, string> = { api: '4098', engine: '4097' };
 
-export function validateLiveBase(value: string | undefined, service: GatewayService): string {
-  const expected = `http://127.0.0.1:${ports[service]}`;
+export function validateLiveBase(value: string | undefined, service: GatewayService, expectedValue?: string): string {
+  const fallback = `http://127.0.0.1:${ports[service]}`;
+  let expected: string;
+  try {
+    const url = new URL(expectedValue ?? fallback);
+    const port = Number(url.port);
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || port < 1024 || port > 65535 || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error();
+    expected = `http://127.0.0.1:${port}`;
+  } catch {
+    throw new Error(`Live configuration error: trusted ${service} expected base must be plain loopback HTTP on an unprivileged port`);
+  }
   if (!value || (value !== expected && value !== `${expected}/`)) {
     throw new Error(`Live configuration error: ${service} base must be exactly ${expected}`);
   }
@@ -98,8 +111,9 @@ export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
 }
 
 export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = fetch): RendererGateway {
-  const apiBase = validateLiveBase(config.apiBase, 'api');
-  const engineBase = validateLiveBase(config.engineBase, 'engine');
+  const apiBase = validateLiveBase(config.apiBase, 'api', config.expectedApiBase);
+  const engineBase = validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
+  if (apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
   const productionApiBase = validateProductionApiBase(config.productionApiBase);
 
   const check = async (service: GatewayService, url: string): Promise<GatewayHealth> => {
@@ -166,6 +180,8 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
     apiBase: environment.apiBase ?? '',
     engineBase: environment.engineBase ?? '',
     productionApiBase: environment.productionApiBase ?? '',
+    expectedApiBase: environment.expectedApiBase,
+    expectedEngineBase: environment.expectedEngineBase,
     taskToken: environment.taskToken,
   });
 }

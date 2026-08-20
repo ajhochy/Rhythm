@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { liveEnvironment } from '../../web/tests/live-environment.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -29,9 +30,11 @@ const poisonedRendererEnvironment = {
   VITE_RHYTHM_ENGINE_BASE: 'https://compiled-engine.invalid',
   VITE_RHYTHM_LIVE_TOKEN: 'non-credential-build-sentinel',
 };
+const liveBases = liveEnvironment();
 const sandboxEnvironment = {
-  RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098',
-  RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097',
+  RHYTHM_LIVE_API_URL: liveBases.apiBase,
+  RHYTHM_LIVE_ENGINE_URL: liveBases.engineBase,
+  RHYTHM_PRODUCTION_API_URL: liveBases.productionApiBase,
 };
 // Electron derives userData from package.json `name`, so an un-redirected launch writes persistent
 // state to ~/Library/Application Support/rhythm-electron-shell. That is the leak c6 must catch: the
@@ -95,10 +98,14 @@ test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway 
   await assertPackagedBundle('slice-7-c4');
   const receipt = await packagedSmoke(['--smoke', '--live-smoke'], sandboxEnvironment);
   assert.equal(receipt.environment?.mode, 'Live', 'slice-7-c4: packaged environment receipt did not read `Live`');
-  assert.match(receipt.liveRead?.url ?? '', /^http:\/\/127\.0\.0\.1:4098\/(agent-sessions|tasks)(?:[/?#]|$)/, 'slice-7-c4: no real sandbox /agent-sessions or /tasks read was recorded');
+  assert.match(receipt.liveRead?.url ?? '', new RegExp(`^${escapeRegExp(liveBases.apiBase)}/(agent-sessions|tasks)(?:[/?#]|$)`), 'slice-7-c4: no real sandbox /agent-sessions or /tasks read was recorded');
   assert.equal(receipt.liveRead?.status, 200, 'slice-7-c4: real live gateway read did not return HTTP 200');
   assert.equal(receipt.liveRead?.fixtureFallback, false, 'slice-7-c4: fixture fallback attempted to satisfy packaged live smoke');
 });
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed policies', async () => {
   // Regression caught: security checks exercise source Electron while the shipped preload or policies are permissive.

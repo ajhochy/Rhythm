@@ -23,6 +23,10 @@ const gatewayMode = environment.VITE_RHYTHM_GATEWAY_MODE;
 const apiBase = runtimeGateway?.gateway?.apiBase ?? environment.VITE_RHYTHM_API_BASE;
 const engineBase = runtimeGateway?.gateway?.engineBase ?? environment.VITE_RHYTHM_ENGINE_BASE;
 const productionApiBase = runtimeGateway?.gateway?.productionApiBase ?? environment.VITE_RHYTHM_PRODUCTION_API_BASE;
+// Electron owns and freezes runtimeGateway. Browser-only alternate ports require a separate,
+// explicit test expectation so a configured URL can never declare itself trusted.
+const expectedApiBase = runtimeGateway ? apiBase : environment.VITE_RHYTHM_EXPECTED_API_BASE;
+const expectedEngineBase = runtimeGateway ? engineBase : environment.VITE_RHYTHM_EXPECTED_ENGINE_BASE;
 
 const renderGateway = (taskToken?: string, user?: AuthUser) => {
   const gateway = composeGateway({
@@ -30,6 +34,8 @@ const renderGateway = (taskToken?: string, user?: AuthUser) => {
     apiBase,
     engineBase,
     productionApiBase,
+    expectedApiBase,
+    expectedEngineBase,
     taskToken,
   });
   const app = <FixtureProvider><App /></FixtureProvider>;

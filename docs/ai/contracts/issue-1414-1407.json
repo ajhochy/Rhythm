@@ -1,46 +1,41 @@
 {
   "issues": [1414, 1407],
   "date": "2026-08-19",
-  "test_command": "cd apps/web && npx playwright test tests/inspector-profiles.spec.ts tests/sessions.spec.ts --workers=1",
+  "test_command": "cd apps/web && npx playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts",
   "waiver": null,
   "criteria": [
     {
       "criterion_id": "issue-1414-c1",
       "text": "A live profile icon asset path is never rendered as inline avatar text and the profile row remains readable.",
       "mode": "ui",
-      "test": null,
-      "status": "not_tested",
-      "reason": "Playwright deferred to orchestrator serial gate; this slice may not edit sibling-owned existing specs."
+      "test": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "status": "pass",
+      "reason": "Rendered profile flow asserts initials, no image, and no raw asset path."
     },
     {
       "criterion_id": "issue-1414-c2",
       "text": "An unservable or broken profile icon asset path falls back to a derived short label instead of a broken image.",
       "mode": "ui",
-      "test": null,
-      "status": "not_tested",
-      "reason": "Playwright deferred to orchestrator serial gate; this slice may not edit sibling-owned existing specs."
+      "test": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "status": "pass",
+      "reason": "Rendered profile flow proves the unservable app asset path uses the derived AP fallback."
     },
     {
       "criterion_id": "issue-1414-c3",
       "text": "Editing and saving a real profile does not silently truncate or corrupt its stored asset-path icon.",
       "mode": "ui",
-      "test": null,
-      "status": "not_tested",
-      "reason": "Playwright deferred to orchestrator serial gate; this slice may not edit sibling-owned existing specs."
+      "test": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "status": "pass",
+      "reason": "Rendered live PATCH capture preserves assets/agents/release-steward/avatar.png after an unrelated prompt edit."
     },
     {
       "criterion_id": "issue-1407-c1",
       "text": "Manually editing the advanced cwd clears the previously selected project's stale branch so the create request does not send that branch.",
       "mode": "ui",
-      "test": null,
-      "status": "not_tested",
-      "reason": "Playwright deferred to orchestrator serial gate; this slice may not edit sibling-owned existing specs."
+      "test": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "status": "pass",
+      "reason": "Rendered advanced-session flow selects feature/rendered, changes cwd, asserts the current-cwd option, and captures a POST with no branch property."
     }
   ],
-  "not_tested": [
-    "issue-1414-c1",
-    "issue-1414-c2",
-    "issue-1414-c3",
-    "issue-1407-c1"
-  ]
+  "not_tested": []
 }
