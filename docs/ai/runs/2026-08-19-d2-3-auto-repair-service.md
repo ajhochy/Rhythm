@@ -2,7 +2,7 @@
 date: 2026-08-19
 repo: Rhythm
 branch: agent-stack/si-d2-post-apply-lifecycle
-pr: none
+pr: 1454
 issues: [1433]
 status: pass
 tags: [run, Rhythm]
@@ -119,8 +119,19 @@ npx vitest run \
 
 - `node_modules/.bin/tsc --noEmit` → clean.
 - `npm run build` → PASS (tsc + postbuild copy).
-- Per this D2 series' established gate policy (see D2.2's run note): focused
-  tests + build + tsc only; full `apps/api_server` suite not run this slice.
+
+Final verification-gate pass (beyond the focused-slice policy above — run before
+opening the draft PR):
+
+- Full `apps/api_server` suite: **5478 passed / 7 failed.** All 7 failures
+  confirmed pre-existing (grep-verified: none import or exercise
+  `auto_repair_service.ts`, `post_apply_event.ts`,
+  `post_apply_events_repository.ts`, or this slice's test file).
+- `cd apps/desktop_flutter && dart format . --set-exit-if-changed` → clean;
+  `flutter analyze --no-fatal-infos` → clean (no new infos).
+- GitNexus `detect_changes()`: 4 files touched, 0 changed symbols reported
+  (new files not yet in the index), risk **low**.
+- `docs/ai/contracts/issue-1433.json`: 6/6 criteria pass.
 
 ## Deviations / residual risk
 
@@ -143,10 +154,13 @@ npx vitest run \
   `post_apply_monitor.ts`'s `registerAutoRepairTrigger` seam remains the
   log-only stub. Wiring it is explicitly D2.5's scope per D2.2's own run
   note, unchanged by this issue.
-- Not run this slice: full `apps/api_server` suite, live sandbox/behavioral
-  E2E (this is a pure unit-level service with no new HTTP/WS entry point —
+- Full `apps/api_server` suite now run (5478 passed / 7 pre-existing
+  failures, see Checks above). Live sandbox/behavioral E2E still not run —
+  this is a pure unit-level service with no new HTTP/WS entry point.
   AGENTS.md's behavioral verification gate exception for "pure refactors with
   no behavior change" does not quite apply since this DOES add new behavior,
   but the behavior is entirely internal DB/service-layer logic exercised
   directly and deterministically by the contract test above; no new
-  user-facing surface was added to smoke-test).
+  user-facing surface was added to smoke-test.
+- Draft PR #1454 opened. Not merged — awaiting AJ's manual review/smoke per
+  repo policy (`AGENTS.md` "Production posture").

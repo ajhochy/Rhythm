@@ -1,103 +1,85 @@
-# Rhythm — Project State (worktree: causal-runtime-v2-codex)
+# Rhythm — Project State (worktree: d2-post-apply-lifecycle)
 
 ## Current focus
 
-Extending the accepted self-improvement-engine foundation (W1–W7, PR #1398) with the
-**causal-runtime-v2** campaign: a truthful pre-deployment causal experiment runtime and
-calibration layer, contracted in `docs/ai/contracts/issue-causal-runtime-v2.json` (phases C0–C6),
-tracked in GitHub issue #1448. Goal: no experiment can report `verified` without real
-treatment-bound receipts from both cohorts, and only a tested exact candidate can be CAS-applied.
+D2 series of the self-improvement-engine campaign: the post-apply
+monitor→repair→revert lifecycle, contracted incrementally under GitHub issue
+#1433 (D2.3) and siblings #1431/#1432/#1434/#1435. This worktree branched off
+`agent-stack/si-causal-runtime-v2-codex` after that campaign's C4 phase
+landed (merge commit `0b5e7237`) — the causal-runtime-v2 C0–C4 work is
+already merged into this branch's history; do not re-verify it here.
 
 ## Active branch / PR
 
-- Branch: `agent-stack/si-causal-runtime-v2-codex` (this worktree). No PR opened for this branch
-  yet — work continues past the foundation's PR #1398, which stays draft/unmerged and unaffected.
-- Head commit: `11b3b06d` — `test(optimizer): prove WS redispatch reuse is already idempotent`
-  (C2-D S5 / #1448), on top of `156b4a6f` (C2-D S4). A live coding-agent session was actively
-  committing to this branch while this snapshot was written (S4 and S5 both landed within minutes
-  of each other) — re-check `git log`/`git status` before assuming this is still the head.
+- Branch: `agent-stack/si-d2-post-apply-lifecycle` (this worktree), up to
+  date with `origin/agent-stack/si-d2-post-apply-lifecycle`.
+- Head commit: `a8f0607d` — `feat(optimizer): auto-repair service for
+  post-apply guardrail breaches (#1433)`.
+- **Draft PR #1454 open**: https://github.com/ajhochy/Rhythm/pull/1454 — NOT
+  merged, awaiting AJ's manual review/smoke per repo policy.
 
 ## In progress
 
-Accepted so far (each parent-verified: focused tests + build + `tsc --noEmit` clean, run by the
-orchestrator, not just builder-claimed):
+D2 series, each phase parent-verified (focused tests + tsc + build; D2.3 also
+got a full-suite + Flutter + GitNexus final pass before the draft PR):
 
-- **C0** `97871dd4` — truthful collecting/inconclusive verdict hotfix.
-- **C1** `d0466e50` — pre-run episode enrollment + atomic exposure reservation, Postgres parity.
-- **C2-A** `c303c47e` — dispatch bound cohort treatments.
-- **C2-B** `83cf6d42` — persist immutable treatment receipts.
-- **C2-C** `019a9c78` — wire atomic treatment receipt at the real prompt-dispatch boundary.
-- **C2-D (S1)** `12f80482` / #1449 — fixed `run_outcome_service.ts` resolving enrollment via
-  `rootSessionId` instead of the computed `runEpisodeId`.
-- **C2-D (S2)** `1306a3ea` / #1450 — `run_episode_id` column on `agent_run_outcomes`
-  (SQLite + Postgres) and a new, tested `listReceiptBackedByExperimentAsync` repository method.
-  Deliberately **not** wired into the live `judgeExperimentAsync`/`computeDecisionAsync` call
-  sites yet — that swap is explicitly deferred to C3/C4 (see Risks).
-- **C2-D (S3)** `391dd5aa` / #1451 — threaded `runEpisodeId` through `ws_gateway.ts` →
-  `opencode_stream_bridge.ts`'s three terminal-hook call sites so interactive WS runs record
-  outcomes against the right enrollment. Live sandbox check explicitly skipped (no live-triggerable
-  surface exists yet for it; relies on a focused test driving the real WS bridge code).
-- **C2-D (S4)** `156b4a6f` — interactive WS reservation/receipt at the `promptAsync` boundary in
-  `ws_gateway.ts`, mirroring `agent_runner.ts`'s C1/C2-C reserve-before-dispatch +
-  commit-at-dispatch contract. Orchestrator re-ran the combined S4+S5 test file (5/5 pass),
-  `tsc --noEmit` (clean), `npm run build` (clean), and `git diff --check` over the S4..S5 commit
-  range (clean).
-- **C2-D (S5)** `11b3b06d` — idempotent redispatch/retry reuse. Investigation found the existing
-  reserve/prepare/commit chain (`reserveRunEnrollment`'s idempotency check +
-  `dispatchAndFinalizeReceiptAsync`'s existing-receipt check) was already correct through the S4 WS
-  boundary; a new test proves it, **no production code changed**. Verified together with S4 above
-  (same file, same gate run).
+- **D2.1** (#1431) `c78fc725` — `PostApplyEvent` model + repository.
+- **D2.2** (#1432) `baca680a` — post-apply guardrail monitor.
+- **D2.3** (#1433) `a8f0607d` — bounded 3-strike auto-repair service
+  (`apps/api_server/src/services/auto_repair_service.ts`). Replaced a
+  placeholder `runCallCount` test-order hack with real logic: per-attempt
+  `diagnose` → re-resolved `refine-config` proposal → CAS-applied via the
+  same primitive the human-approval path uses → re-checked against a
+  strictly-increasing per-attempt time floor so an earlier attempt's breach
+  is never re-blamed on a later attempt's fix. Also fixed a genuine test-data
+  bug (two success-path cases seeded byte-identical breach data expecting
+  different attempt counts) and a real `TS2307` bad-relative-import bug in
+  the placeholder. Details: `docs/ai/runs/2026-08-19-d2-3-auto-repair-service.md`,
+  `docs/ai/contracts/issue-1433.json` (6/6 pass).
 
 Not started:
 
-- **C2-D (S6)** live isolated-sandbox WS E2E (baseline vs. candidate, distinct effective prompts,
-  no durable mutation) — in flight in a separate coding-agent session as of this writing.
-  `issue-1448.json` criteria c4–c6 are still **UNVERIFIED**, pending a `RHYTHM_LIVE_E2E=1` sandbox
-  run. The only remaining open item under #1448's C2-D scope.
-- S4–S6 exist only as rows in #1448's tracking table, not yet filed as their own GitHub issues
-  (unlike S1/#1449, S2/#1450, S3/#1451).
-
-Not started: **C3** (treatment-bound outcomes/executable metrics/guardrails), **C4** (fixed-horizon
-decision + tested-candidate promotion), **C5** (automatic evidence construction), **C6** (versioned
-calibration + operator/release surface). Per the contract's own phase list each blocks specific
-downstream work until it lands (C3 needs receipt-filtered outcomes from S2 wired in; C4 needs C3;
-C5 and C6 are prerequisites named by later-phase dependency notes for further D-series work after
-C6 — do not start those before C3–C6 land).
-
-**Gate policy for this campaign (AJ's explicit direction):** the full `apps/api_server` suite is
-deferred to the end of the whole C2-D→C6 sequence, not rerun after every slice. Only focused tests
-+ build + `tsc --noEmit` are verified per slice. Do not claim a full-suite pass until that final run
-actually happens.
+- **D2.4** (#1434) — auto-revert with alert after all repair attempts fail.
+  `auto_repair_service.ts` already has the trigger registry
+  (`registerAutoRevertTrigger`) wired and calling it on exhaustion; D2.4's
+  job is the alert/notification side.
+- **D2.5** (#1435) — full lifecycle wiring. `runAutoRepairAsync` currently
+  has **zero real call sites** — `post_apply_monitor.ts`'s
+  `registerAutoRepairTrigger` seam is still a log-only stub. Wiring monitor
+  trip → auto-repair → auto-revert end-to-end is explicitly D2.5's scope.
 
 ## Risks / known issues
 
-- **Receipt filtering exists but isn't load-bearing yet.** S2 built `listReceiptBackedByExperimentAsync`
-  as a real, tested, additive capability, but the live promotion path
-  (`judgeExperimentAsync`/`computeDecisionAsync`) still counts unfiltered outcomes — wiring it in is
-  explicitly C3/C4 scope ("Not started"). Until then, C0's fail-closed
-  "paired-cohort-outcome cannot verify without treatment-v2 receipts" guard is the only thing
-  preventing an A/A experiment from promoting.
-- **S6 unverified:** no live sandbox run has proven baseline/candidate runs get distinct effective
-  prompts through the real WS path, or that target bytes stay unchanged. `tools/dev/sandbox.sh`
-  reads the live Rhythm DB on its only supported bring-up — point `RHYTHM_LIVE_DB_PATH` at a
-  disposable file before running it for S6/C6 checks.
-- No GitHub issues filed yet for S4/S5/S6 individually — only tracked as rows under #1448.
+- Auto-repair bypasses `org_proposal_apply_service.ts`'s pluggable
+  per-kind applier registry, applying directly via
+  `AgentConfigsRepository.update` + `claimAppliedWithSnapshotAsync` instead.
+  Deliberate scope choice (auto-repair only ever emits `refine-config`
+  fixes) — revisit if a future D2.x needs other proposal kinds here.
+- `model`-field config patches are stored verbatim on `modelId` (no
+  provider/model split like the human-approved applier does) — matches this
+  slice's test contract, flagged in code with a `ponytail:` comment.
+- No live sandbox/behavioral E2E for D2.3 — it's pure internal DB/service
+  logic with no new HTTP/WS entry point exercised deterministically by the
+  contract test; nothing user-facing to smoke-test yet. D2.5 (real wiring)
+  will need one.
 
 ## Test status
 
-- Per-slice only, per the campaign's deferred-full-suite gate policy — no full `apps/api_server`
-  suite run has happened on this branch since `1a35f352`.
-- C0, C1, C2-A/B/C, C2-D S1–S5: each parent-verified at its head with focused tests + build +
-  `tsc --noEmit` clean (see each phase's run note / `docs/ai/contracts/issue-14{49,50,51}.json` +
-  `issue-1448.json`).
-- S6: no run yet — requires `RHYTHM_LIVE_E2E=1` against the isolated sandbox.
+- D2.1–D2.3: each parent-verified, focused tests + `tsc --noEmit` + build
+  clean.
+- D2.3 additionally got a full-suite pass before the draft PR: full
+  `apps/api_server` suite 5478 passed / 7 failed, all 7 confirmed
+  pre-existing and unrelated (grep-verified no import path touches this
+  diff's files); Flutter `dart format` + `flutter analyze` clean; GitNexus
+  `detect_changes()` — 4 files, 0 changed symbols (new files), risk low.
+- No full-suite run has happened since `1a35f352` other than the D2.3 pass
+  above — that pass covers everything through `a8f0607d`.
 
 ## Next step
 
-**S6** (live sandbox WS E2E, in flight) → **C3** (treatment-bound outcomes/guardrails) →
-**C4** (fixed-horizon decision/promotion) → **C5** (evidence construction) → **C6**
-(calibration/operator surface). File a GitHub issue for S6 before/at the point work begins on it,
-matching the S1–S3 pattern. Once C2-D (S1–S6) is fully accepted, merge this worktree's branch into
-`self-improvement-engine-foundation` (the integration branch backing draft PR #1398), push, and
-confirm CI green before continuing to C3. Full `apps/api_server` suite, Flutter format/analyze/
-tests/build, and desktop UI reconciliation are deferred to C6 per the contract's `ship_gate`.
+D2.4 (#1434, auto-revert-with-alert) next, then D2.5 (#1435, real lifecycle
+wiring — the first point `runAutoRepairAsync` gets a live call site).
+PR #1454 stays draft until AJ manually smokes it; do not merge. Once D2's
+whole lifecycle (D2.1–D2.5) is accepted, fold this branch back per this
+campaign's established merge pattern (see prior `merge: causal-runtime-v2 …`
+commits on this branch for precedent) before continuing past D2.
