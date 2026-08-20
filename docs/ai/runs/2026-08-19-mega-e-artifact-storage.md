@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/mega-e-artifact-storage
 pr: null
 issues: [1396, 1397, 1394]
-status: blocked
+status: pass
 tags: [run, Rhythm]
 ---
 
@@ -156,3 +156,18 @@ tags: [run, Rhythm]
   attempt was made to change `postgres_bootstrap.ts` or bypass Postgres with
   SQLite. The remaining requested Bucket E focused 21/21 and startup-abort
   suites were not rerun after the stop condition.
+
+## 2026-08-20 corrected-stack final gate
+
+- Verified branch `codex/mega-e-stacked-final2` at `66715a3a` with the committed
+  `issue_1394_postgres_startup_diagnostic.test.ts` and prerequisite `b0fb1ad1`.
+- Isolated sandbox became healthy on API `4598`, engine `4597`, and gateway
+  `4599`; live ports `4001` and `4096` were observed but never targeted.
+- Disposable `postgres:16`: startup diagnostic **1/1** and prerequisite role
+  matrix **7/7** passed. Seeded current bundle/state hashes pointed to absent
+  bytes; the built server emitted the redacted diagnostic with count `2` and
+  both artifact kinds, returned health `200`, and rejected credential/path leaks.
+- Exact generic client error/non-disclosure **1/1**, startup-abort **1/1**, and
+  Bucket E focused suites **21/21** passed.
+- Orchestrator GitNexus compare on the clean E branch: LOW risk, 17 changed
+  files, zero affected indexed processes.

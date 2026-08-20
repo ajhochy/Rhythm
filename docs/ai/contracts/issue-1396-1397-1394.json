@@ -49,8 +49,8 @@
       "text": "Detect Postgres rows whose current bundle/state hashes point to missing content, and surface an actionable operator diagnostic without exposing internal paths or credentials to clients.",
       "mode": "integration",
       "test": "apps/api_server/src/__tests__/issue_1394_postgres_startup_diagnostic.test.ts; apps/api_server/src/__tests__/live_artifacts.test.ts",
-      "status": "not_tested",
-      "reason": "not_tested — the exact real Express client response passed, but the disposable Postgres startup proof is blocked before server launch because the existing runPostgresBootstrap harness fails on a fresh schema with relation \"agent_sessions\" does not exist at postgres_bootstrap.ts:1087. Product-code repair is outside this tests/docs-only dispatch."
+      "status": "pass",
+      "reason": "A real built server against disposable postgres:16 started from seeded current bundle/state hashes with absent bytes, emitted LIVE_ARTIFACT_CONTENT_MISSING count=2 with artifact:bundle and artifact:state, returned health 200, and exposed neither the disposable credential nor storage path; real Express detail and render requests returned the exact generic INTERNAL_ERROR payload without filesystem, ENOENT, stack, or storage-variable disclosure."
     },
     {
       "criterion_id": "issue-1394-c5",
@@ -61,5 +61,5 @@
       "reason": "not_tested — documentation accuracy and operator execution require manual review."
     }
   ],
-  "not_tested": ["issue-1394-c1", "issue-1394-c4", "issue-1394-c5"]
+  "not_tested": ["issue-1394-c1", "issue-1394-c5"]
 }
