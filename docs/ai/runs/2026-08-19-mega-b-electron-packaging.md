@@ -17,7 +17,7 @@ tags: [run, Rhythm]
   - c2: resolver returned dev `npx tsx src/server.ts` instead of the staged bundle.
 - Final command: `cd apps/electron && node --test test/issue-1402-packaged-api-server.test.mjs`
   - PASS: 2/2, 0 fail, 82.816 s.
-- `issue-1402-c2` remains in `not_tested` only for the final clean-machine process-to-Live observation. The automated fixture proves bundled Node/server selection and removes the bundled entry to prove a packaged executable fails closed instead of walking into this checkout.
+- `issue-1402-c2` passed in the final standalone process-to-Live gate recorded below; the earlier fixture also proves bundled Node/server selection and fail-closed behavior when the bundled entry is absent.
 
 ## Files changed
 
