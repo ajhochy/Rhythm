@@ -2,25 +2,33 @@
 
 ## Current focus
 
-D2.5 (#1435) final post-apply lifecycle integration is implemented and ready for verification.
+D2.1–D2.5 lifecycle work (#1431–#1435) is complete, committed, pushed, and retrospectively reviewed.
 
-## Branch / PR
+## Active branch / PR
 
 - Branch: `agent-stack/si-d2-post-apply-lifecycle`
-- Committed head: `c713ea0e`
+- HEAD: `a033a73a`
 - Draft PR #1454: https://github.com/ajhochy/Rhythm/pull/1454
+- Status: draft; awaiting AJ manual review and smoke testing. Never merged.
 
-## Verification
+## In progress
 
-- Focused D2 lifecycle: **5 files / 39 tests pass**.
-- Required metadata/apply and controller/lifecycle suites: **8 files / 204 tests pass**.
-- Explicit excluded-lane metadata suite: **3 files / 27 tests pass**.
-- Typecheck and build: **pass**.
-- Live sandbox API/bootstrap/scheduler proof: **1 test pass** on API `4098` / engine `4097`.
-- Full API suite: **5,512 pass, 7 documented baseline failures, 181 skipped**.
-- GitNexus final risk: **MEDIUM/UNKNOWN** because the index does not resolve the uncommitted lifecycle symbols; changed scope remains confined to expected lifecycle, approval, applier, and direct-test files.
+- No implementation work remains; only AJ's manual review/smoke gate is pending.
 
-## Risks / next step
+## Risks / known issues
 
-- SQLite/local-only by contract; Postgres skips enrollment and sweeps.
-- Run verification-gate on the uncommitted D2.5 diff; keep PR #1454 draft for human review.
+- Risk remains **MEDIUM/UNKNOWN**, never low, because the GitNexus worktree index is stale.
+- Eligibility is limited to safely reversible existing-profile mutations. Create-agent, external adoption, and missing-skill creation remain excluded until rollback is versioned and race-safe.
+- The read-only reconciler was not changed.
+
+## Test status
+
+- D2.5 final verification: **READY_FOR_COMMIT**; **14/14** contract criteria.
+- Contract suite: **11 files / 231 tests pass**; focused route: **26/26 pass**.
+- Full API: **5,512 passed, 7 known baseline failures, 181 skipped (5,700 total)**.
+- TypeScript typecheck and build: **pass**.
+- Live sandbox E2E: **1/1 pass**; cleanup succeeded and ports `4097`, `4098`, and `4099` are closed.
+
+## Next step
+
+AJ manually reviews and smoke-tests draft PR #1454; do not merge before approval.
