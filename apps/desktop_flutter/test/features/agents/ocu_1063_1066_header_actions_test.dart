@@ -251,6 +251,46 @@ void main() {
     );
 
     testWidgets(
+      'GOLDEN: actual transcript header shows branch and dirty-file status',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 180));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final configsCtrl = await _makeConfigsController();
+        addTearDown(configsCtrl.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
+        final session = _makeSession('s-golden-git');
+        ctrl.setVcsInfoForTest(
+          session.id,
+          info: const {'branch': 'feature/ocu-header'},
+          status: const [
+            {
+              'file': 'lib/features/agents/views/agents_view.dart',
+              'status': 'modified'
+            },
+            {
+              'file': 'test/features/agents/header_test.dart',
+              'status': 'added'
+            },
+          ],
+        );
+
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: TranscriptHeaderTestHarness(session: session),
+        ));
+        await tester.pump();
+
+        await expectLater(
+          find.byType(TranscriptHeaderTestHarness),
+          matchesGoldenFile('goldens/ocu_1063_branch_dirty_header.png'),
+        );
+      },
+    );
+
+    testWidgets(
       'REAL-SURFACE: clean tree shows the branch with no dirty count',
       (tester) async {
         final configsCtrl = await _makeConfigsController();

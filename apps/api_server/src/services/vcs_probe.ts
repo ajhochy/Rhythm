@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'child_process';
+import path from 'path';
 
 export interface VcsInfo {
   vcsRoot: string | null;
@@ -32,6 +33,23 @@ function runGit(args: string[], cwd: string): { ok: boolean; stdout: string } {
   } catch {
     return { ok: false, stdout: '' };
   }
+}
+
+export function parsePrimaryWorktreePath(porcelain: string): string | null {
+  const first = porcelain.split(/\r?\n\r?\n/)[0];
+  if (!first) return null;
+  const lines = first.split(/\r?\n/);
+  if (!lines[0]?.startsWith('worktree ')) return null;
+  const worktreePath = lines[0].slice('worktree '.length);
+  if (!path.isAbsolute(worktreePath)) return null;
+  if (!lines.some((line) => line === 'bare' || line.startsWith('HEAD '))) return null;
+  return worktreePath;
+}
+
+/** Return the primary worktree for any linked checkout, or null on failure. */
+export function getPrimaryWorktreePath(cwd: string): string | null {
+  const result = runGit(['-C', cwd, 'worktree', 'list', '--porcelain'], cwd);
+  return result.ok ? parsePrimaryWorktreePath(result.stdout) : null;
 }
 
 /**

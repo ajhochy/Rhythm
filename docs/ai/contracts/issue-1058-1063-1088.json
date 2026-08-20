@@ -1,6 +1,6 @@
 {
   "issue": "1058,1063,1088",
-  "date": "2026-08-19",
+  "date": "2026-08-20",
   "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1058_isolate_worktree.test.ts src/__tests__/issue_738_agent_runner.test.ts src/__tests__/issue_1063_1066_vcs_shell_init.test.ts src/__tests__/opencode_worktrees_routes.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/repositories/agent_configs_repository.test.ts src/__tests__/live_e2e_1057_worktree.test.ts && cd ../desktop_flutter && flutter test test/features/agents/ocu_1063_1066_header_actions_test.dart",
   "waiver": null,
   "criteria": [
@@ -98,7 +98,7 @@
       "mode": "live",
       "test": "apps/api_server/src/__tests__/live_e2e_1088_hidden_schedulable.test.ts",
       "status": "UNVERIFIED",
-      "reason": "Orchestrator explicitly reserves serial sandbox verification; this worktree must not run tools/dev/sandbox.sh."
+      "reason": "Isolated live run reached completed_no_op but the configured model provider returned an insufficient-credits environment failure and produced empty assistant output."
     }
   ],
   "not_tested": ["issue-1088-c3"]

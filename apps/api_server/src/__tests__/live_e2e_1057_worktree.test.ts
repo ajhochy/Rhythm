@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 
 const RUN = process.env.RHYTHM_LIVE_E2E === '1';
 // Drive Rhythm's OWN worktree wrapper routes (the #1057 deliverable) on the
@@ -117,5 +117,11 @@ const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4098';
     );
     expect(deleteRes.status).toBe(204);
     expect(existsSync(session.worktreePath)).toBe(false);
+    expect(
+      spawnSync(
+        'git',
+        ['-C', repo, 'show-ref', '--verify', '--quiet', `refs/heads/${session.worktreeBranch}`],
+      ).status,
+    ).not.toBe(0);
   });
 });
