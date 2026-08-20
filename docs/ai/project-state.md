@@ -2,12 +2,12 @@
 
 ## Current focus
 
-- **Bucket B Electron packaging (#1402):** automated verification passed on a clean main-based branch; draft PR not opened yet.
+- **Bucket B Electron packaging (#1402):** automated verification passed; draft PR #1462 open.
 - Preserve unrelated active work: Org Optimizer/self-improvement #1448, mobile smart-client PR #1383, Numbat observability PR #1453, H1 Flutter fixes PR #1459, Bucket C relay/mobile PR #1460, and H2 API/OCU PR #1461.
 
 ## Active branch / PR
 
-- Bucket B: `codex/mega-b-electron-packaging-pr` at `4646a26c`; verification PASS `c7ebbf4b-dd51-4910-8974-2dac01b564c7`, preserving functional evidence from `537f0468-010a-47ec-a1e0-c24385e6f593`; no draft PR yet.
+- Bucket B: `codex/mega-b-electron-packaging-pr` → draft PR #1462; verification PASS `c7ebbf4b-dd51-4910-8974-2dac01b564c7`, preserving functional evidence from `537f0468-010a-47ec-a1e0-c24385e6f593`.
 - Org Optimizer/self-improvement: `agent-stack/si-causal-runtime-v2-codex`; issue #1448 continues beyond unaffected foundation draft PR #1398.
 - Mobile smart client: PR #1383; manual smoke pending. Numbat observability: PR #1453; manual smoke pending.
 - H1 Flutter fixes: draft PR #1459. Bucket C relay/mobile: draft PR #1460. H2 API/OCU: draft PR #1461; their recorded manual checks remain pending.
@@ -33,4 +33,4 @@
 
 ## Next step
 
-Open the Bucket B draft PR, then hand off the remaining release checks. Keep Org Optimizer and PRs #1383, #1453, #1459, #1460, and #1461 unchanged.
+AJ: run the remaining release checks on draft PR #1462. Keep Org Optimizer and PRs #1383, #1453, #1459, #1460, and #1461 unchanged.
