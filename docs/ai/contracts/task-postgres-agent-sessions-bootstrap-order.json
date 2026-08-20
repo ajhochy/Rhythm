@@ -1,0 +1,72 @@
+{
+  "issue": "task-postgres-agent-sessions-bootstrap-order",
+  "date": "2026-08-20",
+  "test_command": "RHYTHM_LIVE_POSTGRES_BOOTSTRAP=1 RHYTHM_LIVE_POSTGRES_URL=\"$THROWAWAY_POSTGRES_URL\" npx vitest run src/__tests__/postgres_bootstrap_live.test.ts --no-file-parallelism && npx vitest run src/__tests__/issue_755_role_separation.test.ts src/__tests__/relay_role.test.ts --no-file-parallelism && npm run build && node_modules/.bin/tsc --noEmit",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c1",
+      "text": "fresh default/unset role: bootstrap twice, table/required columns/QA FK/indexes exist",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c2",
+      "text": "fresh all: same",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c3",
+      "text": "fresh local: same",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c4",
+      "text": "fresh cloud: bootstrap succeeds, agent_sessions absent, production scheduler/trigger tables present",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c5",
+      "text": "fresh relay: same skip behavior",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c6",
+      "text": "existing populated schema: insert sentinel between runs; row + values survive",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c7",
+      "text": "idempotency: third run makes no destructive changes",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c8",
+      "text": "role separation tests",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-postgres-agent-sessions-bootstrap-order-c9",
+      "text": "full API build/typecheck",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/postgres_bootstrap_live.test.ts",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}
