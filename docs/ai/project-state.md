@@ -7,7 +7,7 @@
 
 ## Active branch / PR
 
-- H1: `codex/mega-h1-flutter-fixes` at `2011d6c2`; verification PASS `dff115db-33d1-45b8-b4f1-1c14f7516a35`; draft PR not opened yet.
+- H1: `codex/mega-h1-flutter-fixes` → draft PR #1459; verification PASS `dff115db-33d1-45b8-b4f1-1c14f7516a35`; manual smoke pending.
 - Org Optimizer/self-improvement: `agent-stack/si-causal-runtime-v2-codex`; issue #1448 continues beyond foundation draft PR #1398, which remains unaffected.
 - Mobile smart client: `mobile/smart-client-rebuild` → PR #1383. Do not merge before manual smoke.
 - Numbat observability: `numbat-opencode-observability` → PR #1453. Do not merge before manual smoke.
@@ -36,4 +36,4 @@
 
 ## Next step
 
-Open the H1 draft PR, then hand off the three remaining H1 manual-smoke checks to AJ. Keep the Org Optimizer, PR #1383, and PR #1453 workflows unchanged.
+AJ: run the three remaining H1 manual-smoke checks on draft PR #1459. Keep the Org Optimizer, PR #1383, and PR #1453 workflows unchanged.
