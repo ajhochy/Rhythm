@@ -150,8 +150,15 @@ export async function evaluatePostApplyGuardrailsAsync(
   const breaches = evaluations.filter((e) => e.breached);
 
   if (breaches.length > 0) {
-    const updated = await eventsRepo.updateStatusAsync(event.proposalId, { guardrailStatus: 'tripped' });
-    const tripped = updated ?? { ...event, guardrailStatus: 'tripped' as const };
+    const tripped = await eventsRepo.transitionGuardrailStatusAsync(
+      event.proposalId,
+      'monitoring',
+      'tripped',
+    );
+    if (!tripped) {
+      const winner = await eventsRepo.findByProposalIdAsync(event.proposalId);
+      return { action: 'no-op-terminal', event: winner ?? event, breaches };
+    }
     logger.warn(
       `[post-apply-monitor] guardrail(s) tripped for proposal '${event.proposalId}': ` +
         breaches.map((b) => `${b.guardrail}=${b.rate.toFixed(4)} over ${b.sampleCount} samples`).join(', '),
@@ -163,10 +170,18 @@ export async function evaluatePostApplyGuardrailsAsync(
 
   const windowExpired = now.getTime() >= new Date(event.monitoringWindowEnd).getTime();
   if (windowExpired) {
-    const updated = await eventsRepo.updateStatusAsync(event.proposalId, { guardrailStatus: 'clear' });
+    const updated = await eventsRepo.transitionGuardrailStatusAsync(
+      event.proposalId,
+      'monitoring',
+      'clear',
+    );
+    if (!updated) {
+      const winner = await eventsRepo.findByProposalIdAsync(event.proposalId);
+      return { action: 'no-op-terminal', event: winner ?? event, breaches: [] };
+    }
     return {
       action: 'cleared',
-      event: updated ?? { ...event, guardrailStatus: 'clear' as const },
+      event: updated,
       breaches: [],
     };
   }

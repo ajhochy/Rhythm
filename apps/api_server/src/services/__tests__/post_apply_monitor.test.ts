@@ -217,4 +217,21 @@ describe('D2.2 evaluatePostApplyGuardrailsAsync', () => {
     expect(result.action).toBe('tripped');
     expect(registered).toHaveBeenCalledTimes(1);
   });
+
+  it('allows only the conditional monitoring-to-tripped winner to trigger repair', async () => {
+    const event = await eventsRepo.createAsync({
+      proposalId: 'proposal-1', profileId: 'profile-1', changeType: 'prompt',
+      preChangeSnapshotJson: '{}', monitoringWindowStart: '2026-08-18T00:00:00.000Z',
+      monitoringWindowEnd: '2099-01-01T00:00:00.000Z',
+    });
+    for (let i = 0; i < 5; i += 1) {
+      insertOutcome({ id: `cas-${i}`, profileId: 'profile-1', finalizedAt: `2026-08-18T00:1${i}:00.000Z`, terminalStatus: 'error' });
+    }
+    const trigger = vi.fn();
+    await Promise.all([
+      evaluatePostApplyGuardrailsAsync(event, { eventsRepo, triggerAutoRepair: trigger }),
+      evaluatePostApplyGuardrailsAsync(event, { eventsRepo, triggerAutoRepair: trigger }),
+    ]);
+    expect(trigger).toHaveBeenCalledTimes(1);
+  });
 });

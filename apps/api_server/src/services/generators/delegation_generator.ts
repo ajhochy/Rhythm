@@ -307,7 +307,9 @@ export function registerDelegationApplier(
     }
 
     const beforeSnapshotJson = JSON.stringify({
-      allowedDelegatesJson: manager.allowedDelegatesJson,
+      agentConfigId: manager.id,
+      field: 'allowedDelegatesJson',
+      priorValue: manager.allowedDelegatesJson,
     });
 
     const { set: existingDelegates } = parseAllowedDelegates(manager.allowedDelegatesJson);
@@ -330,7 +332,11 @@ export function registerDelegationApplier(
       allowedDelegatesJson: JSON.stringify([...nextDelegates]),
     });
 
-    return { measurable: false, beforeSnapshotJson };
+    return {
+      measurable: false,
+      beforeSnapshotJson,
+      postApplyTarget: { profileId: manager.id, changeType: 'tool' },
+    };
   };
 
   registry.registerProposalApplier('grant-delegation', applier);

@@ -574,6 +574,7 @@ function prepareDeferredHumanScopeMutation(input: {
       priorValue: input.priorValue,
       nextValue: input.nextValue,
     },
+    postApplyTarget: { profileId: input.agentConfigId, changeType: 'scope' },
   };
 }
 
@@ -952,7 +953,14 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   const updated = configsRepo.getById(patch.agentConfigId);
   if (updated) projectAgentProfileAfterWrite(updated, 'config-update');
 
-  return { measurable: true, beforeSnapshotJson };
+  return {
+    measurable: true,
+    beforeSnapshotJson,
+    postApplyTarget: {
+      profileId: patch.agentConfigId,
+      changeType: patch.field === 'allowedDelegatesJson' ? 'tool' : 'prompt',
+    },
+  };
 };
 
 // ── refine-scope ──

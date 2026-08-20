@@ -125,8 +125,8 @@ describe('D2.3 runAutoRepairAsync', () => {
     const repairProposal = await proposalsRepo.findByIdAsync(ids[0]);
     expect(repairProposal?.kind).toBe('refine-config');
     const change = JSON.parse(repairProposal!.changeJson!);
-    expect(change.configPatch.agentConfigId).toBe('profile-1');
-    expect(change.configPatch.agentConfigId).not.toBe('ATTACKER-ID');
+    expect(change).toMatchObject({ source: 'auto-repair-service', profileId: 'profile-1', field: 'model' });
+    expect(change).not.toHaveProperty('configPatch');
     const config = configsRepo.getById('profile-1');
     expect(config?.modelId).toBe('anthropic/claude-sonnet-1');
 
@@ -243,6 +243,36 @@ describe('D2.3 runAutoRepairAsync', () => {
 
     expect(result.outcome).toBe('exhausted');
     expect(registered).toHaveBeenCalledTimes(1);
+  });
+
+  it('awaits auto-revert persistence before reporting exhausted', async () => {
+    const event = await trippedEvent();
+    const baseNow = new Date('2026-08-18T00:00:00.000Z');
+    for (const offsetMs of [1, 2, 3]) {
+      insertOutcome({ id: `await-${offsetMs}`, profileId: 'profile-1', finalizedAt: new Date(baseNow.getTime() + offsetMs).toISOString(), terminalStatus: 'error' });
+    }
+    let persisted = false;
+    const result = await runAutoRepairAsync(event, {
+      diagnosis: { diagnose: fakeDiagnose(), configsRepo },
+      now: baseNow,
+      triggerAutoRevert: async () => {
+        await Promise.resolve();
+        persisted = true;
+      },
+    });
+    expect(result.outcome).toBe('exhausted');
+    expect(persisted).toBe(true);
+  });
+
+  it('defers a transient diagnosis failure without exhausting attempts or reverting', async () => {
+    const event = await trippedEvent();
+    const triggerAutoRevert = vi.fn();
+    const result = await runAutoRepairAsync(event, {
+      diagnosis: { diagnose: async () => { throw new Error('temporary provider outage'); }, configsRepo },
+      triggerAutoRevert,
+    });
+    expect(result).toMatchObject({ outcome: 'deferred', attempts: 0 });
+    expect(triggerAutoRevert).not.toHaveBeenCalled();
   });
 
   it('never persists raw secrets from the diagnosis evidence into PostApplyEvent', async () => {

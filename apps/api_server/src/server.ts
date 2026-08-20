@@ -224,6 +224,29 @@ async function main() {
       logger.warn(`[server] Engraph manager startup failed (non-fatal): ${String(err)}`);
     }
 
+    // D2.5: register apply metadata and monitor -> repair -> awaited-revert
+    // composition before the scheduler's immediate sweep can observe events.
+    try {
+      const [
+        { registerAllProposalAppliers },
+        { registerPostApplyLifecycleTriggers },
+        { defaultDiagnose },
+        { AgentConfigsRepository },
+      ] = await Promise.all([
+        import('./services/org_proposal_appliers_wiring'),
+        import('./services/post_apply_lifecycle'),
+        import('./services/generators/workflow_signal_generator'),
+        import('./repositories/agent_configs_repository'),
+      ]);
+      registerAllProposalAppliers();
+      registerPostApplyLifecycleTriggers({
+        diagnosis: { diagnose: defaultDiagnose, configsRepo: new AgentConfigsRepository() },
+        diagnosisReady: () => opencodeClient.isReady,
+      });
+    } catch {
+      logger.warn('[server] post-apply lifecycle wiring failed (non-fatal)');
+    }
+
     // Agent subsystem: scheduler + memory consolidation seed
     agentSchedulerJob = startAgentSchedulerJob();
     agentMemoryService.seedConsolidationTask().catch((err) => {
@@ -392,20 +415,6 @@ async function main() {
       logger.warn(`[server] ministry recipes agent-binding repair failed (non-fatal): ${String(err)}`);
     }
 
-    // #830 — Wire all six org-optimizer generators' apply steps into the
-    // shared org_proposal_apply_service registry ONCE at startup, then seed
-    // the "Org Self-Optimizer" (daily) + "Org External Discovery" (weekly)
-    // scheduled tasks. Wiring runs BEFORE seeding so a scheduled run that
-    // fires immediately after boot never sees an unregistered proposal kind.
-    // Non-fatal — a failure in either step must never block startup.
-    try {
-      const { registerAllProposalAppliers } = await import(
-        './services/org_proposal_appliers_wiring'
-      );
-      registerAllProposalAppliers();
-    } catch (err) {
-      logger.warn(`[server] org-optimizer applier wiring failed (non-fatal): ${String(err)}`);
-    }
     try {
       const { seedOrgOptimizerTask } = await import('./services/org_optimizer_seed');
       const r = await seedOrgOptimizerTask();

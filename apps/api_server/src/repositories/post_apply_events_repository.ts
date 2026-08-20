@@ -22,7 +22,6 @@
 import Database from 'better-sqlite3';
 
 import { getDb } from '../database/db';
-import { runMigrations } from '../database/migrations';
 import { redactSecrets } from '../services/run_outcome_service';
 import {
   CreatePostApplyEventInput,
@@ -69,26 +68,13 @@ function rowToModel(row: PostApplyEventRow): PostApplyEvent {
   };
 }
 
-function makeInMemoryDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
-}
-
 export class PostApplyEventsRepository {
   private db: Database.Database;
 
   constructor(db?: Database.Database) {
     if (db) {
       this.db = db;
-    } else {
-      try {
-        this.db = getDb();
-      } catch {
-        this.db = makeInMemoryDb();
-      }
-    }
+    } else this.db = getDb();
   }
 
   /**
@@ -169,6 +155,37 @@ export class PostApplyEventsRepository {
       .prepare(`SELECT * FROM agent_org_post_apply_events WHERE id = ?`)
       .get(id) as PostApplyEventRow | undefined;
     return row ? rowToModel(row) : null;
+  }
+
+  /** Bounded scheduler input; monitoring rows first, then deferred tripped rows. */
+  async listActionableAsync(limit = 50): Promise<PostApplyEvent[]> {
+    const bounded = Math.max(1, Math.min(200, Math.trunc(limit)));
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM agent_org_post_apply_events
+          WHERE guardrail_status IN ('monitoring', 'tripped')
+            AND revert_status = 'none'
+          ORDER BY created_at ASC
+          LIMIT ?`,
+      )
+      .all(bounded) as PostApplyEventRow[];
+    return rows.map(rowToModel);
+  }
+
+  /** Atomic lifecycle claim; only one concurrent sweep may trip or clear. */
+  async transitionGuardrailStatusAsync(
+    proposalId: string,
+    expected: GuardrailStatus,
+    next: GuardrailStatus,
+  ): Promise<PostApplyEvent | null> {
+    const result = this.db
+      .prepare(
+        `UPDATE agent_org_post_apply_events
+            SET guardrail_status = ?, updated_at = ?
+          WHERE proposal_id = ? AND guardrail_status = ?`,
+      )
+      .run(next, new Date().toISOString(), proposalId, expected);
+    return result.changes === 1 ? this.findByProposalIdAsync(proposalId) : null;
   }
 
   /**

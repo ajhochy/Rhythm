@@ -37,6 +37,7 @@ import {
   requiresSecurityNote,
   validateProposalChange,
 } from '../services/org_proposal_apply_service';
+import { finalizePostApplyLifecycleAsync } from '../services/post_apply_lifecycle';
 
 /**
  * IMPORTANT: AgentOrgProposalsRepository's constructor calls getDb() eagerly
@@ -196,9 +197,24 @@ export class OrgProposalsController {
             ' — the proposal, target scope, and projected profile must be inspected before retrying',
           );
         }
-        void measureProposal(outcome.proposal).catch((err) =>
-          logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
-        );
+        let enrolled;
+        try {
+          enrolled = await finalizePostApplyLifecycleAsync(
+            outcome.proposal,
+            applyResult.postApplyTarget,
+          );
+        } catch {
+          logger.warn(
+            `[org-proposals] post-apply enrollment failed proposal=${id} outcome=committed-success-preserved`,
+          );
+          res.json(outcome.proposal);
+          return;
+        }
+        if (!enrolled) {
+          void measureProposal(outcome.proposal).catch((err) =>
+            logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
+          );
+        }
         res.json(outcome.proposal);
         return;
       }
@@ -211,6 +227,25 @@ export class OrgProposalsController {
       );
       if (!applied) {
         throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);
+      }
+
+      let enrolled;
+      try {
+        enrolled = await finalizePostApplyLifecycleAsync(
+          applied,
+          applyResult.postApplyTarget,
+        );
+      } catch {
+        logger.warn(
+          `[org-proposals] post-apply enrollment failed proposal=${id} outcome=committed-success-preserved`,
+        );
+        res.json(await proposalsRepo.findByIdAsync(id));
+        return;
+      }
+
+      if (enrolled) {
+        res.json(await proposalsRepo.findByIdAsync(id));
+        return;
       }
 
       if (!applyResult.measurable) {

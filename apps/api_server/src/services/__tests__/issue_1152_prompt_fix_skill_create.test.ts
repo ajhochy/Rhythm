@@ -89,7 +89,10 @@ describe('#1152 workflow-prompt-fix skill-create resolver', () => {
     const validated = await validateProposalChange(proposal);
     expect(validated.valid, validated.reason).toBe(true);
 
-    await applyProposal(proposal);
+    const applyResult = await applyProposal(proposal);
+    // D2.5 exclusion: missing-skill creation has skill/grant side effects that
+    // its current snapshot cannot safely and completely roll back.
+    expect(applyResult.postApplyTarget).toBeUndefined();
 
     const created = skillsRepo.findByTitle('creative-media');
     expect(created).not.toBeNull();

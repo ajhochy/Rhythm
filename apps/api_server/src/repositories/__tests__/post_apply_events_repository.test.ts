@@ -115,6 +115,25 @@ describe('D2.1 PostApplyEventsRepository', () => {
     expect(await repo.updateStatusAsync('no-such-proposal', { guardrailStatus: 'clear' })).toBeNull();
   });
 
+  it('lists a bounded actionable batch and conditionally claims monitoring once', async () => {
+    await repo.createAsync({
+      proposalId: 'proposal-1',
+      profileId: 'profile-1',
+      changeType: 'prompt',
+      preChangeSnapshotJson: '{}',
+      monitoringWindowStart: '2026-08-18T00:00:00.000Z',
+      monitoringWindowEnd: '2026-08-18T01:00:00.000Z',
+    });
+    expect(await repo.listActionableAsync(1)).toHaveLength(1);
+
+    const [winner, loser] = await Promise.all([
+      repo.transitionGuardrailStatusAsync('proposal-1', 'monitoring', 'tripped'),
+      repo.transitionGuardrailStatusAsync('proposal-1', 'monitoring', 'tripped'),
+    ]);
+    expect([winner, loser].filter(Boolean)).toHaveLength(1);
+    expect((winner ?? loser)?.guardrailStatus).toBe('tripped');
+  });
+
   it('caps repairProposalIds at MAX_REPAIR_ATTEMPTS (3)', async () => {
     await repo.createAsync({
       proposalId: 'proposal-1',

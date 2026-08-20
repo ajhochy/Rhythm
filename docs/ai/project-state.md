@@ -2,30 +2,25 @@
 
 ## Current focus
 
-D2 post-apply monitor, repair, and revert lifecycle. D2.4 (#1434) is implemented and awaiting the final verification follow-up; D2.5 (#1435) is not started.
+D2.5 (#1435) final post-apply lifecycle integration is implemented and ready for verification.
 
 ## Branch / PR
 
 - Branch: `agent-stack/si-d2-post-apply-lifecycle`
-- Current committed head: `8bdd0e7c`
+- Committed head: `c713ea0e`
 - Draft PR #1454: https://github.com/ajhochy/Rhythm/pull/1454
-
-## D2 status
-
-- D2.1 (#1431): implemented.
-- D2.2 (#1432): implemented.
-- D2.3 (#1433): implemented.
-- D2.4 (#1434): implemented; auto-revert routes through `revertProposal`, uses the shared `extractValidatedConfigPatch` validation, and has direct persisted CAS-alert assertions.
-- D2.5 (#1435): not started; lifecycle wiring remains its scope.
 
 ## Verification
 
-- Focused D2.4 regression suite: **9 files / 359 tests pass**.
+- Focused D2 lifecycle: **5 files / 39 tests pass**.
+- Required metadata/apply and controller/lifecycle suites: **8 files / 204 tests pass**.
+- Explicit excluded-lane metadata suite: **3 files / 27 tests pass**.
 - Typecheck and build: **pass**.
-- Independent verifier full suite: **694 files / 5675 tests: 5488 pass, 7 known unrelated fail, 180 skipped**.
-- GitNexus risk: **UNKNOWN** because the index points at a stale checkout and cannot map this worktree's symbols.
-- Sandbox: **BLOCKED** before services launch by missing `@opentui/solid/preload`; cleanup passed. Do not hand-start api_server or mutate dependencies for this blocker.
+- Live sandbox API/bootstrap/scheduler proof: **1 test pass** on API `4098` / engine `4097`.
+- Full API suite: **5,512 pass, 7 documented baseline failures, 181 skipped**.
+- GitNexus final risk: **MEDIUM/UNKNOWN** because the index does not resolve the uncommitted lifecycle symbols; changed scope remains confined to expected lifecycle, approval, applier, and direct-test files.
 
-## Next step
+## Risks / next step
 
-Complete the narrow D2.4 verification follow-up, keep PR #1454 draft for manual review, then begin D2.5 only under a separate dispatch.
+- SQLite/local-only by contract; Postgres skips enrollment and sweeps.
+- Run verification-gate on the uncommitted D2.5 diff; keep PR #1454 draft for human review.

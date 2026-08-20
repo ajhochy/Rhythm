@@ -106,8 +106,6 @@ export interface RunAutoRevertAsyncResult {
 /** Trail entry for one repair attempt, safe to surface in an alert. */
 interface RepairAttemptTrail {
   proposalId: string;
-  title: string | null;
-  rationale: string | null;
   status: string | null;
 }
 
@@ -121,8 +119,6 @@ async function buildRepairTrail(
     const repair = await proposalsRepo.findByIdAsync(id).catch(() => null);
     trail.push({
       proposalId: id,
-      title: repair?.title ?? null,
-      rationale: repair?.rationale ?? null,
       status: repair?.status ?? null,
     });
   }
@@ -140,7 +136,7 @@ function buildAlertPayload(
     profileId: event.profileId,
     changeType: event.changeType,
     originalChange: originalProposal
-      ? { kind: originalProposal.kind, title: originalProposal.title, rationale: originalProposal.rationale }
+      ? { kind: originalProposal.kind }
       : null,
     repairAttempts: repairTrail,
     revert,
@@ -197,13 +193,13 @@ export async function runAutoRevertAsync(
   if (!originalProposal.beforeSnapshotJson) {
     return await fail({ reason: 'no-before-snapshot', proposalId: event.proposalId });
   }
-  if (originalProposal.status !== 'applied') {
+  if (originalProposal.status !== 'applied' && originalProposal.status !== 'measuring') {
     // The only status this proposal should be in for the whole monitor ->
     // repair -> revert lifecycle. Anything else means it drifted away
     // (human revert, an unrelated measure sweep, etc.) while repairs ran.
     return await fail({
       reason: 'proposal-status-drifted',
-      expectedStatus: 'applied',
+      expectedStatus: 'applied-or-measuring',
       actualStatus: originalProposal.status,
       proposalId: event.proposalId,
     });
@@ -212,20 +208,21 @@ export async function runAutoRevertAsync(
   // The state machine only allows applied -> measuring (never applied ->
   // reverted directly) — this transition IS the CAS drift check: any
   // concurrent status/revision change on this exact row throws here.
-  let measuring;
-  try {
-    measuring = await proposals.updateStatusAsync(
-      originalProposal.id,
-      'measuring',
-      undefined,
-      originalProposal.revision,
-    );
-  } catch (err) {
-    return await fail({
-      reason: 'proposal-cas-conflict',
-      detail: String(err),
-      proposalId: event.proposalId,
-    });
+  let measuring = originalProposal.status === 'measuring' ? originalProposal : null;
+  if (!measuring) {
+    try {
+      measuring = await proposals.updateStatusAsync(
+        originalProposal.id,
+        'measuring',
+        undefined,
+        originalProposal.revision,
+      );
+    } catch {
+      return await fail({
+        reason: 'proposal-cas-conflict',
+        proposalId: event.proposalId,
+      });
+    }
   }
   if (!measuring) {
     return await fail({ reason: 'original-proposal-vanished', proposalId: event.proposalId });
@@ -281,8 +278,6 @@ export async function runAutoRevertAsync(
       return await fail({
         reason: 'post-revert-verification-mismatch',
         field: snapshot.field,
-        expected: snapshot.priorValue,
-        actual: actual ?? null,
         proposalId: event.proposalId,
       });
     }

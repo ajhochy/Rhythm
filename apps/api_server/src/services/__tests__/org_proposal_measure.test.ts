@@ -10,12 +10,13 @@
  */
 
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getDb, setDb } from '../../database/db';
 import { runMigrations } from '../../database/migrations';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
+import { PostApplyEventsRepository } from '../../repositories/post_apply_events_repository';
 import { createScopeDeltaV2Snapshot } from '../scope_mutation_contract';
 import { measureProposal } from '../org_proposal_measure';
 
@@ -188,6 +189,40 @@ describe('W6-c7 scope hygiene is diagnostic only — allowlist shrink cannot ver
 });
 
 describe('W6-c7 the behavioral re-run is diagnostic only', () => {
+  it.each(['monitoring', 'tripped'] as const)(
+    'D2.5: lifecycle-owned %s proposal skips legacy measurement without mutation',
+    async (guardrailStatus) => {
+      // Regression caught: legacy measurement races the lifecycle owner and
+      // keeps/reverts a proposal while monitoring or repair is still pending.
+      const id = `p-lifecycle-${guardrailStatus}`;
+      await seedMeasuring({ id, kind: 'refine-config', changeJson: RERUN_CHANGE });
+      const configsRepo = new AgentConfigsRepository();
+      configsRepo.insert({ id: 'cfg-1', label: 'cfg-1', icon: 'x', systemPrompt: 'unchanged' });
+      const eventsRepo = new PostApplyEventsRepository();
+      await eventsRepo.createAsync({
+        proposalId: id,
+        profileId: 'cfg-1',
+        changeType: 'prompt',
+        preChangeSnapshotJson: '{}',
+        monitoringWindowStart: '2026-08-19T00:00:00.000Z',
+        monitoringWindowEnd: '2026-08-19T01:00:00.000Z',
+      });
+      if (guardrailStatus === 'tripped') {
+        await eventsRepo.updateStatusAsync(id, { guardrailStatus });
+      }
+      const rerunScenario = vi.fn();
+      const proposalsRepo = repo();
+      const updateStatus = vi.spyOn(proposalsRepo, 'updateStatusAsync');
+      const proposal = (await proposalsRepo.findByIdAsync(id))!;
+
+      expect(await measureProposal(proposal, { rerunScenario, configsRepo, proposalsRepo })).toBe('skipped');
+      expect(rerunScenario).not.toHaveBeenCalled();
+      expect(updateStatus).not.toHaveBeenCalled();
+      expect(await proposalsRepo.findByIdAsync(id)).toEqual(proposal);
+      expect(configsRepo.getById('cfg-1')?.systemPrompt).toBe('unchanged');
+    },
+  );
+
   it('a clean re-run DEPLOYS but does not verify', async () => {
     await seedMeasuring({ id: 'p-rerun', kind: 'refine-config', changeJson: RERUN_CHANGE });
     const proposal = (await repo().findByIdAsync('p-rerun'))!;

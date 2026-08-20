@@ -37,15 +37,18 @@ import {
   type DiagnosisContext,
 } from './generators/workflow_signal_generator';
 import { CONFIG_PATCH_FIELDS, type ConfigPatch, type DiagnosisResult } from './org_diagnosis_types';
+import { createHash } from 'node:crypto';
 
 // ---------------------------------------------------------------------------
 // Global auto-revert trigger registry (D2.5 / D2.4 boundary)
 // ---------------------------------------------------------------------------
 
-let globalAutoRevertTrigger: ((props: { proposalId: string }) => void) | undefined;
+type AutoRevertTrigger = (props: { proposalId: string }) => Promise<void> | void;
+
+let globalAutoRevertTrigger: AutoRevertTrigger | undefined;
 
 export function registerAutoRevertTrigger(
-  trigger: (props: { proposalId: string }) => void,
+  trigger: AutoRevertTrigger,
 ): void {
   globalAutoRevertTrigger = trigger;
 }
@@ -142,11 +145,11 @@ export interface RunAutoRepairAsyncOptions {
   /** Defaults to `new Date()`. */
   now?: Date;
   /** Per-call override for the global trigger registered via {@link registerAutoRevertTrigger}. */
-  triggerAutoRevert?: (props: { proposalId: string }) => void;
+  triggerAutoRevert?: AutoRevertTrigger;
 }
 
 export interface RunAutoRepairAsyncResult {
-  outcome: 'repaired' | 'exhausted' | 'not-tripped';
+  outcome: 'repaired' | 'exhausted' | 'deferred' | 'not-tripped';
   attempts: number;
   event: PostApplyEvent;
 }
@@ -177,32 +180,30 @@ export async function runAutoRepairAsync(
     try {
       result = await diagnose(ctx);
     } catch {
-      result = null;
+      // A transient engine/provider failure is not evidence that the applied
+      // change is bad. Leave the event tripped for a later scheduler sweep.
+      return { outcome: 'deferred', attempts: attempt - 1, event: latestEvent };
     }
 
     if (result && result.fixType === 'config-change') {
       const patch = resolveRepairConfigPatch(result.configPatch, event.profileId, configsRepo);
       if (patch) {
         const kind = diagnosisToProposalKind(result) ?? 'refine-config';
-        const changeJson = JSON.stringify({
+        const auditChangeJson = JSON.stringify({
           source: 'auto-repair-service',
-          affectedSkill: event.profileId,
-          diagnosis: result.diagnosis,
-          rootCause: result.rootCause,
-          fixType: result.fixType,
-          concreteFix: result.concreteFix,
-          confidence: result.confidence,
-          configPatch: patch,
+          profileId: event.profileId,
+          field: patch.field,
+          valueSha256: createHash('sha256').update(patch.value).digest('hex'),
         });
 
         const proposal = await proposalsRepo.createAsync({
           kind,
-          risk: classifyProposalRisk({ kind, changeJson }),
+          risk: classifyProposalRisk({ kind, changeJson: auditChangeJson }),
           status: 'proposed',
-          title: `D2.3 auto-repair attempt ${attempt} for ${event.profileId}`,
-          rationale: result.diagnosis,
+          title: `Post-apply repair attempt ${attempt}`,
+          rationale: 'Automated post-apply guardrail repair',
           targetRef: `profile:${event.profileId}`,
-          changeJson,
+          changeJson: auditChangeJson,
         });
 
         // Apply the change to the live profile FIRST (reversible-by-snapshot),
@@ -221,7 +222,7 @@ export async function runAutoRepairAsync(
           proposal.id,
           AUTO_REPAIR_ACTOR_ID,
           beforeSnapshotJson,
-          changeJson,
+          auditChangeJson,
         );
 
         repairIds.push(proposal.id);
@@ -243,6 +244,10 @@ export async function runAutoRepairAsync(
               guardrailStatus: 'clear',
               revertStatus: 'not_needed',
             })) ?? latestEvent;
+          const original = await proposalsRepo.findByIdAsync(event.proposalId);
+          if (original?.status === 'measuring') {
+            await proposalsRepo.updateStatusAsync(original.id, 'active', undefined, original.revision);
+          }
           return { outcome: 'repaired', attempts: attempt, event: latestEvent };
         }
         continue;
@@ -257,7 +262,7 @@ export async function runAutoRepairAsync(
 
   // All MAX_REPAIR_ATTEMPTS exhausted with the guardrail still tripped.
   const trigger = triggerAutoRevert ?? globalAutoRevertTrigger;
-  if (trigger) trigger({ proposalId: event.proposalId });
+  if (trigger) await trigger({ proposalId: event.proposalId });
 
   return { outcome: 'exhausted', attempts: MAX_REPAIR_ATTEMPTS, event: latestEvent };
 }

@@ -36,6 +36,7 @@ import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import { containsScopeBearingPayload } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
+import type { PostApplyTarget } from './post_apply_lifecycle';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -67,6 +68,8 @@ export interface ProposalApplyResult {
    * fenced on the target revision, which is why that seam is gone.
    */
   scopePair?: PreparedScopePair;
+  /** Present only when this apply mutated one identifiable agent_configs row. */
+  postApplyTarget?: PostApplyTarget;
 }
 
 /** The exact, revision-fenceable target mutation a scope proposal describes. */

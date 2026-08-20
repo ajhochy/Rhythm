@@ -182,16 +182,10 @@ describe('D2.4 runAutoRevertAsync', () => {
     const alert = JSON.parse(persisted!.alertPayloadJson!);
     expect(alert.proposalId).toBe('proposal-original');
     expect(alert.profileId).toBe('profile-1');
-    expect(alert.originalChange).toEqual({
-      kind: 'refine-config',
-      title: 'Swap model for profile-1',
-      rationale: 'Original model caused guardrail regressions',
-    });
+    expect(alert.originalChange).toEqual({ kind: 'refine-config' });
     for (const [index, proposalId] of repairIds.entries()) {
       expect(alert.repairAttempts[index]).toEqual({
         proposalId,
-        title: `D2.3 auto-repair attempt ${index + 1} for profile-1`,
-        rationale: `Root cause for profile-1, attempt ${index + 1}`,
         status: 'applied',
       });
     }
@@ -212,7 +206,7 @@ describe('D2.4 runAutoRevertAsync', () => {
 
     const raw = db.prepare(`SELECT alert_payload_json FROM agent_org_post_apply_events WHERE proposal_id = ?`).get('proposal-original') as { alert_payload_json: string };
     expect(raw.alert_payload_json).not.toMatch(/Bearer\s+[A-Za-z0-9._~+/-]{12,}/);
-    expect(raw.alert_payload_json).toContain('[redacted]');
+    expect(raw.alert_payload_json).not.toContain('Root cause found using');
   });
 
   it('is a no-op when the event is not currently tripped', async () => {

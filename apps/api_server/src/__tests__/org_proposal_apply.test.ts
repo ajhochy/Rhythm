@@ -988,6 +988,7 @@ describe('W1: deferred human scope apply CAS', () => {
       field,
       priorValue: prior,
     });
+    expect(prepared.postApplyTarget).toEqual({ profileId: config.id, changeType: 'scope' });
   });
 
   it.each([
