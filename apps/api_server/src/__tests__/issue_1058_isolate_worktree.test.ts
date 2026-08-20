@@ -1,5 +1,8 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'os';
+import path from 'path';
+import { execFileSync } from 'child_process';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -13,6 +16,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 const createWorktree = vi.fn();
 const removeWorktree = vi.fn().mockResolvedValue(true);
 const resetWorktree = vi.fn().mockResolvedValue(true);
+const deleteSession = vi.fn().mockResolvedValue(true);
 
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
@@ -22,7 +26,7 @@ vi.mock('../services/opencode_engine', () => {
     ensureReady: vi.fn().mockResolvedValue(true),
     getSessionDiff: vi.fn().mockResolvedValue([]),
     abortSession: vi.fn().mockResolvedValue(true),
-    deleteSession: vi.fn().mockResolvedValue(true),
+    deleteSession: (...a: unknown[]) => deleteSession(...a),
     createWorktree: (...a: unknown[]) => createWorktree(...a),
     removeWorktree: (...a: unknown[]) => removeWorktree(...a),
     resetWorktree: (...a: unknown[]) => resetWorktree(...a),
@@ -63,6 +67,7 @@ describe('OCU-17 (#1058) isolateWorktree', () => {
     createWorktree.mockReset();
     removeWorktree.mockClear();
     resetWorktree.mockClear();
+    deleteSession.mockClear();
   });
   afterEach(async () => {
     await close();
@@ -122,6 +127,106 @@ describe('OCU-17 (#1058) isolateWorktree', () => {
     });
     expect(delRes.status).toBe(204);
     expect(removeWorktree).toHaveBeenCalledWith('/repo/.wt/wt-b', '/repo/.wt/wt-b');
+  });
+
+  it('uses the primary worktree as engine directory and deletes the engine session first', async () => {
+    const primary = mkdtempSync(path.join(os.tmpdir(), 'rhythm-1058-primary-'));
+    const linked = `${primary}-linked`;
+    try {
+      const git = (args: string[]) => execFileSync('git', ['-C', primary, ...args]);
+      git(['init', '-b', 'main']);
+      git(['config', 'user.email', '1058@rhythm.test']);
+      git(['config', 'user.name', '1058']);
+      writeFileSync(path.join(primary, 'README.md'), '# 1058\n');
+      git(['add', '.']);
+      git(['commit', '-m', 'init']);
+      git(['worktree', 'add', '-b', 'agent/1058-test', linked]);
+
+      createWorktree.mockResolvedValue({
+        name: 'wt-primary',
+        branch: 'agent/1058-test',
+        directory: linked,
+      });
+      const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ agentId: 'claude-code', cwd: linked, name: 'S', isolateWorktree: true }),
+      });
+      const { id } = (await createRes.json()) as { id: string };
+
+      const delRes = await fetch(`${baseUrl}/agent-sessions/${id}/hard?removeWorktree=true`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+
+      expect(delRes.status).toBe(204);
+      expect(removeWorktree).toHaveBeenCalledWith(realpathSync(primary), linked);
+      expect(deleteSession.mock.invocationCallOrder[0]).toBeLessThan(
+        removeWorktree.mock.invocationCallOrder[0],
+      );
+    } finally {
+      rmSync(linked, { recursive: true, force: true });
+      rmSync(primary, { recursive: true, force: true });
+    }
+  });
+
+  it('retains the local row and metadata when opted-in worktree removal fails', async () => {
+    createWorktree.mockResolvedValue({ name: 'wt-fail', branch: 'fail', directory: '/repo/.wt/wt-fail' });
+    removeWorktree.mockResolvedValueOnce(false);
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: '/repo', name: 'S', isolateWorktree: true }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    const delRes = await fetch(`${baseUrl}/agent-sessions/${id}/hard?removeWorktree=true`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+
+    expect(delRes.status).toBe(502);
+    expect(deleteSession).toHaveBeenCalled();
+    expect(repo.findById(id)).toMatchObject({
+      worktreePath: '/repo/.wt/wt-fail',
+      worktreeBranch: 'fail',
+      worktreeName: 'wt-fail',
+    });
+  });
+
+  it('parses and probes the primary worktree path while failing closed on malformed output', async () => {
+    const vcsProbe = await import('../services/vcs_probe');
+    const parse = (vcsProbe as unknown as {
+      parsePrimaryWorktreePath?: (value: string) => string | null;
+    }).parsePrimaryWorktreePath;
+    const probe = (vcsProbe as unknown as {
+      getPrimaryWorktreePath?: (cwd: string) => string | null;
+    }).getPrimaryWorktreePath;
+    expect(parse).toBeTypeOf('function');
+    expect(probe).toBeTypeOf('function');
+    if (!parse || !probe) return;
+
+    expect(parse('worktree /repo\nHEAD abc\nbranch refs/heads/main\n\nworktree /repo-linked\nHEAD def\n')).toBe('/repo');
+    expect(parse('worktree /bare/repo\nbare\n')).toBe('/bare/repo');
+    expect(parse('HEAD abc\nbranch refs/heads/main\n')).toBeNull();
+
+    const primary = mkdtempSync(path.join(os.tmpdir(), 'rhythm-1058-probe-'));
+    const linked = `${primary}-linked`;
+    try {
+      const git = (args: string[]) => execFileSync('git', ['-C', primary, ...args]);
+      git(['init', '-b', 'main']);
+      git(['config', 'user.email', '1058@rhythm.test']);
+      git(['config', 'user.name', '1058']);
+      writeFileSync(path.join(primary, 'README.md'), '# probe\n');
+      git(['add', '.']);
+      git(['commit', '-m', 'init']);
+      git(['worktree', 'add', '-b', 'agent/probe', linked]);
+      expect(probe(linked)).toBe(realpathSync(primary));
+      expect(probe(os.tmpdir())).toBeNull();
+    } finally {
+      rmSync(linked, { recursive: true, force: true });
+      rmSync(primary, { recursive: true, force: true });
+    }
   });
 
   it('DELETE .../hard without the flag keeps the worktree (default)', async () => {
@@ -199,6 +304,43 @@ describe('OCU-17 (#1058) isolateWorktree', () => {
     expect(row?.worktreePath).toBeNull();
     expect(row?.worktreeBranch).toBeNull();
     expect(row?.worktreeName).toBeNull();
+  });
+
+  it('uses the primary worktree directory for standalone reset and removal', async () => {
+    const primary = mkdtempSync(path.join(os.tmpdir(), 'rhythm-1058-actions-'));
+    const linked = `${primary}-linked`;
+    try {
+      const git = (args: string[]) => execFileSync('git', ['-C', primary, ...args]);
+      git(['init', '-b', 'main']);
+      git(['config', 'user.email', '1058@rhythm.test']);
+      git(['config', 'user.name', '1058']);
+      writeFileSync(path.join(primary, 'README.md'), '# actions\n');
+      git(['add', '.']);
+      git(['commit', '-m', 'init']);
+      git(['worktree', 'add', '-b', 'agent/actions', linked]);
+      createWorktree.mockResolvedValue({ name: 'wt-actions', branch: 'agent/actions', directory: linked });
+      const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ agentId: 'claude-code', cwd: linked, name: 'S', isolateWorktree: true }),
+      });
+      const { id } = (await createRes.json()) as { id: string };
+
+      expect((await fetch(`${baseUrl}/agent-sessions/${id}/worktree/reset`, {
+        method: 'POST',
+        headers: authHeaders,
+      })).status).toBe(200);
+      expect(resetWorktree).toHaveBeenCalledWith(realpathSync(primary), linked);
+
+      expect((await fetch(`${baseUrl}/agent-sessions/${id}/worktree/remove`, {
+        method: 'POST',
+        headers: authHeaders,
+      })).status).toBe(200);
+      expect(removeWorktree).toHaveBeenCalledWith(realpathSync(primary), linked);
+    } finally {
+      rmSync(linked, { recursive: true, force: true });
+      rmSync(primary, { recursive: true, force: true });
+    }
   });
 
   it('POST .../worktree/remove on a non-isolated session → 400', async () => {

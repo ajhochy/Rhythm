@@ -1,0 +1,105 @@
+{
+  "issue": "1058,1063,1088",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1058_isolate_worktree.test.ts src/__tests__/issue_738_agent_runner.test.ts src/__tests__/issue_1063_1066_vcs_shell_init.test.ts src/__tests__/opencode_worktrees_routes.test.ts src/services/__tests__/opencode_agent_writer_projection.test.ts src/repositories/agent_configs_repository.test.ts src/__tests__/live_e2e_1057_worktree.test.ts && cd ../desktop_flutter && flutter test test/features/agents/ocu_1063_1066_header_actions_test.dart",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1058-c1",
+      "text": "POST /agent-sessions accepts isolateWorktree?: boolean and optional worktreeName, creates the worktree first, then creates the engine session with its directory as cwd.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1058_isolate_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1058-c2",
+      "text": "Persist worktree name, path, and branch on the session row and expose them in session GET payloads.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1058_isolate_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1058-c3",
+      "text": "Database migration adds worktree fields to agent_sessions; postgres_bootstrap.ts is not needed only if agent sessions are verified local-SQLite-only.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1058_isolate_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1058-c4",
+      "text": "Hard delete optionally removes the worktree only with an explicit caller flag and keeps it by default.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1058_isolate_worktree.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1058-c5",
+      "text": "Background agent runs (AgentRunner) support the same isolateWorktree option.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_738_agent_runner.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1063-c1",
+      "text": "api_server provides getVcs() and getVcsStatus() wrappers and GET routes under /agent-sessions/:id/vcs.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1063_1066_vcs_shell_init.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1063-c2",
+      "text": "The stream bridge explicitly relays vcs.branch.updated as a typed WS frame.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/opencode_worktrees_routes.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1063-c3",
+      "text": "The transcript header shows branch name and dirty-file count with a tooltip listing files, and hides the badge outside a git repository.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/ocu_1063_1066_header_actions_test.dart",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1063-c4",
+      "text": "The badge refreshes on vcs.branch.updated and on turn idle.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/ocu_1063_1066_header_actions_test.dart",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1088-c1",
+      "text": "Picker visibility and specialist schedulability are independent; a selected hidden specialist can own scheduled/background jobs as its real profile.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1088-c2",
+      "text": "Agent-file projection remains local-only and intentionally no-ops under dbClient === postgres.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1088-c3",
+      "text": "The hidden specialist runs end-to-end through the real scheduler, AgentRunner, and engine as its real profile.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/live_e2e_1088_hidden_schedulable.test.ts",
+      "status": "pass",
+      "reason": null
+    }
+  ],
+  "not_tested": []
+}

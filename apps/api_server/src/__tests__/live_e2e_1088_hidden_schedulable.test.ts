@@ -28,7 +28,9 @@ import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
-const AGENTS_DIR = join(homedir(), '.config', 'opencode', 'agents');
+const AGENTS_DIR = process.env.RHYTHM_SANDBOX_DIR
+  ? join(process.env.RHYTHM_SANDBOX_DIR, 'home', '.config', 'opencode', 'agents')
+  : join(homedir(), '.config', 'opencode', 'agents');
 
 const describeLive = LIVE ? describe : describe.skip;
 
@@ -161,7 +163,11 @@ describeLive('live E2E — #1088 hidden-but-schedulable specialist', () => {
           const task = await apiJson<{ lastRunStatus: string | null; lastError: string | null }>(
             `/agent-schedules/${schedule.id}`,
           );
-          if (task.lastRunStatus !== 'success' && task.lastRunStatus !== 'error') {
+          if (
+            task.lastRunStatus !== 'completed_no_op' &&
+            task.lastRunStatus !== 'success' &&
+            task.lastRunStatus !== 'error'
+          ) {
             throw new Error(`still ${task.lastRunStatus ?? 'pending'}`);
           }
           return task;
@@ -170,7 +176,7 @@ describeLive('live E2E — #1088 hidden-but-schedulable specialist', () => {
         2_000,
         'scheduled run to finish',
       );
-      expect(finished.lastRunStatus, `run failed: ${finished.lastError}`).toBe('success');
+      expect(finished.lastRunStatus, `run failed: ${finished.lastError}`).toBe('completed_no_op');
 
       // 5. The run executed AS the hidden specialist profile — locate its
       //    session and assert non-empty assistant output (behavior, not code).
@@ -205,48 +211,39 @@ describeLive('live E2E — #1088 hidden-but-schedulable specialist', () => {
           .trim();
       };
 
-      let assistantText = '';
-      try {
-        assistantText = await poll(
-          async () => {
-            const { messages } = await apiJson<{ messages: unknown[] }>(
-              `/agent-sessions/${session.id}/messages`,
-            );
-            const text = extractAssistantText(messages);
-            if (text.length === 0) throw new Error('assistant text not synced yet');
-            return text;
-          },
-          20_000,
-          2_000,
-          'assistant output to sync',
-        );
-      } catch {
-        assistantText = '';
-      }
-      const hasNonEmptyOutput = assistantText.length > 0;
-
-      // #1088's guarantee is that a hidden (sessionSelectable=false) specialist
-      // gets SCHEDULED and RUNS AS ITS REAL PROFILE — proven above (schedule
-      // accepted, mode:all projection, run reached the engine, session bound to
-      // cfg.id via agentKind). The final LLM turn producing text additionally
-      // requires working model credentials, which a throwaway sandbox may lack.
-      // Accept a credentials/auth failure as environment-limited (NOT a #1088
-      // regression); still REQUIRE real output when credentials are present.
       const credsUnavailable =
         /credential|unavailable|expired|not authenticated|no api key|refresh them/i.test(
           session.statusMessage ?? '',
         );
-      if (!credsUnavailable) {
-        expect(
-          hasNonEmptyOutput,
-          'expected a non-empty assistant output from the hidden specialist run',
-        ).toBe(true);
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[#1088 live] specialist ran as its profile but produced no text due to missing sandbox model credentials (statusMessage: ${session.statusMessage}). Behavioral decoupling verified; output turn skipped.`,
+      if (credsUnavailable) {
+        throw new Error(
+          `#1088 environment failure: sandbox model credentials unavailable (${session.statusMessage})`,
         );
       }
+      const assistantText = await poll(
+        async () => {
+          const { messages } = await apiJson<{ messages: unknown[] }>(
+            `/agent-sessions/${session.id}/messages`,
+          );
+          const environmentError = messages
+            .map((message) => message as Record<string, unknown>)
+            .filter((message) => message.role === 'system')
+            .map((message) => String(message.rawText ?? message.strippedText ?? ''))
+            .find((text) => /credential|credits?|expired|not authenticated|no api key|refresh them/i.test(text));
+          if (environmentError) {
+            throw new Error(
+              '#1088 environment failure: model provider reports missing credentials or credits',
+            );
+          }
+          const text = extractAssistantText(messages);
+          if (text.length === 0) throw new Error('assistant text not synced yet');
+          return text;
+        },
+        20_000,
+        2_000,
+        'assistant output to sync',
+      );
+      expect(assistantText.length).toBeGreaterThan(0);
     },
     180_000,
   );
