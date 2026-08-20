@@ -2,17 +2,17 @@
 
 ## Current focus
 
-Bucket A React/Electron integration is verified for #1447, #1415, #1414, #1413, #1411, #1410, #1409, #1408, #1407, and #1401. A draft PR has not been opened.
+Bucket A React/Electron integration is verified for #1447, #1415, #1414, #1413, #1411, #1410, #1409, #1408, #1407, and #1401. Draft PR #1465 is open.
 
 ## Active branch / PR
 
-- Bucket A: `codex/mega-a-react-electron` at `a227bef1`; draft PR pending.
+- Bucket A: `codex/mega-a-react-electron` → draft PR #1465.
 - Required backend dependencies: H2 PR #1461 (exact product `c515ce6e`) and task-sharing PR #1463 (exact product `44c4c904`). Stacked verification included both; the clean Bucket A branch does not.
 - Preserve active work: Org Optimizer and PRs #1383, #1453, #1459, #1460, #1461, #1462, #1463, and #1464.
 
 ## In progress
 
-- Prepare a clean web/Electron-only Bucket A draft PR and declare dependencies on #1461 and #1463.
+- Bucket A draft PR #1465 is open and declares dependencies on #1461 and #1463.
 - AJ still needs to perform #1447 real-account smoke testing.
 
 ## Risks / known issues
@@ -29,4 +29,4 @@ Bucket A React/Electron integration is verified for #1447, #1415, #1414, #1413, 
 
 ## Next step
 
-Open the clean web/Electron-only Bucket A draft PR with #1461 and #1463 declared as dependencies, then hand off #1447 real-account smoke to AJ. Do not merge or deploy.
+AJ: run #1447 real-account smoke on draft PR #1465 after dependency PRs #1461 and #1463 are ready. Do not merge or deploy before smoke.
