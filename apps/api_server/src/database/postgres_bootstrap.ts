@@ -826,6 +826,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     return;
   }
 
+  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
+  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      agent_kind TEXT NOT NULL,
+      profile_id TEXT,
+      status TEXT NOT NULL DEFAULT 'starting',
+      session_token TEXT,
+      cwd TEXT NOT NULL,
+      name TEXT NOT NULL,
+      last_preview TEXT,
+      last_activity_at TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   // #1219 — keep the agent-memory projection schema compatible anywhere the
   // agent-execution role is enabled. The vault remains canonical; these rows
   // are still a derived query index plus an append-only lifecycle ledger.
@@ -1362,24 +1381,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ON CONFLICT (id) DO NOTHING;
   `);
 
-  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
-  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS agent_sessions (
-      id TEXT PRIMARY KEY,
-      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-      agent_kind TEXT NOT NULL,
-      profile_id TEXT,
-      status TEXT NOT NULL DEFAULT 'starting',
-      session_token TEXT,
-      cwd TEXT NOT NULL,
-      name TEXT NOT NULL,
-      last_preview TEXT,
-      last_activity_at TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
   // MSP-001 — production parity for existing databases. Additive, nullable,
   // and idempotent; no legacy row is assigned a guessed Rhythm profile.
   await pool.query(`
