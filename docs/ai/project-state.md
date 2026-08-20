@@ -1,12 +1,12 @@
 # Rhythm — Project State
 
 ## Current focus
-Bucket E has a separate HIGH-risk Postgres bootstrap prerequisite at verified HEAD `7f8865fb`.
+Bucket E has a separate HIGH-risk Postgres bootstrap prerequisite in draft PR #1464.
 Preserve the Org Optimizer workflow and PR records #1383, #1453, #1459, #1460, #1461, #1462,
 and #1463; each outstanding draft remains subject to its documented manual smoke.
 
 ## Active branch / PR
-- Current prerequisite branch: `codex/prereq-postgres-agent-sessions-bootstrap`; draft PR not opened.
+- Current prerequisite branch: `codex/prereq-postgres-agent-sessions-bootstrap` → draft PR #1464.
 - Active drafts: Numbat observability #1453, H1 #1459, mobile relay #1460, H2 #1461,
   Electron packaging #1462, and task-sharing prerequisite #1463.
 - Mobile rebuild PR #1383 is merged; preserve its completed verification and manual-smoke record.
@@ -35,5 +35,5 @@ and #1463; each outstanding draft remains subject to its documented manual smoke
 - API build and TypeScript checks passed. Base failures were confirmed out of scope.
 
 ## Next step
-Open the prerequisite draft PR, integrate it through the normal review path, then rerun Bucket E's
-Postgres diagnostic. Do not unblock Bucket E before both steps complete.
+Manually review draft PR #1464's ordering-only diff, then rerun Bucket E's Postgres diagnostic on
+the stacked branch. Do not unblock Bucket E before both steps complete.
