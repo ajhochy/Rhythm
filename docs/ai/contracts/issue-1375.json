@@ -41,9 +41,9 @@
       "text": "No schema or column changes and no #1425 sharing UI/API, Flutter, route, reviewHash, publication, signing, attestation, migration, or batching work is included; the shared-transcripts controller may change only its existing default expiration from 30 to 90 days; rollout warns operators to count due rows before enabling and add SKIP LOCKED batches for a large backlog.",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
-      "reason": "Verification-gate must inspect the exact diff and run note; this is a patch-scope and rollout-handoff criterion rather than runtime behavior."
+      "status": "pass",
+      "reason": "Independent compare-main diff inspection at f0bf3003 found no schema, migration, Flutter, mobile, OpenCode, review, reviewHash, publication, signing, attestation, or batching files/lines. The controller diff is exactly one replacement of its prior 30-day literal with SharedTranscriptsRepository.defaultExpirationMs. The run note warns operators to count due rows before opt-in enablement and to add bounded SKIP LOCKED batches if backlog is material."
     }
   ],
-  "not_tested": ["issue-1375-c5"]
+  "not_tested": []
 }

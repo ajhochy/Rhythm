@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/mega-f-purge-only
 pr: null
 issues: [1375]
-status: ready-for-verification
+status: verified
 tags: [run, Rhythm]
 ---
 
@@ -71,3 +71,36 @@ tags: [run, Rhythm]
 
 - The existing public controller default now references the repository's 90-day fallback constant, preventing the two defaults from drifting. No other controller line changed.
 - No #1425 review route, controller, publication, reviewHash, sharing UI, or Flutter work is included.
+
+## Independent final verification gate
+
+- Verified branch/head: `codex/mega-f-purge-only` at `f0bf3003d9c39432fcbe166a881f669c42bb001e`.
+- Authenticated real HTTP create-share probe observed default expiry
+  `2026-11-18T20:46:07.443Z`: `7,776,000,282 ms` after the pre-request clock
+  and `7,775,999,991 ms` after the post-request clock across a `291 ms`
+  request window. The returned and persisted values were equal. An explicit
+  expiry `2026-10-01T20:46:08.687Z` was returned and persisted exactly.
+- Disposable `postgres:16` container
+  `rhythm-issue-1375-gate-77891-2304` used loopback port `63067` with trap
+  cleanup. Both destructive Postgres tests passed; the container and listener
+  were absent afterward.
+- Destructive assertions passed for due expiry/revocation deletion and
+  content-free audits, second-purge zero, byte-identical source session/message
+  rows, recent-expiry survival, NULL/NULL survival, and full rollback after an
+  induced mid-transaction audit failure.
+- Runtime timer probe observed one boot sweep, interval `86,400,000 ms`, one
+  `unref`, and one stop/clear. The startup matrix independently observed
+  VITEST=true `0`, flag=false `0`, SQLite `0`, and all-enabled Postgres `1`.
+- Independent SQL inspection confirmed `BEGIN` → due-row `FOR UPDATE` →
+  content-free audit insert → delete only from `shared_transcripts` → `COMMIT`,
+  with `ROLLBACK` on failure. The intentionally unbounded query has no `LIMIT`;
+  this is a rollout risk, not an acceptance blocker.
+- `tsc --noEmit`, `npm run build`, focused #1375 tests, and #1178 transcript
+  sharing regressions passed. Full serialized API tests reported 4,483 pass,
+  170 skip, and five failures in three unrelated memory suites. The same five
+  assertions also failed on `main` (`245860e81eaf9e8ef9ef9806ced7db70bd8b3471`);
+  the isolated archive baseline additionally had five unrelated
+  harness/environment-sensitive failures, including three VCS assertions
+  because the archive was not itself a Git worktree.
+- Orchestrator GitNexus `detect_changes(compare main)` after the gate: LOW risk,
+  nine changed files, zero affected indexed processes.
