@@ -317,6 +317,48 @@ void main() {
         expect(ctrl.vcsInfoFor('s1')!['branch'], equals('feature/x'));
       },
     );
+
+    testWidgets(
+      'REAL-SURFACE: turn idle refreshes branch and changed-file status',
+      (tester) async {
+        final configsCtrl = await _makeConfigsController();
+        addTearDown(configsCtrl.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
+        repo.vcsInfoResponse = const {'branch': 'main'};
+
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: const VcsIdleRefreshTestHarness(
+            sessionId: 's1',
+            isWorking: true,
+          ),
+        ));
+        await tester.pump();
+        final callsBeforeTurn = repo.getVcsCallCount;
+
+        repo.vcsInfoResponse = const {'branch': 'feature/after-turn'};
+        repo.vcsStatusResponse = const [
+          {'file': 'changed.ts', 'status': 'modified'},
+        ];
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: const VcsIdleRefreshTestHarness(
+            sessionId: 's1',
+            isWorking: false,
+          ),
+        ));
+        await tester.pumpAndSettle();
+
+        expect(repo.getVcsCallCount, greaterThan(callsBeforeTurn));
+        expect(ctrl.vcsInfoFor('s1')!['branch'], 'feature/after-turn');
+        expect(ctrl.vcsStatusFor('s1'), hasLength(1));
+      },
+    );
   });
 
   // ── OCU-25 (#1066): "Prepare project for agents" ──────────────────────────

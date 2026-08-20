@@ -974,6 +974,7 @@ class _TranscriptHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
+          _VcsIdleRefresh(sessionId: session.id, isWorking: isWorking),
           AgentKindBadge(
             agentId: session.agentId,
             providerId: session.providerId,
@@ -1296,6 +1297,47 @@ class _AnthropicAccountBadge extends StatelessWidget {
       child: badge,
     );
   }
+}
+
+/// OCU-22 (#1063): the transcript header already rebuilds for turn status.
+/// Refresh VCS once when that status transitions from working to idle.
+class _VcsIdleRefresh extends StatefulWidget {
+  const _VcsIdleRefresh({required this.sessionId, required this.isWorking});
+
+  final String sessionId;
+  final bool isWorking;
+
+  @override
+  State<_VcsIdleRefresh> createState() => _VcsIdleRefreshState();
+}
+
+class _VcsIdleRefreshState extends State<_VcsIdleRefresh> {
+  @override
+  void didUpdateWidget(covariant _VcsIdleRefresh oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isWorking && !widget.isWorking) {
+      context.read<AgentsController>().fetchVcsInfo(widget.sessionId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+@visibleForTesting
+class VcsIdleRefreshTestHarness extends StatelessWidget {
+  const VcsIdleRefreshTestHarness({
+    super.key,
+    required this.sessionId,
+    required this.isWorking,
+  });
+
+  final String sessionId;
+  final bool isWorking;
+
+  @override
+  Widget build(BuildContext context) =>
+      _VcsIdleRefresh(sessionId: sessionId, isWorking: isWorking);
 }
 
 class _StatusChip extends StatelessWidget {
