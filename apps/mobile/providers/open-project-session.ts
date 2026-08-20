@@ -1,4 +1,4 @@
-export const OPEN_PROJECT_SESSION_TIMEOUT_MS = 15_000;
+export const OPEN_PROJECT_SESSION_TIMEOUT_MS = 40_000;
 
 export type OpenProjectSessionTerminalKind =
   | 'missing-session'
@@ -81,7 +81,7 @@ const TERMINAL_PRESENTATIONS: Record<
   timeout: {
     backLabel: 'Back to chats',
     message:
-      'The chat did not finish loading within 15 seconds. The request was cancelled.',
+      'The chat did not finish loading within 40 seconds. The request was cancelled.',
     retryLabel: 'Retry',
     screenState: 'error',
     title: 'Chat open timed out',

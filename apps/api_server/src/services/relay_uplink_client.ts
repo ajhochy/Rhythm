@@ -470,7 +470,7 @@ export class RelayUplinkClient {
       ch: 'rpc',
       t: 'res',
       id,
-      status: 502,
+      status: 504,
       headers: { 'content-type': 'application/json' },
       bodyB64: Buffer.from(
         JSON.stringify({ error: 'uplink_dispatch_failed' }),

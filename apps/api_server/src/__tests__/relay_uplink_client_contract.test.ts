@@ -405,7 +405,7 @@ describe('Track 1 contract — RelayUplinkClient', () => {
     expect(gateway.requests.every((request) => request.body === '')).toBe(true);
   });
 
-  it('answers rpc/res 502 uplink_dispatch_failed when the gateway is unreachable', async () => {
+  it('answers rpc/res 504 uplink_dispatch_failed while the gateway is warming or unreachable', async () => {
     const relay = await startFakeRelay();
     cleanups.push(() => relay.close());
     const dead = await deadPort();
@@ -427,7 +427,7 @@ describe('Track 1 contract — RelayUplinkClient', () => {
     });
     const res = await relay.waitFor(isRpcRes);
     expect(res.id).toBe('rpc-dead');
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(504);
     expect(
       JSON.parse(Buffer.from(res.bodyB64, 'base64').toString('utf8')),
     ).toEqual({ error: 'uplink_dispatch_failed' });

@@ -83,6 +83,16 @@ const mockPairedClient = {
       },
     );
   }),
+  healthResponse: jest.fn(async () => {
+    mockBoundaryTrace.push(`health:mac-${mockMacOnline ? 'online' : 'offline'}`);
+    return new Response(
+      JSON.stringify({ status: 'ready', macOnline: mockMacOnline }),
+      {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      },
+    );
+  }),
   origin: () => 'https://api.vcrcapps.com',
   request: jest.fn(async (path: string) => {
     if (path === '/mobile-gateway/health') {
