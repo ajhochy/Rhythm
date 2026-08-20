@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { env } from '../config/env';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { PostApplyChangeType, PostApplyEvent } from '../models/post_apply_event';
-import { parseRepairProposalIds } from '../models/post_apply_event';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { PostApplyEventsRepository } from '../repositories/post_apply_events_repository';
@@ -126,7 +125,10 @@ export async function sweepPostApplyLifecycleAsync(input: {
     for (const event of events) {
       try {
         if (event.guardrailStatus === 'tripped') {
-          if (parseRepairProposalIds(event.repairProposalIdsJson).length === 0) await repair(event);
+          // Called every tick, not just the first: runAutoRepairAsync is
+          // itself a durable, resumable one-decision-per-call state machine
+          // (pending/advancing/repaired/exhausted) — see auto_repair_service.ts.
+          await repair(event);
           processed += 1;
           continue;
         }

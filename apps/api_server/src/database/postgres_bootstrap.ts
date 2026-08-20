@@ -2153,4 +2153,16 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
        ON agent_run_outcomes(profile_id)`,
   );
+
+  // D2.3 (#1433, second pass) — durable repair-attempt state machine
+  // (Postgres twin). Column set MUST stay identical to the SQLite migration
+  // in migrations.ts — enforced by skill_schema_parity.test.ts. Single-line
+  // ALTERs on purpose — the parser only reads single-line
+  // `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_attempt_count INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_recheck_after TEXT;
+  `);
 }

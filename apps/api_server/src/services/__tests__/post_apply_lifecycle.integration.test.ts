@@ -119,10 +119,14 @@ describe('D2.5 post-apply lifecycle integration', () => {
     const event = await eventsRepo.findByProposalIdAsync('proposal-repaired');
     expect(event, 'successful profile apply must enroll exactly one event').not.toBeNull();
 
-    const sweepAt = new Date(new Date(event!.monitoringWindowStart).getTime() + 60_000);
+    // Trip evidence lands WITHIN the window but strictly before the sweep
+    // instant, so attempt 1's own recheck floor (set to `sweepAt`) correctly
+    // excludes it as stale — it must never be re-blamed on the fix.
+    const tripAt = new Date(new Date(event!.monitoringWindowStart).getTime() + 1_000);
     for (let index = 0; index < 5; index += 1) {
-      insertOutcome(`trip-success-${index}`, 'profile-1', sweepAt, 'error');
+      insertOutcome(`trip-success-${index}`, 'profile-1', tripAt, 'error');
     }
+    const sweepAt = new Date(new Date(event!.monitoringWindowStart).getTime() + 60_000);
 
     const mod = await lifecycle();
     mod.registerPostApplyLifecycleTriggers({
@@ -130,13 +134,32 @@ describe('D2.5 post-apply lifecycle integration', () => {
       diagnosisReady: () => true,
       now: () => sweepAt,
     });
+
+    // Sweep 1: trips the guardrail and lands repair attempt 1 — no REAL
+    // evidence exists for it yet, so it must NOT be declared clear here.
+    await mod.sweepPostApplyLifecycleAsync({ now: sweepAt });
+    const afterAttempt1 = await eventsRepo.findByProposalIdAsync('proposal-repaired');
+    expect(afterAttempt1).toMatchObject({ guardrailStatus: 'tripped', revertStatus: 'none' });
+    const repairIds = JSON.parse(afterAttempt1!.repairProposalIdsJson) as string[];
+    expect(repairIds).toHaveLength(1);
+    expect(await proposalsRepo.findByIdAsync(repairIds[0])).toMatchObject({ status: 'applied' });
+    expect(configsRepo.getById('profile-1')).toMatchObject({
+      modelProvider: 'anthropic',
+      modelId: 'repair-1',
+    });
+
+    // Real post-repair evidence: 5 clean outcomes finalized after the
+    // repair's own recheck floor.
+    const recheckAfter = new Date(afterAttempt1!.repairRecheckAfter!);
+    for (let index = 0; index < 5; index += 1) {
+      insertOutcome(`post-repair-clean-${index}`, 'profile-1', new Date(recheckAfter.getTime() + 1_000 + index), 'completed');
+    }
+
+    // Sweep 2: sufficient clean evidence clears the guardrail for real.
     await mod.sweepPostApplyLifecycleAsync({ now: sweepAt });
 
     const settledEvent = await eventsRepo.findByProposalIdAsync('proposal-repaired');
     const original = await proposalsRepo.findByIdAsync('proposal-repaired');
-    const repairIds = JSON.parse(settledEvent!.repairProposalIdsJson) as string[];
-    expect(repairIds).toHaveLength(1);
-    expect(await proposalsRepo.findByIdAsync(repairIds[0])).toMatchObject({ status: 'applied' });
     expect(await Promise.all(repairIds.map((id) => eventsRepo.findByProposalIdAsync(id))))
       .toEqual([null]);
     expect((db.prepare('SELECT COUNT(*) AS count FROM agent_org_post_apply_events').get() as { count: number }).count)
@@ -144,23 +167,22 @@ describe('D2.5 post-apply lifecycle integration', () => {
     expect(settledEvent).toMatchObject({ guardrailStatus: 'clear', revertStatus: 'not_needed' });
     expect(settledEvent?.alertPayloadJson).toBeNull();
     expect(original?.status).toBe('active');
-    expect(configsRepo.getById('profile-1')?.modelId).toBe('anthropic/repair-1');
+    expect(configsRepo.getById('profile-1')).toMatchObject({
+      modelProvider: 'anthropic',
+      modelId: 'repair-1',
+    });
   });
 
-  it('three failed repairs await auto-revert, restore bytes, revert original, and persist a safe alert', async () => {
+  it('three failed repairs (each evidence-confirmed) await auto-revert, restore bytes, revert original, and persist a safe alert', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     await approveModelChange('proposal-reverted', 'anthropic/applied');
     const event = await eventsRepo.findByProposalIdAsync('proposal-reverted');
     expect(event).not.toBeNull();
-    const sweepAt = new Date(new Date(event!.monitoringWindowStart).getTime() + 60_000);
+    const tripAt = new Date(new Date(event!.monitoringWindowStart).getTime() + 1_000);
     for (let index = 0; index < 5; index += 1) {
-      insertOutcome(`trip-fail-${index}`, 'profile-1', sweepAt, 'error');
+      insertOutcome(`trip-fail-${index}`, 'profile-1', tripAt, 'error');
     }
-    for (const offset of [1, 2, 3]) {
-      for (let index = 0; index < 5; index += 1) {
-        insertOutcome(`repair-fail-${offset}-${index}`, 'profile-1', new Date(sweepAt.getTime() + offset), 'error');
-      }
-    }
+    const sweepAt = new Date(new Date(event!.monitoringWindowStart).getTime() + 60_000);
 
     const mod = await lifecycle();
     mod.registerPostApplyLifecycleTriggers({
@@ -168,9 +190,27 @@ describe('D2.5 post-apply lifecycle integration', () => {
       diagnosisReady: () => true,
       now: () => sweepAt,
     });
-    await mod.sweepPostApplyLifecycleAsync({ now: sweepAt });
 
-    const settledEvent = await eventsRepo.findByProposalIdAsync('proposal-reverted');
+    // Sweep 1: trips + lands repair attempt 1.
+    await mod.sweepPostApplyLifecycleAsync({ now: sweepAt });
+    let current = await eventsRepo.findByProposalIdAsync('proposal-reverted');
+    let failSeq = 0;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      // Real evidence for THIS attempt: 5 fresh error outcomes after its
+      // own recheck floor — every attempt is genuinely re-evaluated.
+      const recheckAfter = new Date(current!.repairRecheckAfter!);
+      for (let i = 0; i < 5; i += 1, failSeq += 1) {
+        insertOutcome(`repair-fail-${failSeq}`, 'profile-1', new Date(recheckAfter.getTime() + 1_000 + i), 'error');
+      }
+      await mod.sweepPostApplyLifecycleAsync({ now: sweepAt }); // evaluate this attempt
+      current = await eventsRepo.findByProposalIdAsync('proposal-reverted');
+      if (attempt < 3) {
+        await mod.sweepPostApplyLifecycleAsync({ now: sweepAt }); // land the next attempt
+        current = await eventsRepo.findByProposalIdAsync('proposal-reverted');
+      }
+    }
+
+    const settledEvent = current;
     const repairIds = JSON.parse(settledEvent!.repairProposalIdsJson) as string[];
     expect(repairIds).toHaveLength(3);
     expect(await Promise.all(repairIds.map((id) => proposalsRepo.findByIdAsync(id))))
@@ -248,10 +288,18 @@ describe('D2.5 post-apply lifecycle integration', () => {
   it('isolates a rejected event trigger so the next actionable event still repairs and clears', async () => {
     await approveModelChange('proposal-trigger-rejects', 'anthropic/first');
     await approveModelChange('proposal-after-rejection', 'anthropic/second');
+    const repairableEvent = await eventsRepo.findByProposalIdAsync('proposal-after-rejection');
+    const windowStart = new Date(repairableEvent!.monitoringWindowStart);
+    for (let index = 0; index < 5; index += 1) {
+      insertOutcome(`trip-evidence-${index}`, 'profile-1', new Date(windowStart.getTime() + 1_000 + index), 'error');
+    }
     await eventsRepo.updateStatusAsync('proposal-trigger-rejects', { guardrailStatus: 'tripped' });
     await eventsRepo.updateStatusAsync('proposal-after-rejection', { guardrailStatus: 'tripped' });
     const mod = await lifecycle();
     let readinessCalls = 0;
+    // The repair floor must follow the real breach evidence so the next
+    // evidence window does not re-blame the repair for the original trip.
+    const sweepAt = new Date(windowStart.getTime() + 10_000);
     mod.registerPostApplyLifecycleTriggers({
       diagnosis: { diagnose: repairDiagnose(), configsRepo },
       diagnosisReady: () => {
@@ -259,13 +307,27 @@ describe('D2.5 post-apply lifecycle integration', () => {
         if (readinessCalls === 1) throw new Error(`${SECRET} trigger rejected`);
         return true;
       },
-      now: () => new Date('2026-08-19T12:00:00.000Z'),
+      now: () => sweepAt,
     });
 
     expect(await mod.sweepPostApplyLifecycleAsync()).toEqual({ processed: 1, skipped: false });
     expect(await eventsRepo.findByProposalIdAsync('proposal-trigger-rejects')).toMatchObject({
       guardrailStatus: 'tripped', repairProposalIdsJson: '[]', revertStatus: 'none',
     });
+    // Attempt 1 landed for the isolated event, but with no REAL evidence yet
+    // it must stay tripped, not be declared clear on the same tick.
+    const afterAttempt1 = await eventsRepo.findByProposalIdAsync('proposal-after-rejection');
+    expect(afterAttempt1).toMatchObject({ guardrailStatus: 'tripped', revertStatus: 'none' });
+    expect(JSON.parse(afterAttempt1!.repairProposalIdsJson)).toHaveLength(1);
+
+    // Real post-repair evidence + another sweep: the isolated event still
+    // repairs and clears on its own — one rejected trigger did not
+    // permanently wedge it.
+    const recheckAfter = new Date(afterAttempt1!.repairRecheckAfter!);
+    for (let index = 0; index < 5; index += 1) {
+      insertOutcome(`clear-evidence-${index}`, 'profile-1', new Date(recheckAfter.getTime() + 1_000 + index), 'completed');
+    }
+    await mod.sweepPostApplyLifecycleAsync();
     expect(await eventsRepo.findByProposalIdAsync('proposal-after-rejection')).toMatchObject({
       guardrailStatus: 'clear', revertStatus: 'not_needed',
     });

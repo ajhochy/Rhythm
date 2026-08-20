@@ -445,6 +445,55 @@ export class AgentConfigsRepository {
     return row ? rowToModel(row) : null;
   }
 
+  /**
+   * Generic revision-bound compare-and-set over an explicit column map:
+   * writes `nextColumns` only if EVERY column in `expectedColumns` still
+   * holds its expected value AND the row is still at `expectedRevision`.
+   * Returns null (no write) on any drift — a concurrent edit (human or
+   * another automation) is detected, never silently overwritten.
+   *
+   * Column names in both maps are always caller-supplied from a fixed,
+   * hardcoded object literal (see `compareAndSetConfigField` in
+   * org_proposal_apply.ts, the only caller) — never derived from external
+   * input — so the dynamically built SET/WHERE clause carries no injection
+   * surface despite the dynamic column names.
+   */
+  compareAndSetColumnsAtRevision(
+    id: string,
+    nextColumns: Record<string, string | number | null>,
+    expectedColumns: Record<string, string | number | null>,
+    expectedRevision: number,
+  ): RevisionedAgentConfig | null {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      throw new Error('Agent config CAS requires a non-negative integer revision');
+    }
+    const nextEntries = Object.entries(nextColumns);
+    const expectedEntries = Object.entries(expectedColumns);
+    if (nextEntries.length === 0) {
+      throw new Error('Agent config CAS requires at least one column to set');
+    }
+    const setClause = nextEntries.map(([c]) => `${c} = ?`).join(', ');
+    const whereClause = expectedEntries.map(([c]) => `${c} IS ?`).join(' AND ');
+    const row = getDb()
+      .prepare(
+        `UPDATE agent_configs
+            SET ${setClause},
+                revision = revision + 1,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE id = ?
+            AND revision = ?
+            ${whereClause ? `AND ${whereClause}` : ''}
+          RETURNING *`,
+      )
+      .get(
+        ...nextEntries.map(([, v]) => v),
+        id,
+        expectedRevision,
+        ...expectedEntries.map(([, v]) => v),
+      ) as AgentConfigRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
   insert(config: AgentConfigInput): RevisionedAgentConfig {
     const id = config.id ?? deriveAgentConfigIdFromLabel(
       config.label,

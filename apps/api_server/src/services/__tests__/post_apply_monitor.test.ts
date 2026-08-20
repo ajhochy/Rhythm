@@ -138,6 +138,35 @@ describe('D2.2 evaluatePostApplyGuardrailsAsync', () => {
     expect(persisted?.guardrailStatus).toBe('clear');
   });
 
+  it('ignores outcomes finalized after the monitoring window ended', async () => {
+    const event = await eventsRepo.createAsync({
+      proposalId: 'proposal-1',
+      profileId: 'profile-1',
+      changeType: 'prompt',
+      preChangeSnapshotJson: '{}',
+      monitoringWindowStart: '2026-08-18T00:00:00.000Z',
+      monitoringWindowEnd: '2026-08-18T01:00:00.000Z',
+    });
+    for (let i = 0; i < 5; i += 1) {
+      insertOutcome({
+        id: `late-${i}`,
+        profileId: 'profile-1',
+        finalizedAt: `2026-08-18T02:0${i}:00.000Z`,
+        terminalStatus: 'error',
+      });
+    }
+    const triggerAutoRepair = vi.fn();
+
+    const result = await evaluatePostApplyGuardrailsAsync(event, {
+      eventsRepo,
+      triggerAutoRepair,
+      now: new Date('2026-08-18T03:00:00.000Z'),
+    });
+
+    expect(result.action).toBe('cleared');
+    expect(triggerAutoRepair).not.toHaveBeenCalled();
+  });
+
   it('stays in monitoring (no action) when the window has not expired and there is no breach', async () => {
     const event = await eventsRepo.createAsync({
       proposalId: 'proposal-1',

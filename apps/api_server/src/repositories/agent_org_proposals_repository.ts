@@ -423,6 +423,18 @@ export class AgentOrgProposalsRepository {
   }
 
   /**
+   * Public lookup by exact dedup_key. Backs crash/restart resume for callers
+   * that mint a per-attempt idempotency key (e.g. auto_repair_service.ts's
+   * `post-apply-repair:<proposalId>:attempt:<n>`) — a resumed caller checks
+   * this FIRST, before repeating any diagnosis/mutation, so a process that
+   * crashed after creating (or applying) an attempt's proposal never mints a
+   * second one for the same attempt.
+   */
+  async findByDedupKeyAsync(key: string): Promise<RevisionedAgentOrgProposal | null> {
+    return this.findByDedupKeyAny(key);
+  }
+
+  /**
    * Create a proposal. Idempotent on `dedupKey`: if a row with the same
    * dedup_key already exists, that EXISTING row is returned unchanged — no
    * duplicate insert, no throw, and the existing row's content (e.g. title)

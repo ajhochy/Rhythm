@@ -4261,4 +4261,33 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
        ON agent_run_outcomes(profile_id)`,
   );
+
+  // ── D2.3 (#1433, second pass) — durable repair-attempt state machine ──────
+  //
+  // The original design declared a repair "successful" the instant it found
+  // NO run outcomes at/after `now + 1ms` — which is always true immediately
+  // after a repair (no agent turn has run yet), so it was a guaranteed pass
+  // regardless of whether the fix actually helped. These two additive
+  // columns replace that with real evidence-gating:
+  //   - repair_attempt_count: the TRUTHFUL number of repair attempts
+  //     consumed so far (0..MAX_REPAIR_ATTEMPTS), including a genuine
+  //     diagnosis that produced no actionable fix — never silently
+  //     under-counted the way the old in-memory-only loop could.
+  //   - repair_recheck_after: set the instant the latest attempt's config
+  //     mutation lands; NULL once that attempt's outcome (repaired/failed)
+  //     resolves. A sweep only evaluates the guardrail against outcomes
+  //     finalized at/after this floor, and only ACTS once enough of them
+  //     exist (same D2.2 registry + minSampleCount) — no evidence yet always
+  //     leaves the event exactly where it was. See auto_repair_service.ts.
+  // Postgres twin in postgres_bootstrap.ts — enforced by
+  // skill_schema_parity.test.ts.
+  const postApplyEventCols = (
+    db.pragma('table_info(agent_org_post_apply_events)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!postApplyEventCols.includes('repair_attempt_count')) {
+    db.exec(`ALTER TABLE agent_org_post_apply_events ADD COLUMN repair_attempt_count INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!postApplyEventCols.includes('repair_recheck_after')) {
+    db.exec(`ALTER TABLE agent_org_post_apply_events ADD COLUMN repair_recheck_after TEXT`);
+  }
 }

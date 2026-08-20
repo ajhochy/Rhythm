@@ -37,8 +37,13 @@ import type { PostApplyChangeType, PostApplyEvent } from '../models/post_apply_e
 /** ponytail: fixed 1-hour observation window — upgrade to a per-kind config if a real change needs a different period. */
 export const DEFAULT_MONITORING_WINDOW_MS = 60 * 60 * 1000;
 
-/** ponytail: fixed floor matching guardrail_registry's "avoid tripping on n=1" doc comment. */
-const DEFAULT_MIN_GUARDRAIL_SAMPLE_COUNT = 5;
+/**
+ * ponytail: fixed floor matching guardrail_registry's "avoid tripping on
+ * n=1" doc comment. Exported so auto_repair_service.ts's post-repair
+ * evidence gate uses the SAME threshold as the pre-trip monitor — one
+ * definition of "enough samples to trust," never two that can drift apart.
+ */
+export const DEFAULT_MIN_GUARDRAIL_SAMPLE_COUNT = 5;
 
 export type AutoRepairTrigger = (event: PostApplyEvent) => Promise<void> | void;
 
@@ -133,10 +138,14 @@ export async function evaluatePostApplyGuardrailsAsync(
   const enrollmentsRepo = deps.enrollmentsRepo ?? new AgentOrgExperimentEnrollmentsRepository();
   const now = deps.now ?? new Date();
 
-  const [outcomes, experiments] = await Promise.all([
+  const [allOutcomes, experiments] = await Promise.all([
     outcomesRepo.listByProfileSinceAsync(event.profileId, event.monitoringWindowStart),
     experimentsRepo.listByProposalAsync(event.proposalId).catch(() => []),
   ]);
+  const windowEndMs = new Date(event.monitoringWindowEnd).getTime();
+  const outcomes = allOutcomes.filter(
+    (outcome) => new Date(outcome.finalizedAt).getTime() <= windowEndMs,
+  );
   const enrollmentLists = await Promise.all(
     experiments.map((experiment) => enrollmentsRepo.listByExperimentAsync(experiment.id)),
   );

@@ -29,6 +29,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
@@ -42,6 +43,11 @@ let db: Database.Database;
 let configsRepo: AgentConfigsRepository;
 let proposalsRepo: AgentOrgProposalsRepository;
 let eventsRepo: PostApplyEventsRepository;
+
+/** Mirrors auto_revert_service.ts's `fingerprintOf` — independent computation for exact-hash assertions. */
+function sha256Hex(material: string): string {
+  return createHash('sha256').update(material).digest('hex');
+}
 
 beforeEach(() => {
   db = new Database(':memory:');
@@ -125,7 +131,169 @@ async function seedExhaustedRepairScenario(over: {
   return { event: event!, originalProposal, repairIds, priorModel, appliedModel, lastRepairModel };
 }
 
+/**
+ * Second pass (independent review) — the CURRENT-shape scenario: every
+ * snapshot (original apply AND each repair) carries `expectedAppliedValue`,
+ * exactly what auto_repair_service.ts and org_proposal_appliers_wiring.ts's
+ * refineConfigApplier both now write. Exercises the value+revision CAS path
+ * in revertProposal's isConfigFieldSnapshot branch, unlike
+ * seedExhaustedRepairScenario above (which pins backward-compat with
+ * pre-existing legacy snapshots that never carried this field).
+ */
+async function seedCasProtectedRepairScenario(finalLiveModel = 'anthropic/claude-sonnet-3') {
+  const priorModel = 'anthropic/claude-haiku';
+  const appliedModel = 'anthropic/claude-opus';
+
+  configsRepo.insert({ id: 'profile-cas', label: 'Profile CAS', icon: 'x', modelProvider: 'anthropic', modelId: 'claude-haiku' });
+
+  await proposalsRepo.createAsync({
+    id: 'proposal-cas-original',
+    kind: 'refine-config',
+    risk: 'high',
+    status: 'applied',
+    title: 'Swap model for profile-cas',
+    targetRef: 'agent_config:profile-cas',
+    changeJson: JSON.stringify({ configPatch: { agentConfigId: 'profile-cas', field: 'model', value: appliedModel } }),
+    beforeSnapshotJson: JSON.stringify({
+      agentConfigId: 'profile-cas', field: 'model', priorValue: priorModel, expectedAppliedValue: appliedModel,
+    }),
+  });
+
+  // Each repair's OWN snapshot chains to the next: repair i expects the
+  // PREVIOUS attempt's value live, and lands its own.
+  const repairValues = ['anthropic/claude-sonnet-1', 'anthropic/claude-sonnet-2', finalLiveModel];
+  let expectedBefore = appliedModel;
+  const repairIds: string[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const repair = await proposalsRepo.createAsync({
+      id: `repair-cas-${i + 1}`,
+      kind: 'refine-config',
+      risk: 'high',
+      status: 'applied',
+      title: `D2.3 auto-repair attempt ${i + 1} for profile-cas`,
+      targetRef: 'agent_config:profile-cas',
+      changeJson: JSON.stringify({ source: 'auto-repair-service', profileId: 'profile-cas', field: 'model' }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: 'profile-cas',
+        field: 'model',
+        priorValue: expectedBefore,
+        expectedAppliedValue: repairValues[i],
+      }),
+    });
+    repairIds.push(repair.id);
+    expectedBefore = repairValues[i];
+  }
+  configsRepo.update('profile-cas', {
+    modelProvider: finalLiveModel.split('/')[0],
+    modelId: finalLiveModel.split('/')[1],
+  });
+
+  await eventsRepo.createAsync({
+    proposalId: 'proposal-cas-original',
+    profileId: 'profile-cas',
+    changeType: 'prompt',
+    preChangeSnapshotJson: '{}',
+    monitoringWindowStart: '2026-08-19T00:00:00.000Z',
+    monitoringWindowEnd: '2026-08-19T01:00:00.000Z',
+  });
+  await eventsRepo.updateStatusAsync('proposal-cas-original', {
+    guardrailStatus: 'tripped',
+    repairProposalIdsJson: JSON.stringify(repairIds),
+  });
+  const event = await eventsRepo.findByProposalIdAsync('proposal-cas-original');
+  return { event: event!, priorModel, appliedModel, repairIds };
+}
+
 describe('D2.4 runAutoRevertAsync', () => {
+  it('CAS override (second pass): reverts past a whole repair chain, anchoring on the LAST repair\'s own applied value', async () => {
+    const { event, priorModel } = await seedCasProtectedRepairScenario();
+
+    const result = await runAutoRevertAsync(event, {});
+
+    expect(result.outcome).toBe('reverted');
+    const restored = configsRepo.getById('profile-cas');
+    expect(`${restored?.modelProvider}/${restored?.modelId}`).toBe(priorModel);
+  });
+
+  it('CAS override (second pass): a genuine concurrent edit AFTER the repair chain is detected and refused, never overwritten', async () => {
+    const { event } = await seedCasProtectedRepairScenario();
+    // An operator (or an unrelated automation) edits the SAME field to a
+    // value the repair chain never produced — this must NOT be silently
+    // clobbered by the revert.
+    configsRepo.update('profile-cas', { modelProvider: 'openai', modelId: 'human-edit' });
+
+    const result = await runAutoRevertAsync(event, {});
+
+    expect(result.outcome).toBe('revert_failed');
+    expect(result.conflict?.reason).toBe('revert-conflict');
+    const untouched = configsRepo.getById('profile-cas');
+    expect(`${untouched?.modelProvider}/${untouched?.modelId}`).toBe('openai/human-edit');
+  });
+
+
+  it('finding #3: a config-field revert that lands in the DB but whose profile-file projection is blocked never marks the proposal reverted (never reverted+revert_failed); a retry that projects cleanly then settles without re-writing', async () => {
+    const writer = await import('../../services/opencode_agent_writer');
+    const writeSpy = vi.spyOn(writer, 'writeAgentProfileFile');
+    writeSpy.mockReturnValueOnce('blocked');
+
+    configsRepo.insert({
+      id: 'profile-gate',
+      label: 'Profile gate',
+      icon: 'x',
+      isAgent: true,
+      systemPrompt: 'Safely verify configuration changes.',
+      modelProvider: 'anthropic',
+      modelId: 'claude-opus',
+    });
+    await proposalsRepo.createAsync({
+      id: 'proposal-gate',
+      kind: 'refine-config',
+      risk: 'high',
+      status: 'applied',
+      title: 'Swap model for profile-gate',
+      targetRef: 'agent_config:profile-gate',
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: 'profile-gate', field: 'model', value: 'anthropic/claude-opus' },
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: 'profile-gate',
+        field: 'model',
+        priorValue: 'anthropic/claude-haiku',
+        expectedAppliedValue: 'anthropic/claude-opus',
+      }),
+    });
+    await eventsRepo.createAsync({
+      proposalId: 'proposal-gate',
+      profileId: 'profile-gate',
+      changeType: 'prompt',
+      preChangeSnapshotJson: '{}',
+      monitoringWindowStart: '2026-08-19T00:00:00.000Z',
+      monitoringWindowEnd: '2026-08-19T01:00:00.000Z',
+    });
+    await eventsRepo.updateStatusAsync('proposal-gate', { guardrailStatus: 'tripped' });
+    const event = await eventsRepo.findByProposalIdAsync('proposal-gate');
+
+    const first = await runAutoRevertAsync(event!, {});
+    expect(first.outcome).toBe('revert_failed');
+    expect(first.conflict?.reason).toBe('revert-conflict');
+    // The DB half of the restore DID land...
+    const afterFirstConfig = configsRepo.getById('profile-gate');
+    expect(`${afterFirstConfig?.modelProvider}/${afterFirstConfig?.modelId}`).toBe('anthropic/claude-haiku');
+    // ...but the proposal must NOT be terminal — never 'reverted' at the same
+    // time the event says 'revert_failed'.
+    const afterFirstProposal = await proposalsRepo.findByIdAsync('proposal-gate');
+    expect(afterFirstProposal?.status).toBe('measuring');
+    expect(first.event.revertStatus).toBe('revert_failed');
+
+    const revisionAfterFirst = afterFirstConfig?.revision;
+    writeSpy.mockReturnValueOnce('written');
+    const second = await runAutoRevertAsync(first.event, {});
+    expect(second.outcome).toBe('reverted');
+    expect(configsRepo.getById('profile-gate')?.revision).toBe(revisionAfterFirst);
+    expect((await proposalsRepo.findByIdAsync('proposal-gate'))?.status).toBe('reverted');
+    expect(second.event.revertStatus).toBe('reverted');
+  });
+
   it('all 3 repairs fail: reverts the original proposal and restores the profile to its pre-change state', async () => {
     const { event, priorModel } = await seedExhaustedRepairScenario();
 
@@ -182,7 +350,15 @@ describe('D2.4 runAutoRevertAsync', () => {
     const alert = JSON.parse(persisted!.alertPayloadJson!);
     expect(alert.proposalId).toBe('proposal-original');
     expect(alert.profileId).toBe('profile-1');
-    expect(alert.originalChange).toEqual({ kind: 'refine-config' });
+    // issue-1434 full-trail fingerprints: computable for the original (a
+    // legacy snapshot, no expectedAppliedValue — falls back to priorValue as
+    // the "change" material) even though these seeded repairs carry no
+    // beforeSnapshotJson at all (their own field/valueFingerprint stay absent).
+    expect(alert.originalChange).toEqual({
+      kind: 'refine-config',
+      targetFingerprint: sha256Hex(['target', 'profile-1', 'model'].join('\u0000')),
+      changeFingerprint: sha256Hex(['change', 'profile-1', 'model', 'anthropic/claude-haiku'].join('\u0000')),
+    });
     for (const [index, proposalId] of repairIds.entries()) {
       expect(alert.repairAttempts[index]).toEqual({
         proposalId,
@@ -190,6 +366,37 @@ describe('D2.4 runAutoRevertAsync', () => {
       });
     }
     expect(alert.revert.outcome).toBe('reverted');
+  });
+
+  it('issue-1434 full-trail fingerprints: alert carries exact SHA-256 target/change fingerprints for the original and a field + value fingerprint for each repair, with no raw values', async () => {
+    const { event, priorModel, appliedModel, repairIds } = await seedCasProtectedRepairScenario();
+
+    await runAutoRevertAsync(event, {});
+
+    const persisted = await eventsRepo.findByProposalIdAsync('proposal-cas-original');
+    const alert = JSON.parse(persisted!.alertPayloadJson!);
+
+    expect(alert.originalChange).toEqual({
+      kind: 'refine-config',
+      targetFingerprint: sha256Hex(['target', 'profile-cas', 'model'].join('\u0000')),
+      changeFingerprint: sha256Hex(['change', 'profile-cas', 'model', appliedModel].join('\u0000')),
+    });
+
+    const repairValues = ['anthropic/claude-sonnet-1', 'anthropic/claude-sonnet-2', 'anthropic/claude-sonnet-3'];
+    for (const [index, proposalId] of repairIds.entries()) {
+      expect(alert.repairAttempts[index]).toEqual({
+        proposalId,
+        status: 'applied',
+        field: 'model',
+        valueFingerprint: sha256Hex(['value', repairValues[index]].join('\u0000')),
+      });
+    }
+
+    // Never a raw model value in the alert — only fingerprints/plain field names.
+    const raw = JSON.stringify(alert);
+    expect(raw).not.toContain(priorModel);
+    expect(raw).not.toContain(appliedModel);
+    for (const value of repairValues) expect(raw).not.toContain(value);
   });
 
   it('never persists raw secret-shaped text from repair rationale into the alert payload', async () => {

@@ -216,14 +216,14 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 export interface ValidatedConfigPatch {
   agentConfigId: string;
   field: (typeof CONFIG_PATCH_FIELDS)[number];
-  value: unknown;
+  value: string;
 }
 
 function isValidatedConfigPatchShape(value: unknown): value is ValidatedConfigPatch {
   if (!isPlainRecord(value)) return false;
   if (typeof value.agentConfigId !== 'string') return false;
   if (typeof value.field !== 'string' || !CONFIG_PATCH_FIELD_SET.has(value.field)) return false;
-  if (!('value' in value)) return false;
+  if (typeof value.value !== 'string') return false;
   const extras = Object.keys(value).filter(
     (key) => key !== 'agentConfigId' && key !== 'field' && key !== 'value',
   );

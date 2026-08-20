@@ -61,6 +61,21 @@ export interface PostApplyEvent {
   guardrailStatus: GuardrailStatus;
   /** JSON array of 0-{@link MAX_REPAIR_ATTEMPTS} corrective proposal ids, in attempt order. */
   repairProposalIdsJson: string;
+  /**
+   * Truthful count of repair attempts consumed so far (0..
+   * {@link MAX_REPAIR_ATTEMPTS}), including a genuine diagnosis that produced
+   * no actionable fix. Can exceed `repairProposalIdsJson`'s length — not
+   * every consumed attempt produces a proposal. Never incremented for a
+   * deferred (infra/timeout/no-response) diagnosis call.
+   */
+  repairAttemptCount: number;
+  /**
+   * Set the instant the latest attempt's config mutation lands; null once
+   * that attempt's outcome (repaired/still-breaching) resolves. While set,
+   * only outcomes finalized at/after this floor count as evidence for the
+   * CURRENT attempt — see auto_repair_service.ts's state machine.
+   */
+  repairRecheckAfter: string | null;
   revertStatus: PostApplyRevertStatus;
   /** JSON alert payload (redacted of secrets), or null until an alert is generated. */
   alertPayloadJson: string | null;
@@ -84,6 +99,10 @@ export interface UpdatePostApplyEventPatch {
   guardrailStatus?: GuardrailStatus;
   /** A full JSON array of proposal ids — truncated to the most recent {@link MAX_REPAIR_ATTEMPTS}. */
   repairProposalIdsJson?: string;
+  /** Clamped to [0, {@link MAX_REPAIR_ATTEMPTS}]. */
+  repairAttemptCount?: number;
+  /** `null` explicitly clears it (the current attempt resolved). */
+  repairRecheckAfter?: string | null;
   revertStatus?: PostApplyRevertStatus;
   alertPayloadJson?: string | null;
   monitoringWindowEnd?: string;

@@ -44,6 +44,8 @@ interface PostApplyEventRow {
   monitoring_window_end: string;
   guardrail_status: string;
   repair_proposal_ids_json: string;
+  repair_attempt_count: number;
+  repair_recheck_after: string | null;
   revert_status: string;
   alert_payload_json: string | null;
   created_at: string;
@@ -61,6 +63,8 @@ function rowToModel(row: PostApplyEventRow): PostApplyEvent {
     monitoringWindowEnd: row.monitoring_window_end,
     guardrailStatus: row.guardrail_status as GuardrailStatus,
     repairProposalIdsJson: row.repair_proposal_ids_json,
+    repairAttemptCount: row.repair_attempt_count ?? 0,
+    repairRecheckAfter: row.repair_recheck_after ?? null,
     revertStatus: row.revert_status as PostApplyRevertStatus,
     alertPayloadJson: row.alert_payload_json,
     createdAt: row.created_at,
@@ -217,17 +221,26 @@ export class PostApplyEventsRepository {
       const ids = parseRepairProposalIds(patch.repairProposalIdsJson).slice(0, MAX_REPAIR_ATTEMPTS);
       nextRepairProposalIdsJson = JSON.stringify(ids);
     }
+    const nextRepairAttemptCount =
+      patch.repairAttemptCount === undefined
+        ? current.repairAttemptCount
+        : Math.max(0, Math.min(MAX_REPAIR_ATTEMPTS, Math.trunc(patch.repairAttemptCount)));
+    const nextRepairRecheckAfter =
+      patch.repairRecheckAfter === undefined ? current.repairRecheckAfter : patch.repairRecheckAfter;
 
     this.db
       .prepare(
         `UPDATE agent_org_post_apply_events
-           SET guardrail_status = ?, repair_proposal_ids_json = ?, revert_status = ?,
+           SET guardrail_status = ?, repair_proposal_ids_json = ?, repair_attempt_count = ?,
+               repair_recheck_after = ?, revert_status = ?,
                alert_payload_json = ?, monitoring_window_end = ?, updated_at = ?
          WHERE proposal_id = ?`,
       )
       .run(
         nextGuardrailStatus,
         nextRepairProposalIdsJson,
+        nextRepairAttemptCount,
+        nextRepairRecheckAfter,
         nextRevertStatus,
         nextAlertPayloadJson,
         nextMonitoringWindowEnd,

@@ -1,8 +1,9 @@
 {
   "issue": 1435,
-  "date": "2026-08-19",
+  "date": "2026-08-20",
   "test_command": "cd apps/api_server && npx vitest run src/__tests__/delegation_generator.test.ts src/services/__tests__/org_proposal_appliers_wiring.test.ts src/__tests__/org_proposal_apply.test.ts src/__tests__/org_proposals_routes.test.ts src/services/__tests__/post_apply_lifecycle.integration.test.ts src/services/__tests__/org_proposal_measure.test.ts src/repositories/__tests__/post_apply_events_repository.test.ts src/services/__tests__/post_apply_monitor.test.ts src/__tests__/new_agent_generator.test.ts src/services/generators/__tests__/external_discovery_generator.test.ts src/services/__tests__/issue_1152_prompt_fix_skill_create.test.ts --no-file-parallelism",
   "waiver": null,
+  "superseded_note": "SECOND PASS (independent review, 2026-08-20): c3/c4 below are re-verified against the corrected, evidence-gated D2.3/D2.4 state machine (see docs/ai/contracts/issue-1433.json's superseded_note) — post_apply_lifecycle.integration.test.ts's repair/revert scenarios now drive multiple real sweep ticks with explicit seeded evidence between them, never a single tick that fabricates a same-instant pass. sweepPostApplyLifecycleAsync now calls runAutoRepairAsync on every tick for a tripped, non-terminal event (not only once), matching the new one-decision-per-call contract.",
   "criteria": [
     {
       "criterion_id": "issue-1435-c1",
@@ -115,6 +116,22 @@
       "test": "apps/api_server/src/services/__tests__/org_proposal_measure.test.ts",
       "status": "pass",
       "reason": "Direct table-driven monitoring/tripped test."
+    },
+    {
+      "criterion_id": "issue-1435-c15",
+      "text": "Second pass: the scheduler sweep re-invokes the repair state machine on EVERY tick for a tripped, non-terminal event (not only when no repair has ever been attempted), so real evidence-gated advance/repair/exhaust actually progresses across real sweep ticks.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_apply_lifecycle_repair_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed against an isolated sandbox on ports 4297/4298/4299 (distinct from any concurrently running worktree sandbox). See docs/ai/contracts/issue-1433.json's issue-1433-c11."
+    },
+    {
+      "criterion_id": "issue-1435-c16",
+      "text": "THIRD PASS (finding #5): the live E2E's final resolution assertion requires the EXACT persisted terminal state after real clean evidence is fed — guardrail_status='clear', revert_status='not_needed', repair_attempt_count equal to the exact repair-proposal-id trail length, that trail unchanged from the landed-attempt checkpoint, no alert payload, and the original proposal settled 'active' (never 'reverted') — not merely 'the recheck floor changed,' which an ADVANCING (still-breaching, next-attempt) outcome could also produce and would incorrectly read as a pass under the prior assertion.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_apply_lifecycle_repair_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed in the isolated 4297/4298/4299 sandbox with a synthetic DB and disposable OpenAI MRU model: actual post-apply-regression guardrail signals produced a real diagnosis and repair proposal; the event stayed tripped across a cron tick with no post-repair evidence; five clean outcomes then settled guardrail_status=clear, revert_status=not_needed, an unchanged one-repair trail, no alert, and the original proposal active. 1/1 live test passed in 160.53s."
     }
   ],
   "not_tested": []

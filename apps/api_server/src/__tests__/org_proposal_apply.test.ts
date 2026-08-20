@@ -1967,4 +1967,99 @@ describe('#1434 root-cause fix: revertProposal narrows a validated refine-config
     expect(JSON.stringify(configsRepo.getById(config.id))).toBe(before);
     expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('measuring');
   });
+
+  it('fails closed when configPatch.value is not a string', async () => {
+    const { revertProposal } = await import('../services/org_proposal_apply');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Malformed config value target',
+      icon: 'x',
+      modelProvider: 'anthropic',
+      modelId: 'claude-opus',
+    });
+    const before = JSON.stringify(configsRepo.getById(config.id));
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Malformed object value',
+      changeJson: JSON.stringify({
+        configPatch: {
+          agentConfigId: config.id,
+          field: 'model',
+          value: { agentConfigId: config.id, field: 'allowedSkillsJson', value: '["admin"]' },
+        },
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'model',
+        priorValue: 'anthropic/claude-haiku',
+      }),
+      dedupKey: `1434-root-cause:malformed-config-value:${config.id}`,
+    });
+    forceAppliedScopeFixture(proposal.id);
+    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+
+    expect(await revertProposal(measuring!)).toBe('unsafe-legacy-scope');
+    expect(JSON.stringify(configsRepo.getById(config.id))).toBe(before);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('measuring');
+  });
+
+  it('finding #1/#3 (D2 post-apply lifecycle repair): does not mark the proposal reverted while the profile-file projection is blocked; a retry that projects cleanly completes without re-writing the field', async () => {
+    // Bug this catches: the config-field restore called
+    // projectAgentProfileAfterWrite and ignored a blocked/failed outcome,
+    // then unconditionally transitioned the proposal to 'reverted' anyway —
+    // so the DB could say "reverted" while the live-served opencode profile
+    // file still held the OLD (pre-revert) value.
+    const { revertProposal } = await import('../services/org_proposal_apply');
+    const writer = await import('../services/opencode_agent_writer');
+    const writeSpy = vi.spyOn(writer, 'writeAgentProfileFile');
+    writeSpy.mockReturnValueOnce('blocked');
+
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Projection-gated revert target',
+      icon: 'x',
+      isAgent: true,
+      systemPrompt: 'Safely verify configuration changes.',
+      modelProvider: 'anthropic',
+      modelId: 'claude-opus',
+    });
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Swap model back',
+      changeJson: JSON.stringify({
+        configPatch: { agentConfigId: config.id, field: 'model', value: 'anthropic/claude-opus' },
+      }),
+      beforeSnapshotJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'model',
+        priorValue: 'anthropic/claude-haiku',
+        expectedAppliedValue: 'anthropic/claude-opus',
+      }),
+      dedupKey: `finding-1-3:config-field-revert-gate:${config.id}`,
+    });
+    forceAppliedScopeFixture(proposal.id);
+    const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+
+    const first = await revertProposal(measuring!);
+    expect(first).toBe('conflict');
+    // The DB half of the restore DID land...
+    const afterFirst = configsRepo.getById(config.id);
+    expect(`${afterFirst?.modelProvider}/${afterFirst?.modelId}`).toBe('anthropic/claude-haiku');
+    // ...but the proposal must NOT be terminal — retryable, never a
+    // 'reverted' status sitting behind an unprojected profile file.
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('measuring');
+
+    const revisionAfterFirst = afterFirst?.revision;
+    writeSpy.mockReturnValueOnce('written');
+    const stillMeasuring = await proposalsRepo.findByIdAsync(proposal.id);
+    const second = await revertProposal(stillMeasuring!);
+    expect(second).toBe('reverted');
+    // Settling on retry must NOT re-write the field a second time.
+    expect(configsRepo.getById(config.id)?.revision).toBe(revisionAfterFirst);
+    expect((await proposalsRepo.findByIdAsync(proposal.id))?.status).toBe('reverted');
+  });
 });

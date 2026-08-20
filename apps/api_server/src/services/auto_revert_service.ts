@@ -66,15 +66,20 @@
  * so the guarantee is enforced once, at the shared source, not re-implemented
  * here.
  *
- * ponytail: no config-VALUE-level CAS (comparing the live field byte-for-byte
- * against an "expected currently-applied" value before writing) — only the
- * proposal's own revision is guarded, matching every other non-scope revert
- * in this codebase (`revertProposal`'s plain `isConfigFieldSnapshot` branch
- * has none either). Upgrade to a value-guarded config write if a real
- * concurrent-edit-during-repair incident shows the proposal-revision guard
- * alone isn't enough.
+ * ROOT-CAUSE FIX (second pass, independent review): `revertProposal`'s
+ * `isConfigFieldSnapshot` branch now ALSO does config-VALUE-level CAS
+ * (`compareAndSetConfigField`, org_proposal_apply.ts) whenever the snapshot
+ * carries `expectedAppliedValue` — every snapshot this service's repair
+ * proposals write does. The live `agent_configs` field is restored to
+ * `priorValue` ONLY if it still equals the exact value the repair/apply
+ * landed; a later operator (or another automation) edit to the SAME field
+ * during monitoring is detected and refused (`'conflict'` from
+ * `revertProposal`, surfaced here as `revert_failed`) rather than silently
+ * overwritten. Legacy snapshots written before this field existed fall back
+ * to the prior unconditional restore — there is no safe CAS target for them.
  */
 
+import { createHash } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
@@ -83,8 +88,9 @@ import { parseRepairProposalIds, type PostApplyEvent, type PostApplyRevertStatus
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import {
   isConfigFieldSnapshot,
-  readAgentConfigField,
   revertProposal,
+  type ConfigFieldSnapshot,
+  type RevertConfigFieldOverride,
   type RevertOutcome,
 } from './org_proposal_apply';
 
@@ -103,10 +109,72 @@ export interface RunAutoRevertAsyncResult {
   conflict?: Record<string, unknown>;
 }
 
+// ---------------------------------------------------------------------------
+// Full-trail fingerprints (issue #1434) — deterministic SHA-256 identity/
+// change fingerprints, never the raw field value or any diagnosis prose.
+// ---------------------------------------------------------------------------
+
+/**
+ * Positional (never object-order-dependent) SHA-256 over a fixed `kind` tag
+ * plus a small tuple of plain strings, NUL-separated. `\u0001null` marks an
+ * absent value distinctly from the empty string so `(a, '')` and `(a, null)`
+ * never collide.
+ */
+function fingerprintOf(kind: string, ...parts: (string | null)[]): string {
+  const material = [kind, ...parts.map((p) => (p === null ? '\u0001null' : p))].join('\u0000');
+  return createHash('sha256').update(material).digest('hex');
+}
+
+/** Identity of a (profile, field) target — never the value at that field. */
+function targetIdentityFingerprint(agentConfigId: string, field: string): string {
+  return fingerprintOf('target', agentConfigId, field);
+}
+
+/** The exact (profile, field, value) transition a change applied — never the raw value. */
+function changeFingerprint(agentConfigId: string, field: string, value: string | null): string {
+  return fingerprintOf('change', agentConfigId, field, value);
+}
+
+/** The exact value a single repair attempt landed — never the raw value. */
+function valueFingerprint(value: string | null): string {
+  return fingerprintOf('value', value);
+}
+
+/**
+ * Best-effort target/change identity fingerprints for a proposal's own
+ * `ConfigFieldSnapshot`. `null` for any other/unrecognized snapshot shape
+ * (e.g. a scope-delta-v2/scope-state-v2 mutation, which already carries its
+ * own `expectedAppliedHash` in scope_mutation_contract.ts) — never a
+ * fabricated fingerprint for a shape this function does not understand.
+ */
+function configFieldFingerprints(
+  beforeSnapshotJson: string | null,
+): { targetFingerprint: string; changeFingerprint: string; valueFingerprint: string; field: string } | null {
+  if (!beforeSnapshotJson) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(beforeSnapshotJson);
+  } catch {
+    return null;
+  }
+  if (!isConfigFieldSnapshot(parsed)) return null;
+  const landedValue = parsed.expectedAppliedValue !== undefined ? parsed.expectedAppliedValue : parsed.priorValue;
+  return {
+    field: parsed.field,
+    targetFingerprint: targetIdentityFingerprint(parsed.agentConfigId, parsed.field),
+    changeFingerprint: changeFingerprint(parsed.agentConfigId, parsed.field, landedValue),
+    valueFingerprint: valueFingerprint(landedValue),
+  };
+}
+
 /** Trail entry for one repair attempt, safe to surface in an alert. */
 interface RepairAttemptTrail {
   proposalId: string;
   status: string | null;
+  /** Plain allowlisted field name (e.g. 'model') — never the value itself. */
+  field?: string;
+  /** SHA-256 of the exact value this repair attempted to land — never the raw value. */
+  valueFingerprint?: string;
 }
 
 async function buildRepairTrail(
@@ -117,12 +185,55 @@ async function buildRepairTrail(
   const trail: RepairAttemptTrail[] = [];
   for (const id of ids) {
     const repair = await proposalsRepo.findByIdAsync(id).catch(() => null);
+    const fingerprints = configFieldFingerprints(repair?.beforeSnapshotJson ?? null);
     trail.push({
       proposalId: id,
       status: repair?.status ?? null,
+      ...(fingerprints ? { field: fingerprints.field, valueFingerprint: fingerprints.valueFingerprint } : {}),
     });
   }
   return trail;
+}
+
+/**
+ * ROOT-CAUSE FIX (second pass): the ORIGINAL proposal's own
+ * `expectedAppliedValue` is stale once 1+ repair attempts have mutated the
+ * SAME (agentConfigId, field) on top of it — D2.3's whole point is to layer
+ * corrective mutations on the live field, and D2.4 must unwind the WHOLE
+ * chain, not just the original apply. CAS-ing the final revert against the
+ * ORIGINAL's own snapshot would treat every one of this system's OWN prior
+ * repair writes as if it were an unrelated concurrent edit and refuse the
+ * revert every time repairs actually ran. Walk the repair chain LAST-to-first
+ * for the most recent attempt that ALSO targeted this exact field — its own
+ * `expectedAppliedValue` is the correct "what should currently be live"
+ * anchor. Returns `undefined` (no override — use the original's own value)
+ * when no repair ever touched this exact field, so a genuine concurrent
+ * human/other-automation edit is still detected exactly as before.
+ */
+async function resolveEffectiveAppliedValue(
+  event: PostApplyEvent,
+  original: ConfigFieldSnapshot,
+  proposalsRepo: AgentOrgProposalsRepository,
+): Promise<string | null | undefined> {
+  const ids = parseRepairProposalIds(event.repairProposalIdsJson);
+  for (let i = ids.length - 1; i >= 0; i -= 1) {
+    const repair = await proposalsRepo.findByIdAsync(ids[i]).catch(() => null);
+    if (!repair?.beforeSnapshotJson) continue;
+    let snapshot: unknown;
+    try {
+      snapshot = JSON.parse(repair.beforeSnapshotJson);
+    } catch {
+      continue;
+    }
+    if (
+      isConfigFieldSnapshot(snapshot) &&
+      snapshot.agentConfigId === original.agentConfigId &&
+      snapshot.field === original.field
+    ) {
+      return snapshot.expectedAppliedValue;
+    }
+  }
+  return undefined;
 }
 
 function buildAlertPayload(
@@ -131,12 +242,25 @@ function buildAlertPayload(
   repairTrail: RepairAttemptTrail[],
   revert: { outcome: 'reverted' | 'revert_failed'; conflict?: Record<string, unknown> },
 ): string {
+  const originalFingerprints = configFieldFingerprints(originalProposal?.beforeSnapshotJson ?? null);
   return JSON.stringify({
     proposalId: event.proposalId,
     profileId: event.profileId,
     changeType: event.changeType,
     originalChange: originalProposal
-      ? { kind: originalProposal.kind }
+      ? {
+          kind: originalProposal.kind,
+          // Deterministic SHA-256 identity/change fingerprints (issue #1434
+          // full-trail requirement) — omitted (not fabricated) when the
+          // original's snapshot isn't a recognized ConfigFieldSnapshot
+          // (e.g. a scope-delta-v2/scope-state-v2 mutation).
+          ...(originalFingerprints
+            ? {
+                targetFingerprint: originalFingerprints.targetFingerprint,
+                changeFingerprint: originalFingerprints.changeFingerprint,
+              }
+            : {}),
+        }
       : null,
     repairAttempts: repairTrail,
     revert,
@@ -233,10 +357,24 @@ export async function runAutoRevertAsync(
   // primitive — the SAME config-field restore and SAME whole-field-scope
   // refusal (UNSAFE_WHOLE_FIELD_SCOPE_FIELDS) the human /revert path (#857)
   // uses, so the two paths can never drift apart on either.
-  const outcome: RevertOutcome = await revertProposal(measuring, {
-    proposalsRepo: proposals,
-    configsRepo: configs,
-  });
+  let configFieldOverride: RevertConfigFieldOverride | undefined;
+  try {
+    const originalSnapshot = JSON.parse(originalProposal.beforeSnapshotJson);
+    if (isConfigFieldSnapshot(originalSnapshot)) {
+      const effective = await resolveEffectiveAppliedValue(event, originalSnapshot, proposals);
+      if (effective !== undefined) configFieldOverride = { expectedCurrentValue: effective };
+    }
+  } catch {
+    // best-effort only — revertProposal falls back to the original
+    // snapshot's own expectedAppliedValue (or the legacy unconditional
+    // restore) if this can't be computed.
+  }
+  const outcome: RevertOutcome = await revertProposal(
+    measuring,
+    { proposalsRepo: proposals, configsRepo: configs },
+    undefined,
+    configFieldOverride,
+  );
 
   if (outcome === 'unsafe-legacy-scope') {
     // #1434 security fix, still enforced — now inside revertProposal itself
@@ -256,33 +394,32 @@ export async function runAutoRevertAsync(
   }
   if (outcome !== 'reverted') {
     // 'skipped' (unparseable/unsupported snapshot or change_json) or
-    // 'conflict' (only reachable via the scope-delta-v2 path, not the plain
-    // ConfigFieldSnapshot shape this service's callers produce) — either
-    // way, nothing was written; record it and stop.
+    // 'conflict' — either a genuine CAS mismatch (the plain ConfigFieldSnapshot
+    // path, or the scope-delta-v2 path) OR, since the D2 post-apply lifecycle
+    // repair fix, a config-field restore that landed in the database but
+    // whose profile-file projection is not yet settled
+    // (landConfigFieldWithProjection, org_proposal_apply.ts) — either way,
+    // nothing durable was terminalized; record it and stop. The proposal is
+    // still sitting at `measuring` (revertProposal never reached its own
+    // terminal `reverted` transition), so this is always consistent with
+    // `revert_failed` here — never `reverted` + `revert_failed`.
     return await fail({ reason: `revert-${outcome}`, proposalId: event.proposalId });
   }
 
-  // Independent post-write verification: re-read the live field and confirm
-  // it now matches the pre-change snapshot (defense-in-depth on top of
-  // revertProposal's own write, matching this service's original design).
-  let snapshot: unknown;
-  try {
-    snapshot = JSON.parse(originalProposal.beforeSnapshotJson);
-  } catch {
-    snapshot = null;
-  }
-  if (isConfigFieldSnapshot(snapshot)) {
-    const target = configs.getById(snapshot.agentConfigId);
-    const actual = target ? readAgentConfigField(target, snapshot.field) : undefined;
-    if (actual !== snapshot.priorValue) {
-      return await fail({
-        reason: 'post-revert-verification-mismatch',
-        field: snapshot.field,
-        proposalId: event.proposalId,
-      });
-    }
-  }
-
+  // ROOT-CAUSE FIX (D2 post-apply lifecycle repair, finding #3): this used to
+  // ALSO re-read the live field here and fail independently if it didn't
+  // match — a SEPARATE verification running AFTER revertProposal had already
+  // committed its own `measuring -> reverted` transition. That left a window
+  // (revertProposal's internal awaits) where a genuine concurrent edit could
+  // land between revertProposal's own write and this external check, which
+  // would then report `revert_failed` for a proposal ALREADY marked
+  // `reverted` — a directly contradictory durable state. revertProposal's
+  // `isConfigFieldSnapshot` branch now performs the value CAS AND the
+  // projection-settlement check itself, BEFORE its own terminal transition
+  // (see `landConfigFieldWithProjection`), so by the time `outcome === 'reverted'`
+  // is observed here, verification has already happened, in the same
+  // synchronous span as the write. No parallel restore/verify path is
+  // hand-rolled here anymore.
   const alertPayloadJson = buildAlertPayload(event, originalProposal, repairTrail, { outcome: 'reverted' });
   const updated = await recordOutcome(events, event, 'reverted', alertPayloadJson);
   logger.info(`[auto-revert] reverted proposal '${event.proposalId}' (profile '${event.profileId}')`);
