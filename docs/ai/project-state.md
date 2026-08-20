@@ -2,16 +2,16 @@
 
 ## Current focus
 
-Bucket E artifact storage is verified for #1396, #1397, and #1394 at `96733f5d`, stacked on the HIGH-risk Postgres prerequisite `b0fb1ad1` / draft PR #1464. A clean Bucket E draft PR has not been opened.
+Bucket E artifact storage is verified for #1396, #1397, and #1394 and open as draft PR #1467, depending on HIGH-risk Postgres prerequisite PR #1464.
 
 ## Active branch / PR
 
-- Bucket E: `e-artifact-storage`; clean draft PR pending and must declare dependency on #1464.
+- Bucket E: `codex/mega-e-artifact-storage` → draft PR #1467; depends on #1464.
 - Preserve active work and recorded statuses: Org Optimizer and PRs #1383, #1453, #1459, #1460, #1461, #1462, #1463, #1464, and #1465.
 
 ## In progress
 
-- Prepare the clean Bucket E draft PR without copying the prerequisite commit; declare #1464 as a dependency.
+- Bucket E draft PR #1467 is open without copying the prerequisite commit; dependency #1464 is declared.
 - Operator manual checks remain for the actual Synology volume identity, backup of DB plus artifact bytes, pre/post checksums, and recovery procedure.
 
 ## Risks / known issues
@@ -28,4 +28,4 @@ Bucket E artifact storage is verified for #1396, #1397, and #1394 at `96733f5d`,
 
 ## Next step
 
-Open a clean Bucket E draft PR that explicitly declares dependency on #1464. Do not merge or deploy before the Synology operator checklist is completed.
+AJ: complete the Synology operator checklist for draft PR #1467 after dependency #1464 is ready. Do not merge or deploy first.
