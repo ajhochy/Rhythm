@@ -135,6 +135,34 @@ describe('Tasks permissions', () => {
     expect(collaboratorTasks.map((visibleTask) => visibleTask.id)).toEqual([task.id]);
   });
 
+  it('returns isShared and collaborators when a collaborator patches a task', async () => {
+    // Regression: findById omitted is_shared, so the PATCH response falsely serialized isShared: false.
+    const owner = usersRepo.create({ name: 'Owner', email: 'patch-owner@example.com' });
+    const collaborator = usersRepo.create({ name: 'Collaborator', email: 'patch-collaborator@example.com' });
+    const task = tasksRepo.create({ title: 'Shared task', ownerId: owner.id });
+    tasksRepo.addCollaborator(task.id, collaborator.id);
+    const collaboratorHeaders = await authHeaderFor(collaborator.id);
+
+    const response = await fetch(`${baseUrl}/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: { ...collaboratorHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Shared task updated' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toMatchObject({
+      id: task.id,
+      title: 'Shared task updated',
+      isShared: true,
+      collaborators: [
+        {
+          userId: collaborator.id,
+          name: 'Collaborator',
+        },
+      ],
+    });
+  });
+
   it('accepts in_progress and waiting_for_reply as valid task statuses', async () => {
     const user = usersRepo.create({ name: 'User', email: 'u@x.com' });
     const task = tasksRepo.create({ title: 'T', ownerId: user.id });
