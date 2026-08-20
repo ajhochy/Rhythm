@@ -698,7 +698,7 @@ async function measureBehavioralRerun(
     });
     if (reverted === 'reverted' && proposal.outcomeStatus === 'verified') {
       const { recordPostDeployRegressionObservationAsync } = await import('./calibration_observation_service');
-      await recordPostDeployRegressionObservationAsync(proposal.id, proposal.revision ?? 0);
+      await recordPostDeployRegressionObservationAsync(proposal.id);
     }
     return reverted;
   }

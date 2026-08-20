@@ -23,7 +23,7 @@
       "mode": "unit+integration",
       "test": "c6_calibration_snapshot.test.ts; calibration_observation_service.test.ts; proposal_experiment_summary_service.test.ts; org_proposals_controller_calibration_sort.test.ts",
       "status": "pass",
-      "reason": "Snapshots count terminal decision observations only, remain uncalibrated below the floor, are owner-scoped, and only affect stable proposed-queue ordering. Negative assertions prove no auto-apply/risk/promotion/CAS/authorization effect."
+      "reason": "Snapshots count terminal decision observations only, remain uncalibrated below the floor, are owner-scoped, and only affect stable proposed-queue ordering. A whole-production-tree tripwire with an explicit three-file read-only allowlist asserts that calibration outputs are absent from auto-apply/risk/promotion/CAS/authorization paths."
     },
     {
       "criterion_id": "c6-3",

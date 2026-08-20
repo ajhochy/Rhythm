@@ -8,9 +8,9 @@
  * gate on the shared service functions directly (WS-boundary coverage lives
  * in c2_d_s4_ws_reserved_treatment_dispatch.test.ts's "C6 item 1" describe).
  *
- * Falsification: commenting out any of the four `if (!env.treatmentV2Enabled)`
- * guards in org_proposal_experiment_service.ts turns the corresponding test
- * below red (recorded in the run note).
+ * Falsification: commenting out any of the three service guards or the
+ * AgentRunner dispatch guard turns the corresponding test below red (recorded
+ * in the run note).
  */
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

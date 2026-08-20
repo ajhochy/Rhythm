@@ -89,7 +89,6 @@ export async function recordExperimentDecisionObservationAsync(
 
 export async function recordPostDeployRegressionObservationAsync(
   proposalId: string,
-  proposalRevision: number,
 ): Promise<void> {
   try {
     const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
@@ -101,7 +100,7 @@ export async function recordPostDeployRegressionObservationAsync(
     if (!base) return;
     await new CalibrationObservationsRepository().createAsync({
       ...base,
-      sourceEventId: `post-deploy-regression:${proposalId}:${proposalRevision}`,
+      sourceEventId: `post-deploy-regression:${experiment.id}`,
       observationType: 'post-deploy-regression',
       experimentDecision: null,
       experimentEffect: null,

@@ -299,11 +299,14 @@ describe('W6-c7 the behavioral re-run is diagnostic only', () => {
       const observations = await new CalibrationObservationsRepository().listAllForLocalAdminAsync();
       expect(observations).toHaveLength(1);
       expect(observations[0]).toMatchObject({
-        sourceEventId: `post-deploy-regression:${verified!.id}:${verified!.revision}`,
+        sourceEventId: `post-deploy-regression:${regressionExperiment.id}`,
         observationType: 'post-deploy-regression',
         postDeployRegression: 1,
         experimentDecision: null,
       });
+      const { recordPostDeployRegressionObservationAsync } = await import('../calibration_observation_service');
+      await recordPostDeployRegressionObservationAsync(verified!.id);
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toHaveLength(1);
       env.calibrationEnabled = originalCalibrationEnabled;
     },
   );
