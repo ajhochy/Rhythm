@@ -12,6 +12,7 @@ import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
 import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
+import { validateSecuritySmokeReceipt } from './security-smoke-receipt.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -526,7 +527,7 @@ if (hasSingleInstanceLock) {
     const png = image.toPNG();
     await mkdir(dirname(screenshotPath), { recursive: true });
     await writeFile(screenshotPath, png);
-    process.stdout.write(`${JSON.stringify({
+    const smokeReceipt = {
       protocol: { registeredBeforeReady },
       url: mainWindow.webContents.getURL(),
       windowOptions,
@@ -537,7 +538,12 @@ if (hasSingleInstanceLock) {
       profileSecurity,
       cleanup: isCleanupSmoke ? { disposableRows: 0, listeners: 0, worktrees: 0, branches: 0 } : undefined,
       screenshot: { path: screenshotPath, width: image.getSize().width, height: image.getSize().height, sha256: createHash('sha256').update(png).digest('hex') },
-    })}\n`);
+    };
+    if (isSecuritySmoke) {
+      const securityValidation = validateSecuritySmokeReceipt(smokeReceipt);
+      if (!securityValidation.ok) throw new Error(`Security smoke failed: ${securityValidation.reason}`);
+    }
+    process.stdout.write(`${JSON.stringify(smokeReceipt)}\n`);
     if (smokeUserDataPath) rmSync(smokeUserDataPath, { recursive: true, force: true });
     await app.quit();
   }).catch((error) => {

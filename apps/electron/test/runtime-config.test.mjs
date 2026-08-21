@@ -34,6 +34,11 @@ test('ordinary Electron tests exclude package-shaped contracts', async () => {
 test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
   const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
   assert.match(workflow, /npm --prefix apps\/api_server install/);
+  assert.match(workflow, /npm run test:package/);
+  assert.ok(
+    workflow.indexOf('npm run test:package') < workflow.indexOf('npm run package:mac'),
+    'Electron release must run unsigned package contracts before rebuilding the final artifact',
+  );
   assert.ok(
     workflow.indexOf('npm run package:mac') < workflow.indexOf('npm test'),
     'Electron release must build web/API/package assets before tests that launch the shell',

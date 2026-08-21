@@ -56,7 +56,11 @@ jobs:
         working-directory: apps/electron
         run: npm run typecheck
 
-      - name: Build unsigned package
+      - name: Test unsigned package contracts
+        working-directory: apps/electron
+        run: npm run test:package
+
+      - name: Build final unsigned package
         working-directory: apps/electron
         run: npm run package:mac
 

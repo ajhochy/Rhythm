@@ -93,7 +93,9 @@ test('slice-7-c3: packaged binary registers rhythm before ready and loads the ha
   }, 'slice-7-c3: packaged BrowserWindow options differ from the hardened Slice 5 contract');
 });
 
-test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', async () => {
+test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', {
+  skip: process.env.RHYTHM_LIVE_E2E !== '1',
+}, async () => {
   // Regression caught: the package displays fixture data while claiming the sandbox is live.
   await assertPackagedBundle('slice-7-c4');
   const receipt = await packagedSmoke(['--smoke', '--live-smoke'], sandboxEnvironment);
