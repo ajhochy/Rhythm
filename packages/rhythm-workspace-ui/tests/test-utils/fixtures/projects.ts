@@ -30,6 +30,14 @@ function seedInstances(): RhythmProject[] {
         { id: 'step-final-run-sheet', title: 'Finalize the run sheet', notes: 'Confirm cues and livestream fallback.', dueDate: '2026-08-15', scheduledDate: '2026-08-15', status: 'open', assigneeId: 'workspace-user-1', milestoneId: null },
       ],
     },
+    {
+      id: 'instance-finished-service', templateId: 'template-sunday-service', name: 'Sunday Service - August 9', anchorDate: '2026-08-09', status: 'complete',
+      ownerId: 'workspace-user-1', collaborators: [],
+      milestones: [{ id: 'milestone-finished', title: 'Complete', sortOrder: 0 }],
+      steps: [
+        { id: 'step-finished-service', title: 'Close the service notes', notes: 'Archived fixture work.', dueDate: '2026-08-09', scheduledDate: '2026-08-09', status: 'done', assigneeId: 'workspace-user-1', milestoneId: 'milestone-finished' },
+      ],
+    },
   ];
 }
 
@@ -64,6 +72,13 @@ export function fixtureProjectsGateway(): ProjectsGateway {
       instances = instances.map((item) => (item.id === instanceId ? { ...item, steps: item.steps.map((step) => (step.id === stepId ? updated : step)) } : item));
       return updated;
     },
+    addMilestone: async (instanceId, input) => {
+      const instance = instances.find((item) => item.id === instanceId);
+      if (!instance) throw new RhythmGatewayError('not_found', `unknown project ${instanceId}`);
+      const milestone = { id: `${instanceId}-milestone-${instance.milestones.length + 1}`, sortOrder: instance.milestones.length, ...input };
+      instances = instances.map((item) => (item.id === instanceId ? { ...item, milestones: [...item.milestones, milestone] } : item));
+      return milestone;
+    },
     addCollaborator: async (instanceId, memberId) => {
       const member = members.find((candidate) => candidate.id === memberId);
       const instance = instances.find((item) => item.id === instanceId);
@@ -88,7 +103,7 @@ function created_id(templateId: string) {
 
 export function failingProjectsGateway(kind: 'forbidden' | 'not_found' | 'unavailable' | 'server_error'): ProjectsGateway {
   const fail = async (): Promise<never> => { throw new RhythmGatewayError(kind, `simulated ${kind}`); };
-  return { templates: fail, list: fail, members: fail, generate: fail, delete: fail, updateStep: fail, addCollaborator: fail, removeCollaborator: fail };
+  return { templates: fail, list: fail, members: fail, generate: fail, delete: fail, updateStep: fail, addMilestone: fail, addCollaborator: fail, removeCollaborator: fail };
 }
 
 export function emptyProjectsGateway(): ProjectsGateway {

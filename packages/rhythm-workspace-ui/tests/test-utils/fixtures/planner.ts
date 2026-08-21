@@ -1,4 +1,4 @@
-import type { PlannerGateway, RhythmPlannerTask, RhythmPlannerWeek, RhythmWorkspaceMember } from '../../../src/domain/types';
+import type { PlannerGateway, RhythmPlannerEvent, RhythmPlannerTask, RhythmPlannerWeek, RhythmWorkspaceMember } from '../../../src/domain/types';
 import { RhythmGatewayError } from '../../../src/domain/types';
 
 export const fixturePlannerMembers: RhythmWorkspaceMember[] = [
@@ -15,8 +15,15 @@ function seedPlannerTasks(): RhythmPlannerTask[] {
   ];
 }
 
+function seedPlannerEvents(): RhythmPlannerEvent[] {
+  return [
+    { id: 'event-worship-rehearsal', title: 'Worship rehearsal', date: '2026-08-12', timeLabel: '6:00 PM', notes: 'Sound check at 5:45.', allDay: false },
+  ];
+}
+
 export function fixturePlannerGateway(): PlannerGateway {
   let tasks = seedPlannerTasks();
+  const events = seedPlannerEvents();
   const members = fixturePlannerMembers;
   const buildWeek = (weekLabel: string): RhythmPlannerWeek => {
     const days = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15', '2026-08-16'].map((date, index) => ({
@@ -24,7 +31,7 @@ export function fixturePlannerGateway(): PlannerGateway {
       // Non-null: `index` always ranges over the same 7-day span as this label list.
       label: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][index]!,
       tasks: tasks.filter((task) => task.scheduledDate === date),
-      events: [],
+      events: events.filter((event) => event.date === date),
     }));
     return { weekLabel, weekStart: '2026-08-10', days, backlog: tasks.filter((task) => !task.scheduledDate) };
   };
@@ -50,12 +57,27 @@ export function fixturePlannerGateway(): PlannerGateway {
       tasks = tasks.map((task) => (task.id === id ? updated : task));
       return updated;
     },
+    addCollaborator: async (id, memberId) => {
+      const member = members.find((candidate) => candidate.id === memberId);
+      const existing = tasks.find((task) => task.id === id);
+      if (!member || !existing) throw new RhythmGatewayError('not_found', 'unknown task or member');
+      const updated = { ...existing, collaborators: [...existing.collaborators, member] };
+      tasks = tasks.map((task) => (task.id === id ? updated : task));
+      return updated;
+    },
+    removeCollaborator: async (id, memberId) => {
+      const existing = tasks.find((task) => task.id === id);
+      if (!existing) throw new RhythmGatewayError('not_found', `unknown task ${id}`);
+      const updated = { ...existing, collaborators: existing.collaborators.filter((member) => member.id !== memberId) };
+      tasks = tasks.map((task) => (task.id === id ? updated : task));
+      return updated;
+    },
   };
 }
 
 export function failingPlannerGateway(kind: 'forbidden' | 'not_found' | 'unavailable' | 'server_error'): PlannerGateway {
   const fail = async (): Promise<never> => { throw new RhythmGatewayError(kind, `simulated ${kind}`); };
-  return { week: fail, members: fail, scheduleTask: fail, create: fail, update: fail };
+  return { week: fail, members: fail, scheduleTask: fail, create: fail, update: fail, addCollaborator: fail, removeCollaborator: fail };
 }
 
 export function emptyPlannerGateway(): PlannerGateway {

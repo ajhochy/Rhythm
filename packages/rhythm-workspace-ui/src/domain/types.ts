@@ -192,8 +192,16 @@ export interface PlannerGateway {
   week(weekLabel: string): Promise<RhythmPlannerWeek>;
   members(): Promise<RhythmWorkspaceMember[]>;
   scheduleTask(id: string, input: { scheduledDate?: string }): Promise<RhythmPlannerTask>;
-  create(input: Pick<RhythmPlannerTask, 'title'> & Partial<Pick<RhythmPlannerTask, 'notes' | 'scheduledDate' | 'energy'>>): Promise<RhythmPlannerTask>;
-  update(id: string, input: Partial<Pick<RhythmPlannerTask, 'title' | 'notes' | 'scheduledDate' | 'energy' | 'status'>>): Promise<RhythmPlannerTask>;
+  // M1 collaboration-screens extraction (#4): widened with 'dueDate' — production's create/edit
+  // forms (apps/web/src/pages/planner/index.tsx createTask/saveTask) persist a due date distinct
+  // from the scheduled date; this narrower contract had no field for it yet.
+  create(input: Pick<RhythmPlannerTask, 'title'> & Partial<Pick<RhythmPlannerTask, 'notes' | 'scheduledDate' | 'dueDate' | 'energy'>>): Promise<RhythmPlannerTask>;
+  update(id: string, input: Partial<Pick<RhythmPlannerTask, 'title' | 'notes' | 'scheduledDate' | 'dueDate' | 'energy' | 'status'>>): Promise<RhythmPlannerTask>;
+  // M1 collaboration-screens extraction (#4): additive — production's task inspector
+  // (apps/web/src/pages/planner/index.tsx addCollaborator/removeCollaborator) manages
+  // per-task collaborators; this narrower contract had no equivalent calls yet.
+  addCollaborator(id: string, memberId: string): Promise<RhythmPlannerTask>;
+  removeCollaborator(id: string, memberId: string): Promise<RhythmPlannerTask>;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -253,7 +261,13 @@ export interface ProjectsGateway {
   members(): Promise<RhythmWorkspaceMember[]>;
   generate(templateId: string, input: { anchorDate: string; name?: string }): Promise<RhythmProject>;
   delete(id: string): Promise<void>;
-  updateStep(instanceId: string, stepId: string, input: Partial<Pick<RhythmProjectStep, 'title' | 'notes' | 'status' | 'dueDate' | 'scheduledDate' | 'assigneeId'>>): Promise<RhythmProjectStep>;
+  // M1 collaboration-screens extraction (#4): widened with 'milestoneId' so the Projects screen's
+  // step row can assign/unassign a step's milestone (apps/web/src/pages/projects/index.tsx
+  // assignMilestone → PATCH /project-instances/steps/:stepId {milestoneId}) through this one call.
+  updateStep(instanceId: string, stepId: string, input: Partial<Pick<RhythmProjectStep, 'title' | 'notes' | 'status' | 'dueDate' | 'scheduledDate' | 'assigneeId' | 'milestoneId'>>): Promise<RhythmProjectStep>;
+  // M1 collaboration-screens extraction (#4): additive — production's "Add milestone" action
+  // (POST /project-instances/:id/milestones) has no equivalent port on this narrower contract yet.
+  addMilestone(instanceId: string, input: Pick<RhythmProjectMilestone, 'title'>): Promise<RhythmProjectMilestone>;
   addCollaborator(instanceId: string, memberId: string): Promise<RhythmProject>;
   removeCollaborator(instanceId: string, memberId: string): Promise<RhythmProject>;
 }
@@ -298,7 +312,11 @@ export interface RhythmsGateway {
   list(): Promise<RhythmRhythm[]>;
   members(): Promise<RhythmWorkspaceMember[]>;
   create(input: CreateRhythmRhythmInput): Promise<RhythmRhythm>;
-  update(id: string, input: Partial<Pick<RhythmRhythm, 'title' | 'enabled' | 'sequential'>>): Promise<RhythmRhythm>;
+  // M1 collaboration-screens extraction (#4): widened from {title,enabled,sequential} so the
+  // Rhythms screen's real edit form (frequency + schedule fields, ported from
+  // apps/web/src/pages/rhythms/index.tsx RuleForm) has a single update call to save through,
+  // matching production's PATCH /recurring-rules body — see docs/ai/runs for the receipt.
+  update(id: string, input: Partial<Pick<RhythmRhythm, 'title' | 'enabled' | 'sequential' | 'frequency' | 'dayOfWeek' | 'dayOfMonth' | 'month'>>): Promise<RhythmRhythm>;
   delete(id: string): Promise<void>;
   addStep(id: string, input: Pick<RhythmStep, 'title'> & Partial<Pick<RhythmStep, 'assigneeId'>>): Promise<RhythmStep>;
   addCollaborator(id: string, memberId: string): Promise<RhythmRhythm>;
@@ -337,6 +355,11 @@ export interface MessagesGateway {
   send(threadId: string, body: string): Promise<RhythmMessage>;
   markRead(threadId: string): Promise<void>;
   markUnread(threadId: string): Promise<void>;
+  // M1 collaboration-screens extraction (#4): additive — production's thread action menu
+  // (apps/web/src/pages/messages/index.tsx ThreadActions) also renames and deletes a thread;
+  // this narrower contract had no equivalent calls yet.
+  renameThread(threadId: string, title: string): Promise<RhythmMessageThread>;
+  deleteThread(threadId: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------------------
