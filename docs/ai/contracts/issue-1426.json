@@ -1,0 +1,56 @@
+{
+  "contract_id": "D1.1",
+  "issue": 1426,
+  "phase": "D1.1",
+  "parent_contract": null,
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/models/__tests__/tool_safety_report.test.ts src/repositories/__tests__/tool_safety_reports_repository.test.ts src/__tests__/skill_schema_parity.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1426-c1",
+      "text": "Model defined with all fields: tool name, version, package source, install method, sandbox duration, test prompts run, forbidden-path violations (list), network calls observed, file-system writes observed, credential access attempts, overall verdict, JSON evidence payload.",
+      "mode": "unit",
+      "test": "apps/api_server/src/models/__tests__/tool_safety_report.test.ts ('round-trips losslessly through toJson/fromJson'); apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts ('creates a report carrying every required field')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1426-c2",
+      "text": "Migration is additive (no destructive changes) — SQLite + Postgres parity.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/skill_schema_parity.test.ts (table 'tool_safety_reports' added to the TABLES parity loop)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1426-c3",
+      "text": "Repository supports create + find-by-proposal-id.",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts (describes: create, findByProposalIdAsync returns most recent, null-miss)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1426-c4",
+      "text": "No raw secrets, tokens, or connection strings in any field — only safe hashes/aggregate values.",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts ('redacts secret-shaped text out of evidenceJson before persisting'); model fields for prompts/network/filesystem/credentials are counts/aggregate JSON only (see tool_safety_report.ts doc comment), never raw prompt text or raw tool output",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1426-c5",
+      "text": "verdict is a closed enum: safe | conditional | unsafe | unknown.",
+      "mode": "unit",
+      "test": "apps/api_server/src/models/__tests__/tool_safety_report.test.ts ('isToolSafetyVerdict accepts only the closed enum'); apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts ('rejects an unknown verdict at the database layer (closed CHECK constraint)')",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "Postgres branch is exercised only via the static column-parity check (skill_schema_parity.test.ts) — no live Postgres integration test runs in this phase, matching the established precedent for every other dual-engine repository in this codebase (e.g. CalibrationObservationsRepository, PostApplyEventsRepository)."
+  ],
+  "judgment_calls": [
+    "'test prompts run' is stored as an AGGREGATE COUNT (testPromptsRunCount), never the raw prompt text — the track-wide rule ('no raw prompts... may enter durable state') is stricter than D1.1's own acceptance text ('captures... test prompts run'), so the count satisfies the acceptance criterion while staying inside the hard no-raw-prompts rule.",
+    "forbiddenPathViolationsJson / networkCallsObservedJson / fileSystemWritesObservedJson are documented and redacted as AGGREGATE descriptor arrays (e.g. {path, count} / {host, count}), never raw file contents or raw network payloads — consistent with 'network calls observed' / 'file-system writes observed' being observational summaries, not captured raw traffic.",
+    "Secret redaction reuses the existing, already-exported `redactSecrets` from run_outcome_service.ts (the same redactor post_apply_events_repository.ts uses) rather than a new implementation — matches the codebase's established defense-in-depth precedent of redacting INSIDE the repository, never trusting the caller to pre-sanitize.",
+    "proposal_id carries a real FK to agent_org_proposals(id) (every ToolSafetyReport is only ever created for a real, already-persisted tool-install proposal by construction) but is deliberately NOT UNIQUE: a proposal may legitimately be re-vetted (e.g. after a sandbox_unavailable result), so findByProposalIdAsync returns the MOST RECENT report rather than enforcing one-report-per-proposal. SQLite orders by its real, monotonic implicit rowid (test-covered); Postgres orders by created_at DESC alone (ponytail: no cheap monotonic tiebreak exists on this table's random-UUID id column, and two reports for the same proposal committing within the same millisecond is not a realistic race for a human-triggered re-vet).",
+    "No new HTTP surface in this phase — D1.1 is model + repository + migration only, matching D2.1's precedent exactly. Wiring (sandbox vetter invocation, proposal lifecycle) is D1.2/D1.4."
+  ]
+}
