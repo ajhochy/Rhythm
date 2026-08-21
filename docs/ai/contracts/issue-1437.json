@@ -92,6 +92,14 @@
       "test": null,
       "status": "pass",
       "reason": "The feedback section renders only the verdict label, an optional user-authored reason string the user themself typed, and a fixed 'HOW DID THIS GO?' heading — no session transcript, prompt, or credential text. Added-line secret/security scan (grep for key/token/password/connection-string shapes) on the diff found nothing."
+    },
+    {
+      "criterion_id": "issue-1437-c12",
+      "text": "No stale cross-session leak: a reason typed for one session must never be attached to a different session's feedback submission after a session switch (part of c7's 'no stale ... across session switches', called out separately because it is a distinct bug class from the fetch-gating c7 already covered).",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "2026-08-21 focused repair: _RunFeedbackSectionState owned a single _reasonController across session switches; didUpdateWidget re-fetched the new session's outcome but never cleared the text field, so a reason typed for session A survived (uncleared) into session B and would be posted alongside B's verdict. Fixed by calling _reasonController.clear() synchronously in didUpdateWidget when old.sessionId != widget.sessionId (session_side_panel.dart), before the deferred post-frame fetch. New test 'a reason typed for one session is cleared on session switch and never posted against a different session' types a reason on session s1, switches the mounted SessionSidePanel to session s2 via AgentsController.setActiveSessionForTest, asserts the reason field is already empty before any submission, then taps a verdict on s2 and asserts postedSessionIds == ['s2'] and postedReasons == [null] (never the leaked s1 text). RED confirmed by temporarily reverting the one-line fix and re-running: the test failed with \"Expected: empty Actual: 'leaked reason meant for session A'\"; GREEN confirmed after restoring the fix. All 8 tests in the file passed, plus the full apps/desktop_flutter/test/features/agents/ directory (714/714) with the fix in place."
     }
   ],
   "not_tested": []

@@ -120,6 +120,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   final List<RunFeedbackVerdict> postedVerdicts = [];
   final List<String?> postedReasons = [];
+  final List<String> postedSessionIds = [];
 
   @override
   Stream<AgentWsMessage> get messages => _msgCtrl.stream;
@@ -175,6 +176,7 @@ class _StubAgentsRepository implements AgentsRepository {
     if (postFeedbackError != null) throw postFeedbackError!;
     postedVerdicts.add(verdict);
     postedReasons.add(reason);
+    postedSessionIds.add(id);
     outcomeBySession[id] = RunOutcomeFeedback(explicitUserVerdict: verdict);
   }
 
@@ -509,6 +511,67 @@ void main() {
 
       expect(repo.postedVerdicts, [RunFeedbackVerdict.success]);
       expect(repo.postedReasons, [null]);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'a reason typed for one session is cleared on session switch and never '
+    'posted against a different session',
+    (tester) async {
+      final repo = _StubAgentsRepository()
+        ..outcomeBySession['s1'] = const RunOutcomeFeedback()
+        ..outcomeBySession['s2'] = const RunOutcomeFeedback();
+      final controller = await _pumpWithOutcome(tester, repo, sessionId: 's1');
+
+      await tester.enterText(
+        find.byKey(const ValueKey('run-feedback-reason')),
+        'leaked reason meant for session A',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('run-feedback-reason')),
+            )
+            .controller!
+            .text,
+        'leaked reason meant for session A',
+      );
+
+      // Switch the mounted view to a different session, as a real
+      // session-list selection would.
+      controller.setActiveSessionForTest('s2', _makeSession('s2'));
+      await tester.pump();
+      // Flush the postFrameCallback-triggered fetchRunOutcomeFeedback for s2.
+      await tester.pump();
+
+      // The reason field must already be empty for the new session, before
+      // any submission happens.
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('run-feedback-reason')),
+            )
+            .controller!
+            .text,
+        isEmpty,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('run-feedback-success')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(repo.postedSessionIds, ['s2']);
+      expect(repo.postedVerdicts, [RunFeedbackVerdict.success]);
+      expect(
+        repo.postedReasons,
+        [null],
+        reason: "session A's reason must never be attached to session B's "
+            'feedback submission',
+      );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();
