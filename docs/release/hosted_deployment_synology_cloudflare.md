@@ -37,6 +37,9 @@ for an immediate deploy or a Watchtower outage.
 1. Place `docker-compose.synology.yml` and `.env.production` on the Synology at:
    `/volume1/docker/Rhythm/api_server/`
 2. Create `.env.production` from `.env.production.example` and fill in all values.
+   Set `RHYTHM_API_DATA_VOLUME=rhythm_api_data` for a new deployment. For an
+   existing deployment, use the exact volume name reported by
+   `docker inspect rhythm-api`; never guess or accept a newly created volume.
 3. Log in to GHCR once on the Synology host (needs a GitHub personal access token
    with `read:packages` scope):
 
@@ -45,6 +48,30 @@ echo '<ghcr-read-token>' | docker login ghcr.io -u '<github-username>' --passwor
 ```
 
 ### Deploying an update
+
+Before either Watchtower or a manual update, capture a non-destructive checksum
+manifest. This also refuses a container whose `/data` mount is not the explicit
+`RHYTHM_API_DATA_VOLUME` from `.env.production`:
+
+```bash
+cd /volume1/docker/Rhythm/api_server
+set -a; . ./.env.production; set +a
+./scripts/check-live-artifact-storage.sh pre .live-artifact-storage.sha256
+```
+
+After recreation, verify the same mount and every previously known byte:
+
+```bash
+cd /volume1/docker/Rhythm/api_server
+set -a; . ./.env.production; set +a
+./scripts/check-live-artifact-storage.sh post .live-artifact-storage.sha256
+sudo docker logs rhythm-api 2>&1 | grep 'LIVE_ARTIFACT_CONTENT_MISSING' || true
+```
+
+Any checksum failure or `LIVE_ARTIFACT_CONTENT_MISSING` line stops the rollout:
+preserve the current database and all candidate volumes, then follow
+[the incident diagnosis](synology_live_artifact_storage_incident.md). Do not
+delete, rename, or copy over a candidate volume while diagnosing it.
 
 **Updates are automatic (Watchtower).** The `rhythm-api` service carries
 `com.centurylinklabs.watchtower.enable: "true"`, so the host-wide Watchtower
@@ -145,6 +172,8 @@ Minimum required variables:
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`
 - `TUNNEL_TOKEN`
 - `LIVE_ARTIFACT_STORAGE_DIR=/data/live-artifacts` (server-managed artifact storage; never expose this path to clients)
+- `RHYTHM_API_DATA_VOLUME=<existing Docker volume name>` (required stable
+  identity; obtain it from `docker inspect rhythm-api` on upgrades)
 
 ## Scheduler quarantine (#1214)
 
@@ -305,16 +334,58 @@ Simply deploy the new image (follow **Routine update summary** above) and restar
 
 ### Live-artifact backup and rollback
 
-Before a live-artifact rollout, back up both production Postgres metadata and the
-persistent `/data/live-artifacts` volume. Artifact bundle/state bytes are immutable
-content-addressed files; Postgres stores their IDs, revisions, hashes, sharing, and
-audit metadata. The migration is additive and bootstrap is idempotent: do not drop
-tables, truncate rows, or rewrite artifact bytes during rollout.
+Before a live-artifact rollout, back up both production Postgres and the
+persistent `/data/live-artifacts` volume. Current bundle/state content is stored
+in Postgres alongside IDs, revisions, hashes, sharing, and audit metadata; the
+volume retains legacy content used for fallback migration plus partitioned relay
+files. The migration is additive and bootstrap is idempotent: do not drop tables,
+truncate rows, or rewrite artifact bytes during rollout.
 
 To roll back an image, redeploy the prior image while preserving the `/data` volume
 and all Postgres rows. Do not delete artifact directories or revision rows; a later
 compatible image can recover the stable IDs and immutable bytes from those retained
 stores.
+
+Take the database and volume backups as one maintenance-window set:
+
+```bash
+cd /volume1/docker/Rhythm/api_server
+set -a; . ./.env.production; set +a
+stamp=$(date +%Y%m%d-%H%M%S)
+
+# Metadata plus database-backed bundle/state content.
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
+  -Fc > "rhythm-postgres-${stamp}.dump"
+
+# Legacy live-artifact bytes and partitioned relay file artifacts, read-only.
+sudo docker run --rm \
+  -v "$RHYTHM_API_DATA_VOLUME":/data:ro \
+  -v "$PWD":/backup \
+  alpine:3.20 tar -C /data -czf "/backup/rhythm-api-data-${stamp}.tgz" live-artifacts
+sha256sum "rhythm-postgres-${stamp}.dump" "rhythm-api-data-${stamp}.tgz" \
+  > "rhythm-artifacts-${stamp}.sha256"
+```
+
+Recovery is intentionally non-destructive: restore into a new rescue volume,
+inspect it read-only, and switch `RHYTHM_API_DATA_VOLUME` only after manual
+review. Never extract over the current production volume.
+
+```bash
+stamp=<backup-stamp>
+rescue_volume="rhythm_api_data_recovery_${stamp}"
+sudo docker volume create "$rescue_volume"
+sudo docker run --rm \
+  -v "$rescue_volume":/data \
+  -v "$PWD":/backup:ro \
+  alpine:3.20 tar -C /data -xzf "/backup/rhythm-api-data-${stamp}.tgz"
+sudo docker run --rm -v "$rescue_volume":/data:ro alpine:3.20 \
+  sh -c 'find /data/live-artifacts -type f -print | sort'
+```
+
+Restore the matching Postgres dump only under the existing database recovery
+procedure and only after confirming it belongs to the same backup set. Changing
+`.env.production` to the rescue volume and restarting production requires manual
+review because it changes the live persistence source.
 
 ### Columns added by milestone
 
@@ -360,9 +431,9 @@ should return 200 and persist the value.
   `#64`'s move to a hosted production database has landed. SQLite remains the
   local development default and the source side of the one-time
   `migrate_sqlite_to_postgres` transfer (`SQLITE_MIGRATION_PATH`).
-- File-backed state still needs the persistent `/data` volume: live-artifact
-  bytes are written to `LIVE_ARTIFACT_STORAGE_DIR=/data/live-artifacts` and are
-  not stored in Postgres.
+- The persistent `/data` volume still holds legacy live-artifact fallback bytes
+  and relay file artifacts. Current live-artifact bundle/state content is also
+  persisted in Postgres by `live_artifact_contents`.
 - The GitHub workflow publishes the API image to GHCR automatically on every push
   to `main`. Host-wide Watchtower performs the normal Synology update; use the
   documented manual SSH fallback only for an immediate deployment or outage.

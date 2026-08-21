@@ -379,6 +379,7 @@ export class AgentConfigsController {
         modelProvider: typeof body.modelProvider === 'string' ? body.modelProvider : null,
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
         ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
+        sortOrder: typeof body.sortOrder === 'number' ? body.sortOrder : undefined,
         sessionSelectable: body.sessionSelectable !== false,
         // #1088 — explicit schedulability override, independent of picker
         // visibility. Omitted/undefined → repository stores NULL (inherit

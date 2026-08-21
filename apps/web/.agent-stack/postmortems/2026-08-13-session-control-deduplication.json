@@ -1,0 +1,49 @@
+{
+  "run_id": "2026-08-13-session-control-deduplication",
+  "issue": null,
+  "date": "2026-08-13",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "session-control-deduplication",
+      "text": "Stop, model, reasoning, and Fast controls appear only in the bottom composer while unique session-level actions remain in the header.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live Agents surface showed cost, Compact session, Prepare project, and Session actions in the header; Cancel running session, Agent, Model, Permission mode, Reasoning budget, Fast, and Attach files remained in the composer."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "stale-preview",
+      "description": "Chrome initially retained the pre-edit React tree after navigating to the same development URL.",
+      "detected_by": "The accessibility tree still contained header Stop, model, reasoning, and Fast controls while curl of the served TSX showed they were absent; a forced reload synchronized the page before smoke evaluation."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "impeccable",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "impeccable",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "src/components/AgentsWorkspace.tsx",
+    "src/styles.css",
+    "tests/resilience-map-a11y.spec.ts",
+    "tests/tools.spec.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the focused header-versus-composer assertions so future session-header changes cannot reintroduce duplicate run controls."
+}

@@ -48,6 +48,22 @@ const mockHost = {
 };
 
 const mockPairedClient = {
+  healthResponse: jest.fn(async () => {
+    mockBoundaryTrace.push(
+      `health:${mockRelayOnline ? 'mac-online' : 'no-uplink'}`,
+    );
+    return new Response(
+      JSON.stringify(
+        mockRelayOnline
+          ? { status: 'ready', macOnline: true }
+          : { error: 'mac_offline' },
+      ),
+      {
+        headers: { 'content-type': 'application/json' },
+        status: mockRelayOnline ? 200 : 503,
+      },
+    );
+  }),
   origin: () => 'https://api.vcrcapps.com',
   request: jest.fn(async (path: string) => {
     if (path === '/mobile-gateway/health') {

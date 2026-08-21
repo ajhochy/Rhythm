@@ -130,6 +130,7 @@ pinned EAS CLI in non-interactive/frozen-credential mode, and auto-submits that
 exact build through the repository-owned `submit.production` profile.
 `npm run eas:submit:ios` is the deterministic recovery command for submitting
 the latest completed iOS build after the same preflight.
+Export compliance is declared in Expo config, so App Store Connect must not require the retired manual encryption-compliance answer.
 
 ### Foundation verification gate
 

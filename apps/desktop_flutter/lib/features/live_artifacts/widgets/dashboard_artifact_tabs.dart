@@ -641,6 +641,7 @@ class _ArtifactContent extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tab.status == LiveArtifactTabStatus.ready) {
       return LiveArtifactView(
+          key: ValueKey('live-artifact-${tab.artifact!.id}'),
           artifact: tab.artifact!,
           source: source,
           enableNativeRuntime: enableNativeRuntime,

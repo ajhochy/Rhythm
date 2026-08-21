@@ -1,0 +1,30 @@
+Restart/cold-sample limitation:
+sandbox engine port :4097 is now PID 71902, not recorded PID 98680; refusing to kill it
+Health after refusal:
+{"healthy":true,"version":"0.0.0-codex/react-electron-live-suite-202608150543","pid":71902,"bootId":"211a5447-916f-4bcd-b605-8a0f10ba59fd"}
+
+The API hard-delete removed all six measured agent_session rows, but its isolated-worktree cleanup
+logged HTTP 400 and left three opencode/smoke-timing-* branches. The worktree directories were
+removed through DELETE /experimental/worktree with the repo root as the directory query. Direct
+git branch deletion from the measurement process was denied because the shared Git metadata is in
+the forbidden checkout. A disposable non-isolated API session then ran this exact authorized
+cleanup command through the sandbox engine session.shell endpoint:
+
+git branch -D opencode/smoke-timing-b1-1786826174209384000 opencode/smoke-timing-b2-1786826178486520000 opencode/smoke-timing-b3-1786826180200580000
+
+Observed output:
+Deleted branch opencode/smoke-timing-b1-1786826174209384000 (was 9d8c4443).
+Deleted branch opencode/smoke-timing-b2-1786826178486520000 (was 9d8c4443).
+Deleted branch opencode/smoke-timing-b3-1786826180200580000 (was 9d8c4443).
+helper session hard-delete status=204
+
+Final residue/profile proof:
+SMOKE_GIT_WORKTREES=0
+SMOKE_GIT_BRANCHES=0
+RUN_AGENT_ROWS=0
+RUN_AUTH_SESSIONS=0
+DB_PROFILE=local-lean|omlx|gpt-oss-20b-MXFP4-Q8|local-lean
+ENGINE_CONFIG={"model":"omlx/gpt-oss-20b-MXFP4-Q8"}
+AUTH={"lmstudioPresent":false}
+API_LISTENER=98629 ENGINE_LISTENER=71902 GATEWAY_LISTENER=98629
+

@@ -48,6 +48,7 @@ interface AgentSessionRow {
   model_id: string | null;
   agent_mode: string | null;
   permission_mode: string | null;
+  approval_bypass_explicit: number;
   thinking_budget: number | null;
   fast_mode: number;
   last_preview: string | null;
@@ -123,6 +124,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     modelId: row.model_id ?? null,
     agentMode: row.agent_mode ?? null,
     permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
+    approvalBypassExplicit: row.approval_bypass_explicit === 1,
     thinkingBudget: row.thinking_budget ?? null,
     fastMode: row.fast_mode === 1,
     lastPreview: row.last_preview,
@@ -349,8 +351,8 @@ export class AgentSessionsRepository {
            (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             permission_mode, mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, owner_user_id, parent_session_id,
-            delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            delegation_depth, category, approval_bypass_explicit, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -371,6 +373,7 @@ export class AgentSessionsRepository {
         dto.parentSessionId ?? null,
         dto.delegationDepth ?? 0,
         category,
+        dto.approvalBypassExplicit ? 1 : 0,
         now,
         now,
       );
@@ -903,6 +906,7 @@ export class AgentSessionsRepository {
       modelId?: string | null;
       agentMode?: string | null;
       permissionMode?: PermissionMode;
+      approvalBypassExplicit?: boolean;
       thinkingBudget?: number | null;
       fastMode?: boolean;
     },
@@ -936,6 +940,10 @@ export class AgentSessionsRepository {
     if (fields.permissionMode !== undefined) {
       sets.push('permission_mode = ?');
       values.push(fields.permissionMode);
+    }
+    if (fields.approvalBypassExplicit !== undefined) {
+      sets.push('approval_bypass_explicit = ?');
+      values.push(fields.approvalBypassExplicit ? 1 : 0);
     }
     if (fields.thinkingBudget !== undefined) {
       sets.push('thinking_budget = ?');

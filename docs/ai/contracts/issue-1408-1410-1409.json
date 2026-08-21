@@ -1,0 +1,49 @@
+{
+  "issue": "1408,1410,1409",
+  "date": "2026-08-19",
+  "test_command": "npx playwright test tests/contract/issue-1408-1410-1409-inspector.spec.ts --workers=1",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1408-c1",
+      "text": "Keep before/after from the session-diff response in state and render a diff for those rows.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-1408-1410-1409-inspector.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1410-c1",
+      "text": "Actually write the file path to the clipboard before/with the toast, in BOTH occurrences.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-1408-1410-1409-inspector.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1410-c2",
+      "text": "Handle the failure path — if the clipboard write rejects, do NOT show a success toast.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-1408-1410-1409-inspector.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1409-c1",
+      "text": "Add a visible Fixture / Not yet live badge or banner on the Terminal panel header whenever gateway mode is live.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-1408-1410-1409-inspector.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1409-c2",
+      "text": "Also stop it from claiming PTY · connected in live mode.",
+      "mode": "ui",
+      "test": "apps/web/tests/contract/issue-1408-1410-1409-inspector.spec.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

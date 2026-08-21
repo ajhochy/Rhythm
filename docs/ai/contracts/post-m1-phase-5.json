@@ -1,0 +1,184 @@
+{
+  "issue": "post-m1-phase-5",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-5-fixture-playwright.config.ts; cd ../api_server && npm test -- --run src/__tests__/post_m1_phase_5_route_contract.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p5-c1a",
+      "text": "A translated permission.asked frame renders one scoped card using sessionId, permissionID, directory, tool, patterns, title, and createdAt, and exactly one decision is sent as reply once, always, or reject with an optional message.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-5-permissions.redspec.ts",
+      "status": "pending",
+      "reason": "Collected successfully with the Phase 5 Playwright config but not executed in this unit because Chromium launch is prohibited; orchestrator must record the assertion result."
+    },
+    {
+      "criterion_id": "post-m1-p5-c1b",
+      "text": "The live permission reply route is addressed by local sessionId and permissionID, accepts only once, always, or reject, prevents duplicate decisions, and surfaces a bounded retryable failure without changing the decision vocabulary.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected gateway-boundary assertion; not executed in this unit, so it is pending rather than falsely recorded RED."
+    },
+    {
+      "criterion_id": "post-m1-p5-c1c",
+      "text": "After renderer or WebSocket reconnect, pending permission requests are rehydrated once and a permission.replied event removes the matching permissionID card without permitting another reply.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-permissions.redspec.ts",
+      "status": "pending",
+      "reason": "Collected routeWebSocket plus pending-permissions recovery assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c1d",
+      "text": "A translated question.asked frame renders every question with header, question, option label and description, multiple and custom behavior, then sends exactly one callId-scoped reply as answers:string[][] or one reject and honors question.resolved from another client.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-5-questions.redspec.ts",
+      "status": "pending",
+      "reason": "Collected canonical multi-question routeWebSocket assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c1e",
+      "text": "The renderer reads and persists only the canonical permissionMode values default, acceptEdits, plan, and bypassPermissions; display labels never cross the API boundary.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-permissions.redspec.ts",
+      "status": "pending",
+      "reason": "Collected assertion for canonical option values and PATCH body; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c2a",
+      "text": "An authenticated owner can list only their pending human approvals and decide approved or rejected only with X-Rhythm-Human-Approval material bound to approvalId, sessionId, status, decisionNonce, and payloadDigest.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected renderer approval-domain assertion. Existing API signature tests are supporting evidence only and do not replace orchestrator execution of the React boundary contract."
+    },
+    {
+      "criterion_id": "post-m1-p5-c2b",
+      "text": "Pending human approvals appear both in the global review surface and at the originating session transcript with action, preview, and consequence, and either surface resolves the other without a duplicate decision.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts",
+      "status": "pending",
+      "reason": "Collected page.route assertion proving Review reads /agent-approvals instead of proposal fixtures; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c2c",
+      "text": "Delegation preserves callerAgentConfigId, targetAgentConfigId, ownerUserId, workspace, profile allowlists, parentSessionId, sdkSessionId, and delegationDepth, and rejects self, non-manager, out-of-roster, cross-owner, and over-depth attempts.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected renderer delegation-domain assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c2d",
+      "text": "A live child session retains the delegated profile identity, is navigable from its parent without confusing local and SDK IDs, has an isolated read-only transcript surface, and never inherits an authority absent from the child's profile.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts",
+      "status": "pending",
+      "reason": "Collected local/SDK/profile/parent identity and read-only transcript assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c2e",
+      "text": "Delegation status exposes only delegationId, target, state, timing, childState, childSteps, latestEvent, cancellable, and bounded error metadata; unauthorized status reads and cancellations fail non-disclosingly and never return child transcript text.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected renderer status/cancel boundary assertion. API metadata tests are supporting evidence only; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3a",
+      "text": "The live MCP catalog exposes canonical name, status, bounded error, redacted environment, requiredEnv, needsCredentials, source, and tools, and never substitutes a seeded renderer catalog.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected canonical live MCP-domain assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3b",
+      "text": "An authorized user can add a local or remote MCP server, complete credentials or OAuth when required, connect, observe status, disconnect, and remove it through the API, with bounded failures and no credential echo.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected complete MCP credential/OAuth/lifecycle method assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3c",
+      "text": "The live skill catalog exposes name, description, location, managed, source, confidence, current version, lifecycle status, usage, scores, measurement reason, external-fork state, environment readiness, and content; managed skills support reload/create/update/delete while external skills remain read-only.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected live skill metadata/content/reload/managed-CRUD boundary assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3d",
+      "text": "Profile MCP policy is authored from the live catalog and persists allowedMcpsJson without collapsing semantics: null is unrestricted, an empty top-level policy denies all, a server name grants that server, and a server-to-tool-list map grants exact tools; malformed policy fails closed.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-5-catalogs-commands.redspec.ts",
+      "status": "pending",
+      "reason": "Collected live-catalog authoring and exact allowedMcpsJson PATCH assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3e",
+      "text": "Profile skill policy is authored from the live catalog and persists allowedSkillsJson without collapsing semantics: null is unrestricted, [] denies all, an array permits exact skill names, and malformed policy fails closed.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-5-catalogs-commands.redspec.ts",
+      "status": "pending",
+      "reason": "Collected live-catalog authoring and exact allowedSkillsJson PATCH assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3f",
+      "text": "A session receives only profile-allowed MCP tools and skills; deferredServers keep eligible MCP schemas out of the eager tool surface, mcp_dispatch executes an allowed composed name, and dispatch-time revalidation rejects an out-of-scope or removed name.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-gateways.redspec.ts",
+      "status": "pending",
+      "reason": "Collected renderer tool-surface/deferred-dispatch boundary assertion; backend/fork enforcement remains supporting evidence rather than a substitute for the missing React journey."
+    },
+    {
+      "criterion_id": "post-m1-p5-c3g",
+      "text": "The composer loads the live slash/custom command catalog with name, description, argument hints, source, and managed state; managed commands support CRUD, external commands are read-only, and selection dispatches {v:1,type:'session.command',id,command,arguments} rather than session.input text.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-5-catalogs-commands.redspec.ts",
+      "status": "pending",
+      "reason": "Collected live command discovery plus exact session.command WebSocket-frame assertion; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p5-c4a",
+      "text": "The unsigned packaged Electron app completes translated permission and multi-question journeys, including reconnect recovery and once-versus-always behavior, without displaying raw engine event names or IDs not present in the translated client contract.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "This unit is prohibited from editing apps/electron, launching Electron, or running a GUI; packaged permission/question proof must be owned by a permitted packaged-app unit."
+    },
+    {
+      "criterion_id": "post-m1-p5-c4b",
+      "text": "The unsigned packaged Electron app completes signed human approval and scoped delegation journeys while preserving owner, profile, parent/child, and workspace isolation.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "This unit is prohibited from editing apps/electron, launching Electron, or running a GUI; packaged approval/delegation proof must be owned by a permitted packaged-app unit."
+    },
+    {
+      "criterion_id": "post-m1-p5-c4c",
+      "text": "The unsigned packaged Electron app completes live MCP server, skill/version, profile allowlist, and slash/custom command journeys without relying on fixture catalogs.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "This unit is prohibited from editing apps/electron, launching Electron, or running a GUI; packaged live-catalog proof must be owned by a permitted packaged-app unit."
+    },
+    {
+      "criterion_id": "post-m1-p5-c4d",
+      "text": "Every packaged Phase 5 failure is bounded and actionable and exposes no credentials, approval signing material, raw schemas, stack traces, absolute paths, raw response bodies, or arbitrary backend errors.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "This unit is prohibited from editing apps/electron, launching Electron, or running a GUI; packaged disclosure proof must be owned by a permitted packaged-app unit."
+    }
+  ],
+  "not_tested": [
+    "post-m1-p5-c4a",
+    "post-m1-p5-c4b",
+    "post-m1-p5-c4c",
+    "post-m1-p5-c4d"
+  ],
+  "note": "Seventeen Phase 5 React tests collect under the dedicated .redspec config and remain outside the ordinary M1 suite. They are pending, not RED, until the orchestrator runs Chromium and records assertion failures. The API route/vocabulary guard passed 3/3. Packaged criteria are explicitly not tested under this unit's Electron/GUI prohibition."
+}

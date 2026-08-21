@@ -7,7 +7,10 @@
  */
 
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth_middleware';
+import {
+  requireLocalOrCloudAuth,
+  requireAuth,
+} from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { AgentApprovalsController } from '../controllers/agent_approvals_controller';
 import { ExternalContentSecurityController } from '../controllers/external_content_security_controller';
@@ -21,6 +24,13 @@ const securityController = new ExternalContentSecurityController();
 const requireInternalAuth = env.agentLocal
   ? []
   : [requireAuth];
+const requireHumanAuth: typeof requireAuth = async (req, res, next) => {
+  await (env.agentLocal ? requireLocalOrCloudAuth : requireAuth)(
+    req,
+    res,
+    next,
+  );
+};
 
 agentApprovalsRouter.post(
   '/',
@@ -42,13 +52,13 @@ agentApprovalsRouter.post(
 // distinct app-Keychain capability whose digest alone is given to this child.
 agentApprovalsRouter.get(
   '/',
-  requireAuth,
+  requireHumanAuth,
   requireHumanApprovalCapability,
   (req, res, next) => controller.list(req, res, next),
 );
 agentApprovalsRouter.patch(
   '/:id',
-  requireAuth,
+  requireHumanAuth,
   requireHumanApprovalCapability,
   (req, res, next) => controller.decide(req, res, next),
 );

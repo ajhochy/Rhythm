@@ -1,0 +1,203 @@
+{
+  "issue": "post-m1-phase-6",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-6-fixture-playwright.config.ts; cd ../api_server && npx vitest run src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p6-c1a",
+      "text": "Selecting real nonce text, image, PDF, and unsupported-binary files in React creates canonical `{type:'text',text}` or `{type:'file',mime,filename,url}` parts from their real bytes; text is capped at 100 KiB, provider-readable media uses `data:`, and other binaries use only a contained local `file:` reference.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will use nonce sandbox files and prove missing capability 1 instead of selecting hard-coded fixture metadata."
+    },
+    {
+      "criterion_id": "post-m1-p6-c1b",
+      "text": "Typing `@<query>` in a live session debounces and sends `GET /agent-sessions/:id/files/find-files` with the local session `id`, canonical `query`, `limit`, and `type:'file'`; choosing a returned relative path fetches its session-scoped content and attaches it without retaining the display token.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will spy on the real API request and resulting canonical attachment to prove missing capability 2."
+    },
+    {
+      "criterion_id": "post-m1-p6-c1c",
+      "text": "React sends the selected nonce attachments in one canonical `{v:1,type:'session.input',id,parts}` frame, the real agent reads the intended nonce content, and no sibling, foreign-project, or outside-worktree nonce content reaches the provider.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will inspect the sent frame and provider-visible nonce answer; current sendLiveInput drops attachments."
+    },
+    {
+      "criterion_id": "post-m1-p6-c1d",
+      "text": "Pending attachment chips preserve canonical `filename` and `mime`, can be removed before send, clear only after accepted delivery, and rehydrated transcript file parts preserve `mime`, optional `filename`, and `url` without substituting React-only `fileUrl`.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will compare composer state, the WebSocket frame, and the REST-reloaded transcript."
+    },
+    {
+      "criterion_id": "post-m1-p6-c1e",
+      "text": "A live `session.input.parts` payload over 20 MiB is rejected with one bounded actionable error, sends no provider prompt, retains enough composer state to retry, and exposes no raw data URI, absolute path, token, or stack trace.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will drive the existing API size boundary through React rather than the current API-only mock test."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2a",
+      "text": "The live Files inspector uses server results for `find-files`, `list`, `content`, and `status`, navigates only normalized session-relative `path` values, and renders real text, image, binary, empty, loading, and bounded error states for the selected normal or isolated session.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will create nonce files and prove missing capability 3; the current panel filters fixture state."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2b",
+      "text": "File find/list/content/status reject an unknown or foreign local session `id`, `..` traversal, absolute-path input, and an in-root symlink escaping the selected session directory before returning content; the response and React UI disclose no canary, `absolute`, `resolvedPath`, secret-bearing path, or raw engine body.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts; apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts and the Phase 6 live React spec, which together will prove project/session scoping and renderer non-disclosure."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2c",
+      "text": "The live Changes inspector fetches `GET /agent-sessions/:id/diff`, renders the canonical v1 session `FileDiff` fields `file`, `before`, `after`, `additions`, and `deletions`, distinguishes empty from error, and refetches only the addressed local session after `session.diff`.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will mutate a nonce file and prove the session-diff half of missing capability 4."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2d",
+      "text": "Selecting `git` and `branch` requests `GET /agent-sessions/:id/vcs/diff?mode=git|branch`, renders canonical `{file,patch?,additions,deletions,status?}` results from the selected session directory, and never sends display labels such as `All uncommitted` or `vs main` as mode values.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will compare both real VCS modes and prove the scoped-diff portion of missing capability 4."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2e",
+      "text": "Export requests `/agent-sessions/:id/vcs/diff/raw`, preserves the exact `text/x-diff` nonce patch, and saves or hands it to the host without converting a trace/display string into the exported content.",
+      "mode": "integration",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts; apps/electron/test/post-m1-phase-6-packaged-files-worktrees.test.mjs",
+      "status": "pending",
+      "reason": "Pending the Phase 6 live React and packaged-host tests, which will prove the raw-patch export portion of missing capability 4."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2f",
+      "text": "Live Revert posts the selected SDK `messageId` through `/agent-sessions/:id/revert`, Restore posts `/unrevert`, each refreshes the real session diff, and a failed action leaves the prior diff visible with a bounded retryable error instead of mutating fixture-only state.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will prove the revert/restore portion of missing capability 4."
+    },
+    {
+      "criterion_id": "post-m1-p6-c2g",
+      "text": "The unsigned packaged Files and Changes surfaces show only normalized project-relative paths and bounded content; searches, errors, patch export feedback, and accessibility names contain no `absolute`, `resolvedPath`, bearer token, home directory, or secret-bearing raw body.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-6-packaged-files-worktrees.test.mjs",
+      "status": "pending",
+      "reason": "Pending apps/electron/test/post-m1-phase-6-packaged-files-worktrees.test.mjs, which will inspect the packaged renderer boundary required by plan criterion c2."
+    },
+    {
+      "criterion_id": "post-m1-p6-c3a",
+      "text": "The live advanced-create form obtains truthful current/local/recent branches for the selected project and sends canonical `branch`, `stash:'stash'|'discard'`, and `createBranch:boolean`; a dirty-tree switch requires an explicit decision and no fixture branch literal crosses the live API.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will use a disposable git repo and prove the branch-selection portion of missing capability 5."
+    },
+    {
+      "criterion_id": "post-m1-p6-c3b",
+      "text": "Creating with canonical `isolateWorktree:true` and optional `worktreeName` returns and persists `worktreeName`, `worktreePath`, and `worktreeBranch`, changes session `cwd` to the resolved worktree directory, and React exposes that resolved path and returned branch without defaulting it to `main`.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts, which will compare API response, persisted row, git state, and UI to prove missing capability 5."
+    },
+    {
+      "criterion_id": "post-m1-p6-c3c",
+      "text": "Within the live harness's explicit 180-second create bound, an isolated nonce session reaches a usable engine session; a real agent edit changes only `worktreePath` on exactly `worktreeBranch`, while the primary checkout path, primary branch content, and pre-existing worktrees remain unchanged.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts; apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending the Phase 6 live cleanup and React specs, which will use real API, engine, provider, and Git behavior with a create window that accommodates observed new-cwd initialization."
+    },
+    {
+      "criterion_id": "post-m1-p6-c3d",
+      "text": "Reset on an isolated live session posts `/agent-sessions/:id/worktree/reset`, discards nonce uncommitted changes, preserves `worktreeName`, `worktreePath`, `worktreeBranch`, registry entry, directory, and branch ref, and surfaces `WORKTREE_RESET_FAILED` without pretending local success.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending the Phase 6 live React and cleanup tests, which will prove the reset half of missing capability 6 against real Git state."
+    },
+    {
+      "criterion_id": "post-m1-p6-c3e",
+      "text": "Remove is enabled only for a closed isolated session, posts `/agent-sessions/:id/worktree/remove`, clears persisted `worktreeName`, `worktreePath`, and `worktreeBranch`, and independently proves the nonce path absent from `git worktree list`, the filesystem, and `refs/heads/<worktreeBranch>`.",
+      "mode": "live",
+      "test": "apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts; apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending the Phase 6 live React and cleanup tests, which will prove the remove half of missing capability 6 and all three Git state systems."
+    },
+    {
+      "criterion_id": "post-m1-p6-c3f",
+      "text": "Unknown, non-isolated, active-session, primary-workspace, foreign-project, and unregistered `worktreeDir` reset/remove attempts fail closed, preserve every existing registry entry/directory/branch, and expose no absolute target path in React's error surface.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts; apps/web/tests/post-m1-phase-6-files-diffs-search-worktrees.redspec.ts",
+      "status": "pending",
+      "reason": "Pending the Phase 6 API contract and live React specs, which will exercise the negative worktree-selection boundary."
+    },
+    {
+      "criterion_id": "post-m1-p6-c4a",
+      "text": "Hard delete with canonical `removeWorktree:true` does not return 204 or broadcast `session.removed` while engine removal has returned or thrown 400/false and any nonce registry entry, directory, or branch ref remains; the failure retains durable worktree identity sufficient for a bounded retry.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts",
+      "status": "red",
+      "reason": "Executed with Vitest on 2026-08-15. The real HTTP controller called removeWorktree, received false, and failed the contract assertion because DELETE /agent-sessions/:id/hard returned 204. This reproduces the owned false-success defect; the failure was AssertionError: false engine cleanup must not be reported as HTTP 204 success: expected 204 not to be 204."
+    },
+    {
+      "criterion_id": "post-m1-p6-c4b",
+      "text": "A successful hard delete with `removeWorktree:true` removes the local session and messages, SDK session and descendants, in-memory mapping, stream/listener state, nonce worktree registry entry, exact directory, and exact branch ref before returning 204 exactly once.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts, which will assert every state boundary instead of trusting status 204."
+    },
+    {
+      "criterion_id": "post-m1-p6-c4c",
+      "text": "If worktree removal partially succeeds before branch deletion fails, cleanup reports failure, records the remaining exact branch ref, and a bounded retry removes that orphan without recreating or deleting any worktree directory.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts, which will mutation-inject the fork's registry/filesystem/branch split and prove recoverability."
+    },
+    {
+      "criterion_id": "post-m1-p6-c4d",
+      "text": "Pass, timeout, cancel, assertion failure, provider failure, API failure, and engine failure paths all execute idempotent `finally` cleanup and leave zero nonce database rows, files, listeners, sockets, worktree registry entries, worktree directories, and branch refs.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts, whose cleanup helper will be forced through every plan-c4 exit path."
+    },
+    {
+      "criterion_id": "post-m1-p6-c4e",
+      "text": "Before and after every cleanup scenario, the exact pre-existing `git worktree list --porcelain`, pre-existing worktree directories, and pre-existing branch refs are unchanged; cleanup targets only names and paths created by that test run.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts, which will snapshot and compare the three independent Git state systems."
+    },
+    {
+      "criterion_id": "post-m1-p6-c4f",
+      "text": "Running cleanup twice after complete success is a no-op success, while running it after an incomplete failure retries only the recorded residue; neither path emits duplicate `session.removed` frames or deletes a reused/non-owned branch name.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts",
+      "status": "pending",
+      "reason": "Pending apps/api_server/src/__tests__/post_m1_phase_6_cleanup_live_e2e.test.ts, which will prove idempotence and exact ownership under retry."
+    }
+  ],
+  "not_tested": [],
+  "note": "Inventory source: docs/ai/coverage/react-electron/phase-6-files-diffs-search-worktrees-inventory.md. Fourteen Playwright criteria collect under the Phase 6 config but remain pending because Chromium execution is delegated to the orchestrator. Criterion c4a is executable RED against the real HTTP controller with only the engine boundary faked. Remaining live/provider/Git cleanup criteria stay pending rather than claiming unobserved evidence. Canonical boundary vocabulary includes text/file parts `{type,text}` and `{type,mime,filename?,url}`, relative `path`, file query `query/limit/type`, VCS mode `git|branch`, branch inputs `branch/stash/createBranch`, isolated-create inputs `isolateWorktree/worktreeName`, persisted `worktreeName/worktreePath/worktreeBranch`, engine worktree `{name,branch?,directory}`, wrapper `worktreeDir`, and hard-delete `removeWorktree:true`."
+}

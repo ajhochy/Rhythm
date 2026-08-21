@@ -123,6 +123,11 @@ export function resolveManagedToolArtifactRoot(): string {
   return expandHome(process.env.RHYTHM_TOOL_ARTIFACT_ROOT ?? path.join(rhythmApplicationDataDir(), 'tool-artifacts'));
 }
 
+/** Partition relay file artifacts from live-artifact directories (#1397). */
+export function resolveRelayArtifactStorageDir(): string {
+  return path.join(resolveLiveArtifactStorageDir(), 'relay-artifacts');
+}
+
 /** Filesystem root for checksum-addressed generated media bytes (#1309). */
 export function resolveMediaArtifactStorageRoot(): string {
   const appDataDir = path.dirname(
@@ -404,6 +409,22 @@ export const env = {
       .toLowerCase() === 'true',
   /** D4.4: deployment availability only; never enables durable user consent. */
   autoPromotionFeatureAvailable: isAutoPromotionFeatureAvailable(),
+  /**
+   * #1422 — containment root for mobile sessions that carry no project.
+   *
+   * Desktop already treats `cwd` as the root and `projectId` as an optional
+   * label (agent_sessions_controller.create requires cwd, not projectId), so a
+   * project-less session is legitimate. The mobile gateway inverted that and
+   * made the label mandatory, leaving such sessions with no root at all.
+   *
+   * This is the root they anchor to instead. It is NOT a relaxation: every
+   * path is still canonicalized and checked with containsReal() against
+   * whichever root resolves, and caller-supplied root overrides are still
+   * rejected. It only means a root always exists to check against.
+   */
+  defaultSessionRoot:
+    process.env.RHYTHM_DEFAULT_SESSION_ROOT?.trim() ||
+    path.join(os.homedir(), 'Documents'),
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
@@ -414,6 +435,12 @@ export const env = {
   dbPassword: process.env.DB_PASSWORD ?? '',
   dbSsl: (process.env.DB_SSL ?? 'false').trim().toLowerCase() === 'true',
   corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0),
+  // Renderer origins the local Electron/dev host is allowed to load from (e.g. the sandbox's
+  // isolated Vite port). Consulted by localAgentSurfaceGuard's origin/host allowlist check below.
+  localRendererOrigins: (process.env.RHYTHM_LOCAL_RENDERER_ORIGINS ?? '')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0),

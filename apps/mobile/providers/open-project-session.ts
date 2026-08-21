@@ -1,4 +1,4 @@
-export const OPEN_PROJECT_SESSION_TIMEOUT_MS = 15_000;
+export const OPEN_PROJECT_SESSION_TIMEOUT_MS = 40_000;
 
 export type OpenProjectSessionTerminalKind =
   | 'missing-session'
@@ -81,7 +81,7 @@ const TERMINAL_PRESENTATIONS: Record<
   timeout: {
     backLabel: 'Back to chats',
     message:
-      'The chat did not finish loading within 15 seconds. The request was cancelled.',
+      'The chat did not finish loading within 40 seconds. The request was cancelled.',
     retryLabel: 'Retry',
     screenState: 'error',
     title: 'Chat open timed out',
@@ -116,6 +116,10 @@ export interface OpenProjectSessionTransport<
     projectId: string,
     sessionId: string,
   ): Promise<TSession | undefined>;
+  discoverSessions?(
+    projectId: string,
+    pinnedSessionId: string,
+  ): Promise<void>;
   loadSessionState(
     projectId: string,
     sessionId: string,
@@ -342,9 +346,11 @@ export function createOpenProjectSessionController<
         }
 
         let target: TSession | undefined;
+        let exactLookupCompleted = false;
         if (transport.resolveSession) {
           try {
             target = await transport.resolveSession(projectId, sessionId);
+            exactLookupCompleted = true;
           } catch {
             // The exact owner lookup is an optimization. Preserve the scoped
             // catalog path for older gateways and temporary lookup failures.
@@ -354,6 +360,11 @@ export function createOpenProjectSessionController<
         let catalog: ProjectSessionCatalog<TSession>;
         if (target) {
           catalog = [target];
+        } else if (exactLookupCompleted) {
+          throw new OpenProjectSessionFailure(
+            'missing-session',
+            TERMINAL_PRESENTATIONS['missing-session'].message,
+          );
         } else {
           catalog = await transport.listSessions(projectId);
           ensureCurrent();
@@ -410,6 +421,8 @@ export function createOpenProjectSessionController<
           sessionId,
         };
         publish(ready);
+        void transport.discoverSessions?.(projectId, sessionId)
+          .catch(() => undefined);
         return ready;
       } catch (reason) {
         if (reason === CANCELLED || !isCurrent()) {

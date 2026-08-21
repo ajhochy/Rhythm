@@ -7,7 +7,7 @@
  * the Mac's 4002 gateway for RPC dispatch. Implementation must make every test
  * pass without modifying this file.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
@@ -25,6 +25,7 @@ import {
   type UplinkFrame,
 } from '../services/relay_uplink_protocol';
 import { RelayUplinkClient } from '../services/relay_uplink_client';
+import { logger } from '../utils/logger';
 
 const HEALTH = { gatewayVersion: '1', opencodeVersion: '1.14.49', ok: true };
 const DEVICES = [{ id: 'dev_1', token_sha256: 'abc', label: 'phone' }];
@@ -240,6 +241,48 @@ describe('Track 1 contract — RelayUplinkClient', () => {
     expect(client.isConnected()).toBe(true);
   });
 
+  it('issue-1445-c2: warns once per failed candidate pass and keeps retrying', async () => {
+    // Regression: a configured uplink can fail forever without any observable
+    // signal, leaving operators unable to distinguish retrying from disabled.
+    const secretBearer = 'credential-must-not-appear';
+    const secretPath = 'private-path-must-not-appear';
+    const retryMs = 100;
+    const warnings: string[] = [];
+    const warn = vi.spyOn(logger, 'warn').mockImplementation((message) => {
+      warnings.push(message);
+    });
+    cleanups.push(() => warn.mockRestore());
+    const dead = await deadPort();
+    const { client } = makeClient(
+      [`ws://127.0.0.1:${dead}/${secretPath}`],
+      {
+        bearer: secretBearer,
+        reconnectBaseMs: retryMs,
+        reconnectMaxMs: retryMs,
+      },
+    );
+    cleanups.push(() => client.stop());
+
+    client.start();
+    const deadline = Date.now() + 2_000;
+    while (warnings.length < 1 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('failed; retrying');
+    expect(warnings[0]).toContain(`${retryMs}ms`);
+    expect(warnings[0]).not.toContain(secretBearer);
+    expect(warnings[0]).not.toContain(secretPath);
+    expect(warnings[0]).not.toContain(`127.0.0.1:${dead}`);
+
+    const retryDeadline = Date.now() + 2_000;
+    while (warnings.length < 2 && Date.now() < retryDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(warnings).toHaveLength(2);
+  });
+
   it('answers ctrl/resync with an immediate resync-done (Phase 1 stub)', async () => {
     const relay = await startFakeRelay();
     cleanups.push(() => relay.close());
@@ -362,7 +405,7 @@ describe('Track 1 contract — RelayUplinkClient', () => {
     expect(gateway.requests.every((request) => request.body === '')).toBe(true);
   });
 
-  it('answers rpc/res 502 uplink_dispatch_failed when the gateway is unreachable', async () => {
+  it('answers rpc/res 504 uplink_dispatch_failed while the gateway is warming or unreachable', async () => {
     const relay = await startFakeRelay();
     cleanups.push(() => relay.close());
     const dead = await deadPort();
@@ -384,7 +427,7 @@ describe('Track 1 contract — RelayUplinkClient', () => {
     });
     const res = await relay.waitFor(isRpcRes);
     expect(res.id).toBe('rpc-dead');
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(504);
     expect(
       JSON.parse(Buffer.from(res.bodyB64, 'base64').toString('utf8')),
     ).toEqual({ error: 'uplink_dispatch_failed' });

@@ -161,4 +161,19 @@ describe('SessionConfigurationSheet', () => {
       ),
     ).toBe(true);
   });
+
+  test('explains why Create is disabled when no selectable profile exists', () => {
+    const screen = render(
+      sheet([], defaultChatPreferences, jest.fn()),
+    );
+
+    expect(
+      screen.getByText(
+        'No selectable profile available — enable one in Profiles',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Create' }).props.accessibilityState,
+    ).toMatchObject({ disabled: true });
+  });
 });

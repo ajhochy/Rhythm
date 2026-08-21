@@ -90,6 +90,8 @@ export interface AgentSession {
   modelId: string | null;
   agentMode: string | null;
   permissionMode: PermissionMode;
+  /** Server-owned proof that a human selected bypassPermissions for this chat. */
+  approvalBypassExplicit: boolean;
   /** Reasoning budget in tokens (null = off). Only applied when the model supports extended thinking. */
   thinkingBudget: number | null;
   /** When true, ask the SDK to use fast-mode (lower latency, less thorough). */
@@ -193,6 +195,8 @@ export interface CreateAgentSessionDto {
   projectId?: string | null;
   /** Session-scoped permission policy selected by the client. */
   permissionMode?: PermissionMode;
+  /** Set only by the interactive session controller; all other callers omit it. */
+  approvalBypassExplicit?: boolean;
   /** C1 — optional MCP role slug (e.g. "church-admin"). Null/undefined = no scoping. */
   mcpRole?: string | null;
   /**

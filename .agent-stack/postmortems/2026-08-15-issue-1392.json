@@ -1,0 +1,204 @@
+{
+  "run_id": "2026-08-15-issue-1392-unified-notifications",
+  "issue": 1392,
+  "date": "2026-08-15",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1392-c1",
+      "text": "A pending protected approval appears immediately as an actionable card in the originating session.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Previously confirmed in the rebuilt debug app with an inline actionable approval card."
+    },
+    {
+      "criterion_id": "issue-1392-c2",
+      "text": "Approve and deny both resolve the exact pending approval.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Approval decision actions were confirmed in the preceding manual smoke."
+    },
+    {
+      "criterion_id": "issue-1392-c3",
+      "text": "The bell badge count increments within approximately 30 seconds and the card is visible in the notification panel.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The bell badge and inline card were confirmed in the preceding manual smoke."
+    },
+    {
+      "criterion_id": "issue-1392-c4",
+      "text": "A pending AgentApproval with sessionId matching the open agent session renders an inline actionable approval card in the real transcript composition; nonmatching approvals do not render there.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The originating transcript displayed the matching request inline."
+    },
+    {
+      "criterion_id": "issue-1392-c5",
+      "text": "Activating a local notification payload for a pending approval selects Agents, opens the originating session, and targets the request.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Approval notification routing was confirmed in the preceding debug-build smoke."
+    },
+    {
+      "criterion_id": "issue-1392-c6",
+      "text": "Approving a pending agent approval automatically resumes the originating session exactly once, carries the exact approval_id, and instructs the agent to retry the identical protected action once.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The user confirmed the approval flow continued without a manual follow-up after the continuation repair."
+    },
+    {
+      "criterion_id": "issue-1392-c7",
+      "text": "Rejecting a pending agent approval automatically resumes the originating session exactly once and explicitly prevents the protected action from being performed.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The final smoke exercised notification delivery, not rejection continuation."
+    },
+    {
+      "criterion_id": "issue-1392-c8",
+      "text": "A decision made while the originating session is working remains durably queued and dispatches exactly once after the session becomes idle.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by contract tests only in this smoke cycle."
+    },
+    {
+      "criterion_id": "issue-1392-c9",
+      "text": "After restart, recovery dispatches an already queued decided approval exactly once using the persisted originating session mapping.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by contract tests only in this smoke cycle."
+    },
+    {
+      "criterion_id": "issue-1392-c10",
+      "text": "An interactive session whose root has the server-owned explicit bypass marker may consume the exact protected delegation action without approval_id.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The user explicitly reported that bypass mode worked."
+    },
+    {
+      "criterion_id": "issue-1392-c11",
+      "text": "The same interactive delegation in default permission mode remains pending and is forbidden without approval_id.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Default-mode approval creation and resolution were exercised earlier in the same debug-build sequence."
+    },
+    {
+      "criterion_id": "issue-1392-c12",
+      "text": "The MCP approval tool reports bypass as not_required and delegation proceeds without forwarding an approval_id.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Observed through the successful bypass-mode session smoke."
+    },
+    {
+      "criterion_id": "issue-1392-c13",
+      "text": "Agent sessions persist a dedicated server-owned explicit approval-bypass marker.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Persistence detail is covered by contract tests."
+    },
+    {
+      "criterion_id": "issue-1392-c14",
+      "text": "A forced-bypass child under a default root remains subject to the external-content approval gate.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by contract tests only."
+    },
+    {
+      "criterion_id": "issue-1392-c15",
+      "text": "A delegated child under an explicit human-selected bypass root may proceed without approval_id without copying the marker onto the child.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The user confirmed delegated bypass behavior."
+    },
+    {
+      "criterion_id": "issue-1392-c16",
+      "text": "A headless bypass root without explicit human provenance remains subject to the external-content approval gate.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by contract tests only."
+    },
+    {
+      "criterion_id": "issue-1392-c17",
+      "text": "The first successful unread-notification poll establishes a startup baseline without replaying native banners for notifications that were already unread.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The final smoke created a new notification; it did not test launch replay."
+    },
+    {
+      "criterion_id": "issue-1392-c18",
+      "text": "A general AppNotification newly unread after startup emits exactly one routed native notification without duplicate polling delivery.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The final prompt exercised an immediate agent notification rather than a persisted general notification row."
+    },
+    {
+      "criterion_id": "issue-1392-c19",
+      "text": "An immediate agent notification emits exactly one native notification, opens Agents when activated, and duplicate IDs do not increment or push again.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The user reported PASS after the rebuilt app produced a red bell and macOS push from a harmless notification.send action."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "vitest-worker-memory",
+      "description": "The API serial gate completed 4,436 assertions across 541 files, then its single reused Vitest fork exhausted even a 4 GB heap during teardown.",
+      "detected_by": "The full api_server run reported 541 passed files, 4,436 passed tests, and a V8 heap-out-of-memory worker error after the assertions completed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/lib/app/core/layout/app_shell.dart",
+    "apps/desktop_flutter/lib/app/core/notifications/local_notification_service.dart",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/features/notifications/controllers/notifications_controller.dart",
+    "apps/desktop_flutter/lib/main.dart",
+    "apps/desktop_flutter/test/features/notifications/issue_1392_unified_native_notification_contract_test.dart",
+    "docs/ai/contracts/issue-1392.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Retain the unified notification contracts and run the native banner smoke after any future notification-source changes."
+}

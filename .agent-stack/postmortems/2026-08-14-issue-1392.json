@@ -1,0 +1,111 @@
+{
+  "run_id": "2026-08-14-issue-1392",
+  "issue": 1392,
+  "date": "2026-08-14",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1392-c1",
+      "text": "A pending protected approval appears immediately as an actionable card in the originating session.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The user supplied a live debug-build screenshot showing pending approval 4d368b76 inline in its originating agent chat."
+    },
+    {
+      "criterion_id": "issue-1392-c2",
+      "text": "Approve and deny both resolve the exact pending approval.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The user resolved the first card before repeating the smoke and confirmed success."
+    },
+    {
+      "criterion_id": "issue-1392-c3",
+      "text": "The bell badge count increments within approximately 30 seconds and the card is visible in the notification panel.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live screenshot shows bell badge count 1 while the approval is pending."
+    },
+    {
+      "criterion_id": "issue-1392-c4",
+      "text": "A pending AgentApproval with sessionId matching the open agent session renders an inline actionable approval card in the real transcript composition; nonmatching approvals do not render there.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The pending request is visibly composed inline at the bottom of the originating transcript with Reject and Approve actions."
+    },
+    {
+      "criterion_id": "issue-1392-c5",
+      "text": "Activating a local notification payload for a pending approval selects Agents, opens the originating session, and targets the request.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "After the polling cadence was reduced to five seconds, the user confirmed the repeat native-notification smoke succeeded."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "runtime-resource-contention",
+      "description": "A full PR gate was initially run while the debug app, local API, and engine were active, making the live app sluggish.",
+      "detected_by": "The user reported the running app was slow; the gate was stopped and no test subprocesses remained."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "project-state-updater",
+        "description": "The user requested the behavior smoke before the long PR gate completed, so project-state-updater has not yet run.",
+        "detected_by": "Transcript/tool-call review."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+    "apps/api_server/src/contract/issue_1392_approval_delivery.test.ts",
+    "apps/api_server/src/middleware/auth_middleware.ts",
+    "apps/api_server/src/routes/agent_approvals_routes.ts",
+    "apps/desktop_flutter/lib/app/core/layout/app_shell.dart",
+    "apps/desktop_flutter/lib/app/core/notifications/local_notification_service.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_inline_agent_approval_card.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/desktop_flutter/lib/features/notifications/controllers/agent_approvals_controller.dart",
+    "apps/desktop_flutter/lib/features/notifications/controllers/notifications_controller.dart",
+    "apps/desktop_flutter/lib/features/notifications/models/agent_approval.dart",
+    "apps/desktop_flutter/lib/main.dart",
+    "apps/desktop_flutter/test/app/core/layout/notification_badge_count_test.dart",
+    "apps/desktop_flutter/test/features/agents/issue_1392_inline_approval_contract_test.dart",
+    "apps/desktop_flutter/test/features/notifications/issue_1392_approval_push_route_contract_test.dart"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Run heavy verification remotely while the user keeps the debug app active, then release only after required checks pass."
+}

@@ -1,24 +1,35 @@
 {
-  "cli": { "version": "21.2.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": "21.2.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
       "credentialsSource": "remote",
-      "env": { "EXPO_APP_VARIANT": "development" }
+      "env": {
+        "EXPO_APP_VARIANT": "development"
+      }
     },
     "development-simulator": {
       "extends": "development",
-      "ios": { "simulator": true }
+      "ios": {
+        "simulator": true
+      }
     },
     "preview": {
       "distribution": "internal",
-      "env": { "EXPO_APP_VARIANT": "production" }
+      "env": {
+        "EXPO_APP_VARIANT": "production"
+      }
     },
     "production": {
       "autoIncrement": true,
       "credentialsSource": "remote",
-      "env": { "EXPO_APP_VARIANT": "production" }
+      "env": {
+        "EXPO_APP_VARIANT": "production"
+      }
     }
   },
   "submit": {

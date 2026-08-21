@@ -11,11 +11,22 @@ class LocalNotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;
+  NotificationTapHandler? _onTap;
+  String? _pendingTapPayload;
 
   /// Optional tap handler. Set by `main.dart` so a notification tap can route
   /// the app to the relevant screen/session. Kept nullable so tests and the
   /// pre-wiring construction order never crash when a tap arrives early.
-  NotificationTapHandler? onTap;
+  NotificationTapHandler? get onTap => _onTap;
+
+  set onTap(NotificationTapHandler? handler) {
+    _onTap = handler;
+    final pendingPayload = _pendingTapPayload;
+    if (handler != null && pendingPayload != null) {
+      _pendingTapPayload = null;
+      handler(pendingPayload);
+    }
+  }
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -33,7 +44,29 @@ class LocalNotificationService {
   void _handleTap(NotificationResponse response) {
     final payload = response.payload;
     if (payload == null || payload.isEmpty) return;
-    onTap?.call(payload);
+    final handler = _onTap;
+    if (handler == null) {
+      _pendingTapPayload = payload;
+      return;
+    }
+    handler(payload);
+  }
+
+  /// Replays a notification that launched the app from a terminated state.
+  ///
+  /// `onDidReceiveNotificationResponse` only covers activations delivered to
+  /// an already-running app. This method is intentionally separate from
+  /// [initialize] so launch routing can run after [onTap] has been wired.
+  Future<void> replayLaunchNotification() async {
+    try {
+      final details = await _plugin.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp != true) return;
+      final response = details?.notificationResponse;
+      if (response != null) _handleTap(response);
+    } catch (e) {
+      debugPrint(
+          'LocalNotificationService.replayLaunchNotification failed: $e');
+    }
   }
 
   /// Explicitly request macOS notification authorization (#815, AC4).
@@ -79,6 +112,32 @@ class LocalNotificationService {
     );
 
     await _plugin.show(id, title, body, details);
+  }
+
+  /// Show a fail-soft native notification that routes back into Rhythm.
+  Future<void> showRoutedMessageNotification({
+    required int id,
+    required String title,
+    required String body,
+    required String payload,
+  }) async {
+    try {
+      if (!_initialized) await initialize();
+
+      const details = NotificationDetails(
+        macOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+        linux: LinuxNotificationDetails(),
+      );
+      await _plugin.show(id, title, body, details, payload: payload);
+    } catch (e) {
+      debugPrint(
+        'LocalNotificationService.showRoutedMessageNotification failed: $e',
+      );
+    }
   }
 
   /// Show a native notification for an agent permission/question ask (#815).

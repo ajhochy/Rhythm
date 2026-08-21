@@ -769,6 +769,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
       PRIMARY KEY (artifact_id, revision)
     );
+
+    -- Artifact content bytes. Previously these lived only on the filesystem
+    -- under LIVE_ARTIFACT_STORAGE_DIR while the revision tables above held the
+    -- hashes. That split lost every artifact whenever the container was
+    -- recreated without a persistent mount (observed 2026-08-15: metadata
+    -- intact, every artifact returning "Live artifact content unavailable").
+    -- Content is addressed by (artifact, kind, hash) exactly as the on-disk
+    -- layout was, so identical content still stores once per artifact.
+    -- No FK to live_artifacts: content is written BEFORE the metadata row so a
+    -- revision is never advertised without its bytes (see
+    -- live_artifacts_controller.create). Cleanup is explicit in removeArtifact.
+    CREATE TABLE IF NOT EXISTS live_artifact_contents (
+      artifact_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('bundle', 'state')),
+      hash TEXT NOT NULL CHECK (length(hash) = 64),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      PRIMARY KEY (artifact_id, kind, hash)
+    );
   `);
 
   // #1309 — production metadata parity for checksum-addressed media bytes.
@@ -806,6 +825,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   if (!env.agentExecutionEnabled) {
     return;
   }
+
+  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
+  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      agent_kind TEXT NOT NULL,
+      profile_id TEXT,
+      status TEXT NOT NULL DEFAULT 'starting',
+      session_token TEXT,
+      cwd TEXT NOT NULL,
+      name TEXT NOT NULL,
+      last_preview TEXT,
+      last_activity_at TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 
   // #1219 — keep the agent-memory projection schema compatible anywhere the
   // agent-execution role is enabled. The vault remains canonical; these rows
@@ -1348,24 +1386,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ON CONFLICT (id) DO NOTHING;
   `);
 
-  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
-  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS agent_sessions (
-      id TEXT PRIMARY KEY,
-      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-      agent_kind TEXT NOT NULL,
-      profile_id TEXT,
-      status TEXT NOT NULL DEFAULT 'starting',
-      session_token TEXT,
-      cwd TEXT NOT NULL,
-      name TEXT NOT NULL,
-      last_preview TEXT,
-      last_activity_at TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
   // MSP-001 — production parity for existing databases. Additive, nullable,
   // and idempotent; no legacy row is assigned a guessed Rhythm profile.
   await pool.query(`

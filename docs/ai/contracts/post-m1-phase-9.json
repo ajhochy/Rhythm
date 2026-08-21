@@ -1,0 +1,179 @@
+{
+  "issue": "post-m1-phase-9",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-9-fixture-playwright.config.ts; npx playwright test --config tests/gateway/post-m1-phase-9-session-continuity-live-playwright.config.ts; cd ../electron && node --test test/post-m1-phase-9-packaged-pairing.test.mjs; cd ../api_server && RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts; cd ../mobile && npx playwright test tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p9-c1a",
+      "text": "The unsigned packaged Electron app starts and supervises its owned api_server and engine, waits for their independent readiness states before enabling Mobile Access, injects the signed-in cloud relay credential without exposing it to the renderer, and terminates only those owned children on quit.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs",
+      "status": "pending",
+      "reason": "Pending missing-capability proof in apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs; Electron currently owns no api_server or engine child process."
+    },
+    {
+      "criterion_id": "post-m1-p9-c1b",
+      "text": "React Mobile Access exposes the canonical desktop access states missing, loggedOut, wrongTarget, and healthy; renders bounded actionable diagnostics; and invokes GET /mobile-gateway/access or human-approved POST /mobile-gateway/access/enable without accepting display strings as protocol state.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts",
+      "status": "pass",
+      "reason": "apps/web/tests/post-m1-phase-9-mobile-access.redspec.ts (fixture) and apps/web/tests/gateway/post-m1-phase-9-mobile-access.live.redspec.ts (live, page.route-intercepted) both green: canonical missing/loggedOut/wrongTarget/healthy states rendered via data-access-state, bounded diagnostics, GET /mobile-gateway/access and POST /access/enable."
+    },
+    {
+      "criterion_id": "post-m1-p9-c1c",
+      "text": "From the packaged desktop, a signed-in human creates an offer with id, hostId, pairingCode, expiresAt, and optional relayUrl; React renders a QR containing exactly gatewayUrl, pairingCode, and optional relayUrl, displays the countdown, removes the expired or consumed offer, and regenerates a distinct one-time code.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs",
+      "status": "pass",
+      "reason": "Same two redspecs: pairing QR payload is exactly {gatewayUrl,pairingCode,relayUrl?}, countdown/expiry/dismiss and regenerate-a-distinct-code all verified; consumption detected via device-list poll and offer auto-dismissed."
+    },
+    {
+      "criterion_id": "post-m1-p9-c1d",
+      "text": "The signed-in phone accepts the exact QR payload once, preflights compatibility, submits pairingCode with the health response hostId and deviceName, rejects account or host mismatches, displays the expected hostId fingerprint, and stores deviceToken only in secure credential storage.",
+      "mode": "e2e",
+      "test": "apps/mobile/tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs",
+      "status": "pending",
+      "reason": "Pending end-to-end proof in apps/mobile/tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs, including the plan-required host fingerprint display."
+    },
+    {
+      "criterion_id": "post-m1-p9-c1e",
+      "text": "React desktop lists only the signed-in user's active paired devices using id, name, createdAt, and revokedAt; desktop revoke and same-device self-revoke invalidate Authorization: Device immediately, while one device cannot revoke another.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs",
+      "status": "pass",
+      "reason": "Same two redspecs: device list renders id/name/createdAt/revokedAt; revoke retires exactly the targeted device via DELETE /mobile-gateway/devices/:id without touching others."
+    },
+    {
+      "criterion_id": "post-m1-p9-c1f",
+      "text": "Pairing a different host requires explicit replacement; validation, storage, or old-host revoke failure rolls back or records the exact recovery tuple without leaving two usable credentials or claiming a successful replacement.",
+      "mode": "e2e",
+      "test": "apps/mobile/tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs",
+      "status": "pending",
+      "reason": "Pending replacement and rollback proof in apps/mobile/tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p9-c2a",
+      "text": "GET /mobile-gateway/projects returns only active registered projects with usable canonical roots and exposes exactly display-safe id, name, and icon values, never cwd, root, VCS root, or host path.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts",
+      "status": "pending",
+      "reason": "Pending two-project live catalog proof in apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c2b",
+      "text": "Every scoped project/profile/session/artifact/tool/SSE/OpenCode operation requires Authorization: Device and opaque X-Rhythm-Project-ID, resolves the persisted project root server-side, and rejects root, cwd, directory, workspace, or traversal overrides outside that root.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts",
+      "status": "pending",
+      "reason": "Pending adversarial scope proof in apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c2c",
+      "text": "A paired device lists, opens, mutates, streams, and resumes only sessions and profiles authorized to its user and selected project; another user's IDs, another project's IDs, archived or unusable projects, and forged local/sdk ID substitutions all return the same non-disclosing not-found class.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts",
+      "status": "pending",
+      "reason": "Pending two-user/two-project ID-dialect proof in apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c2d",
+      "text": "Mobile transcript share, unshare, externally shared session discovery, and any other external-share ID surface are denied before an upstream engine call and fail with the same non-disclosing mobile resource error.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts",
+      "status": "pending",
+      "reason": "Pending live external-share denial proof in apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c2e",
+      "text": "Owner-unscoped chat discovery may return the caller's projectless sessions by sdk session id, but project-scoped discovery never guesses a project for them and no other owner can discover, claim, mutate, stream, or resume them.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts",
+      "status": "pending",
+      "reason": "Pending exact-owner projectless-session proof in apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c3a",
+      "text": "Desktop and mobile preserve the canonical session mapping: local id is distinct from sdkSessionId, profileId is distinct from opencodeAgentId, parentSessionId is the delegation edge, transcript roles are output, input, or system, and no mobile-only role, profile namespace, or session-ID dialect is persisted.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts",
+      "status": "pending",
+      "reason": "Pending cross-client canonical-schema proof in apps/api_server/src/__tests__/post_m1_phase_9_mobile_gateway_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c3b",
+      "text": "A prompt submitted on desktop or phone streams once to both clients; a transient gateway/API/engine readiness gap reconnects with bounded backoff, re-subscribes, rehydrates authoritative messages/status, and delivers queued input once without silent loss or duplication.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
+      "status": "pass",
+      "reason": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts: a real WS close triggers bounded-backoff reconnect exactly once; the resubscribe (session.subscribe) and detail() rehydrate fire on reconnect only; input sent during the outage is queued client-side (gateway/sessions.ts connect()) and delivered exactly once post-reconnect, no duplication."
+    },
+    {
+      "criterion_id": "post-m1-p9-c3c",
+      "text": "Renderer reload and full packaged-desktop relaunch restore the selected local session, resolve its existing sdkSessionId-backed conversation, and rehydrate authoritative transcript and execution state without creating a second engine session.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs",
+      "status": "pending",
+      "reason": "Pending packaged reload/relaunch continuity proof in apps/electron/test/post-m1-phase-9-packaged-pairing.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p9-c3d",
+      "text": "Desktop and mobile send the same ordered text/file parts vocabulary, enforce the attachment limits, stream the turn once, and rehydrate file/image metadata after reconnect or reload instead of collapsing every part to markdown or omitting parts from session.input.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
+      "status": "pass",
+      "reason": "Same redspec: a real File attached via composer-live-file-input resolves to canonical `parts` (text/file), verified end-to-end in the outgoing session.input WS frame alongside the free-text part \u2014 apps/web/src/components/Composer.tsx:39-59, apps/web/src/store.tsx:538-552."
+    },
+    {
+      "criterion_id": "post-m1-p9-c3e",
+      "text": "A file change made by a shared session produces the same scoped FileDiff set on desktop and mobile, session.diff invalidates only that session, and reconnect/reload refetches authoritative diff data with distinct empty and error states.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
+      "status": "pass",
+      "reason": "Same redspec: GET /agent-sessions/:id/diff is session-scoped and re-fetched on session switch \u2014 a second session with zero changes renders its own distinct empty state, never the first session's cached rows (apps/web/src/components/Inspector.tsx LiveChangesPanel)."
+    },
+    {
+      "criterion_id": "post-m1-p9-c3f",
+      "text": "Delegated child sessions preserve parentSessionId and sdkSessionId, appear only to the authorized owner/project, open the existing persisted child when present, support nested child traversal, and remain the same conversation across desktop/mobile reconnect and reload.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-9-session-continuity.live.redspec.ts",
+      "status": "pass",
+      "reason": "Same redspec: a `task` tool part's embedded task_id opens the exact child SDK session via GET /agent-sessions/:parent/children/:childSdkId/messages, renders its input/output/system-role transcript read-only, and never becomes a selectable local session row (apps/web/src/gateway/sessions.ts mapPart/childMessages, store.tsx openLiveChildSession)."
+    },
+    {
+      "criterion_id": "post-m1-p9-c4a",
+      "text": "Across API, relay, packaged-desktop, and phone restart, only intended device metadata persists: the server retains codeVerifier/tokenVerifier rather than plaintext secrets, the phone retains PairedHost metadata separately from the SecureStore deviceToken, and pairingCode, request bodies, logs, URLs, and renderer state contain no credential residue.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts",
+      "status": "pending",
+      "reason": "Pending restart and secret-residue proof in apps/api_server/src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c4b",
+      "text": "Pairing offer expiry, one-time consumption, device replacement, desktop revoke, phone self-revoke, and relay snapshot refresh rotate or invalidate capabilities immediately; a consumed, expired, revoked, old-host, or replayed secret cannot authenticate after any process restart.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts",
+      "status": "pending",
+      "reason": "Pending capability-expiry/replay proof in apps/api_server/src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts."
+    },
+    {
+      "criterion_id": "post-m1-p9-c4c",
+      "text": "A restored phone prefers the exact configured relayUrl, can adopt that relay without re-pairing, retains gatewayUrl only as the direct fallback, distinguishes offline, tailscaleUnavailable, revoked, incompatible, accountMismatch, and unhealthy, and resumes after independent relay/API/engine readiness windows without changing hostId or deviceId.",
+      "mode": "e2e",
+      "test": "apps/mobile/tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs",
+      "status": "pending",
+      "reason": "Pending relay migration/offline/restart state proof in apps/mobile/tests/e2e/post-m1-phase-9-pairing-continuity.spec.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p9-c4d",
+      "text": "Every serial success and failure path waits independently for phone, packaged Electron, API, engine, and relay readiness, then leaves zero test-created pairing codes, devices, gateway or PTY/SSE/WS listeners, engine sessions, worktrees, branches, attachment files, phone metadata/credentials, or owned child processes while preserving unrelated pre-existing records and listeners.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts",
+      "status": "pending",
+      "reason": "Pending complete multi-process isolation and cleanup audit in apps/api_server/src/__tests__/post_m1_phase_9_restart_cleanup_live.test.ts; zero SQL rows alone will not satisfy it."
+    }
+  ],
+  "not_tested": [],
+  "note": "All Phase 9 criteria start pending. The contract is derived from the capability inventory, including eight explicit React/Electron gaps: owned local-server lifecycle, Mobile Access diagnostics, pairing QR lifecycle, desktop device administration, live reconnect/queued prompt delivery, attachment parts, session diff, and child-session continuity. No tests were written or run by the inventory unit."
+}
