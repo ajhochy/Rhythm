@@ -9,14 +9,17 @@
 // renders inline in the detail pane instead of portaling into it). Workflow-step *removal* isn't
 // carried over: RhythmsGateway only exposes addStep, matching the production step-replace-on-save
 // semantics being out of scope for this narrower contract — see domain/types.ts.
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
 import { RhythmGatewayError, type RhythmCadence, type RhythmRhythm, type RhythmStep, type RhythmWorkspaceMember } from '../domain/types';
+import type { RhythmWorkspaceOperationConfirmation } from '../host/types';
 
 type RhythmsSurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
 type RuleDraft = { title: string; frequency: RhythmCadence; dayOfWeek: number; dayOfMonth: number; month: number; sequential: boolean; steps: Array<{ title: string; assigneeId: string }> };
+type RhythmOperation = Extract<RhythmWorkspaceOperationConfirmation['operation'], `rhythms.${string}`>;
+type RhythmOperationTarget = { operation: RhythmOperation; entityId: string; payload: Record<string, string | number | boolean | null>; generation: string; mutate(): Promise<void> };
 
 const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -77,6 +80,13 @@ function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, disable
   const patchStep = (index: number, patch: Partial<{ title: string; assigneeId: string }>) =>
     setDraft((current) => ({ ...current, steps: current.steps.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step)) }));
   const removeStep = (index: number) => setDraft((current) => ({ ...current, steps: current.steps.filter((_, stepIndex) => stepIndex !== index) }));
+  const moveStep = (index: number, direction: -1 | 1) => setDraft((current) => {
+    const destination = index + direction;
+    if (destination < 0 || destination >= current.steps.length) return current;
+    const steps = [...current.steps];
+    [steps[index], steps[destination]] = [steps[destination]!, steps[index]!];
+    return { ...current, steps };
+  });
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -104,6 +114,8 @@ function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, disable
                 <option value="">None</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
               </select></label>
               <button className="text-danger-button" type="button" disabled={disabled} onClick={() => removeStep(index)} data-testid={`${idPrefix}-remove-step-${index}`}>Remove step</button>
+              <button className="text-button" type="button" disabled={disabled || index === 0} onClick={() => moveStep(index, -1)} data-testid={`${idPrefix}-move-step-up-${index}`}>Move up</button>
+              <button className="text-button" type="button" disabled={disabled || index === draft.steps.length - 1} onClick={() => moveStep(index, 1)} data-testid={`${idPrefix}-move-step-down-${index}`}>Move down</button>
             </fieldset>
           ))}
           {draft.steps.length > 1 && (
@@ -129,20 +141,24 @@ function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, disable
 export function RhythmsScreen() {
   const { rhythms: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
-  const canWrite = host.currentUser.collaborationCapability === 'write';
+  const capabilities = host.currentUser.capabilities ?? [];
+  const can = (operation: RhythmOperation) => capabilities.includes('rhythms.write') || capabilities.includes(operation);
   const isOwner = (rule: RhythmRhythm) => Boolean(host.currentUser.id && host.currentUser.id === rule.ownerId);
   const [surfaceState, setSurfaceState] = useState<RhythmsSurfaceState>('loading');
   const [rules, setRules] = useState<RhythmRhythm[]>([]);
   const [members, setMembers] = useState<RhythmWorkspaceMember[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<RhythmRhythm | null>(null);
-  const [collaboratorPickerOpen, setCollaboratorPickerOpen] = useState(false);
   const [stepTitle, setStepTitle] = useState('');
   const [stepAssignee, setStepAssignee] = useState('');
   const [mutationPending, setMutationPending] = useState(false);
+  const [operationTarget, setOperationTarget] = useState<RhythmOperationTarget | null>(null);
+  const [operationError, setOperationError] = useState<'conflict' | 'uncertain' | null>(null);
   const newRuleTriggerRef = useRef<HTMLButtonElement>(null);
   const loadGeneration = useRef(0);
+  const operationGeneration = useRef(0);
+  const operationEpoch = useRef(0);
+  const mounted = useRef(true);
 
   const selected = rules.find((rule) => rule.id === selectedId) ?? null;
 
@@ -166,29 +182,57 @@ export function RhythmsScreen() {
   };
 
   useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
+  useEffect(() => () => { mounted.current = false; operationEpoch.current += 1; }, []);
 
   const showsWorkspace = surfaceState === 'ready';
 
-  const inspect = (rule: RhythmRhythm) => setSelectedId(rule.id);
-  const closeSelection = () => setSelectedId(null);
-
-  const toggleEnabled = async (rule: RhythmRhythm, enabled: boolean) => {
-    if (!canWrite || !isOwner(rule) || mutationPending) return;
+  const closeOperation = () => { operationEpoch.current += 1; setOperationError(null); setOperationTarget(null); };
+  const inspect = (rule: RhythmRhythm) => { closeOperation(); setSelectedId(rule.id); };
+  const closeSelection = () => { closeOperation(); setSelectedId(null); };
+  const requestOperation = (operation: RhythmOperation, entityId: string, payload: RhythmOperationTarget['payload'], mutate: RhythmOperationTarget['mutate']) => {
+    if (!can(operation) || mutationPending) return;
+    operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationError(null);
+    setOperationTarget({ operation, entityId, payload, mutate, generation: `${entityId}:${operation}:${operationGeneration.current}:${Date.now()}` });
+  };
+  const retryOperation = () => {
+    if (!operationTarget || mutationPending) return;
+    operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationError(null);
+    setOperationTarget((target) => target && ({ ...target, generation: `${target.entityId}:${target.operation}:${operationGeneration.current}:${Date.now()}` }));
+  };
+  const confirmOperation = async () => {
+    if (!operationTarget || mutationPending) return;
+    const target = operationTarget;
+    const epoch = operationEpoch.current;
     setMutationPending(true);
     try {
+      const confirmation: RhythmWorkspaceOperationConfirmation = { operation: target.operation, entityId: target.entityId, payload: target.payload, generation: target.generation };
+      if (host.confirmWorkspaceOperation && !(await host.confirmWorkspaceOperation(confirmation))) return;
+      if (!mounted.current || operationEpoch.current !== epoch || operationTarget !== target) return;
+      await target.mutate();
+      if (!mounted.current || operationEpoch.current !== epoch || operationTarget !== target) return;
+      setOperationTarget(null);
+    } catch (error) {
+      const kind = (error as { kind?: unknown } | null)?.kind;
+      if (kind === 'conflict' || kind === 'uncertain') setOperationError(kind);
+      else handleError(error);
+    } finally { if (mounted.current) setMutationPending(false); }
+  };
+
+  const toggleEnabled = async (rule: RhythmRhythm, enabled: boolean) => {
+    if (!isOwner(rule)) return;
+    requestOperation('rhythms.update-rule', rule.id, { enabled }, async () => {
       const updated = await gateway.update(rule.id, { enabled });
       setRules((current) => current.map((item) => (item.id === rule.id ? updated : item)));
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const createRule = async (draft: RuleDraft) => {
-    if (!canWrite) return;
-    setMutationPending(true);
-    try {
+    const normalizedSteps = draft.steps.map((step) => ({ title: step.title.trim().slice(0, 200), assigneeId: step.assigneeId || null }));
+    requestOperation('rhythms.create-rule', 'new-rule', { title: draft.title.slice(0, 200), frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential, steps: JSON.stringify(normalizedSteps).slice(0, 2000) }, async () => {
       const created = await gateway.create({ title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
       let withSteps = created;
       for (const step of draft.steps) {
@@ -197,83 +241,41 @@ export function RhythmsScreen() {
       setRules((current) => [...current, withSteps]);
       setSelectedId(withSteps.id);
       setCreateOpen(false);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const saveRule = async (draft: RuleDraft) => {
-    if (!canWrite || !selected || !isOwner(selected)) return;
-    setMutationPending(true);
-    try {
-      await gateway.update(selected.id, { title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
-      const updated = await gateway.replaceSteps(selected.id, draft.steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId || undefined })));
+    if (!selected || !isOwner(selected)) return;
+    const steps = draft.steps.map((step) => ({ title: step.title.trim(), assigneeId: step.assigneeId || '' }));
+    const originalSteps = selected.steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId ?? '' }));
+    const sameStep = (left: typeof steps[number], right: typeof steps[number]) => left.title === right.title && left.assigneeId === right.assigneeId;
+    const sameStepSet = JSON.stringify([...steps].sort((left, right) => `${left.title}:${left.assigneeId}`.localeCompare(`${right.title}:${right.assigneeId}`))) === JSON.stringify([...originalSteps].sort((left, right) => `${left.title}:${left.assigneeId}`.localeCompare(`${right.title}:${right.assigneeId}`)));
+    const ruleChanged = selected.title !== draft.title || selected.frequency !== draft.frequency || selected.dayOfWeek !== draft.dayOfWeek || selected.dayOfMonth !== draft.dayOfMonth || selected.month !== draft.month || selected.sequential !== draft.sequential;
+    const stepsChanged = JSON.stringify(steps) !== JSON.stringify(originalSteps);
+    const operation: RhythmOperation = ruleChanged ? 'rhythms.update-rule'
+      : steps.length > originalSteps.length ? 'rhythms.create-step'
+          : steps.length < originalSteps.length ? 'rhythms.delete-step'
+          : sameStepSet && steps.some((step, index) => !sameStep(step, originalSteps[index]!)) ? 'rhythms.reorder-step'
+            : 'rhythms.update-step';
+    if (!ruleChanged && !stepsChanged) return;
+    requestOperation(operation, selected.id, { title: draft.title.slice(0, 200), frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential, steps: JSON.stringify(steps.map((step) => ({ title: step.title.slice(0, 200), assigneeId: step.assigneeId || null }))).slice(0, 2000) }, async () => {
+      let updated = selected;
+      if (ruleChanged) updated = await gateway.update(selected.id, { title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
+      if (stepsChanged) updated = await gateway.replaceSteps(selected.id, steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId || undefined })));
       setRules((current) => current.map((rule) => (rule.id === selected.id ? updated : rule)));
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const addWorkflowStep = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !selected || !isOwner(selected) || !stepTitle.trim()) return;
-    setMutationPending(true);
-    try {
+    if (!selected || !isOwner(selected) || !stepTitle.trim()) return;
+    requestOperation('rhythms.create-step', selected.id, { title: stepTitle.trim().slice(0, 200), assigneeId: stepAssignee || null }, async () => {
       const step = await gateway.addStep(selected.id, { title: stepTitle.trim(), assigneeId: stepAssignee || undefined });
       setRules((current) => current.map((rule) => (rule.id === selected.id ? { ...rule, steps: [...rule.steps, step] } : rule)));
       setStepTitle('');
       setStepAssignee('');
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
-
-  const addCollaborator = async (memberId: string) => {
-    if (!canWrite || !selected || !isOwner(selected)) return;
-    try {
-      const updated = await gateway.addCollaborator(selected.id, memberId);
-      setRules((current) => current.map((rule) => (rule.id === updated.id ? updated : rule)));
-      setCollaboratorPickerOpen(false);
-    } catch (error) {
-      handleError(error);
-    }
-  };
-
-  const removeCollaborator = async (memberId: string) => {
-    if (!canWrite || !selected || !isOwner(selected)) return;
-    try {
-      const updated = await gateway.removeCollaborator(selected.id, memberId);
-      setRules((current) => current.map((rule) => (rule.id === updated.id ? updated : rule)));
-    } catch (error) {
-      handleError(error);
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!canWrite || !deleteTarget || !isOwner(deleteTarget)) return;
-    setMutationPending(true);
-    try {
-      await gateway.delete(deleteTarget.id);
-      setRules((current) => current.filter((rule) => rule.id !== deleteTarget.id));
-      if (selectedId === deleteTarget.id) setSelectedId(null);
-      setDeleteTarget(null);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
-  };
-
-  const candidates = useMemo(
-    () => (selected ? members.filter((person) => person.id !== selected.ownerId && !selected.collaborators.some((collaborator) => collaborator.id === person.id)) : []),
-    [members, selected],
-  );
 
   return (
     <ScreenRoot screenName="Rhythms" testId="rhythm-rhythms-screen">
@@ -282,7 +284,7 @@ export function RhythmsScreen() {
           <div className="rhythms-heading"><span className="eyebrow">Recurring work</span><h1>Rhythms</h1><p>Manage recurring rules, owners, generated tasks, and the next scheduled run.</p></div>
           <div className="rhythms-header-actions">
             <span data-testid="rhythms-visible-count">{rules.length} {rules.length === 1 ? 'rule' : 'rules'}</span>
-            <button ref={newRuleTriggerRef} className="primary-button" type="button" disabled={!showsWorkspace || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setCreateOpen(true)} data-testid="rhythms-new-rule">New rule</button>
+            <button ref={newRuleTriggerRef} className="primary-button" type="button" disabled={!showsWorkspace || !can('rhythms.create-rule')} title={!can('rhythms.create-rule') ? 'This host grants inspection only.' : undefined} onClick={() => setCreateOpen(true)} data-testid="rhythms-new-rule">New rule</button>
           </div>
         </header>
 
@@ -303,10 +305,10 @@ export function RhythmsScreen() {
                       <div className="rhythm-card-actions">
                         <button className="secondary-button" type="button" aria-label={`Inspect ${rule.title}`} onClick={() => inspect(rule)} data-testid={`rhythm-inspect-${rule.id}`}>Inspect</button>
                         <label className="rhythm-enabled-toggle">
-                          <input type="checkbox" checked={rule.enabled} disabled={mutationPending || !canWrite || !isOwner(rule)} title={!isOwner(rule) ? 'Only the rhythm owner can change this rule.' : !canWrite ? 'This host grants inspection only.' : undefined} aria-label={`${rule.enabled ? 'Enabled' : 'Paused'} - ${rule.title}`} onChange={(event) => void toggleEnabled(rule, event.target.checked)} data-testid={`rhythm-enabled-${rule.id}`} />
+                          <input type="checkbox" checked={rule.enabled} disabled={mutationPending || !can('rhythms.update-rule') || !isOwner(rule)} title={!isOwner(rule) ? 'Only the rhythm owner can change this rule.' : !can('rhythms.update-rule') ? 'This host grants inspection only.' : undefined} aria-label={`${rule.enabled ? 'Enabled' : 'Paused'} - ${rule.title}`} onChange={(event) => void toggleEnabled(rule, event.target.checked)} data-testid={`rhythm-enabled-${rule.id}`} />
                           <span aria-hidden="true" /><b>{rule.enabled ? 'Enabled' : 'Paused'}</b>
                         </label>
-                        <button className="text-danger-button" type="button" disabled={mutationPending || !canWrite || !isOwner(rule)} title={!isOwner(rule) ? 'Only the rhythm owner can delete this rule.' : !canWrite ? 'This host grants inspection only.' : undefined} aria-label={`Delete ${rule.title}`} onClick={() => setDeleteTarget(rule)} data-testid={`rhythm-delete-${rule.id}`}>Delete</button>
+                        <button className="text-danger-button" type="button" disabled={mutationPending || !can('rhythms.delete-rule') || !isOwner(rule)} title={!isOwner(rule) ? 'Only the rhythm owner can delete this rule.' : !can('rhythms.delete-rule') ? 'This host grants inspection only.' : undefined} aria-label={`Delete ${rule.title}`} onClick={() => requestOperation('rhythms.delete-rule', rule.id, { title: rule.title.slice(0, 200) }, async () => { await gateway.delete(rule.id); setRules((current) => current.filter((item) => item.id !== rule.id)); if (selectedId === rule.id) setSelectedId(null); })} data-testid={`rhythm-delete-${rule.id}`}>Delete</button>
                       </div>
                     </article>
                   ))}
@@ -339,19 +341,19 @@ export function RhythmsScreen() {
                         showStepsBuilder
                         initial={{ title: selected.title, frequency: selected.frequency, dayOfWeek: selected.dayOfWeek, dayOfMonth: selected.dayOfMonth, month: selected.month, sequential: selected.sequential, steps: selected.steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId ?? '' })) }}
                         members={members}
-                        disabled={mutationPending || !canWrite || !isOwner(selected)}
+                        disabled={mutationPending || !isOwner(selected) || !(['rhythms.update-rule', 'rhythms.create-step', 'rhythms.update-step', 'rhythms.delete-step', 'rhythms.reorder-step'] as RhythmOperation[]).some(can)}
                         onCancel={closeSelection}
                         onSave={(draft) => void saveRule(draft)}
                       />
                     </section>
 
                     <section className="rhythm-collaborators" aria-labelledby="rhythm-collaborators-title">
-                      <header><h3 id="rhythm-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" disabled={!canWrite || !isOwner(selected)} onClick={() => setCollaboratorPickerOpen(true)} data-testid="rhythm-add-collaborator">Add collaborator</button></header>
+                      <header><h3 id="rhythm-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" disabled title="Collaborator changes are not available from this host-neutral surface." data-testid="rhythm-add-collaborator">Add collaborator</button></header>
                       <div className="rhythm-people">
                         {selected.collaborators.length ? selected.collaborators.map((person) => (
                           <div className="rhythm-person" key={person.id} data-testid={`rhythm-collaborator-${person.id}`}>
                             <span aria-hidden="true">{person.initials}</span><strong>{person.name}</strong>
-                            <button type="button" disabled={!canWrite || !isOwner(selected)} aria-label={`Remove ${person.name}`} onClick={() => void removeCollaborator(person.id)} data-testid={`rhythm-remove-collaborator-${person.id}`}>Remove</button>
+                            <button type="button" disabled aria-label={`Remove ${person.name}`} title="Collaborator changes are not available from this host-neutral surface." data-testid={`rhythm-remove-collaborator-${person.id}`}>Remove</button>
                           </div>
                         )) : <p>No collaborators yet.</p>}
                       </div>
@@ -363,9 +365,9 @@ export function RhythmsScreen() {
                         <ol>{selected.steps.map((step: RhythmStep) => <li key={step.id} data-testid={`rhythm-step-${step.id}`}><strong>{step.title}</strong><span>{members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span></li>)}</ol>
                       )}
                       <form className="rhythm-add-step-form" onSubmit={addWorkflowStep}>
-                        <label>New step title<input disabled={!canWrite || !isOwner(selected)} value={stepTitle} onChange={(event) => setStepTitle(event.target.value)} data-testid="rhythm-add-step-title" /></label>
-                        <label>Assignee<select disabled={!canWrite || !isOwner(selected)} value={stepAssignee} onChange={(event) => setStepAssignee(event.target.value)} data-testid="rhythm-add-step-assignee"><option value="">None</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-                        <button className="secondary-button" type="submit" disabled={mutationPending || !canWrite || !isOwner(selected) || !stepTitle.trim()} data-testid="rhythm-add-step-submit">Add step</button>
+                        <label>New step title<input disabled={!can('rhythms.create-step') || !isOwner(selected)} value={stepTitle} onChange={(event) => setStepTitle(event.target.value)} data-testid="rhythm-add-step-title" /></label>
+                        <label>Assignee<select disabled={!can('rhythms.create-step') || !isOwner(selected)} value={stepAssignee} onChange={(event) => setStepAssignee(event.target.value)} data-testid="rhythm-add-step-assignee"><option value="">None</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+                        <button className="secondary-button" type="submit" disabled={mutationPending || !can('rhythms.create-step') || !isOwner(selected) || !stepTitle.trim()} data-testid="rhythm-add-step-submit">Add step</button>
                       </form>
                     </section>
                   </section>
@@ -377,26 +379,16 @@ export function RhythmsScreen() {
           )}
         </div>
 
-        <FocusDialog open={createOpen} onClose={() => setCreateOpen(false)} title="New Recurring Rule" description="Create a recurring rule with optional workflow steps." testId="rhythm-create-dialog" wide>
-          <RuleForm idPrefix="rhythm-create" initial={blankDraft()} members={members} onCancel={() => setCreateOpen(false)} onSave={(draft) => void createRule(draft)} />
+        <FocusDialog open={createOpen} onClose={() => { closeOperation(); setCreateOpen(false); }} title="New Recurring Rule" description="Create a recurring rule with optional workflow steps." testId="rhythm-create-dialog" wide>
+          <RuleForm idPrefix="rhythm-create" initial={blankDraft()} members={members} disabled={mutationPending || !can('rhythms.create-rule')} onCancel={() => { closeOperation(); setCreateOpen(false); }} onSave={(draft) => void createRule(draft)} />
         </FocusDialog>
 
-        <FocusDialog open={Boolean(deleteTarget)} onClose={() => setDeleteTarget(null)} title={deleteTarget ? `Delete "${deleteTarget.title}"?` : 'Delete rhythm?'} description="This will not remove already-generated tasks." testId="rhythm-delete-dialog">
-          <div className="dialog-actions">
-            <button className="secondary-button" type="button" onClick={() => setDeleteTarget(null)} data-testid="rhythm-delete-cancel">Cancel</button>
-            <button className="danger-button" type="button" disabled={mutationPending} onClick={() => void confirmDelete()} data-testid="rhythm-delete-confirm">Delete rule</button>
-          </div>
+        <FocusDialog open={Boolean(operationTarget)} onClose={closeOperation} title="Confirm Rhythm change" description="This exact change is sent only after you confirm it." testId="rhythm-operation-confirmation">
+          <p role="status">Confirm {operationTarget?.operation} for this rhythm.</p>
+          {operationError && <div role="alert" data-testid="rhythm-operation-outcome"><p>{operationError === 'conflict' ? 'This rhythm changed elsewhere. Reload before retrying.' : 'We could not verify whether this change was applied. Reload before retrying.'}</p><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => void load()} data-testid="rhythm-operation-reload">Reload</button><button className="secondary-button" type="button" onClick={retryOperation} data-testid="rhythm-operation-retry">Retry</button></div></div>}
+          <div className="dialog-actions"><button className="secondary-button" type="button" onClick={closeOperation} data-testid="rhythm-operation-cancel">Cancel</button><button className="primary-button" type="button" disabled={mutationPending} onClick={() => void confirmOperation()} data-autofocus data-testid="rhythm-operation-confirm">Confirm</button></div>
         </FocusDialog>
 
-        <FocusDialog open={collaboratorPickerOpen && Boolean(selected)} onClose={() => setCollaboratorPickerOpen(false)} title="Add collaborator" description="Owner and existing collaborators are excluded." testId="rhythm-collaborator-picker">
-          <div className="rhythm-candidate-list" role="listbox" aria-label="Available workspace members">
-            {candidates.length ? candidates.map((person) => (
-              <button className="rhythm-candidate" role="option" aria-selected="false" type="button" key={person.id} onClick={() => void addCollaborator(person.id)} data-testid={`rhythm-collaborator-option-${person.id}`}>
-                <span aria-hidden="true">{person.initials}</span><strong>{person.name}</strong>
-              </button>
-            )) : <p>No eligible workspace members.</p>}
-          </div>
-        </FocusDialog>
       </section>
     </ScreenRoot>
   );

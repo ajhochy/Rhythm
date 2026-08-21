@@ -69,10 +69,15 @@ export type RhythmWorkspaceCapability =
   | 'planner.update-task'
   | 'planner.update-project-step'
   | 'planner.schedule-project-step'
+  /** Broad legacy Rhythms access remains explicit for general hosts. */
+  | 'rhythms.write'
   | 'rhythms.create-rule'
   | 'rhythms.update-rule'
   | 'rhythms.delete-rule'
+  | 'rhythms.create-step'
   | 'rhythms.update-step'
+  | 'rhythms.delete-step'
+  | 'rhythms.reorder-step'
   | 'projects.generate-instance'
   | 'projects.update-step'
   | 'projects.add-milestone';
