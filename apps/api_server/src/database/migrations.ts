@@ -4433,6 +4433,15 @@ If someone asks for creative work that needs a local capability:
     );
   }
 
+  // D4.6 (#1444) — one user-visible regression-disable alert per recipient
+  // and D2 proposal. This is narrow rather than a general notification
+  // dedupe policy: existing notification types retain their historical fanout.
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_auto_promotion_regression_once
+      ON notifications(recipient_user_id, type, entity_type, entity_id)
+      WHERE type = 'auto_promotion_disabled_regression'
+  `);
+
   // ── D1.1 (#1426) — tool safety reports (sandbox vetting record) ──────────
   //
   // One row per sandbox vetting run for a `tool-install` agent_org_proposals

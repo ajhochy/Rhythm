@@ -161,15 +161,68 @@ export class PostApplyEventsRepository {
     return row ? rowToModel(row) : null;
   }
 
-  /** Bounded scheduler input; monitoring rows first, then deferred tripped rows. */
+  /**
+   * Bounded scheduler input. Alongside active D2 lifecycle rows, this admits
+   * terminal reverts only while their feedback remains derivably incomplete:
+   * the trust singleton is not caught up/disabled, or the one notification
+   * for the current valid recipient has not landed. No mutable "delivered"
+   * flag is needed; the event, trust ledger, users, and notification ledger
+   * are the canonical recovery state.
+   */
   async listActionableAsync(limit = 50): Promise<PostApplyEvent[]> {
     const bounded = Math.max(1, Math.min(200, Math.trunc(limit)));
     const rows = this.db
       .prepare(
-        `SELECT * FROM agent_org_post_apply_events
-          WHERE guardrail_status IN ('monitoring', 'tripped')
-            AND revert_status = 'none'
-          ORDER BY created_at ASC
+        `SELECT event.* FROM agent_org_post_apply_events event
+          LEFT JOIN agent_org_proposals event_owner ON event_owner.id = event.proposal_id
+          WHERE (event.guardrail_status IN ('monitoring', 'tripped')
+                 AND event.revert_status = 'none')
+             OR (
+               event.revert_status = 'reverted'
+               AND (
+                 NOT EXISTS (SELECT 1 FROM promotion_trust_state)
+                 OR EXISTS (
+                   SELECT 1
+                   FROM promotion_trust_state trust
+                   WHERE trust.auto_promotion_enabled = 1
+                      OR trust.auto_promotion_eligible = 1
+                      OR trust.total_regressions < (
+                        SELECT
+                          (SELECT COUNT(*)
+                             FROM agent_org_experiments experiment
+                            WHERE experiment.decision = 'regress')
+                          +
+                          (SELECT COUNT(DISTINCT reverted.id)
+                             FROM agent_org_post_apply_events reverted
+                            WHERE reverted.revert_status = 'reverted'
+                              AND NOT EXISTS (
+                                SELECT 1
+                                FROM agent_org_experiments experiment
+                                WHERE experiment.proposal_id = reverted.proposal_id
+                                  AND experiment.decision = 'regress'
+                              ))
+                      )
+                 )
+                 OR NOT EXISTS (
+                   SELECT 1
+                   FROM notifications notification
+                   WHERE notification.recipient_user_id = COALESCE(
+                     (SELECT owner.id FROM users owner
+                       WHERE owner.id = event_owner.owner_user_id AND owner.id > 0),
+                     (SELECT decider.id FROM users decider
+                       WHERE decider.id = event_owner.decided_by_user_id AND decider.id > 0),
+                     (SELECT fallback.id FROM users fallback
+                       WHERE fallback.id > 0 AND fallback.role IN ('admin', 'system')
+                       ORDER BY fallback.created_at ASC, fallback.id ASC
+                       LIMIT 1)
+                   )
+                     AND notification.type = 'auto_promotion_disabled_regression'
+                     AND notification.entity_type = 'agent_org_proposal'
+                     AND notification.entity_id = event.proposal_id
+                 )
+               )
+             )
+          ORDER BY event.created_at ASC
           LIMIT ?`,
       )
       .all(bounded) as PostApplyEventRow[];

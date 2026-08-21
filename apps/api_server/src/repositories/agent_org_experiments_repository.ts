@@ -308,20 +308,43 @@ export class AgentOrgExperimentsRepository {
   }
 
   /**
-   * D4.2 (#1440) — the trust counter's one-statement read of the ledger:
-   * `totalVerified` counts EXPERIMENT rows (not proposals) whose associated
-   * proposal has `outcome_status = 'verified'` — a verified proposal with no
-   * experiment does not count. `totalRegressions` counts experiment rows
-   * with `decision = 'regress'`. Both counters come from the same query so
-   * they reflect one consistent snapshot of the ledger.
+   * D4.2/D4.6 (#1440/#1444) — the trust counter's one-statement read of its
+   * two authoritative ledgers. `totalVerified` counts EXPERIMENT rows (not
+   * proposals) whose associated proposal has `outcome_status = 'verified'`.
+   * `totalRegressions` combines fixed-horizon experiment `decision='regress'`
+   * with a DISTINCT successful D2 auto-revert event (`revert_status='reverted'`).
+   *
+   * The D2 event is deliberately excluded when that same proposal already
+   * has a fixed-horizon regress decision. This proves the monitored outcome
+   * is additive only for an otherwise-unrepresented regression; it never
+   * changes a historical experiment decision from promote to regress, and a
+   * retry/sweep cannot double count the event's stable primary-key identity.
    */
   async getTrustLedgerCountsAsync(): Promise<{ totalVerified: number; totalRegressions: number }> {
     const sql = `
+      WITH experiment_ledger AS (
+        SELECT
+          COALESCE(SUM(CASE WHEN p.outcome_status = 'verified' THEN 1 ELSE 0 END), 0) AS total_verified,
+          COALESCE(SUM(CASE WHEN e.decision = 'regress' THEN 1 ELSE 0 END), 0) AS experiment_regressions
+        FROM agent_org_experiments e
+        JOIN agent_org_proposals p ON p.id = e.proposal_id
+      ),
+      post_apply_regressions AS (
+        SELECT COUNT(DISTINCT event.id) AS total
+        FROM agent_org_post_apply_events event
+        WHERE event.revert_status = 'reverted'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM agent_org_experiments experiment
+            WHERE experiment.proposal_id = event.proposal_id
+              AND experiment.decision = 'regress'
+          )
+      )
       SELECT
-        COALESCE(SUM(CASE WHEN p.outcome_status = 'verified' THEN 1 ELSE 0 END), 0) AS total_verified,
-        COALESCE(SUM(CASE WHEN e.decision = 'regress' THEN 1 ELSE 0 END), 0) AS total_regressions
-      FROM agent_org_experiments e
-      JOIN agent_org_proposals p ON p.id = e.proposal_id
+        experiment_ledger.total_verified AS total_verified,
+        experiment_ledger.experiment_regressions + post_apply_regressions.total AS total_regressions
+      FROM experiment_ledger
+      CROSS JOIN post_apply_regressions
     `;
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(sql);

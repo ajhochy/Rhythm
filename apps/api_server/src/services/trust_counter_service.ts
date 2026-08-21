@@ -12,10 +12,12 @@
  *   - totalRegressions: agent_org_experiments rows with decision='regress'
  *     (W6-c12's authoritative decision field).
  * `autoPromotionEligible` is derived (totalVerified >= trustThreshold AND
- * totalRegressions === 0) and persisted alongside the counts.
+ * totalRegressions === 0) and persisted alongside the counts. D4.6 makes a
+ * non-zero durable regression atomically disable the gate; this service never
+ * enables it.
  *
- * This module NEVER sets `autoPromotionEnabled` — that gate is a separate,
- * later D4 decision. Recording eligibility here is read-and-record only.
+ * This module NEVER sets `autoPromotionEnabled` true. A regression can only
+ * force it false through the repository's atomic persistence boundary.
  */
 import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
 import { PromotionTrustStateRepository } from '../repositories/promotion_trust_state_repository';
@@ -50,8 +52,8 @@ export async function computeTrustCountersAsync(deps: TrustCounterDeps = {}): Pr
 
 /**
  * Recomputes the counters and durably records them on the singleton.
- * `autoPromotionEnabled`/`enabledAt` are untouched — see
- * PromotionTrustStateRepository.recordEligibilityAsync.
+ * A zero-regression refresh preserves the gate; a non-zero durable regression
+ * atomically disables it — see PromotionTrustStateRepository.recordEligibilityAsync.
  */
 export async function recordTrustCountersAsync(deps: TrustCounterDeps = {}): Promise<PromotionTrustState> {
   const trustStateRepo = deps.trustStateRepo ?? new PromotionTrustStateRepository();

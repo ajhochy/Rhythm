@@ -87,4 +87,19 @@ export class NotificationService {
       message: `Your step "${stepTitle}" is now ready in "${rhythmTitle}"`,
     });
   }
+
+  /** D4.6 — intentionally static, user-visible, and free of change payloads. */
+  async notifyAutoPromotionDisabledDueToRegressionAsync(
+    proposalId: string,
+    recipientUserId: number,
+  ): Promise<void> {
+    await this.repo.insertOnceAsync({
+      recipientUserId,
+      type: 'auto_promotion_disabled_regression',
+      entityType: 'agent_org_proposal',
+      entityId: proposalId,
+      message:
+        'Auto-promotion was disabled because a post-apply regression was reverted. Review the change before explicitly opting in again.',
+    });
+  }
 }
