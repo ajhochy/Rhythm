@@ -758,7 +758,12 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
   }
 }
 
-export function startAgentSchedulerJob(): { stop: () => void } | null {
+export interface AgentSchedulerJob {
+  stop: () => void;
+  boot: Promise<void>;
+}
+
+export function startAgentSchedulerJob(): AgentSchedulerJob | null {
   // Local smoke must be observational. Do not reset stale rows, advance
   // next_run, create sessions, or execute any scheduled prompt against the
   // user's real local database.
@@ -866,7 +871,7 @@ export function startAgentSchedulerJob(): { stop: () => void } | null {
   // finish initializing first; see _waitForEngineReadyOnBoot above. The
   // trigger-insertion path (env.agentLocal === false) never touches the
   // engine, so it skips the wait entirely.
-  void (async () => {
+  const boot = (async () => {
     if (env.agentLocal) {
       const engineReady = await waitForScheduledEngineReady();
       await checkDueTasks(engineReady);
@@ -896,5 +901,8 @@ export function startAgentSchedulerJob(): { stop: () => void } | null {
   });
 
   logger.info('[AgentScheduler] Scheduler started (1-min tick)');
-  return task;
+  return {
+    stop: () => task.stop(),
+    boot,
+  };
 }
