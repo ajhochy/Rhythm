@@ -8,6 +8,22 @@ status: ready-for-verification
 tags: [run, Rhythm]
 ---
 
+## REPAIRED 2026-08-21
+
+This run **overclaimed** in two ways: (1) "installs the candidate tool"
+never actually invoked the candidate against any test prompt/scenario — it
+only counted `testPrompts.length`; (2) the fail-closed claims in
+`issue-1427-c6`/`c7` had a real fail-OPEN gap — a `docker run` client killed
+by a timeout/signal resolved NORMALLY (only exit code 125 was checked), and
+missing/corrupt observation files parsed as zero violations, both of which
+could produce a fabricated `verdict: 'safe'`. The test suite's own
+`afterAll` also swept/removed every `rhythm-d1-vet-*` container by prefix —
+a destructive action against potentially unrelated live containers. See
+`docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md` and the `repair` block in
+`docs/ai/contracts/issue-1427.json` for the fix (genuine per-scenario
+invocation, fixed sanitized failure reasons, a fail-closed evidence-
+completeness gate, container hardening, and exact-name-only teardown).
+
 ## Contract
 
 - `docs/ai/contracts/issue-1427.json`

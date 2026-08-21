@@ -8,6 +8,21 @@ status: ready-for-verification
 tags: [run, Rhythm]
 ---
 
+## REPAIRED 2026-08-21
+
+This run's `testPrompts` schema **contradicted** both D1.2's eventual
+closed-scenario contract and the track's durable-state no-raw-prompt rule:
+it accepted 1-20 ARBITRARY strings (up to 4000 chars each) rather than a
+closed, enumerable set of scenario identifiers — an arbitrary string is,
+structurally, a place prompt text or a secret can be smuggled through.
+`toolName`/`packageSource` were also only checked for non-empty-string
+presence, not validated as safe shell-interpolation-bound identifiers before
+a sandbox run could ever be attempted from them. See
+`docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md` and the `repair` block in
+`docs/ai/contracts/issue-1428.json` for the fix (closed 2-3 scenario-ID
+membership check shared with D1.2, plus shared toolName/packageSource safety
+predicates).
+
 ## Contract
 
 - `docs/ai/contracts/issue-1428.json`

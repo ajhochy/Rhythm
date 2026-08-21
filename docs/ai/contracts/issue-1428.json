@@ -6,6 +6,15 @@
   "date": "2026-08-20",
   "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts",
   "waiver": null,
+  "repair": {
+    "date": "2026-08-21",
+    "blocker": "Blocker D — the schema allowed 1-20 arbitrary strings in `testPrompts` (contradicting D1.2's closed-scenario contract and the track's no-raw-prompt rule), and never validated `toolName`/`packageSource` as safe shell-interpolation-bound identifiers before a sandbox run could ever be built from them.",
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md",
+    "files_changed": [
+      "apps/api_server/src/services/tool_install_proposal_validator.ts (testPrompts now validated against the closed tool_test_scenarios.ts registry, exactly 2-3 unique entries; added toolName/packageSource safety checks via tool_install_safety.ts)",
+      "apps/api_server/src/services/__tests__/tool_install_proposal_validator.test.ts (fixture updated to closed scenario IDs; replaced the old count/length-bound test cases with 2-accepted/3-accepted/1-rejected/4-rejected/unknown-id-rejected-no-echo/duplicate-rejected/unsafe-toolName-no-echo/unsafe-packageSource-no-echo)"
+    ]
+  },
   "criteria": [
     {
       "criterion_id": "issue-1428-c1",
@@ -37,24 +46,26 @@
     },
     {
       "criterion_id": "issue-1428-c5",
-      "text": "Test prompts are typed (array of non-empty strings, each entry checked) and sized (bounded COUNT and per-entry LENGTH) — unbounded/raw prompt blobs are refused.",
+      "text": "`testPrompts` is exactly 2 or 3 CLOSED scenario identifiers (never arbitrary/raw prompt strings, never fewer than 2, never more than 3, never a duplicate).",
       "mode": "unit",
-      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal whose testPrompts is not typed as an array of strings'; 'rejects a proposal with an unbounded number of test prompts'; 'rejects a proposal carrying a raw, unbounded prompt blob and never echoes the blob back')",
-      "status": "pass"
+      "test": "tool_install_proposal_validator.test.ts ('accepts exactly 2 closed scenario identifiers'; 'accepts exactly 3 closed scenario identifiers'; 'rejects a proposal naming only 1 scenario identifier'; 'rejects a proposal naming 4 scenario identifiers'; 'rejects a proposal with duplicated scenario identifiers'; 'rejects a proposal whose testPrompts entries are not typed as strings, without echoing the entry')",
+      "status": "pass",
+      "repair_note": "Previously this field accepted 1-20 ARBITRARY strings up to 4000 characters each — direct contradiction of D1.2's closed-scenario contract and the track's durable-state no-raw-prompt rule (an arbitrary string is, structurally, a place prompt text or a secret can be smuggled through). Repaired to a closed membership check against `tool_test_scenarios.ts` (shared with the D1.2 sandbox vetter) with an exact 2-3 count bound and a uniqueness check."
     },
     {
       "criterion_id": "issue-1428-c6",
-      "text": "Rejection reasons never echo raw prompt CONTENT back (no raw-prompt persistence/logging) — only the offending index and the bound violated.",
+      "text": "Rejection reasons never echo raw/unrecognised scenario identifier content back — only the offending index.",
       "mode": "unit",
-      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal carrying a raw, unbounded prompt blob and never echoes the blob back' — asserts neither the raw blob nor its embedded fake-secret-shaped prefix appears in `result.reason`; 'rejects a proposal with an unbounded number of test prompts' — asserts entry content ('prompt 0') is absent from the reason)",
+      "test": "tool_install_proposal_validator.test.ts ('rejects an unknown/raw scenario string and never echoes it back' — a raw prompt-shaped string containing a fake secret-shaped token; asserts neither the raw string nor the embedded token appears in `result.reason`)",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1428-c7",
-      "text": "Allowed install methods are a CLOSED set, and the test-only `local-script` escape hatch (tool_sandbox_vetter.ts) is excluded in production.",
+      "text": "Allowed install methods are a CLOSED set, and the test-only `local-script` escape hatch (tool_sandbox_vetter.ts) is excluded in production. `toolName` is a safe executable identifier and `packageSource` a safe package identifier for the selected install method, validated BEFORE any runtime use, with rejection reasons that never echo the untrusted value.",
       "mode": "unit",
-      "test": "tool_install_proposal_validator.test.ts ('rejects installMethod values outside the closed production registry'; 'rejects the test-only local-script install method in a production proposal')",
-      "status": "pass"
+      "test": "tool_install_proposal_validator.test.ts ('rejects installMethod values outside the closed production registry'; 'rejects the test-only local-script install method in a production proposal'; 'rejects an unsafe toolName without echoing it back'; 'rejects an unsafe packageSource without echoing it back')",
+      "status": "pass",
+      "repair_note": "Previously toolName/packageSource were checked only for non-empty-string presence — a value with shell metacharacters (e.g. `; rm -rf /`) would pass this validator and only be caught (if at all) deep inside the sandbox runtime's own defensive regex. Repaired by adding shared `isSafeToolName`/`isSafePackageSource` checks (tool_install_safety.ts, the SAME predicates the D1.2 sandbox vetter now uses) here at proposal-apply time, before a sandbox run can ever be attempted."
     },
     {
       "criterion_id": "issue-1428-c8",
@@ -67,7 +78,7 @@
       "criterion_id": "issue-1428-c9",
       "text": "Focused + adjacent tests pass; typecheck + build pass.",
       "mode": "unit",
-      "test": "npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts (16/16); 28 adjacent org-proposal/generator/contract test files (517 tests) referencing org_proposal_apply_service.ts re-run unchanged and green; tsc --noEmit; npm run build",
+      "test": "npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts (21/21 after the 2026-08-21 repair, up from 16/16); 30 adjacent org-proposal/generator/contract test files (553 tests, 1 pre-existing skip) referencing org_proposal_apply_service.ts re-run unchanged and green; tsc --noEmit; npm run build",
       "status": "pass"
     }
   ],
@@ -76,12 +87,10 @@
     "Controller/route wiring for creating or approving a real `tool-install` proposal end-to-end (no generator exists yet for this kind, matching D1.1's precedent that model/validator phases land ahead of any generator)."
   ],
   "judgment_calls": [
-    "The pre-existing untracked test skeleton did not include `testPrompts` in its shared `validChangeJson` fixture even though the acceptance criteria require rejecting missing/unbounded/mistyped test prompts. Added `testPrompts` to the fixture and 8 new test cases (missing, empty, mistyped entry, over-count, over-length/raw-blob-with-no-echo, in-bounds accept, closed-set installMethod rejection, local-script rejection) rather than leaving that criterion uncovered.",
-    "Check ORDER inside `validateToolInstallChange` was chosen deliberately so the pre-existing 'missing evidence bundle entirely' test (whose fixture also omits testPrompts) still reports 'evidenceBundle' rather than 'testPrompts': required-4-fields → installMethod closed-set → evidenceBundle presence/shape → testPrompts shape/bounds → agentConfigId existence → target ref/hash fabrication check.",
-    "`testPrompts` bounds (max 20 entries, max 4000 chars/entry) are new, undocumented-elsewhere constants chosen as schema hygiene against unbounded `change_json` blobs — not derived from any existing limit in the codebase, since none exists for this shape yet.",
+    "SUPERSEDED by the 2026-08-21 repair: `testPrompts` bounds are no longer '1-20 entries, ≤4000 chars each' — that shape directly contradicted D1.2's closed-scenario contract and the track's no-raw-prompt rule. Replaced with a closed-membership check against `tool_test_scenarios.ts` (shared with D1.2), exactly 2-3 unique entries, no length bound needed since an identifier's shape is fixed and enumerable.",
+    "Check ORDER inside `validateToolInstallChange` (post-repair): required-4-fields → toolName safety → packageSource safety → installMethod closed-set → evidenceBundle presence/shape → testPrompts closed-scenario shape/bounds → agentConfigId existence → target ref/hash fabrication check. The toolName/packageSource safety checks were inserted right after the presence check and before installMethod, since a proposal with an unsafe identifier should never be considered 'well-formed enough' to reach the sandbox-relevant checks; this does not change any pre-existing test's expected reason substring (all pre-repair fixtures use safe `example-tool`/`npm:example-tool` values).",
     "Production install-method registry (`npm install`, `pip install`) intentionally excludes `tool_sandbox_vetter.ts`'s `local-script` TEST-ONLY escape hatch, per that module's own doc comment forward-referencing 'the production proposal validator in D1.3'.",
-    "The pre-existing test skeleton's `beforeEach` called a nonexistent `configsRepo.create(...)` method (typo/stale API) — fixed to the real `AgentConfigsRepository.insert({label, icon, systemPrompt})` API, and its first assertion (`result.reason` on a VALID result) called `.not.toMatch()` on `undefined`, which vitest throws on — fixed with `result.reason ?? ''`. Neither fix touches this issue's actual validation logic.",
-    "No raw-prompt-persistence check beyond the validator's own reason strings: this module performs no database write and no console/logger call of any kind, so there is no additional persistence/logging surface to test directly — the invariant is upheld by the module simply never touching `testPrompts` content outside the bounds check.",
-    "GitNexus `detect-changes` could not run: this worktree (`rhythm-self-improvement/d1-tool-vetting`) is not in the local GitNexus index registry (confirmed via `gitnexus detect-changes` and `--repo <path>`, both erroring with 'not found' against the full list of indexed repos) — recorded as UNKNOWN per the stale-index fallback, same posture as an absent index rather than a false 'no impact' claim."
+    "No raw-prompt-persistence check beyond the validator's own reason strings: this module performs no database write and no console/logger call of any kind, so there is no additional persistence/logging surface to test directly — the invariant is upheld structurally (there is no longer any field capable of carrying prompt text at all, only closed scenario identifiers).",
+    "GitNexus `detect-changes` could not run against this worktree during either the original D1.3 pass or this repair pass: `gitnexus detect-changes --scope staged` errors with 'Multiple repositories indexed... specify with repo', and passing `--repo <this worktree's absolute path>` errors 'not found' against the full list of indexed repos (checked 2026-08-21). Recorded as UNKNOWN per the stale/no-symbol fallback, same posture as an absent index rather than a false 'no impact' claim."
   ]
 }

@@ -4,28 +4,44 @@
   "phase": "D1.2",
   "parent_contract": "D1.1",
   "date": "2026-08-20",
-  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts src/services/__tests__/tool_sandbox_vetter_hardening.test.ts",
   "waiver": null,
+  "repair": {
+    "date": "2026-08-21",
+    "blockers": [
+      "Blocker B — the original implementation counted `testPrompts.length` without ever invoking the installed candidate, and stored raw prompt text in `ToolVettingInput.testPrompts` (a durable-state contract violation once wired to a proposal).",
+      "Blocker C — a Docker timeout/signal-killed `docker run` client resolved normally (code=null was not checked), and missing/corrupt observation artifacts parsed as zero violations — both fail-OPEN paths could produce a fabricated 'safe' verdict. The test suite's `afterAll` also swept/removed every `rhythm-d1-vet-*` container by prefix, and its scratch-root parent was a hardcoded absolute path assumed to pre-exist."
+    ],
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md",
+    "files_changed": [
+      "apps/api_server/src/services/tool_test_scenarios.ts (new — closed scenario registry shared with D1.3)",
+      "apps/api_server/src/services/tool_install_safety.ts (new — shared toolName/packageSource safety predicates)",
+      "apps/api_server/src/services/tool_sandbox_vetter.ts (scenario invocation, fixed sanitized failure reasons, timeout/signal fail-closed, evidence-completeness gate, container hardening, exact-name-only teardown, test-only timeoutMs/onContainerName hooks)",
+      "apps/api_server/src/services/__tests__/tool_sandbox_vetter.test.ts (rewritten: scenarioIds contract, invalid-selection fail-closed cases, fixed-reason-never-raw-text case, verifyEvidenceComplete unit tests, real-Docker genuine-invocation proof, real-Docker timeout/terminated case, exact-name teardown assertions, isolated scratch-root creation, no container-prefix sweep)",
+      "apps/api_server/src/services/__tests__/tool_sandbox_vetter_hardening.test.ts (new — mocked child_process proof of every docker run hardening flag and exact-name-only teardown)"
+    ]
+  },
   "criteria": [
     {
       "criterion_id": "issue-1427-c1",
       "text": "Starts a disposable Docker container (Docker lifecycle authorized for this track).",
       "mode": "unit+live-docker",
-      "test": "apps/api_server/src/services/__tests__/tool_sandbox_vetter.test.ts (describe 'D1.2 DockerSandboxRuntime — real container lifecycle', all cases run against the real local Docker daemon with the already-pulled node:22-alpine image)",
+      "test": "apps/api_server/src/services/__tests__/tool_sandbox_vetter.test.ts (describe 'D1.2 DockerSandboxRuntime — real container lifecycle', all cases run against the real local Docker daemon with the already-pulled node:22-alpine image); tool_sandbox_vetter_hardening.test.ts proves the exact hardening flags on every invocation",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1427-c2",
-      "text": "Installs the candidate tool inside the container.",
+      "text": "Installs the candidate tool inside the container AND invokes the installed candidate for each selected test scenario — not merely counted.",
       "mode": "live-docker",
-      "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations'; 'an install step that attempts a real network call → verdict conditional' — both genuinely execute the candidate's install step inside the container)",
-      "status": "pass"
+      "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations, every scenario genuinely invoked' — asserts `testPromptsRunCount === 3` for 3 requested scenarios, produced by parsing per-scenario completion markers written INSIDE the container after each real invocation; 'testPromptsRunCount reflects the ACTUAL attempted count, not the requested array length' (fake-runtime) proves the count is never derived from the request)",
+      "status": "pass",
+      "repair_note": "Previously this criterion was satisfied only by counting `testPrompts.length` — no invocation of the candidate ever happened beyond the install step. Repaired by adding a genuine per-scenario command execution inside the run script (`<toolName> <scenario args>`, unconditionally followed by a fixed completion marker), and by deriving `testPromptsRunCount` from markers actually observed after the run, never from the request."
     },
     {
       "criterion_id": "issue-1427-c3",
       "text": "Safe tool → verdict=safe, zero violations.",
       "mode": "live-docker",
-      "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations')",
+      "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations, every scenario genuinely invoked')",
       "status": "pass"
     },
     {
@@ -44,43 +60,56 @@
     },
     {
       "criterion_id": "issue-1427-c6",
-      "text": "Docker unavailable → verdict=unknown, reason=sandbox_unavailable, no install.",
-      "mode": "unit",
-      "test": "tool_sandbox_vetter.test.ts ('Docker unavailable → verdict unknown, reason sandbox_unavailable, no install attempted' — asserts the runtime's runAsync (the only place an install could happen) was never invoked); live-docker ('a bogus docker binary reports unavailable (real ENOENT path, not a stub)')",
-      "status": "pass"
+      "text": "Docker unavailable, an invalid/unsafe candidate or scenario selection, a timed-out/signal-killed container, or incomplete/corrupt observation evidence → verdict=unknown with a FIXED, sanitized reason and no fabricated 'safe'. NEVER a fail-open path.",
+      "mode": "unit+live-docker",
+      "test": "tool_sandbox_vetter.test.ts ('Docker unavailable...'; 5-case invalid-scenario-selection table; 'an unsafe toolName fails closed...'; 'an unsupported install method fails closed...'; real-docker 'a container killed on timeout fails closed to unknown (never safe) and is torn down by its exact name'); verifyEvidenceComplete unit tests (missing install.log, incomplete install.log, missing/short sentinel_after.sha256 — none throw a 'safe' result, all reject before classification)",
+      "status": "pass",
+      "repair_note": "Previously a timed-out/signal-killed `docker run` client resolved NORMALLY (only `code === 125` was checked; `code === null` from a SIGKILL fell through to `resolve()`), and missing observation files parsed via `readIfExists` as empty strings, which `parseObservation` read as zero violations => verdict 'safe' — a fail-OPEN path on the exact failure mode this track exists to guard against. Repaired: `docker run`'s close handler now rejects on any signal/null-code close (`SandboxTerminatedError`); a new `verifyEvidenceComplete` gate runs before classification and rejects (`SandboxEvidenceError`) unless `install.log` reached its completion marker AND `sentinel_after.sha256` has an entry for every sentinel — both are only reachable if the run genuinely completed. All thrown errors map to a FIXED, code-owned reason string (`classifyFailureReason`), never the exception's own message text."
     },
     {
       "criterion_id": "issue-1427-c7",
-      "text": "Container is always torn down (even on error).",
+      "text": "Container is always torn down (even on error), by its exact owned name only — never a prefix-wide sweep that could touch an unrelated live container.",
       "mode": "live-docker",
-      "test": "tool_sandbox_vetter.test.ts ('the container is always torn down, even after a timing-sensitive run' — asserts zero rhythm-d1-vet-* containers survive via `docker ps -a`)",
-      "status": "pass"
+      "test": "tool_sandbox_vetter.test.ts ('the container is always torn down by its exact name, even after a well-behaved run'; 'a container killed on timeout ... is torn down by its exact name' — both use a test-only `onContainerName` hook and filter Docker by the exact tracked name, `name=^/<name>$`, never a prefix); tool_sandbox_vetter_hardening.test.ts ('kills and force-removes only the exact container name it created, never a broader sweep' — asserts no `--filter` appears in any teardown call)",
+      "status": "pass",
+      "repair_note": "The test suite's own `afterAll` previously ran `docker ps -a --filter name=rhythm-d1-vet- ... | xargs docker rm -f` — a destructive sweep of every container matching that PREFIX, which could remove an unrelated live container from a concurrent run. Removed entirely; the production module's own unconditional, exact-name-only teardown (unchanged in spirit, now proven by exact-name assertions) is the only cleanup path exercised."
     },
     {
       "criterion_id": "issue-1427-c8",
-      "text": "No raw secrets in the report.",
+      "text": "No raw secrets/prompt text/candidate output in the report; every thrown error maps to a fixed, sanitized reason (never raw exception text).",
       "mode": "unit",
-      "test": "tool_sandbox_vetter.test.ts ('never places raw prompt text anywhere in the outcome' — serializes the full outcome and asserts neither the raw prompt text nor a fake secret-shaped token embedded in it ever appears)",
+      "test": "tool_sandbox_vetter.test.ts ('never places raw prompt text anywhere in the outcome'; 'an unrecognised scenario id is never echoed back anywhere in the outcome'; 'the runtime throwing mid-run fails closed to unknown with a FIXED sanitized reason, never raw exception text' — throws an Error carrying a fake secret-shaped token and asserts the outcome's reason is the fixed string 'sandbox_error', containing neither the raw message nor the embedded token)",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1427-c9",
-      "text": "Focused tests pass (RED → GREEN); build + typecheck pass.",
+      "text": "The sandboxed container is hardened: no host credential/config mounts, network isolation, dropped capabilities, no privilege escalation, PID/memory/CPU limits, read-only root with an explicit writable workspace, non-root user; `--pull never` and unconditional exact-name teardown preserved.",
+      "mode": "unit+live-docker",
+      "test": "tool_sandbox_vetter_hardening.test.ts ('includes every required hardening flag and preserves --pull never' — asserts `--network none`, `--cap-drop ALL`, `--security-opt no-new-privileges`, `--pids-limit`, `--memory`, `--cpus`, `--read-only`, `--tmpfs /tmp:...`, `--user node`, `--pull never`, and that only `/vet` (the disposable scratch workspace) is bind-mounted); the full real-Docker suite in tool_sandbox_vetter.test.ts passes with every one of these flags applied, proving compatibility with genuine container runs",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c10",
+      "text": "Focused + adjacent tests pass (RED → GREEN); build + typecheck pass.",
       "mode": "unit",
-      "test": "npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts (15/15); tsc --noEmit; npm run build",
+      "test": "npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts (29/29) src/services/__tests__/tool_sandbox_vetter_hardening.test.ts (2/2); tsc --noEmit; npm run build",
       "status": "pass"
     }
   ],
   "not_tested": [
-    "A real `npm install`/`pip install` against a REACHABLE network (this track's sandbox is always `--network none`, by design — every install attempt against a real registry is expected to fail at the network layer, which is exactly the 'network calls observed' signal the report captures; a genuinely reachable-network scenario is out of scope by construction, not merely untested)."
+    "A real `npm install`/`pip install` against a REACHABLE network (this track's sandbox is always `--network none`, by design — every install attempt against a real registry is expected to fail at the network layer, which is exactly the 'network calls observed' signal the report captures; a genuinely reachable-network scenario is out of scope by construction, not merely untested).",
+    "A real-Docker test of `verifyEvidenceComplete` rejecting a container that exited normally (not via the timeout/signal path) but with genuinely corrupted evidence (e.g. an OOM-killed candidate mid-run) — covered instead by direct unit tests against hand-crafted incomplete/missing artifact files (fast, deterministic, and exercises the exact same gate) plus the real-Docker timeout case, which is the realistic way this gate is reached in practice."
   ],
   "judgment_calls": [
-    "No tool-invocation protocol exists anywhere in this codebase for 'run this candidate tool against a typed prompt' (none of the D1 issues define one). `testPrompts` is therefore used only for its COUNT — raw prompt text is never passed into the sandbox container at all, because Docker's default log driver persists container stdout/stderr to disk on the HOST, which would risk raw prompt text landing in durable state and directly violate the track's no-raw-prompts rule. The install step is the one real, well-defined action a tool-install proposal performs, and is what the vetter actually observes.",
-    "Forbidden-path violations are detected via pre-seeded sentinel files with a known content hash, checked for a content/hash change (or disappearance) after the run — verified by hand to work under a ROOT container user (a permission-bit/chmod-000 approach was considered and rejected: root bypasses permission bits, so it would not have detected a root-run write).",
-    "Credential ACCESS attempts (reads, not writes) are counted by how many times a sentinel's marker text appears in the captured install output — a `cat`/read prints the sentinel's content, which the run script redirects into a log this module parses for a COUNT ONLY; the raw log content itself is discarded and never returned or persisted.",
-    "Teardown correctness (`docker kill` + `docker rm -f` in a `finally`, not relying on `--rm` alone) was verified BY HAND against this environment before being encoded: killing the `docker run` CLI client process (e.g. on a timeout) does NOT stop the container — `--rm` only fires on the CONTAINER's own exit, not its client's. An orphaned container was reproduced and confirmed to require explicit `docker kill`/`docker rm -f` to reap.",
-    "Install methods are a closed, explicit set (`npm install`, `pip install`, plus a TEST-ONLY `local-script` escape hatch never accepted by the production proposal validator in D1.3) — an unrecognised installMethod fails closed to `verdict: 'unknown'` rather than guessing at a shell invocation.",
+    "Test scenarios are a closed, code-owned registry (`tool_test_scenarios.ts`, shared with D1.3's validator) of 3 fixed, non-sensitive CLI invocations (`--version`, `--help`, no-args) — a `tool-install` proposal selects 2 or 3 of these BY IDENTIFIER, never by prompt text. This keeps the track's no-raw-prompts invariant structural (there is no field capable of carrying prompt text at all) while still genuinely invoking the installed candidate, closing the D1.2 repair's Blocker B gap.",
+    "Each scenario's stdout/stderr is redirected into a transient, on-disk (bind-mounted, host-side-but-scratch) log purely for the SAME network/credential-signature scanning the install step already used, then discarded with the rest of the scratch directory — never returned, never logged, never persisted raw.",
+    "Forbidden-path violations are detected via pre-seeded sentinel files with a known content hash, checked for a content/hash change (or disappearance) after the run — verified by hand to work under the container's user (a permission-bit/chmod-000 approach was considered and rejected: even a non-root process that OWNS a file it wrote can still corrupt it, so hash comparison is the only reliable signal regardless of container user).",
+    "Credential ACCESS attempts (reads, not writes) are counted by how many times a sentinel's marker text appears in the captured install+invocation output — a `cat`/read prints the sentinel's content, which the run script redirects into logs this module parses for a COUNT ONLY; the raw log content itself is discarded and never returned or persisted.",
+    "Teardown correctness (`docker kill` + `docker rm -f` in a `finally`, not relying on `--rm` alone, targeting only the exact generated name) was verified BY HAND against this environment before being encoded: killing the `docker run` CLI client process (e.g. on a timeout) does NOT stop the container — `--rm` only fires on the CONTAINER's own exit, not its client's.",
+    "Install methods are a closed, explicit set (`npm install`, `pip install`, plus a TEST-ONLY `local-script` escape hatch never accepted by the production proposal validator in D1.3) — an unrecognised installMethod fails closed to `verdict: 'unknown', reason: 'unsupported_install_method'` rather than guessing at a shell invocation.",
+    "The container now runs as the `node:22-alpine` image's built-in non-root `node` user with a read-only root filesystem; the bind-mounted `/vet` scratch workspace is chmod 0o777 on the host side specifically so a non-root, non-host-uid-mapped container user can still create/modify files there regardless of which uid created the directory — verified against the real local Docker daemon by the full real-Docker suite passing unchanged with these flags applied.",
     "The live Docker tests use `node:22-alpine` (already present locally in this environment, confirmed via `docker images` before writing any code) specifically to avoid any image-pull network dependency in the test suite; `--pull never` is also passed on every real `docker run` so a missing image fails fast and deterministically rather than the vetting infrastructure itself silently reaching the internet.",
-    "The 'network calls observed' detection is a closed set of known DNS/connection-failure error signatures (`getaddrinfo`, `Could not resolve host`, `failed to connect`, `ENETUNREACH`, `ECONNREFUSED`) parsed out of captured install output under `--network none`; a network-capable ecosystem tool not covered by one of these signatures would under-report rather than over-report — ponytail: extend the signature list if a real generator surfaces one this misses."
+    "The 'network calls observed' detection is a closed set of known DNS/connection-failure error signatures (`getaddrinfo`, `Could not resolve host`, `failed to connect`, `ENETUNREACH`, `ECONNREFUSED`) parsed out of captured install+invocation output under `--network none`; a network-capable ecosystem tool not covered by one of these signatures would under-report rather than over-report — ponytail: extend the signature list if a real generator surfaces one this misses.",
+    "The test suite's scratch root is now created under `os.tmpdir()` (guaranteed to exist on every platform) rather than a hardcoded absolute path assumed to pre-exist, and is torn down only via its own tracked path in `afterAll` — never a sweep of anything else under the OS tmp directory."
   ]
 }

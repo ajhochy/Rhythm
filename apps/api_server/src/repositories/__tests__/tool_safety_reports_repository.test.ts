@@ -121,4 +121,76 @@ describe('D1.1 ToolSafetyReportsRepository', () => {
     expect(created.evidenceJson).not.toContain('sk-abcdefghijklmnopqrstuvwx');
     expect(created.evidenceJson).toContain('[redacted]');
   });
+
+  describe('D1.1 repair (#1426) — every caller-controlled text field is sanitized at the write boundary', () => {
+    it('scrubs a secret shape out of every plain scalar field', async () => {
+      const created = await repo.createAsync({
+        proposalId: 'proposal-1',
+        toolName: 'sk-abcdefghijklmnopqrstuvwx',
+        toolVersion: 'Bearer abcdefghijklmnopqrstuvwx123456',
+        packageSource: 'postgres://dbuser:dbSecretPass123@db.internal.example.com/prod',
+        installMethod: 'password=hunter2superSecret',
+        sandboxDurationMs: 100,
+        testPromptsRunCount: 0,
+        verdict: 'unknown',
+        reason: 'sandbox_error api_key: mySuperSecretApiKeyValue',
+      });
+
+      expect(created.toolName).not.toContain('sk-abcdefghijklmnopqrstuvwx');
+      expect(created.toolVersion).not.toContain('abcdefghijklmnopqrstuvwx123456');
+      expect(created.packageSource).not.toContain('dbSecretPass123');
+      expect(created.installMethod).not.toContain('hunter2superSecret');
+      expect(created.reason).not.toContain('mySuperSecretApiKeyValue');
+    });
+
+    it('scrubs secret-shaped keys nested at every depth inside every JSON blob column', async () => {
+      const secretNested = JSON.stringify({
+        outer: [{ apiKey: 'plainSecretValueOne' }, { nested: { password: 'plainSecretValueTwo' } }],
+      });
+      const created = await repo.createAsync({
+        proposalId: 'proposal-1',
+        toolName: 'example-tool',
+        packageSource: 'npm:example-tool',
+        installMethod: 'npm install',
+        sandboxDurationMs: 100,
+        testPromptsRunCount: 1,
+        verdict: 'unsafe',
+        forbiddenPathViolationsJson: secretNested,
+        networkCallsObservedJson: secretNested,
+        fileSystemWritesObservedJson: secretNested,
+        evidenceJson: secretNested,
+      });
+
+      for (const field of [
+        created.forbiddenPathViolationsJson,
+        created.networkCallsObservedJson,
+        created.fileSystemWritesObservedJson,
+        created.evidenceJson,
+      ]) {
+        expect(field).not.toContain('plainSecretValueOne');
+        expect(field).not.toContain('plainSecretValueTwo');
+        expect(JSON.parse(field).outer[0].apiKey).toBe('[redacted]');
+        expect(JSON.parse(field).outer[1].nested.password).toBe('[redacted]');
+      }
+    });
+
+    it('scrubs a private-key block and a cookie header out of evidenceJson', async () => {
+      const created = await repo.createAsync({
+        proposalId: 'proposal-1',
+        toolName: 'example-tool',
+        packageSource: 'npm:example-tool',
+        installMethod: 'npm install',
+        sandboxDurationMs: 100,
+        testPromptsRunCount: 0,
+        verdict: 'unsafe',
+        evidenceJson: JSON.stringify({
+          note:
+            '-----BEGIN RSA PRIVATE KEY-----\nMIIBogIBAAKCAQ==\n-----END RSA PRIVATE KEY-----' +
+            ' Cookie: session=abcdefghijklmnopSECRETSESSION',
+        }),
+      });
+      expect(created.evidenceJson).not.toContain('MIIBogIBAAKCAQ==');
+      expect(created.evidenceJson).not.toContain('abcdefghijklmnopSECRETSESSION');
+    });
+  });
 });

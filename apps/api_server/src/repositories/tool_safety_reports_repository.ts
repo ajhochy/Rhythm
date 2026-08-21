@@ -8,9 +8,12 @@
  * migrations.ts and postgres_bootstrap.ts — enforced by
  * skill_schema_parity.test.ts.
  *
- * `redactSecrets` (the same shape-matching redactor post_apply_events_repository.ts
- * uses) runs on every free-text JSON blob column on the way IN — the
- * repository never trusts a caller to have redacted a raw secret shape first.
+ * `sanitizeD1PlainText`/`sanitizeD1Json` (d1_secret_sanitizer.ts) run on
+ * EVERY caller-controlled text field on the way IN — plain scalar fields
+ * (toolName, toolVersion, packageSource, installMethod, reason) as well as
+ * every JSON blob column, recursively, including secret-SHAPED KEYS nested
+ * inside those blobs. The repository never trusts a caller to have
+ * redacted a raw secret shape first.
  */
 import Database from 'better-sqlite3';
 
@@ -22,7 +25,7 @@ import {
   type ToolSafetyReport,
   type ToolSafetyReportInput,
 } from '../models/tool_safety_report';
-import { redactSecrets } from '../services/run_outcome_service';
+import { sanitizeD1Json, sanitizeD1PlainText } from '../services/d1_secret_sanitizer';
 
 interface ToolSafetyReportRow {
   id: string;
@@ -126,19 +129,19 @@ export class ToolSafetyReportsRepository {
     const row = {
       id: input.id ?? crypto.randomUUID(),
       proposal_id: input.proposalId,
-      tool_name: input.toolName,
-      tool_version: input.toolVersion ?? null,
-      package_source: input.packageSource,
-      install_method: input.installMethod,
+      tool_name: sanitizeD1PlainText(input.toolName) ?? '',
+      tool_version: sanitizeD1PlainText(input.toolVersion ?? null),
+      package_source: sanitizeD1PlainText(input.packageSource) ?? '',
+      install_method: sanitizeD1PlainText(input.installMethod) ?? '',
       sandbox_duration_ms: input.sandboxDurationMs,
       test_prompts_run_count: input.testPromptsRunCount,
-      forbidden_path_violations_json: redactSecrets(input.forbiddenPathViolationsJson ?? '[]'),
-      network_calls_observed_json: redactSecrets(input.networkCallsObservedJson ?? '[]'),
-      file_system_writes_observed_json: redactSecrets(input.fileSystemWritesObservedJson ?? '[]'),
+      forbidden_path_violations_json: sanitizeD1Json(input.forbiddenPathViolationsJson ?? '[]'),
+      network_calls_observed_json: sanitizeD1Json(input.networkCallsObservedJson ?? '[]'),
+      file_system_writes_observed_json: sanitizeD1Json(input.fileSystemWritesObservedJson ?? '[]'),
       credential_access_attempts_count: input.credentialAccessAttemptsCount ?? 0,
       verdict: input.verdict,
-      reason: input.reason ?? null,
-      evidence_json: redactSecrets(input.evidenceJson ?? '{}'),
+      reason: sanitizeD1PlainText(input.reason ?? null),
+      evidence_json: sanitizeD1Json(input.evidenceJson ?? '{}'),
     };
 
     const insertSql = (ph: string) =>

@@ -8,6 +8,18 @@ status: ready-for-verification
 tags: [run, Rhythm]
 ---
 
+## REPAIRED 2026-08-21
+
+This run's criterion `issue-1426-c4` ("no raw secrets... in any field") was
+**overclaimed**: only the JSON blob columns were ever sanitized
+(`redactSecrets`); the plain scalar columns (`toolName`, `toolVersion`,
+`packageSource`, `installMethod`, `reason`) were persisted with NO
+sanitization at all, and no redactor handled secret-SHAPED KEYS nested
+inside a JSON blob independent of the value's own shape. See
+`docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md` and the `repair` block
+in `docs/ai/contracts/issue-1426.json` for the fix (a new dedicated
+`d1_secret_sanitizer.ts` applied to every column).
+
 ## Contract
 
 - `docs/ai/contracts/issue-1426.json`

@@ -4,8 +4,19 @@
   "phase": "D1.1",
   "parent_contract": null,
   "date": "2026-08-20",
-  "test_command": "cd apps/api_server && npx vitest run src/models/__tests__/tool_safety_report.test.ts src/repositories/__tests__/tool_safety_reports_repository.test.ts src/__tests__/skill_schema_parity.test.ts",
+  "test_command": "cd apps/api_server && npx vitest run src/models/__tests__/tool_safety_report.test.ts src/repositories/__tests__/tool_safety_reports_repository.test.ts src/__tests__/skill_schema_parity.test.ts src/services/__tests__/d1_secret_sanitizer.test.ts",
   "waiver": null,
+  "repair": {
+    "date": "2026-08-21",
+    "blocker": "Blocker A — 'no secrets in any field' was not actually enforced (see issue-1426-c4 repair_note).",
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md",
+    "files_changed": [
+      "apps/api_server/src/services/d1_secret_sanitizer.ts (new)",
+      "apps/api_server/src/services/__tests__/d1_secret_sanitizer.test.ts (new)",
+      "apps/api_server/src/repositories/tool_safety_reports_repository.ts (write boundary now calls the new sanitizer on every column)",
+      "apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts (added coverage for every plain field + nested JSON keys)"
+    ]
+  },
   "criteria": [
     {
       "criterion_id": "issue-1426-c1",
@@ -32,8 +43,9 @@
       "criterion_id": "issue-1426-c4",
       "text": "No raw secrets, tokens, or connection strings in any field — only safe hashes/aggregate values.",
       "mode": "unit",
-      "test": "apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts ('redacts secret-shaped text out of evidenceJson before persisting'); model fields for prompts/network/filesystem/credentials are counts/aggregate JSON only (see tool_safety_report.ts doc comment), never raw prompt text or raw tool output",
-      "status": "pass"
+      "test": "apps/api_server/src/services/__tests__/d1_secret_sanitizer.test.ts (32 cases: every plain-field secret shape, every JSON nested-key shape, fallback-on-invalid-JSON, null/undefined passthrough); apps/api_server/src/repositories/__tests__/tool_safety_reports_repository.test.ts (describe 'D1.1 repair (#1426) — every caller-controlled text field is sanitized at the write boundary': plain scalar fields, nested JSON keys at every depth, private-key block + cookie header)",
+      "status": "pass",
+      "repair_note": "The original implementation only ran the free-text SHAPE redactor (redactSecrets) against the three observation JSON blobs and evidenceJson. toolName/toolVersion/packageSource/installMethod/reason were persisted with NO sanitization at all, and no redactor anywhere handled secret-SHAPED KEYS (e.g. {\"apiKey\": \"plaintext\"}) independent of the value's own shape, private-key PEM blocks, cookie headers, or postgres/mysql/mongodb URLs with userinfo. Repaired by a new, dedicated d1_secret_sanitizer.ts (sanitizeD1PlainText / sanitizeD1Json) applied to EVERY caller-controlled column in ToolSafetyReportsRepository.createAsync, replacing the reused redactSecrets call."
     },
     {
       "criterion_id": "issue-1426-c5",
@@ -49,7 +61,7 @@
   "judgment_calls": [
     "'test prompts run' is stored as an AGGREGATE COUNT (testPromptsRunCount), never the raw prompt text — the track-wide rule ('no raw prompts... may enter durable state') is stricter than D1.1's own acceptance text ('captures... test prompts run'), so the count satisfies the acceptance criterion while staying inside the hard no-raw-prompts rule.",
     "forbiddenPathViolationsJson / networkCallsObservedJson / fileSystemWritesObservedJson are documented and redacted as AGGREGATE descriptor arrays (e.g. {path, count} / {host, count}), never raw file contents or raw network payloads — consistent with 'network calls observed' / 'file-system writes observed' being observational summaries, not captured raw traffic.",
-    "Secret redaction reuses the existing, already-exported `redactSecrets` from run_outcome_service.ts (the same redactor post_apply_events_repository.ts uses) rather than a new implementation — matches the codebase's established defense-in-depth precedent of redacting INSIDE the repository, never trusting the caller to pre-sanitize.",
+    "SUPERSEDED by the 2026-08-21 repair (see `repair` block above): secret redaction no longer reuses `redactSecrets` from run_outcome_service.ts. That redactor only matches known TOKEN SHAPES and was never applied to the plain scalar columns (toolName/toolVersion/packageSource/installMethod/reason) at all — a repository write boundary that claims 'no secrets in any field' has to sanitize every field, not only the JSON blobs. Replaced with a dedicated `d1_secret_sanitizer.ts` applied to every column, including recursive secret-KEY detection inside JSON blobs (a shape `redactSecrets` never covered).",
     "proposal_id carries a real FK to agent_org_proposals(id) (every ToolSafetyReport is only ever created for a real, already-persisted tool-install proposal by construction) but is deliberately NOT UNIQUE: a proposal may legitimately be re-vetted (e.g. after a sandbox_unavailable result), so findByProposalIdAsync returns the MOST RECENT report rather than enforcing one-report-per-proposal. SQLite orders by its real, monotonic implicit rowid (test-covered); Postgres orders by created_at DESC alone (ponytail: no cheap monotonic tiebreak exists on this table's random-UUID id column, and two reports for the same proposal committing within the same millisecond is not a realistic race for a human-triggered re-vet).",
     "No new HTTP surface in this phase — D1.1 is model + repository + migration only, matching D2.1's precedent exactly. Wiring (sandbox vetter invocation, proposal lifecycle) is D1.2/D1.4."
   ]
