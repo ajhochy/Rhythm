@@ -48,9 +48,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm --prefix apps/web install
-          npm --prefix apps/api_server install
-          npm --prefix apps/electron install
+          npm --prefix apps/web ci
+          npm --prefix apps/api_server ci
+          npm --prefix apps/electron ci
 
       - name: Typecheck the Electron shell
         working-directory: apps/electron

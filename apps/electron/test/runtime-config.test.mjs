@@ -33,7 +33,10 @@ test('ordinary Electron tests exclude package-shaped contracts', async () => {
 
 test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
   const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /npm --prefix apps\/api_server install/);
+  for (const workspace of ['apps/web', 'apps/api_server', 'apps/electron']) {
+    assert.match(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} ci`));
+    assert.doesNotMatch(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} install`));
+  }
   assert.match(workflow, /npm run test:package/);
   assert.ok(
     workflow.indexOf('npm run test:package') < workflow.indexOf('npm run package:mac'),
