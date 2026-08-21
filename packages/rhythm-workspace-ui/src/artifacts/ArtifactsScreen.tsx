@@ -56,6 +56,7 @@ function createNonce(): string | null {
 export function ArtifactsScreen({ artifactsGateway, artifactHostPort }: ArtifactsScreenProps) {
   const [items, setItems] = useState<RhythmArtifact[]>([]);
   const [opened, setOpened] = useState<ArtifactHostDocument | null>(null);
+  const [error, setError] = useState(false);
   const [frameId, setFrameId] = useState('');
   const [nonce, setNonce] = useState('');
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -67,7 +68,9 @@ export function ArtifactsScreen({ artifactsGateway, artifactHostPort }: Artifact
     if (!artifactsGateway) return;
     let cancelled = false;
     void artifactsGateway.list().then((loaded) => {
-      if (!cancelled) setItems(loaded);
+      if (!cancelled) { setItems(loaded); setError(false); }
+    }).catch(() => {
+      if (!cancelled) setError(true);
     });
     return () => {
       cancelled = true;
@@ -101,6 +104,7 @@ export function ArtifactsScreen({ artifactsGateway, artifactHostPort }: Artifact
 
   const openArtifact = (artifactId: string) => {
     if (!artifactHostPort) return;
+    setError(false);
     const attempt = ++openAttempt.current;
     void artifactHostPort.open(artifactId).then((document) => {
       const nextNonce = createNonce();
@@ -110,6 +114,8 @@ export function ArtifactsScreen({ artifactsGateway, artifactHostPort }: Artifact
       setFrameId(`rhythm-artifact-frame-${nextFrameId.current}`);
       setNonce(nextNonce);
       setOpened(document);
+    }).catch(() => {
+      if (attempt === openAttempt.current) setError(true);
     });
   };
 
@@ -120,6 +126,7 @@ export function ArtifactsScreen({ artifactsGateway, artifactHostPort }: Artifact
       extraDataAttributes={{ 'data-rhythm-artifacts-state': artifactsGateway ? 'unlocked' : 'locked' }}
     >
       <h1>Artifacts</h1>
+      {error ? <p role="alert" data-testid="rhythm-artifacts-error">Artifacts are temporarily unavailable.</p> : null}
       {artifactsGateway ? (
         <>
         <ul data-testid="rhythm-artifacts-list">

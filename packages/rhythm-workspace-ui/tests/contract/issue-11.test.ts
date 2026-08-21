@@ -9,6 +9,20 @@ import { actClick, flush, mount } from '../test-utils/mount';
 const host = { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ', initials: 'AH' } };
 
 describe('issue-11: ArtifactHostPort', () => {
+  it('renders compact and expanded host layouts with an explicit bounded failure state', async () => {
+    for (const viewport of ['compact', 'expanded'] as const) {
+      const mounted = mount(createElement(RhythmWorkspaceProvider, {
+        gateway: fixtureDomainGateway(), host: { ...host, viewport },
+        children: createElement(ArtifactsScreen, { artifactsGateway: { list: async () => { throw new Error('bounded fixture failure'); } } }),
+      }));
+      await flush();
+      expect(mounted.byTestId('rhythm-artifacts-screen')?.getAttribute('data-rhythm-viewport')).toBe(viewport);
+      expect(mounted.byTestId('rhythm-artifacts-error')?.getAttribute('role')).toBe('alert');
+      expect(mounted.byTestId('rhythm-artifacts-screen')?.textContent).not.toContain('bounded fixture failure');
+      mounted.unmount();
+    }
+  });
+
   it('mounts the host-sanitized document in an opaque-origin, no-network iframe', async () => {
     const receive = vi.fn(async () => ({ status: 'ok' as const, payload: { value: 'current' } }));
     const mounted = mount(createElement(RhythmWorkspaceProvider, {
