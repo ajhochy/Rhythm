@@ -179,7 +179,49 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
     OrgProposalsController controller,
     OrgProposal proposal,
   ) async {
-    final ok = await controller.approve(proposal.id);
+    final safety = proposal.toolSafety;
+    var conditionalConfirmation = false;
+    if (proposal.kind == 'tool-install' &&
+        safety?.needsConditionalConfirmation == true) {
+      final generation = controller.reviewGeneration;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: const Text('Approve conditional tool install?'),
+          content: const Text(
+            'The sandbox observed conditions that need your explicit approval. '
+            'Approve only if you understand the listed safety report.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: ValueKey('confirm-conditional-approve-${proposal.id}'),
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: const Text('Approve conditional install'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      // A dialog cannot carry confirmation through a refresh. The user must
+      // reopen it against the fresh, durable report instead.
+      if (controller.reviewGeneration != generation) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'The proposal changed. Review the latest safety report before approving.'),
+          behavior: SnackBarBehavior.floating,
+        ));
+        return;
+      }
+      conditionalConfirmation = true;
+    }
+    final ok = await controller.approve(
+      proposal.id,
+      conditionalToolSafetyConfirmation: conditionalConfirmation,
+    );
     if (!mounted) return;
     // A reconciliation outcome is neither success nor a retryable failure: the
     // database, the target scope and the projected profile disagree and a human
@@ -799,7 +841,12 @@ class _ProposalCardState extends State<_ProposalCard> {
     final proposal = widget.proposal;
     final needsNote = proposal.requiresSecurityNote;
     final noteSatisfied = !needsNote || proposal.hasSecurityNote;
-    final approveEnabled = !widget.pending && noteSatisfied;
+    final toolSafety = proposal.toolSafety;
+    final toolApprovalAllowed = proposal.kind != 'tool-install' ||
+        (proposal.status == 'sandbox-vetted' &&
+            toolSafety?.isApprovalAllowed == true);
+    final approveEnabled =
+        !widget.pending && noteSatisfied && toolApprovalAllowed;
 
     return Container(
       decoration: BoxDecoration(
@@ -861,7 +908,10 @@ class _ProposalCardState extends State<_ProposalCard> {
             ),
           ],
           const SizedBox(height: 12),
-          _ProposalChangeBlock(proposal: proposal),
+          if (proposal.kind == 'tool-install')
+            _ToolSafetyCard(proposal: proposal)
+          else
+            _ProposalChangeBlock(proposal: proposal),
           if (needsNote) ...[
             const SizedBox(height: 12),
             _SecurityNoteBlock(proposal: proposal),
@@ -966,10 +1016,165 @@ class _ProposalCardState extends State<_ProposalCard> {
               style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
             ),
           ],
+          if (proposal.kind == 'tool-install' && !toolApprovalAllowed) ...[
+            const SizedBox(height: 6),
+            Text(
+              _toolApprovalBlockedReason(proposal),
+              key: ValueKey('tool-safety-blocked-${proposal.id}'),
+              style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
+            ),
+          ],
         ],
       ),
     );
   }
+}
+
+String _toolApprovalBlockedReason(OrgProposal proposal) {
+  final safety = proposal.toolSafety;
+  if (safety == null || safety.state == 'missing') {
+    return 'Approval is blocked: the durable safety report is missing.';
+  }
+  if (safety.state == 'malformed') {
+    return 'Approval is blocked: the safety report could not be verified.';
+  }
+  if (safety.verdict == 'unsafe') {
+    return 'Approval is blocked: the sandbox marked this tool unsafe.';
+  }
+  if (safety.verdict == 'unknown') {
+    return 'Approval is blocked: the sandbox could not reach a safe verdict.';
+  }
+  return 'Approval is blocked until sandbox vetting is complete.';
+}
+
+class _ToolSafetyCard extends StatelessWidget {
+  const _ToolSafetyCard({required this.proposal});
+
+  final OrgProposal proposal;
+
+  @override
+  Widget build(BuildContext context) {
+    final safety = proposal.toolSafety;
+    if (safety == null || !safety.isReady) {
+      return Container(
+        key: ValueKey('tool-safety-card-${proposal.id}'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+          border: Border.all(color: context.rhythm.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tool safety'),
+            const SizedBox(height: 6),
+            Semantics(
+              key: ValueKey('tool-safety-verdict-${proposal.id}'),
+              label: 'Tool safety verdict: Unknown — report unavailable',
+              child: const Row(
+                children: [
+                  Icon(Icons.help_outline, size: 16),
+                  SizedBox(width: 6),
+                  Text('Unknown — report unavailable'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _toolApprovalBlockedReason(proposal),
+              style:
+                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+    final verdictLabel = switch (safety.verdict) {
+      'safe' => 'Safe',
+      'conditional' => 'Conditional — confirmation required',
+      'unsafe' => 'Unsafe',
+      _ => 'Unknown',
+    };
+    final verdictIcon = switch (safety.verdict) {
+      'safe' => Icons.verified_outlined,
+      'conditional' => Icons.warning_amber_outlined,
+      'unsafe' => Icons.dangerous_outlined,
+      _ => Icons.help_outline,
+    };
+    final verdictColor = switch (safety.verdict) {
+      'safe' => context.rhythm.success,
+      'conditional' => context.rhythm.warning,
+      'unsafe' => context.rhythm.danger,
+      _ => context.rhythm.textMuted,
+    };
+    return Container(
+      key: ValueKey('tool-safety-card-${proposal.id}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Tool safety',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: context.rhythm.textPrimary)),
+          const SizedBox(height: 8),
+          Semantics(
+            key: ValueKey('tool-safety-verdict-${proposal.id}'),
+            label: 'Tool safety verdict: $verdictLabel',
+            child: Row(children: [
+              Icon(verdictIcon, size: 16, color: verdictColor),
+              const SizedBox(width: 6),
+              Text(verdictLabel,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: verdictColor)),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          _FactRow(label: 'Tool', value: safety.toolName!),
+          const SizedBox(height: 4),
+          _FactRow(label: 'Package', value: safety.packageSource!),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Forbidden paths',
+              value: _counts(safety.forbiddenPathViolations)),
+          const SizedBox(height: 4),
+          _FactRow(label: 'Network calls', value: _counts(safety.networkCalls)),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Workspace writes',
+              value: '${safety.workspaceWriteCount}'),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Credential attempts',
+              value: '${safety.credentialAccessAttemptsCount}'),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Scenarios',
+              value:
+                  '${safety.scenarioAttemptsCount} in ${safety.sandboxDurationMs} ms'),
+          if (safety.reason != null) ...[
+            const SizedBox(height: 4),
+            _FactRow(label: 'Reason', value: safety.reason!),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _counts(List<ToolSafetyCount> counts) => counts.isEmpty
+      ? 'None observed'
+      : counts.map((entry) => '${entry.name}: ${entry.count}').join(', ');
 }
 
 // ---------------------------------------------------------------------------

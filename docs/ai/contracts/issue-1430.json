@@ -1,0 +1,56 @@
+{
+  "issue": 1430,
+  "generated": "2026-08-21",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-1430-c1",
+      "text": "Safety report widget renders all report fields",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/d1_tool_safety_review_view_test.dart",
+      "test_id": "issue-1430-c1: renders only the closed tool safety projection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c2",
+      "text": "Approve button works (calls API, shows confirmation)",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/d1_tool_safety_review_view_test.dart",
+      "test_id": "issue-1430-c2: conditional approval requires an explicit confirmation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c3",
+      "text": "Deny button works (calls API, shows confirmation)",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/d1_tool_safety_review_view_test.dart",
+      "test_id": "issue-1430-c3: denial uses the existing reject route and toast",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c4",
+      "text": "`flutter analyze` clean on touched files",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter",
+      "test_id": "issue-1430-c4: flutter analyze --no-fatal-infos",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c5",
+      "text": "`flutter test` passes on new widget tests",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/d1_tool_safety_review_view_test.dart",
+      "test_id": "issue-1430-c5: real mounted review surface matrix",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c6",
+      "text": "No raw secrets or tool payloads in the UI",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/d1_tool_safety_review_projection_routes.test.ts",
+      "test_id": "issue-1430-c6: list route returns only closed review fields",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

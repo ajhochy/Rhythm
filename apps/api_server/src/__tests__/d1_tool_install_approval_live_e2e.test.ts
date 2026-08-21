@@ -81,6 +81,20 @@ describeLive('D1.4 live tool-install approval gate', () => {
     expect(safe.status).toBe('sandbox-vetted');
     expect(sqlite(`SELECT verdict FROM tool_safety_reports WHERE proposal_id = '${safe.id}';`)).toBe('safe');
 
+    // D1.5: a real sandbox-vetted proposal reaches the actual review route
+    // with only closed display fields — no apply payload or report evidence.
+    const review = await api<Array<Record<string, unknown>>>(
+      '/agent-org-proposals?status=sandbox-vetted',
+    );
+    const reviewed = review.find((proposal) => proposal.id === safe.id);
+    expect(reviewed?.changeJson).toBeNull();
+    expect(reviewed?.toolSafety).toMatchObject({
+      state: 'ready', verdict: 'safe',
+      tool: { name: 'fixture-tool', packageSource: `local-tarball:sha256:${LOCAL_ARTIFACT_DIGEST}` },
+      scenarioAttemptsCount: 2,
+    });
+    expect(JSON.stringify(reviewed)).not.toContain('evidenceBundle');
+
     const attempted = await api<{ status: string }>(`/agent-org-proposals/${safe.id}/approve`, {
       method: 'POST', body: JSON.stringify({ verdict: 'unsafe', report: { verdict: 'unsafe' } }),
     });

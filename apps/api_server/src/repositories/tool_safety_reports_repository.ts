@@ -206,4 +206,50 @@ export class ToolSafetyReportsRepository {
       .get(proposalId) as ToolSafetyReportRow | undefined;
     return row ? rowToModel(row) : null;
   }
+
+  /**
+   * Latest report per proposal for the review queue. This is deliberately a
+   * batch read: a screen of N proposals must not make N report queries.
+   */
+  async findLatestByProposalIdsAsync(proposalIds: readonly string[]): Promise<Map<string, ToolSafetyReport>> {
+    const result = new Map<string, ToolSafetyReport>();
+    const uniqueIds = [...new Set(proposalIds)].filter((id) => id.length > 0);
+    if (uniqueIds.length === 0) return result;
+
+    if (env.dbClient === 'postgres') {
+      const rows = await getPostgresPool().query(
+        `SELECT DISTINCT ON (proposal_id) *
+           FROM tool_safety_reports
+          WHERE proposal_id = ANY($1::text[])
+          ORDER BY proposal_id, created_at DESC`,
+        [uniqueIds],
+      );
+      for (const row of rows.rows as ToolSafetyReportRow[]) {
+        const report = rowToModel(row);
+        result.set(report.proposalId, report);
+      }
+      return result;
+    }
+
+    // SQLite has a 999-variable limit. Review queues are normally tiny, but
+    // bounded chunks preserve the batch shape on an unusually large queue.
+    for (let start = 0; start < uniqueIds.length; start += 900) {
+      const ids = uniqueIds.slice(start, start + 900);
+      const placeholders = ids.map(() => '?').join(', ');
+      const rows = this.db!.prepare(
+        `SELECT * FROM tool_safety_reports
+          WHERE proposal_id IN (${placeholders})
+            AND rowid IN (
+              SELECT MAX(rowid) FROM tool_safety_reports
+               WHERE proposal_id IN (${placeholders})
+               GROUP BY proposal_id
+            )`,
+      ).all(...ids, ...ids) as ToolSafetyReportRow[];
+      for (const row of rows) {
+        const report = rowToModel(row);
+        result.set(report.proposalId, report);
+      }
+    }
+    return result;
+  }
 }

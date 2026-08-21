@@ -33,6 +33,7 @@ import { measureProposal } from '../services/org_proposal_measure';
 import { validateEvidenceBundle } from '../services/proposal_evidence_validator';
 import { buildProposalEvidenceAsync } from '../services/proposal_evidence_builder';
 import { attachExperimentSummariesAsync } from '../services/proposal_experiment_summary_service';
+import { attachToolSafetyReviewProjectionsAsync } from '../services/tool_safety_review_projection';
 import {
   applyProposal,
   hasSecurityNote,
@@ -192,7 +193,10 @@ export class OrgProposalsController {
           return 0;
         });
       }
-      res.json(withSummaries);
+      // D1.5: the tool report is a closed projection, not report JSON. This
+      // performs one batch report lookup for the page and removes tool apply
+      // JSON before the response reaches any desktop client.
+      res.json(await attachToolSafetyReviewProjectionsAsync(withSummaries));
     } catch (err) {
       next(err);
     }

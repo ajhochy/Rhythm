@@ -18,20 +18,37 @@ class OrgProposalsController extends ChangeNotifier {
   /// ids currently mid-flight for approve/reject, so the view can show a
   /// per-row spinner and disable the buttons for just that row.
   final Set<String> _pendingIds = {};
+  int _reviewGeneration = 0;
 
   List<OrgProposal> get proposals => List.unmodifiable(_proposals);
   OrgProposalsStatus get status => _status;
   String? get error => _error;
 
   bool isPending(String id) => _pendingIds.contains(id);
+  int get reviewGeneration => _reviewGeneration;
 
   Future<void> refresh() async {
+    // A review can be superseded even when its replacement refresh fails.
+    // This prevents a confirmation dialog from approving based on stale state.
+    _reviewGeneration += 1;
     _status = OrgProposalsStatus.loading;
     _error = null;
     notifyListeners();
 
     try {
-      _proposals = await _repository.listProposed();
+      // D1.5 tool installs leave `proposed` for sandbox-vetted/pending before
+      // a human can act. Keep the old queue intact while including those two
+      // review states; dedupe protects older fakes/servers that ignore status.
+      final batches = await Future.wait([
+        _repository.listProposed(status: 'proposed'),
+        _repository.listProposed(status: 'sandbox-vetted'),
+        _repository.listProposed(status: 'pending'),
+      ]);
+      final seen = <String>{};
+      _proposals = batches
+          .expand((batch) => batch)
+          .where((proposal) => seen.add(proposal.id))
+          .toList();
       _status = OrgProposalsStatus.idle;
     } catch (e) {
       _error = e.toString();
@@ -105,12 +122,20 @@ class OrgProposalsController extends ChangeNotifier {
   bool _lastApproveNeedsReconciliation = false;
   bool get lastApproveNeedsReconciliation => _lastApproveNeedsReconciliation;
 
-  Future<bool> approve(String id, {int? decidedByUserId}) async {
+  Future<bool> approve(
+    String id, {
+    int? decidedByUserId,
+    bool conditionalToolSafetyConfirmation = false,
+  }) async {
     _pendingIds.add(id);
     _lastApproveNeedsReconciliation = false;
     notifyListeners();
     try {
-      await _repository.approve(id, decidedByUserId: decidedByUserId);
+      await _repository.approve(
+        id,
+        decidedByUserId: decidedByUserId,
+        conditionalToolSafetyConfirmation: conditionalToolSafetyConfirmation,
+      );
       _proposals = _proposals.where((p) => p.id != id).toList();
       _error = null;
       return true;
