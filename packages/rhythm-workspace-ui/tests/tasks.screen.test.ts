@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureTasksGateway, failingTasksGateway, emptyTa
 import { mount, flush, actClick, actSetValue, actKeyDown } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', capabilities: ['tasks.write'] as const }, ...overrides };
 }
 
 function mountTasks(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -184,6 +184,39 @@ describe('TasksScreen', () => {
     await flush();
     const tasks = await tasksGateway.list();
     expect(tasks.some((task) => task.title === 'Plan fall retreat kickoff')).toBe(true);
+    mounted.unmount();
+  });
+
+  it('fails closed without tasks.write: every visible mutation control is disabled, writes stay at zero, and inspect/Ask Hermes remain available', async () => {
+    const tasksGateway = fixtureTasksGateway();
+    let writes = 0;
+    const noWriteGateway = {
+      ...tasksGateway,
+      create: async (..._args: Parameters<typeof tasksGateway.create>) => { writes += 1; throw new Error('read-only host must not write'); },
+      update: async (..._args: Parameters<typeof tasksGateway.update>) => { writes += 1; throw new Error('read-only host must not write'); },
+      delete: async (..._args: Parameters<typeof tasksGateway.delete>) => { writes += 1; throw new Error('read-only host must not write'); },
+      addCollaborator: async (..._args: Parameters<typeof tasksGateway.addCollaborator>) => { writes += 1; throw new Error('read-only host must not write'); },
+      removeCollaborator: async (..._args: Parameters<typeof tasksGateway.removeCollaborator>) => { writes += 1; throw new Error('read-only host must not write'); },
+    };
+    let followUp: unknown = null;
+    const mounted = mountTasks({ tasks: noWriteGateway }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, onRequestFollowUp: (context: unknown) => { followUp = context; } });
+    await flush();
+    expect((mounted.byTestId('tasks-header-add-task') as HTMLButtonElement).disabled).toBe(true);
+    expect((mounted.byTestId('task-complete-t1') as HTMLInputElement).disabled).toBe(true);
+    await actClick(mounted.byTestId('task-menu-t1')!);
+    await flush();
+    expect((mounted.byTestId('task-delete-t1') as HTMLButtonElement).disabled).toBe(true);
+    await actClick(mounted.byTestId('task-select-t1')!);
+    await flush();
+    for (const testId of ['task-edit-title', 'task-edit-notes', 'task-edit-scheduled-date', 'task-edit-due-date', 'task-edit-agent', 'task-edit-energy', 'task-detail-complete', 'task-save', 'task-add-collaborator']) {
+      expect((mounted.byTestId(testId) as HTMLInputElement | HTMLSelectElement | HTMLButtonElement).disabled).toBe(true);
+    }
+    await actClick(mounted.byTestId('quick-action-help-finish')!);
+    expect(followUp).toMatchObject({ screen: 'tasks', action: 'help-finish' });
+    const persisted = await tasksGateway.list();
+    expect(persisted.find((task) => task.id === 't1')?.status).toBe('open');
+    expect(writes).toBe(0);
+    expect(mounted.byTestId('rhythm-tasks-screen')).toBeTruthy();
     mounted.unmount();
   });
 

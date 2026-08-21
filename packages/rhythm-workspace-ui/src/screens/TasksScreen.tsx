@@ -31,12 +31,12 @@ function isSourceReadonly(task: RhythmTask) {
   return task.sourceType === 'calendar_shadow_event' || task.sourceType === 'prod_mirror';
 }
 
-function StatePanel({ state, onRetry, onEmpty }: { state: Exclude<TasksSurfaceState, 'ready'>; onRetry(): void; onEmpty(): void }) {
+function StatePanel({ state, onRetry, onEmpty, canWrite }: { state: Exclude<TasksSurfaceState, 'ready'>; onRetry(): void; onEmpty(): void; canWrite: boolean }) {
   if (state === 'loading') {
     return <section className="tasks-state loading" role="status" aria-live="polite" data-testid="page-state-loading"><span className="eyebrow">Current workspace</span><h2>Loading tasks</h2><p>Gathering the current task list.</p><div className="tasks-skeleton state-skeleton" aria-hidden="true"><span /><span /><span /></div></section>;
   }
   if (state === 'empty') {
-    return <section className="tasks-state" role="status" data-testid="page-state-empty"><span className="eyebrow">A clear workspace</span><h2>No tasks yet</h2><p>Create a task above and it will settle into this workspace.</p><button className="primary-button" type="button" onClick={onEmpty} data-testid="tasks-empty-create">Create a task</button></section>;
+    return <section className="tasks-state" role="status" data-testid="page-state-empty"><span className="eyebrow">A clear workspace</span><h2>No tasks yet</h2><p>Create a task above and it will settle into this workspace.</p><button className="primary-button" type="button" disabled={!canWrite} onClick={onEmpty} data-testid="tasks-empty-create">Create a task</button></section>;
   }
   if (state === 'server_error') {
     return <section className="tasks-state danger" role="alert" data-testid="page-state-server-error"><span className="eyebrow">Retryable server error</span><h2>Unable to load tasks</h2><p>The task service returned a temporary failure. Your source data remains unchanged.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
@@ -104,6 +104,7 @@ function TaskMenu({ task, readonly, isOwner, ownerOnlyReasonId, readonlyReasonId
 export function TasksScreen() {
   const { tasks: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
+  const canWrite = host.currentUser.capabilities?.includes('tasks.write') ?? false;
   const [surfaceState, setSurfaceState] = useState<TasksSurfaceState>('loading');
   const [tasks, setTasks] = useState<RhythmTask[]>([]);
   const [members, setMembers] = useState<RhythmWorkspaceMember[]>([]);
@@ -181,7 +182,7 @@ export function TasksScreen() {
   const closeInspector = () => setSelectedId(null);
 
   const changeStatus = async (task: RhythmTask, nextStatus: TaskStatus) => {
-    if (mutationPending) return;
+    if (!canWrite || mutationPending) return;
     setMutationPending(true);
     try {
       const updated = await gateway.update(task.id, { status: nextStatus });
@@ -195,6 +196,7 @@ export function TasksScreen() {
 
   const createTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canWrite) return;
     const form = event.currentTarget;
     if (!form.reportValidity()) return;
     const data = new FormData(form);
@@ -225,7 +227,7 @@ export function TasksScreen() {
 
   const saveInspector = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedTask) return;
+    if (!canWrite || !selectedTask) return;
     const data = new FormData(event.currentTarget);
     const title = String(data.get('title') ?? '').trim();
     if (!title) return;
@@ -248,7 +250,7 @@ export function TasksScreen() {
   };
 
   const addCollaborator = async (memberId: string) => {
-    if (!selectedTask) return;
+    if (!canWrite || !selectedTask) return;
     try {
       const updated = await gateway.addCollaborator(selectedTask.id, memberId);
       setTasks((current) => current.map((task) => (task.id === updated.id ? updated : task)));
@@ -259,7 +261,7 @@ export function TasksScreen() {
   };
 
   const removeCollaborator = async (memberId: string) => {
-    if (!selectedTask) return;
+    if (!canWrite || !selectedTask) return;
     try {
       const updated = await gateway.removeCollaborator(selectedTask.id, memberId);
       setTasks((current) => current.map((task) => (task.id === updated.id ? updated : task)));
@@ -269,7 +271,7 @@ export function TasksScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!canWrite || !deleteTarget) return;
     setMutationPending(true);
     try {
       await gateway.delete(deleteTarget.id);
@@ -286,7 +288,7 @@ export function TasksScreen() {
   const moveTask = (status: TaskStatus) => {
     if (!draggedId) return;
     const task = tasks.find((item) => item.id === draggedId);
-    if (task && task.status !== status && !isSourceReadonly(task)) void changeStatus(task, status);
+    if (canWrite && task && task.status !== status && !isSourceReadonly(task)) void changeStatus(task, status);
     setDraggedId(null);
   };
 
@@ -305,7 +307,7 @@ export function TasksScreen() {
 
   const renderTaskRow = (task: RhythmTask) => {
     const isOwner = !task.isShared;
-    const readonly = isSourceReadonly(task) || mutationPending;
+    const readonly = !canWrite || isSourceReadonly(task) || mutationPending;
     return (
       <div className="task-row" role="row" aria-selected={selectedId === task.id} data-status={task.status} data-testid={`task-row-${task.id}`} key={task.id}>
         <span className="task-cell complete-cell" role="gridcell">
@@ -349,7 +351,7 @@ export function TasksScreen() {
     ? members.filter((member) => member.id !== selectedTask.ownerId && !selectedTask.collaborators.some((existing) => existing.id === member.id))
     : [];
   const selectedIsOwner = selectedTask ? !selectedTask.isShared : false;
-  const selectedReadonly = Boolean(selectedTask && (isSourceReadonly(selectedTask) || mutationPending));
+  const selectedReadonly = Boolean(selectedTask && (!canWrite || isSourceReadonly(selectedTask) || mutationPending));
 
   return (
     <ScreenRoot screenName="Tasks" testId="rhythm-tasks-screen">
@@ -358,7 +360,7 @@ export function TasksScreen() {
           <div className="tasks-heading"><span className="eyebrow">Planning queue</span><h1>Tasks</h1><p>Shape the next useful handoff without losing the wider rhythm.</p></div>
           <div className="tasks-header-actions">
             <span className="tasks-count" data-testid="tasks-visible-count">{visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'}</span>
-            <HeaderTaskAction onClick={() => setCreateOpen(true)} disabled={!showsWorkspace || mutationPending} testId="tasks-header-add-task" />
+            <HeaderTaskAction onClick={() => canWrite && setCreateOpen(true)} disabled={!canWrite || !showsWorkspace || mutationPending} testId="tasks-header-add-task" />
             <div className="tasks-view-switch" aria-label="Task presentation">
               <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')} data-testid="tasks-view-list">List</button>
               <button type="button" aria-pressed={view === 'board'} onClick={() => setView('board')} data-testid="tasks-view-board">Board</button>
@@ -367,11 +369,12 @@ export function TasksScreen() {
         </header>
 
         <div className="tasks-scroll" role="region" aria-label="Tasks workspace content" tabIndex={0}>
-          {!showsWorkspace && <StatePanel state={surfaceState} onRetry={() => void load()} onEmpty={() => setCreateOpen(true)} />}
+          {!showsWorkspace && <StatePanel state={surfaceState} onRetry={() => void load()} onEmpty={() => canWrite && setCreateOpen(true)} canWrite={canWrite} />}
           {showsWorkspace && (
             <>
               <p className="tasks-owner-note" id={ownerOnlyReasonId}><strong>Shared-task permissions</strong> Collaborators may edit and complete; only the task owner can add or remove collaborators or delete.</p>
               <p className="sr-only" id={readonlyReasonId}>This task is synchronized from another source of truth and is inspect-only here.</p>
+              {!canWrite && <p className="inspector-prerequisite" role="status" data-testid="tasks-readonly-explanation"><strong>Read-only workspace</strong><span>Your host has not granted Tasks write access. You can inspect tasks and ask Hermes, but changes are unavailable.</span></p>}
 
               <div className="tasks-workspace-layout">
                 <div className="tasks-collection">
@@ -421,7 +424,7 @@ export function TasksScreen() {
                                     className="task-card"
                                     role="option"
                                     tabIndex={0}
-                                    draggable={!isSourceReadonly(task)}
+                                    draggable={canWrite && !isSourceReadonly(task)}
                                     aria-selected={selectedId === task.id}
                                     aria-label={`Inspect ${task.title}`}
                                     onDragStart={() => setDraggedId(task.id)}
@@ -452,24 +455,24 @@ export function TasksScreen() {
                         <div><span className="task-detail-state">{taskStatusLabels[selectedTask.status]}</span><h2 id="task-detail-title">{selectedTask.title}</h2><p>{selectedTask.priority ? `P${selectedTask.priority} · ` : ''}{selectedTask.sourceName ?? 'Rhythm task'} · {dateLabel(selectedTask)}</p></div>
                         <button className="text-button" type="button" onClick={closeInspector} data-testid="task-detail-close">Close</button>
                       </header>
-                      {selectedReadonly && isSourceReadonly(selectedTask) && <div className="inspector-prerequisite" role="status"><strong>Synchronized source of truth</strong><span>This task is inspect-only here.</span></div>}
+                      {selectedReadonly && <div className="inspector-prerequisite" role="status"><strong>{canWrite ? 'Synchronized source of truth' : 'Read-only workspace'}</strong><span>{canWrite ? 'This task is inspect-only here.' : 'Your host has not granted Tasks write access.'}</span></div>}
                       <form className="task-inspector-form" key={selectedTask.id} onSubmit={saveInspector}>
                         <div className="task-source-grid"><div><span>Created by</span><strong data-testid="task-created-by">{selectedTask.createdBy}</strong></div><div><span>Status</span><strong>{taskStatusLabels[selectedTask.status]}</strong></div></div>
                         <fieldset disabled={selectedReadonly}>
                           <legend className="sr-only">Task details</legend>
-                          <label>Title<input name="title" required defaultValue={selectedTask.title} data-testid="task-edit-title" /></label>
-                          <label>Notes<textarea name="notes" rows={4} defaultValue={selectedTask.notes} data-testid="task-edit-notes" /></label>
+                          <label>Title<input disabled={selectedReadonly} name="title" required defaultValue={selectedTask.title} data-testid="task-edit-title" /></label>
+                          <label>Notes<textarea disabled={selectedReadonly} name="notes" rows={4} defaultValue={selectedTask.notes} data-testid="task-edit-notes" /></label>
                           <div className="inspector-pair">
-                            <label>Scheduled date<input name="scheduledDate" type="date" defaultValue={selectedTask.scheduledDate ?? ''} data-testid="task-edit-scheduled-date" /></label>
-                            <label>Due date<input name="dueDate" type="date" defaultValue={selectedTask.dueDate ?? ''} data-testid="task-edit-due-date" /></label>
+                            <label>Scheduled date<input disabled={selectedReadonly} name="scheduledDate" type="date" defaultValue={selectedTask.scheduledDate ?? ''} data-testid="task-edit-scheduled-date" /></label>
+                            <label>Due date<input disabled={selectedReadonly} name="dueDate" type="date" defaultValue={selectedTask.dueDate ?? ''} data-testid="task-edit-due-date" /></label>
                           </div>
                           <div className="inspector-pair">
-                            <label>Default agent<select name="preferredAgent" defaultValue={selectedTask.preferredAgent} data-testid="task-edit-agent"><option value="">None</option><option value="claude-code">Claude Code</option><option value="codex">Codex</option></select></label>
-                            <label>Energy<select name="energy" defaultValue={selectedTask.energy} data-testid="task-edit-energy"><option value="">None</option><option value="🔥">🔥 Fire</option><option value="⚡">⚡ Electric</option><option value="🌱">🌱 Grounded</option></select></label>
+                            <label>Default agent<select disabled={selectedReadonly} name="preferredAgent" defaultValue={selectedTask.preferredAgent} data-testid="task-edit-agent"><option value="">None</option><option value="claude-code">Claude Code</option><option value="codex">Codex</option></select></label>
+                            <label>Energy<select disabled={selectedReadonly} name="energy" defaultValue={selectedTask.energy} data-testid="task-edit-energy"><option value="">None</option><option value="🔥">🔥 Fire</option><option value="⚡">⚡ Electric</option><option value="🌱">🌱 Grounded</option></select></label>
                           </div>
                           <footer className="task-detail-form-actions">
-                            <button className="secondary-button" type="button" onClick={() => void changeStatus(selectedTask, selectedTask.status === 'done' ? 'open' : 'done')} data-testid="task-detail-complete">{selectedTask.status === 'done' ? 'Reopen' : 'Complete'}</button>
-                            <button className="primary-button" type="submit" data-testid="task-save">Save changes</button>
+                            <button className="secondary-button" type="button" disabled={selectedReadonly} onClick={() => void changeStatus(selectedTask, selectedTask.status === 'done' ? 'open' : 'done')} data-testid="task-detail-complete">{selectedTask.status === 'done' ? 'Reopen' : 'Complete'}</button>
+                            <button className="primary-button" type="submit" disabled={selectedReadonly} data-testid="task-save">Save changes</button>
                           </footer>
                         </fieldset>
                       </form>
@@ -487,7 +490,7 @@ export function TasksScreen() {
                           )) : <p>No collaborators yet.</p>}
                         </div>
                       </section>
-                      {!selectedReadonly && (
+                      {(!selectedReadonly || !canWrite) && (
                         <section className="task-quick-actions" aria-labelledby="task-quick-title">
                           <h3 id="task-quick-title">Quick actions</h3>
                           <div>{quickActionPresets.map((action) => <button className="task-action-chip" type="button" onClick={() => launchQuickAction(action.id, action.label)} data-testid={`quick-action-${action.id}`} key={action.id}>{action.label}</button>)}</div>
@@ -510,7 +513,7 @@ export function TasksScreen() {
             onCancel={() => setCreateOpen(false)}
             members={members.filter((member) => member.id !== currentUserId)}
             titleRef={createTitleRef}
-            disabled={mutationPending}
+            disabled={!canWrite || mutationPending}
             testIds={{ title: 'task-create-title', notes: 'task-create-notes', scheduledDate: 'task-create-scheduled-date', dueDate: 'task-create-due-date', collaborator: 'task-create-collaborator', cancel: 'task-create-cancel', submit: 'task-create-submit', mutations: 'tasks-mutations' }}
           />
         </FocusDialog>
@@ -529,7 +532,7 @@ export function TasksScreen() {
           <p className="delete-copy">The task and its collaborator links will be removed.</p>
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={() => setDeleteTarget(null)} data-testid="task-delete-cancel">Cancel</button>
-            <button className="danger-button" type="button" disabled={mutationPending} onClick={() => void confirmDelete()} data-testid="task-delete-confirm">Delete task</button>
+            <button className="danger-button" type="button" disabled={!canWrite || mutationPending} onClick={() => void confirmDelete()} data-testid="task-delete-confirm">Delete task</button>
           </div>
         </FocusDialog>
       </section>

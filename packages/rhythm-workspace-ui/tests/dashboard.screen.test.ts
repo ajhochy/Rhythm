@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureDashboardGateway, failingDashboardGateway,
 import { mount, flush, actClick } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', capabilities: ['dashboard.write'] as const }, ...overrides };
 }
 
 function mountDashboard(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -103,6 +103,36 @@ describe('DashboardScreen', () => {
     await flush();
     const summary = await dashboardGateway.summary();
     expect(summary.tasks.some((task) => task.title === 'Draft volunteer thank-you note')).toBe(true);
+    mounted.unmount();
+  });
+
+  it('fails closed without dashboard.write: every visible mutation control is disabled, writes stay at zero, and inspect/Ask Hermes remain available', async () => {
+    const dashboardGateway = fixtureDashboardGateway();
+    let writes = 0;
+    const noWriteGateway = {
+      ...dashboardGateway,
+      createTask: async (..._args: Parameters<typeof dashboardGateway.createTask>) => { writes += 1; throw new Error('read-only host must not write'); },
+      updateTask: async (..._args: Parameters<typeof dashboardGateway.updateTask>) => { writes += 1; throw new Error('read-only host must not write'); },
+      updateProjectStep: async (..._args: Parameters<typeof dashboardGateway.updateProjectStep>) => { writes += 1; throw new Error('read-only host must not write'); },
+    };
+    let followUp: unknown = null;
+    const mounted = mountDashboard({ dashboard: noWriteGateway }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, onRequestFollowUp: (context: unknown) => { followUp = context; } });
+    await flush();
+
+    for (const testId of ['dashboard-header-add-task', 'task-toggle-task-team-briefing', 'task-toggle-task-review-av-inventory', 'project-step-toggle-step-volunteer-check-in']) {
+      expect((mounted.byTestId(testId) as HTMLButtonElement).disabled).toBe(true);
+    }
+    await actClick(mounted.byTestId('task-row-task-review-av-inventory')!);
+    await flush();
+    for (const testId of ['task-inspector-title', 'task-inspector-notes', 'task-inspector-scheduled', 'task-inspector-due', 'task-inspector-collaborator-add', 'task-inspector-save']) {
+      expect((mounted.byTestId(testId) as HTMLInputElement | HTMLButtonElement).disabled).toBe(true);
+    }
+    await actClick(mounted.byTestId('quick-action-help-me-finish-this')!);
+    expect(followUp).toMatchObject({ screen: 'dashboard' });
+    const summary = await dashboardGateway.summary();
+    expect(summary.tasks.find((task) => task.id === 'task-team-briefing')?.status).toBe('open');
+    expect(writes).toBe(0);
+    expect(mounted.byTestId('rhythm-dashboard-screen')).toBeTruthy();
     mounted.unmount();
   });
 
