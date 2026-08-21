@@ -79,7 +79,7 @@ export type {
 
 export { ArtifactsScreen } from './artifacts/ArtifactsScreen';
 export type { ArtifactsScreenProps } from './artifacts/ArtifactsScreen';
-export type { ArtifactsGateway, RhythmArtifact, RhythmArtifactKind } from './artifacts/types';
+export type { ArtifactHostCapability, ArtifactHostCapabilityMessage, ArtifactHostCapabilityResult, ArtifactHostDocument, ArtifactHostPort, ArtifactsGateway, RhythmArtifact, RhythmArtifactKind } from './artifacts/types';
 
 export { AutomationsScreen } from './screens/AutomationsScreen';
 export { DashboardScreen } from './screens/DashboardScreen';
