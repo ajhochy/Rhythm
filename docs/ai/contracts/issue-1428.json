@@ -15,6 +15,16 @@
       "apps/api_server/src/services/__tests__/tool_install_proposal_validator.test.ts (fixture updated to closed scenario IDs; replaced the old count/length-bound test cases with 2-accepted/3-accepted/1-rejected/4-rejected/unknown-id-rejected-no-echo/duplicate-rejected/unsafe-toolName-no-echo/unsafe-packageSource-no-echo)"
     ]
   },
+  "repair_2": {
+    "date": "2026-08-21",
+    "authorized_by": "AJ (explicit, out-of-band authorization for a second repair loop after an independent agent — GPT — reproduced the same fail-closed invariant gap post-repair)",
+    "boundary_hardening": "The installMethod-rejection reason echoed the raw untrusted `change.installMethod` value verbatim (`change_json.installMethod '<value>' is not in...`) — the same untrusted-echo shape the 2026-08-21 repair above already fixed for `toolName`/`packageSource` but missed for `installMethod`. Repaired: the reason is now a fixed message plus the closed allowed-methods list only, never the submitted value.",
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-final-verdict-repair.md",
+    "files_changed": [
+      "apps/api_server/src/services/tool_install_proposal_validator.ts (installMethod rejection reason no longer echoes `change.installMethod`)",
+      "apps/api_server/src/services/__tests__/tool_install_proposal_validator.test.ts (new case: 'rejects an unsupported installMethod without echoing the untrusted value back' — a secret-shaped installMethod string; asserts neither the raw value nor the embedded token appears in the reason)"
+    ]
+  },
   "criteria": [
     {
       "criterion_id": "issue-1428-c1",

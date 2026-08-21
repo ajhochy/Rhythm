@@ -174,8 +174,8 @@ export function validateToolInstallChange(proposal: AgentOrgProposal): ProposalV
     return {
       valid: false,
       reason:
-        `change_json.installMethod '${String(change.installMethod)}' is not in the closed production ` +
-        `install-method registry (allowed: ${TOOL_INSTALL_ALLOWED_INSTALL_METHODS.join(', ')})`,
+        `change_json.installMethod is not in the closed production install-method registry ` +
+        `(allowed: ${TOOL_INSTALL_ALLOWED_INSTALL_METHODS.join(', ')})`,
     };
   }
 

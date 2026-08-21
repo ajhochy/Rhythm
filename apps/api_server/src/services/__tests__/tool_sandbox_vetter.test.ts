@@ -26,6 +26,7 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import {
   DockerSandboxRuntime,
+  evaluateCandidateSucceeded,
   vetToolInSandboxAsync,
   verifyEvidenceComplete,
   type DockerSandboxRuntimeOptions,
@@ -42,6 +43,7 @@ function fakeObservation(overrides: Partial<SandboxRunObservation> = {}): Sandbo
     credentialAccessAttemptsCount: 0,
     scenariosAttemptedCount: 2,
     sandboxDurationMs: 42,
+    candidateSucceeded: true,
     ...overrides,
   };
 }
@@ -117,6 +119,53 @@ describe('D1.2 vetToolInSandboxAsync — fake runtime (fail-closed orchestration
     };
     const outcome = await vetToolInSandboxAsync({ candidate, scenarioIds: TWO_SCENARIOS }, { runtime });
     expect(outcome.verdict).toBe('unsafe');
+  });
+
+  it('a detected credential access attempt → verdict unsafe, even with zero forbidden-path violations', async () => {
+    const runtime: SandboxRuntime = {
+      isAvailableAsync: async () => true,
+      runAsync: async () => fakeObservation({ credentialAccessAttemptsCount: 1 }),
+    };
+    const outcome = await vetToolInSandboxAsync({ candidate, scenarioIds: TWO_SCENARIOS }, { runtime });
+    expect(outcome.verdict).toBe('unsafe');
+    expect(outcome.credentialAccessAttemptsCount).toBe(1);
+  });
+
+  it('a credential access attempt takes priority over a network call in the same run', async () => {
+    const runtime: SandboxRuntime = {
+      isAvailableAsync: async () => true,
+      runAsync: async () =>
+        fakeObservation({
+          credentialAccessAttemptsCount: 2,
+          networkCallsObserved: [{ host: 'example.com', count: 1 }],
+        }),
+    };
+    const outcome = await vetToolInSandboxAsync({ candidate, scenarioIds: TWO_SCENARIOS }, { runtime });
+    expect(outcome.verdict).toBe('unsafe');
+  });
+
+  it('the candidate (install or a scenario invocation) failing → verdict unknown, reason sandbox_candidate_failed, real attempt count preserved', async () => {
+    const runtime: SandboxRuntime = {
+      isAvailableAsync: async () => true,
+      runAsync: async () => fakeObservation({ candidateSucceeded: false, scenariosAttemptedCount: 2 }),
+    };
+    const outcome = await vetToolInSandboxAsync({ candidate, scenarioIds: TWO_SCENARIOS }, { runtime });
+    expect(outcome.verdict).toBe('unknown');
+    expect(outcome.reason).toBe('sandbox_candidate_failed');
+    // Real attempts are preserved even on failure — never implies success, never zeroed.
+    expect(outcome.testPromptsRunCount).toBe(2);
+    expect(JSON.parse(outcome.forbiddenPathViolationsJson)).toEqual([]);
+  });
+
+  it('a failed candidate with a network call observed is still unknown, never conditional', async () => {
+    const runtime: SandboxRuntime = {
+      isAvailableAsync: async () => true,
+      runAsync: async () =>
+        fakeObservation({ candidateSucceeded: false, networkCallsObserved: [{ host: 'example.com', count: 1 }] }),
+    };
+    const outcome = await vetToolInSandboxAsync({ candidate, scenarioIds: TWO_SCENARIOS }, { runtime });
+    expect(outcome.verdict).toBe('unknown');
+    expect(outcome.reason).toBe('sandbox_candidate_failed');
   });
 
   it('testPromptsRunCount reflects the ACTUAL attempted count, not the requested array length', async () => {
@@ -233,6 +282,92 @@ describe('D1.2 verifyEvidenceComplete — never trust a missing/corrupt observat
         .join('\n'),
     );
     expect(() => verifyEvidenceComplete(outDir)).not.toThrow();
+  });
+});
+
+describe('D1.2 repair (real-Docker-broken-tool reproducer) evaluateCandidateSucceeded — positive proof required, never fail open', () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function makeOutDir(): string {
+    dir = mkdtempSync(join(tmpdir(), 'rhythm-d1-candidate-success-test-'));
+    return dir;
+  }
+
+  function writeInstall(outDir: string, exitCode: number): void {
+    writeFileSync(join(outDir, 'install.log'), `INSTALL_EXIT=${exitCode}`);
+  }
+
+  function writeScenarioResults(outDir: string, lines: string[]): void {
+    writeFileSync(join(outDir, 'scenario_results.log'), lines.join('\n'));
+  }
+
+  it('returns true when install exited 0 and every requested scenario exited 0', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0', 'SCENARIO_RESULT:help-check:0']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(true);
+  });
+
+  it('returns false when install exited nonzero', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 1);
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0', 'SCENARIO_RESULT:help-check:0']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false when exactly one scenario invocation exited nonzero', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0', 'SCENARIO_RESULT:help-check:1']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false when a requested scenario result is entirely missing', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false when scenario_results.log is entirely missing', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false on a malformed scenario result line', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check', 'not a result line at all']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false on a duplicated scenario result for the same id', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    writeScenarioResults(outDir, [
+      'SCENARIO_RESULT:version-check:0',
+      'SCENARIO_RESULT:version-check:0',
+      'SCENARIO_RESULT:help-check:0',
+    ]);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false on a mismatched scenario result naming a scenario that was never requested', () => {
+    const outDir = makeOutDir();
+    writeInstall(outDir, 0);
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0', 'SCENARIO_RESULT:stdin-noop:0']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+
+  it('returns false when install.log is missing entirely', () => {
+    const outDir = makeOutDir();
+    writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0', 'SCENARIO_RESULT:help-check:0']);
+    expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
   });
 });
 
@@ -369,19 +504,26 @@ describeDocker('D1.2 DockerSandboxRuntime — real container lifecycle', () => {
     expect(JSON.parse(outcome.forbiddenPathViolationsJson)).toEqual([]);
   }, 30000);
 
-  it('an install step that attempts a real network call → verdict conditional', async () => {
+  it('an install step that attempts a real network call, but the candidate still works → verdict conditional', async () => {
     // `local-script` fixture rather than a real `npm install`: npm retries a
     // failed resolve several times with backoff (real, observed behavior in
     // this environment — it does not fail fast under --network none), which
     // would make this test slow/flaky. A direct Node http.get attempt fails
     // immediately with the same getaddrinfo signature the real npm/pip
     // install paths produce, exercising the exact same detection regex.
+    // The install step ALSO writes the candidate binary and exits 0 (the
+    // network attempt is logged, not fatal) — D1's repaired contract only
+    // classifies 'conditional' when install AND every scenario invocation
+    // positively succeeded; a hard-failing install is 'unknown' instead
+    // (see the 'broken-tool' reproducer below).
     const outcome = await vetToolInSandboxAsync(
       {
         candidate: {
           toolName: 'network-fixture',
-          packageSource:
-            "node -e \"require('http').get('http://example.com',()=>{}).on('error',e=>{console.error(e.message);process.exit(1)})\"",
+          packageSource: [
+            installFixtureCandidateScript('network-fixture', 'exit 0'),
+            "node -e \"require('http').get('http://example.com',()=>{}).on('error',e=>{console.error(e.message)})\"",
+          ].join('\n'),
           installMethod: 'local-script',
         },
         scenarioIds: TWO_SCENARIOS,
@@ -389,9 +531,41 @@ describeDocker('D1.2 DockerSandboxRuntime — real container lifecycle', () => {
       { runtime: runtime() },
     );
     expect(outcome.verdict).toBe('conditional');
+    expect(outcome.testPromptsRunCount).toBe(2);
     const calls = JSON.parse(outcome.networkCallsObservedJson) as { host: string; count: number }[];
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.some((c) => c.host === 'example.com')).toBe(true);
+  }, 30000);
+
+  it('a candidate binary that exits nonzero for every invocation (install itself succeeds) → verdict unknown, reason sandbox_candidate_failed, real attempt count preserved', async () => {
+    // The real-Docker reproduction of D1's Blocker 1: `local-script`
+    // installs `broken-tool`, whose `--version` and `--help` both exit 1.
+    // Install itself succeeds (the script that WRITES the broken binary
+    // exits 0) — only the candidate's own invocations fail. Positive proof
+    // of success is required for 'safe'; this must never fall through to a
+    // fabricated safe verdict.
+    let containerName = '';
+    const outcome = await vetToolInSandboxAsync(
+      {
+        candidate: {
+          toolName: 'broken-tool',
+          packageSource: installFixtureCandidateScript('broken-tool', 'exit 1'),
+          installMethod: 'local-script',
+        },
+        scenarioIds: TWO_SCENARIOS,
+      },
+      { runtime: runtime({ onContainerName: (name) => (containerName = name) }) },
+    );
+    expect(outcome.verdict).toBe('unknown');
+    expect(outcome.reason).toBe('sandbox_candidate_failed');
+    // Both scenarios were genuinely attempted (real attempts), even though
+    // both failed — testPromptsRunCount never implies success.
+    expect(outcome.testPromptsRunCount).toBe(2);
+    expect(JSON.parse(outcome.forbiddenPathViolationsJson)).toEqual([]);
+    expect(outcome.credentialAccessAttemptsCount).toBe(0);
+    // Its own exact owned container — never a broader sweep — is gone.
+    expect(containerName).toMatch(/^rhythm-d1-vet-/);
+    assertContainerGone(containerName);
   }, 30000);
 
   it('the container is always torn down by its exact name, even after a well-behaved run', async () => {

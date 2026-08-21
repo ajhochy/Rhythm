@@ -12,10 +12,15 @@
  *
  * Fails CLOSED on every error path — Docker unavailable, invalid scenario
  * selection, an unsafe/unsupported candidate shape, a killed/timed-out
- * container, or incomplete/corrupt observation evidence all return
- * `verdict: 'unknown'` with a FIXED, code-owned reason string. NONE of
- * these paths can ever resolve to `'safe'` — a partial or ambiguous
- * observation is evidence of nothing, not evidence of safety. See D1.3's
+ * container, incomplete/corrupt observation evidence, or a candidate that
+ * did not positively succeed (a nonzero install exit, a nonzero scenario
+ * invocation exit, or missing/malformed/duplicate/mismatched result
+ * evidence — see {@link evaluateCandidateSucceeded}) all return
+ * `verdict: 'unknown'` with a FIXED, code-owned reason string. `safe` and
+ * `conditional` require POSITIVE proof of success, never silence or an
+ * absence of a bad signal — a partial or ambiguous observation is evidence
+ * of nothing, not evidence of safety. A detected credential access attempt
+ * is always `unsafe`, regardless of install/scenario success. See D1.3's
  * proposal validator (tool_install_proposal_validator.ts) for the durable
  * enforcement that a `verdict: 'unknown'` (or `'unsafe'`) report can never
  * reach approval.
@@ -40,10 +45,13 @@
  *     the aggregate `{host, count}` list is returned.
  *   - Each selected scenario is genuinely invoked as a SEPARATE command
  *     inside the container (`<toolName> <scenario args>`), unconditionally
- *     followed by a fixed, non-sensitive completion marker
- *     (`SCENARIO_ATTEMPTED:<id>`) — `testPromptsRunCount` is the number of
- *     markers actually observed after the run, never the requested array
- *     length, so a container killed mid-run under-counts rather than lying.
+ *     followed by a fixed, machine-readable result line
+ *     (`SCENARIO_RESULT:<id>:<exitCode>`) — `testPromptsRunCount` is the
+ *     number of result lines actually observed after the run, never the
+ *     requested array length, so a container killed mid-run under-counts
+ *     rather than lying, AND never implies success: install exiting 0 and
+ *     every requested scenario's own result line reading exit code 0 is
+ *     required before `safe`/`conditional` is even considered.
  *   - The run script reaches its sentinel-rehash step only after every
  *     selected scenario has been attempted; if that step's output is
  *     missing or short, the whole run is treated as EVIDENCE INCOMPLETE
@@ -108,6 +116,15 @@ export interface SandboxRunObservation {
   credentialAccessAttemptsCount: number;
   /** Scenarios actually attempted inside the container — never the requested count. */
   scenariosAttemptedCount: number;
+  /**
+   * Positive proof that install exited 0 AND every requested scenario
+   * invocation exited 0 — never inferred from silence. `false` on any
+   * nonzero exit, or on missing/malformed/duplicate/mismatched result
+   * evidence (see {@link evaluateCandidateSucceeded}). Required for `safe`
+   * or `conditional`; a `false` here is `unknown` regardless of anything
+   * else observed.
+   */
+  candidateSucceeded: boolean;
   sandboxDurationMs: number;
 }
 
@@ -151,6 +168,7 @@ export type ToolVettingFailureReason =
   | 'sandbox_start_failed'
   | 'sandbox_terminated'
   | 'sandbox_evidence_incomplete'
+  | 'sandbox_candidate_failed'
   | 'sandbox_error';
 
 /** Thrown for a candidate shape the sandbox refuses to build a command for. */
@@ -199,8 +217,17 @@ function unavailableOutcome(reason: ToolVettingFailureReason): ToolVettingOutcom
   };
 }
 
-function classifyVerdict(observation: SandboxRunObservation): 'safe' | 'conditional' | 'unsafe' {
+/**
+ * Unsafe signals (a forbidden-path write OR a detected credential access
+ * attempt) win regardless of install/scenario success. Otherwise, `safe`/
+ * `conditional` require POSITIVE proof the candidate actually succeeded
+ * (`candidateSucceeded`) — a failed install or a failed scenario invocation
+ * is `unknown`, never `safe`, even with zero other violations observed.
+ */
+function classifyVerdict(observation: SandboxRunObservation): 'safe' | 'conditional' | 'unsafe' | 'unknown' {
   if (observation.forbiddenPathViolations.length > 0) return 'unsafe';
+  if (observation.credentialAccessAttemptsCount > 0) return 'unsafe';
+  if (!observation.candidateSucceeded) return 'unknown';
   if (observation.networkCallsObserved.length > 0) return 'conditional';
   return 'safe';
 }
@@ -262,7 +289,11 @@ export async function vetToolInSandboxAsync(
   const verdict = classifyVerdict(observation);
   return {
     verdict,
-    reason: null,
+    // 'sandbox_candidate_failed' is the only fixed reason a positively-run
+    // observation (as opposed to a thrown infra error) can produce — see
+    // classifyVerdict. testPromptsRunCount below is NEVER zeroed here: it
+    // reflects real attempts even when candidateSucceeded is false.
+    reason: verdict === 'unknown' ? 'sandbox_candidate_failed' : null,
     sandboxDurationMs: observation.sandboxDurationMs,
     testPromptsRunCount: observation.scenariosAttemptedCount,
     forbiddenPathViolationsJson: JSON.stringify(observation.forbiddenPathViolations),
@@ -326,10 +357,13 @@ function shellSingleQuote(value: string): string {
 
 /**
  * Each selected scenario is invoked as its OWN command, unconditionally
- * followed by a fixed completion marker — `;`, never `&&`, so one
- * scenario's non-zero exit never suppresses the next scenario's attempt or
- * its own marker. The marker carries only the closed scenario ID (never
- * candidate output), and is read back for a COUNT ONLY (see parseObservation).
+ * followed by a fixed, machine-readable result line — `;`, never `&&`, so
+ * one scenario's non-zero exit never suppresses the next scenario's attempt
+ * or its own result line. The line carries only the closed scenario ID and
+ * its exit code (never candidate output), and is read back by
+ * {@link evaluateCandidateSucceeded} / {@link parseObservation} — never
+ * trusted as "attempted" without also recording whether it actually
+ * succeeded.
  */
 function buildScenarioInvocationScript(toolName: string, scenarioIds: string[]): string {
   return scenarioIds
@@ -339,7 +373,7 @@ function buildScenarioInvocationScript(toolName: string, scenarioIds: string[]):
       const invocation = `${shellSingleQuote(toolName)}${argsStr ? ` ${argsStr}` : ''}`;
       return [
         `${invocation} >> /vet/out/invoke.log 2>&1`,
-        `echo 'SCENARIO_ATTEMPTED:${id}' >> /vet/out/scenario_markers.log`,
+        `echo "SCENARIO_RESULT:${id}:$?" >> /vet/out/scenario_results.log`,
       ].join('\n');
     })
     .join('\n');
@@ -442,13 +476,61 @@ export function verifyEvidenceComplete(outDir: string): void {
   }
 }
 
-function parseObservation(outDir: string, sandboxDurationMs: number): SandboxRunObservation {
+/** Exact `INSTALL_EXIT=<digits>` line only — anything else is not positive proof. */
+function parseInstallExitCode(installLog: string): number | null {
+  const match = /^INSTALL_EXIT=(\d+)$/m.exec(installLog);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Parse `scenario_results.log` into an exact id→exitCode map, or `null` if
+ * the log is malformed in any way (an unparseable line, a duplicated id).
+ * Coverage against the requested set is checked by the caller.
+ */
+function parseScenarioResults(log: string): Map<string, number> | null {
+  const lines = log
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const results = new Map<string, number>();
+  for (const line of lines) {
+    const match = /^SCENARIO_RESULT:([A-Za-z0-9_-]+):(\d+)$/.exec(line);
+    if (!match) return null;
+    const [, id, exitCode] = match;
+    if (results.has(id)) return null;
+    results.set(id, Number(exitCode));
+  }
+  return results;
+}
+
+/**
+ * Positive proof of success, never inferred from silence: install exited 0
+ * AND there is EXACTLY one well-formed, zero-exit result for every
+ * requested scenario id — no fewer (missing), no more (mismatched), no
+ * duplicates, no malformed lines, no nonzero exit. Any of those returns
+ * `false`, which classifyVerdict maps to `unknown` (`sandbox_candidate_failed`),
+ * never `safe`.
+ */
+export function evaluateCandidateSucceeded(outDir: string, scenarioIds: string[]): boolean {
+  const installExitCode = parseInstallExitCode(readIfExists(join(outDir, 'install.log')));
+  if (installExitCode !== 0) return false;
+
+  const results = parseScenarioResults(readIfExists(join(outDir, 'scenario_results.log')));
+  if (!results) return false;
+  if (results.size !== scenarioIds.length) return false;
+  for (const id of scenarioIds) {
+    if (results.get(id) !== 0) return false;
+  }
+  return true;
+}
+
+function parseObservation(outDir: string, scenarioIds: string[], sandboxDurationMs: number): SandboxRunObservation {
   const installLog = readIfExists(join(outDir, 'install.log'));
   const invokeLog = readIfExists(join(outDir, 'invoke.log'));
   const combinedLog = `${installLog}\n${invokeLog}`;
   const sentinelAfter = readIfExists(join(outDir, 'sentinel_after.sha256'));
   const newFiles = readIfExists(join(outDir, 'new_files.txt'));
-  const scenarioMarkers = readIfExists(join(outDir, 'scenario_markers.log'));
+  const scenarioResultsLog = readIfExists(join(outDir, 'scenario_results.log'));
 
   const forbiddenPathViolations: string[] = [];
   for (const sentinel of FORBIDDEN_SENTINELS) {
@@ -472,7 +554,10 @@ function parseObservation(outDir: string, sandboxDurationMs: number): SandboxRun
     .filter(Boolean).length;
   const fileSystemWritesObserved =
     newFileCount > 0 ? [{ path: 'sandbox-workspace', count: newFileCount }] : [];
-  const scenariosAttemptedCount = (scenarioMarkers.match(/SCENARIO_ATTEMPTED:/g) ?? []).length;
+  // Raw attempt count — every line the run script wrote, regardless of
+  // exit code or malformation. NEVER implies success; see
+  // evaluateCandidateSucceeded for the coverage/success check.
+  const scenariosAttemptedCount = (scenarioResultsLog.match(/^SCENARIO_RESULT:/gm) ?? []).length;
 
   return {
     forbiddenPathViolations,
@@ -480,6 +565,7 @@ function parseObservation(outDir: string, sandboxDurationMs: number): SandboxRun
     fileSystemWritesObserved,
     credentialAccessAttemptsCount,
     scenariosAttemptedCount,
+    candidateSucceeded: evaluateCandidateSucceeded(outDir, scenarioIds),
     sandboxDurationMs,
   };
 }
@@ -541,7 +627,7 @@ export class DockerSandboxRuntime implements SandboxRuntime {
     try {
       await this.runContainer(containerName, vetDir);
       verifyEvidenceComplete(outDir);
-      return parseObservation(outDir, Date.now() - start);
+      return parseObservation(outDir, scenarioIds, Date.now() - start);
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
     }

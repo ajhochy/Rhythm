@@ -21,6 +21,22 @@
       "apps/api_server/src/services/__tests__/tool_sandbox_vetter_hardening.test.ts (new — mocked child_process proof of every docker run hardening flag and exact-name-only teardown)"
     ]
   },
+  "repair_2": {
+    "date": "2026-08-21",
+    "authorized_by": "AJ (explicit, out-of-band authorization for a second repair loop after an independent agent — GPT — reproduced the same fail-closed invariant gap post-repair)",
+    "blockers": [
+      "Blocker 1 — 'attempted' was not 'succeeded': the run script logged install/scenario exit codes (INSTALL_EXIT, and now SCENARIO_RESULT lines) but nothing ever read them as a gate — a real Docker reproducer (`local-script` installing `broken-tool`, whose `--version`/`--help` both exit 1) returned `verdict: 'safe'` with `reason: null`.",
+      "Blocker 2 — classifyVerdict never inspected `credentialAccessAttemptsCount` at all — a runtime observation with `credentialAccessAttemptsCount: 1` (and zero forbidden-path violations) returned `verdict: 'safe'`.",
+      "Boundary hardening — `validateToolInstallChange`'s installMethod-rejection reason echoed the raw untrusted `change.installMethod` value verbatim (`change_json.installMethod '<value>' is not in...`), the same untrusted-echo shape already fixed for toolName/packageSource in the 2026-08-21 repair above."
+    ],
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-final-verdict-repair.md",
+    "files_changed": [
+      "apps/api_server/src/services/tool_sandbox_vetter.ts (scenario invocation now writes a machine-readable `SCENARIO_RESULT:<id>:<exitCode>` line per scenario instead of a bare completion marker; new `evaluateCandidateSucceeded()` requires install exit 0 AND an exact, well-formed, zero-exit result for every requested scenario id — missing/malformed/duplicate/mismatched/nonzero all return `false`; `classifyVerdict` now returns `unsafe` on any credential access attempt (in addition to forbidden-path violations) and returns `unknown` — new fixed reason `sandbox_candidate_failed` — whenever `candidateSucceeded` is `false`, regardless of network calls observed; `testPromptsRunCount` still reflects real attempts even on this failure path, never zeroed)",
+      "apps/api_server/src/services/__tests__/tool_sandbox_vetter.test.ts (new real-Docker `broken-tool` reproducer — installs successfully, both scenario invocations exit 1 — asserting `unknown`/`sandbox_candidate_failed`/2 real attempts/its own exact container torn down; new fake-runtime credential-access-unsafe cases; new `evaluateCandidateSucceeded` unit-test suite covering install-nonzero, one-scenario-nonzero, missing/malformed/duplicate/mismatched scenario results; updated the pre-existing network-call fixture to also succeed so it still legitimately reaches `conditional` under the new success-gated rule)",
+      "apps/api_server/src/services/tool_install_proposal_validator.ts (installMethod rejection reason no longer echoes the untrusted value; returns only the fixed message + the closed allowed-methods list)",
+      "apps/api_server/src/services/__tests__/tool_install_proposal_validator.test.ts (new case: unsupported installMethod containing a secret-shaped token is rejected without the raw value or the token appearing in the reason)"
+    ]
+  },
   "criteria": [
     {
       "criterion_id": "issue-1427-c1",
@@ -35,14 +51,16 @@
       "mode": "live-docker",
       "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations, every scenario genuinely invoked' — asserts `testPromptsRunCount === 3` for 3 requested scenarios, produced by parsing per-scenario completion markers written INSIDE the container after each real invocation; 'testPromptsRunCount reflects the ACTUAL attempted count, not the requested array length' (fake-runtime) proves the count is never derived from the request)",
       "status": "pass",
-      "repair_note": "Previously this criterion was satisfied only by counting `testPrompts.length` — no invocation of the candidate ever happened beyond the install step. Repaired by adding a genuine per-scenario command execution inside the run script (`<toolName> <scenario args>`, unconditionally followed by a fixed completion marker), and by deriving `testPromptsRunCount` from markers actually observed after the run, never from the request."
+      "repair_note": "Previously this criterion was satisfied only by counting `testPrompts.length` — no invocation of the candidate ever happened beyond the install step. Repaired by adding a genuine per-scenario command execution inside the run script (`<toolName> <scenario args>`, unconditionally followed by a fixed completion marker), and by deriving `testPromptsRunCount` from markers actually observed after the run, never from the request.",
+      "repair_2_note": "'Genuinely invoked' still did not mean 'genuinely succeeded' — a real Docker reproducer installing a `broken-tool` whose `--version`/`--help` both exit 1 returned `verdict: 'safe'` (attempted is not succeeded). Repaired: each invocation's own exit code is now written as a machine-readable `SCENARIO_RESULT:<id>:<exitCode>` line and checked by `evaluateCandidateSucceeded` — see repair_2. `testPromptsRunCount` is unchanged (still real attempts, never implying success)."
     },
     {
       "criterion_id": "issue-1427-c3",
       "text": "Safe tool → verdict=safe, zero violations.",
       "mode": "live-docker",
       "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations, every scenario genuinely invoked')",
-      "status": "pass"
+      "status": "pass",
+      "repair_2_note": "'Safe' now additionally requires POSITIVE proof of success (install exit 0 AND every requested scenario's own result line reads exit 0) — see repair_2. The existing fixture for this test (`exit 0` unconditionally, for every invocation) already satisfies this, so no fixture change was needed; the new `broken-tool` reproducer test proves the negative case (zero violations, but a failing candidate) is `unknown`, not `safe`."
     },
     {
       "criterion_id": "issue-1427-c4",
@@ -55,16 +73,18 @@
       "criterion_id": "issue-1427-c5",
       "text": "Tool with unexpected network calls → verdict=conditional.",
       "mode": "live-docker",
-      "test": "tool_sandbox_vetter.test.ts ('an install step that attempts a real network call → verdict conditional'); fake-runtime ('a run with unexpected network calls (and no forbidden-path touch) → verdict conditional')",
-      "status": "pass"
+      "test": "tool_sandbox_vetter.test.ts ('an install step that attempts a real network call, but the candidate still works → verdict conditional'); fake-runtime ('a run with unexpected network calls (and no forbidden-path touch) → verdict conditional')",
+      "status": "pass",
+      "repair_2_note": "Retitled/updated the real-Docker fixture: 'conditional' is now reachable ONLY when install + every scenario invocation positively succeeded AND no unsafe signal is present (see repair_2) — a network-observed run whose install itself hard-fails is 'unknown', not 'conditional'. The fixture was extended to also write a working candidate binary (`exit 0`) alongside the network-attempt line so the install step's own exit code stays 0; a new adjacent test ('a failed candidate with a network call observed is still unknown, never conditional', fake-runtime) proves the negative case directly."
     },
     {
       "criterion_id": "issue-1427-c6",
-      "text": "Docker unavailable, an invalid/unsafe candidate or scenario selection, a timed-out/signal-killed container, or incomplete/corrupt observation evidence → verdict=unknown with a FIXED, sanitized reason and no fabricated 'safe'. NEVER a fail-open path.",
+      "text": "Docker unavailable, an invalid/unsafe candidate or scenario selection, a timed-out/signal-killed container, incomplete/corrupt observation evidence, or a candidate that did not positively succeed → verdict=unknown with a FIXED, sanitized reason and no fabricated 'safe'. NEVER a fail-open path.",
       "mode": "unit+live-docker",
-      "test": "tool_sandbox_vetter.test.ts ('Docker unavailable...'; 5-case invalid-scenario-selection table; 'an unsafe toolName fails closed...'; 'an unsupported install method fails closed...'; real-docker 'a container killed on timeout fails closed to unknown (never safe) and is torn down by its exact name'); verifyEvidenceComplete unit tests (missing install.log, incomplete install.log, missing/short sentinel_after.sha256 — none throw a 'safe' result, all reject before classification)",
+      "test": "tool_sandbox_vetter.test.ts ('Docker unavailable...'; 5-case invalid-scenario-selection table; 'an unsafe toolName fails closed...'; 'an unsupported install method fails closed...'; real-docker 'a container killed on timeout fails closed to unknown (never safe) and is torn down by its exact name'; real-docker 'a candidate binary that exits nonzero for every invocation ... → verdict unknown, reason sandbox_candidate_failed'); verifyEvidenceComplete unit tests (missing install.log, incomplete install.log, missing/short sentinel_after.sha256 — none throw a 'safe' result, all reject before classification); new `evaluateCandidateSucceeded` unit-test suite (install nonzero, one scenario nonzero, missing/malformed/duplicate/mismatched scenario results — all return false, never true)",
       "status": "pass",
-      "repair_note": "Previously a timed-out/signal-killed `docker run` client resolved NORMALLY (only `code === 125` was checked; `code === null` from a SIGKILL fell through to `resolve()`), and missing observation files parsed via `readIfExists` as empty strings, which `parseObservation` read as zero violations => verdict 'safe' — a fail-OPEN path on the exact failure mode this track exists to guard against. Repaired: `docker run`'s close handler now rejects on any signal/null-code close (`SandboxTerminatedError`); a new `verifyEvidenceComplete` gate runs before classification and rejects (`SandboxEvidenceError`) unless `install.log` reached its completion marker AND `sentinel_after.sha256` has an entry for every sentinel — both are only reachable if the run genuinely completed. All thrown errors map to a FIXED, code-owned reason string (`classifyFailureReason`), never the exception's own message text."
+      "repair_note": "Previously a timed-out/signal-killed `docker run` client resolved NORMALLY (only `code === 125` was checked; `code === null` from a SIGKILL fell through to `resolve()`), and missing observation files parsed via `readIfExists` as empty strings, which `parseObservation` read as zero violations => verdict 'safe' — a fail-OPEN path on the exact failure mode this track exists to guard against. Repaired: `docker run`'s close handler now rejects on any signal/null-code close (`SandboxTerminatedError`); a new `verifyEvidenceComplete` gate runs before classification and rejects (`SandboxEvidenceError`) unless `install.log` reached its completion marker AND `sentinel_after.sha256` has an entry for every sentinel — both are only reachable if the run genuinely completed. All thrown errors map to a FIXED, code-owned reason string (`classifyFailureReason`), never the exception's own message text.",
+      "repair_2_note": "Blocker 1 (AJ-authorized final repair, 2026-08-21): 'genuinely invoked' (the prior repair) was never checked for 'genuinely succeeded' — install/scenario exit codes were logged (`INSTALL_EXIT=`, and a completion marker) but nothing ever gated on them, so a real Docker reproducer installing `broken-tool` (both `--version`/`--help` exit 1) returned `verdict: 'safe', reason: null`. Repaired: the run script now writes a machine-readable `SCENARIO_RESULT:<id>:<exitCode>` line per scenario; a new `evaluateCandidateSucceeded(outDir, scenarioIds)` requires install exit 0 AND an exact, well-formed, zero-exit result for every requested scenario id — missing, malformed, duplicate, mismatched, or nonzero all return `false`. `classifyVerdict` now returns `unknown` with the new fixed reason `sandbox_candidate_failed` whenever `candidateSucceeded` is `false`, taking priority over any network-call observation (but never over an unsafe signal, which still wins first). `testPromptsRunCount` is UNCHANGED by this gate — it still reports real attempts (2, in the broken-tool reproducer), never zeroed, never implying success. Blocker 2 (same repair): `classifyVerdict` never inspected `credentialAccessAttemptsCount` at all — an observation with `credentialAccessAttemptsCount: 1` and zero forbidden-path violations returned `verdict: 'safe'`. Repaired: any detected credential access attempt now returns `unsafe`, with the same priority as a forbidden-path violation (checked before the install/scenario success gate, so a failed install that also read a credential sentinel is still `unsafe`, not `unknown`)."
     },
     {
       "criterion_id": "issue-1427-c7",
@@ -92,8 +112,9 @@
       "criterion_id": "issue-1427-c10",
       "text": "Focused + adjacent tests pass (RED → GREEN); build + typecheck pass.",
       "mode": "unit",
-      "test": "npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts (29/29) src/services/__tests__/tool_sandbox_vetter_hardening.test.ts (2/2); tsc --noEmit; npm run build",
-      "status": "pass"
+      "test": "npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts (43/43, up from 29/29) src/services/__tests__/tool_sandbox_vetter_hardening.test.ts (2/2); tsc --noEmit; npm run build",
+      "status": "pass",
+      "repair_2_note": "RED confirmed before implementing (see run note): 15 failed / 52 passed against the pre-repair-2 tree for the new tests added this pass (real-Docker broken-tool reproducer, evaluateCandidateSucceeded unit suite, credential-access-unsafe fake-runtime cases, failed-candidate-with-network-call case, installMethod-echo boundary case). GREEN after implementing: 43/43 + 2/2 (tool_sandbox_vetter*) and 22/22 (tool_install_proposal_validator, up from 21/21)."
     }
   ],
   "not_tested": [
@@ -110,6 +131,9 @@
     "The container now runs as the `node:22-alpine` image's built-in non-root `node` user with a read-only root filesystem; the bind-mounted `/vet` scratch workspace is chmod 0o777 on the host side specifically so a non-root, non-host-uid-mapped container user can still create/modify files there regardless of which uid created the directory — verified against the real local Docker daemon by the full real-Docker suite passing unchanged with these flags applied.",
     "The live Docker tests use `node:22-alpine` (already present locally in this environment, confirmed via `docker images` before writing any code) specifically to avoid any image-pull network dependency in the test suite; `--pull never` is also passed on every real `docker run` so a missing image fails fast and deterministically rather than the vetting infrastructure itself silently reaching the internet.",
     "The 'network calls observed' detection is a closed set of known DNS/connection-failure error signatures (`getaddrinfo`, `Could not resolve host`, `failed to connect`, `ENETUNREACH`, `ECONNREFUSED`) parsed out of captured install+invocation output under `--network none`; a network-capable ecosystem tool not covered by one of these signatures would under-report rather than over-report — ponytail: extend the signature list if a real generator surfaces one this misses.",
-    "The test suite's scratch root is now created under `os.tmpdir()` (guaranteed to exist on every platform) rather than a hardcoded absolute path assumed to pre-exist, and is torn down only via its own tracked path in `afterAll` — never a sweep of anything else under the OS tmp directory."
+    "The test suite's scratch root is now created under `os.tmpdir()` (guaranteed to exist on every platform) rather than a hardcoded absolute path assumed to pre-exist, and is torn down only via its own tracked path in `afterAll` — never a sweep of anything else under the OS tmp directory.",
+    "SUPERSEDED-IN-PART by the 2026-08-21 repair_2 pass: verdict priority order is now forbidden-path violation → credential access attempt → (install/scenario success gate) → network calls observed → safe. Both unsafe signals are checked BEFORE the success gate, so a run that fails to install/invoke but ALSO touches a forbidden path or reads a credential sentinel is still classified `unsafe`, never `unknown` — an unsafe signal is always the strongest verdict regardless of whether the candidate otherwise 'worked'.",
+    "`evaluateCandidateSucceeded` treats `scenarioIds.length` as the exact requested-set size without re-deduplicating, relying on the fact that `vetToolInSandboxAsync`'s own `validateScenarioIds` (unchanged, upstream of any runtime call) already rejects a duplicate scenario id before `DockerSandboxRuntime.runAsync` — and therefore this function — is ever reached with one.",
+    "The pre-existing 'network call → conditional' real-Docker fixture (`network-fixture`) previously used a `packageSource` install script that called `process.exit(1)` on the network error — which, under the repair_2 success-gated contract, would now correctly reclassify to `unknown` (the install itself failed). Since this fixture's INTENT is 'a tool that attempts a network call but still works' (the scenario 'conditional' exists to describe), it was updated to also write a working candidate binary and drop the explicit `process.exit(1)`, rather than weakening the new success gate to accommodate a fixture that no longer matched what it was meant to demonstrate."
   ]
 }
