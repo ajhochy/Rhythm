@@ -1,0 +1,66 @@
+{
+  "issue": 1436,
+  "date": "2026-08-20",
+  "test_command": "export PATH=\"/Users/ajhochhalter/development/flutter/bin:$PATH\" && cd apps/desktop_flutter && flutter test test/features/agent_optimizer/org_proposals_applied_tab_test.dart",
+  "waiver": null,
+  "superseded_note": "Revert-on-the-Changes-tab surface (data source/repository/controller/UI/confirm-dialog/error-surfacing) was already fully implemented and committed under the C6 track (commit 5447a7b2, 'feat(desktop): add an already-in-use tab with revert to the optimizer queue') before this issue was opened. This issue's work is: (1) verifying every acceptance criterion against that existing implementation with fresh, focused evidence, and (2) closing two coverage gaps (success-snackbar text, in-flight disabled/spinner state) that existing tests did not directly assert. No production code changed as a result of this issue — only apps/desktop_flutter/test/features/agent_optimizer/org_proposals_applied_tab_test.dart gained two new test cases. Per the OWNERSHIP note for this track, the issue's 'Files (estimated)' list under apps/mobile/ was superseded by the desktop_flutter shipping surface; apps/mobile was not touched.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1436-c1",
+      "text": "Revert button visible for applied changes.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_applied_tab_test.dart",
+      "status": "pass",
+      "reason": "'a canonical row offers Revert and calls the data source' asserts OutlinedButton key revert-proposal-${id} renders for a revertable active row."
+    },
+    {
+      "criterion_id": "issue-1436-c2",
+      "text": "Clicking Revert calls POST /agent-org-proposals/:id/revert through the data source and shows confirmation.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_applied_tab_test.dart",
+      "status": "pass",
+      "reason": "'a canonical row offers Revert and calls the data source' asserts the fake OrgProposalsDataSource.revert(id) was invoked; new test 'shows a confirmation snackbar when revert succeeds' asserts the SnackBar reads 'Change undone'."
+    },
+    {
+      "criterion_id": "issue-1436-c3",
+      "text": "Error state handled: a server refusal (e.g. 409) surfaces the server's own message as a toast, never a generic failure string.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_applied_tab_test.dart",
+      "status": "pass",
+      "reason": "'a 409 from the server surfaces the server message' asserts the AppError message text renders and 'Revert failed' does not; the same text is rendered inside the warning-colored SnackBar in views/org_proposals_view.dart's _revert()."
+    },
+    {
+      "criterion_id": "issue-1436-c4",
+      "text": "Loading state: the revert button disables itself and shows a spinner while the request is in-flight.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_applied_tab_test.dart",
+      "status": "pass",
+      "reason": "New test 'disables the revert button and shows a spinner while the request is in flight' holds the fake data source's revert() open on a Completer, asserts OutlinedButton.onPressed is null and a CircularProgressIndicator renders, then completes it. RED confirmed by temporarily changing org_proposals_view.dart's onPressed: pending ? null : onRevert to onPressed: onRevert (test failed with 'Expected: null Actual: <Closure>'), then restored (git diff --stat on the file was empty afterward, confirming zero net production change)."
+    },
+    {
+      "criterion_id": "issue-1436-c5",
+      "text": "flutter analyze clean on touched files.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "flutter analyze --no-fatal-infos on the touched test file plus org_proposals_view.dart: 10 pre-existing use_build_context_synchronously infos, zero warnings/errors, exit 0."
+    },
+    {
+      "criterion_id": "issue-1436-c6",
+      "text": "flutter test passes on new widget tests.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_applied_tab_test.dart",
+      "status": "pass",
+      "reason": "9/9 tests passed (7 pre-existing + 2 new)."
+    },
+    {
+      "criterion_id": "issue-1436-c7",
+      "text": "No raw secrets or tool payloads in the UI.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "OrgProposal UI surface only ever renders title/rationale/status/outcome/experiment-summary fields and short SHA-256 prefixes (_shortSha256), never raw prompts or credentials. Added-line secret-shaped-string scan on the diff found nothing."
+    }
+  ],
+  "not_tested": []
+}
