@@ -2,18 +2,25 @@ import { createElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectsScreen } from '../src/screens/ProjectsScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
+import { RhythmGatewayError } from '../src/domain/types';
 import { defaultRhythmTokens } from '../src/host/theme';
 import { assertScreenContract } from './test-utils/screenContract';
 import { fixtureDomainGateway, fixtureProjectsGateway, failingProjectsGateway, emptyProjectsGateway } from './test-utils/fixtures';
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', collaborationCapability: 'write' as const }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', capabilities: ['projects.write'] as const }, ...overrides };
 }
 
 function mountProjects(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
   const gateway = { ...fixtureDomainGateway(), ...gatewayOverrides };
   return mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(hostOverrides), children: createElement(ProjectsScreen) }));
+}
+
+async function confirmProject(mounted: ReturnType<typeof mountProjects>) {
+  await flush();
+  await actClick(mounted.byTestId('project-operation-confirm')!);
+  await flush();
 }
 
 describe('ProjectsScreen', () => {
@@ -120,10 +127,107 @@ describe('ProjectsScreen', () => {
     await flush();
     await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
     await flush();
+    await actClick(mounted.byTestId('project-operation-confirm')!);
+    await flush();
     const updated = await projectsGateway.list();
     const instance = updated.find((item) => item.id === 'instance-sunday-service-2026-08-16');
     expect(instance?.steps.find((step) => step.id === 'step-final-run-sheet')?.status).toBe('done');
     mounted.unmount();
+  });
+
+  it('uses the exact narrow Projects capability and one foreground confirmation before a project-step mutation', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const updateStep = vi.fn(projectsGateway.updateStep);
+    const confirmWorkspaceOperation = vi.fn(async () => true);
+    const mounted = mountProjects({ projects: { ...projectsGateway, updateStep } }, {
+      currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['projects.update-step'] },
+      confirmWorkspaceOperation,
+    });
+    await flush();
+    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
+    await flush();
+    expect((mounted.byTestId('project-template-new') as HTMLButtonElement).disabled).toBe(true);
+    expect((mounted.byTestId('project-milestone-add') as HTMLButtonElement).disabled).toBe(true);
+    await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
+    await flush();
+    expect(updateStep).not.toHaveBeenCalled();
+    expect(mounted.byTestId('project-operation-confirmation')).toBeTruthy();
+    await actClick(mounted.byTestId('project-operation-confirm')!);
+    await flush();
+    expect(confirmWorkspaceOperation).toHaveBeenCalledWith(expect.objectContaining({ operation: 'projects.update-step', entityId: 'step-final-run-sheet', payload: { status: 'done' }, generation: expect.any(String) }));
+    expect(updateStep).toHaveBeenCalledOnce();
+    mounted.unmount();
+  });
+
+  it.each([
+    ['projects.create-template', 'project-template-new', 'project-start'],
+    ['projects.create-instance', 'project-start', 'project-template-new'],
+    ['projects.create-milestone', 'project-milestone-add', 'project-step-complete-step-final-run-sheet'],
+    ['projects.create-step', 'project-template-step-add', 'project-template-new'],
+    ['projects.delete-step', 'project-template-step-delete-template-step-volunteer-plan', 'project-template-step-add'],
+  ] as const)('enables only the named narrow project family control for %s', async (capability, enabledId, disabledId) => {
+    const mounted = mountProjects({}, { currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: [capability] } });
+    await flush();
+    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
+    await flush();
+    if (capability.includes('step')) {
+      await actClick(mounted.byTestId('project-template-edit-template-sunday-service')!);
+      await flush();
+    }
+    expect((mounted.byTestId(enabledId) as HTMLButtonElement | HTMLInputElement).disabled).toBe(false);
+    expect((mounted.byTestId(disabledId) as HTMLButtonElement | HTMLInputElement).disabled).toBe(true);
+    mounted.unmount();
+  });
+
+  it('cancels, invalidates deferred, and retains conflict context for Project operations without local success', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const updateStep = vi.fn(async () => { throw new RhythmGatewayError('conflict', 'stale'); });
+    let resolveConfirmation!: (approved: boolean) => void;
+    const confirmWorkspaceOperation = vi.fn(() => new Promise<boolean>((resolve) => { resolveConfirmation = resolve; }));
+    const mounted = mountProjects({ projects: { ...projectsGateway, updateStep } }, {
+      currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['projects.update-step'] },
+      confirmWorkspaceOperation,
+    });
+    await flush();
+    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
+    await flush();
+    await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
+    await actClick(mounted.byTestId('project-operation-cancel')!);
+    expect(confirmWorkspaceOperation).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
+    await actClick(mounted.byTestId('project-operation-confirm')!);
+    await actClick(mounted.byTestId('project-operation-confirm')!);
+    expect(confirmWorkspaceOperation).toHaveBeenCalledOnce();
+    await actClick(mounted.byTestId('project-template-select-template-empty')!);
+    resolveConfirmation(true);
+    await flush();
+    expect(updateStep).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
+    await actClick(mounted.byTestId('project-operation-confirm')!);
+    resolveConfirmation(true);
+    await flush();
+    expect(mounted.byTestId('project-operation-outcome')?.getAttribute('role')).toBe('alert');
+    expect(mounted.byTestId('project-operation-confirmation')).toBeTruthy();
+    mounted.unmount();
+  });
+
+  it('does not write after an in-flight Project confirmation resolves following unmount', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const updateStep = vi.fn(projectsGateway.updateStep);
+    let resolveConfirmation!: (approved: boolean) => void;
+    const mounted = mountProjects({ projects: { ...projectsGateway, updateStep } }, {
+      currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['projects.update-step'] },
+      confirmWorkspaceOperation: () => new Promise<boolean>((resolve) => { resolveConfirmation = resolve; }),
+    });
+    await flush();
+    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
+    await flush();
+    await actClick(mounted.byTestId('project-step-complete-step-final-run-sheet')!);
+    await actClick(mounted.byTestId('project-operation-confirm')!);
+    mounted.unmount();
+    resolveConfirmation(true);
+    await flush();
+    expect(updateStep).not.toHaveBeenCalled();
   });
 
   it('reassigns a step to a different milestone (or Ungrouped) through the gateway', async () => {
@@ -135,6 +239,7 @@ describe('ProjectsScreen', () => {
     const select = mounted.byTestId('project-step-milestone-step-volunteer-check-in') as HTMLSelectElement;
     expect(select.value).toBe('milestone-service-ready');
     await actSetValue(select, '');
+    await confirmProject(mounted);
     await flush();
     const updated = await projectsGateway.list();
     const instance = updated.find((item) => item.id === 'instance-sunday-service-2026-08-16');
@@ -156,6 +261,7 @@ describe('ProjectsScreen', () => {
     const titleInput = mounted.byTestId('project-step-title') as HTMLInputElement;
     await actSetValue(titleInput, 'Finalize the run sheet (urgent)');
     await actClick(mounted.byTestId('project-step-save')!);
+    await confirmProject(mounted);
     await flush();
     const updated = await projectsGateway.list();
     const instance = updated.find((item) => item.id === 'instance-sunday-service-2026-08-16');
@@ -175,6 +281,7 @@ describe('ProjectsScreen', () => {
     expect(dialog?.getAttribute('role')).toBe('dialog');
     await actSetValue(mounted.byTestId('project-milestone-title') as HTMLInputElement, 'Wrap-up');
     await actClick(mounted.byTestId('project-milestone-submit')!);
+    await confirmProject(mounted);
     await flush();
     const updated = await projectsGateway.list();
     const instance = updated.find((item) => item.id === 'instance-sunday-service-2026-08-16');
@@ -182,7 +289,7 @@ describe('ProjectsScreen', () => {
     mounted.unmount();
   });
 
-  it('adds a collaborator through a focus-trapped picker and the gateway', async () => {
+  it('never exposes collaborator/member writes, including for the general legacy Projects capability', async () => {
     const projectsGateway = fixtureProjectsGateway();
     const mounted = mountProjects({ projects: projectsGateway });
     await flush();
@@ -190,22 +297,9 @@ describe('ProjectsScreen', () => {
     await flush();
     await actClick(mounted.byTestId('project-collaborator-add')!);
     await flush();
-    const dialog = mounted.byTestId('project-collaborator-picker');
-    expect(dialog?.contains(document.activeElement)).toBe(true);
-    mounted.unmount();
-  });
-
-  it('removes a collaborator through the gateway', async () => {
-    const projectsGateway = fixtureProjectsGateway();
-    const mounted = mountProjects({ projects: projectsGateway });
-    await flush();
-    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
-    await flush();
-    await actClick(mounted.byTestId('project-collaborator-remove-workspace-user-2')!);
-    await flush();
-    const updated = await projectsGateway.list();
-    const instance = updated.find((item) => item.id === 'instance-sunday-service-2026-08-16');
-    expect(instance?.collaborators.some((person) => person.id === 'workspace-user-2')).toBe(false);
+    expect((mounted.byTestId('project-collaborator-add') as HTMLButtonElement).disabled).toBe(true);
+    expect((mounted.byTestId('project-collaborator-remove-workspace-user-2') as HTMLButtonElement).disabled).toBe(true);
+    expect(mounted.byTestId('project-collaborator-picker')).toBeNull();
     mounted.unmount();
   });
 
@@ -219,7 +313,7 @@ describe('ProjectsScreen', () => {
     await flush();
     expect(mounted.byTestId('project-instance-delete-dialog')).toBeTruthy();
     await actClick(mounted.byTestId('project-instance-delete-confirm')!);
-    await flush();
+    await confirmProject(mounted);
     const remaining = await projectsGateway.list();
     expect(remaining.some((instance) => instance.id === 'instance-sunday-service-2026-08-16')).toBe(false);
     mounted.unmount();
@@ -238,7 +332,7 @@ describe('ProjectsScreen', () => {
     expect(dialog?.getAttribute('role')).toBe('dialog');
     await actSetValue(mounted.byTestId('project-anchor-date') as HTMLInputElement, '2026-09-06');
     await actClick(mounted.byTestId('project-start-submit')!);
-    await flush();
+    await confirmProject(mounted);
     const created = await projectsGateway.list();
     expect(created.some((instance) => instance.templateId === 'template-sunday-service' && instance.anchorDate === '2026-09-06')).toBe(true);
     mounted.unmount();
@@ -252,17 +346,17 @@ describe('ProjectsScreen', () => {
     await flush();
     await actSetValue(mounted.byTestId('project-template-name') as HTMLInputElement, 'Funeral service');
     await actClick(mounted.byTestId('project-template-save')!);
-    await flush();
+    await confirmProject(mounted);
     const created = (await projectsGateway.templates()).find((template) => template.name === 'Funeral service')!;
     expect(created).toBeTruthy();
     await actClick(mounted.byTestId(`project-template-edit-${created.id}`)!);
     await flush();
     await actSetValue(mounted.byTestId('project-template-name') as HTMLInputElement, 'Funeral service follow-through');
     await actClick(mounted.byTestId('project-template-save')!);
-    await flush();
+    await confirmProject(mounted);
     expect((await projectsGateway.templates()).find((template) => template.id === created.id)?.name).toBe('Funeral service follow-through');
     await actClick(mounted.byTestId(`project-template-delete-${created.id}`)!);
-    await flush();
+    await confirmProject(mounted);
     expect((await projectsGateway.templates()).some((template) => template.id === created.id)).toBe(false);
     mounted.unmount();
   });
@@ -280,17 +374,17 @@ describe('ProjectsScreen', () => {
     await actSetValue(mounted.byTestId('project-template-step-offset-description') as HTMLInputElement, 'Three days before');
     await actSetValue(mounted.byTestId('project-template-step-assignee') as HTMLSelectElement, 'workspace-user-2');
     await actClick(mounted.byTestId('project-template-step-save')!);
-    await flush();
+    await confirmProject(mounted);
     const step = (await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps[0]!;
     expect(step).toMatchObject({ title: 'Confirm care team', offsetDays: -3, offsetDescription: 'Three days before', assigneeId: 'workspace-user-2' });
     await actClick(mounted.byTestId(`project-template-step-edit-${step.id}`)!);
     await flush();
     await actSetValue(mounted.byTestId('project-template-step-title') as HTMLInputElement, 'Confirm care plan');
     await actClick(mounted.byTestId('project-template-step-save')!);
-    await flush();
+    await confirmProject(mounted);
     expect((await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps[0]?.title).toBe('Confirm care plan');
     await actClick(mounted.byTestId(`project-template-step-delete-${step.id}`)!);
-    await flush();
+    await confirmProject(mounted);
     expect((await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps).toHaveLength(0);
     mounted.unmount();
   });

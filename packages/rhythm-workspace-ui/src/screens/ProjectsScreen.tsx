@@ -11,9 +11,12 @@ import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
 import { RhythmGatewayError, type RhythmProject, type RhythmProjectStep, type RhythmProjectTemplate, type RhythmProjectTemplateStep, type RhythmWorkspaceMember } from '../domain/types';
+import type { RhythmWorkspaceOperationConfirmation } from '../host/types';
 
 type ProjectsSurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
 type InspectorDraft = Pick<RhythmProjectStep, 'title' | 'notes' | 'scheduledDate' | 'dueDate' | 'assigneeId'>;
+type ProjectOperation = Extract<RhythmWorkspaceOperationConfirmation['operation'], `projects.${string}`>;
+type ProjectOperationTarget = { operation: ProjectOperation; entityId: string; payload: Record<string, string | number | boolean | null>; generation: string; mutate(): Promise<void> };
 
 function derivedStatus(instance: RhythmProject) {
   return instance.steps.length > 0 && instance.steps.every((step) => step.status === 'done') ? 'Done' : 'Active';
@@ -34,7 +37,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function ProjectsScreen() {
   const { projects: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
-  const canWrite = host.currentUser.collaborationCapability === 'write';
+  const capabilities = host.currentUser.capabilities ?? [];
+  const can = (operation: ProjectOperation) => capabilities.includes('projects.write') || capabilities.includes(operation);
   const isOwner = (ownerId: string) => Boolean(host.currentUser.id && host.currentUser.id === ownerId);
   const [surfaceState, setSurfaceState] = useState<ProjectsSurfaceState>('loading');
   const [templates, setTemplates] = useState<RhythmProjectTemplate[]>([]);
@@ -47,14 +51,18 @@ export function ProjectsScreen() {
   const [anchorDate, setAnchorDate] = useState('');
   const [instanceName, setInstanceName] = useState('');
   const [milestoneOpen, setMilestoneOpen] = useState(false);
-  const [collaboratorPickerFor, setCollaboratorPickerFor] = useState<string | null>(null);
   const [instanceDelete, setInstanceDelete] = useState<RhythmProject | null>(null);
   const [inspector, setInspector] = useState<{ instanceId: string; stepId: string } | null>(null);
   const [inspectorDraft, setInspectorDraft] = useState<InspectorDraft | null>(null);
   const [mutationPending, setMutationPending] = useState(false);
   const [templateEditor, setTemplateEditor] = useState<RhythmProjectTemplate | 'new' | null>(null);
   const [templateStepEditor, setTemplateStepEditor] = useState<{ templateId: string; step?: RhythmProjectTemplateStep } | null>(null);
+  const [operationTarget, setOperationTarget] = useState<ProjectOperationTarget | null>(null);
+  const [operationError, setOperationError] = useState<'conflict' | 'uncertain' | null>(null);
   const loadGeneration = useRef(0);
+  const operationGeneration = useRef(0);
+  const operationEpoch = useRef(0);
+  const mounted = useRef(true);
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';
@@ -77,6 +85,7 @@ export function ProjectsScreen() {
   };
 
   useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
+  useEffect(() => () => { mounted.current = false; operationEpoch.current += 1; }, []);
 
   const showsWorkspace = surfaceState === 'ready';
   const visibleInstances = useMemo(() => instances.filter((instance) => showCompleted || derivedStatus(instance) !== 'Done'), [instances, showCompleted]);
@@ -89,30 +98,52 @@ export function ProjectsScreen() {
   const applyStep = (instanceId: string, step: RhythmProjectStep) =>
     setInstances((current) => current.map((instance) => (instance.id === instanceId ? { ...instance, steps: instance.steps.map((item) => (item.id === step.id ? step : item)) } : instance)));
 
-  const toggleComplete = async (instance: RhythmProject, step: RhythmProjectStep) => {
-    if (!canWrite || mutationPending) return;
+  const closeOperation = () => { operationEpoch.current += 1; setOperationError(null); setOperationTarget(null); };
+  const requestOperation = (operation: ProjectOperation, entityId: string, payload: ProjectOperationTarget['payload'], mutate: ProjectOperationTarget['mutate']) => {
+    if (!can(operation) || mutationPending) return;
+    operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationError(null);
+    setOperationTarget({ operation, entityId, payload, mutate, generation: `${entityId}:${operation}:${operationGeneration.current}:${Date.now()}` });
+  };
+  const retryOperation = () => {
+    if (!operationTarget || mutationPending) return;
+    operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationError(null);
+    setOperationTarget((target) => target && ({ ...target, generation: `${target.entityId}:${target.operation}:${operationGeneration.current}:${Date.now()}` }));
+  };
+  const confirmOperation = async () => {
+    if (!operationTarget || mutationPending) return;
+    const target = operationTarget;
+    const epoch = operationEpoch.current;
     setMutationPending(true);
     try {
+      const confirmation: RhythmWorkspaceOperationConfirmation = { operation: target.operation, entityId: target.entityId, payload: target.payload, generation: target.generation };
+      if (host.confirmWorkspaceOperation && !(await host.confirmWorkspaceOperation(confirmation))) return;
+      if (!mounted.current || operationEpoch.current !== epoch || operationTarget !== target) return;
+      await target.mutate();
+      if (!mounted.current || operationEpoch.current !== epoch || operationTarget !== target) return;
+      setOperationTarget(null);
+    } catch (error) {
+      const kind = (error as { kind?: unknown } | null)?.kind;
+      if (kind === 'conflict' || kind === 'uncertain') setOperationError(kind);
+      else handleError(error);
+    } finally { if (mounted.current) setMutationPending(false); }
+  };
+
+  const toggleComplete = async (instance: RhythmProject, step: RhythmProjectStep) => {
+    requestOperation('projects.update-step', step.id, { status: step.status === 'done' ? 'open' : 'done' }, async () => {
       const updated = await gateway.updateStep(instance.id, step.id, { status: step.status === 'done' ? 'open' : 'done' });
       applyStep(instance.id, updated);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const assignMilestone = async (instance: RhythmProject, step: RhythmProjectStep, milestoneId: string) => {
-    if (!canWrite || mutationPending) return;
-    setMutationPending(true);
-    try {
+    requestOperation('projects.update-step', step.id, { milestoneId: milestoneId || null }, async () => {
       const updated = await gateway.updateStep(instance.id, step.id, { milestoneId: milestoneId || null });
       applyStep(instance.id, updated);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const openInspector = (instance: RhythmProject, step: RhythmProjectStep) => {
@@ -123,114 +154,73 @@ export function ProjectsScreen() {
 
   const saveInspector = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !inspector || !inspectorDraft || !inspectorDraft.title.trim() || mutationPending) return;
-    setMutationPending(true);
-    try {
-      const updated = await gateway.updateStep(inspector.instanceId, inspector.stepId, { ...inspectorDraft, title: inspectorDraft.title.trim() });
+    if (!inspector || !inspectorDraft || !inspectorDraft.title.trim()) return;
+    const input = { ...inspectorDraft, title: inspectorDraft.title.trim() };
+    requestOperation('projects.update-step', inspector.stepId, { title: input.title.slice(0, 200), notes: input.notes.slice(0, 2000), scheduledDate: input.scheduledDate || null, dueDate: input.dueDate || null, assigneeId: input.assigneeId || null }, async () => {
+      const updated = await gateway.updateStep(inspector.instanceId, inspector.stepId, input);
       applyStep(inspector.instanceId, updated);
       closeInspector();
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const addMilestone = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !selectedInstance || !isOwner(selectedInstance.ownerId) || mutationPending) return;
+    if (!selectedInstance || !isOwner(selectedInstance.ownerId)) return;
     const title = String(new FormData(event.currentTarget).get('title') ?? '').trim();
     if (!title) return;
-    setMutationPending(true);
-    try {
+    requestOperation('projects.create-milestone', selectedInstance.id, { title: title.slice(0, 200) }, async () => {
       const milestone = await gateway.addMilestone(selectedInstance.id, { title });
       applyInstance({ ...selectedInstance, milestones: [...selectedInstance.milestones, milestone] });
       setMilestoneOpen(false);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
-  };
-
-  const addCollaborator = async (instanceId: string, memberId: string) => {
-    if (!canWrite || !isOwner(instances.find((instance) => instance.id === instanceId)?.ownerId ?? '')) return;
-    try {
-      const updated = await gateway.addCollaborator(instanceId, memberId);
-      applyInstance(updated);
-      setCollaboratorPickerFor(null);
-    } catch (error) {
-      handleError(error);
-    }
-  };
-
-  const removeCollaborator = async (instanceId: string, memberId: string) => {
-    if (!canWrite || !isOwner(instances.find((instance) => instance.id === instanceId)?.ownerId ?? '')) return;
-    try {
-      const updated = await gateway.removeCollaborator(instanceId, memberId);
-      applyInstance(updated);
-    } catch (error) {
-      handleError(error);
-    }
+    });
   };
 
   const confirmDelete = async () => {
-    if (!canWrite || !instanceDelete || !isOwner(instanceDelete.ownerId)) return;
-    setMutationPending(true);
-    try {
-      await gateway.delete(instanceDelete.id);
-      setInstances((current) => current.filter((instance) => instance.id !== instanceDelete.id));
-      setInstanceDelete(null);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    if (!instanceDelete || !isOwner(instanceDelete.ownerId)) return;
+    const instance = instanceDelete;
+    setInstanceDelete(null);
+    requestOperation('projects.delete-instance', instance.id, {}, async () => {
+      await gateway.delete(instance.id);
+      setInstances((current) => current.filter((item) => item.id !== instance.id));
+    });
   };
 
   const startProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !selectedTemplate || !anchorDate || mutationPending) return;
-    setMutationPending(true);
-    try {
-      const created = await gateway.generate(selectedTemplate.id, { anchorDate, name: instanceName.trim() || undefined });
+    if (!selectedTemplate || !anchorDate) return;
+    const input = { anchorDate, name: instanceName.trim() || undefined };
+    requestOperation('projects.create-instance', selectedTemplate.id, { anchorDate: input.anchorDate, name: input.name?.slice(0, 200) ?? null }, async () => {
+      const created = await gateway.generate(selectedTemplate.id, input);
       setInstances((current) => [...current, created]);
       setSelectedInstanceId(created.id);
       setStartOpen(false);
       setAnchorDate('');
       setInstanceName('');
       if (surfaceState === 'empty') setSurfaceState('ready');
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const saveTemplate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !templateEditor) return;
+    if (!templateEditor) return;
     const data = new FormData(event.currentTarget);
     const input = { name: String(data.get('name') ?? '').trim(), description: String(data.get('description') ?? '').trim(), anchorType: String(data.get('anchorType') ?? '').trim() };
     if (!input.name || !input.anchorType) return;
-    setMutationPending(true);
-    try {
-      const saved = templateEditor === 'new' ? await gateway.createTemplate(input) : await gateway.updateTemplate(templateEditor.id, input);
+    const editor = templateEditor;
+    requestOperation(editor === 'new' ? 'projects.create-template' : 'projects.update-template', editor === 'new' ? 'new-template' : editor.id, { name: input.name.slice(0, 200), description: input.description.slice(0, 2000), anchorType: input.anchorType.slice(0, 200) }, async () => {
+      const saved = editor === 'new' ? await gateway.createTemplate(input) : await gateway.updateTemplate(editor.id, input);
       setTemplates((current) => templateEditor === 'new' ? (current.some((template) => template.id === saved.id) ? current : [...current, saved]) : current.map((template) => template.id === saved.id ? saved : template));
       setSelectedTemplateId(saved.id); setTemplateEditor(null);
-    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+    });
   };
 
   const deleteTemplate = async (template: RhythmProjectTemplate) => {
-    if (!canWrite || mutationPending) return;
-    setMutationPending(true);
-    try { await gateway.deleteTemplate(template.id); setTemplates((current) => current.filter((item) => item.id !== template.id)); setSelectedTemplateId(null); }
-    catch (error) { handleError(error); } finally { setMutationPending(false); }
+    requestOperation('projects.delete-template', template.id, {}, async () => { await gateway.deleteTemplate(template.id); setTemplates((current) => current.filter((item) => item.id !== template.id)); setSelectedTemplateId(null); });
   };
 
   const saveTemplateStep = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !templateStepEditor || mutationPending) return;
+    if (!templateStepEditor) return;
     const data = new FormData(event.currentTarget);
     const input = {
       title: String(data.get('title') ?? '').trim(),
@@ -239,11 +229,11 @@ export function ProjectsScreen() {
       assigneeId: String(data.get('assigneeId') ?? '') || undefined,
     };
     if (!input.title || !Number.isFinite(input.offsetDays) || !input.offsetDescription) return;
-    setMutationPending(true);
-    try {
-      const saved = templateStepEditor.step
-        ? await gateway.updateTemplateStep(templateStepEditor.templateId, templateStepEditor.step.id, input)
-        : await gateway.addTemplateStep(templateStepEditor.templateId, input);
+    const editor = templateStepEditor;
+    requestOperation(editor.step ? 'projects.update-step' : 'projects.create-step', editor.step?.id ?? editor.templateId, { title: input.title.slice(0, 200), offsetDays: input.offsetDays, offsetDescription: input.offsetDescription.slice(0, 200), assigneeId: input.assigneeId ?? null }, async () => {
+      const saved = editor.step
+        ? await gateway.updateTemplateStep(editor.templateId, editor.step.id, input)
+        : await gateway.addTemplateStep(editor.templateId, input);
       setTemplates((current) => current.map((template) => template.id !== templateStepEditor.templateId ? template : {
         ...template,
         steps: templateStepEditor.step
@@ -255,31 +245,29 @@ export function ProjectsScreen() {
         steps: templateStepEditor.step ? current.steps.map((step) => step.id === saved.id ? saved : step) : (current.steps.some((step) => step.id === saved.id) ? current.steps : [...current.steps, saved]),
       });
       setTemplateStepEditor(null);
-    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+    });
   };
 
   const deleteTemplateStep = async (templateId: string, stepId: string) => {
-    if (!canWrite || mutationPending) return;
-    setMutationPending(true);
-    try {
+    requestOperation('projects.delete-step', stepId, { templateId }, async () => {
       await gateway.deleteTemplateStep(templateId, stepId);
       const remove = (template: RhythmProjectTemplate) => ({ ...template, steps: template.steps.filter((step) => step.id !== stepId) });
       setTemplates((current) => current.map((template) => template.id === templateId ? remove(template) : template));
       setTemplateEditor((current) => current === 'new' || !current || current.id !== templateId ? current : remove(current));
-    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+    });
   };
 
   const renderStepRow = (instance: RhythmProject, step: RhythmProjectStep) => (
     <article className="instance-step" key={step.id} data-status={step.status} data-testid={`project-instance-step-${step.id}`}>
       <label className="step-check">
         <span className="sr-only">{step.status === 'done' ? 'Reopen' : 'Complete'} {step.title}</span>
-        <input type="checkbox" checked={step.status === 'done'} disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onChange={() => void toggleComplete(instance, step)} data-testid={`project-step-complete-${step.id}`} />
+        <input type="checkbox" checked={step.status === 'done'} disabled={mutationPending || !can('projects.update-step')} title={!can('projects.update-step') ? 'This host grants inspection only.' : undefined} onChange={() => void toggleComplete(instance, step)} data-testid={`project-step-complete-${step.id}`} />
         <span aria-hidden="true" />
       </label>
       <div className="step-copy"><strong>{step.title}</strong><span>{step.scheduledDate ?? 'No date'} · {members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span></div>
       <label className="milestone-select">
         <span className="sr-only">Milestone for {step.title}</span>
-        <select value={step.milestoneId ?? ''} disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onChange={(event) => void assignMilestone(instance, step, event.target.value)} data-testid={`project-step-milestone-${step.id}`}>
+        <select value={step.milestoneId ?? ''} disabled={mutationPending || !can('projects.update-step')} title={!can('projects.update-step') ? 'This host grants inspection only.' : undefined} onChange={(event) => void assignMilestone(instance, step, event.target.value)} data-testid={`project-step-milestone-${step.id}`}>
           <option value="">Ungrouped</option>{instance.milestones.map((milestone) => <option value={milestone.id} key={milestone.id}>{milestone.title}</option>)}
         </select>
       </label>
@@ -300,22 +288,22 @@ export function ProjectsScreen() {
           {showsWorkspace && (
             <>
               <section className="templates-rail" aria-labelledby="project-templates-title">
-                <header><h2 id="project-templates-title">Templates</h2><span>{templates.length}</span><button className="secondary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateEditor('new')} data-testid="project-template-new">New template</button></header>
+                <header><h2 id="project-templates-title">Templates</h2><span>{templates.length}</span><button className="secondary-button" type="button" disabled={!can('projects.create-template')} title={!can('projects.create-template') ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateEditor('new')} data-testid="project-template-new">New template</button></header>
                 <div className="template-list" role="grid" aria-label="Project templates" data-testid="project-templates-list">
                   {templates.map((template) => (
                     <div className="template-row" role="row" aria-selected={template.id === selectedTemplate?.id ? 'true' : 'false'} key={template.id} data-testid={`project-template-${template.id}`}>
                       <div role="gridcell">
-                        <button className="template-select" type="button" onClick={() => setSelectedTemplateId(template.id)} data-testid={`project-template-select-${template.id}`}>
+                          <button className="template-select" type="button" onClick={() => { closeOperation(); setSelectedTemplateId(template.id); }} data-testid={`project-template-select-${template.id}`}>
                           <strong>{template.name}</strong><span>{template.steps.length} steps · {template.anchorType}</span>
                         </button>
-                        <button className="text-button" type="button" disabled={!canWrite} onClick={() => setTemplateEditor(template)} data-testid={`project-template-edit-${template.id}`}>Edit</button>
-                        <button className="text-danger-button" type="button" disabled={!canWrite} onClick={() => void deleteTemplate(template)} data-testid={`project-template-delete-${template.id}`}>Delete</button>
+                        <button className="text-button" type="button" disabled={!(can('projects.update-template') || can('projects.create-step') || can('projects.update-step') || can('projects.delete-step'))} onClick={() => setTemplateEditor(template)} data-testid={`project-template-edit-${template.id}`}>Edit</button>
+                        <button className="text-danger-button" type="button" disabled={!can('projects.delete-template')} onClick={() => void deleteTemplate(template)} data-testid={`project-template-delete-${template.id}`}>Delete</button>
                       </div>
                     </div>
                   ))}
                 </div>
                 {selectedTemplate && (
-                  <button className="primary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setStartOpen(true)} data-testid="project-start">Start Project</button>
+                  <button className="primary-button" type="button" disabled={!can('projects.create-instance')} title={!can('projects.create-instance') ? 'This host grants inspection only.' : undefined} onClick={() => setStartOpen(true)} data-testid="project-start">Start Project</button>
                 )}
               </section>
 
@@ -329,7 +317,7 @@ export function ProjectsScreen() {
                     <div className="instance-list">
                       {visibleInstances.map((instance) => (
                         <article className={`instance-row${selectedInstance?.id === instance.id ? ' selected' : ''}`} key={instance.id} data-testid={`project-instance-${instance.id}`}>
-                          <button className="instance-expand" type="button" aria-pressed={selectedInstance?.id === instance.id} onClick={() => setSelectedInstanceId(instance.id)} data-testid={`project-instance-expand-${instance.id}`}>
+                          <button className="instance-expand" type="button" aria-pressed={selectedInstance?.id === instance.id} onClick={() => { closeOperation(); setSelectedInstanceId(instance.id); }} data-testid={`project-instance-expand-${instance.id}`}>
                             <span className="instance-date">{instance.anchorDate}</span>
                             <span className="instance-row-copy"><strong>{instance.name}</strong><small>{instance.steps.filter((step) => step.status === 'done').length}/{instance.steps.length} steps</small></span>
                             <span className="status-badge" data-testid={`project-instance-status-${instance.id}`}>{derivedStatus(instance)}</span>
@@ -344,7 +332,7 @@ export function ProjectsScreen() {
                     <aside className="project-inspector" aria-label="Selected project" data-testid="project-inspector">
                       <header className="project-inspector-header">
                         <div><h2>{selectedInstance.name}</h2><p>{selectedInstance.anchorDate} · {derivedStatus(selectedInstance)}</p></div>
-                        <button className="danger-button" type="button" disabled={mutationPending || !canWrite || !isOwner(selectedInstance.ownerId)} title={!isOwner(selectedInstance.ownerId) ? 'Only the project owner can delete or manage collaborators.' : !canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setInstanceDelete(selectedInstance)} data-testid={`project-instance-delete-${selectedInstance.id}`}>Delete</button>
+                        <button className="danger-button" type="button" disabled={mutationPending || !can('projects.delete-instance') || !isOwner(selectedInstance.ownerId)} title={!isOwner(selectedInstance.ownerId) ? 'Only the project owner can delete or manage collaborators.' : !can('projects.delete-instance') ? 'This host grants inspection only.' : undefined} onClick={() => setInstanceDelete(selectedInstance)} data-testid={`project-instance-delete-${selectedInstance.id}`}>Delete</button>
                       </header>
 
                       <section className="people-strip" aria-labelledby={`people-${selectedInstance.id}`}>
@@ -353,16 +341,16 @@ export function ProjectsScreen() {
                           {selectedInstance.collaborators.map((person) => (
                             <span className="person-chip" key={person.id} data-testid={`project-collaborator-${person.id}`}>
                               <i aria-hidden="true">{person.initials}</i><strong>{person.name}</strong>
-                              <button className="icon-button" type="button" disabled={!canWrite || !isOwner(selectedInstance.ownerId)} aria-label={`Remove ${person.name}`} onClick={() => void removeCollaborator(selectedInstance.id, person.id)} data-testid={`project-collaborator-remove-${person.id}`}>×</button>
+                              <button className="icon-button" type="button" disabled aria-label={`Remove ${person.name}`} title="Collaborator management is not available in this workspace." data-testid={`project-collaborator-remove-${person.id}`}>×</button>
                             </span>
                           ))}
-                          <button className="secondary-button" type="button" disabled={!canWrite || !isOwner(selectedInstance.ownerId)} onClick={() => setCollaboratorPickerFor(selectedInstance.id)} data-testid="project-collaborator-add">Add person</button>
+                          <button className="secondary-button" type="button" disabled title="Collaborator management is not available in this workspace." data-testid="project-collaborator-add">Add person</button>
                         </div>
                       </section>
 
                       <div className="timeline-toolbar">
                         <h3>Milestones and steps</h3>
-                        <button className="secondary-button" type="button" disabled={mutationPending || !canWrite || !isOwner(selectedInstance.ownerId)} onClick={() => setMilestoneOpen(true)} data-testid="project-milestone-add">Add milestone</button>
+                        <button className="secondary-button" type="button" disabled={mutationPending || !can('projects.create-milestone') || !isOwner(selectedInstance.ownerId)} onClick={() => setMilestoneOpen(true)} data-testid="project-milestone-add">Add milestone</button>
                       </div>
                       <div className="milestone-list">
                         {selectedInstance.milestones.map((milestone) => (
@@ -402,11 +390,11 @@ export function ProjectsScreen() {
             <Field label="Template name"><input name="name" data-autofocus defaultValue={templateEditor === 'new' ? '' : templateEditor.name} data-testid="project-template-name" /></Field>
             <Field label="Description"><textarea name="description" defaultValue={templateEditor === 'new' ? '' : templateEditor.description} data-testid="project-template-description" /></Field>
             <Field label="Anchor type"><input name="anchorType" defaultValue={templateEditor === 'new' ? 'Service date' : templateEditor.anchorType} data-testid="project-template-anchor-type" /></Field>
-            <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setTemplateEditor(null)}>Cancel</button><button className="primary-button" type="submit" disabled={!canWrite || mutationPending} data-testid="project-template-save">Save template</button></div>
+            <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setTemplateEditor(null)}>Cancel</button><button className="primary-button" type="submit" disabled={mutationPending || !can(templateEditor === 'new' ? 'projects.create-template' : 'projects.update-template')} data-testid="project-template-save">Save template</button></div>
           </form>}
           {templateEditor !== 'new' && templateEditor && <section className="template-step-editor" aria-labelledby="project-template-steps-title">
-            <header><h3 id="project-template-steps-title">Template steps</h3><button className="secondary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateStepEditor({ templateId: templateEditor.id })} data-testid="project-template-step-add">Add step</button></header>
-            {templateEditor.steps.map((step) => <div key={step.id} data-testid={`project-template-step-${step.id}`}><strong>{step.title}</strong><span>{step.offsetDescription} · {members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span><button className="text-button" type="button" disabled={!canWrite} onClick={() => setTemplateStepEditor({ templateId: templateEditor.id, step })} data-testid={`project-template-step-edit-${step.id}`}>Edit</button><button className="text-danger-button" type="button" disabled={!canWrite} onClick={() => void deleteTemplateStep(templateEditor.id, step.id)} data-testid={`project-template-step-delete-${step.id}`}>Delete</button></div>)}
+            <header><h3 id="project-template-steps-title">Template steps</h3><button className="secondary-button" type="button" disabled={!can('projects.create-step')} title={!can('projects.create-step') ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateStepEditor({ templateId: templateEditor.id })} data-testid="project-template-step-add">Add step</button></header>
+            {templateEditor.steps.map((step) => <div key={step.id} data-testid={`project-template-step-${step.id}`}><strong>{step.title}</strong><span>{step.offsetDescription} · {members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span><button className="text-button" type="button" disabled={!can('projects.update-step')} onClick={() => setTemplateStepEditor({ templateId: templateEditor.id, step })} data-testid={`project-template-step-edit-${step.id}`}>Edit</button><button className="text-danger-button" type="button" disabled={!can('projects.delete-step')} onClick={() => void deleteTemplateStep(templateEditor.id, step.id)} data-testid={`project-template-step-delete-${step.id}`}>Delete</button></div>)}
           </section>}
         </FocusDialog>
 
@@ -416,7 +404,7 @@ export function ProjectsScreen() {
             <Field label="Offset days"><input name="offsetDays" type="number" defaultValue={templateStepEditor.step?.offsetDays ?? 0} data-testid="project-template-step-offset-days" /></Field>
             <Field label="Offset description"><input name="offsetDescription" defaultValue={templateStepEditor.step?.offsetDescription ?? 'On anchor date'} data-testid="project-template-step-offset-description" /></Field>
             <Field label="Assignee"><select name="assigneeId" defaultValue={templateStepEditor.step?.assigneeId ?? ''} data-testid="project-template-step-assignee"><option value="">Unassigned</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
-            <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setTemplateStepEditor(null)}>Cancel</button><button className="primary-button" type="submit" disabled={!canWrite || mutationPending} data-testid="project-template-step-save">Save step</button></div>
+            <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setTemplateStepEditor(null)}>Cancel</button><button className="primary-button" type="submit" disabled={mutationPending || !can(templateStepEditor.step ? 'projects.update-step' : 'projects.create-step')} data-testid="project-template-step-save">Save step</button></div>
           </form>}
         </FocusDialog>
 
@@ -430,19 +418,6 @@ export function ProjectsScreen() {
           </form>
         </FocusDialog>
 
-        <FocusDialog open={Boolean(collaboratorPickerFor)} onClose={() => setCollaboratorPickerFor(null)} title="Add project collaborator" description="The owner and existing collaborators are excluded." testId="project-collaborator-picker">
-          <div className="collaborator-options" role="listbox" aria-label="Workspace members">
-            {collaboratorPickerFor && members.filter((person) => {
-              const instance = instances.find((item) => item.id === collaboratorPickerFor);
-              return person.id !== instance?.ownerId && !instance?.collaborators.some((collaborator) => collaborator.id === person.id);
-            }).map((person) => (
-              <button className="secondary-button" role="option" aria-selected="false" type="button" key={person.id} onClick={() => void addCollaborator(collaboratorPickerFor, person.id)} data-testid={`project-collaborator-option-${person.id}`}>
-                <span aria-hidden="true">{person.initials}</span><strong>{person.name}</strong>
-              </button>
-            ))}
-          </div>
-        </FocusDialog>
-
         <FocusDialog open={Boolean(instanceDelete)} onClose={() => setInstanceDelete(null)} title={instanceDelete ? `Delete "${instanceDelete.name}"?` : 'Delete project?'} description="Only this generated project instance will be removed." testId="project-instance-delete-dialog">
           <p className="delete-copy">The template and neighboring project instances are preserved.</p>
           <div className="dialog-actions">
@@ -454,7 +429,7 @@ export function ProjectsScreen() {
         <FocusDialog open={Boolean(inspectorStep)} onClose={closeInspector} title={inspectorStep?.title ?? 'Project step'} description="Project context stays visible while supported step fields are edited." testId="project-step-inspector" wide>
           {inspectorStep && inspectorDraft && (
             <form className="project-dialog-form inspector-form" onSubmit={saveInspector}>
-              <fieldset disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined}>
+              <fieldset disabled={mutationPending || !can('projects.update-step')} title={!can('projects.update-step') ? 'This host grants inspection only.' : undefined}>
                 <legend className="sr-only">Project step fields</legend>
                 <Field label="Title"><input data-autofocus value={inspectorDraft.title} onChange={(event) => setInspectorDraft({ ...inspectorDraft, title: event.target.value })} data-testid="project-step-title" /></Field>
                 <Field label="Notes"><textarea rows={4} value={inspectorDraft.notes} onChange={(event) => setInspectorDraft({ ...inspectorDraft, notes: event.target.value })} data-testid="project-step-notes" /></Field>
@@ -471,6 +446,20 @@ export function ProjectsScreen() {
                 <div className="dialog-actions"><button className="primary-button" type="submit" disabled={mutationPending} data-testid="project-step-save">Save details</button></div>
               </fieldset>
             </form>
+          )}
+        </FocusDialog>
+
+        <FocusDialog open={Boolean(operationTarget)} onClose={closeOperation} title="Confirm project operation" description="Confirm this exact project change before it is sent to the workspace." testId="project-operation-confirmation">
+          {operationTarget && (
+            <>
+              {operationError && <p className="operation-outcome" role="alert" data-testid="project-operation-outcome">This project changed elsewhere or its result is uncertain. Reload current data or retry with a fresh confirmation.</p>}
+              <div className="dialog-actions">
+                {operationError && <button className="secondary-button" type="button" disabled={mutationPending} onClick={() => { closeOperation(); void load(); }} data-testid="project-operation-reload">Reload</button>}
+                {operationError && <button className="secondary-button" type="button" disabled={mutationPending} onClick={retryOperation} data-testid="project-operation-retry">Retry</button>}
+                <button className="secondary-button" type="button" disabled={mutationPending} onClick={closeOperation} data-testid="project-operation-cancel">Cancel</button>
+                <button className="primary-button" type="button" disabled={mutationPending} onClick={() => void confirmOperation()} data-testid="project-operation-confirm">Confirm</button>
+              </div>
+            </>
           )}
         </FocusDialog>
       </section>

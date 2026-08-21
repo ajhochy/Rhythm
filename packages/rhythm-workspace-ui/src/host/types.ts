@@ -78,9 +78,21 @@ export type RhythmWorkspaceCapability =
   | 'rhythms.update-step'
   | 'rhythms.delete-step'
   | 'rhythms.reorder-step'
-  | 'projects.generate-instance'
+  /** Broad legacy Projects access remains explicit for general hosts. */
+  | 'projects.write'
+  | 'projects.create-template'
+  | 'projects.update-template'
+  | 'projects.delete-template'
+  | 'projects.create-instance'
+  | 'projects.update-instance'
+  | 'projects.delete-instance'
+  | 'projects.create-step'
   | 'projects.update-step'
-  | 'projects.add-milestone';
+  | 'projects.delete-step'
+  | 'projects.reorder-step'
+  | 'projects.create-milestone'
+  | 'projects.update-milestone'
+  | 'projects.delete-milestone';
 
 export interface RhythmTaskOperationConfirmation {
   taskId: string;
