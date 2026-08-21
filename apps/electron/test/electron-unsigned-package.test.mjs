@@ -114,7 +114,7 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
   assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer'], 'slice-7-c5: packaged preload exposes capabilities beyond lifecycle, gateway metadata, Google auth, human-approval signing, and agent-server status');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
-  assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase'], 'slice-7-c5: packaged preload gateway metadata is broader than the approved runtime values');
+  assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
   assert.deepEqual(receipt.bridge?.auth?.keys, ['signInWithGoogle'], 'slice-7-c5: packaged preload auth surface is broader than the approved Google sign-in capability');
   assert.equal(receipt.bridge?.auth?.frozen, true, 'slice-7-c5: packaged auth surface is not frozen');

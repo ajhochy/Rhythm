@@ -8,6 +8,12 @@ import { createPublicKey, createHash, verify as cryptoVerify } from 'node:crypto
 import test from 'node:test';
 import { capability, capabilityMaterial, signDecision } from '../src/human-approval-main-signer.mjs';
 
+// These contracts deliberately exercise the real login Keychain. Keep them out of the canonical
+// unit suite so HOME-isolated smoke/CI runs cannot create or update production-named entries.
+const keychainIntegrationTest = process.env.RHYTHM_KEYCHAIN_INTEGRATION_TEST === '1'
+  ? test
+  : test.skip;
+
 /** apps/api_server/src/security/human_approval_security.ts:24-46. */
 function publicKeyFromRawBase64(rawBase64) {
   const raw = Buffer.from(rawBase64, 'base64');
@@ -23,7 +29,7 @@ function canonicalHumanApprovalDecision({ approvalId, status, decisionNonce, pay
   return ['rhythm-human-approval-v1', approvalId, status, decisionNonce, payloadDigest ?? ''].join('\n');
 }
 
-test('post-m1-p7-c4d human-approval-main-signer: signDecision produces a signature the server-shape verifier accepts', async () => {
+keychainIntegrationTest('post-m1-p7-c4d human-approval-main-signer: signDecision produces a signature the server-shape verifier accepts', async () => {
   const material = await capabilityMaterial();
   const decision = { approvalId: 'approval-test-1', status: 'approved', decisionNonce: 'nonce-test-1', payloadDigest: 'digest-test-1' };
   const signed = await signDecision(decision);
@@ -40,12 +46,12 @@ test('post-m1-p7-c4d human-approval-main-signer: signDecision produces a signatu
   assert.equal(forgedVerified, false, 'a signature over one decision must not verify for a different one');
 });
 
-test('post-m1-p7-c4d human-approval-main-signer: capabilitySha256 matches sha256(capability())', async () => {
+keychainIntegrationTest('post-m1-p7-c4d human-approval-main-signer: capabilitySha256 matches sha256(capability())', async () => {
   const [material, rawCapability] = await Promise.all([capabilityMaterial(), capability()]);
   assert.equal(material.humanApprovalCapabilitySha256, createHash('sha256').update(rawCapability, 'utf8').digest('hex'));
 });
 
-test('post-m1-p7-c4d human-approval-main-signer: capability and key are stable across calls (Keychain-persisted, not regenerated per call)', async () => {
+keychainIntegrationTest('post-m1-p7-c4d human-approval-main-signer: capability and key are stable across calls (Keychain-persisted, not regenerated per call)', async () => {
   const [first, second] = await Promise.all([capabilityMaterial(), capabilityMaterial()]);
   assert.equal(first.humanApprovalPublicKey, second.humanApprovalPublicKey);
   assert.equal(first.humanApprovalCapabilitySha256, second.humanApprovalCapabilitySha256);

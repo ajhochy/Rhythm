@@ -45,10 +45,10 @@ test('exercises every secondary Tool path with exact endpoint-ledger receipts', 
 
   await openFixture(page, '#/tools/skills');
   await page.getByTestId('skills-item-research').click();
-  await expectTrace(page, '/opencode/skills/research/content');
+  await expectTrace(page, 'fixture://skills/research');
   await expect(page.getByTestId('skills-edit')).toHaveCount(0);
   await page.getByTestId('skills-refresh').click();
-  await expectTrace(page, '/system/refresh');
+  await expectTrace(page, 'fixture://skills');
   await page.getByTestId('skills-search').fill('does-not-exist');
   await expect(page.getByText('No skills match')).toBeVisible();
   await page.getByTestId('skills-clear-search').click();

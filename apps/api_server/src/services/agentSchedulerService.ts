@@ -759,6 +759,14 @@ async function checkDueTasks(knownEngineReady?: boolean): Promise<void> {
 }
 
 export function startAgentSchedulerJob(): { stop: () => void } | null {
+  // Local smoke must be observational. Do not reset stale rows, advance
+  // next_run, create sessions, or execute any scheduled prompt against the
+  // user's real local database.
+  if (process.env.RHYTHM_LOCAL_SMOKE === '1') {
+    logger.info('[AgentScheduler] RHYTHM_LOCAL_SMOKE=1 — scheduler disabled');
+    return null;
+  }
+
   // #1214 — a Postgres-backed deployment (hosted/cloud production, per
   // AGENTS.md "Production is Postgres") never OWNS agent-schedule ticking,
   // regardless of RHYTHM_ROLE/AGENT_LOCAL drift on that specific host. The

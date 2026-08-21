@@ -9,6 +9,7 @@
     "sign:mac": "node scripts/sign-and-notarize-mac.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "test:keychain": "RHYTHM_KEYCHAIN_INTEGRATION_TEST=1 node --test --test-concurrency=1 test/human-approval-main-signer.test.mjs",
     "smoke": "electron . --smoke",
     "smoke:missing-dist": "electron . --smoke --missing-dist"
   },

@@ -1,8 +1,12 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route, type TestInfo } from '@playwright/test';
 import path from 'node:path';
 
 const apiBase = 'http://127.0.0.1:4098';
-const evidence = (name: string) => path.resolve(import.meta.dirname, `../../../docs/ai/runs/evidence/${name}`);
+const screenshotPath = (testInfo: TestInfo, name: string) => (
+  process.env.RHYTHM_CAPTURE_EVIDENCE === '1'
+    ? path.resolve(import.meta.dirname, `../../../docs/ai/runs/evidence/${name}`)
+    : testInfo.outputPath(name)
+);
 const assetIcon = 'assets/agents/release-steward/avatar.png';
 const profile = {
   id: 'asset-profile', label: 'Asset Path', icon: assetIcon, enabled: true, isAgent: true,
@@ -37,7 +41,7 @@ async function installLiveRoutes(page: Page, override?: (route: Route, url: URL)
   });
 }
 
-test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH preserves the full path', async ({ page }) => {
+test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH preserves the full path', async ({ page }, testInfo) => {
   // Regression caught: a Flutter asset path appears as text/broken media or is truncated to three characters on save.
   let patch: Record<string, unknown> | undefined;
   await installLiveRoutes(page, async (route, url) => {
@@ -57,10 +61,10 @@ test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH
   await page.getByTestId('profile-system-prompt').fill('Unrelated prompt edit');
   await page.getByTestId('profile-save').click();
   await expect.poll(() => patch?.icon).toBe(assetIcon);
-  await page.screenshot({ path: evidence('bucket-a-profile-asset-fallback.png') });
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-profile-asset-fallback.png') });
 });
 
-test('bucket-a-rendered-session: cwd edit resets branch and omits it from POST', async ({ page }) => {
+test('bucket-a-rendered-session: cwd edit resets branch and omits it from POST', async ({ page }, testInfo) => {
   // Regression caught: a non-current branch selected for one cwd leaks into a session created in another cwd.
   let createBody: Record<string, unknown> | undefined;
   await installLiveRoutes(page, async (route, url) => {
@@ -82,13 +86,13 @@ test('bucket-a-rendered-session: cwd edit resets branch and omits it from POST',
   await page.getByTestId('advanced-cwd').fill('/workspace/other');
   await expect(page.getByTestId('advanced-branch')).toHaveValue('');
   await expect(page.getByTestId('advanced-branch').locator('option:checked')).toHaveText("Use cwd's current branch");
-  await page.screenshot({ path: evidence('bucket-a-session-cwd-branch-reset.png') });
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-session-cwd-branch-reset.png') });
   await page.getByTestId('advanced-create').click();
   await expect.poll(() => createBody).toBeTruthy();
   expect(createBody).not.toHaveProperty('branch');
 });
 
-test('bucket-a-rendered-gallery: broken image and video replace media with type fallbacks', async ({ page }) => {
+test('bucket-a-rendered-gallery: broken image and video replace media with type fallbacks', async ({ page }, testInfo) => {
   // Regression caught: failed preview requests leave broken image/video elements instead of the generic artifact icon.
   const designs = [
     { id: 'broken-image', title: 'Broken image', provider: 'test', artifactType: 'png', artifactUrl: 'http://127.0.0.1:4181/broken.png', thumbnailUrl: null, projectUrl: null, canvaUrl: null, sessionId: null, createdAt: '2026-08-20T00:00:00.000Z' },
@@ -109,10 +113,10 @@ test('bucket-a-rendered-gallery: broken image and video replace media with type 
   await expect(page.getByTestId('design-broken-video').locator('video')).toHaveCount(0);
   await expect(page.getByTestId('design-broken-image').locator('svg')).toBeVisible();
   await expect(page.getByTestId('design-broken-video').locator('svg')).toBeVisible();
-  await page.screenshot({ path: evidence('bucket-a-gallery-media-fallback.png') });
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-gallery-media-fallback.png') });
 });
 
-test('bucket-a-rendered-skills: delayed, rejected list, and rejected content remain distinct and honest', async ({ page }) => {
+test('bucket-a-rendered-skills: delayed, rejected list, and rejected content remain distinct and honest', async ({ page }, testInfo) => {
   // Regression caught: pending/rejected live requests render the empty fixture or leave content saying Loading forever.
   let listMode: 'delayed' | 'rejected' = 'delayed';
   await installLiveRoutes(page, async (route, url) => {
@@ -137,10 +141,10 @@ test('bucket-a-rendered-skills: delayed, rejected list, and rejected content rem
   await page.reload();
   await expect(page.getByTestId('skills-error')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No managed skills found' })).toHaveCount(0);
-  await page.screenshot({ path: evidence('bucket-a-skills-loading-error.png') });
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-skills-loading-error.png') });
 });
 
-test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty states never expose asset paths', async ({ page }) => {
+test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty states never expose asset paths', async ({ page }, testInfo) => {
   // Regression caught: fixture Settings claims connectivity or live loading/rejection collapses into empty/raw asset text.
   await page.goto('http://127.0.0.1:4180/#/tools/agent-settings');
   await expect(page.getByTestId('tool-page-agent-settings')).toContainText('Fixture preview · not connected');
@@ -159,7 +163,7 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
   const setting = page.getByTestId(`agent-setting-${profile.id}`);
   await expect(setting.locator('.profile-avatar')).toHaveText('AP');
   await expect(setting).not.toContainText(assetIcon);
-  await page.screenshot({ path: evidence('bucket-a-settings-honesty.png') });
+  await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-settings-honesty.png') });
 
   mode = 'rejected';
   await page.reload();

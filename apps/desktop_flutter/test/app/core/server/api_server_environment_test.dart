@@ -7,6 +7,40 @@ const _approvalDigest =
 const _approvalPublicKey = 'test-public-key';
 
 void main() {
+  test('dev launch pins npx to the ABI-selected Node executable', () {
+    final launch = buildDevApiServerLaunch(
+      nodePath: '/runtime/node',
+      npxPath: '/runtime/npx',
+    );
+
+    expect(launch.executable, '/runtime/node');
+    expect(
+      launch.args,
+      ['/runtime/npx', 'tsx', 'src/server.ts'],
+    );
+  });
+
+  test(
+      'npx fallback accepts only an absolute script resolved by the login shell',
+      () {
+    expect(
+      selectNpxScriptPath(
+        adjacentPath: '/runtime/npx',
+        adjacentExists: false,
+        shellPath: '/opt/homebrew/bin/npx',
+      ),
+      '/opt/homebrew/bin/npx',
+    );
+    expect(
+      () => selectNpxScriptPath(
+        adjacentPath: '/runtime/npx',
+        adjacentExists: false,
+        shellPath: 'npx',
+      ),
+      throwsStateError,
+    );
+  });
+
   group('buildApiServerEnvironment', () {
     test(
       'injects MEMORY_VAULT_PATH and MEMORY_VAULT_SUBDIR from the setting',

@@ -11,6 +11,7 @@ import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
 import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
+import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -142,13 +143,20 @@ if (hasSingleInstanceLock) {
   ipcMain.handle('rhythm:auth:google-sign-in', () => {
     if (!googleSignInInFlight) {
       googleSignInInFlight = runDesktopGoogleOAuth({
-        clientId: GOOGLE_DESKTOP_CLIENT_ID,
+        clientId: resolveGoogleDesktopClientId(GOOGLE_DESKTOP_CLIENT_ID),
         apiBase: RHYTHM_AUTH_API_BASE,
         openExternal: (url) => shell.openExternal(url),
         fetcher: (url, init) => net.fetch(String(url), init),
       }).finally(() => { googleSignInInFlight = undefined; });
     }
     return googleSignInInFlight;
+  });
+  // Preload runs in a separate sandboxed process whose inherited environment is fixed before this
+  // module loads persisted configuration. Read the validated current value from main instead of
+  // assuming a later process.env mutation crosses that boundary.
+  ipcMain.on('rhythm:production-api:get', (event) => {
+    if (event.sender !== mainWindow?.webContents) return;
+    event.returnValue = productionApiBase;
   });
   ipcMain.handle('rhythm:production-api:set', createProductionApiSetHandler({
     allowedSender: () => mainWindow?.webContents,

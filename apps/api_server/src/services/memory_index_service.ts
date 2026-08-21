@@ -49,6 +49,82 @@ export interface MemoryIndexRebuildSummary {
   indexed: number;
 }
 
+export interface MemoryIndexRebuildOptions {
+  scanTimeoutMs?: number;
+}
+
+type MemoryIndexRebuilder = {
+  rebuildIndexFromVault: (
+    vaultPath?: string,
+    options?: MemoryIndexRebuildOptions,
+  ) => Promise<MemoryIndexRebuildSummary>;
+};
+
+export const MEMORY_INDEX_STARTUP_SCAN_TIMEOUT_MS = 30_000;
+
+/**
+ * Bound only the read-only scan phase. If the timer wins, the abandoned scan
+ * may finish later but has no continuation that can clear or rewrite the index.
+ */
+export async function withMemoryIndexScanTimeout<T>(
+  scan: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  if (timeoutMs <= 0) return scan;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      scan,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`memory index scan timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Start the disposable vault index refresh without putting HTTP startup behind
+ * filesystem availability. A Documents/iCloud/TCC read can remain pending for
+ * an unbounded time; the cached index is safer than preventing the server from
+ * listening at all.
+ */
+export function startMemoryIndexRebuildBestEffort(
+  service: MemoryIndexRebuilder = new MemoryIndexService(),
+  scanTimeoutMs: number = MEMORY_INDEX_STARTUP_SCAN_TIMEOUT_MS,
+): Promise<void> {
+  return service
+    .rebuildIndexFromVault(undefined, { scanTimeoutMs })
+    .then((summary) => {
+      logger.info(
+        `[server] memory index rebuilt on startup: indexed=${summary.indexed}`,
+      );
+    })
+    .catch((err) => {
+      logger.warn(
+        `[server] memory index startup rebuild failed (non-fatal): ${String(err)}`,
+      );
+    });
+}
+
+/**
+ * Serialize the older mirror-sync job behind the authoritative startup rebuild.
+ * Callers intentionally do not await this promise during HTTP startup.
+ */
+export async function startMemoryVaultSyncAfterRebuild(
+  rebuild: Promise<void>,
+  startSync: () => void,
+  isShuttingDown: () => boolean = () => false,
+): Promise<void> {
+  await rebuild;
+  if (!isShuttingDown()) startSync();
+}
+
 /**
  * A parsed note plus the vault-relative path that is its stable identity key.
  * Mirrors {@link ScannedNote} from the sync service.
@@ -78,19 +154,35 @@ export class MemoryIndexService {
    *   • Boundary-safe — a missing / empty vault path produces zero notes, so the
    *     index ends up empty; it is not an error.
    */
-  async rebuildIndexFromVault(vaultPath?: string): Promise<MemoryIndexRebuildSummary> {
+  async rebuildIndexFromVault(
+    vaultPath?: string,
+    options: MemoryIndexRebuildOptions = {},
+  ): Promise<MemoryIndexRebuildSummary> {
     const path = vaultPath ?? resolveMemoryVaultPath();
 
     // scanVaultNotes treats a missing / non-directory path as zero notes.
-    const notes = await scanVaultNotes(path);
+    logger.info(`[MemoryIndex] startup scan beginning: vault=${path}`);
+    const notes = await withMemoryIndexScanTimeout(
+      scanVaultNotes(path),
+      options.scanTimeoutMs ?? 0,
+    );
+    logger.info(`[MemoryIndex] startup scan complete: notes=${notes.length}`);
 
     // Clear first so the index is a pure function of the current vault — no
     // stale rows survive a rebuild.
     const cleared = await this.repo.clearAllAsync();
+    logger.info(`[MemoryIndex] startup clear complete: rows=${cleared}`);
 
+    let indexed = 0;
     for (const { sourceId, parsed } of notes) {
       await this.upsertNote({ sourceId, parsed });
+      indexed += 1;
+      if (indexed % 100 === 0) {
+        logger.info(`[MemoryIndex] startup rebuild progress: indexed=${indexed}`);
+      }
     }
+
+    logger.info(`[MemoryIndex] startup upserts complete: indexed=${indexed}`);
 
     await regenerateMemoryVaultNavigation(
       navigationMemoryDirForVaultRoot(path),

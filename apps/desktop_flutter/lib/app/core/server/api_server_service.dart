@@ -96,6 +96,36 @@ Map<String, String> buildApiServerEnvironment({
   return env;
 }
 
+/// Builds the development API-server command with the ABI-selected Node as
+/// the real executable. `npx` uses an `#!/usr/bin/env node` shebang, so
+/// spawning it directly can silently select a different Node from PATH and
+/// load native modules with the wrong ABI.
+({String executable, List<String> args}) buildDevApiServerLaunch({
+  required String nodePath,
+  required String npxPath,
+}) {
+  return (
+    executable: nodePath,
+    args: [npxPath, 'tsx', 'src/server.ts'],
+  );
+}
+
+/// Selects an npx JavaScript entrypoint that can be passed to the ABI-selected
+/// Node executable. A bare `npx` name is invalid here: Node treats it as a
+/// relative script path instead of searching PATH.
+String selectNpxScriptPath({
+  required String adjacentPath,
+  required bool adjacentExists,
+  required String shellPath,
+}) {
+  if (adjacentExists) return adjacentPath;
+  final candidate = shellPath.trim();
+  if (candidate.startsWith('/')) return candidate;
+  throw StateError(
+    'npx was not found beside the ABI-selected Node or as an absolute login-shell path',
+  );
+}
+
 /// Manages the lifecycle of the local Node.js API server process.
 class ApiServerService {
   ApiServerService({
@@ -591,9 +621,13 @@ class ApiServerService {
       final candidate = '$dir/apps/api_server';
       if (Directory(candidate).existsSync()) {
         final npx = await _findNpx(nodePath);
+        final launch = buildDevApiServerLaunch(
+          nodePath: nodePath,
+          npxPath: npx,
+        );
         return _ServerInfo(
-          executable: npx,
-          args: ['tsx', 'src/server.ts'],
+          executable: launch.executable,
+          args: launch.args,
           workingDir: candidate,
         );
       }
@@ -672,9 +706,37 @@ class ApiServerService {
     // npx lives next to node.
     final nodeDir = _dirname(nodePath);
     final candidate = '$nodeDir/npx';
-    if (File(candidate).existsSync()) return candidate;
-    // Fallback: let the shell find it.
-    return 'npx';
+    final adjacentExists = File(candidate).existsSync();
+    if (adjacentExists) {
+      return selectNpxScriptPath(
+        adjacentPath: candidate,
+        adjacentExists: true,
+        shellPath: '',
+      );
+    }
+
+    // Resolve the fallback to an absolute script path. buildDevApiServerLaunch
+    // executes this path *through nodePath* to preserve the selected ABI.
+    String shellPath = '';
+    try {
+      final result = await Process.run(
+        '/bin/zsh',
+        const ['-l', '-c', 'command -v npx'],
+      );
+      if (result.exitCode == 0) {
+        final resolved = result.stdout.toString().trim();
+        if (resolved.startsWith('/') && File(resolved).existsSync()) {
+          shellPath = resolved;
+        }
+      }
+    } catch (_) {
+      // selectNpxScriptPath produces the actionable failure below.
+    }
+    return selectNpxScriptPath(
+      adjacentPath: candidate,
+      adjacentExists: false,
+      shellPath: shellPath,
+    );
   }
 
   String _dbPath() {

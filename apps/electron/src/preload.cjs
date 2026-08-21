@@ -6,14 +6,12 @@ const runtimeValue = (name) => {
   const value = process.env[name]?.trim();
   return value || undefined;
 };
-const gateway = Object.freeze(Object.defineProperties({
+const gateway = Object.freeze({
   apiBase: runtimeValue('RHYTHM_LIVE_API_URL'),
   engineBase: runtimeValue('RHYTHM_LIVE_ENGINE_URL'),
-}, {
-  // ponytail: keep the established enumerable bridge receipt stable while extending it additively.
-  productionApiBase: { value: runtimeValue('RHYTHM_PRODUCTION_API_URL') },
-  setProductionApiBase: { value: (/** @type {string} */ value) => ipcRenderer.invoke('rhythm:production-api:set', value) },
-}));
+  productionApiBase: ipcRenderer.sendSync('rhythm:production-api:get'),
+  setProductionApiBase: (/** @type {string} */ value) => ipcRenderer.invoke('rhythm:production-api:set', value),
+});
 const auth = Object.freeze({
   signInWithGoogle: () => ipcRenderer.invoke('rhythm:auth:google-sign-in'),
 });
