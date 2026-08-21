@@ -27,6 +27,23 @@ class OrgProposalsController extends ChangeNotifier {
   bool isPending(String id) => _pendingIds.contains(id);
   int get reviewGeneration => _reviewGeneration;
 
+  /// The server accepts one review status per request. Tool installs can be
+  /// reviewable before they are `proposed`, so every queue read must use this
+  /// same closed status set. Older fakes/servers may ignore the status filter;
+  /// preserve one row per proposal in that case.
+  Future<List<OrgProposal>> _loadReviewQueue() async {
+    final batches = await Future.wait([
+      _repository.listProposed(status: 'proposed'),
+      _repository.listProposed(status: 'sandbox-vetted'),
+      _repository.listProposed(status: 'pending'),
+    ]);
+    final seen = <String>{};
+    return batches
+        .expand((batch) => batch)
+        .where((proposal) => seen.add(proposal.id))
+        .toList();
+  }
+
   Future<void> refresh() async {
     // A review can be superseded even when its replacement refresh fails.
     // This prevents a confirmation dialog from approving based on stale state.
@@ -36,19 +53,7 @@ class OrgProposalsController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // D1.5 tool installs leave `proposed` for sandbox-vetted/pending before
-      // a human can act. Keep the old queue intact while including those two
-      // review states; dedupe protects older fakes/servers that ignore status.
-      final batches = await Future.wait([
-        _repository.listProposed(status: 'proposed'),
-        _repository.listProposed(status: 'sandbox-vetted'),
-        _repository.listProposed(status: 'pending'),
-      ]);
-      final seen = <String>{};
-      _proposals = batches
-          .expand((batch) => batch)
-          .where((proposal) => seen.add(proposal.id))
-          .toList();
+      _proposals = await _loadReviewQueue();
       _status = OrgProposalsStatus.idle;
     } catch (e) {
       _error = e.toString();
@@ -151,7 +156,10 @@ class OrgProposalsController extends ChangeNotifier {
       // unprovable one becomes `reconciliation-required`. Re-reading keeps the
       // queue from showing a proposal that is no longer in it.
       try {
-        _proposals = await _repository.listProposed();
+        // This is reconciliation, not an explicit refresh: do not advance the
+        // confirmation generation. A conditional confirmation is still
+        // invalidated only by an actual refresh.
+        _proposals = await _loadReviewQueue();
       } catch (_) {
         // Leave the cached list alone; the error above is the one that matters.
       }

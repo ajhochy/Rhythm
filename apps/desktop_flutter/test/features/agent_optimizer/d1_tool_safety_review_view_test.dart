@@ -24,16 +24,18 @@ class _FakeDataSource extends OrgProposalsDataSource {
   String? failApproveId;
   bool failList = false;
   Completer<List<OrgProposal>>? listCompleter;
+  final List<String> requestedStatuses = [];
 
   @override
   Future<List<OrgProposal>> listProposed({String status = 'proposed'}) async {
+    requestedStatuses.add(status);
     if (failList) {
       throw AppError('Could not load proposals',
           code: 'NETWORK', statusCode: 503);
     }
     final completer = listCompleter;
     if (completer != null) return completer.future;
-    return rows;
+    return rows.where((row) => row.status == status).toList();
   }
 
   @override
@@ -291,19 +293,51 @@ void main() {
     });
 
     testWidgets(
-        'server refusal shows a failure notification and retains the row',
+        'server refusal preserves every review status after reconciliation',
         (tester) async {
-      final source = _FakeDataSource([_tool(safety: _safety('safe'))])
-        ..failApproveId = 'tool-1';
+      final source = _FakeDataSource([
+        _tool(id: 'vetted', safety: _safety('safe')),
+        _tool(id: 'pending', safety: null, status: 'pending'),
+        OrgProposal(
+          id: 'proposed',
+          kind: 'create-agent',
+          risk: 'high',
+          external: 0,
+          status: 'proposed',
+          title: 'Still proposed',
+          createdAt: '2026-08-21T00:00:00.000Z',
+          updatedAt: '2026-08-21T00:00:00.000Z',
+        ),
+      ])
+        ..failApproveId = 'vetted';
       final controller = OrgProposalsController(OrgProposalsRepository(source));
       await controller.refresh();
       await _pump(tester, controller);
-      final approve = find.byKey(const ValueKey('approve-proposal-tool-1'));
+      expect(
+        controller.proposals.map((proposal) => proposal.status),
+        containsAll(<String>['proposed', 'sandbox-vetted', 'pending']),
+      );
+      source.requestedStatuses.clear();
+      final approve = find.byKey(const ValueKey('approve-proposal-vetted'));
       await tester.ensureVisible(approve);
       await tester.tap(approve);
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('The server refused approval'), findsOneWidget);
-      expect(find.text('Install safe tool'), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('proposal-card-vetted')), findsOneWidget);
+      expect(
+        controller.proposals.map((proposal) => proposal.status),
+        containsAll(<String>['proposed', 'sandbox-vetted', 'pending']),
+      );
+      expect(
+        source.requestedStatuses,
+        orderedEquals(<String>[
+          'proposed',
+          'sandbox-vetted',
+          'pending',
+        ]),
+        reason: 'the failed approval must reconcile through the full queue',
+      );
       controller.dispose();
     });
   });

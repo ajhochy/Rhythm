@@ -50,7 +50,29 @@
       "test_file": "apps/api_server/src/__tests__/d1_tool_safety_review_projection_routes.test.ts",
       "test_id": "issue-1430-c6: list route returns only closed review fields",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c7",
+      "text": "A refused sandbox-vetted approval reconciles the complete review queue without replacing the server error or invalidating refresh-only confirmation generations",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/d1_tool_safety_review_view_test.dart",
+      "test_id": "server refusal preserves every review status after reconciliation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1430-c8",
+      "text": "Every fixed ToolVettingFailureReason projects safely; arbitrary report reason text fails closed without leaking",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/d1_tool_safety_review_projection_routes.test.ts",
+      "test_id": "projects the fixed vetting reason matrix / malformed raw reason",
+      "status": "pass"
     }
   ],
-  "not_tested": []
+  "not_tested": [
+    "issue-1430-live-behavioral-gate"
+  ],
+  "live_behavioral_gate": {
+    "status": "pending",
+    "reason": "The inherited D1.4/D1.5 real sandbox fixture still reaches pending/sandbox_candidate_failed instead of sandbox-vetted, so this repair did not run a live sandbox or change D1.4 vetter/installer behavior. Parent must rerun after repairing the fixture."
+  }
 }

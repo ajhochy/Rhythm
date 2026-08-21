@@ -3,6 +3,7 @@ import type { RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
 import type { ToolSafetyReport, ToolSafetyVerdict } from '../models/tool_safety_report';
 import { ToolSafetyReportsRepository } from '../repositories/tool_safety_reports_repository';
 import { isSafePackageSource, isSafeToolName } from './tool_install_safety';
+import type { ToolVettingFailureReason } from './tool_sandbox_vetter';
 
 export interface ToolSafetyReviewProjection {
   state: 'ready' | 'missing' | 'malformed';
@@ -17,12 +18,28 @@ export interface ToolSafetyReviewProjection {
   reason?: string | null;
 }
 
-const FIXED_REASONS = new Set([
-  'sandbox_unavailable', 'sandbox_start_failed', 'sandbox_terminated',
-  'sandbox_evidence_incomplete', 'sandbox_candidate_failed',
-  'sandbox_observer_unavailable', 'sandbox_error', 'unsafe_package_source',
-  'tool_install_apply_unavailable',
-]);
+/**
+ * Only code-owned reasons may leave the durable report boundary. This Record
+ * must cover the complete vetter union; the apply-unavailable value is a
+ * separate lifecycle outcome authored by the managed installer boundary.
+ */
+const FIXED_REASONS: Record<
+  ToolVettingFailureReason | 'tool_install_apply_unavailable',
+  true
+> = {
+  sandbox_unavailable: true,
+  invalid_scenario_ids: true,
+  unsafe_tool_name: true,
+  unsafe_package_source: true,
+  unsupported_install_method: true,
+  sandbox_start_failed: true,
+  sandbox_terminated: true,
+  sandbox_evidence_incomplete: true,
+  sandbox_candidate_failed: true,
+  sandbox_observer_unavailable: true,
+  sandbox_error: true,
+  tool_install_apply_unavailable: true,
+};
 const SAFE_LABEL = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const SAFE_HOST = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const MAX_AGGREGATE_COUNT = 1000000;
@@ -88,7 +105,7 @@ export function projectToolSafetyReview(report: ToolSafetyReport | null): ToolSa
     !isSafeToolName(report.toolName) || !isSafePackageSource(report.packageSource) ||
     forbiddenPathViolations === null || observedNetworkCalls === null || writes === null ||
     duration === null || attempts === null || credentialAttempts === null ||
-    (report.reason !== null && !FIXED_REASONS.has(report.reason))
+    (report.reason !== null && !Object.hasOwn(FIXED_REASONS, report.reason))
   ) return { state: 'malformed', verdict: 'unknown' };
 
   return {

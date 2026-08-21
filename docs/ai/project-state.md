@@ -75,6 +75,14 @@ PR #1454 with final evidence, then return to C6.
 
 ## Recent coding-agent runs
 
+### 2026-08-21 — D1.5 tool-safety review correctness repair (#1430)
+
+- Files modified: review queue controller and mounted Flutter regression; API safety projection and full fixed-reason route matrix; #1430 contract/run evidence.
+- Checks run: focused Flutter 11/11; full agent optimizer 35/35; Node 22 D1 API matrix 144 passed / 1 env-gated skip; Node 22 typecheck/build passed; Flutter analyze exit 0 with 318 existing infos.
+- Decisions made: one private proposed/sandbox-vetted/pending deduplicated loader is reused by refresh and failed-approval reconciliation; `Record<ToolVettingFailureReason | lifecycle reason, true>` makes vetter coverage compile-time exhaustive.
+- Deviations from spec: live behavioral gate remains pending for parent rerun; no sandbox/live process was started.
+- Concerns: GitNexus impact/detect is UNKNOWN because the integration is unavailable in this worktree; the inherited D1.4/D1.5 live fixture is still pending/sandbox_candidate_failed.
+
 ### 2026-08-21 — D1 managed installer artifact-boundary repair (#1429)
 
 - Files modified: immutable tar validator, managed apply boundary, adversarial managed-apply tests, live D1.4 activation contract, contract/run evidence.

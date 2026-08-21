@@ -3,6 +3,20 @@ import Database from 'better-sqlite3';
 
 import { startTestServer } from './helpers/real_server';
 
+const VETTING_FAILURE_REASONS = [
+  'sandbox_unavailable',
+  'invalid_scenario_ids',
+  'unsafe_tool_name',
+  'unsafe_package_source',
+  'unsupported_install_method',
+  'sandbox_start_failed',
+  'sandbox_terminated',
+  'sandbox_evidence_incomplete',
+  'sandbox_candidate_failed',
+  'sandbox_observer_unavailable',
+  'sandbox_error',
+] as const;
+
 describe('D1.5 tool safety review projection route', () => {
   let db: Database.Database;
   let baseUrl: string;
@@ -67,6 +81,35 @@ describe('D1.5 tool safety review projection route', () => {
         sandboxDurationMs: 17,
         reason: 'sandbox_candidate_failed',
       });
+    },
+  );
+
+  it.each(VETTING_FAILURE_REASONS)(
+    'projects the fixed vetting reason %s without exposing the durable report',
+    async (reason) => {
+      const proposalId = `fixed-reason-${reason}`;
+      db.prepare(`INSERT INTO agent_org_proposals
+        (id, kind, risk, external, status, title, change_json, revision, created_at, updated_at)
+        VALUES (?, 'tool-install', 'high', 1, 'pending', 'Install tool', ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`)
+        .run(proposalId, JSON.stringify({ token: 'sk-not-for-ui' }));
+      db.prepare(`INSERT INTO tool_safety_reports
+        (id, proposal_id, tool_name, package_source, install_method, sandbox_duration_ms,
+         test_prompts_run_count, forbidden_path_violations_json, network_calls_observed_json,
+         file_system_writes_observed_json, credential_access_attempts_count, verdict, reason, evidence_json)
+        VALUES (?, ?, 'safe-tool', 'npm:safe-tool', 'npm install', 17, 2,
+         '[]', '[]', '[]', 0, 'unknown', ?, '{"raw":"sk-not-for-ui"}')`)
+        .run(`report-${reason}`, proposalId, reason);
+
+      const response = await fetch(`${baseUrl}/agent-org-proposals?status=pending`);
+      expect(response.status).toBe(200);
+      const [body] = await response.json() as Array<Record<string, unknown>>;
+
+      expect(body.toolSafety).toMatchObject({
+        state: 'ready',
+        verdict: 'unknown',
+        reason,
+      });
+      expect(JSON.stringify(body)).not.toContain('sk-not-for-ui');
     },
   );
 
