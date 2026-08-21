@@ -403,7 +403,8 @@ export interface RhythmReservation {
   automation?: boolean;
 }
 
-export type CreateReservationInput = Pick<RhythmReservation, 'facilityId' | 'title' | 'start' | 'end'> & Partial<Pick<RhythmReservation, 'notes'>>;
+export type CreateReservationInput = Pick<RhythmReservation, 'facilityId' | 'title' | 'start' | 'end'> & Partial<Pick<RhythmReservation, 'notes' | 'requesterName'>>;
+export type UpdateReservationInput = Partial<Pick<RhythmReservation, 'title' | 'requesterName' | 'start' | 'end' | 'notes'>>;
 
 // Additive for issue #4 (M1 operations-screen extraction): apps/web/src/pages/facilities has a
 // real "Rooms" management surface (add/edit/delete a room) alongside reservation scheduling —
@@ -420,8 +421,11 @@ export interface FacilitiesGateway {
   deleteFacility(id: string): Promise<void>;
   reservations(range: { start: string; end: string }): Promise<RhythmReservation[]>;
   createReservation(input: CreateReservationInput): Promise<RhythmReservation>;
-  updateReservation(id: string, input: Partial<Pick<RhythmReservation, 'title' | 'start' | 'end' | 'notes'>>): Promise<RhythmReservation>;
+  updateReservation(id: string, input: UpdateReservationInput): Promise<RhythmReservation>;
   deleteReservation(id: string): Promise<void>;
+  updateGroup(groupId: string, input: UpdateReservationInput): Promise<RhythmReservation[]>;
+  deleteGroup(groupId: string): Promise<{ deletedCount: number }>;
+  deleteSeries(seriesId: string): Promise<{ deletedCount: number }>;
   /** Preferred atomic server operation for a recurrence/automation cleanup. */
   deleteReservations?(ids: string[]): Promise<{ deletedIds: string[] }>;
 }

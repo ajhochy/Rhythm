@@ -1,11 +1,8 @@
 // Ported from apps/web/src/pages/facilities/index.tsx (704 lines) — see SOURCE_MAP.md for what
-// carried over vs. what was deliberately dropped at the host-neutral boundary: multi-room
-// "linked group" bookings, weekly/biweekly/monthly/custom recurring-series creation, and the
-// editable requester-name field (this screen's CreateReservationInput has no requester field;
-// the gateway assigns it) are all host/transport-shaped features the narrower FacilitiesGateway
-// does not carry. "Delete entire series" is reconstructed here from the plain single-reservation
-// deleteReservation primitive (looped across every reservation sharing a seriesId) rather than a
-// dedicated series-delete endpoint. Facility (room) create/update/delete is a minimal additive
+// carried over vs. what was deliberately dropped at the host-neutral boundary: weekly/biweekly/
+// monthly/custom recurring-series creation. Linked bookings, requester editing, and authoritative
+// group/series mutations are represented in FacilitiesGateway so a visible range never defines
+// destructive-operation scope. Facility (room) create/update/delete is a minimal additive
 // gateway addition — see src/domain/types.ts — because Facilities' own namesake capability
 // (managing rooms, not just reservations) would otherwise be entirely unimplemented.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
@@ -156,6 +153,7 @@ export function FacilitiesScreen() {
   const [editingReservation, setEditingReservation] = useState<RhythmReservation | null>(null);
   const [formRoomId, setFormRoomId] = useState('');
   const [formTitle, setFormTitle] = useState('');
+  const [formRequesterName, setFormRequesterName] = useState('');
   const [formDate, setFormDate] = useState('');
   const [formStart, setFormStart] = useState('');
   const [formEnd, setFormEnd] = useState('');
@@ -163,6 +161,7 @@ export function FacilitiesScreen() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [deleteReservationTarget, setDeleteReservationTarget] = useState<RhythmReservation | null>(null);
   const [deleteSeriesTarget, setDeleteSeriesTarget] = useState<RhythmReservation | null>(null);
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<RhythmReservation | null>(null);
 
   const [facilityEditorOpen, setFacilityEditorOpen] = useState(false);
   const [editingFacility, setEditingFacility] = useState<RhythmFacility | null>(null);
@@ -254,6 +253,7 @@ export function FacilitiesScreen() {
     setEditingReservation(reservation);
     setFormRoomId(reservation?.facilityId ?? presetFacilityId ?? facilities[0]?.id ?? '');
     setFormTitle(reservation?.title ?? '');
+    setFormRequesterName(reservation?.requesterName ?? host.currentUser.displayName);
     setFormDate(reservation ? dateOnly(reservation.start) : currentRange.start);
     setFormStart(reservation ? timeOnly(reservation.start) : '');
     setFormEnd(reservation ? timeOnly(reservation.end) : '');
@@ -298,11 +298,15 @@ export function FacilitiesScreen() {
     try {
       const start = `${formDate}T${formStart}:00-07:00`;
       const end = `${formDate}T${formEnd}:00-07:00`;
-      if (editingReservation) {
-        const updated = await gateway.updateReservation(editingReservation.id, { title: formTitle.trim(), start, end, notes: formNotes || null });
+      const input = { title: formTitle.trim(), requesterName: formRequesterName.trim() || host.currentUser.displayName, start, end, notes: formNotes || null };
+      if (editingReservation?.groupId) {
+        const updated = await gateway.updateGroup(editingReservation.groupId, input);
+        setReservations((current) => current.map((reservation) => updated.find((item) => item.id === reservation.id) ?? reservation));
+      } else if (editingReservation) {
+        const updated = await gateway.updateReservation(editingReservation.id, input);
         setReservations((current) => current.map((reservation) => (reservation.id === updated.id ? updated : reservation)));
       } else {
-        const created = await gateway.createReservation({ facilityId: formRoomId, title: formTitle.trim(), start, end, notes: formNotes || undefined });
+        const created = await gateway.createReservation({ facilityId: formRoomId, ...input, notes: formNotes || undefined });
         setReservations((current) => [...current, created]);
       }
       closeReservationEditor();
@@ -335,24 +339,28 @@ export function FacilitiesScreen() {
     setMutationPending(true);
     setMutationNotice('');
     try {
-      const seriesId = deleteSeriesTarget.seriesId;
-      const memberIds = reservations.filter((reservation) => reservation.seriesId === seriesId).map((reservation) => reservation.id);
-      if (gateway.deleteReservations) {
-        const result = await gateway.deleteReservations(memberIds);
-        if (result.deletedIds.length !== memberIds.length) setMutationNotice(`${result.deletedIds.length} of ${memberIds.length} recurring reservations were deleted. The schedule was reloaded.`);
-      } else {
-        const results = await Promise.allSettled(memberIds.map((id) => gateway.deleteReservation(id)));
-        const failed = results.filter((result) => result.status === 'rejected').length;
-        if (failed) setMutationNotice(`${memberIds.length - failed} of ${memberIds.length} recurring reservations were deleted. The schedule was reloaded.`);
-      }
+      const result = await gateway.deleteSeries(deleteSeriesTarget.seriesId);
+      setMutationNotice(`${result.deletedCount} recurring reservations were deleted. The schedule was reloaded.`);
       await load();
-      if (selectedReservationId && memberIds.includes(selectedReservationId)) setSelectedReservationId(null);
+      setSelectedReservationId(null);
       setDeleteSeriesTarget(null);
     } catch (error) {
       handleError(error);
     } finally {
       setMutationPending(false);
     }
+  };
+
+  const confirmDeleteGroup = async () => {
+    if (!deleteGroupTarget?.groupId || !canEditReservation(deleteGroupTarget)) return;
+    setMutationPending(true);
+    try {
+      const result = await gateway.deleteGroup(deleteGroupTarget.groupId);
+      setMutationNotice(`${result.deletedCount} linked reservations were deleted. The schedule was reloaded.`);
+      await load();
+      setSelectedReservationId(null);
+      setDeleteGroupTarget(null);
+    } catch (error) { handleError(error); } finally { setMutationPending(false); }
   };
 
   const openFacilityEditor = (facility: RhythmFacility | null) => {
@@ -532,9 +540,9 @@ export function FacilitiesScreen() {
                               </span>
                             </button>
                             <ActionMenu label={`Actions for ${reservation.title}`} testId={`facility-reservation-menu-${reservation.id}`}>
-                              <button className="menu-item" role="menuitem" type="button" disabled={!canEditReservation(reservation)} onClick={() => openReservationEditor(reservation)} data-testid={`facility-reservation-menu-edit-${reservation.id}`}>Edit reservation</button>
-                              <button className="menu-item danger-item" role="menuitem" type="button" disabled={reservation.seriesId ? !canManage : !canEditReservation(reservation)} onClick={() => (reservation.seriesId ? setDeleteSeriesTarget(reservation) : setDeleteReservationTarget(reservation))} data-testid={`facility-reservation-menu-delete-${reservation.id}`}>
-                                {reservation.seriesId ? 'Delete series' : 'Delete reservation'}
+                              <button className="menu-item" role="menuitem" type="button" disabled={!canEditReservation(reservation)} onClick={() => openReservationEditor(reservation)} data-testid={`facility-reservation-menu-edit-${reservation.id}`}>{reservation.groupId ? 'Edit linked group' : 'Edit reservation'}</button>
+                              <button className="menu-item danger-item" role="menuitem" type="button" disabled={reservation.seriesId ? !canManage : !canEditReservation(reservation)} onClick={() => (reservation.seriesId ? setDeleteSeriesTarget(reservation) : reservation.groupId ? setDeleteGroupTarget(reservation) : setDeleteReservationTarget(reservation))} data-testid={`facility-reservation-menu-delete-${reservation.id}`}>
+                                {reservation.seriesId ? 'Delete series' : reservation.groupId ? 'Delete linked group' : 'Delete reservation'}
                               </button>
                             </ActionMenu>
                           </article>
@@ -566,8 +574,8 @@ export function FacilitiesScreen() {
                         <div className="span-all"><dt>Setup notes</dt><dd>{selectedReservation.notes || 'No setup notes'}</dd></div>
                       </dl>
                       <div className="facilities-detail-actions">
-                        <button className="text-danger-button" type="button" disabled={mutationPending || (selectedReservation.seriesId ? !canManage : !canEditReservation(selectedReservation))} onClick={() => (selectedReservation.seriesId ? setDeleteSeriesTarget(selectedReservation) : setDeleteReservationTarget(selectedReservation))} data-testid="facility-inspector-delete">
-                          {selectedReservation.seriesId ? 'Delete entire series' : 'Delete reservation'}
+                        <button className="text-danger-button" type="button" disabled={mutationPending || (selectedReservation.seriesId ? !canManage : !canEditReservation(selectedReservation))} onClick={() => (selectedReservation.seriesId ? setDeleteSeriesTarget(selectedReservation) : selectedReservation.groupId ? setDeleteGroupTarget(selectedReservation) : setDeleteReservationTarget(selectedReservation))} data-testid="facility-inspector-delete">
+                          {selectedReservation.seriesId ? 'Delete entire series' : selectedReservation.groupId ? 'Delete linked group' : 'Delete reservation'}
                         </button>
                       </div>
                     </section>
@@ -643,6 +651,9 @@ export function FacilitiesScreen() {
               <label className="field span-2">Title
                 <input data-autofocus value={formTitle} onChange={(event) => setFormTitle(event.target.value)} aria-invalid={Boolean(formErrors.title)} data-testid="facility-form-title" />
                 {formErrors.title && <span className="facilities-field-error" role="alert" data-testid="facility-form-title-error">{formErrors.title}</span>}
+              </label>
+              <label className="field span-2">Requester
+                <input value={formRequesterName} onChange={(event) => setFormRequesterName(event.target.value)} data-testid="facility-form-requester" />
               </label>
               <label className="field">Room
                 <select value={formRoomId} onChange={(event) => setFormRoomId(event.target.value)} data-testid="facility-form-room">
@@ -730,6 +741,13 @@ export function FacilitiesScreen() {
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={() => setDeleteSeriesTarget(null)} data-testid="facility-series-delete-cancel">Cancel</button>
           <button className="danger-button" type="button" disabled={mutationPending || !canManage} onClick={() => void confirmDeleteSeries()} data-testid="facility-series-delete-confirm">Delete entire series</button>
+          </div>
+        </FocusDialog>
+
+        <FocusDialog open={Boolean(deleteGroupTarget)} onClose={() => setDeleteGroupTarget(null)} title={deleteGroupTarget ? `Delete linked group "${deleteGroupTarget.title}"?` : 'Delete linked group?'} description="Every linked reservation in this group will be removed. This cannot be undone." testId="facility-group-delete-dialog">
+          <div className="dialog-actions">
+            <button className="secondary-button" type="button" onClick={() => setDeleteGroupTarget(null)} data-testid="facility-group-delete-cancel">Cancel</button>
+            <button className="danger-button" type="button" disabled={mutationPending || !canEditReservation(deleteGroupTarget!)} onClick={() => void confirmDeleteGroup()} data-testid="facility-group-delete-confirm">Delete linked group</button>
           </div>
         </FocusDialog>
 

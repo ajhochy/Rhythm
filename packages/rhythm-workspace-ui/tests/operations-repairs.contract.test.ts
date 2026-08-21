@@ -5,6 +5,7 @@ import { AutomationsScreen } from '../src/screens/AutomationsScreen';
 import { IntegrationsScreen } from '../src/screens/IntegrationsScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
+import type { AutomationPreview, RhythmAutomation } from '../src/domain/types';
 import { fixtureDomainGateway, fixtureFacilitiesGateway } from './test-utils/fixtures';
 import { actClick, actKeyDown, actSetValue, flush, mount } from './test-utils/mount';
 
@@ -157,13 +158,60 @@ describe('issue #4 operations corrective contract', () => {
       { id: 'series-b', facilityId: '101', title: 'Recurring setup', requesterName: 'AJ', creatorId: 'user-aj', start: '2026-08-19T10:00:00-07:00', end: '2026-08-19T11:00:00-07:00', notes: null, seriesId: 'weekly' },
     ];
     facilities.reservations = async () => (++listed === 1 ? series : [series[1]!]);
-    facilities.deleteReservations = vi.fn(async (ids) => ({ deletedIds: [ids[0]!] }));
+    facilities.deleteSeries = vi.fn(async () => ({ deletedCount: 1 }));
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, capabilities: ['facilities.manage'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
     await flush(); await actClick(mounted.byTestId('facility-reservation-open-series-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-series-delete-confirm')!); await flush();
-    expect(facilities.deleteReservations).toHaveBeenCalledWith(['series-a', 'series-b']);
-    expect(mounted.byTestId('facilities-mutation-notice')?.textContent).toContain('1 of 2 recurring');
+    expect(facilities.deleteSeries).toHaveBeenCalledWith('weekly');
+    expect(mounted.byTestId('facilities-mutation-notice')?.textContent).toContain('1 recurring');
     expect(listed).toBeGreaterThanOrEqual(2);
+    mounted.unmount();
+  });
+
+  it('issue-4-c4: deletes a recurring series authoritatively even when this range exposes only one occurrence', async () => {
+    const facilities = fixtureFacilitiesGateway();
+    let serverSeries = ['visible-weekly', 'outside-range-1', 'outside-range-2', 'outside-range-3'];
+    facilities.reservations = async () => serverSeries.includes('visible-weekly') ? [{ id: 'visible-weekly', facilityId: '101', title: 'Weekly setup', requesterName: 'AJ', creatorId: 'user-aj', start: '2026-08-12T10:00:00-07:00', end: '2026-08-12T11:00:00-07:00', notes: null, seriesId: 'weekly' }] : [];
+    facilities.deleteSeries = vi.fn(async () => { const deletedCount = serverSeries.length; serverSeries = []; return { deletedCount }; });
+    const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'user-aj', capabilities: ['facilities.manage'] as const } };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
+    await flush(); await actClick(mounted.byTestId('facility-reservation-open-visible-weekly')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-series-delete-confirm')!); await flush();
+    expect(facilities.deleteSeries).toHaveBeenCalledWith('weekly');
+    expect(serverSeries).toEqual([]);
+    expect(mounted.byTestId('facility-reservation-visible-weekly')).toBeNull();
+    mounted.unmount();
+  });
+
+  it('issue-4-c4: requester fields round-trip and managers edit/delete every linked group member authoritatively', async () => {
+    const facilities = fixtureFacilitiesGateway();
+    const group = [{ id: 'group-a', facilityId: '101', title: 'Team setup', requesterName: 'Original requester', creatorId: 'user-other', start: '2026-08-12T10:00:00-07:00', end: '2026-08-12T11:00:00-07:00', notes: null, groupId: 'linked-team' }];
+    facilities.reservations = async () => group;
+    facilities.updateGroup = vi.fn(async (_id, input) => group.map((reservation) => ({ ...reservation, ...input })));
+    facilities.deleteGroup = vi.fn(async () => ({ deletedCount: 3 }));
+    const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'manager', capabilities: ['facilities.manage'] as const } };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
+    await flush(); await actClick(mounted.byTestId('facility-reservation-menu-group-a')!); await actClick(mounted.byTestId('facility-reservation-menu-edit-group-a')!); await flush();
+    await actSetValue(mounted.byTestId('facility-form-requester') as HTMLInputElement, 'Updated requester'); await actClick(mounted.byTestId('facility-form-submit')!); await flush();
+    expect(facilities.updateGroup).toHaveBeenCalledWith('linked-team', expect.objectContaining({ requesterName: 'Updated requester' }));
+    await actClick(mounted.byTestId('facility-reservation-open-group-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-group-delete-confirm')!); await flush();
+    expect(facilities.deleteGroup).toHaveBeenCalledWith('linked-team');
+    mounted.unmount();
+  });
+
+  it('issue-4-c4: a creator can manage their own linked group but not someone else’s', async () => {
+    const facilities = fixtureFacilitiesGateway();
+    facilities.reservations = async () => [
+      { id: 'own-group', facilityId: '101', title: 'Own group', requesterName: 'AJ', creatorId: 'creator', start: '2026-08-12T10:00:00-07:00', end: '2026-08-12T11:00:00-07:00', notes: null, groupId: 'own' },
+      { id: 'other-group', facilityId: '101', title: 'Other group', requesterName: 'Morgan', creatorId: 'other', start: '2026-08-12T12:00:00-07:00', end: '2026-08-12T13:00:00-07:00', notes: null, groupId: 'other' },
+    ];
+    const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'creator', capabilities: ['facilities.reserve'] as const } };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
+    await flush(); await actClick(mounted.byTestId('facility-reservation-menu-own-group')!);
+    expect((mounted.byTestId('facility-reservation-menu-edit-own-group') as HTMLButtonElement).disabled).toBe(false);
+    expect((mounted.byTestId('facility-reservation-menu-delete-own-group') as HTMLButtonElement).disabled).toBe(false);
+    await actClick(mounted.byTestId('facility-reservation-menu-other-group')!);
+    expect((mounted.byTestId('facility-reservation-menu-edit-other-group') as HTMLButtonElement).disabled).toBe(true);
+    expect((mounted.byTestId('facility-reservation-menu-delete-other-group') as HTMLButtonElement).disabled).toBe(true);
     mounted.unmount();
   });
 
@@ -191,5 +239,25 @@ describe('issue #4 operations corrective contract', () => {
     await actClick(mounted.byTestId('automation-resync')!); await flush();
     expect(mounted.byTestId('automation-resync-status')?.textContent).toContain('9 matched');
     mounted.unmount();
+  });
+
+  it('issue-4-c6: preview generations, resync, and initial loads are unmount-safe and single-flight', async () => {
+    const automations = fixtureDomainGateway().automations;
+    let resolveFirstPreview!: (value: AutomationPreview) => void;
+    let resolveSecondPreview!: (value: AutomationPreview) => void;
+    let previewCalls = 0;
+    automations.preview = vi.fn(() => new Promise<AutomationPreview>((resolve) => { if (previewCalls++ === 0) resolveFirstPreview = resolve; else resolveSecondPreview = resolve; }));
+    let resolveResync!: (value: RhythmAutomation) => void;
+    automations.resync = vi.fn(() => new Promise<RhythmAutomation>((resolve) => { resolveResync = resolve; }));
+    const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, capabilities: ['automations.write'] as const } };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), automations }, host, children: createElement(AutomationsScreen) }));
+    await flush(); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!); await actClick(mounted.byTestId('automation-preview-close')!); await actClick(mounted.byTestId('automation-preview-rule-rhythm-due-reminder')!);
+    resolveSecondPreview({ summary: 'Fresh preview', matchedAt: null, matchCount: 2 }); await flush();
+    resolveFirstPreview({ summary: 'Stale preview', matchedAt: null, matchCount: 1 }); await flush();
+    expect(mounted.byTestId('automation-preview-summary')?.textContent).toBe('Fresh preview');
+    await actClick(mounted.byTestId('automation-select-rule-rhythm-due-reminder')!); await actClick(mounted.byTestId('automation-resync')!); await actClick(mounted.byTestId('automation-resync')!);
+    expect(automations.resync).toHaveBeenCalledTimes(1);
+    mounted.unmount();
+    resolveResync((await fixtureDomainGateway().automations.list())[0]!); await flush();
   });
 });

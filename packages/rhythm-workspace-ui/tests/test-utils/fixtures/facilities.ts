@@ -63,12 +63,27 @@ export function fixtureFacilitiesGateway(): FacilitiesGateway {
     deleteReservation: async (id) => {
       reservations = reservations.filter((reservation) => reservation.id !== id);
     },
+    updateGroup: async (groupId, input) => {
+      const updated = reservations.filter((reservation) => reservation.groupId === groupId).map((reservation) => ({ ...reservation, ...input }));
+      reservations = reservations.map((reservation) => updated.find((item) => item.id === reservation.id) ?? reservation);
+      return updated;
+    },
+    deleteGroup: async (groupId) => {
+      const deletedCount = reservations.filter((reservation) => reservation.groupId === groupId).length;
+      reservations = reservations.filter((reservation) => reservation.groupId !== groupId);
+      return { deletedCount };
+    },
+    deleteSeries: async (seriesId) => {
+      const deletedCount = reservations.filter((reservation) => reservation.seriesId === seriesId).length;
+      reservations = reservations.filter((reservation) => reservation.seriesId !== seriesId);
+      return { deletedCount };
+    },
   };
 }
 
 export function failingFacilitiesGateway(kind: 'forbidden' | 'not_found' | 'unavailable' | 'server_error'): FacilitiesGateway {
   const fail = async (): Promise<never> => { throw new RhythmGatewayError(kind, `simulated ${kind}`); };
-  return { facilities: fail, createFacility: fail, updateFacility: fail, deleteFacility: fail, reservations: fail, createReservation: fail, updateReservation: fail, deleteReservation: fail };
+  return { facilities: fail, createFacility: fail, updateFacility: fail, deleteFacility: fail, reservations: fail, createReservation: fail, updateReservation: fail, deleteReservation: fail, updateGroup: fail, deleteGroup: fail, deleteSeries: fail };
 }
 
 export function emptyFacilitiesGateway(): FacilitiesGateway {

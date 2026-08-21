@@ -1,15 +1,9 @@
 // Ported from apps/web/src/pages/automations/index.tsx (593 lines) — see SOURCE_MAP.md for
-// what carried over vs. what was deliberately dropped. The real page's trigger/action/provider
-// catalogs come from a live GET /automation-catalog/* endpoint; this screen's AutomationsGateway
-// has no catalog port, so the same catalog literals (apps/web/src/pages/automations/fixtures.ts)
-// are kept as static, host-neutral data here instead. actionConfig customization (title/message
-// templates, the create_reservation room picker), per-rule resync, and a separate readonly
-// surface state are dropped: none of those has a home in the narrower RhythmAutomation/
-// AutomationsGateway shape, and adding them would grow the gateway well past what this milestone
-// needs. "Preview history" is reconstructed entirely from fields RhythmAutomation already
-// carries (matchCountLastRun/lastMatchedAt/previewSummary) rather than a dedicated preview()
-// call.
-import { useEffect, useId, useState, type FormEvent } from 'react';
+// what carried over vs. what was deliberately dropped. Optional host-neutral catalog, preview,
+// and resync ports retain a useful fallback view when a consuming host does not expose the live
+// operations. Async responses are generation-scoped so a closed/reopened preview cannot render
+// stale details.
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { Icon } from '../components/Icon';
@@ -267,6 +261,10 @@ export function AutomationsScreen() {
   const [fetchedPreview, setFetchedPreview] = useState<{ id: string; summary: string; matchedAt: string | null; matchCount: number } | null>(null);
   const [resyncStatus, setResyncStatus] = useState('');
   const [mutationPending, setMutationPending] = useState(false);
+  const [resyncPending, setResyncPending] = useState(false);
+  const mountedRef = useRef(true);
+  const listGeneration = useRef(0);
+  const previewGeneration = useRef(0);
   const canMutate = host.currentUser.capabilities?.includes('automations.write') ?? false;
 
   const handleError = (error: unknown) => {
@@ -275,18 +273,25 @@ export function AutomationsScreen() {
   };
 
   const load = async () => {
+    const generation = ++listGeneration.current;
     setSurfaceState('loading');
     try {
       const loaded = await gateway.list();
+      if (!mountedRef.current || generation !== listGeneration.current) return;
       setRules(loaded);
       setSurfaceState(loaded.length ? 'ready' : 'empty');
     } catch (error) {
+      if (!mountedRef.current || generation !== listGeneration.current) return;
       handleError(error);
     }
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => {
+    mountedRef.current = true;
+    void load();
+    return () => { mountedRef.current = false; listGeneration.current += 1; previewGeneration.current += 1; };
+  }, [gateway]);
   useEffect(() => {
     if (!gateway.catalog) return;
     let active = true;
@@ -366,21 +371,28 @@ export function AutomationsScreen() {
   };
 
   const openPreview = (rule: RhythmAutomation) => {
+    const generation = ++previewGeneration.current;
     setPreviewRuleId(rule.id);
     setFetchedPreview(null);
     if (!gateway.preview) return;
-    void gateway.preview(rule.id).then((preview) => setFetchedPreview({ id: rule.id, summary: preview.summary, matchedAt: preview.matchedAt, matchCount: preview.matchCount })).catch(() => setFetchedPreview({ id: rule.id, summary: 'Preview could not be refreshed. Historical details remain available.', matchedAt: rule.lastMatchedAt, matchCount: rule.matchCountLastRun }));
+    void gateway.preview(rule.id)
+      .then((preview) => { if (mountedRef.current && generation === previewGeneration.current) setFetchedPreview({ id: rule.id, summary: preview.summary, matchedAt: preview.matchedAt, matchCount: preview.matchCount }); })
+      .catch(() => { if (mountedRef.current && generation === previewGeneration.current) setFetchedPreview({ id: rule.id, summary: 'Preview could not be refreshed. Historical details remain available.', matchedAt: rule.lastMatchedAt, matchCount: rule.matchCountLastRun }); });
   };
 
   const resyncRule = async (rule: RhythmAutomation) => {
-    if (!canMutate || !gateway.resync) return;
+    if (!canMutate || !gateway.resync || resyncPending) return;
+    setResyncPending(true);
     setResyncStatus(`Resyncing ${rule.name}…`);
     try {
       const updated = await gateway.resync(rule.id);
+      if (!mountedRef.current) return;
       setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
       setResyncStatus(`${rule.name} resynced. ${updated.matchCountLastRun} matched last run.`);
     } catch {
-      setResyncStatus(`${rule.name} could not resync. Reconnect its provider and retry.`);
+      if (mountedRef.current) setResyncStatus(`${rule.name} could not resync. Reconnect its provider and retry.`);
+    } finally {
+      if (mountedRef.current) setResyncPending(false);
     }
   };
 
@@ -443,7 +455,7 @@ export function AutomationsScreen() {
                       <div><dt>Last matched</dt><dd>{dateTimeLabel(inspectorRule.lastMatchedAt)}</dd></div>
                     </dl>
                     {catalog.providers.find((provider) => provider.source === inspectorRule.source)?.status === 'stale' && <p role="alert" data-testid="automation-provider-stale">This provider is stale. Reconnect it before depending on new matches.</p>}
-                    {gateway.resync && <button className="secondary-button" type="button" disabled={!canMutate || mutationPending} onClick={() => void resyncRule(inspectorRule)} data-testid="automation-resync">Resync rule</button>}
+                    {gateway.resync && <button className="secondary-button" type="button" disabled={!canMutate || mutationPending || resyncPending} onClick={() => void resyncRule(inspectorRule)} data-testid="automation-resync">Resync rule</button>}
                     {resyncStatus && <p role="status" aria-live="polite" data-testid="automation-resync-status">{resyncStatus}</p>}
                   </div>
                 ) : (
@@ -457,7 +469,7 @@ export function AutomationsScreen() {
 
       <BuilderDialog open={builderOpen} editing={editingRule} catalog={catalog} canMutate={canMutate} onClose={closeBuilder} onSubmit={(draft) => void submitBuilder(draft)} />
 
-      <FocusDialog open={Boolean(previewRule)} onClose={() => setPreviewRuleId(null)} title={previewRule?.name ?? 'Automation preview'} description="Historical rule metadata. Preview does not execute this automation." testId="automation-preview-dialog" wide>
+      <FocusDialog open={Boolean(previewRule)} onClose={() => { previewGeneration.current += 1; setPreviewRuleId(null); }} title={previewRule?.name ?? 'Automation preview'} description="Historical rule metadata. Preview does not execute this automation." testId="automation-preview-dialog" wide>
         {previewRule && (
           <div className="automation-preview">
             <div className="preview-path"><span>{sourceLabels[previewRule.source]}</span><Icon name="chevronRight" size={15} /><strong>{previewRule.actionLabel}</strong></div>
@@ -466,7 +478,7 @@ export function AutomationsScreen() {
               <div><dt>Matches last run</dt><dd>{fetchedPreview?.id === previewRule.id ? fetchedPreview.matchCount : previewRule.matchCountLastRun} {(fetchedPreview?.id === previewRule.id ? fetchedPreview.matchCount : previewRule.matchCountLastRun) === 1 ? 'match' : 'matches'} last run</dd></div>
               <div><dt>Last matched</dt><dd>{dateTimeLabel(fetchedPreview?.id === previewRule.id ? fetchedPreview.matchedAt : previewRule.lastMatchedAt)}</dd></div>
             </dl>
-            <div className="preview-actions"><button className="primary-button" type="button" data-autofocus onClick={() => setPreviewRuleId(null)} data-testid="automation-preview-close">Close preview</button></div>
+            <div className="preview-actions"><button className="primary-button" type="button" data-autofocus onClick={() => { previewGeneration.current += 1; setPreviewRuleId(null); }} data-testid="automation-preview-close">Close preview</button></div>
           </div>
         )}
       </FocusDialog>
