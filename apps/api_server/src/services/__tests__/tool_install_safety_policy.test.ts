@@ -127,19 +127,12 @@ describe('D1.4 tool-install safety policy', () => {
     expect(result).toEqual({ allowed: false, reason: 'report_malformed', verdict: 'unknown' });
   });
 
-  it('refuses direct reusable apply bypasses until the central policy allows them', async () => {
+  it('refuses direct reusable apply bypasses; only the dedicated lifecycle may reach the installer', async () => {
     const proposal = (await proposals.findByIdAsync(proposalId))!;
     await expect(
       applyProposal(proposal, { deps: safetyDeps(reports, 'conditional') }),
-    ).rejects.toThrow('conditional_confirmation_required');
+    ).rejects.toThrow('dedicated vetted lifecycle');
     expect((await proposals.findByIdAsync(proposal.id))?.status).toBe('proposed');
-
-    await expect(
-      applyProposal(proposal, {
-        explicitHumanConfirmation: true,
-        deps: safetyDeps(reports, 'conditional'),
-      }),
-    ).resolves.toMatchObject({ measurable: false });
   });
 
   it('refuses the separate unattended optimizer apply path before it can mutate status', async () => {

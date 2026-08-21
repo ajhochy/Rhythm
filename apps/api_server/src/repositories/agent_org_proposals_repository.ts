@@ -94,7 +94,10 @@ interface AgentOrgProposalRow {
  * `active`'s only outgoing transition is the new revert path.
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  proposed: ['approved', 'rejected', 'applied', 'failed'],
+  proposed: ['approved', 'rejected', 'applied', 'failed', 'sandbox-running'],
+  /** D1.4 tool-install lifecycle. These states are only entered by the dedicated lifecycle service. */
+  'sandbox-running': ['sandbox-vetted', 'rejected', 'pending'],
+  'sandbox-vetted': ['approved', 'rejected'],
   /**
    * `approved` is a durable human claim with the target still untouched. It
    * must have an exit that is not the atomic pair: if the target moves between
@@ -124,6 +127,8 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
    * step; 'failed' -> 'failed' lets a repeat failure re-mark the same status.
    */
   failed: ['applied', 'failed'],
+  /** D1.4 sandbox unavailable/error: durable report exists but no safe decision was made. */
+  pending: ['rejected'],
 };
 
 const SCOPE_PROPOSAL_KINDS = new Set<string>([

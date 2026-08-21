@@ -19,7 +19,9 @@
  *
  * Status state machine (enforced by AgentOrgProposalsRepository.updateStatusAsync):
  *
- *   proposed  -> approved | rejected | applied | failed
+ *   proposed  -> approved | rejected | applied | failed | sandbox-running
+ *   sandbox-running -> sandbox-vetted | rejected | pending  (D1.4 tool-install only)
+ *   sandbox-vetted -> approved | rejected                     (D1.4 tool-install only)
  *   approved  -> applied
  *   applied   -> measuring
  *   measuring -> active | reverted
@@ -56,7 +58,7 @@ export interface AgentOrgProposal {
   /** 1 for external-adoption (extra vetting gate); 0 otherwise. */
   external: number;
   /**
-   * proposed|approved|rejected|applied|measuring|active|reverted|failed.
+   * proposed|sandbox-running|sandbox-vetted|pending|approved|rejected|applied|measuring|active|reverted|failed.
    * See the state machine documented above.
    */
   status: string;

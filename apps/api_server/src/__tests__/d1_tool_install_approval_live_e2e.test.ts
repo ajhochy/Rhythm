@@ -1,7 +1,6 @@
-/** D1.4 live contract: a durable safe report authorizes the real HTTP route. */
+/** D1.4 live contract: the real creation route runs vetting and never applies unavailable tools. */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
@@ -18,17 +17,6 @@ const configIds: string[] = [];
 
 function sqlite(sql: string): string {
   return execFileSync('sqlite3', [DB, sql], { encoding: 'utf8' }).trim();
-}
-
-function sqlText(value: string): string {
-  return value.replaceAll("'", "''");
-}
-
-function fingerprint(proposalId: string, change: { toolName: string; packageSource: string; installMethod: string; testPrompts: string[] }): string {
-  return createHash('sha256').update(JSON.stringify({
-    proposalId, toolName: change.toolName, packageSource: change.packageSource,
-    installMethod: change.installMethod, scenarioIds: [...change.testPrompts].sort(),
-  })).digest('hex');
 }
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -64,15 +52,15 @@ describeLive('D1.4 live tool-install approval gate', () => {
     expect((await fetch(`${BASE}/health`)).ok).toBe(true);
   });
 
-  it('accepts a persisted matching safe report through the running API, not client verdict fields', async () => {
+  it('drives safe vet → human approval → fail-closed apply and unavailable → denial through the real API', async () => {
     const config = await api<{ id: string; revision: number; systemPrompt: string | null }>('/agent-configs', {
       method: 'POST', body: JSON.stringify({ label: `D1.4 live ${Date.now()}`, icon: 'shield', systemPrompt: 'test' }),
     });
     configIds.push(config.id);
-    const proposalId = randomUUID();
-    proposalIds.push(proposalId);
-    const change = {
-      toolName: 'example-tool', packageSource: 'npm:example-tool', installMethod: 'npm install', agentConfigId: config.id,
+    const safeChange = {
+      // This path exists inside the pinned node:22-alpine sandbox image, not
+      // on the API host. It permits a real network-disabled safe Docker vet.
+      toolName: 'node', packageSource: 'file:/usr/local/lib/node_modules/npm/node_modules/abbrev', installMethod: 'npm install', agentConfigId: config.id,
       testPrompts: ['version-check', 'help-check'],
       evidenceBundle: {
         version: PROPOSAL_EVIDENCE_BUNDLE_VERSION,
@@ -83,22 +71,35 @@ describeLive('D1.4 live tool-install approval gate', () => {
         guardrails: [...GUARDRAIL_NAMES], experimentAdapter: 'usage-count', rollbackRule: 'revoke', generatorVersion: 'd1-live', confidenceCalibrationVersion: 'uncalibrated',
       },
     };
-    const changeJson = JSON.stringify(change);
-    sqlite(
-      `INSERT INTO agent_org_proposals (id, kind, risk, status, title, change_json, created_at, updated_at) VALUES ` +
-      `('${proposalId}', 'tool-install', 'high', 'proposed', 'D1.4 live tool install', '${sqlText(changeJson)}', datetime('now'), datetime('now'));`,
-    );
-    const proposalFingerprint = fingerprint(proposalId, change);
-    expect(proposalFingerprint).toMatch(/^[a-f0-9]{64}$/);
-    sqlite(
-      `INSERT INTO tool_safety_reports (id, proposal_id, proposal_fingerprint, tool_name, package_source, install_method, sandbox_duration_ms, test_prompts_run_count, verdict, evidence_json, created_at, updated_at) VALUES ` +
-      `('${randomUUID()}', '${proposalId}', '${proposalFingerprint}', 'example-tool', 'npm:example-tool', 'npm install', 1, 2, 'safe', '{}', datetime('now'), datetime('now'));`,
-    );
+    const safe = await api<{ id: string; status: string }>('/agent-org-proposals/tool-install', {
+      method: 'POST', body: JSON.stringify({ title: 'D1.4 live safe tool install', change: safeChange }),
+    });
+    proposalIds.push(safe.id);
+    expect(safe.status).toBe('sandbox-vetted');
+    expect(sqlite(`SELECT verdict FROM tool_safety_reports WHERE proposal_id = '${safe.id}';`)).toBe('safe');
 
-    const approved = await api<{ status: string }>(`/agent-org-proposals/${proposalId}/approve`, {
+    // The server owns no arbitrary-package installer. A hostile client report
+    // cannot change the durable report; the boundary is reached then records
+    // failed rather than claiming the host installed npm.
+    const attempted = await api<{ status: string }>(`/agent-org-proposals/${safe.id}/approve`, {
       method: 'POST', body: JSON.stringify({ verdict: 'unsafe', report: { verdict: 'unsafe' } }),
     });
-    expect(approved.status).toBe('applied');
-    expect(sqlite(`SELECT status FROM agent_org_proposals WHERE id = '${proposalId}';`)).toBe('applied');
-  }, 60_000);
+    expect(attempted.status).toBe('failed');
+    expect(sqlite(`SELECT measure_reason FROM agent_org_proposals WHERE id = '${safe.id}';`)).toBe('tool_install_apply_unavailable');
+
+    // Missing inside the same image: deterministic broken candidate without
+    // allowing npm's network retry loop to outlive the test timeout.
+    const unavailableChange = { ...safeChange, packageSource: 'file:/not-present' };
+    const unavailable = await api<{ id: string; status: string }>('/agent-org-proposals/tool-install', {
+      method: 'POST', body: JSON.stringify({ title: 'D1.4 live unavailable tool install', change: unavailableChange }),
+    });
+    proposalIds.push(unavailable.id);
+    expect(unavailable.status).toBe('pending');
+    expect(sqlite(`SELECT verdict FROM tool_safety_reports WHERE proposal_id = '${unavailable.id}';`)).toBe('unknown');
+    expect(sqlite(`SELECT reason FROM tool_safety_reports WHERE proposal_id = '${unavailable.id}';`)).toMatch(/^sandbox_/);
+
+    const denied = await api<{ status: string }>(`/agent-org-proposals/${unavailable.id}/reject`, { method: 'POST' });
+    expect(denied.status).toBe('rejected');
+    expect(sqlite(`SELECT status FROM agent_org_proposals WHERE id = '${unavailable.id}';`)).toBe('rejected');
+  }, 90_000);
 });

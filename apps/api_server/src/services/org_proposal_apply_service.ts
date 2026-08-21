@@ -414,10 +414,11 @@ export async function applyProposal(
     throw new Error(validation.reason ?? `Proposal ${proposal.id} failed re-validation`);
   }
   if (proposal.kind === 'tool-install') {
-    const safety = await evaluateToolInstallSafetyAsync(proposal, safetyOptions);
-    if (!safety.allowed) {
-      throw new Error(`tool-install safety policy refused approval: ${safety.reason}`);
-    }
+    // Tool installation has a separate durable lifecycle: it CAS-claims the
+    // human approval before reaching the apply boundary, which is necessary
+    // to prevent concurrent approval requests from invoking an installer
+    // twice. This generic seam must never silently fall through to no-op.
+    throw new Error('tool-install proposals must use the dedicated vetted lifecycle');
   }
   const applier = appliers[proposal.kind] ?? defaultApplier;
   return applier(proposal);

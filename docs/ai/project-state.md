@@ -75,6 +75,23 @@ PR #1454 with final evidence, then return to C6.
 
 ## Recent coding-agent runs
 
+### 2026-08-21 — D1.4 tool-install lifecycle repair (#1429)
+
+- Files modified: dedicated tool-install creation/vetting/decision/apply
+  boundaries; authenticated proposal route/controller; lifecycle/live tests;
+  D1.4 contract and run record.
+- Checks run: RED confirmed; focused D1.1-D1.4 plus adjacent suite 344 passed
+  / 1 env-gated live skip; real-Docker vetter 59/59; isolated live HTTP 1/1;
+  Node 22 typecheck/build; SQLite replay/parity; diff check.
+- Decisions made: no managed arbitrary npm/pip installer exists, so production
+  returns fixed `tool_install_apply_unavailable` and never claims installation;
+  injected tests prove the ordering/CAS boundary.
+- Deviations from spec: actual production tool installation is blocked pending
+  a separately approved managed installer; recorded honestly in
+  `docs/ai/contracts/issue-1429.json`.
+- Concerns: GitNexus is UNKNOWN for this unindexed worktree; no reindex was
+  run because it can rewrite repository instruction files.
+
 ### 2026-08-21 — D1 observer capability proof
 
 - Files modified: `tool_sandbox_vetter.ts` (same-mount capability probe, aged

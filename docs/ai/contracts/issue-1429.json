@@ -4,38 +4,43 @@
   "phase": "D1.4",
   "parent_contract": "D1.3",
   "date": "2026-08-21",
-  "status": "pass",
+  "status": "blocked_on_managed_installer",
   "criteria": [
     {
-      "id": "safe-auto-allow",
-      "evidence": "tool_install_safety_policy.test.ts: durable safe report is persisted, re-read, and allows apply"
+      "id": "automatic-vetting-on-creation",
+      "status": "pass",
+      "evidence": "tool_install_proposal_lifecycle.test.ts creates through createAndVetToolInstallProposalAsync, observes sandbox-running before its injected vetter executes, and only then observes sandbox-vetted. POST /agent-org-proposals/tool-install is the authenticated production entry point."
     },
     {
-      "id": "conditional-human-only",
-      "evidence": "policy and authenticated route tests require exact server-side confirmation; request report/verdict fields are ignored"
+      "id": "durable-vetting-lifecycle",
+      "status": "pass",
+      "evidence": "safe/conditional reports are persisted then re-read before sandbox-vetted; unsafe persists then auto-rejects; a thrown vetter persists unknown/sandbox_error and leaves pending. Client report/verdict fields remain non-authoritative."
     },
     {
-      "id": "fail-closed",
-      "evidence": "unsafe, unknown, unavailable/error, malformed, missing/mismatched report paths refuse; report binding is a SHA-256 fingerprint of proposal id + tool/package/method + closed scenarios"
+      "id": "human-decision-and-concurrency",
+      "status": "pass",
+      "evidence": "denial rejects without installer invocation; approval checks the durable central policy, CAS-claims sandbox-vetted -> approved before the apply boundary, and concurrent approvals invoke an injected installer exactly once."
     },
     {
-      "id": "no-apply-bypass",
-      "evidence": "central org_proposal_apply_service gate protects reusable apply; unattended optimizer path explicitly refuses tool-install; route CAS double-approval test retains one winner"
+      "id": "real-api-and-docker",
+      "status": "pass",
+      "evidence": "RHYTHM_LIVE_E2E=1 D1.4 test passed 1/1 against tools/dev/sandbox.sh: real Docker safe vet -> sandbox-vetted -> approval -> fixed apply-unavailable failure; real broken Docker candidate -> unknown report -> pending -> denial. No reports/proposals were inserted by the live core path."
     },
     {
-      "id": "live-behavior",
-      "evidence": "isolated sandbox API on 4298 accepted a matching persisted safe report through POST /agent-org-proposals/:id/approve; hostile request verdict fields did not control the result"
+      "id": "actual-production-install",
+      "status": "blocked",
+      "evidence": "No existing managed installer safely accepts arbitrary npm/pip proposal packages. The production boundary returns fixed tool_install_apply_unavailable and transitions approved -> failed; it does not execute shell/package installation or claim a tool was installed. Tests inject a no-op installer only to prove ordering and CAS."
     }
   ],
   "verification": {
-    "focused_matrix": "Initial 12-file matrix: 298 passed, 1 env-gated live skipped; final affected policy/route/apply subset: 149 passed",
-    "docker": "2 focused real-Docker vetter classifications passed (safe; broken candidate -> unknown) with vetter exact-name teardown",
-    "live": "1/1 passed against tools/dev/sandbox.sh copied SQLite sandbox; teardown removed directory and released 4297/4298/4299",
-    "static": "Node 22 tsc --noEmit, npm run build, git diff --check passed",
-    "gitnexus": "UNKNOWN: this worktree is not indexed; CLI rejected both unqualified and absolute-path repo selection"
+    "red": "Before implementation, npx vitest run src/services/__tests__/tool_install_proposal_lifecycle.test.ts failed because ../tool_install_proposal_lifecycle did not exist.",
+    "focused_matrix": "344 passed, 1 expected env-gated live skip across D1.1-D1.4, proposal repository/state-machine, route/controller, apply, and schema-parity tests; real-Docker vetter subset 59/59.",
+    "live": "1/1 passed in 11.46s on isolated API 4098, engine 4097, gateway 4099; sandbox removed and all three ports released; no rhythm-d1-vet containers remained.",
+    "static": "Node 22 tsc --noEmit, npm run build, SQLite migration replay, and git diff --check passed.",
+    "gitnexus": "UNKNOWN: this worktree is not indexed. No analyze/index was run because it can rewrite AGENTS.md/CLAUDE.md."
   },
   "risks": [
-    "The in-process dedupe map prevents duplicate concurrent vets within one API process; cross-process duplication remains fail-closed at report/policy and proposal CAS boundaries rather than adding a broad lock framework.",
-    "Existing pre-D1.4 unbound reports are deliberately non-authoritative and block until a current fingerprinted vet is produced."
+    "The installation outcome remains intentionally blocked until a separately approved managed installer exists. This repair does not install arbitrary host packages.",
+    "The in-process vetter dedupe remains process-local; the creation service's proposal lifecycle and approval CAS prevent duplicate apply invocation within the current architecture."
   ]
 }

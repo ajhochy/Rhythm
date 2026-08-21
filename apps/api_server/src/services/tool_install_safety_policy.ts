@@ -45,7 +45,7 @@ export interface ToolInstallSafetyOptions {
   deps?: ToolInstallSafetyDeps;
 }
 
-interface ValidatedToolInstallInputs {
+export interface ValidatedToolInstallInputs {
   toolName: string;
   packageSource: string;
   installMethod: string;
@@ -54,7 +54,7 @@ interface ValidatedToolInstallInputs {
 
 const vettingInFlight = new Map<string, Promise<void>>();
 
-function readValidatedInputs(proposal: AgentOrgProposal): ValidatedToolInstallInputs | null {
+export function readValidatedToolInstallInputs(proposal: AgentOrgProposal): ValidatedToolInstallInputs | null {
   const validation = validateToolInstallChange(proposal);
   if (!validation.valid || !proposal.changeJson) return null;
   try {
@@ -81,7 +81,7 @@ function readValidatedInputs(proposal: AgentOrgProposal): ValidatedToolInstallIn
 
 /** Deterministic binding: proposal id plus exact closed candidate inputs. */
 export function buildToolInstallProposalFingerprint(proposal: AgentOrgProposal): string | null {
-  const inputs = readValidatedInputs(proposal);
+  const inputs = readValidatedToolInstallInputs(proposal);
   if (!inputs) return null;
   return createHash('sha256')
     .update(JSON.stringify({
@@ -172,7 +172,7 @@ export async function evaluateToolInstallSafetyAsync(
   proposal: AgentOrgProposal,
   options: ToolInstallSafetyOptions = {},
 ): Promise<ToolInstallSafetyResult> {
-  const inputs = readValidatedInputs(proposal);
+  const inputs = readValidatedToolInstallInputs(proposal);
   const fingerprint = buildToolInstallProposalFingerprint(proposal);
   if (!inputs || !fingerprint) return { allowed: false, reason: 'invalid_proposal', verdict: 'unknown' };
 

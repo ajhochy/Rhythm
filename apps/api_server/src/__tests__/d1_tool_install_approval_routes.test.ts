@@ -16,13 +16,13 @@ describe('D1.4 tool-install approval route boundary', () => {
     const [
       { runMigrations }, { setDb }, { createApp }, { AgentConfigsRepository },
       { AgentOrgProposalsRepository }, { ToolSafetyReportsRepository },
-      { UsersRepository }, { SessionsRepository }, safetyPolicy,
+      { UsersRepository }, { SessionsRepository }, lifecycle,
       evidence, experiment, guardrails,
     ] = await Promise.all([
       import('../database/migrations'), import('../database/db'), import('../app'),
       import('../repositories/agent_configs_repository'), import('../repositories/agent_org_proposals_repository'),
       import('../repositories/tool_safety_reports_repository'), import('../repositories/users_repository'),
-      import('../repositories/sessions_repository'), import('../services/tool_install_safety_policy'),
+      import('../repositories/sessions_repository'), import('../services/tool_install_proposal_lifecycle'),
       import('../models/proposal_evidence_bundle'), import('../services/org_proposal_experiment_service'),
       import('../models/guardrail_registry'),
     ]);
@@ -42,16 +42,15 @@ describe('D1.4 tool-install approval route boundary', () => {
       guardrails: [...guardrails.GUARDRAIL_NAMES], experimentAdapter: 'usage-count', rollbackRule: 'revoke',
       generatorVersion: 'd1-route-test', confidenceCalibrationVersion: 'uncalibrated',
     };
-    const proposal = await proposals.createAsync({
-      kind: 'tool-install', risk: 'high', status: 'proposed', title: 'Install example tool',
-      changeJson: JSON.stringify({ toolName: 'example-tool', packageSource: 'npm:example-tool', installMethod: 'npm install', agentConfigId: config.id, testPrompts: ['version-check', 'help-check'], evidenceBundle: bundle }),
+    const proposal = await lifecycle.createAndVetToolInstallProposalAsync({
+      title: 'Install example tool',
+      change: { toolName: 'example-tool', packageSource: 'npm:example-tool', installMethod: 'npm install', agentConfigId: config.id, testPrompts: ['version-check', 'help-check'], evidenceBundle: bundle },
+    }, {
+      proposals,
+      reports: new ToolSafetyReportsRepository(db),
+      vet: async () => ({ verdict: 'conditional', reason: null, sandboxDurationMs: 1, testPromptsRunCount: 2, forbiddenPathViolationsJson: '[]', networkCallsObservedJson: '[]', fileSystemWritesObservedJson: '[]', credentialAccessAttemptsCount: 0, evidenceJson: '{}' }),
     });
     proposalId = proposal.id;
-    await new ToolSafetyReportsRepository(db).createAsync({
-      proposalId, proposalFingerprint: safetyPolicy.buildToolInstallProposalFingerprint(proposal),
-      toolName: 'example-tool', packageSource: 'npm:example-tool', installMethod: 'npm install',
-      sandboxDurationMs: 1, testPromptsRunCount: 2, verdict: 'conditional', evidenceJson: '{}',
-    });
     const user = new UsersRepository().create({ name: 'D1 reviewer', email: 'd1-reviewer@example.test', role: 'admin' });
     token = new SessionsRepository().create(user.id).token;
     findProposal = (id) => proposals.findByIdAsync(id);
@@ -77,7 +76,7 @@ describe('D1.4 tool-install approval route boundary', () => {
       body: JSON.stringify({ toolSafetyConfirmation: 'approve-conditional-tool-install-nope', verdict: 'safe', report: { verdict: 'safe' } }),
     });
     expect(forged.status).toBeGreaterThanOrEqual(400);
-    expect((await findProposal(proposalId))?.status).toBe('proposed');
+    expect((await findProposal(proposalId))?.status).toBe('sandbox-vetted');
 
     const confirmed = await fetch(`${baseUrl}/agent-org-proposals/${proposalId}/approve`, {
       method: 'POST',
@@ -87,7 +86,9 @@ describe('D1.4 tool-install approval route boundary', () => {
       body: JSON.stringify({ toolSafetyConfirmation: 'approve-conditional-tool-install', verdict: 'unsafe', report: { verdict: 'unsafe' } }),
     });
     expect(confirmed.status).toBe(200);
-    expect((await findProposal(proposalId))?.status).toBe('applied');
+    // Production has no managed arbitrary-package installer. Approval reaches
+    // the explicit boundary then fails closed instead of claiming an install.
+    expect((await findProposal(proposalId))?.status).toBe('failed');
   });
 
   it('preserves compare-and-set lifecycle behavior under double approval', async () => {
@@ -98,6 +99,6 @@ describe('D1.4 tool-install approval route boundary', () => {
     });
     const [first, second] = await Promise.all([approve(), approve()]);
     expect([first.status, second.status].sort()).toEqual([200, 409]);
-    expect((await findProposal(proposalId))?.status).toBe('applied');
+    expect((await findProposal(proposalId))?.status).toBe('failed');
   });
 });
