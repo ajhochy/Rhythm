@@ -28,10 +28,10 @@
  * Real Docker mechanics (verified by hand against this environment's Docker
  * 29.2.1 + the already-pulled `node:22-alpine` image before being encoded
  * here — see docs/ai/runs/2026-08-20-d1-2-tool-sandbox-vetter.md):
- *   - Forbidden-path violations are detected by pre-seeding known sentinel
- *     files with known content/hash and checking whether their content
- *     changed (or the file vanished) after the run — works under a root
- *     container user, unlike a permission-bit approach.
+ *   - Forbidden-path write attempts cannot land because the sentinel
+ *     directory is a nested `:ro` mount. A blocked attempt is reported
+ *     best-effort from its OS error text naming an exact sentinel path; a
+ *     missing sentinel is still a fail-safe violation.
  *   - Credential ACCESS attempts (reads) are detected independently of the
  *     candidate's own stdout/stderr — a quiet `cat sentinel >/dev/null` or an
  *     `fs.readFileSync` is otherwise invisible to any output-log parser (see
@@ -41,13 +41,13 @@
  *     a directory bind-mounted into the container as its OWN separate
  *     `:ro` (read-only) mount nested under `/vet/sentinel` — distinct from
  *     the `:rw` `/vet` workspace mount the candidate's install/scenario
- *     steps use. The host records each sentinel file's access time (`atime`)
- *     immediately after writing it, and — entirely after the container has
- *     exited, from the HOST's own filesystem view, never from anything the
- *     container wrote — re-reads each sentinel's `atime`: any advance proves
- *     some process inside the container executed a real `open()`+`read()`
- *     against that exact file, regardless of whether it captured, printed,
- *     or discarded the content. Verified by hand against this environment's
+ *     steps use. The host deliberately ages each sentinel baseline atime
+ *     before capture and — entirely after the container has exited, from the
+ *     HOST's own filesystem view, never from anything the container wrote —
+ *     re-reads each sentinel's `atime`: any advance proves some process
+ *     inside the container executed a real `open()`+`read()` against that
+ *     exact file, regardless of whether it captured, printed, or discarded
+ *     the content. Verified by hand against this environment's
  *     Docker Desktop (linuxkit VM, virtiofs-backed bind mounts): a plain
  *     `ls`/`stat` from inside the container does NOT touch atime (no false
  *     positive), while a `cat`/`fs.readFileSync` open does. The read-only
@@ -61,8 +61,13 @@
  *     containing directory alone was observed to spuriously unblock a
  *     host-side FIFO writer with no candidate read at all — an unacceptable
  *     false-positive source. Regular files + atime do not share this
- *     problem, as re-verified above.) Because a write is blocked outright by
- *     the `:ro` mount, a forbidden-path WRITE attempt (as opposed to a read)
+ *     problem, as re-verified above.) A separate code-owned capability probe
+ *     shares that exact host directory and nested `:ro` mount. The trusted
+ *     runner reads it exactly once before any candidate-controlled
+ *     install/scenario code, and the host must see its atime advance after
+ *     container exit; otherwise the observer is unavailable. It is never a
+ *     credential sentinel and never contributes to credential-access count.
+ *     Because a write is blocked outright by the `:ro` mount, a forbidden-path WRITE attempt (as opposed to a read)
  *     is instead recognised from the install/invoke logs' own
  *     "Read-only file system"/"Permission denied" error text naming the
  *     sentinel path — the attempt itself is the violation, whether or not it
@@ -113,6 +118,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -237,10 +243,18 @@ export class SandboxEvidenceError extends Error {
 
 /**
  * Thrown when the trusted, host-side credential-access observer cannot be
- * set up before the run, or cannot be read back after it — a missing
- * sentinel file, a host filesystem error, or any other failure that means
- * coverage of the install+scenario window cannot be proven. NEVER treated
- * as "no access observed" — always fails closed to `unknown`, never `safe`.
+ * set up before the run, cannot be read back after it, or cannot PROVE its
+ * own atime-advancement mechanism actually works on this host/mount for
+ * this run — a missing sentinel file, a host filesystem error, an
+ * unadvanced capability probe (see {@link setupObserverCapabilityProbe}),
+ * or any other failure that means coverage of the install+scenario window
+ * cannot be proven. NEVER treated as "no access observed" — always fails
+ * closed to `unknown`, never `safe`. This is the load-bearing invariant of
+ * the whole observer: a host/mount where atime does not advance at all
+ * (`noatime`, an unsupported bind-mount propagation mode, or a timestamp
+ * resolution too coarse to register an advance) would otherwise let a real,
+ * quiet credential read look identical to "no access" — silence is only
+ * trustworthy once the capability probe has proven silence is observable.
  */
 export class SandboxObserverError extends Error {
   constructor() {
@@ -438,6 +452,88 @@ const FORBIDDEN_SENTINELS: ForbiddenSentinel[] = [
 ];
 
 /**
+ * A CODE-OWNED CAPABILITY PROBE — never one of the {@link FORBIDDEN_SENTINELS}
+ * and never counted toward `credentialAccessAttemptsCount`. It lives beside
+ * the sentinels, in the same host directory and the same nested `:ro` mount
+ * boundary at `/vet/sentinel`, so it is proven to share their exact
+ * tamper-resistance and coverage window — but its own atime is read
+ * (exactly once, by the TRUSTED run script itself, before any candidate
+ * install/scenario code — see `buildRunnerScript`) purely to prove that an
+ * atime advance is observable at all on this host/mount for this run. A
+ * later candidate-side read of this same file changes nothing: it is not a
+ * sentinel, so it can never contribute to a credential-access count either
+ * way.
+ */
+const OBSERVER_CAPABILITY_PROBE_FILENAME = '.observer_capability_probe';
+const OBSERVER_CAPABILITY_PROBE_CONTAINER_PATH = `/vet/sentinel/${OBSERVER_CAPABILITY_PROBE_FILENAME}`;
+
+/**
+ * Deliberately push a just-written file's `atime` behind its `mtime` by a
+ * safe margin before the baseline is captured, making a genuine later read
+ * eligible to register as an advance without relying on two operations
+ * merely landing in different wall-clock milliseconds. The capability probe
+ * below remains the authority: a host/mount that nevertheless cannot expose
+ * the advance fails closed. `relatime` (the
+ * common Linux default) only bumps `atime` when the existing `atime` is
+ * older than `mtime`/`ctime`, or already more than 24 hours stale; setting
+ * `atime` to comfortably more than a day before `mtime` satisfies every one
+ * of those triggers at once. `mtime` itself is preserved (re-supplied to
+ * `utimesSync`, never left to drift) since it plays no role in this
+ * observer's own comparison.
+ */
+const ATIME_AGING_MARGIN_MS = 25 * 60 * 60 * 1000;
+
+function ageBaselineAtime(hostPath: string): { atimeMs: number } {
+  const before = statSync(hostPath);
+  const agedAtime = new Date(before.mtimeMs - ATIME_AGING_MARGIN_MS);
+  utimesSync(hostPath, agedAtime, before.mtime);
+  return { atimeMs: statSync(hostPath).atimeMs };
+}
+
+export interface ObserverCapabilityProbeBaseline {
+  hostPath: string;
+  atimeMsBefore: number;
+}
+
+/**
+ * Creates the code-owned probe beside the credential sentinels and captures
+ * a deliberately-aged baseline. It is separate from the sentinel registry:
+ * reading it proves this observer can see reads on this exact `:ro` mount,
+ * but never represents credential access itself.
+ */
+export function setupObserverCapabilityProbe(sentinelDir: string): ObserverCapabilityProbeBaseline {
+  try {
+    const hostPath = join(sentinelDir, OBSERVER_CAPABILITY_PROBE_FILENAME);
+    writeFileSync(hostPath, 'RHYTHM_OBSERVER_CAPABILITY_PROBE\n', { mode: 0o644 });
+    return { hostPath, atimeMsBefore: ageBaselineAtime(hostPath).atimeMs };
+  } catch {
+    throw new SandboxObserverError();
+  }
+}
+
+/**
+ * Requires positive, host-side proof that the trusted pre-candidate probe
+ * read advanced atime over its deliberately-aged baseline. A probe that is
+ * missing, malformed, unchanged, or unreadable means this run cannot prove
+ * that silence from the credential sentinels was observable, so it is never
+ * interpreted as zero credential access.
+ */
+function verifyObserverCapabilityProbe(probe: ObserverCapabilityProbeBaseline): void {
+  try {
+    if (!Number.isFinite(probe.atimeMsBefore) || probe.atimeMsBefore <= 0) {
+      throw new SandboxObserverError();
+    }
+    const atimeMsAfter = statSync(probe.hostPath).atimeMs;
+    if (!Number.isFinite(atimeMsAfter) || atimeMsAfter <= probe.atimeMsBefore) {
+      throw new SandboxObserverError();
+    }
+  } catch (err) {
+    if (err instanceof SandboxObserverError) throw err;
+    throw new SandboxObserverError();
+  }
+}
+
+/**
  * Content is a fixed, non-secret-shaped synthetic placeholder — never a
  * realistic credential shape, and never read/mounted from any real host
  * credential (see module doc comment, point 5). Detection does not depend
@@ -470,6 +566,12 @@ function buildRunnerScript(candidate: ToolVettingCandidate, scenarioIds: string[
     // at the candidate's own privilege (see module doc comment).
     'mkdir -p /vet/out /vet/bin',
     'export PATH="/vet/bin:$PATH"',
+    '',
+    // This is intentionally the FIRST data read in the container, before
+    // any candidate-controlled install or scenario code. It proves atime
+    // observation works on this exact mount boundary for the full candidate
+    // execution window; its path is never a credential sentinel.
+    `cat ${OBSERVER_CAPABILITY_PROBE_CONTAINER_PATH} >/dev/null`,
     '',
     'sh /vet/install.sh > /vet/out/install.log 2>&1',
     'echo "INSTALL_EXIT=$?" >> /vet/out/install.log',
@@ -623,16 +725,19 @@ export interface CredentialSentinelBaseline {
 /**
  * Writes each sentinel's content directly from the HOST (never from a
  * script running inside the container at the candidate's own privilege) and
- * records its starting `atime`. Throws {@link SandboxObserverError} on any
- * failure — the observer failing to initialize is never treated as "no
- * sentinels", always fails closed.
+ * records its deliberately-aged starting `atime`. Throws
+ * {@link SandboxObserverError} on any failure — the observer failing to
+ * initialize is never treated as "no sentinels", always fails closed.
  */
 export function setupCredentialSentinels(sentinelDir: string): CredentialSentinelBaseline[] {
   try {
     return FORBIDDEN_SENTINELS.map((sentinel) => {
       const hostPath = join(sentinelDir, sentinel.path.slice(sentinel.path.lastIndexOf('/') + 1));
       writeFileSync(hostPath, sentinelPlaceholderContent(sentinel.label), { mode: 0o644 });
-      const atimeMsBefore = statSync(hostPath).atimeMs;
+      // An atime older than mtime deterministically satisfies relatime's
+      // update predicate. Capture after aging, never merely after a write in
+      // the same wall-clock tick as the candidate run.
+      const atimeMsBefore = ageBaselineAtime(hostPath).atimeMs;
       return { label: sentinel.label, hostPath, atimeMsBefore };
     });
   } catch {
@@ -651,10 +756,14 @@ export function setupCredentialSentinels(sentinelDir: string): CredentialSentine
  * {@link SandboxObserverError} if any baseline's file can no longer be
  * read back — missing/dead observer evidence is never "zero access".
  */
-export function computeCredentialAccess(baselines: CredentialSentinelBaseline[]): {
+export function computeCredentialAccess(
+  baselines: CredentialSentinelBaseline[],
+  capabilityProbe: ObserverCapabilityProbeBaseline,
+): {
   count: number;
   accessedLabels: string[];
 } {
+  verifyObserverCapabilityProbe(capabilityProbe);
   const accessedLabels: string[] = [];
   for (const baseline of baselines) {
     let atimeMsAfter: number;
@@ -785,13 +894,17 @@ export class DockerSandboxRuntime implements SandboxRuntime {
       // Observer setup happens BEFORE the container ever starts, and its
       // failure is never treated as "no sentinels" — see SandboxObserverError.
       const sentinelBaselines = setupCredentialSentinels(sentinelDir);
+      const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
       await this.runContainer(containerName, vetDir, sentinelDir);
+      // Proof is read from the HOST after container exit. It must advance
+      // because the code-owned runner read the probe before candidate code;
+      // otherwise the credential observer is unavailable, not silently zero.
+      const credentialAccess = computeCredentialAccess(sentinelBaselines, capabilityProbe);
       verifyEvidenceComplete(outDir);
       // Read back entirely from the HOST's own filesystem view, after the
       // container has fully exited — never from anything the container
       // wrote. Throws SandboxObserverError (never "zero access") if any
       // sentinel's evidence can no longer be read back.
-      const credentialAccess = computeCredentialAccess(sentinelBaselines);
       return parseObservation(outDir, scenarioIds, Date.now() - start, credentialAccess);
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });

@@ -72,3 +72,24 @@ diagnosis evidence.
 
 Stage the full D2 repair, run staged change detection, commit/push, update draft
 PR #1454 with final evidence, then return to C6.
+
+## Recent coding-agent runs
+
+### 2026-08-21 — D1 observer capability proof
+
+- Files modified: `tool_sandbox_vetter.ts` (same-mount capability probe, aged
+  atime baselines, fail-closed proof); vetter tests (RED/GREEN observer cases);
+  #1427 contract and D1 run note.
+- Checks run: GPT-5.6 Terra's restricted sandbox passed the non-Docker matrix;
+  the parent then reran the explicit seven-file D1 matrix with real Docker:
+  7/7 files and 218/218 tests passed. Node 22 typecheck/build, diff check, and
+  added-line secret scan passed; exact owned-container count returned to zero.
+- Decisions made: a code-owned probe is never a credential sentinel; named
+  sentinel silence is trusted only after post-run host proof of probe advance.
+- Parent challenge evidence: a no-read candidate remained safe; broken
+  install/invocations returned unknown; quiet shell and programmatic sentinel
+  reads returned unsafe with access count 1; injected access evidence returned
+  unsafe. No server was started.
+- Concerns: GitNexus has no index for this worktree (impact/detect are
+  UNKNOWN). The observer intentionally covers only the three named synthetic
+  sentinels; it is not a generic syscall auditor.

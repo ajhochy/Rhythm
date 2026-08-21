@@ -76,6 +76,8 @@ describe('D1.2 DockerSandboxRuntime — docker run hardening flags (mocked child
     expect(flagValue('--user')).toBe('node');
     expect(args).toContain('--name');
     expect(flagValue('--name')).toMatch(/^rhythm-d1-vet-/);
+    expect(args).toContainEqual(expect.stringMatching(/:\/vet:rw$/));
+    expect(args).toContainEqual(expect.stringMatching(/:\/vet\/sentinel:ro$/));
   });
 
   it('kills and force-removes only the exact container name it created, never a broader sweep', async () => {

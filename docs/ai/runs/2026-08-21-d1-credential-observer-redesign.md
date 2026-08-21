@@ -123,3 +123,80 @@ impossible; only presence is checked, as a fail-safe.
 
 - #1429/#1430 were not implemented, `api_server` was not started, and no production data/config was touched.
 - No real host credentials were ever mounted or read — every sentinel is an explicit, fixed, non-secret-shaped synthetic placeholder (`RHYTHM_SYNTHETIC_SENTINEL:<label>`) written by the host into a disposable per-run scratch directory, torn down unconditionally in the same `finally` block as before.
+
+## Capability-proof continuation
+
+The original atime observer proved a named sentinel had been read only when
+its atime advanced, but it did not prove this environment could expose an
+atime advance at all. This continuation adds `.observer_capability_probe` in
+the same host sentinel directory and nested `/vet/sentinel:ro` mount. The
+code-owned runner reads the probe exactly once before any candidate install or
+scenario code; after the container exits, the host requires a strictly
+advanced probe atime before interpreting named sentinel silence as zero
+access. The probe is deliberately excluded from the sentinel registry and
+never increments `credentialAccessAttemptsCount`.
+
+All probe and sentinel baselines are intentionally aged more than 24 hours
+behind their preserved mtimes before capture. This makes a real later read
+eligible for `relatime` without depending on wall-clock millisecond ordering.
+If the host/mount nevertheless cannot show the trusted probe advance, or the
+probe is missing, malformed, or unreadable, `SandboxObserverError` makes the
+verdict `unknown` with fixed reason `sandbox_observer_unavailable`.
+
+The new no-Docker unit cases establish the fail-closed boundary: unchanged
+probe → observer unavailable; advanced probe + no sentinel → count 0;
+advanced probe + advanced sentinel → count >0. The real-Docker safe,
+quiet-shell, quiet-programmatic, and tamper cases remain in the same suite,
+but this continuation's sandbox could not access Docker (`permission denied`
+on the Docker socket), so those cases were skipped rather than represented as
+fresh live proof. This observer remains an exact named-sentinel mechanism,
+not a generic syscall auditor.
+
+### Continuation checks
+
+- RED: `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx vitest run
+  src/services/__tests__/tool_sandbox_vetter.test.ts -t "unchanged observer
+  capability probe"` — **1 failed** before implementation:
+  `setupObserverCapabilityProbe is not a function`.
+- GREEN focused: `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npx vitest run
+  src/services/__tests__/tool_sandbox_vetter.test.ts
+  src/services/__tests__/tool_sandbox_vetter_hardening.test.ts` — **2 files,
+  45 passed / 14 skipped / 59 total**. The skipped cases are all Docker-gated;
+  host observer unit coverage is included in the 45 passed.
+- GREEN explicit D1 matrix: the seven test files listed above in **Checks run**
+  — **7 files, 204 passed / 14 skipped / 218 total**.
+- Parent probes: `npx vitest run ...tool_sandbox_vetter.test.ts -t
+  "broken-tool|credential-probing|QUIET|tamper"` — **9 passed / 48 skipped /
+  57 total**; the retained live Docker cases were skipped for the same socket
+  denial, never counted as current live evidence.
+- Node 22: `npx tsc --noEmit` and `npm run build` — pass. `git diff --check`,
+  `JSON.parse(docs/ai/contracts/issue-1427.json)`, and the added-line
+  credential-pattern scan — pass/no findings.
+- `ai-workflow checks --level issue` and `--level pr` could not complete the
+  repository-wide Flutter steps: both report `Operation not permitted` writing
+  Flutter's external `cache/engine.stamp`; API TypeScript was reported green.
+  This is an environment permission failure outside this D1-only change.
+- GitNexus impact/detect is **UNKNOWN**: this exact worktree is not indexed.
+  `gitnexus detect-changes --scope compare --base-ref main --repo
+  /Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/d1-tool-vetting`
+  reports `Repository ... not found`; no analysis/index write was attempted.
+- Terra could not write the linked-worktree Git index (`index.lock`) or access
+  Docker from its workspace sandbox, so it returned a verified dirty candidate
+  rather than claiming a commit or live gate.
+
+### Parent re-verification and freeze gate
+
+- Explicit seven-file D1 matrix, rerun outside Terra's restricted sandbox with
+  real Docker: **7/7 files, 218/218 tests passed**.
+- Node 22 `npx tsc --noEmit` and `npm run build`: pass. `git diff --check`:
+  clean. Added-line secret-shape scan: 0 findings.
+- Direct parent probes:
+  - no credential read: `safe`, access count 0;
+  - broken install/scenarios: `unknown` / `sandbox_candidate_failed`;
+  - quiet shell sentinel read: `unsafe`, access count 1;
+  - quiet programmatic sentinel read: `unsafe`, access count 1;
+  - injected credential-access evidence: `unsafe`, access count 1.
+- Exact owned `rhythm-d1-vet-*` container count after all probes: **0**. No
+  container sweep or unrelated process termination was used.
+- The parent froze this complete candidate additively after the above gate;
+  Terra's inability to write the linked index did not weaken verification.

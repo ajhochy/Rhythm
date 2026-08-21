@@ -18,7 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,6 +30,7 @@ import {
   computeCredentialAccess,
   detectForbiddenWriteAttempts,
   evaluateCandidateSucceeded,
+  setupObserverCapabilityProbe,
   setupCredentialSentinels,
   vetToolInSandboxAsync,
   verifyEvidenceComplete,
@@ -399,24 +400,66 @@ describe('D1 credential-observer redesign — host-side sentinel access observer
     return dir;
   }
 
-  it('setupCredentialSentinels writes every sentinel and records a starting atime', () => {
-    const baselines = setupCredentialSentinels(makeSentinelDir());
+  it('setupCredentialSentinels writes every sentinel with an intentionally aged atime baseline', () => {
+    const sentinelDir = makeSentinelDir();
+    const baselines = setupCredentialSentinels(sentinelDir);
     expect(baselines).toHaveLength(3);
     for (const baseline of baselines) {
       expect(baseline.atimeMsBefore).toBeGreaterThan(0);
       expect(existsSync(baseline.hostPath)).toBe(true);
+      expect(statSync(baseline.hostPath).mtimeMs - baseline.atimeMsBefore).toBeGreaterThan(24 * 60 * 60 * 1000);
     }
   });
 
-  it('computeCredentialAccess reports zero access when no baseline file was touched', () => {
+  it('an unchanged observer capability probe fails closed to SandboxObserverError, never zero access', () => {
+    const sentinelDir = makeSentinelDir();
+    const baselines = setupCredentialSentinels(sentinelDir);
+    const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
+    expect(statSync(capabilityProbe.hostPath).mtimeMs - capabilityProbe.atimeMsBefore).toBeGreaterThan(24 * 60 * 60 * 1000);
+    expect(() => computeCredentialAccess(baselines, capabilityProbe)).toThrow(SandboxObserverError);
+  });
+
+  it('an advanced capability probe plus untouched sentinels reports zero credential access', () => {
+    const sentinelDir = makeSentinelDir();
+    const baselines = setupCredentialSentinels(sentinelDir);
+    const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
+    const probeStat = statSync(capabilityProbe.hostPath);
+    utimesSync(capabilityProbe.hostPath, new Date(capabilityProbe.atimeMsBefore + 5000), probeStat.mtime);
+    const result = computeCredentialAccess(baselines, capabilityProbe);
+    expect(result.count).toBe(0);
+    expect(result.accessedLabels).toEqual([]);
+  });
+
+  it('an advanced capability probe plus an advanced sentinel reports credential access', () => {
+    const sentinelDir = makeSentinelDir();
+    const baselines = setupCredentialSentinels(sentinelDir);
+    const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
+    const probeStat = statSync(capabilityProbe.hostPath);
+    utimesSync(capabilityProbe.hostPath, new Date(capabilityProbe.atimeMsBefore + 5000), probeStat.mtime);
+    const target = baselines[0];
+    const sentinelStat = statSync(target.hostPath);
+    utimesSync(target.hostPath, new Date(target.atimeMsBefore + 5000), sentinelStat.mtime);
+    const result = computeCredentialAccess(baselines, capabilityProbe);
+    expect(result.count).toBe(1);
+    expect(result.accessedLabels).toEqual([target.label]);
+  });
+
+  it('computeCredentialAccess reports zero access when the capability probe advanced but no baseline file was touched', () => {
     const baselines = setupCredentialSentinels(makeSentinelDir());
-    const result = computeCredentialAccess(baselines);
+    const capabilityProbe = setupObserverCapabilityProbe(dir);
+    const probeStat = statSync(capabilityProbe.hostPath);
+    utimesSync(capabilityProbe.hostPath, new Date(capabilityProbe.atimeMsBefore + 5000), probeStat.mtime);
+    const result = computeCredentialAccess(baselines, capabilityProbe);
     expect(result.count).toBe(0);
     expect(result.accessedLabels).toEqual([]);
   });
 
   it('computeCredentialAccess detects an advanced atime as an access', () => {
-    const baselines = setupCredentialSentinels(makeSentinelDir());
+    const sentinelDir = makeSentinelDir();
+    const baselines = setupCredentialSentinels(sentinelDir);
+    const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
+    const probeStat = statSync(capabilityProbe.hostPath);
+    utimesSync(capabilityProbe.hostPath, new Date(capabilityProbe.atimeMsBefore + 5000), probeStat.mtime);
     const target = baselines[0];
     // Simulate a real read from another process: an actual open+read is the
     // only thing that legitimately advances atime — reproduced directly
@@ -427,16 +470,21 @@ describe('D1 credential-observer redesign — host-side sentinel access observer
     // resolution/coalescing (this unit test's own concern is the compare
     // logic, not OS atime granularity — that is proven separately by the
     // real-Docker reproducer tests above).
-    utimesSync(target.hostPath, new Date(target.atimeMsBefore + 5000), new Date());
-    const result = computeCredentialAccess(baselines);
+    const targetStat = statSync(target.hostPath);
+    utimesSync(target.hostPath, new Date(target.atimeMsBefore + 5000), targetStat.mtime);
+    const result = computeCredentialAccess(baselines, capabilityProbe);
     expect(result.count).toBe(1);
     expect(result.accessedLabels).toEqual([target.label]);
   });
 
   it('computeCredentialAccess fails closed (throws SandboxObserverError) when a sentinel file has vanished — missing evidence is never "zero access"', () => {
-    const baselines = setupCredentialSentinels(makeSentinelDir());
+    const sentinelDir = makeSentinelDir();
+    const baselines = setupCredentialSentinels(sentinelDir);
+    const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
+    const probeStat = statSync(capabilityProbe.hostPath);
+    utimesSync(capabilityProbe.hostPath, new Date(capabilityProbe.atimeMsBefore + 5000), probeStat.mtime);
     rmSync(baselines[0].hostPath);
-    expect(() => computeCredentialAccess(baselines)).toThrow(SandboxObserverError);
+    expect(() => computeCredentialAccess(baselines, capabilityProbe)).toThrow(SandboxObserverError);
   });
 
   it('setupCredentialSentinels fails closed (throws SandboxObserverError) when the target directory cannot be written to', () => {
