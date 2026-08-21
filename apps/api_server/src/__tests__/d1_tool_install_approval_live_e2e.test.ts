@@ -98,7 +98,15 @@ describeLive('D1.4 live tool-install approval gate', () => {
     const attempted = await api<{ status: string }>(`/agent-org-proposals/${safe.id}/approve`, {
       method: 'POST', body: JSON.stringify({ verdict: 'unsafe', report: { verdict: 'unsafe' } }),
     });
-    expect(attempted.status).toBe('applied');
+    expect(attempted.status).toBe('measuring');
+    expect(
+      sqlite(
+        `SELECT profile_id || '|' || change_type FROM agent_org_post_apply_events WHERE proposal_id = '${safe.id}';`,
+      ),
+    ).toBe(`${config.id}|tool`);
+    expect(
+      sqlite(`SELECT COUNT(*) FROM agent_org_post_apply_events WHERE proposal_id = '${safe.id}';`),
+    ).toBe('1');
     expect(existsSync(resolve(MANAGED_TOOL_ROOT, 'tools', `fixture-tool-${LOCAL_ARTIFACT_DIGEST.slice(0, 16)}`, '.rhythm-managed-install.json'))).toBe(true);
 
     // Missing inside the same image: deterministic broken candidate without
