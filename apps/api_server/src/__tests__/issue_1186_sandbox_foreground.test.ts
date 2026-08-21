@@ -187,6 +187,9 @@ function fakeSandboxEnv(): {
       RHYTHM_LIVE_DB_PATH: liveDb,
       RHYTHM_SANDBOX_OPENCODE_CONFIG: opencodeConfigDir,
       RHYTHM_SANDBOX_DIR: sandbox,
+      RHYTHM_SANDBOX_ENGINE_PORT: "4097",
+      RHYTHM_SANDBOX_API_PORT: "4098",
+      RHYTHM_SANDBOX_GATEWAY_PORT: "4099",
       RHYTHM_TEST_ENGINE_EXECUTABLE: join(
         repoRoot,
         "apps/opencode_fork/packages/opencode/dist/opencode-darwin-arm64/bin/opencode",
@@ -283,7 +286,7 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
     const { env, sandbox } = fakeSandboxEnv();
     const result = await run("bash", [sandboxScript, "up"], env);
 
-    expect(result.code).toBe(0);
+    expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("Sandbox ready:");
     expect(result.stdout).not.toContain("foreground hold active");
 

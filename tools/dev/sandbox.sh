@@ -118,8 +118,8 @@ validate_copied_data_inputs() {
   fi
 
   case "$sandbox_dir" in
-    /private/tmp/*|/var/folders/*|/private/var/folders/*) ;;
-    *) fail "RHYTHM_SANDBOX_DIR must resolve under /private/tmp or /var/folders: $sandbox_dir" ;;
+    /tmp/*|/private/tmp/*|/var/folders/*|/private/var/folders/*) ;;
+    *) fail "RHYTHM_SANDBOX_DIR must resolve under /tmp, /private/tmp, or /var/folders: $sandbox_dir" ;;
   esac
 
   case "$db_path" in
