@@ -1,0 +1,43 @@
+{
+  "name": "@ajhochy/rhythm-workspace-ui",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Host-neutral Rhythm collaborative workspace screens (non-agent) for embedding in any React 18.3/19.2 host shell.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles/rhythm.css"
+  },
+  "sideEffects": [
+    "./src/styles/rhythm.css"
+  ],
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "postinstall": "node ./scripts/link-react19.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:react19": "vitest run --config vitest.react19.config.ts",
+    "test:all": "npm run test && npm run test:react19"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1 || ^19.2.0",
+    "react-dom": "^18.3.1 || ^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "axe-core": "^4.10.2",
+    "jsdom": "^25.0.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react19": "npm:react@19.2.0",
+    "react-dom19": "npm:react-dom@19.2.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
