@@ -2304,4 +2304,20 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence DOUBLE PRECISION;
     ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence_version TEXT;
   `);
+
+  // D4.1 (#1439) — promotion_trust_state: matching singleton table for the
+  // trust counters D4 gates automatic promotion on (see migrations.ts for
+  // the full rationale). Purely additive — a brand-new table, no ALTER on an
+  // existing one. Column set MUST stay identical to the SQLite migration.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS promotion_trust_state (
+      id                     TEXT PRIMARY KEY,
+      total_verified         INTEGER NOT NULL DEFAULT 0,
+      total_regressions      INTEGER NOT NULL DEFAULT 0,
+      auto_promotion_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      enabled_at             TIMESTAMPTZ,
+      trust_threshold        INTEGER NOT NULL DEFAULT 10,
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }

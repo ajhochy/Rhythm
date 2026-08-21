@@ -4396,4 +4396,25 @@ If someone asks for creative work that needs a local capability:
   if (!proposalDiagnosisConfidenceCols.includes('diagnosis_confidence_version')) {
     db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN diagnosis_confidence_version TEXT`);
   }
+
+  // D4.1 (#1439) — promotion_trust_state: singleton row tracking the trust
+  // counters D4 gates automatic promotion on (total verified experiments,
+  // total regressions, whether the gate is enabled, and at what threshold).
+  // Fixed id ('promotion_trust_state') is the singleton key, same pattern as
+  // org_settings above — see promotion_trust_state_repository.ts. Starts
+  // disabled; nothing in D4.1/D4.2 ever flips auto_promotion_enabled true.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS promotion_trust_state (
+      id                     TEXT PRIMARY KEY,
+      total_verified         INTEGER NOT NULL DEFAULT 0,
+      total_regressions      INTEGER NOT NULL DEFAULT 0,
+      auto_promotion_enabled INTEGER NOT NULL DEFAULT 0,
+      enabled_at             TEXT,
+      trust_threshold        INTEGER NOT NULL DEFAULT 10,
+      updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )
+  `);
+  runOnce('issue_1439_promotion_trust_state', () => {
+    // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
+  });
 }
