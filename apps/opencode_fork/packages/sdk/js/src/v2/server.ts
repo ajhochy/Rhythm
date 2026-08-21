@@ -7,6 +7,7 @@ export type ServerOptions = {
   port?: number
   signal?: AbortSignal
   timeout?: number
+  cors?: string[]
   config?: Config
 }
 
@@ -31,6 +32,7 @@ export async function createOpencodeServer(options?: ServerOptions) {
 
   const args = [`serve`, `--hostname=${options.hostname}`, `--port=${options.port}`]
   if (options.config?.logLevel) args.push(`--log-level=${options.config.logLevel}`)
+  for (const origin of options.cors ?? []) args.push(`--cors=${origin}`)
 
   const proc = launch(`opencode`, args, {
     env: {
