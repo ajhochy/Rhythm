@@ -83,6 +83,10 @@ export interface TasksGateway {
   delete(id: string): Promise<void>;
   addCollaborator(id: string, memberId: string): Promise<RhythmTask>;
   removeCollaborator(id: string, memberId: string): Promise<RhythmTask>;
+  /** Narrow semantic operations for constrained hosts.  A host which exposes these must
+   * canonical-read-back before resolving successfully. */
+  complete?(id: string, generation?: string): Promise<RhythmTask>;
+  reschedule?(id: string, scheduledDate: string, generation?: string): Promise<RhythmTask>;
 }
 
 // ---------------------------------------------------------------------------------------

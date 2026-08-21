@@ -3,6 +3,7 @@
 // (agent-session quick actions, the fixture/live-mode split, hash-based deep linking, and the
 // HTTP endpoint receipts ledger — all host/transport-specific, not screen behavior).
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { RhythmTaskOperationConfirmation } from '../host/types';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { Icon } from '../components/Icon';
@@ -105,6 +106,8 @@ export function TasksScreen() {
   const { tasks: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
   const canWrite = host.currentUser.capabilities?.includes('tasks.write') ?? false;
+  const canComplete = canWrite || (host.currentUser.capabilities?.includes('tasks.complete') ?? false);
+  const canReschedule = canWrite || (host.currentUser.capabilities?.includes('tasks.reschedule') ?? false);
   const [surfaceState, setSurfaceState] = useState<TasksSurfaceState>('loading');
   const [tasks, setTasks] = useState<RhythmTask[]>([]);
   const [members, setMembers] = useState<RhythmWorkspaceMember[]>([]);
@@ -121,7 +124,9 @@ export function TasksScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [mutationPending, setMutationPending] = useState(false);
+  const [operationTarget, setOperationTarget] = useState<{ task: RhythmTask; operation: 'complete' | 'reschedule'; scheduledDate?: string; generation: string } | null>(null);
   const createTitleRef = useRef<HTMLInputElement>(null);
+  const operationGeneration = useRef(0);
 
   const currentUserId = host.currentUser.initials;
 
@@ -187,6 +192,38 @@ export function TasksScreen() {
     try {
       const updated = await gateway.update(task.id, { status: nextStatus });
       setTasks((current) => current.map((item) => (item.id === task.id ? updated : item)));
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setMutationPending(false);
+    }
+  };
+
+  const requestTaskOperation = (task: RhythmTask, operation: 'complete' | 'reschedule') => {
+    if ((operation === 'complete' && !canComplete) || (operation === 'reschedule' && !canReschedule) || mutationPending) return;
+    // This immutable generation binds a human-visible dialog to one foreground action.
+    operationGeneration.current += 1;
+    setOperationTarget({ task, operation, scheduledDate: operation === 'reschedule' ? task.scheduledDate ?? new Date().toISOString().slice(0, 10) : undefined, generation: `${task.id}:${operation}:${operationGeneration.current}:${Date.now()}` });
+  };
+
+  const isIsoCalendarDate = (value: string | undefined) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value);
+
+  const confirmTaskOperation = async () => {
+    if (!operationTarget || mutationPending) return;
+    if (operationTarget.operation === 'reschedule' && !isIsoCalendarDate(operationTarget.scheduledDate)) {
+      handleError(new RhythmGatewayError('server_error', 'Choose a real calendar date.'));
+      return;
+    }
+    const confirmation: RhythmTaskOperationConfirmation = { taskId: operationTarget.task.id, generation: operationTarget.generation, operation: operationTarget.operation, scheduledDate: operationTarget.scheduledDate };
+    setMutationPending(true);
+    try {
+      if (host.confirmTaskOperation && !(await host.confirmTaskOperation(confirmation))) return;
+      const updated = operationTarget.operation === 'complete'
+        ? gateway.complete ? await gateway.complete(operationTarget.task.id, operationTarget.generation) : canWrite ? await gateway.update(operationTarget.task.id, { status: 'done' }) : null
+        : gateway.reschedule && operationTarget.scheduledDate ? await gateway.reschedule(operationTarget.task.id, operationTarget.scheduledDate, operationTarget.generation) : canWrite && operationTarget.scheduledDate ? await gateway.update(operationTarget.task.id, { scheduledDate: operationTarget.scheduledDate }) : null;
+      if (!updated) throw new RhythmGatewayError('forbidden', 'This host does not expose the requested task operation.');
+      setTasks((current) => current.map((task) => task.id === updated.id ? updated : task));
+      setOperationTarget(null);
     } catch (error) {
       handleError(error);
     } finally {
@@ -316,11 +353,12 @@ export function TasksScreen() {
             <input
               type="checkbox"
               checked={task.status === 'done'}
-              disabled={readonly}
-              aria-describedby={readonly ? readonlyReasonId : undefined}
-              onChange={(event) => void changeStatus(task, event.target.checked ? 'done' : 'open')}
+              disabled={!canComplete || isSourceReadonly(task) || mutationPending}
+              aria-describedby={!canComplete || isSourceReadonly(task) ? readonlyReasonId : undefined}
+              onChange={() => requestTaskOperation(task, 'complete')}
               data-testid={`task-complete-${task.id}`}
             />
+            {canReschedule && !isSourceReadonly(task) && <button className="text-button" type="button" onClick={() => requestTaskOperation(task, 'reschedule')} data-testid={`task-reschedule-${task.id}`}>Reschedule</button>}
           </label>
         </span>
         <span className="task-cell main-cell" role="gridcell">
@@ -534,6 +572,12 @@ export function TasksScreen() {
             <button className="secondary-button" type="button" onClick={() => setDeleteTarget(null)} data-testid="task-delete-cancel">Cancel</button>
             <button className="danger-button" type="button" disabled={!canWrite || mutationPending} onClick={() => void confirmDelete()} data-testid="task-delete-confirm">Delete task</button>
           </div>
+        </FocusDialog>
+
+        <FocusDialog open={Boolean(operationTarget)} onClose={() => setOperationTarget(null)} title={operationTarget?.operation === 'complete' ? `Complete “${operationTarget.task.title}”?` : `Reschedule “${operationTarget?.task.title ?? ''}”?`} description="This action is sent only after you confirm it." testId="task-operation-confirmation">
+          {operationTarget?.operation === 'reschedule' && <label>Scheduled date<input type="date" value={operationTarget.scheduledDate ?? ''} onChange={(event) => setOperationTarget((current) => current ? { ...current, scheduledDate: event.target.value } : current)} data-testid="task-operation-date" /></label>}
+          <p role="status">{operationTarget?.operation === 'complete' ? 'Mark this task complete.' : `Set the scheduled date to ${operationTarget?.scheduledDate ?? ''}.`}</p>
+          <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setOperationTarget(null)}>Cancel</button><button className="primary-button" type="button" disabled={mutationPending || (operationTarget?.operation === 'reschedule' && !isIsoCalendarDate(operationTarget.scheduledDate))} onClick={() => void confirmTaskOperation()} data-autofocus data-testid="task-operation-confirm">Confirm</button></div>
         </FocusDialog>
       </section>
     </ScreenRoot>

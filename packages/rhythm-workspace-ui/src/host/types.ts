@@ -55,7 +55,19 @@ export type RhythmWorkspaceCapability =
   | 'automations.write'
   | 'integrations.write'
   | 'dashboard.write'
-  | 'tasks.write';
+  | 'tasks.write'
+  /** Narrow task mutation grants for hosts such as Hermes.  They deliberately do not
+   * imply create/delete/edit/collaboration access. */
+  | 'tasks.complete'
+  | 'tasks.reschedule';
+
+export interface RhythmTaskOperationConfirmation {
+  taskId: string;
+  generation: string;
+  operation: 'complete' | 'reschedule';
+  /** ISO date for rescheduling; omitted for completion. */
+  scheduledDate?: string;
+}
 
 /** The ten non-agent screens this package exposes — used only for host-owned, in-package
  * cross-screen navigation (e.g. Dashboard's "Open planner" shortcut). Never includes an
@@ -78,4 +90,7 @@ export interface RhythmHostAdapter {
    * beyond a label + context id — this package must never call an agent-session API, build a
    * bearer/OAuth URL, or know what the host does with the request. */
   onRequestFollowUp?: (context: { screen: string; label: string; action?: string; relatedId?: string }) => void;
+  /** A foreground-only host port.  The screen calls this only after its focus-trapped
+   * confirmation dialog; the host rejects stale, mismatched, or reused payloads. */
+  confirmTaskOperation?: (confirmation: RhythmTaskOperationConfirmation) => Promise<boolean>;
 }

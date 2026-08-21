@@ -1,8 +1,9 @@
 import { act, createElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TasksScreen } from '../src/screens/TasksScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
+import type { RhythmTaskOperationConfirmation } from '../src/host/types';
 import { assertScreenContract } from './test-utils/screenContract';
 import { fixtureDomainGateway, fixtureTasksGateway, failingTasksGateway, emptyTasksGateway } from './test-utils/fixtures';
 import { mount, flush, actClick, actSetValue, actKeyDown } from './test-utils/mount';
@@ -217,6 +218,52 @@ describe('TasksScreen', () => {
     expect(persisted.find((task) => task.id === 't1')?.status).toBe('open');
     expect(writes).toBe(0);
     expect(mounted.byTestId('rhythm-tasks-screen')).toBeTruthy();
+    mounted.unmount();
+  });
+
+  it('requires a local confirmation before granular completion, binds its payload, and never broadens other writes', async () => {
+    const tasksGateway = fixtureTasksGateway();
+    const complete = async (id: string) => tasksGateway.update(id, { status: 'done' });
+    const reschedule = async (id: string, scheduledDate: string) => tasksGateway.update(id, { scheduledDate });
+    const confirmTaskOperation = vi.fn<(confirmation: RhythmTaskOperationConfirmation) => Promise<boolean>>(async () => true);
+    const mounted = mountTasks({ tasks: { ...tasksGateway, complete, reschedule } }, { currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['tasks.complete', 'tasks.reschedule'] }, confirmTaskOperation });
+    await flush();
+    expect((mounted.byTestId('tasks-header-add-task') as HTMLButtonElement).disabled).toBe(true);
+    expect(mounted.byTestId('task-reschedule-t1')).toBeTruthy();
+    await actClick(mounted.byTestId('task-complete-t1')!);
+    expect(confirmTaskOperation).not.toHaveBeenCalled();
+    expect(mounted.byTestId('task-operation-confirmation')?.getAttribute('role')).toBe('dialog');
+    expect(mounted.byTestId('task-operation-confirm')?.contains(document.activeElement)).toBe(true);
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    await flush();
+    expect(confirmTaskOperation).toHaveBeenCalledOnce();
+    const [confirmed] = confirmTaskOperation.mock.calls[0]!;
+    expect(confirmed).toMatchObject({ taskId: 't1', operation: 'complete' });
+    expect((await tasksGateway.list()).find(task => task.id === 't1')?.status).toBe('done');
+    mounted.unmount();
+  });
+
+  it('cancels, rejects host-denied confirmation, validates actual calendar dates, and is single-flight', async () => {
+    const tasksGateway = fixtureTasksGateway();
+    let resolveConfirmation!: (value: boolean) => void;
+    const confirmTaskOperation = vi.fn(() => new Promise<boolean>(resolve => { resolveConfirmation = resolve; }));
+    const complete = vi.fn(async (id: string) => tasksGateway.update(id, { status: 'done' }));
+    const mounted = mountTasks({ tasks: { ...tasksGateway, complete, reschedule: async (id, date) => tasksGateway.update(id, { scheduledDate: date }) } }, { currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['tasks.complete', 'tasks.reschedule'] }, confirmTaskOperation });
+    await flush();
+    await actClick(mounted.byTestId('task-complete-t1')!);
+    await actClick(mounted.byTestId('task-operation-confirmation')!.querySelector('button.secondary-button')!);
+    expect(confirmTaskOperation).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('task-reschedule-t1')!);
+    await actSetValue(mounted.byTestId('task-operation-date') as HTMLInputElement, '2026-02-30');
+    expect((mounted.byTestId('task-operation-confirm') as HTMLButtonElement).disabled).toBe(true);
+    await actSetValue(mounted.byTestId('task-operation-date') as HTMLInputElement, '2026-02-28');
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    expect(confirmTaskOperation).toHaveBeenCalledOnce();
+    resolveConfirmation(false);
+    await flush();
+    expect(complete).not.toHaveBeenCalled();
+    expect((await tasksGateway.list()).find(task => task.id === 't1')?.scheduledDate).not.toBe('2026-02-28');
     mounted.unmount();
   });
 
