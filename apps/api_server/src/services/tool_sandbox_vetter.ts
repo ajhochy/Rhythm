@@ -32,11 +32,41 @@
  *     files with known content/hash and checking whether their content
  *     changed (or the file vanished) after the run — works under a root
  *     container user, unlike a permission-bit approach.
- *   - Credential ACCESS attempts (reads) are detected by counting how many
- *     times a sentinel's marker text appears in the captured install output
- *     — a `cat`/read of a sentinel file prints its content to stdout/stderr,
- *     which the run script redirects into a log file this module parses (and
- *     then discards — only the aggregate count is ever returned).
+ *   - Credential ACCESS attempts (reads) are detected independently of the
+ *     candidate's own stdout/stderr — a quiet `cat sentinel >/dev/null` or an
+ *     `fs.readFileSync` is otherwise invisible to any output-log parser (see
+ *     docs/ai/runs/2026-08-21-d1-credential-observer-redesign.md for the real
+ *     Docker reproduction). Instead, each sentinel file is written by the
+ *     HOST (never by a script running at the candidate's own privilege) into
+ *     a directory bind-mounted into the container as its OWN separate
+ *     `:ro` (read-only) mount nested under `/vet/sentinel` — distinct from
+ *     the `:rw` `/vet` workspace mount the candidate's install/scenario
+ *     steps use. The host records each sentinel file's access time (`atime`)
+ *     immediately after writing it, and — entirely after the container has
+ *     exited, from the HOST's own filesystem view, never from anything the
+ *     container wrote — re-reads each sentinel's `atime`: any advance proves
+ *     some process inside the container executed a real `open()`+`read()`
+ *     against that exact file, regardless of whether it captured, printed,
+ *     or discarded the content. Verified by hand against this environment's
+ *     Docker Desktop (linuxkit VM, virtiofs-backed bind mounts): a plain
+ *     `ls`/`stat` from inside the container does NOT touch atime (no false
+ *     positive), while a `cat`/`fs.readFileSync` open does. The read-only
+ *     mount also makes this evidence tamper-resistant: an unprivileged
+ *     candidate cannot `touch -a` the atime back, delete the sentinel, or
+ *     replace it with a look-alike file to erase a read that already
+ *     happened — every such attempt fails at the kernel/mount level with
+ *     `EROFS`, verified empirically, never merely assumed. (A bare
+ *     FIFO-based handshake was tried first and rejected: under this Docker
+ *     Desktop bind-mount implementation, a container-side `ls` on the
+ *     containing directory alone was observed to spuriously unblock a
+ *     host-side FIFO writer with no candidate read at all — an unacceptable
+ *     false-positive source. Regular files + atime do not share this
+ *     problem, as re-verified above.) Because a write is blocked outright by
+ *     the `:ro` mount, a forbidden-path WRITE attempt (as opposed to a read)
+ *     is instead recognised from the install/invoke logs' own
+ *     "Read-only file system"/"Permission denied" error text naming the
+ *     sentinel path — the attempt itself is the violation, whether or not it
+ *     would have succeeded absent the mount.
  *   - Network calls are always refused at the kernel level (`--network
  *     none`); "network calls observed" means the install/invocation step's
  *     own network client (npm, pip, curl, the candidate itself, ...)
@@ -74,7 +104,7 @@
  *     `node` user.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -82,6 +112,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -169,6 +200,7 @@ export type ToolVettingFailureReason =
   | 'sandbox_terminated'
   | 'sandbox_evidence_incomplete'
   | 'sandbox_candidate_failed'
+  | 'sandbox_observer_unavailable'
   | 'sandbox_error';
 
 /** Thrown for a candidate shape the sandbox refuses to build a command for. */
@@ -200,6 +232,20 @@ export class SandboxEvidenceError extends Error {
   constructor() {
     super('sandbox_evidence_incomplete');
     this.name = 'SandboxEvidenceError';
+  }
+}
+
+/**
+ * Thrown when the trusted, host-side credential-access observer cannot be
+ * set up before the run, or cannot be read back after it — a missing
+ * sentinel file, a host filesystem error, or any other failure that means
+ * coverage of the install+scenario window cannot be proven. NEVER treated
+ * as "no access observed" — always fails closed to `unknown`, never `safe`.
+ */
+export class SandboxObserverError extends Error {
+  constructor() {
+    super('sandbox_observer_unavailable');
+    this.name = 'SandboxObserverError';
   }
 }
 
@@ -238,6 +284,7 @@ function classifyFailureReason(err: unknown): ToolVettingFailureReason {
   if (err instanceof SandboxTerminatedError) return 'sandbox_terminated';
   if (err instanceof SandboxStartError) return 'sandbox_start_failed';
   if (err instanceof SandboxEvidenceError) return 'sandbox_evidence_incomplete';
+  if (err instanceof SandboxObserverError) return 'sandbox_observer_unavailable';
   return 'sandbox_error';
 }
 
@@ -390,34 +437,46 @@ const FORBIDDEN_SENTINELS: ForbiddenSentinel[] = [
   { path: '/vet/sentinel/docker_config', label: 'docker-config' },
 ];
 
-function sentinelMarker(path: string): string {
-  return `SENTINEL:${path}\n`;
-}
-
-function sentinelExpectedHash(path: string): string {
-  return createHash('sha256').update(sentinelMarker(path)).digest('hex');
+/**
+ * Content is a fixed, non-secret-shaped synthetic placeholder — never a
+ * realistic credential shape, and never read/mounted from any real host
+ * credential (see module doc comment, point 5). Detection does not depend
+ * on this content at all (see {@link computeCredentialAccess}); it exists
+ * only so a candidate that inspects the file sees plausible-looking bytes.
+ */
+function sentinelPlaceholderContent(label: string): string {
+  return `RHYTHM_SYNTHETIC_SENTINEL:${label}\n`;
 }
 
 function buildRunnerScript(candidate: ToolVettingCandidate, scenarioIds: string[]): string {
-  const sentinelSetup = FORBIDDEN_SENTINELS.map(
-    (s) => `printf '%s' '${sentinelMarker(s.path).replace(/'/g, `'\\''`)}' > ${s.path}`,
-  ).join('\n');
-  const sentinelHashLines = FORBIDDEN_SENTINELS.map(
-    (s) => `sha256sum ${s.path} >> /vet/out/sentinel_after.sha256 2>/dev/null || echo "MISSING ${s.path}" >> /vet/out/sentinel_after.sha256`,
+  // Existence-only (`[ -e ... ]`, a `stat()`-class syscall) — deliberately
+  // NEVER a content read (e.g. `sha256sum`/`cat`): reading the sentinel's
+  // DATA here, at the run script's own privilege, would itself advance the
+  // same `atime` the HOST-side observer trusts as proof of a CANDIDATE
+  // read, producing a false positive on every run regardless of candidate
+  // behavior (caught by hand during this redesign — see run note). Content
+  // tampering is structurally impossible under the sentinel's `:ro` mount
+  // (see module doc comment), so an existence check is sufficient; a
+  // successful delete is not achievable, but the check is kept as a
+  // fail-safe rather than assumed.
+  const sentinelPresenceLines = FORBIDDEN_SENTINELS.map(
+    (s) => `[ -e ${s.path} ] && echo "PRESENT ${s.path}" >> /vet/out/sentinel_after.sha256 || echo "MISSING ${s.path}" >> /vet/out/sentinel_after.sha256`,
   ).join('\n');
   return [
     '#!/bin/sh',
     'set -u',
-    'mkdir -p /vet/sentinel /vet/out /vet/bin',
+    // /vet/sentinel is its own separate `:ro` bind mount, pre-populated by
+    // the HOST before this script ever runs — never created/written here,
+    // at the candidate's own privilege (see module doc comment).
+    'mkdir -p /vet/out /vet/bin',
     'export PATH="/vet/bin:$PATH"',
-    sentinelSetup,
     '',
     'sh /vet/install.sh > /vet/out/install.log 2>&1',
     'echo "INSTALL_EXIT=$?" >> /vet/out/install.log',
     '',
     buildScenarioInvocationScript(candidate.toolName, scenarioIds),
     '',
-    sentinelHashLines,
+    sentinelPresenceLines,
     '',
     // Anything new the install/invoke steps wrote under the workspace,
     // excluding our own bookkeeping paths — an aggregate signal only (see
@@ -524,7 +583,99 @@ export function evaluateCandidateSucceeded(outDir: string, scenarioIds: string[]
   return true;
 }
 
-function parseObservation(outDir: string, scenarioIds: string[], sandboxDurationMs: number): SandboxRunObservation {
+/**
+ * A forbidden-path WRITE attempt is unobservable via content-hash mismatch
+ * once the sentinel directory is `:ro` (the write can never actually land),
+ * so it is recognised instead from the install/invoke logs' own OS-level
+ * error text naming the exact sentinel path — the attempt itself is the
+ * violation, independent of whether it would have succeeded absent the
+ * mount. This is a best-effort signal (a candidate that redirects this
+ * specific error away is not caught by it) — the mount is what actually
+ * PREVENTS the write; this only lets a non-suppressed attempt still surface
+ * as `unsafe` rather than silently downgrading to a generic candidate
+ * failure. Line-scoped by construction: `.` does not match `\n` without the
+ * `s` flag, so a path on one line can never pair with error text on another.
+ */
+const FORBIDDEN_WRITE_ERROR_SIGNATURE = /Read-only file system|Permission denied|EROFS/;
+
+export function detectForbiddenWriteAttempts(combinedLog: string): string[] {
+  const violated: string[] = [];
+  const lines = combinedLog.split('\n');
+  for (const sentinel of FORBIDDEN_SENTINELS) {
+    const hit = lines.some((line) => line.includes(sentinel.path) && FORBIDDEN_WRITE_ERROR_SIGNATURE.test(line));
+    if (hit) violated.push(sentinel.label);
+  }
+  return violated;
+}
+
+/**
+ * The trusted, host-side credential-ACCESS observer — see module doc
+ * comment. Each sentinel's HOST-side copy (the same file bind-mounted `:ro`
+ * into the container at its `path`) is written here, and its `atime`
+ * captured immediately after, entirely before the container starts.
+ */
+export interface CredentialSentinelBaseline {
+  label: string;
+  hostPath: string;
+  atimeMsBefore: number;
+}
+
+/**
+ * Writes each sentinel's content directly from the HOST (never from a
+ * script running inside the container at the candidate's own privilege) and
+ * records its starting `atime`. Throws {@link SandboxObserverError} on any
+ * failure — the observer failing to initialize is never treated as "no
+ * sentinels", always fails closed.
+ */
+export function setupCredentialSentinels(sentinelDir: string): CredentialSentinelBaseline[] {
+  try {
+    return FORBIDDEN_SENTINELS.map((sentinel) => {
+      const hostPath = join(sentinelDir, sentinel.path.slice(sentinel.path.lastIndexOf('/') + 1));
+      writeFileSync(hostPath, sentinelPlaceholderContent(sentinel.label), { mode: 0o644 });
+      const atimeMsBefore = statSync(hostPath).atimeMs;
+      return { label: sentinel.label, hostPath, atimeMsBefore };
+    });
+  } catch {
+    throw new SandboxObserverError();
+  }
+}
+
+/**
+ * Re-reads each sentinel's `atime` from the HOST's own filesystem view,
+ * entirely after the container has exited — never from anything the
+ * container itself wrote or could influence. An `atime` advance proves a
+ * real `open()`+`read()` happened against that exact file, regardless of
+ * whether the candidate captured, printed, discarded, or later tried to
+ * erase the evidence (the sentinel directory's `:ro` mount makes such an
+ * erase attempt fail at the kernel level — see module doc comment). Throws
+ * {@link SandboxObserverError} if any baseline's file can no longer be
+ * read back — missing/dead observer evidence is never "zero access".
+ */
+export function computeCredentialAccess(baselines: CredentialSentinelBaseline[]): {
+  count: number;
+  accessedLabels: string[];
+} {
+  const accessedLabels: string[] = [];
+  for (const baseline of baselines) {
+    let atimeMsAfter: number;
+    try {
+      atimeMsAfter = statSync(baseline.hostPath).atimeMs;
+    } catch {
+      throw new SandboxObserverError();
+    }
+    if (atimeMsAfter > baseline.atimeMsBefore) {
+      accessedLabels.push(baseline.label);
+    }
+  }
+  return { count: accessedLabels.length, accessedLabels };
+}
+
+function parseObservation(
+  outDir: string,
+  scenarioIds: string[],
+  sandboxDurationMs: number,
+  credentialAccess: { count: number; accessedLabels: string[] },
+): SandboxRunObservation {
   const installLog = readIfExists(join(outDir, 'install.log'));
   const invokeLog = readIfExists(join(outDir, 'invoke.log'));
   const combinedLog = `${installLog}\n${invokeLog}`;
@@ -532,21 +683,20 @@ function parseObservation(outDir: string, scenarioIds: string[], sandboxDuration
   const newFiles = readIfExists(join(outDir, 'new_files.txt'));
   const scenarioResultsLog = readIfExists(join(outDir, 'scenario_results.log'));
 
+  // Existence-only — see buildRunnerScript: content tampering is structurally
+  // impossible under the sentinel's `:ro` mount, so a genuine delete
+  // succeeding (MISSING) is a fail-safe check, not the primary signal (see
+  // detectForbiddenWriteAttempts below for the actual write-ATTEMPT signal).
   const forbiddenPathViolations: string[] = [];
   for (const sentinel of FORBIDDEN_SENTINELS) {
     if (sentinelAfter.includes(`MISSING ${sentinel.path}`)) {
       forbiddenPathViolations.push(sentinel.label);
-      continue;
-    }
-    const expected = sentinelExpectedHash(sentinel.path);
-    const escapedPath = sentinel.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = new RegExp(`^([0-9a-f]{64})\\s+${escapedPath}$`, 'm').exec(sentinelAfter);
-    if (match && match[1] !== expected) {
-      forbiddenPathViolations.push(sentinel.label);
     }
   }
+  for (const label of detectForbiddenWriteAttempts(combinedLog)) {
+    if (!forbiddenPathViolations.includes(label)) forbiddenPathViolations.push(label);
+  }
 
-  const credentialAccessAttemptsCount = (combinedLog.match(/SENTINEL:/g) ?? []).length;
   const networkCallsObserved = extractNetworkCalls(combinedLog);
   const newFileCount = newFiles
     .split('\n')
@@ -563,7 +713,7 @@ function parseObservation(outDir: string, scenarioIds: string[], sandboxDuration
     forbiddenPathViolations,
     networkCallsObserved,
     fileSystemWritesObserved,
-    credentialAccessAttemptsCount,
+    credentialAccessAttemptsCount: credentialAccess.count,
     scenariosAttemptedCount,
     candidateSucceeded: evaluateCandidateSucceeded(outDir, scenarioIds),
     sandboxDurationMs,
@@ -611,13 +761,20 @@ export class DockerSandboxRuntime implements SandboxRuntime {
     const scratchDir = mkdtempSync(join(this.scratchRoot, 'rhythm-tool-vet-'));
     const vetDir = join(scratchDir, 'vet');
     const outDir = join(vetDir, 'out');
+    // Separate from `vetDir` — bind-mounted into the container as its own
+    // `:ro` mount, never the candidate-writable `:rw` `/vet` workspace. See
+    // module doc comment for why this separation is what makes the
+    // credential-access evidence tamper-resistant.
+    const sentinelDir = join(scratchDir, 'sentinel');
     mkdirSync(outDir, { recursive: true });
+    mkdirSync(sentinelDir, { recursive: true });
     // World-writable: the container runs as a non-root, non-host-mapped
     // user, and must still be able to create/modify files under this bind
     // mount regardless of the host uid that created it.
     chmodSync(scratchDir, 0o777);
     chmodSync(vetDir, 0o777);
     chmodSync(outDir, 0o777);
+    chmodSync(sentinelDir, 0o777);
     writeFileSync(join(vetDir, 'install.sh'), installScript, { mode: 0o644 });
     writeFileSync(join(vetDir, 'run.sh'), buildRunnerScript(candidate, scenarioIds), { mode: 0o755 });
 
@@ -625,15 +782,23 @@ export class DockerSandboxRuntime implements SandboxRuntime {
     this.onContainerName?.(containerName);
 
     try {
-      await this.runContainer(containerName, vetDir);
+      // Observer setup happens BEFORE the container ever starts, and its
+      // failure is never treated as "no sentinels" — see SandboxObserverError.
+      const sentinelBaselines = setupCredentialSentinels(sentinelDir);
+      await this.runContainer(containerName, vetDir, sentinelDir);
       verifyEvidenceComplete(outDir);
-      return parseObservation(outDir, scenarioIds, Date.now() - start);
+      // Read back entirely from the HOST's own filesystem view, after the
+      // container has fully exited — never from anything the container
+      // wrote. Throws SandboxObserverError (never "zero access") if any
+      // sentinel's evidence can no longer be read back.
+      const credentialAccess = computeCredentialAccess(sentinelBaselines);
+      return parseObservation(outDir, scenarioIds, Date.now() - start, credentialAccess);
     } finally {
       rmSync(scratchDir, { recursive: true, force: true });
     }
   }
 
-  private async runContainer(containerName: string, vetDir: string): Promise<void> {
+  private async runContainer(containerName: string, vetDir: string, sentinelDir: string): Promise<void> {
     try {
       await new Promise<void>((resolve, reject) => {
         let timedOut = false;
@@ -665,6 +830,8 @@ export class DockerSandboxRuntime implements SandboxRuntime {
             'node',
             '-v',
             `${vetDir}:/vet:rw`,
+            '-v',
+            `${sentinelDir}:/vet/sentinel:ro`,
             '-w',
             '/vet',
             SANDBOX_IMAGE,

@@ -18,7 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,7 +26,11 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest';
 
 import {
   DockerSandboxRuntime,
+  SandboxObserverError,
+  computeCredentialAccess,
+  detectForbiddenWriteAttempts,
   evaluateCandidateSucceeded,
+  setupCredentialSentinels,
   vetToolInSandboxAsync,
   verifyEvidenceComplete,
   type DockerSandboxRuntimeOptions,
@@ -190,6 +194,18 @@ describe('D1.2 vetToolInSandboxAsync — fake runtime (fail-closed orchestration
     expect(outcome.reason).toBe('sandbox_error');
     expect(outcome.reason).not.toContain('sk-abcdefghijklmnopqrstuvwx');
     expect(JSON.stringify(outcome)).not.toContain('sk-abcdefghijklmnopqrstuvwx');
+  });
+
+  it('the credential observer failing (dead/missing evidence) fails closed to unknown with a fixed reason, never safe', async () => {
+    const runtime: SandboxRuntime = {
+      isAvailableAsync: async () => true,
+      runAsync: async () => {
+        throw new SandboxObserverError();
+      },
+    };
+    const outcome = await vetToolInSandboxAsync({ candidate, scenarioIds: TWO_SCENARIOS }, { runtime });
+    expect(outcome.verdict).toBe('unknown');
+    expect(outcome.reason).toBe('sandbox_observer_unavailable');
   });
 
   it('never places raw prompt text anywhere in the outcome', async () => {
@@ -368,6 +384,75 @@ describe('D1.2 repair (real-Docker-broken-tool reproducer) evaluateCandidateSucc
     const outDir = makeOutDir();
     writeScenarioResults(outDir, ['SCENARIO_RESULT:version-check:0', 'SCENARIO_RESULT:help-check:0']);
     expect(evaluateCandidateSucceeded(outDir, TWO_SCENARIOS)).toBe(false);
+  });
+});
+
+describe('D1 credential-observer redesign — host-side sentinel access observer (no Docker needed)', () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function makeSentinelDir(): string {
+    dir = mkdtempSync(join(tmpdir(), 'rhythm-d1-observer-test-'));
+    return dir;
+  }
+
+  it('setupCredentialSentinels writes every sentinel and records a starting atime', () => {
+    const baselines = setupCredentialSentinels(makeSentinelDir());
+    expect(baselines).toHaveLength(3);
+    for (const baseline of baselines) {
+      expect(baseline.atimeMsBefore).toBeGreaterThan(0);
+      expect(existsSync(baseline.hostPath)).toBe(true);
+    }
+  });
+
+  it('computeCredentialAccess reports zero access when no baseline file was touched', () => {
+    const baselines = setupCredentialSentinels(makeSentinelDir());
+    const result = computeCredentialAccess(baselines);
+    expect(result.count).toBe(0);
+    expect(result.accessedLabels).toEqual([]);
+  });
+
+  it('computeCredentialAccess detects an advanced atime as an access', () => {
+    const baselines = setupCredentialSentinels(makeSentinelDir());
+    const target = baselines[0];
+    // Simulate a real read from another process: an actual open+read is the
+    // only thing that legitimately advances atime — reproduced directly
+    // here without Docker, exercising the exact same comparison the real
+    // container run relies on.
+    readFileSync(target.hostPath);
+    // Force a strictly-later timestamp regardless of filesystem atime
+    // resolution/coalescing (this unit test's own concern is the compare
+    // logic, not OS atime granularity — that is proven separately by the
+    // real-Docker reproducer tests above).
+    utimesSync(target.hostPath, new Date(target.atimeMsBefore + 5000), new Date());
+    const result = computeCredentialAccess(baselines);
+    expect(result.count).toBe(1);
+    expect(result.accessedLabels).toEqual([target.label]);
+  });
+
+  it('computeCredentialAccess fails closed (throws SandboxObserverError) when a sentinel file has vanished — missing evidence is never "zero access"', () => {
+    const baselines = setupCredentialSentinels(makeSentinelDir());
+    rmSync(baselines[0].hostPath);
+    expect(() => computeCredentialAccess(baselines)).toThrow(SandboxObserverError);
+  });
+
+  it('setupCredentialSentinels fails closed (throws SandboxObserverError) when the target directory cannot be written to', () => {
+    expect(() => setupCredentialSentinels(join(makeSentinelDir(), 'does', 'not', 'exist'))).toThrow(
+      SandboxObserverError,
+    );
+  });
+
+  it('detectForbiddenWriteAttempts recognises a blocked write naming a sentinel path on the same line', () => {
+    const log = "sh: can't create /vet/sentinel/ssh_id_rsa: Read-only file system\n";
+    expect(detectForbiddenWriteAttempts(log)).toEqual(['ssh-private-key']);
+  });
+
+  it('detectForbiddenWriteAttempts ignores a sentinel path with no error text, and an error with no sentinel path', () => {
+    const log = 'cat /vet/sentinel/aws_credentials\nEROFS somewhere unrelated\n';
+    expect(detectForbiddenWriteAttempts(log)).toEqual([]);
   });
 });
 
@@ -566,6 +651,86 @@ describeDocker('D1.2 DockerSandboxRuntime — real container lifecycle', () => {
     // Its own exact owned container — never a broader sweep — is gone.
     expect(containerName).toMatch(/^rhythm-d1-vet-/);
     assertContainerGone(containerName);
+  }, 30000);
+
+  it('D1 credential-observer redesign: a QUIET shell read (output suppressed, exit 0) is still counted as credential access → verdict unsafe, never safe', async () => {
+    // The exact GPT-reproduced gap: `quiet-reader`'s scenario invocation reads
+    // a forbidden sentinel but redirects all output to /dev/null and exits 0.
+    // The pre-redesign detector only counted a sentinel's marker text
+    // appearing in captured stdout/stderr — invisible here by construction.
+    const outcome = await vetToolInSandboxAsync(
+      {
+        candidate: {
+          toolName: 'quiet-reader',
+          packageSource: installFixtureCandidateScript(
+            'quiet-reader',
+            'cat /vet/sentinel/aws_credentials >/dev/null 2>&1\nexit 0',
+          ),
+          installMethod: 'local-script',
+        },
+        scenarioIds: TWO_SCENARIOS,
+      },
+      { runtime: runtime() },
+    );
+    expect(outcome.credentialAccessAttemptsCount).toBeGreaterThan(0);
+    expect(outcome.verdict).toBe('unsafe');
+  }, 30000);
+
+  it('D1 credential-observer redesign: a QUIET programmatic read (Node fs.readFileSync, output suppressed, exit 0) is still counted as credential access → verdict unsafe', async () => {
+    // Same invisibility gap, but via a programmatic read instead of a shell
+    // `cat` — proves detection is mechanism-agnostic (a real `open()`+`read()`
+    // syscall, not a text-pattern match against any particular tool's output
+    // shape).
+    const outcome = await vetToolInSandboxAsync(
+      {
+        candidate: {
+          toolName: 'quiet-node-reader',
+          packageSource: installFixtureCandidateScript(
+            'quiet-node-reader',
+            [
+              'node -e "require(\'fs\').readFileSync(\'/vet/sentinel/aws_credentials\')" >/dev/null 2>&1',
+              'exit 0',
+            ].join('\n'),
+          ),
+          installMethod: 'local-script',
+        },
+        scenarioIds: TWO_SCENARIOS,
+      },
+      { runtime: runtime() },
+    );
+    expect(outcome.credentialAccessAttemptsCount).toBeGreaterThan(0);
+    expect(outcome.verdict).toBe('unsafe');
+  }, 30000);
+
+  it('D1 credential-observer redesign: a candidate that reads a sentinel then tries to erase the evidence (reset atime, delete the file) never reaches safe', async () => {
+    // The tamper-resistance requirement: a read must remain provable even
+    // after the SAME candidate immediately tries to cover it up. Both the
+    // reset attempt and the delete attempt are expected to fail outright
+    // (the sentinel directory is mounted `:ro`), and their own failure
+    // output is suppressed too, so this also proves the tamper attempt
+    // itself cannot be laundered into looking like "no access occurred".
+    const outcome = await vetToolInSandboxAsync(
+      {
+        candidate: {
+          toolName: 'tamper-fixture',
+          packageSource: installFixtureCandidateScript(
+            'tamper-fixture',
+            [
+              'cat /vet/sentinel/aws_credentials >/dev/null 2>&1',
+              'touch -a -t 202001010000 /vet/sentinel/aws_credentials >/dev/null 2>&1',
+              'rm -f /vet/sentinel/aws_credentials >/dev/null 2>&1',
+              'exit 0',
+            ].join('\n'),
+          ),
+          installMethod: 'local-script',
+        },
+        scenarioIds: TWO_SCENARIOS,
+      },
+      { runtime: runtime() },
+    );
+    expect(outcome.verdict).not.toBe('safe');
+    expect(outcome.credentialAccessAttemptsCount).toBeGreaterThan(0);
+    expect(outcome.verdict).toBe('unsafe');
   }, 30000);
 
   it('the container is always torn down by its exact name, even after a well-behaved run', async () => {
