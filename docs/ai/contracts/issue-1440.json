@@ -1,0 +1,107 @@
+{
+  "contract_id": "D4.2",
+  "issue": 1440,
+  "phase": "D4.2",
+  "parent_contract": "D4.1",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/trust_counter_service.test.ts src/repositories/promotion_trust_state_repository.test.ts src/__tests__/promotion_trust_state_schema_parity.test.ts src/__tests__/migrations_replay_guard.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1440-c1",
+      "text": "trust_counter_service.ts reads the EXISTING experiment/outcome ledger (agent_org_proposals.outcome_status, agent_org_experiments.decision) — no second/parallel tally.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/trust_counter_service.ts calls AgentOrgProposalsRepository.countByOutcomeStatusAsync('verified') and AgentOrgExperimentsRepository.countByDecisionAsync('regress'), both added to the existing repositories in this same change.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c2",
+      "text": "10 verified, 0 regressions => auto_promotion_eligible=true.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('10 verified, 0 regressions => eligible')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c3",
+      "text": "10 verified, 1 regression => auto_promotion_eligible=false.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('10 verified, 1 regression => not eligible')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c4",
+      "text": "9 verified, 0 regressions => auto_promotion_eligible=false.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('9 verified, 0 regressions => not eligible')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c5",
+      "text": "total_verified, total_regressions, and auto_promotion_eligible are persisted in the D4.1 singleton; auto_promotion_enabled/enabled_at/trust_threshold are never touched by this write path.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('recordTrustCountersAsync persists counts/eligibility on the singleton but never enables auto-promotion'); promotion_trust_state_repository.test.ts ('recordEligibilityAsync updates counts and eligibility only, never the enable gate').",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c6",
+      "text": "auto_promotion_enabled is NEVER set true by this issue — eligibility is recorded, the gate is a separate later decision.",
+      "mode": "unit",
+      "test": "PromotionTrustStateRepository.recordEligibilityAsync's SQL/params (both SQLite and Postgres branches) reference only total_verified, total_regressions, auto_promotion_eligible, updated_at — there is no parameter or code path that can write auto_promotion_enabled or enabled_at.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c7",
+      "text": "SQLite/Postgres schema parity for the new auto_promotion_eligible column.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/promotion_trust_state_schema_parity.test.ts (updated expected column list); migrations.ts additive ALTER TABLE ... ADD COLUMN auto_promotion_eligible (SQLite) matches postgres_bootstrap.ts's ALTER TABLE ... ADD COLUMN IF NOT EXISTS auto_promotion_eligible (Postgres).",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c8",
+      "text": "Singleton/database enforcement from #1439 is preserved (still exactly one row; recordEligibilityAsync can never create a second row).",
+      "mode": "unit",
+      "test": "promotion_trust_state_repository.test.ts ('recordEligibilityAsync updates counts and eligibility only, never the enable gate') asserts COUNT(*) = 1 after the call; recordEligibilityAsync internally calls getSingletonAsync first (same race-safe ON CONFLICT DO NOTHING path) then UPDATEs by fixed id.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c9",
+      "text": "Focused tests pass (RED -> GREEN).",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts written against a tree with trust_counter_service.ts temporarily removed: RED — 'Cannot find module ../trust_counter_service' (module-resolution failure, all tests unrun). Restored the module: GREEN — 4/4 pass.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c10",
+      "text": "Build + typecheck pass.",
+      "mode": "unit",
+      "test": "cd apps/api_server && npx tsc --noEmit && npm run build",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "No live/sandbox behavioral test: this issue adds a read/record service with no HTTP/WS/MCP entry point wired to it yet (nothing calls recordTrustCountersAsync from a route or scheduler in this wave). AGENTS.md's live-behavioral-test gate applies to features with an entry point to drive; there is none here to exercise.",
+    "No test exercises trust_threshold values other than the D4.1 default of 10 (e.g. an admin-configured threshold != 10) — computeTrustCountersAsync reads current.trustThreshold dynamically so this is expected to generalize, but it is not separately asserted."
+  ],
+  "current_evidence": {
+    "files": [
+      "apps/api_server/src/services/trust_counter_service.ts",
+      "apps/api_server/src/services/__tests__/trust_counter_service.test.ts",
+      "apps/api_server/src/repositories/promotion_trust_state_repository.ts",
+      "apps/api_server/src/repositories/promotion_trust_state_repository.test.ts",
+      "apps/api_server/src/repositories/agent_org_experiments_repository.ts",
+      "apps/api_server/src/repositories/agent_org_proposals_repository.ts",
+      "apps/api_server/src/models/promotion_trust_state.ts",
+      "apps/api_server/src/database/migrations.ts",
+      "apps/api_server/src/database/postgres_bootstrap.ts",
+      "apps/api_server/src/__tests__/promotion_trust_state_schema_parity.test.ts",
+      "docs/ai/contracts/issue-1440.json",
+      "docs/ai/runs/2026-08-20-d4-auto-promotion-trust-counter.md"
+    ],
+    "focused": "14/14 pass (trust_counter_service.test.ts 4, promotion_trust_state_repository.test.ts 6, promotion_trust_state_schema_parity.test.ts 1, migrations_replay_guard.test.ts 3)",
+    "adjacent_regression": "agent_org_experiments_repository.test.ts + org_proposals_routes.test.ts + c6_api_summary.test.ts: 44/44 pass (new read-only count methods on both repositories do not disturb existing behavior)",
+    "typecheck": "pass",
+    "build": "pass",
+    "gitnexus_risk": "UNKNOWN — same as #1439: `gitnexus detect-changes` reports this worktree's repo alias is not present among the session's indexed repos (the list includes sibling worktrees d2-post-apply-lifecycle and integration, but not d4-auto-promotion), so the index is stale for this branch. Recorded UNKNOWN per the operating instructions; substituted direct caller inspection: grep confirms both repository additions (countByDecisionAsync, countByOutcomeStatusAsync) are new read-only methods appended at the end of their classes, and the migrations.ts/postgres_bootstrap.ts changes are additive ALTER TABLE ADD COLUMN statements guarded by an IF NOT EXISTS/existing-columns check, matching the established LOW-risk additive-column pattern used throughout both files.",
+    "sandbox": "not applicable — no server-dependent behavior introduced by this issue (see not_tested)."
+  }
+}

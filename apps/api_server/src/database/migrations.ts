@@ -4417,4 +4417,17 @@ If someone asks for creative work that needs a local capability:
   runOnce('issue_1439_promotion_trust_state', () => {
     // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
   });
+
+  // D4.2 (#1440) — additive eligibility column, recorded by
+  // trust_counter_service.ts. Default false; never inferred/backfilled for
+  // pre-existing rows, matching the additive-nullable-column convention used
+  // throughout this file.
+  const promotionTrustStateCols = (
+    db.pragma('table_info(promotion_trust_state)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!promotionTrustStateCols.includes('auto_promotion_eligible')) {
+    db.exec(
+      `ALTER TABLE promotion_trust_state ADD COLUMN auto_promotion_eligible INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
 }

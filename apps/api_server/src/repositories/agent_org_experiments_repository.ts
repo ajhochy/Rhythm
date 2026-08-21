@@ -306,4 +306,23 @@ export class AgentOrgExperimentsRepository {
     }
     return (await this.findByIdAsync(id))!;
   }
+
+  /**
+   * D4.2 (#1440) — the trust counter's read of this ledger's own `decision`
+   * domain (W6-c3; see agent_org_experiment.ts's ExperimentDecision). Used to
+   * count `regress` decisions. Read-only count, no new state.
+   */
+  async countByDecisionAsync(decision: ExperimentDecision): Promise<number> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT COUNT(*) AS n FROM agent_org_experiments WHERE decision = $1`,
+        [decision],
+      );
+      return Number((r.rows[0] as { n: string | number }).n);
+    }
+    const row = this.db!
+      .prepare(`SELECT COUNT(*) AS n FROM agent_org_experiments WHERE decision = ?`)
+      .get(decision) as { n: number };
+    return Number(row.n);
+  }
 }

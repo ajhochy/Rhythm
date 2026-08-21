@@ -25,6 +25,7 @@ interface PromotionTrustStateRow {
   auto_promotion_enabled: number | boolean;
   enabled_at: string | Date | null;
   trust_threshold: number;
+  auto_promotion_eligible: number | boolean;
   updated_at: string | Date;
 }
 
@@ -34,6 +35,17 @@ export interface PromotionTrustStateUpdate {
   autoPromotionEnabled?: boolean;
   enabledAt?: string | null;
   trustThreshold?: number;
+}
+
+/**
+ * D4.2 (#1440) — the ONLY shape trust_counter_service.ts writes through.
+ * Deliberately excludes `autoPromotionEnabled`/`enabledAt`/`trustThreshold`:
+ * the trust counter records eligibility, it never flips the gate itself.
+ */
+export interface PromotionTrustStateEligibilityUpdate {
+  totalVerified: number;
+  totalRegressions: number;
+  autoPromotionEligible: boolean;
 }
 
 function toIso(value: string | Date): string {
@@ -51,6 +63,7 @@ function rowToModel(row: PromotionTrustStateRow): PromotionTrustState {
     autoPromotionEnabled: toBool(row.auto_promotion_enabled),
     enabledAt: row.enabled_at ? toIso(row.enabled_at) : null,
     trustThreshold: Number(row.trust_threshold),
+    autoPromotionEligible: toBool(row.auto_promotion_eligible),
     updatedAt: toIso(row.updated_at),
   };
 }
@@ -141,6 +154,7 @@ export class PromotionTrustStateRepository {
       autoPromotionEnabled: update.autoPromotionEnabled ?? current.autoPromotionEnabled,
       enabledAt: update.enabledAt !== undefined ? update.enabledAt : current.enabledAt,
       trustThreshold: update.trustThreshold ?? current.trustThreshold,
+      autoPromotionEligible: current.autoPromotionEligible,
       updatedAt: current.updatedAt,
     };
     const now = new Date().toISOString();
@@ -175,6 +189,52 @@ export class PromotionTrustStateRepository {
         next.autoPromotionEnabled ? 1 : 0,
         next.enabledAt,
         next.trustThreshold,
+        now,
+        PROMOTION_TRUST_STATE_ID,
+      );
+    return this.readSingletonAsync();
+  }
+
+  /**
+   * D4.2 (#1440) — the ONLY write path trust_counter_service.ts uses.
+   * Updates the verified/regression counts and derived eligibility; leaves
+   * `autoPromotionEnabled`/`enabledAt`/`trustThreshold` completely untouched
+   * — this method has no parameter that could touch the enable gate, so it
+   * can never flip it. Same singleton-ensuring/race-safe path as
+   * {@link getSingletonAsync}.
+   */
+  async recordEligibilityAsync(
+    update: PromotionTrustStateEligibilityUpdate,
+  ): Promise<PromotionTrustState> {
+    await this.getSingletonAsync();
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE promotion_trust_state
+            SET total_verified = $1, total_regressions = $2, auto_promotion_eligible = $3,
+                updated_at = $4
+          WHERE id = $5`,
+        [
+          update.totalVerified,
+          update.totalRegressions,
+          update.autoPromotionEligible,
+          now,
+          PROMOTION_TRUST_STATE_ID,
+        ],
+      );
+      return this.readSingletonAsync();
+    }
+    this.db!
+      .prepare(
+        `UPDATE promotion_trust_state
+            SET total_verified = ?, total_regressions = ?, auto_promotion_eligible = ?,
+                updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(
+        update.totalVerified,
+        update.totalRegressions,
+        update.autoPromotionEligible ? 1 : 0,
         now,
         PROMOTION_TRUST_STATE_ID,
       );

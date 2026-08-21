@@ -1163,4 +1163,23 @@ export class AgentOrgProposalsRepository {
       | undefined;
     return row ? rowToModel(row) : null;
   }
+
+  /**
+   * D4.2 (#1440) — the trust counter's read of the causal-runtime-v2 outcome
+   * ledger's `outcome_status` domain (W6-c8; see agent_org_experiment.ts's
+   * ProposalOutcomeStatus). Read-only count, no new state.
+   */
+  async countByOutcomeStatusAsync(outcomeStatus: ProposalOutcomeStatus): Promise<number> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT COUNT(*) AS n FROM agent_org_proposals WHERE outcome_status = $1`,
+        [outcomeStatus],
+      );
+      return Number((r.rows[0] as { n: string | number }).n);
+    }
+    const row = this.db!
+      .prepare(`SELECT COUNT(*) AS n FROM agent_org_proposals WHERE outcome_status = ?`)
+      .get(outcomeStatus) as { n: number };
+    return Number(row.n);
+  }
 }

@@ -1,0 +1,59 @@
+/**
+ * D4.2 (#1440) — trust counter service.
+ *
+ * Reads the EXISTING experiment/outcome ledger — never a second tally — and
+ * recomputes the D4.1 (#1439) trust-state singleton's counters:
+ *   - totalVerified: agent_org_proposals rows with outcome_status='verified'
+ *     (W6-c8's authoritative outcome field).
+ *   - totalRegressions: agent_org_experiments rows with decision='regress'
+ *     (W6-c12's authoritative decision field).
+ * `autoPromotionEligible` is derived (totalVerified >= trustThreshold AND
+ * totalRegressions === 0) and persisted alongside the counts.
+ *
+ * This module NEVER sets `autoPromotionEnabled` — that gate is a separate,
+ * later D4 decision. Recording eligibility here is read-and-record only.
+ */
+import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
+import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { PromotionTrustStateRepository } from '../repositories/promotion_trust_state_repository';
+import type { PromotionTrustState } from '../models/promotion_trust_state';
+
+export interface TrustCounterDeps {
+  proposalsRepo?: AgentOrgProposalsRepository;
+  experimentsRepo?: AgentOrgExperimentsRepository;
+  trustStateRepo?: PromotionTrustStateRepository;
+}
+
+export interface TrustCounterCounts {
+  totalVerified: number;
+  totalRegressions: number;
+  autoPromotionEligible: boolean;
+}
+
+/** Read-only tally against the current threshold. Does not persist anything. */
+export async function computeTrustCountersAsync(deps: TrustCounterDeps = {}): Promise<TrustCounterCounts> {
+  const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const experimentsRepo = deps.experimentsRepo ?? new AgentOrgExperimentsRepository();
+  const trustStateRepo = deps.trustStateRepo ?? new PromotionTrustStateRepository();
+
+  const [totalVerified, totalRegressions, trustState] = await Promise.all([
+    proposalsRepo.countByOutcomeStatusAsync('verified'),
+    experimentsRepo.countByDecisionAsync('regress'),
+    trustStateRepo.getSingletonAsync(),
+  ]);
+
+  const autoPromotionEligible = totalVerified >= trustState.trustThreshold && totalRegressions === 0;
+
+  return { totalVerified, totalRegressions, autoPromotionEligible };
+}
+
+/**
+ * Recomputes the counters and durably records them on the singleton.
+ * `autoPromotionEnabled`/`enabledAt` are untouched — see
+ * PromotionTrustStateRepository.recordEligibilityAsync.
+ */
+export async function recordTrustCountersAsync(deps: TrustCounterDeps = {}): Promise<PromotionTrustState> {
+  const trustStateRepo = deps.trustStateRepo ?? new PromotionTrustStateRepository();
+  const counters = await computeTrustCountersAsync({ ...deps, trustStateRepo });
+  return trustStateRepo.recordEligibilityAsync(counters);
+}

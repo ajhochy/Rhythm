@@ -13,6 +13,13 @@ export interface PromotionTrustState {
   autoPromotionEnabled: boolean;
   enabledAt: string | null;
   trustThreshold: number;
+  /**
+   * D4.2 (#1440) — durable eligibility, recorded by trust_counter_service.ts.
+   * Additive column (default false). Reading true never enables
+   * `autoPromotionEnabled` by itself — it is only ever consulted by a later
+   * D4 issue that will make its own separate decision to flip the gate.
+   */
+  autoPromotionEligible: boolean;
   updatedAt: string;
 }
 

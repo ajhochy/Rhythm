@@ -45,6 +45,7 @@ describe('#1439 promotion_trust_state dual-DB schema parity', () => {
     const sqlite = sqliteColumns('promotion_trust_state');
     const pg = postgresColumns(pgSource, 'promotion_trust_state');
     expect(sqlite).toEqual([
+      'auto_promotion_eligible',
       'auto_promotion_enabled',
       'enabled_at',
       'id',

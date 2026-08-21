@@ -2320,4 +2320,10 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // D4.2 (#1440) — additive eligibility column; see migrations.ts for the
+  // matching SQLite ALTER TABLE and the full rationale. Column set MUST stay
+  // identical to the SQLite migration.
+  await pool.query(`
+    ALTER TABLE promotion_trust_state ADD COLUMN IF NOT EXISTS auto_promotion_eligible BOOLEAN NOT NULL DEFAULT FALSE
+  `);
 }

@@ -52,4 +52,31 @@ describe('PromotionTrustStateRepository — D4.1 (#1439)', () => {
     expect(enabled.totalVerified).toBe(7);
     expect(enabled.totalRegressions).toBe(1);
   });
+
+  test('D4.2 (#1440): auto_promotion_eligible defaults false and never implies auto_promotion_enabled', async () => {
+    const repo = new PromotionTrustStateRepository(db);
+    const state = await repo.getSingletonAsync();
+    expect(state.autoPromotionEligible).toBe(false);
+  });
+
+  test('D4.2 (#1440): recordEligibilityAsync updates counts and eligibility only, never the enable gate', async () => {
+    const repo = new PromotionTrustStateRepository(db);
+    await repo.getSingletonAsync();
+
+    const recorded = await repo.recordEligibilityAsync({
+      totalVerified: 10,
+      totalRegressions: 0,
+      autoPromotionEligible: true,
+    });
+    expect(recorded.totalVerified).toBe(10);
+    expect(recorded.totalRegressions).toBe(0);
+    expect(recorded.autoPromotionEligible).toBe(true);
+    // recordEligibilityAsync has no way to touch these — they must stay at
+    // their untouched defaults.
+    expect(recorded.autoPromotionEnabled).toBe(false);
+    expect(recorded.enabledAt).toBeNull();
+
+    const count = db.prepare('SELECT COUNT(*) AS n FROM promotion_trust_state').get() as { n: number };
+    expect(count.n).toBe(1);
+  });
 });
