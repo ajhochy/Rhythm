@@ -10,12 +10,13 @@
 // carries (matchCountLastRun/lastMatchedAt/previewSummary) rather than a dedicated preview()
 // call.
 import { useEffect, useId, useState, type FormEvent } from 'react';
-import { useRhythmDomainGateway } from '../context';
+import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { Icon } from '../components/Icon';
 import { FocusDialog } from '../components/FocusDialog';
 import {
   RhythmGatewayError,
+  type AutomationCatalog,
   type AutomationActionType,
   type AutomationCondition,
   type AutomationSource,
@@ -43,7 +44,7 @@ const triggerCatalog: Record<AutomationSource, Array<{ key: string; label: strin
   gmail: [{ key: 'gmail.message_matches', label: 'Gmail message matches filter' }],
 };
 
-const actionCatalog: Array<{ type: AutomationActionType; label: string }> = [
+const actionCatalog: AutomationCatalog['actions'] = [
   { type: 'create_task', label: 'Create task' },
   { type: 'create_project_from_template', label: 'Create project from template' },
   { type: 'tag_task', label: 'Tag task' },
@@ -83,18 +84,26 @@ interface BuilderDraft {
   triggerKey: string;
   actionType: AutomationActionType;
   conditions: AutomationCondition[];
+  actionConfig: Record<string, string>;
+  sourceAccountId: string | null;
 }
 
-function draftForRule(rule: RhythmAutomation | null): BuilderDraft {
+function draftForRule(rule: RhythmAutomation | null, catalog: AutomationCatalog): BuilderDraft {
   const source = rule?.source ?? 'rhythm';
+  const triggers = catalog.triggers[source] ?? triggerCatalog[source];
+  const actions = catalog.actions.length ? catalog.actions : actionCatalog;
   return {
     name: rule?.name ?? '',
     source,
-    triggerKey: rule?.triggerKey ?? triggerCatalog[source][0]?.key ?? '',
-    actionType: rule?.actionType ?? (allowedActions(source)[0]?.type ?? 'create_task'),
+    triggerKey: rule?.triggerKey ?? triggers[0]?.key ?? '',
+    actionType: rule?.actionType ?? (actions.find((action) => allowedActions(source).some((allowed) => allowed.type === action.type))?.type ?? 'create_task'),
     conditions: structuredClone(rule?.conditions ?? []),
+    actionConfig: { ...(rule?.actionConfig ?? {}) },
+    sourceAccountId: rule?.sourceAccountId ?? catalog.providers.find((provider) => provider.source === source)?.accountId ?? null,
   };
 }
+
+const fallbackCatalog: AutomationCatalog = { providers: [], triggers: triggerCatalog, actions: actionCatalog };
 
 function StatePanel({ state, onRetry, onCreate }: { state: Exclude<SurfaceState, 'ready'>; onRetry(): void; onCreate(): void }) {
   if (state === 'loading') return <section className="automations-state" role="status" aria-live="polite" data-testid="page-state-loading"><h2>Loading automations</h2><p>Gathering rules and the current automation catalog.</p></section>;
@@ -104,18 +113,20 @@ function StatePanel({ state, onRetry, onCreate }: { state: Exclude<SurfaceState,
   return <section className="automations-state warning" role="status" data-testid="page-state-unavailable"><h2>Automations are unavailable</h2><p>Reconnect the automation service before rules can be loaded or changed.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
 }
 
-function BuilderDialog({ open, editing, onClose, onSubmit }: { open: boolean; editing: RhythmAutomation | null; onClose(): void; onSubmit(draft: BuilderDraft): void }) {
-  const [draft, setDraft] = useState<BuilderDraft>(() => draftForRule(editing));
+function BuilderDialog({ open, editing, catalog, canMutate, onClose, onSubmit }: { open: boolean; editing: RhythmAutomation | null; catalog: AutomationCatalog; canMutate: boolean; onClose(): void; onSubmit(draft: BuilderDraft): void }) {
+  const [draft, setDraft] = useState<BuilderDraft>(() => draftForRule(editing, catalog));
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    setDraft(draftForRule(editing));
+    setDraft(draftForRule(editing, catalog));
     setError('');
-  }, [editing, open]);
+  }, [editing, open, catalog]);
 
   const updateSource = (source: AutomationSource) => {
-    setDraft((current) => ({ ...current, source, triggerKey: triggerCatalog[source][0]?.key ?? '', actionType: allowedActions(source)[0]?.type ?? 'create_task', conditions: [] }));
+    const triggers = catalog.triggers[source] ?? triggerCatalog[source];
+    const provider = catalog.providers.find((item) => item.source === source);
+    setDraft((current) => ({ ...current, source, triggerKey: triggers[0]?.key ?? '', actionType: allowedActions(source)[0]?.type ?? 'create_task', conditions: [], actionConfig: {}, sourceAccountId: provider?.accountId ?? null }));
     setError('');
   };
   const addCondition = () => setDraft((current) => ({ ...current, conditions: [...current.conditions, { field: conditionFields[current.source][0] ?? '', operator: 'equals', value: '' }] }));
@@ -127,12 +138,17 @@ function BuilderDialog({ open, editing, onClose, onSubmit }: { open: boolean; ed
     onSubmit({ ...draft, conditions: draft.conditions.filter((condition) => condition.value.trim()) });
   };
 
-  const actions = allowedActions(draft.source);
+  const actions = (catalog.actions.length ? catalog.actions : actionCatalog).filter((action) => allowedActions(draft.source).some((allowed) => allowed.type === action.type));
+  const triggers = catalog.triggers[draft.source] ?? triggerCatalog[draft.source];
+  const action = actions.find((item) => item.type === draft.actionType);
+  const provider = catalog.providers.find((item) => item.source === draft.source);
+  const providerReady = !provider || provider.status === 'connected';
   const reviewName = draft.name.trim() || suggestedName(draft.source);
 
   return (
     <FocusDialog open={open} onClose={onClose} title={editing ? 'Edit automation' : 'New automation'} description="Choose a source signal, narrow it if needed, then decide what Rhythm should do." testId="automations-builder-dialog" wide>
       <form className="automation-builder" onSubmit={submit}>
+        <fieldset disabled={!canMutate} aria-describedby={!canMutate ? 'automations-read-only' : undefined}>
         {error && <div className="automation-form-error" role="alert" data-testid="automation-builder-error">{error}</div>}
         <section className="builder-section" aria-labelledby="automation-source-heading">
           <h3 id="automation-source-heading">Source</h3>
@@ -143,6 +159,7 @@ function BuilderDialog({ open, editing, onClose, onSubmit }: { open: boolean; ed
                 {sourceOrder.map((source) => <option value={source} key={source}>{sourceLabels[source]}</option>)}
               </select>
             </label>
+            {draft.source !== 'rhythm' && <p className="automation-provider-state" role="status" data-testid="automation-provider-state">{provider?.accountLabel ?? 'No provider account'} · {provider?.status ?? 'catalog unavailable'}</p>}
           </div>
         </section>
 
@@ -150,7 +167,7 @@ function BuilderDialog({ open, editing, onClose, onSubmit }: { open: boolean; ed
           <h3 id="automation-trigger-heading">Trigger</h3>
           <label className="automation-field">Trigger
             <select value={draft.triggerKey} onChange={(event) => setDraft((current) => ({ ...current, triggerKey: event.target.value }))} data-testid="automation-trigger">
-              {triggerCatalog[draft.source].map((trigger) => <option value={trigger.key} key={trigger.key}>{trigger.label}</option>)}
+              {triggers.map((trigger) => <option value={trigger.key} key={trigger.key}>{trigger.label}</option>)}
             </select>
           </label>
         </section>
@@ -184,29 +201,35 @@ function BuilderDialog({ open, editing, onClose, onSubmit }: { open: boolean; ed
               {actions.map((action) => <option value={action.type} key={action.type}>{action.label}</option>)}
             </select>
           </label>
+          {action?.configFields?.map((field) => <label className="automation-field span-2" key={field.key}>{field.label}<input value={draft.actionConfig[field.key] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, actionConfig: { ...current.actionConfig, [field.key]: event.target.value } }))} data-testid={`automation-action-config-${field.key}`} /></label>)}
         </section>
 
         <section className="builder-review" aria-labelledby="automation-review-heading" data-testid="automation-review">
           <h3 id="automation-review-heading">{reviewName}</h3>
-          <dl><div><dt>Provider</dt><dd>{sourceLabels[draft.source]}</dd></div><div><dt>Trigger</dt><dd>{triggerCatalog[draft.source].find((trigger) => trigger.key === draft.triggerKey)?.label}</dd></div><div><dt>Action</dt><dd>{actions.find((action) => action.type === draft.actionType)?.label}</dd></div></dl>
+          <dl><div><dt>Provider</dt><dd>{provider?.accountLabel ?? sourceLabels[draft.source]}</dd></div><div><dt>Trigger</dt><dd>{triggers.find((trigger) => trigger.key === draft.triggerKey)?.label}</dd></div><div><dt>Action</dt><dd>{actions.find((action) => action.type === draft.actionType)?.label}</dd></div></dl>
         </section>
+
+        {!providerReady && <p role="alert" data-testid="automation-provider-write-blocked">Reconnect {provider?.accountLabel ?? sourceLabels[draft.source]} before creating or updating this automation.</p>}
 
         <footer className="builder-actions">
           <button className="secondary-button" type="button" onClick={onClose} data-testid="automation-builder-cancel">Cancel</button>
-          <button className="primary-button" type="submit" data-testid="automation-builder-submit">{editing ? 'Save automation' : 'Create automation'}</button>
+          <button className="primary-button" type="submit" disabled={!providerReady} data-testid="automation-builder-submit">{editing ? 'Save automation' : 'Create automation'}</button>
         </footer>
+        </fieldset>
       </form>
     </FocusDialog>
   );
 }
 
-function AutomationRuleRow({ rule, onSelect, onToggle, onPreview, onEdit, onDelete }: {
+function AutomationRuleRow({ rule, onSelect, onToggle, onPreview, onEdit, onDelete, canMutate, canWrite }: {
   rule: RhythmAutomation;
   onSelect(): void;
   onToggle(enabled: boolean): void;
   onPreview(): void;
   onEdit(): void;
   onDelete(): void;
+  canMutate: boolean;
+  canWrite: boolean;
 }) {
   const labelId = useId();
   return (
@@ -219,10 +242,10 @@ function AutomationRuleRow({ rule, onSelect, onToggle, onPreview, onEdit, onDele
       <div className="rule-actions">
         <label className="automation-toggle">
           <span className="sr-only" id={labelId}>{rule.enabled ? 'Disable' : 'Enable'} {rule.name}</span>
-          <input type="checkbox" checked={rule.enabled} aria-labelledby={labelId} onChange={(event) => onToggle(event.target.checked)} data-testid={`automation-toggle-${rule.id}`} />
+          <input type="checkbox" disabled={!canWrite} checked={rule.enabled} aria-labelledby={labelId} onChange={(event) => onToggle(event.target.checked)} data-testid={`automation-toggle-${rule.id}`} />
         </label>
-        <button className="secondary-button" type="button" onClick={onEdit} data-testid={`automation-edit-${rule.id}`}>Edit</button>
-        <button className="icon-button danger-control" type="button" aria-label={`Delete ${rule.name}`} onClick={onDelete} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} /></button>
+        <button className="secondary-button" type="button" disabled={!canWrite} onClick={onEdit} data-testid={`automation-edit-${rule.id}`}>Edit</button>
+        <button className="icon-button danger-control" type="button" disabled={!canMutate} aria-label={`Delete ${rule.name}`} onClick={onDelete} data-testid={`automation-delete-${rule.id}`}><Icon name="delete" size={15} /></button>
       </div>
       <button className="rule-inspect" type="button" onClick={onPreview} data-testid={`automation-preview-${rule.id}`}><Icon name="search" size={14} />Preview history</button>
     </section>
@@ -231,6 +254,7 @@ function AutomationRuleRow({ rule, onSelect, onToggle, onPreview, onEdit, onDele
 
 export function AutomationsScreen() {
   const { automations: gateway } = useRhythmDomainGateway();
+  const host = useRhythmHost();
   const [surfaceState, setSurfaceState] = useState<SurfaceState>('loading');
   const [rules, setRules] = useState<RhythmAutomation[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
@@ -238,7 +262,12 @@ export function AutomationsScreen() {
   const [editingRule, setEditingRule] = useState<RhythmAutomation | null>(null);
   const [previewRuleId, setPreviewRuleId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RhythmAutomation | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState('');
+  const [catalog, setCatalog] = useState<AutomationCatalog>(fallbackCatalog);
+  const [fetchedPreview, setFetchedPreview] = useState<{ id: string; summary: string; matchedAt: string | null; matchCount: number } | null>(null);
+  const [resyncStatus, setResyncStatus] = useState('');
   const [mutationPending, setMutationPending] = useState(false);
+  const canMutate = host.currentUser.capabilities?.includes('automations.write') ?? false;
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';
@@ -258,12 +287,22 @@ export function AutomationsScreen() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => {
+    if (!gateway.catalog) return;
+    let active = true;
+    void gateway.catalog().then((loaded) => { if (active) { setCatalog(loaded); setCatalogStatus(loaded.providers.some((provider) => provider.status === 'stale') ? 'A provider catalog is stale; reconnect or resync before changing dependent rules.' : ''); } }).catch(() => { if (active) setCatalogStatus('Catalog unavailable. Existing rules remain available to inspect.'); });
+    return () => { active = false; };
+  }, [gateway]);
 
   const showsRules = surfaceState === 'ready';
   const groupedRules = sourceOrder.map((source) => ({ source, rules: rules.filter((rule) => rule.source === source) })).filter((group) => group.rules.length);
   const enabledCount = rules.filter((rule) => rule.enabled).length;
   const inspectorRule = rules.find((rule) => rule.id === selectedRuleId) ?? null;
   const previewRule = rules.find((rule) => rule.id === previewRuleId) ?? null;
+  const providerReady = (source: AutomationSource) => {
+    const provider = catalog.providers.find((item) => item.source === source);
+    return !provider || provider.status === 'connected';
+  };
 
   const openBuilder = (rule: RhythmAutomation | null = null) => {
     setEditingRule(rule);
@@ -275,16 +314,17 @@ export function AutomationsScreen() {
   };
 
   const submitBuilder = async (draft: BuilderDraft) => {
+    if (!canMutate || !providerReady(draft.source)) return;
     const name = draft.name.trim() || suggestedName(draft.source);
-    const triggerLabel = triggerCatalog[draft.source].find((trigger) => trigger.key === draft.triggerKey)?.label ?? '';
-    const actionLabel = actionCatalog.find((action) => action.type === draft.actionType)?.label ?? '';
+    const triggerLabel = (catalog.triggers[draft.source] ?? triggerCatalog[draft.source]).find((trigger) => trigger.key === draft.triggerKey)?.label ?? '';
+    const actionLabel = (catalog.actions.length ? catalog.actions : actionCatalog).find((action) => action.type === draft.actionType)?.label ?? '';
     setMutationPending(true);
     try {
       if (editingRule) {
-        const updated = await gateway.update(editingRule.id, { name, enabled: editingRule.enabled, conditions: draft.conditions });
+        const updated = await gateway.update(editingRule.id, { name, source: draft.source, sourceAccountId: draft.sourceAccountId, triggerKey: draft.triggerKey, triggerLabel, actionType: draft.actionType, actionLabel, actionConfig: draft.actionConfig, enabled: editingRule.enabled, conditions: draft.conditions });
         setRules((current) => current.map((rule) => (rule.id === updated.id ? updated : rule)));
       } else {
-        const created = await gateway.create({ name, source: draft.source, triggerKey: draft.triggerKey, triggerLabel, actionType: draft.actionType, actionLabel, conditions: draft.conditions, enabled: true });
+        const created = await gateway.create({ name, source: draft.source, sourceAccountId: draft.sourceAccountId, triggerKey: draft.triggerKey, triggerLabel, actionType: draft.actionType, actionLabel, actionConfig: draft.actionConfig, conditions: draft.conditions, enabled: true });
         setRules((current) => [...current, created]);
         setSelectedRuleId(created.id);
       }
@@ -297,6 +337,7 @@ export function AutomationsScreen() {
   };
 
   const toggleRule = async (rule: RhythmAutomation, enabled: boolean) => {
+    if (!canMutate || !providerReady(rule.source)) return;
     setMutationPending(true);
     try {
       const updated = await gateway.update(rule.id, { enabled });
@@ -310,6 +351,7 @@ export function AutomationsScreen() {
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
+    if (!canMutate) return;
     setMutationPending(true);
     try {
       await gateway.delete(deleteTarget.id);
@@ -323,12 +365,33 @@ export function AutomationsScreen() {
     }
   };
 
+  const openPreview = (rule: RhythmAutomation) => {
+    setPreviewRuleId(rule.id);
+    setFetchedPreview(null);
+    if (!gateway.preview) return;
+    void gateway.preview(rule.id).then((preview) => setFetchedPreview({ id: rule.id, summary: preview.summary, matchedAt: preview.matchedAt, matchCount: preview.matchCount })).catch(() => setFetchedPreview({ id: rule.id, summary: 'Preview could not be refreshed. Historical details remain available.', matchedAt: rule.lastMatchedAt, matchCount: rule.matchCountLastRun }));
+  };
+
+  const resyncRule = async (rule: RhythmAutomation) => {
+    if (!canMutate || !gateway.resync) return;
+    setResyncStatus(`Resyncing ${rule.name}…`);
+    try {
+      const updated = await gateway.resync(rule.id);
+      setRules((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setResyncStatus(`${rule.name} resynced. ${updated.matchCountLastRun} matched last run.`);
+    } catch {
+      setResyncStatus(`${rule.name} could not resync. Reconnect its provider and retry.`);
+    }
+  };
+
   return (
     <ScreenRoot screenName="Automations" testId="rhythm-automations-screen">
       <section className="page-shell pg-automations" aria-busy={surfaceState === 'loading'}>
         <header className="automations-header">
           <div className="automations-heading"><h1>Automations</h1><p>Create and inspect rules that turn incoming signals into tasks, schedules, or notifications.</p></div>
         </header>
+        {catalogStatus && <p role="status" data-testid="automation-catalog-status">{catalogStatus}</p>}
+        {!canMutate && <p role="status" data-testid="automations-read-only">You can inspect automations, but this account cannot create, edit, pause, or delete rules.</p>}
 
         {!showsRules && <StatePanel state={surfaceState} onRetry={() => void load()} onCreate={() => openBuilder()} />}
 
@@ -339,7 +402,7 @@ export function AutomationsScreen() {
                 <div><dt>Rules</dt><dd data-testid="automations-rule-count">{rules.length}</dd></div>
                 <div><dt>Enabled</dt><dd data-testid="automations-enabled-count">{enabledCount}</dd></div>
               </dl>
-              <button className="primary-button" type="button" onClick={() => openBuilder()} disabled={mutationPending} data-testid="automations-new"><Icon name="plus" size={15} />New automation</button>
+              <button className="primary-button" type="button" onClick={() => openBuilder()} disabled={mutationPending || !canMutate} data-testid="automations-new"><Icon name="plus" size={15} />New automation</button>
             </section>
 
             <div className="automation-workspace" aria-label="Automation rules and inspector">
@@ -354,9 +417,11 @@ export function AutomationsScreen() {
                           rule={rule}
                           onSelect={() => setSelectedRuleId(rule.id)}
                           onToggle={(enabled) => void toggleRule(rule, enabled)}
-                          onPreview={() => setPreviewRuleId(rule.id)}
+                          onPreview={() => openPreview(rule)}
                           onEdit={() => openBuilder(rule)}
                           onDelete={() => setDeleteTarget(rule)}
+                          canMutate={canMutate}
+                          canWrite={canMutate && providerReady(rule.source)}
                         />
                       ))}
                     </div>
@@ -377,6 +442,9 @@ export function AutomationsScreen() {
                       <div><dt>Matches last run</dt><dd>{inspectorRule.matchCountLastRun}</dd></div>
                       <div><dt>Last matched</dt><dd>{dateTimeLabel(inspectorRule.lastMatchedAt)}</dd></div>
                     </dl>
+                    {catalog.providers.find((provider) => provider.source === inspectorRule.source)?.status === 'stale' && <p role="alert" data-testid="automation-provider-stale">This provider is stale. Reconnect it before depending on new matches.</p>}
+                    {gateway.resync && <button className="secondary-button" type="button" disabled={!canMutate || mutationPending} onClick={() => void resyncRule(inspectorRule)} data-testid="automation-resync">Resync rule</button>}
+                    {resyncStatus && <p role="status" aria-live="polite" data-testid="automation-resync-status">{resyncStatus}</p>}
                   </div>
                 ) : (
                   <div className="automation-inspector-empty"><strong>Select an automation</strong><p>Choose a rule to inspect its trigger, action, account, and latest match evidence.</p></div>
@@ -387,16 +455,16 @@ export function AutomationsScreen() {
         )}
       </section>
 
-      <BuilderDialog open={builderOpen} editing={editingRule} onClose={closeBuilder} onSubmit={(draft) => void submitBuilder(draft)} />
+      <BuilderDialog open={builderOpen} editing={editingRule} catalog={catalog} canMutate={canMutate} onClose={closeBuilder} onSubmit={(draft) => void submitBuilder(draft)} />
 
       <FocusDialog open={Boolean(previewRule)} onClose={() => setPreviewRuleId(null)} title={previewRule?.name ?? 'Automation preview'} description="Historical rule metadata. Preview does not execute this automation." testId="automation-preview-dialog" wide>
         {previewRule && (
           <div className="automation-preview">
             <div className="preview-path"><span>{sourceLabels[previewRule.source]}</span><Icon name="chevronRight" size={15} /><strong>{previewRule.actionLabel}</strong></div>
-            <p className="preview-summary">{previewRule.previewSummary}</p>
+            <p className="preview-summary" data-testid="automation-preview-summary">{fetchedPreview?.id === previewRule.id ? fetchedPreview.summary : previewRule.previewSummary}</p>
             <dl>
-              <div><dt>Matches last run</dt><dd>{previewRule.matchCountLastRun} {previewRule.matchCountLastRun === 1 ? 'match' : 'matches'} last run</dd></div>
-              <div><dt>Last matched</dt><dd>{dateTimeLabel(previewRule.lastMatchedAt)}</dd></div>
+              <div><dt>Matches last run</dt><dd>{fetchedPreview?.id === previewRule.id ? fetchedPreview.matchCount : previewRule.matchCountLastRun} {(fetchedPreview?.id === previewRule.id ? fetchedPreview.matchCount : previewRule.matchCountLastRun) === 1 ? 'match' : 'matches'} last run</dd></div>
+              <div><dt>Last matched</dt><dd>{dateTimeLabel(fetchedPreview?.id === previewRule.id ? fetchedPreview.matchedAt : previewRule.lastMatchedAt)}</dd></div>
             </dl>
             <div className="preview-actions"><button className="primary-button" type="button" data-autofocus onClick={() => setPreviewRuleId(null)} data-testid="automation-preview-close">Close preview</button></div>
           </div>

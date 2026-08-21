@@ -422,6 +422,8 @@ export interface FacilitiesGateway {
   createReservation(input: CreateReservationInput): Promise<RhythmReservation>;
   updateReservation(id: string, input: Partial<Pick<RhythmReservation, 'title' | 'start' | 'end' | 'notes'>>): Promise<RhythmReservation>;
   deleteReservation(id: string): Promise<void>;
+  /** Preferred atomic server operation for a recurrence/automation cleanup. */
+  deleteReservations?(ids: string[]): Promise<{ deletedIds: string[] }>;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -498,16 +500,32 @@ export interface RhythmAutomation {
   matchCountLastRun: number;
   previewSummary: string;
   conditions: AutomationCondition[];
+  /** Provider-owned values such as templates or a selected room. */
+  actionConfig?: Record<string, string>;
+  /** A host account identifier; only meaningful for external providers. */
+  sourceAccountId?: string | null;
 }
 
-export type CreateAutomationInput = Pick<RhythmAutomation, 'name' | 'source' | 'triggerKey' | 'triggerLabel' | 'actionType' | 'actionLabel'> & Partial<Pick<RhythmAutomation, 'conditions' | 'enabled'>>;
+export type CreateAutomationInput = Pick<RhythmAutomation, 'name' | 'source' | 'triggerKey' | 'triggerLabel' | 'actionType' | 'actionLabel'> & Partial<Pick<RhythmAutomation, 'conditions' | 'enabled' | 'actionConfig' | 'sourceAccountId'>>;
 
 export interface AutomationsGateway {
   list(): Promise<RhythmAutomation[]>;
   create(input: CreateAutomationInput): Promise<RhythmAutomation>;
-  update(id: string, input: Partial<Pick<RhythmAutomation, 'name' | 'enabled' | 'conditions'>>): Promise<RhythmAutomation>;
+  update(id: string, input: Partial<Pick<RhythmAutomation, 'name' | 'source' | 'triggerKey' | 'triggerLabel' | 'actionType' | 'actionLabel' | 'enabled' | 'conditions' | 'actionConfig' | 'sourceAccountId'>>): Promise<RhythmAutomation>;
   delete(id: string): Promise<void>;
+  /** Optional live catalog/detail ports. Hosts that do not provide them retain the list view. */
+  catalog?(): Promise<AutomationCatalog>;
+  preview?(id: string): Promise<AutomationPreview>;
+  resync?(id: string): Promise<RhythmAutomation>;
 }
+
+export interface AutomationCatalog {
+  providers: Array<{ source: AutomationSource; status: 'connected' | 'stale' | 'disconnected'; accountId?: string; accountLabel?: string }>;
+  triggers: Partial<Record<AutomationSource, Array<{ key: string; label: string }>>>;
+  actions: Array<{ type: AutomationActionType; label: string; configFields?: Array<{ key: string; label: string }> }>;
+}
+
+export interface AutomationPreview { summary: string; matchedAt: string | null; matchCount: number; }
 
 // ---------------------------------------------------------------------------------------
 // The composed, host-provided gateway. Deliberately has no `sessions`, `approvals`,

@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureIntegrationsGateway, failingIntegrationsGa
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'user-aj', displayName: 'AJ Hochhalter', initials: 'AH', capabilities: ['facilities.manage', 'facilities.reserve', 'automations.write', 'integrations.write'] as const }, ...overrides };
 }
 
 function mountIntegrations(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {

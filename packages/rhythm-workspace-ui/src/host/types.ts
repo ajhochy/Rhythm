@@ -39,13 +39,21 @@ export interface RhythmHostTokens {
 export type RhythmViewport = 'compact' | 'regular' | 'expanded';
 
 export interface RhythmCurrentUser {
-  /** Stable host identity used only for local owner/capability decisions. */
+  /** Stable host identity used only for local owner/capability decisions; never a credential. */
   id?: string;
   displayName: string;
   initials: string;
-  /** Omit or set read when the embedded surface is inspect-only. */
+  /** Omit or set read when the collaboration surfaces are inspect-only. */
   collaborationCapability?: 'read' | 'write';
+  /** Host-neutral, affirmative capabilities. An absent list is intentionally read-only. */
+  capabilities?: readonly RhythmWorkspaceCapability[];
 }
+
+export type RhythmWorkspaceCapability =
+  | 'facilities.manage'
+  | 'facilities.reserve'
+  | 'automations.write'
+  | 'integrations.write';
 
 /** The ten non-agent screens this package exposes — used only for host-owned, in-package
  * cross-screen navigation (e.g. Dashboard's "Open planner" shortcut). Never includes an

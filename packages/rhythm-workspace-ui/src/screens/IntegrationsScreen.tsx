@@ -10,7 +10,7 @@
 // tests/forbidden-imports.test.ts). The local "handoff" dialog after requesting authorization is
 // purely informational (mirrors production's fixture-mode confirmation) and never contacts a
 // live service.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
@@ -63,6 +63,8 @@ export function IntegrationsScreen() {
   const [handoff, setHandoff] = useState<{ provider: IntegrationProviderId | 'google'; label: string } | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<IntegrationProviderId | null>(null);
   const [mutationPending, setMutationPending] = useState(false);
+  const canMutate = host.currentUser.capabilities?.includes('integrations.write') ?? false;
+  const mountedRef = useRef(true);
 
   const account = (id: IntegrationProviderId) => accounts.find((item) => item.id === id) ?? { id, name: PROVIDER_NAMES[id], monogram: '', status: 'disconnected' as const };
   const connectedCount = accounts.filter((item) => item.status === 'connected').length;
@@ -76,21 +78,23 @@ export function IntegrationsScreen() {
     setSurfaceState('loading');
     try {
       const [loadedAccounts, loadedCalendarSources] = await Promise.all([gateway.accounts(), gateway.calendarSources()]);
+      if (!mountedRef.current) return;
       setAccounts(loadedAccounts);
       setCalendarSources(loadedCalendarSources);
       setCalendarSelection(loadedCalendarSources.filter((source) => source.selected).map((source) => source.id));
       setSurfaceState(loadedAccounts.every((item) => item.status === 'disconnected') ? 'empty' : 'ready');
     } catch (error) {
+      if (!mountedRef.current) return;
       handleError(error);
     }
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => { mountedRef.current = true; void load(); return () => { mountedRef.current = false; }; }, [gateway]);
 
   useEffect(() => {
     if (selectedSection === 'gmail' && account('gmail').status === 'connected' && !gmailSignals.length) {
-      void gateway.gmailSignals().then(setGmailSignals);
+      void gateway.gmailSignals().then((signals) => { if (mountedRef.current) setGmailSignals(signals); }).catch(() => { if (mountedRef.current) setProviderStatus((current) => ({ ...current, gmail: 'Gmail signals could not load. Retry syncing Gmail.' })); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSection, accounts]);
@@ -98,31 +102,37 @@ export function IntegrationsScreen() {
   const showsWorkspace = surfaceState === 'ready';
 
   const requestConnect = (id: IntegrationProviderId, section: Section = id) => {
+    if (!canMutate) return;
     setSelectedSection(section);
     gateway.requestAuthorization(id);
     setHandoff({ provider: id, label: `Reconnecting ${PROVIDER_NAMES[id]}` });
   };
 
   const syncProvider = async (id: IntegrationProviderId) => {
+    if (!canMutate) return;
     setProviderBusy(id);
     setProviderStatus((current) => ({ ...current, [id]: `Syncing ${PROVIDER_NAMES[id]}…` }));
     try {
       const updated = await gateway.sync(id);
+      if (!mountedRef.current) return;
       setAccounts((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setProviderStatus((current) => ({ ...current, [id]: `${PROVIDER_NAMES[id]} synced.` }));
     } catch (error) {
+      if (!mountedRef.current) return;
       setProviderStatus((current) => ({ ...current, [id]: `${PROVIDER_NAMES[id]} could not sync. Existing data was kept.` }));
-      handleError(error);
+      // Keep the current inspector and show a provider-local recovery message.
     } finally {
-      setProviderBusy(null);
+      if (mountedRef.current) setProviderBusy(null);
     }
   };
 
   const syncAll = async () => {
+    if (!canMutate) return;
     setSyncingAll(true);
     setSyncAllStatus('Syncing connected services…');
     const connected = accounts.filter((item) => item.status === 'connected');
     const results = await Promise.all(connected.map((item) => gateway.sync(item.id).then((updated) => ({ ok: true as const, updated })).catch(() => ({ ok: false as const, id: item.id }))));
+    if (!mountedRef.current) return;
     setAccounts((current) => current.map((item) => {
       const match = results.find((result) => (result.ok ? result.updated.id === item.id : result.id === item.id));
       return match?.ok ? match.updated : item;
@@ -134,25 +144,34 @@ export function IntegrationsScreen() {
 
   const confirmDisconnect = async () => {
     if (!disconnectTarget) return;
+    if (!canMutate) return;
     setMutationPending(true);
     try {
       const updated = await gateway.disconnect(disconnectTarget);
+      if (!mountedRef.current) return;
       setAccounts((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setDisconnectTarget(null);
     } catch (error) {
       handleError(error);
     } finally {
-      setMutationPending(false);
+      if (mountedRef.current) setMutationPending(false);
     }
   };
 
   const saveCalendarSelection = async () => {
+    if (!canMutate) return;
+    setMutationPending(true);
+    setCalendarSaveStatus('Saving calendar sources…');
     try {
       const saved = await gateway.saveCalendarSelection(calendarSelection);
+      if (!mountedRef.current) return;
       setCalendarSources(saved);
       setCalendarSaveStatus('Calendar sources saved.');
     } catch (error) {
-      handleError(error);
+      if (!mountedRef.current) return;
+      setCalendarSaveStatus('Calendar sources could not be saved. Your selection is still here; retry when the service is available.');
+    } finally {
+      if (mountedRef.current) setMutationPending(false);
     }
   };
 
@@ -170,8 +189,9 @@ export function IntegrationsScreen() {
         <header className="integrations-header">
           <div><h1>Integrations</h1><p>Bring trusted schedule and inbox context into Rhythm, then keep each provider in sync.</p></div>
           <div className="integrations-header-meta"><span data-testid="integrations-connected-count"><strong>{connectedCount}</strong> / 3 connected</span></div>
-          {showsWorkspace && <button className="primary-button" type="button" onClick={() => void syncAll()} disabled={syncingAll || connectedCount === 0 || mutationPending} data-testid="integrations-sync-all">{syncingAll ? 'Syncing…' : 'Sync all'}</button>}
+          {showsWorkspace && <button className="primary-button" type="button" onClick={() => void syncAll()} disabled={syncingAll || connectedCount === 0 || mutationPending || !canMutate} data-testid="integrations-sync-all">{syncingAll ? 'Syncing…' : 'Sync all'}</button>}
         </header>
+        {!canMutate && <p role="status" data-testid="integrations-read-only">You can inspect connections, but this account cannot change integration settings.</p>}
 
         {!showsWorkspace && <StatePanel state={surfaceState} onRetry={() => void load()} onConnect={() => requestConnect('google-calendar')} />}
 
@@ -187,11 +207,11 @@ export function IntegrationsScreen() {
                       <span className="integrations-status" data-testid={`integration-status-${id}`}>{statusLabel(item)}</span>
                     </button>
                     <div className="integrations-provider-actions">
-                      {item.status === 'connected' && <button className="secondary-button" type="button" disabled={providerBusy !== null} onClick={() => void syncProvider(id)} data-testid={`integration-sync-${id}`}>{providerBusy === id ? 'Syncing…' : 'Sync'}</button>}
+                      {item.status === 'connected' && <button className="secondary-button" type="button" disabled={providerBusy !== null || !canMutate} onClick={() => void syncProvider(id)} data-testid={`integration-sync-${id}`}>{providerBusy === id ? 'Syncing…' : 'Sync'}</button>}
                       {item.status === 'disconnected'
-                        ? <button className="secondary-button" type="button" onClick={() => requestConnect(id)} data-testid={`integration-connect-${id}`}>Connect</button>
-                        : <button className="secondary-button" type="button" onClick={() => requestConnect(id)} data-testid={`integration-reconnect-${id}`}>Reconnect</button>}
-                      {item.status !== 'disconnected' && <button className="text-danger-button" type="button" onClick={() => setDisconnectTarget(id)} data-testid={`integration-disconnect-${id}`}>Disconnect</button>}
+                        ? <button className="secondary-button" type="button" disabled={!canMutate} onClick={() => requestConnect(id)} data-testid={`integration-connect-${id}`}>Connect</button>
+                        : <button className="secondary-button" type="button" disabled={!canMutate} onClick={() => requestConnect(id)} data-testid={`integration-reconnect-${id}`}>Reconnect</button>}
+                      {item.status !== 'disconnected' && <button className="text-danger-button" type="button" disabled={!canMutate} onClick={() => setDisconnectTarget(id)} data-testid={`integration-disconnect-${id}`}>Disconnect</button>}
                     </div>
                     <p role="status" aria-live="polite" className="integrations-provider-live" data-testid={`integration-sync-status-${id}`}>{providerStatus[id]}</p>
                   </section>
@@ -215,15 +235,15 @@ export function IntegrationsScreen() {
                       <div className="integrations-section-heading">
                         <div><h3>Calendar sources</h3><p>Choose subscribed calendars that can create shadow-event context.</p></div>
                         <div className="integrations-inline-actions">
-                          <button className="text-button" type="button" onClick={() => setCalendarSelection(calendarSources.map((source) => source.id))} data-testid="integration-calendar-select-all">All</button>
-                          <button className="text-button" type="button" onClick={() => setCalendarSelection([])} data-testid="integration-calendar-select-none">None</button>
+                          <button className="text-button" type="button" disabled={!canMutate} onClick={() => setCalendarSelection(calendarSources.map((source) => source.id))} data-testid="integration-calendar-select-all">All</button>
+                          <button className="text-button" type="button" disabled={!canMutate} onClick={() => setCalendarSelection([])} data-testid="integration-calendar-select-none">None</button>
                         </div>
                       </div>
                       <p data-testid="integration-calendar-summary">{calendarSelection.length} of {calendarSources.length} selected</p>
                       <div className="integrations-calendar-list">
                         {calendarSources.map((source) => (
                           <label key={source.id}>
-                            <input type="checkbox" checked={calendarSelection.includes(source.id)} onChange={() => setCalendarSelection((current) => current.includes(source.id) ? current.filter((id) => id !== source.id) : [...current, source.id])} data-testid={`integration-calendar-option-${source.id}`} />
+                            <input type="checkbox" disabled={!canMutate} checked={calendarSelection.includes(source.id)} onChange={() => setCalendarSelection((current) => current.includes(source.id) ? current.filter((id) => id !== source.id) : [...current, source.id])} data-testid={`integration-calendar-option-${source.id}`} />
                             <span><strong>{source.name}</strong><small>{source.description}</small></span>
                             {source.primary && <em>Primary</em>}
                           </label>
@@ -231,7 +251,7 @@ export function IntegrationsScreen() {
                       </div>
                       <div className="integrations-save-row">
                         <span role="status" aria-live="polite" data-testid="integration-calendar-save-status">{calendarSaveStatus}</span>
-                        <button className="primary-button" type="button" onClick={() => void saveCalendarSelection()} data-testid="integration-calendar-save">Save sources</button>
+                        <button className="primary-button" type="button" disabled={mutationPending || !canMutate} onClick={() => void saveCalendarSelection()} data-testid="integration-calendar-save">Save sources</button>
                       </div>
                     </div>
                   ) : (
@@ -295,7 +315,7 @@ export function IntegrationsScreen() {
       <FocusDialog open={Boolean(disconnectTarget)} onClose={() => setDisconnectTarget(null)} title={disconnectTarget ? `Disconnect ${PROVIDER_NAMES[disconnectTarget]}?` : 'Disconnect provider?'} description="This removes the connection. You can reconnect at any time." testId="integration-disconnect-dialog">
         <div className="dialog-actions">
           <button className="secondary-button" type="button" onClick={() => setDisconnectTarget(null)} data-testid="integration-disconnect-cancel">Cancel</button>
-          <button className="danger-button" type="button" disabled={mutationPending} onClick={() => void confirmDisconnect()} data-testid="integration-disconnect-confirm">Disconnect</button>
+          <button className="danger-button" type="button" disabled={mutationPending || !canMutate} onClick={() => void confirmDisconnect()} data-testid="integration-disconnect-confirm">Disconnect</button>
         </div>
       </FocusDialog>
     </ScreenRoot>

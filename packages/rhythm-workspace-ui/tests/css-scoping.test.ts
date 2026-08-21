@@ -47,6 +47,13 @@ function topLevelSelectors(source: string): string[] {
 }
 
 describe('scoped stylesheet', () => {
+  it('issue-4-c1: styles manifest imports operations so every operations selector is reachable from the public stylesheet', () => {
+    const manifest = readFileSync(join(STYLES_ROOT, 'rhythm.css'), 'utf8');
+    expect(manifest).toContain("@import './operations.css';");
+    for (const screen of ['facilities.css', 'integrations.css', 'automations.css']) {
+      expect(readFileSync(join(STYLES_ROOT, 'operations.css'), 'utf8')).toContain(screen);
+    }
+  });
   it('is non-empty and defines at least one rule', () => {
     expect(css.trim().length).toBeGreaterThan(0);
   });
