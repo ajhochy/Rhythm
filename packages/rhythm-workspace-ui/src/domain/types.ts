@@ -18,7 +18,7 @@
 /** A gateway rejects with this — never a raw HTTP status or a transport-specific error class —
  * so a screen can drive its loading/empty/error/forbidden/readonly state machine without
  * knowing anything about REST, GraphQL, or IPC. */
-export type RhythmGatewayErrorKind = 'forbidden' | 'not_found' | 'unavailable' | 'server_error';
+export type RhythmGatewayErrorKind = 'forbidden' | 'not_found' | 'unavailable' | 'server_error' | 'conflict' | 'uncertain';
 
 export class RhythmGatewayError extends Error {
   constructor(readonly kind: RhythmGatewayErrorKind, message: string) {

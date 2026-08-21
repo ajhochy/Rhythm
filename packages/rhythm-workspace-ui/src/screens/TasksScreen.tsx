@@ -125,8 +125,13 @@ export function TasksScreen() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [mutationPending, setMutationPending] = useState(false);
   const [operationTarget, setOperationTarget] = useState<{ task: RhythmTask; operation: 'complete' | 'reschedule'; scheduledDate?: string; generation: string } | null>(null);
+  const [operationError, setOperationError] = useState<'conflict' | 'uncertain' | null>(null);
   const createTitleRef = useRef<HTMLInputElement>(null);
   const operationGeneration = useRef(0);
+  const operationEpoch = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => () => { mounted.current = false; operationEpoch.current += 1; }, []);
 
   const currentUserId = host.currentUser.initials;
 
@@ -203,7 +208,30 @@ export function TasksScreen() {
     if ((operation === 'complete' && !canComplete) || (operation === 'reschedule' && !canReschedule) || mutationPending) return;
     // This immutable generation binds a human-visible dialog to one foreground action.
     operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationError(null);
     setOperationTarget({ task, operation, scheduledDate: operation === 'reschedule' ? task.scheduledDate ?? new Date().toISOString().slice(0, 10) : undefined, generation: `${task.id}:${operation}:${operationGeneration.current}:${Date.now()}` });
+  };
+
+  const retryTaskOperation = () => {
+    if (!operationTarget || mutationPending) return;
+    // A retry is a new foreground intent, never a reuse of the receipt for the
+    // previous attempt (including an ambiguous one).
+    operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationError(null);
+    setOperationTarget((target) => target && { ...target, generation: `${target.task.id}:${target.operation}:${operationGeneration.current}:${Date.now()}` });
+  };
+
+  const reloadTaskOperationContext = async () => {
+    try {
+      const [loadedTasks, loadedMembers] = await Promise.all([gateway.list(), gateway.members()]);
+      setTasks(loadedTasks);
+      setMembers(loadedMembers);
+      setSurfaceState(loadedTasks.length ? 'ready' : 'empty');
+    } catch (error) {
+      handleError(error);
+    }
   };
 
   const isIsoCalendarDate = (value: string | undefined) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value);
@@ -215,17 +243,30 @@ export function TasksScreen() {
       return;
     }
     const confirmation: RhythmTaskOperationConfirmation = { taskId: operationTarget.task.id, generation: operationTarget.generation, operation: operationTarget.operation, scheduledDate: operationTarget.scheduledDate };
+    const target = operationTarget;
+    const epoch = operationEpoch.current;
     setMutationPending(true);
     try {
       if (host.confirmTaskOperation && !(await host.confirmTaskOperation(confirmation))) return;
-      const updated = operationTarget.operation === 'complete'
-        ? gateway.complete ? await gateway.complete(operationTarget.task.id, operationTarget.generation) : canWrite ? await gateway.update(operationTarget.task.id, { status: 'done' }) : null
-        : gateway.reschedule && operationTarget.scheduledDate ? await gateway.reschedule(operationTarget.task.id, operationTarget.scheduledDate, operationTarget.generation) : canWrite && operationTarget.scheduledDate ? await gateway.update(operationTarget.task.id, { scheduledDate: operationTarget.scheduledDate }) : null;
+      // The host confirmation can suspend across a provider re-home.  Do not let a
+      // receipt issued for the old mounted target perform a write in the new one.
+      if (!mounted.current || operationEpoch.current !== epoch || operationTarget !== target) return;
+      const updated = target.operation === 'complete'
+        ? gateway.complete ? await gateway.complete(target.task.id, target.generation) : canWrite ? await gateway.update(target.task.id, { status: 'done' }) : null
+        : gateway.reschedule && target.scheduledDate ? await gateway.reschedule(target.task.id, target.scheduledDate, target.generation) : canWrite && target.scheduledDate ? await gateway.update(target.task.id, { scheduledDate: target.scheduledDate }) : null;
+      if (!mounted.current || operationEpoch.current !== epoch || operationTarget !== target) return;
       if (!updated) throw new RhythmGatewayError('forbidden', 'This host does not expose the requested task operation.');
       setTasks((current) => current.map((task) => task.id === updated.id ? updated : task));
       setOperationTarget(null);
     } catch (error) {
-      handleError(error);
+      const outcome = (error as { kind?: unknown } | null)?.kind;
+      if (outcome === 'conflict' || outcome === 'uncertain') {
+        // Keep the exact foreground context visible: neither outcome proves a
+        // local success, and the user needs a fresh confirmation to retry.
+        setOperationError(outcome);
+      } else {
+        handleError(error);
+      }
     } finally {
       setMutationPending(false);
     }
@@ -574,10 +615,11 @@ export function TasksScreen() {
           </div>
         </FocusDialog>
 
-        <FocusDialog open={Boolean(operationTarget)} onClose={() => setOperationTarget(null)} title={operationTarget?.operation === 'complete' ? `Complete “${operationTarget.task.title}”?` : `Reschedule “${operationTarget?.task.title ?? ''}”?`} description="This action is sent only after you confirm it." testId="task-operation-confirmation">
+        <FocusDialog open={Boolean(operationTarget)} onClose={() => { operationEpoch.current += 1; setOperationError(null); setOperationTarget(null); }} title={operationTarget?.operation === 'complete' ? `Complete “${operationTarget.task.title}”?` : `Reschedule “${operationTarget?.task.title ?? ''}”?`} description="This action is sent only after you confirm it." testId="task-operation-confirmation">
           {operationTarget?.operation === 'reschedule' && <label>Scheduled date<input type="date" value={operationTarget.scheduledDate ?? ''} onChange={(event) => setOperationTarget((current) => current ? { ...current, scheduledDate: event.target.value } : current)} data-testid="task-operation-date" /></label>}
           <p role="status">{operationTarget?.operation === 'complete' ? 'Mark this task complete.' : `Set the scheduled date to ${operationTarget?.scheduledDate ?? ''}.`}</p>
-          <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setOperationTarget(null)}>Cancel</button><button className="primary-button" type="button" disabled={mutationPending || (operationTarget?.operation === 'reschedule' && !isIsoCalendarDate(operationTarget.scheduledDate))} onClick={() => void confirmTaskOperation()} data-autofocus data-testid="task-operation-confirm">Confirm</button></div>
+          {operationError && <div role="alert" data-testid="task-operation-outcome"><p>{operationError === 'conflict' ? 'This task changed elsewhere. Reload before retrying.' : 'We could not verify whether the task operation was applied. Reload before retrying.'}</p><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => void reloadTaskOperationContext()} data-testid="task-operation-reload">Reload</button><button className="secondary-button" type="button" onClick={retryTaskOperation} data-testid="task-operation-retry">Retry</button></div></div>}
+          <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => { operationEpoch.current += 1; setOperationError(null); setOperationTarget(null); }}>Cancel</button><button className="primary-button" type="button" disabled={mutationPending || (operationTarget?.operation === 'reschedule' && !isIsoCalendarDate(operationTarget.scheduledDate))} onClick={() => void confirmTaskOperation()} data-autofocus data-testid="task-operation-confirm">Confirm</button></div>
         </FocusDialog>
       </section>
     </ScreenRoot>

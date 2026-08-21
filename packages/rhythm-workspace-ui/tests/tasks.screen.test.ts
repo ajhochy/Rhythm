@@ -267,6 +267,53 @@ describe('TasksScreen', () => {
     mounted.unmount();
   });
 
+  it('invalidates a deferred host confirmation on unmount so it performs zero task operations', async () => {
+    // Regression: a confirmation that resolves after provider re-home/unmount must not
+    // complete a task in the newly active host context.
+    const tasksGateway = fixtureTasksGateway();
+    let resolveConfirmation!: (value: boolean) => void;
+    const complete = vi.fn(async (id: string) => tasksGateway.update(id, { status: 'done' }));
+    const mounted = mountTasks(
+      { tasks: { ...tasksGateway, complete } },
+      {
+        currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['tasks.complete'] },
+        confirmTaskOperation: () => new Promise<boolean>(resolve => { resolveConfirmation = resolve; }),
+      },
+    );
+    await flush();
+    await actClick(mounted.byTestId('task-complete-t1')!);
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    mounted.unmount();
+    resolveConfirmation(true);
+    await flush();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it.each(['conflict', 'uncertain'] as const)('keeps the task and exact operation dialog open for a %s outcome, and retries with a fresh confirmation', async (kind) => {
+    const tasksGateway = fixtureTasksGateway();
+    const confirmations = vi.fn<(confirmation: RhythmTaskOperationConfirmation) => Promise<boolean>>(async () => true);
+    const complete = vi.fn(async () => { throw { kind }; });
+    const mounted = mountTasks(
+      { tasks: { ...tasksGateway, complete } },
+      { currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['tasks.complete'] }, confirmTaskOperation: confirmations },
+    );
+    await flush();
+    await actClick(mounted.byTestId('task-complete-t1')!);
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    await flush();
+    expect(complete).toHaveBeenCalledOnce();
+    expect(mounted.byTestId('task-operation-confirmation')).toBeTruthy();
+    expect(mounted.byTestId('task-operation-outcome')?.getAttribute('role')).toBe('alert');
+    expect((await tasksGateway.list()).find(task => task.id === 't1')?.status).toBe('open');
+    const firstGeneration = confirmations.mock.calls[0]![0].generation;
+    await actClick(mounted.byTestId('task-operation-retry')!);
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    await flush();
+    expect(confirmations).toHaveBeenCalledTimes(2);
+    expect(confirmations.mock.calls[1]![0].generation).not.toBe(firstGeneration);
+    mounted.unmount();
+  });
+
   it('drags a task card to a different board column and persists the new status', async () => {
     const tasksGateway = fixtureTasksGateway();
     const mounted = mountTasks({ tasks: tasksGateway });
