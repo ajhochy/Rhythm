@@ -31,6 +31,15 @@ test('ordinary Electron tests exclude package-shaped contracts', async () => {
   assert.match(packageJson.scripts['test:package'], /post-m1-phase-1-packaged-host/);
 });
 
+test('web build declares Node types as a required root dependency', async () => {
+  const webPackage = JSON.parse(await readFile(new URL('../../web/package.json', import.meta.url), 'utf8'));
+  const webLock = JSON.parse(await readFile(new URL('../../web/package-lock.json', import.meta.url), 'utf8'));
+  assert.match(webPackage.devDependencies['@types/node'], /^\^22\./);
+  assert.equal(webLock.packages[''].devDependencies['@types/node'], webPackage.devDependencies['@types/node']);
+  assert.equal(webLock.packages['node_modules/@types/node'].optional, undefined);
+  assert.equal(webLock.packages['node_modules/@types/node'].peer, undefined);
+});
+
 test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
   const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
   for (const workspace of ['apps/web', 'apps/api_server', 'apps/electron']) {
