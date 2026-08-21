@@ -115,6 +115,11 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
   const engineBase = validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
   if (apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
   const productionApiBase = validateProductionApiBase(config.productionApiBase);
+  const localFetcher: Fetcher = (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.delete('authorization');
+    return fetcher(input, { ...init, headers });
+  };
 
   const check = async (service: GatewayService, url: string): Promise<GatewayHealth> => {
     try {
@@ -129,39 +134,36 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
 
   return {
     mode: 'live',
-    // Every domain shares ONE bearer, and it arrives here from the signed-in session rather than
-    // from a build-time constant. Pages must consume these through `useGateway().domains.*` instead
-    // of constructing their own gateway from `import.meta.env.VITE_RHYTHM_LIVE_TOKEN`: that variable
-    // is TEST-ONLY, is unset in a packaged build, and a page wired to it renders a config error for
-    // every real user. Two wiring units independently reached for it because these domains were not
-    // exposed here yet.
+    // The signed-in cloud bearer belongs only on production requests. The local API mirrors
+    // Flutter's localHeaders() trust boundary: a present cloud bearer must be omitted because
+    // AGENT_LOCAL fails closed on invalid Authorization instead of using the local bypass.
     domains: {
-      tasks: createLiveTasksGateway(productionApiBase, config.taskToken),
-      sessions: createLiveSessionsGateway(apiBase, config.taskToken),
-      dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken),
-      planner: createLivePlannerGateway(productionApiBase, config.taskToken),
-      rhythms: createLiveRhythmsGateway(productionApiBase, config.taskToken),
-      projects: createLiveProjectsGateway(productionApiBase, config.taskToken),
-      messages: createLiveMessagesGateway(productionApiBase, config.taskToken),
-      facilities: createLiveFacilitiesGateway(productionApiBase, config.taskToken),
-      automations: createLiveAutomationsGateway(productionApiBase, config.taskToken),
-      integrations: createLiveIntegrationsGateway(productionApiBase, config.taskToken),
-      liveArtifacts: createLiveArtifactsGateway(productionApiBase, config.taskToken),
-      userPreferences: createLiveUserPreferencesGateway(productionApiBase, config.taskToken),
-      notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken),
-      memory: createLiveMemoryGateway(apiBase, config.taskToken),
-      permissions: createLivePermissionGateway(apiBase, config.taskToken),
-      approvals: createLiveApprovalGateway(apiBase, config.taskToken),
-      delegation: createLiveDelegationGateway(apiBase, config.taskToken),
-      mcp: createLiveMcpGateway(apiBase, config.taskToken),
-      skills: createLiveSkillGateway(apiBase, config.taskToken),
-      schedules: createLiveScheduleGateway(apiBase, config.taskToken),
-      mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken),
-      commands: createLiveCommandGateway(apiBase, config.taskToken),
-      runQuality: createLiveRunQualityGateway(apiBase, config.taskToken),
-      cookbook: createLiveCookbookGateway(apiBase, config.taskToken),
-      research: createLiveResearchGateway(apiBase, config.taskToken),
-      designs: createLiveDesignsGateway(apiBase, config.taskToken),
+      tasks: createLiveTasksGateway(productionApiBase, config.taskToken, fetcher),
+      sessions: createLiveSessionsGateway(apiBase, config.taskToken, localFetcher),
+      dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken, fetcher),
+      planner: createLivePlannerGateway(productionApiBase, config.taskToken, fetcher),
+      rhythms: createLiveRhythmsGateway(productionApiBase, config.taskToken, fetcher),
+      projects: createLiveProjectsGateway(productionApiBase, config.taskToken, fetcher),
+      messages: createLiveMessagesGateway(productionApiBase, config.taskToken, fetcher),
+      facilities: createLiveFacilitiesGateway(productionApiBase, config.taskToken, fetcher),
+      automations: createLiveAutomationsGateway(productionApiBase, config.taskToken, fetcher),
+      integrations: createLiveIntegrationsGateway(productionApiBase, config.taskToken, fetcher),
+      liveArtifacts: createLiveArtifactsGateway(productionApiBase, config.taskToken, fetcher),
+      userPreferences: createLiveUserPreferencesGateway(productionApiBase, config.taskToken, fetcher),
+      notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken, fetcher),
+      memory: createLiveMemoryGateway(apiBase, config.taskToken, localFetcher),
+      permissions: createLivePermissionGateway(apiBase, config.taskToken, localFetcher),
+      approvals: createLiveApprovalGateway(apiBase, config.taskToken, localFetcher),
+      delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
+      mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher),
+      skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
+      schedules: createLiveScheduleGateway(apiBase, config.taskToken, localFetcher),
+      mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
+      commands: createLiveCommandGateway(apiBase, config.taskToken, localFetcher),
+      runQuality: createLiveRunQualityGateway(apiBase, config.taskToken, localFetcher),
+      cookbook: createLiveCookbookGateway(apiBase, config.taskToken, localFetcher),
+      research: createLiveResearchGateway(apiBase, config.taskToken, localFetcher),
+      designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),

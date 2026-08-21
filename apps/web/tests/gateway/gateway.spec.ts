@@ -128,6 +128,34 @@ test('slice-2-c5: API and engine health failures remain separate live errors', a
   await expect(live.health.engine()).resolves.toMatchObject({ service: 'engine', state: 'healthy' });
 });
 
+test('post-login local boundary omits the cloud bearer while production keeps it', async () => {
+  const gateway = await loadGateway();
+  expect(gateway, 'renderer gateway module must exist').not.toBeNull();
+  if (!gateway) return;
+  const calls: Array<{ url: string; authorization: string | null }> = [];
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      authorization: new Headers(init?.headers).get('authorization'),
+    });
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const live = gateway.createLiveGateway({
+    apiBase: 'http://127.0.0.1:4098',
+    engineBase: 'http://127.0.0.1:4097',
+    productionApiBase: 'https://api.vcrcapps.com',
+    taskToken: 'disposable-cloud-token',
+  }, fetcher);
+
+  await live.domains.sessions.list();
+  await live.domains.tasks.list();
+
+  expect(calls).toEqual([
+    { url: 'http://127.0.0.1:4098/agent-sessions?scope=chats', authorization: null },
+    { url: 'https://api.vcrcapps.com/tasks?status=all', authorization: 'Bearer disposable-cloud-token' },
+  ]);
+});
+
 test('slice-2-c7: failed live requests cannot return fixture data', async () => {
   // Regression caught: a live network failure resolves with seeded fixture content.
   const gateway = await loadGateway();
