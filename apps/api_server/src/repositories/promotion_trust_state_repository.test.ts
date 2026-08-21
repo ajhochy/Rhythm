@@ -79,4 +79,22 @@ describe('PromotionTrustStateRepository — D4.1 (#1439)', () => {
     const count = db.prepare('SELECT COUNT(*) AS n FROM promotion_trust_state').get() as { n: number };
     expect(count.n).toBe(1);
   });
+
+  test('repair (blocking finding A): the schema itself rejects a second row, not just the repository', async () => {
+    const repo = new PromotionTrustStateRepository(db);
+    await repo.getSingletonAsync();
+
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO promotion_trust_state
+             (id, total_verified, total_regressions, auto_promotion_enabled, enabled_at, trust_threshold, updated_at)
+           VALUES ('some-other-id', 0, 0, 0, NULL, 10, '2026-08-20T00:00:00.000Z')`,
+        )
+        .run(),
+    ).toThrow();
+
+    const count = db.prepare('SELECT COUNT(*) AS n FROM promotion_trust_state').get() as { n: number };
+    expect(count.n).toBe(1);
+  });
 });

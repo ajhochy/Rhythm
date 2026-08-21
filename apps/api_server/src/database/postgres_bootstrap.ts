@@ -2311,7 +2311,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // existing one. Column set MUST stay identical to the SQLite migration.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS promotion_trust_state (
-      id                     TEXT PRIMARY KEY,
+      id                     TEXT PRIMARY KEY CHECK (id = 'promotion_trust_state'),
       total_verified         INTEGER NOT NULL DEFAULT 0,
       total_regressions      INTEGER NOT NULL DEFAULT 0,
       auto_promotion_enabled BOOLEAN NOT NULL DEFAULT FALSE,

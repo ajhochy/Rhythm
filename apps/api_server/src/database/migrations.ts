@@ -4403,9 +4403,11 @@ If someone asks for creative work that needs a local capability:
   // Fixed id ('promotion_trust_state') is the singleton key, same pattern as
   // org_settings above — see promotion_trust_state_repository.ts. Starts
   // disabled; nothing in D4.1/D4.2 ever flips auto_promotion_enabled true.
+  // The id CHECK enforces the singleton at the schema boundary itself — a
+  // raw INSERT with any other id fails, not just repository-only access.
   db.exec(`
     CREATE TABLE IF NOT EXISTS promotion_trust_state (
-      id                     TEXT PRIMARY KEY,
+      id                     TEXT PRIMARY KEY CHECK (id = 'promotion_trust_state'),
       total_verified         INTEGER NOT NULL DEFAULT 0,
       total_regressions      INTEGER NOT NULL DEFAULT 0,
       auto_promotion_enabled INTEGER NOT NULL DEFAULT 0,

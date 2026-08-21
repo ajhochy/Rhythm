@@ -18,7 +18,7 @@
       "criterion_id": "issue-1439-c2",
       "text": "Singleton enforced (exactly one row), even under repeated access and updates.",
       "mode": "unit",
-      "test": "apps/api_server/src/repositories/promotion_trust_state_repository.test.ts ('singleton is enforced: repeated access never creates a second row') — fixed id primary key + INSERT ... ON CONFLICT DO NOTHING, mirroring OrgSettingsRepository's established singleton pattern.",
+      "test": "apps/api_server/src/repositories/promotion_trust_state_repository.test.ts ('singleton is enforced: repeated access never creates a second row', and, added in the D4 repair pass, 'repair (blocking finding A): the schema itself rejects a second row, not just the repository') — fixed id primary key, INSERT ... ON CONFLICT DO NOTHING for the repository's own access path, AND (as of the repair pass) a `CHECK (id = 'promotion_trust_state')` on the id column so the constraint holds at the SQLite/Postgres schema boundary itself, not only through repository-mediated access.",
       "status": "pass"
     },
     {
@@ -77,5 +77,15 @@
     "build": "pass",
     "gitnexus_risk": "UNKNOWN — GitNexus's indexed repo aliases for this session (per `list`) do not resolve via --repo despite exact-string copies (tool bug or hidden formatting diff in the registry); could not bind this worktree to the stale integration index. Recorded as UNKNOWN per the operating instructions; substituted direct caller inspection: grep for every call site of runMigrations()/runPostgresBootstrap() confirms both are additive-only append points (CREATE TABLE IF NOT EXISTS blocks appended at the end of each function body, no existing statement touched), matching the known LOW-risk pattern of the prior org_settings/tool_events additive migrations in the same file.",
     "sandbox": "not applicable — no server-dependent behavior introduced by this issue (see not_tested)."
+  },
+  "repair": {
+    "date": "2026-08-20",
+    "reason": "Blocking finding A (D4 focused repair pass): the original c2 evidence only showed the SINGLETON REPOSITORY never creates a second row — it did not show the DATABASE rejects a raw insert of a second id, so 'singleton enforced (exactly one row)' was overclaimed for a table whose only enforcement was `id TEXT PRIMARY KEY` (which permits any number of distinct-id rows).",
+    "fix": "Added `CHECK (id = 'promotion_trust_state')` to the `id` column in both the SQLite CREATE TABLE (apps/api_server/src/database/migrations.ts) and the Postgres CREATE TABLE (apps/api_server/src/database/postgres_bootstrap.ts). Both CREATE TABLE statements are the table's own fresh DDL — this table exists only on this not-yet-integrated D4 branch, so editing it directly (rather than an ALTER on an existing table) preserves the additive-migration policy for tables that HAVE shipped.",
+    "test_added": "apps/api_server/src/repositories/promotion_trust_state_repository.test.ts ('repair (blocking finding A): the schema itself rejects a second row, not just the repository') — a raw `db.prepare(INSERT ...).run()` with a different id, asserted to throw.",
+    "red": "AssertionError: expected [Function] to throw an error — the raw insert with id='some-other-id' succeeded silently before the CHECK constraint was added.",
+    "green": "cd apps/api_server && npx vitest run src/repositories/promotion_trust_state_repository.test.ts src/services/__tests__/trust_counter_service.test.ts src/__tests__/promotion_trust_state_schema_parity.test.ts src/__tests__/migrations_replay_guard.test.ts — 16/16 pass.",
+    "schema_parity_preserved": "promotion_trust_state_schema_parity.test.ts's postgresColumns() parser explicitly skips CHECK/PRIMARY/FOREIGN/UNIQUE/CONSTRAINT lines and inline constraints do not change the extracted column name (the id column line's first token is still 'id'), so the column-set parity assertion is unaffected and still passes.",
+    "commit": "see docs/ai/runs/2026-08-20-d4-auto-promotion-trust-state.md repair addendum"
   }
 }

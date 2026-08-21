@@ -34,12 +34,28 @@ function declareInput(proposalId: string, overrides: Record<string, unknown> = {
   };
 }
 
-async function createVerifiedProposalAsync(): Promise<void> {
+async function createVerifiedExperimentAsync(): Promise<void> {
   const proposalsRepo = new AgentOrgProposalsRepository();
+  const experimentsRepo = new AgentOrgExperimentsRepository();
   const proposal = await proposalsRepo.createAsync({
     kind: 'refine-config',
     risk: 'low',
     title: 'trust counter fixture',
+  });
+  await experimentsRepo.declareAsync(declareInput(proposal.id));
+  await proposalsRepo.setOutcomeStatusAtRevisionAsync({
+    proposalId: proposal.id,
+    expectedRevision: proposal.revision,
+    outcomeStatus: 'verified',
+  });
+}
+
+async function createVerifiedProposalWithNoExperimentAsync(): Promise<void> {
+  const proposalsRepo = new AgentOrgProposalsRepository();
+  const proposal = await proposalsRepo.createAsync({
+    kind: 'refine-config',
+    risk: 'low',
+    title: 'trust counter fixture — verified proposal, no experiment',
   });
   await proposalsRepo.setOutcomeStatusAtRevisionAsync({
     proposalId: proposal.id,
@@ -61,8 +77,22 @@ async function createRegressedExperimentAsync(): Promise<void> {
 }
 
 describe('trust_counter_service — D4.2 (#1440)', () => {
+  it('repair (blocking finding B): a verified proposal with no experiment does NOT count', async () => {
+    await createVerifiedProposalWithNoExperimentAsync();
+
+    const counters = await computeTrustCountersAsync();
+    expect(counters.totalVerified).toBe(0);
+  });
+
+  it('repair (blocking finding B): an experiment whose proposal is verified DOES count', async () => {
+    await createVerifiedExperimentAsync();
+
+    const counters = await computeTrustCountersAsync();
+    expect(counters.totalVerified).toBe(1);
+  });
+
   it('10 verified, 0 regressions => eligible', async () => {
-    for (let i = 0; i < 10; i++) await createVerifiedProposalAsync();
+    for (let i = 0; i < 10; i++) await createVerifiedExperimentAsync();
 
     const counters = await computeTrustCountersAsync();
     expect(counters.totalVerified).toBe(10);
@@ -71,7 +101,7 @@ describe('trust_counter_service — D4.2 (#1440)', () => {
   });
 
   it('10 verified, 1 regression => not eligible', async () => {
-    for (let i = 0; i < 10; i++) await createVerifiedProposalAsync();
+    for (let i = 0; i < 10; i++) await createVerifiedExperimentAsync();
     await createRegressedExperimentAsync();
 
     const counters = await computeTrustCountersAsync();
@@ -81,7 +111,7 @@ describe('trust_counter_service — D4.2 (#1440)', () => {
   });
 
   it('9 verified, 0 regressions => not eligible', async () => {
-    for (let i = 0; i < 9; i++) await createVerifiedProposalAsync();
+    for (let i = 0; i < 9; i++) await createVerifiedExperimentAsync();
 
     const counters = await computeTrustCountersAsync();
     expect(counters.totalVerified).toBe(9);
@@ -90,7 +120,7 @@ describe('trust_counter_service — D4.2 (#1440)', () => {
   });
 
   it('recordTrustCountersAsync persists counts/eligibility on the singleton but never enables auto-promotion', async () => {
-    for (let i = 0; i < 10; i++) await createVerifiedProposalAsync();
+    for (let i = 0; i < 10; i++) await createVerifiedExperimentAsync();
 
     const state = await recordTrustCountersAsync();
     expect(state.totalVerified).toBe(10);

@@ -308,21 +308,27 @@ export class AgentOrgExperimentsRepository {
   }
 
   /**
-   * D4.2 (#1440) — the trust counter's read of this ledger's own `decision`
-   * domain (W6-c3; see agent_org_experiment.ts's ExperimentDecision). Used to
-   * count `regress` decisions. Read-only count, no new state.
+   * D4.2 (#1440) — the trust counter's one-statement read of the ledger:
+   * `totalVerified` counts EXPERIMENT rows (not proposals) whose associated
+   * proposal has `outcome_status = 'verified'` — a verified proposal with no
+   * experiment does not count. `totalRegressions` counts experiment rows
+   * with `decision = 'regress'`. Both counters come from the same query so
+   * they reflect one consistent snapshot of the ledger.
    */
-  async countByDecisionAsync(decision: ExperimentDecision): Promise<number> {
+  async getTrustLedgerCountsAsync(): Promise<{ totalVerified: number; totalRegressions: number }> {
+    const sql = `
+      SELECT
+        COALESCE(SUM(CASE WHEN p.outcome_status = 'verified' THEN 1 ELSE 0 END), 0) AS total_verified,
+        COALESCE(SUM(CASE WHEN e.decision = 'regress' THEN 1 ELSE 0 END), 0) AS total_regressions
+      FROM agent_org_experiments e
+      JOIN agent_org_proposals p ON p.id = e.proposal_id
+    `;
     if (env.dbClient === 'postgres') {
-      const r = await getPostgresPool().query(
-        `SELECT COUNT(*) AS n FROM agent_org_experiments WHERE decision = $1`,
-        [decision],
-      );
-      return Number((r.rows[0] as { n: string | number }).n);
+      const r = await getPostgresPool().query(sql);
+      const row = r.rows[0] as { total_verified: string | number; total_regressions: string | number };
+      return { totalVerified: Number(row.total_verified), totalRegressions: Number(row.total_regressions) };
     }
-    const row = this.db!
-      .prepare(`SELECT COUNT(*) AS n FROM agent_org_experiments WHERE decision = ?`)
-      .get(decision) as { n: number };
-    return Number(row.n);
+    const row = this.db!.prepare(sql).get() as { total_verified: number; total_regressions: number };
+    return { totalVerified: Number(row.total_verified), totalRegressions: Number(row.total_regressions) };
   }
 }

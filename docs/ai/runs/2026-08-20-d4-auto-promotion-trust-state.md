@@ -13,8 +13,8 @@ tags: [run, rhythm]
 - `apps/api_server/src/models/promotion_trust_state.ts` (new)
 - `apps/api_server/src/repositories/promotion_trust_state_repository.ts` (new)
 - `apps/api_server/src/repositories/promotion_trust_state_repository.test.ts` (new)
-- `apps/api_server/src/database/migrations.ts` (additive — `promotion_trust_state` CREATE TABLE IF NOT EXISTS)
-- `apps/api_server/src/database/postgres_bootstrap.ts` (additive parity — matching CREATE TABLE)
+- `apps/api_server/src/database/migrations.ts` (additive — `promotion_trust_state` CREATE TABLE IF NOT EXISTS; repair pass added `CHECK (id = 'promotion_trust_state')` to the `id` column, see Repair below)
+- `apps/api_server/src/database/postgres_bootstrap.ts` (additive parity — matching CREATE TABLE; repair pass added the matching CHECK)
 - `apps/api_server/src/__tests__/promotion_trust_state_schema_parity.test.ts` (new)
 - `docs/ai/contracts/issue-1439.json`
 
@@ -34,3 +34,16 @@ tags: [run, rhythm]
 
 - Singleton is enforced the same way `OrgSettingsRepository`/`org_settings` already does in this codebase: a fixed primary-key id (`'promotion_trust_state'`) plus `INSERT ... ON CONFLICT(id) DO NOTHING`, so every access — first or repeated, concurrent or not — targets the one row.
 - `updateAsync` is a generic partial update (any subset of the 5 domain fields) so a later D4 issue can flip `auto_promotion_enabled`/`enabled_at` through the same repository without a new method. Nothing in this issue calls it with those two fields.
+
+## Repair (D4 focused repair pass, 2026-08-20)
+
+**Blocking finding A — corrects an overclaim above.** "Singleton enforced (exactly one row)" was true only through `PromotionTrustStateRepository` — the table itself was `id TEXT PRIMARY KEY` with no other constraint, so a raw `INSERT` with a different id created a second row. The database was not actually enforcing the singleton; only repository discipline was.
+
+- Fix: added `CHECK (id = 'promotion_trust_state')` to the `id` column in both `apps/api_server/src/database/migrations.ts` and `apps/api_server/src/database/postgres_bootstrap.ts`'s `CREATE TABLE promotion_trust_state` statements. This table exists only on this not-yet-integrated branch, so editing its own fresh CREATE TABLE (rather than a destructive ALTER/backfill on an already-shipped table) preserves the additive-migration policy.
+- Test added: `promotion_trust_state_repository.test.ts` ('repair (blocking finding A): the schema itself rejects a second row, not just the repository') — a raw `db.prepare(INSERT ...).run()` with `id='some-other-id'`, asserted to throw.
+- RED: `expected [Function] to throw an error` — the raw insert succeeded before the CHECK was added.
+- GREEN: `cd apps/api_server && npx vitest run src/repositories/promotion_trust_state_repository.test.ts src/services/__tests__/trust_counter_service.test.ts src/__tests__/promotion_trust_state_schema_parity.test.ts src/__tests__/migrations_replay_guard.test.ts` — 16/16 pass.
+- `promotion_trust_state_schema_parity.test.ts`'s column-set assertion is unaffected: its Postgres-source parser already skips `CHECK`/`PRIMARY`/`FOREIGN`/`UNIQUE`/`CONSTRAINT` lines, and the inline `CHECK` on the `id` column line does not change that line's extracted column name.
+- `npx tsc --noEmit` — pass. `npm run build` — pass. `git diff --check` — clean. Added-line secret scan — no hits.
+- GitNexus: `gitnexus detect-changes --repo d4-auto-promotion` still errors "Repository not found" — this worktree's alias remains unindexed. UNKNOWN, unchanged from the original run.
+- Did not implement #1441–#1444; no server was started; no destructive git operations were run.
