@@ -9,6 +9,7 @@ import { SharedTranscriptsRepository } from '../repositories/shared_transcripts_
 import { transcriptShareCreationRouter } from '../routes/shared_transcripts_routes';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const RETENTION_NOW = new Date('2026-08-20T12:00:00.000Z');
 
 describe('issue #1375 transcript-share retention contracts', () => {
   const db = new Database(':memory:');
@@ -123,7 +124,7 @@ describe('issue #1375 transcript-share retention contracts', () => {
   it('issue-1375-c2: purges only shares at least 30 days past expiry or revocation', async () => {
     const repository = new SharedTranscriptsRepository();
     const purge = purgeMethod(repository);
-    const now = new Date('2026-08-20T12:00:00.000Z');
+    const now = new Date(RETENTION_NOW);
     const old = new Date(now.getTime() - 31 * DAY_MS).toISOString();
     const recent = new Date(now.getTime() - 29 * DAY_MS).toISOString();
     const dueExpired = await repository.create({
@@ -202,21 +203,22 @@ describe('issue #1375 transcript-share retention contracts', () => {
   it('issue-1375-c3: two purges are idempotent and preserve source bytes', async () => {
     const repository = new SharedTranscriptsRepository();
     const purge = purgeMethod(repository);
+    const now = new Date(RETENTION_NOW);
     const sourceId = source();
     const share = await repository.create({
       snapshot: { items: [{ id: 'safe', category: 'message', content: 'snapshot bytes' }] },
       ownerUserId: ownerId,
       recipientUserIds: [recipientId],
       sourceSessionId: sourceId,
-      expiresAt: new Date(Date.now() - 31 * DAY_MS).toISOString(),
+      expiresAt: new Date(now.getTime() - 31 * DAY_MS).toISOString(),
     });
     const beforeSession = db.prepare('SELECT * FROM agent_sessions WHERE id = ?').get(sourceId);
     const beforeMessages = db.prepare(
       'SELECT * FROM agent_session_messages WHERE session_id = ? ORDER BY id',
     ).all(sourceId);
 
-    expect(await purge.call(repository, new Date())).toBe(1);
-    expect(await purge.call(repository, new Date())).toBe(0);
+    expect(await purge.call(repository, now)).toBe(1);
+    expect(await purge.call(repository, now)).toBe(0);
     expect(db.prepare('SELECT * FROM agent_sessions WHERE id = ?').get(sourceId))
       .toEqual(beforeSession);
     expect(db.prepare(
