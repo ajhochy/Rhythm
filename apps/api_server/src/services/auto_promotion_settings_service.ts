@@ -3,10 +3,6 @@ import { AppError } from "../errors/app_error";
 import type { PromotionTrustState } from "../models/promotion_trust_state";
 import { PromotionTrustStateRepository } from "../repositories/promotion_trust_state_repository";
 
-// Re-export the single production availability source for the later execution
-// gate (#1441). That gate must not duplicate this env parsing.
-export { isAutoPromotionFeatureAvailable as getAutoPromotionFeatureAvailability } from "../config/env";
-
 /** Exact, code-owned acknowledgement for both enable and emergency disable. */
 export const AUTO_PROMOTION_CONFIRMATION_HEADER =
   "X-Rhythm-Auto-Promotion-Confirmation";
@@ -18,9 +14,9 @@ export interface AutoPromotionSettingsState {
 }
 
 /**
- * D4.4 durable settings boundary. #1441 must import
- * `isAutoPromotionFeatureAvailable` from config/env.ts for its production
- * execution gate; this service remains the only API/UI reader of that source.
+ * D4.4 durable settings boundary. #1441 must import the one availability
+ * source, `isAutoPromotionFeatureAvailable`, from config/env.ts for its
+ * production execution gate; this service is only an API/UI consumer.
  */
 export class AutoPromotionSettingsService {
   constructor(

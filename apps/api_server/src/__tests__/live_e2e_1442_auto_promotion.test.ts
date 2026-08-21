@@ -60,7 +60,9 @@ describeLive("live E2E — D4.4 auto-promotion opt-in", () => {
     const suffix = randomUUID();
     userId = Number(
       db
-        .prepare("INSERT INTO users (name, email, google_sub) VALUES (?, ?, ?)")
+        .prepare(
+          "INSERT INTO users (name, email, google_sub, role) VALUES (?, ?, ?, 'admin')",
+        )
         .run(
           "D4.4 Live User",
           `d4-1442-${suffix}@example.test`,

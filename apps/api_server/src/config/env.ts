@@ -13,8 +13,14 @@ export type DbClient = 'sqlite' | 'postgres';
  */
 export function isAutoPromotionFeatureAvailable(
   value = process.env.AUTO_PROMOTION_FEATURE_AVAILABLE,
+  dbClient: DbClient = parseDbClient(
+    (process.env.DB_CLIENT ?? 'sqlite').trim().toLowerCase(),
+  ),
 ): boolean {
-  return value?.trim().toLowerCase() === 'true';
+  // D2's post-apply lifecycle deliberately skips on Postgres, so strict
+  // auto-promotion cannot be available there even when the deployment flag is
+  // set. The flag is an availability prerequisite, never durable consent.
+  return value?.trim().toLowerCase() === 'true' && dbClient === 'sqlite';
 }
 
 /**

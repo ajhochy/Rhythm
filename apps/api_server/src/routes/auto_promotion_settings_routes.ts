@@ -25,10 +25,20 @@ const settingsService = () => new AutoPromotionSettingsService();
 
 autoPromotionSettingsRouter.use(requireAuth);
 
+function requireAutoPromotionSettingsRole(req: Request): void {
+  const role = req.auth!.user.role;
+  if (role !== "admin" && role !== "system") {
+    throw AppError.forbidden(
+      "Only admins or system users can manage auto-promotion settings",
+    );
+  }
+}
+
 autoPromotionSettingsRouter.get(
   "/auto-promotion",
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
+      requireAutoPromotionSettingsRole(req);
       res.json(await settingsService().getStateAsync());
     } catch (error) {
       next(error);
@@ -40,6 +50,7 @@ autoPromotionSettingsRouter.post(
   "/auto-promotion",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      requireAutoPromotionSettingsRole(req);
       const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
       if (typeof enabled !== "boolean") {
         throw AppError.badRequest("enabled must be a boolean");

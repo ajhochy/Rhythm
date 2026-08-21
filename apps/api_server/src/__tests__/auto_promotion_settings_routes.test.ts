@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 
 import { createApp } from "../app";
-import { env } from "../config/env";
+import {
+  env,
+  isAutoPromotionFeatureAvailable,
+} from "../config/env";
 import { setDb } from "../database/db";
 import { runMigrations } from "../database/migrations";
 import { PromotionTrustStateRepository } from "../repositories/promotion_trust_state_repository";
@@ -31,6 +34,8 @@ describe("D4.4 auto-promotion settings routes", () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let authHeaders: Record<string, string>;
+  let ordinaryAuthHeaders: Record<string, string>;
+  let systemAuthHeaders: Record<string, string>;
   let repo: PromotionTrustStateRepository;
 
   beforeEach(async () => {
@@ -41,10 +46,34 @@ describe("D4.4 auto-promotion settings routes", () => {
     const user = new UsersRepository().create({
       name: "Opt in",
       email: "opt-in@example.com",
+      role: "admin",
     });
     const session = await new SessionsRepository().createAsync(user.id);
     authHeaders = {
       Authorization: `Bearer ${session.token}`,
+      "Content-Type": "application/json",
+    };
+    const ordinaryUser = new UsersRepository().create({
+      name: "Ordinary user",
+      email: "ordinary-opt-in@example.com",
+    });
+    const ordinarySession = await new SessionsRepository().createAsync(
+      ordinaryUser.id,
+    );
+    ordinaryAuthHeaders = {
+      Authorization: `Bearer ${ordinarySession.token}`,
+      "Content-Type": "application/json",
+    };
+    const systemUser = new UsersRepository().create({
+      name: "System user",
+      email: "system-opt-in@example.com",
+      role: "system",
+    });
+    const systemSession = await new SessionsRepository().createAsync(
+      systemUser.id,
+    );
+    systemAuthHeaders = {
+      Authorization: `Bearer ${systemSession.token}`,
       "Content-Type": "application/json",
     };
     const server = await startTestServer(createApp());
@@ -62,6 +91,18 @@ describe("D4.4 auto-promotion settings routes", () => {
       (env as unknown as { autoPromotionFeatureAvailable?: boolean })
         .autoPromotionFeatureAvailable,
     ).toBe(false);
+  });
+
+  it("issue-1442-c1-review: availability requires the explicit flag and a SQLite D2 runtime", () => {
+    const availability = isAutoPromotionFeatureAvailable as unknown as (
+      flag?: string,
+      dbClient?: "sqlite" | "postgres",
+    ) => boolean;
+
+    expect(availability(" ", "sqlite")).toBe(false);
+    expect(availability("false", "sqlite")).toBe(false);
+    expect(availability("true", "sqlite")).toBe(true);
+    expect(availability("true", "postgres")).toBe(false);
   });
 
   it("issue-1442-c2: GET requires local-agent authentication and reports durable off state", async () => {
@@ -90,6 +131,57 @@ describe("D4.4 auto-promotion settings routes", () => {
         autoPromotionEligible: false,
       },
     });
+  });
+
+  it("issue-1442-c2-review: an authenticated ordinary user receives 403 and cannot mutate even with exact confirmation", async () => {
+    const read = await fetch(`${baseUrl}/optimizer/auto-promotion`, {
+      headers: ordinaryAuthHeaders,
+    });
+    expect(read.status).toBe(403);
+
+    const mutate = await fetch(`${baseUrl}/optimizer/auto-promotion`, {
+      method: "POST",
+      headers: { ...ordinaryAuthHeaders, ...confirmationHeader },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(mutate.status).toBe(403);
+    expect((await repo.getSingletonAsync()).autoPromotionEnabled).toBe(false);
+  });
+
+  it("issue-1442-c2-review: admin and system roles can read and explicitly enable or disable", async () => {
+    await repo.recordEligibilityAsync({
+      totalVerified: 10,
+      totalRegressions: 0,
+      autoPromotionEligible: true,
+    });
+
+    for (const headers of [authHeaders, systemAuthHeaders]) {
+      expect(
+        (
+          await fetch(`${baseUrl}/optimizer/auto-promotion`, { headers })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await fetch(`${baseUrl}/optimizer/auto-promotion`, {
+            method: "POST",
+            headers: { ...headers, ...confirmationHeader },
+            body: JSON.stringify({ enabled: true }),
+          })
+        ).status,
+      ).toBe(200);
+      expect((await repo.getSingletonAsync()).autoPromotionEnabled).toBe(true);
+      expect(
+        (
+          await fetch(`${baseUrl}/optimizer/auto-promotion`, {
+            method: "POST",
+            headers: { ...headers, ...confirmationHeader },
+            body: JSON.stringify({ enabled: false }),
+          })
+        ).status,
+      ).toBe(200);
+      expect((await repo.getSingletonAsync()).autoPromotionEnabled).toBe(false);
+    }
   });
 
   it("issue-1442-c3: malformed body, missing/wrong confirmation, unavailable, ineligible, and regressed enables refuse without mutation", async () => {
