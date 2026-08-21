@@ -29,6 +29,7 @@ import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
+import 'package:rhythm_desktop/features/agents/models/run_outcome_feedback.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
 import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
@@ -550,6 +551,18 @@ class _ThrowingStubRepo implements AgentsRepository {
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) =>
       inner.fetchSessionDiff(id);
+
+  @override
+  Future<RunOutcomeFeedback?> fetchRunOutcomeFeedback(String id) =>
+      inner.fetchRunOutcomeFeedback(id);
+
+  @override
+  Future<void> postRunFeedback(
+    String id,
+    RunFeedbackVerdict verdict, {
+    String? reason,
+  }) =>
+      inner.postRunFeedback(id, verdict, reason: reason);
 
   @override
   Future<void> revertSession(String sessionId, String messageId) =>

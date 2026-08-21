@@ -19,6 +19,7 @@ import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
+import '../models/run_outcome_feedback.dart';
 // AgentInfo is defined in chat_models.dart (OPC-M4-4).
 import '../repositories/agents_repository.dart';
 import 'pty_terminal_session.dart';
@@ -259,6 +260,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // succeeded). Lets the Changes tab distinguish an error state from an
   // empty-but-successful diff (acceptance criterion c3).
   final Map<String, String> _sessionDiffError = {};
+
+  // D3.2: Per-session run-outcome feedback (explicit_user verdict).
+  // Populated by fetchRunOutcomeFeedback(). An absent key means no fetch has
+  // happened yet; a present key with a null value means the fetch succeeded
+  // and the run has no outcome recorded yet (no feedback surface to show).
+  final Map<String, RunOutcomeFeedback?> _runOutcomeFeedbackBySession = {};
+  final Set<String> _runOutcomeFeedbackLoading = {};
+  final Set<String> _runFeedbackSubmitting = {};
+  final Map<String, String> _runFeedbackError = {};
 
   // OPC-M3-2: Per-session revert state.
   // true means the session currently has a revert applied (some messages are
@@ -686,6 +696,84 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Triggers a refetch for [sessionId] only — other sessions are unaffected.
   void handleSessionDiffEvent(String sessionId) {
     unawaited(fetchSessionDiff(sessionId));
+  }
+
+  /// D3.2 — This run's latest explicit-user verdict, or null when either no
+  /// fetch has happened yet or the run has no outcome recorded. Callers that
+  /// need to distinguish "not fetched" from "fetched, no outcome" should
+  /// check [runOutcomeFeedbackLoading] first.
+  RunFeedbackVerdict? currentRunVerdictFor(String sessionId) =>
+      _runOutcomeFeedbackBySession[sessionId]?.explicitUserVerdict;
+
+  /// D3.2 — True once a fetch has completed and found an outcome for
+  /// [sessionId] to attach feedback to (whether or not it carries a verdict
+  /// yet). False both before the first fetch and when the run has no
+  /// recorded outcome — in both cases there is nothing to show.
+  bool runOutcomeExistsFor(String sessionId) =>
+      _runOutcomeFeedbackBySession[sessionId] != null;
+
+  /// D3.2 — True while the initial outcome fetch is in-flight for [sessionId].
+  bool runOutcomeFeedbackLoading(String sessionId) =>
+      _runOutcomeFeedbackLoading.contains(sessionId);
+
+  /// D3.2 — True while a feedback submission is in-flight for [sessionId].
+  /// Drives the disabled/spinner state on the feedback buttons.
+  bool runFeedbackSubmitting(String sessionId) =>
+      _runFeedbackSubmitting.contains(sessionId);
+
+  /// D3.2 — Error message from the most recent feedback submission for
+  /// [sessionId], or null when the last submission succeeded (or none was
+  /// attempted).
+  String? runFeedbackErrorFor(String sessionId) => _runFeedbackError[sessionId];
+
+  /// D3.2 — Fetch this run's outcome + latest explicit-user verdict.
+  /// Safe to call multiple times; concurrent calls for the same session are
+  /// gated so only one HTTP round-trip is in-flight at a time.
+  Future<void> fetchRunOutcomeFeedback(String sessionId) async {
+    if (_runOutcomeFeedbackLoading.contains(sessionId)) return;
+    _runOutcomeFeedbackLoading.add(sessionId);
+    notifyListeners();
+    try {
+      final feedback = await _repository.fetchRunOutcomeFeedback(sessionId);
+      if (_disposed) return;
+      _runOutcomeFeedbackBySession[sessionId] = feedback;
+    } catch (_) {
+      // Non-fatal — an outcome fetch failing just means the feedback surface
+      // stays hidden (same as "no outcome yet"); the retry is the next tab
+      // visit, not a user-facing error toast for a section that isn't shown.
+      if (_disposed) return;
+    } finally {
+      _runOutcomeFeedbackLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// D3.2 — Submit [verdict] as this run's explicit-user feedback, with an
+  /// optional free-text [reason]. The server always appends a new event
+  /// rather than overwriting, so "changing" a verdict is just calling this
+  /// again with a different value. Returns true on success.
+  Future<bool> submitRunFeedback(
+    String sessionId,
+    RunFeedbackVerdict verdict, {
+    String? reason,
+  }) async {
+    _runFeedbackSubmitting.add(sessionId);
+    _runFeedbackError.remove(sessionId);
+    notifyListeners();
+    try {
+      await _repository.postRunFeedback(sessionId, verdict, reason: reason);
+      if (_disposed) return true;
+      _runOutcomeFeedbackBySession[sessionId] =
+          RunOutcomeFeedback(explicitUserVerdict: verdict);
+      return true;
+    } catch (e) {
+      if (_disposed) return false;
+      _runFeedbackError[sessionId] = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _runFeedbackSubmitting.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
   }
 
   /// #720 — Called when a `session.compacted` WS event arrives.
