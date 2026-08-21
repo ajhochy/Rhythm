@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { PlannerScreen } from '../src/screens/PlannerScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
+import type { RhythmWorkspaceOperationConfirmation } from '../src/host/types';
 import { assertScreenContract } from './test-utils/screenContract';
 import { fixtureDomainGateway, fixturePlannerGateway, failingPlannerGateway, emptyPlannerGateway } from './test-utils/fixtures';
-import { mount, flush, actClick, actSetValue } from './test-utils/mount';
+import { mount, flush, actClick, actKeyDown, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', collaborationCapability: 'write' as const }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', capabilities: ['planner.write'] as const }, ...overrides };
 }
 
 function mountPlanner(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -16,7 +17,103 @@ function mountPlanner(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainG
   return mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(hostOverrides), children: createElement(PlannerScreen) }));
 }
 
+async function confirmPlanner(mounted: ReturnType<typeof mountPlanner>) {
+  await flush();
+  await actClick(mounted.byTestId('planner-operation-confirm')!);
+  await flush();
+}
+
 describe('PlannerScreen', () => {
+  it('uses only the exact Planner capability for each source-owned operation and keeps create/collaboration unavailable to narrow grants', async () => {
+    const plannerGateway = fixturePlannerGateway();
+    const confirmWorkspaceOperation = vi.fn<(confirmation: RhythmWorkspaceOperationConfirmation) => Promise<boolean>>(async () => true);
+    const update = vi.fn(plannerGateway.update);
+    const scheduleTask = vi.fn(plannerGateway.scheduleTask);
+    const updateProjectStep = vi.fn(plannerGateway.updateProjectStep);
+    const scheduleProjectStep = vi.fn(plannerGateway.scheduleProjectStep);
+    const mounted = mountPlanner({ planner: { ...plannerGateway, update, scheduleTask, updateProjectStep, scheduleProjectStep } }, {
+      currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['planner.update-task', 'planner.schedule-project-step'] },
+      confirmWorkspaceOperation,
+    });
+    await flush();
+    expect((mounted.byTestId('planner-header-add-task') as HTMLButtonElement).disabled).toBe(true);
+    await actClick(mounted.byTestId('planner-task-task-backlog')!);
+    await flush();
+    expect((mounted.byTestId('planner-add-collaborator') as HTMLButtonElement).disabled).toBe(true);
+    await actClick(mounted.byTestId('planner-task-task-wed')!);
+    await flush();
+    expect((mounted.byTestId('planner-save-task') as HTMLButtonElement).disabled).toBe(false);
+    await actClick(mounted.byTestId('planner-save-task')!);
+    expect(mounted.byTestId('planner-operation-confirmation')).toBeTruthy();
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    await flush();
+    expect(update).toHaveBeenCalledOnce();
+    expect(confirmWorkspaceOperation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'planner.update-task', entityId: 'task-wed', payload: expect.any(Object), generation: expect.any(String) }));
+    await act(async () => { mounted.byTestId('planner-task-step-thu')!.dispatchEvent(new Event('dragstart', { bubbles: true })); });
+    await act(async () => { mounted.byTestId('planner-day-2026-08-16')!.dispatchEvent(new Event('drop', { bubbles: true })); });
+    await flush();
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    await flush();
+    expect(scheduleProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { dueDate: '2026-08-16' });
+    expect(scheduleTask).not.toHaveBeenCalled();
+    expect(updateProjectStep).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
+
+  it('does not call host or gateway until one exact confirmation, then cancels and invalidates deferred confirmations safely', async () => {
+    const plannerGateway = fixturePlannerGateway();
+    let resolveConfirmation!: (approved: boolean) => void;
+    const confirmWorkspaceOperation = vi.fn(() => new Promise<boolean>((resolve) => { resolveConfirmation = resolve; }));
+    const update = vi.fn(plannerGateway.update);
+    const mounted = mountPlanner({ planner: { ...plannerGateway, update } }, {
+      currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['planner.update-task'] },
+      confirmWorkspaceOperation,
+    });
+    await flush();
+    await actClick(mounted.byTestId('planner-task-task-wed')!);
+    await flush();
+    await actClick(mounted.byTestId('planner-complete-task-wed')!);
+    expect(confirmWorkspaceOperation).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('planner-operation-cancel')!);
+    expect(confirmWorkspaceOperation).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('planner-complete-task-wed')!);
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    expect(confirmWorkspaceOperation).toHaveBeenCalledOnce();
+    await actKeyDown(document, 'Escape');
+    resolveConfirmation(true);
+    await flush();
+    expect(update).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('planner-complete-task-wed')!);
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    expect(confirmWorkspaceOperation).toHaveBeenCalledTimes(2);
+    mounted.unmount();
+    resolveConfirmation(true);
+    await flush();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each(['conflict', 'uncertain'] as const)('leaves the operation unresolved after a %s gateway result and retries with a new generation', async (kind) => {
+    const plannerGateway = fixturePlannerGateway();
+    const confirmWorkspaceOperation = vi.fn<(confirmation: RhythmWorkspaceOperationConfirmation) => Promise<boolean>>(async () => true);
+    const update = vi.fn(async () => { throw { kind }; });
+    const mounted = mountPlanner({ planner: { ...plannerGateway, update } }, {
+      currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['planner.update-task'] },
+      confirmWorkspaceOperation,
+    });
+    await flush();
+    await actClick(mounted.byTestId('planner-complete-task-wed')!);
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    await flush();
+    expect(mounted.byTestId('planner-operation-outcome')?.getAttribute('role')).toBe('alert');
+    const firstGeneration = confirmWorkspaceOperation.mock.calls[0]![0].generation;
+    await actClick(mounted.byTestId('planner-operation-retry')!);
+    await actClick(mounted.byTestId('planner-operation-confirm')!);
+    await flush();
+    expect(confirmWorkspaceOperation.mock.calls[1]![0].generation).not.toBe(firstGeneration);
+    mounted.unmount();
+  });
   it('keeps the newest next-week response when earlier planner requests resolve out of order', async () => {
     const base = fixturePlannerGateway();
     const releases: Array<(value: Awaited<ReturnType<typeof base.week>>) => void> = [];
@@ -132,13 +229,13 @@ describe('PlannerScreen', () => {
     await actSetValue(mounted.byTestId('planner-edit-notes') as HTMLTextAreaElement, 'Source-owned notes');
     await actSetValue(mounted.byTestId('planner-edit-due-date') as HTMLInputElement, '2026-08-15');
     await actClick(mounted.byTestId('planner-save-task')!);
-    await flush();
+    await confirmPlanner(mounted);
     await act(async () => { card!.dispatchEvent(new Event('dragstart', { bubbles: true })); });
     await act(async () => { mounted.byTestId('planner-day-2026-08-16')!.dispatchEvent(new Event('drop', { bubbles: true })); });
-    await flush();
+    await confirmPlanner(mounted);
     await actClick(mounted.byTestId('planner-filter-all')!);
     await actClick(mounted.byTestId('planner-complete-step-thu')!);
-    await flush();
+    await confirmPlanner(mounted);
     expect(updateProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { notes: 'Source-owned notes', dueDate: '2026-08-15' });
     expect(updateProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { status: 'done' });
     expect(scheduleProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { dueDate: '2026-08-16' });
@@ -152,7 +249,7 @@ describe('PlannerScreen', () => {
     const mounted = mountPlanner({ planner: plannerGateway });
     await flush();
     await actClick(mounted.byTestId('planner-complete-task-wed')!);
-    await flush();
+    await confirmPlanner(mounted);
     const week = await plannerGateway.week('current');
     const updated = [...week.days.flatMap((day) => day.tasks), ...week.backlog].find((task) => task.id === 'task-wed');
     expect(updated?.status).toBe('done');
@@ -167,7 +264,7 @@ describe('PlannerScreen', () => {
     await flush();
     expect(mounted.byTestId('planner-selection-count')?.textContent).toContain('1');
     await actClick(mounted.byTestId('planner-bulk-complete')!);
-    await flush();
+    await confirmPlanner(mounted);
     const week = await plannerGateway.week('current');
     const updated = week.days.flatMap((day) => day.tasks).find((task) => task.id === 'task-wed');
     expect(updated?.status).toBe('done');
@@ -196,7 +293,7 @@ describe('PlannerScreen', () => {
     expect(dialog?.contains(document.activeElement)).toBe(true);
     await actSetValue(mounted.byTestId('planner-edit-notes') as HTMLTextAreaElement, 'Bring backup mic');
     await actClick(mounted.byTestId('planner-save-task')!);
-    await flush();
+    await confirmPlanner(mounted);
     const week = await plannerGateway.week('current');
     const updated = week.days.flatMap((day) => day.tasks).find((task) => task.id === 'task-wed');
     expect(updated?.notes).toBe('Bring backup mic');
@@ -212,12 +309,12 @@ describe('PlannerScreen', () => {
     await actClick(mounted.byTestId('planner-add-collaborator')!);
     await flush();
     await actClick(mounted.byTestId('planner-collaborator-option-workspace-user-3')!);
-    await flush();
+    await confirmPlanner(mounted);
     let week = await plannerGateway.week('current');
     let updated = [...week.backlog, ...week.days.flatMap((day) => day.tasks)].find((task) => task.id === 'task-backlog');
     expect(updated?.collaborators.some((person) => person.id === 'workspace-user-3')).toBe(true);
     await actClick(mounted.byTestId('planner-remove-collaborator-workspace-user-3')!);
-    await flush();
+    await confirmPlanner(mounted);
     week = await plannerGateway.week('current');
     updated = [...week.backlog, ...week.days.flatMap((day) => day.tasks)].find((task) => task.id === 'task-backlog');
     expect(updated?.collaborators.some((person) => person.id === 'workspace-user-3')).toBe(false);
@@ -233,7 +330,7 @@ describe('PlannerScreen', () => {
     expect((mounted.byTestId('planner-create-scheduled-date') as HTMLInputElement).value).toBe('2026-08-14');
     await actSetValue(mounted.byTestId('planner-create-title') as HTMLInputElement, 'Confirm livestream backup');
     await actClick(mounted.byTestId('planner-create-task-submit')!);
-    await flush();
+    await confirmPlanner(mounted);
     const week = await plannerGateway.week('current');
     expect(week.days.flatMap((day) => day.tasks).some((task) => task.title === 'Confirm livestream backup')).toBe(true);
     mounted.unmount();
@@ -247,7 +344,7 @@ describe('PlannerScreen', () => {
     const day = mounted.byTestId('planner-day-2026-08-13')!;
     await act(async () => { card.dispatchEvent(new Event('dragstart', { bubbles: true })); });
     await act(async () => { day.dispatchEvent(new Event('drop', { bubbles: true })); });
-    await flush();
+    await confirmPlanner(mounted);
     const week = await plannerGateway.week('current');
     const updated = week.days.flatMap((day) => day.tasks).find((task) => task.id === 'task-backlog');
     expect(updated?.scheduledDate).toBe('2026-08-13');

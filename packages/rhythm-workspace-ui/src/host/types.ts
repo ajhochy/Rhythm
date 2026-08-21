@@ -59,7 +59,23 @@ export type RhythmWorkspaceCapability =
   /** Narrow task mutation grants for hosts such as Hermes.  They deliberately do not
    * imply create/delete/edit/collaboration access. */
   | 'tasks.complete'
-  | 'tasks.reschedule';
+  | 'tasks.reschedule'
+  /** Broad legacy Planner access is an explicit capability, never inferred from
+   * collaborationCapability. M5 constrained hosts use the semantic grants below. */
+  | 'planner.write'
+  /** M5 is intentionally semantic: constrained hosts never receive the broad
+   * planner/projects/rhythms write ports. */
+  | 'planner.schedule-task'
+  | 'planner.update-task'
+  | 'planner.update-project-step'
+  | 'planner.schedule-project-step'
+  | 'rhythms.create-rule'
+  | 'rhythms.update-rule'
+  | 'rhythms.delete-rule'
+  | 'rhythms.update-step'
+  | 'projects.generate-instance'
+  | 'projects.update-step'
+  | 'projects.add-milestone';
 
 export interface RhythmTaskOperationConfirmation {
   taskId: string;
@@ -67,6 +83,17 @@ export interface RhythmTaskOperationConfirmation {
   operation: 'complete' | 'reschedule';
   /** ISO date for rescheduling; omitted for completion. */
   scheduledDate?: string;
+}
+
+/** A host-issued, foreground-only confirmation for an exact M5 operation.
+ * `payload` must be canonical JSON (no credentials, URLs, actor, workspace or
+ * profile fields); the host binds those server-side before issuing its one-use
+ * receipt.  This is deliberately a semantic action, not a generic HTTP port. */
+export interface RhythmWorkspaceOperationConfirmation {
+  operation: Exclude<RhythmWorkspaceCapability, 'facilities.manage' | 'facilities.reserve' | 'automations.write' | 'integrations.write' | 'dashboard.write' | 'tasks.write'>;
+  entityId: string;
+  payload: Record<string, string | number | boolean | null>;
+  generation: string;
 }
 
 /** The ten non-agent screens this package exposes — used only for host-owned, in-package
@@ -93,4 +120,5 @@ export interface RhythmHostAdapter {
   /** A foreground-only host port.  The screen calls this only after its focus-trapped
    * confirmation dialog; the host rejects stale, mismatched, or reused payloads. */
   confirmTaskOperation?: (confirmation: RhythmTaskOperationConfirmation) => Promise<boolean>;
+  confirmWorkspaceOperation?: (confirmation: RhythmWorkspaceOperationConfirmation) => Promise<boolean>;
 }
