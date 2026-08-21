@@ -1,6 +1,7 @@
 import '../../../app/core/auth/auth_user.dart';
 import '../data/settings_data_source.dart';
 import '../data/user_preferences_data_source.dart';
+import '../models/auto_promotion_settings_state.dart';
 
 class SettingsRepository {
   SettingsRepository(
@@ -29,4 +30,10 @@ class SettingsRepository {
   Future<void> updateEmailNotifications(bool enabled) async {
     await _userPreferencesDataSource.updateEmailNotifications(enabled);
   }
+
+  Future<AutoPromotionSettingsState> fetchAutoPromotionState() =>
+      _dataSource.fetchAutoPromotionState();
+
+  Future<AutoPromotionSettingsState> setAutoPromotionEnabled(bool enabled) =>
+      _dataSource.setAutoPromotionEnabled(enabled);
 }

@@ -5,6 +5,19 @@ import { isIP } from 'node:net';
 export type DbClient = 'sqlite' | 'postgres';
 
 /**
+ * D4.4 (#1442) — instance availability is a kill switch, never a user's
+ * consent. The durable consent remains in promotion_trust_state.
+ *
+ * This is exported separately from `env` so the future promotion execution
+ * gate (#1441) imports one production source instead of reparsing the env.
+ */
+export function isAutoPromotionFeatureAvailable(
+  value = process.env.AUTO_PROMOTION_FEATURE_AVAILABLE,
+): boolean {
+  return value?.trim().toLowerCase() === 'true';
+}
+
+/**
  * Deployment role (#755). Gates the agent-EXECUTION surfaces (agent routes,
  * AgentScheduler, opencode/managed-Chrome init, WS gateway, agent
  * session/config table DDL) so a hosted production API can run without the
@@ -383,6 +396,8 @@ export const env = {
     (process.env.RHYTHM_CALIBRATION_ENABLED ?? '')
       .trim()
       .toLowerCase() === 'true',
+  /** D4.4: deployment availability only; never enables durable user consent. */
+  autoPromotionFeatureAvailable: isAutoPromotionFeatureAvailable(),
   researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),

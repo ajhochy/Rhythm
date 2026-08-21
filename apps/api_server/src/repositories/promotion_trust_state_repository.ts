@@ -240,4 +240,64 @@ export class PromotionTrustStateRepository {
       );
     return this.readSingletonAsync();
   }
+
+  /**
+   * D4.4 (#1442) — atomically turns the durable opt-in on only while the
+   * already-persisted eligibility is true and regressions remain zero. The
+   * caller supplies a server-authored timestamp; no client counters or time
+   * participate in this transition. `null` means the current durable gate
+   * refused the enable (including a stale read racing a new regression).
+   */
+  async enableAutoPromotionAsync(enabledAt: string): Promise<PromotionTrustState | null> {
+    await this.getSingletonAsync();
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE promotion_trust_state
+            SET auto_promotion_enabled = TRUE, enabled_at = $1, updated_at = $2
+          WHERE id = $3
+            AND auto_promotion_eligible = TRUE
+            AND total_regressions = 0`,
+        [enabledAt, now, PROMOTION_TRUST_STATE_ID],
+      );
+      return result.rowCount === 1 ? this.readSingletonAsync() : null;
+    }
+    const result = this.db!
+      .prepare(
+        `UPDATE promotion_trust_state
+            SET auto_promotion_enabled = 1, enabled_at = ?, updated_at = ?
+          WHERE id = ?
+            AND auto_promotion_eligible = 1
+            AND total_regressions = 0`,
+      )
+      .run(enabledAt, now, PROMOTION_TRUST_STATE_ID);
+    return result.changes === 1 ? this.readSingletonAsync() : null;
+  }
+
+  /**
+   * Emergency off transition. It deliberately has no availability or
+   * eligibility predicate: an operator must be able to clear durable consent
+   * even when the instance kill switch is already off or trust has regressed.
+   */
+  async disableAutoPromotionAsync(): Promise<PromotionTrustState> {
+    await this.getSingletonAsync();
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE promotion_trust_state
+            SET auto_promotion_enabled = FALSE, enabled_at = NULL, updated_at = $1
+          WHERE id = $2`,
+        [now, PROMOTION_TRUST_STATE_ID],
+      );
+      return this.readSingletonAsync();
+    }
+    this.db!
+      .prepare(
+        `UPDATE promotion_trust_state
+            SET auto_promotion_enabled = 0, enabled_at = NULL, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(now, PROMOTION_TRUST_STATE_ID);
+    return this.readSingletonAsync();
+  }
 }

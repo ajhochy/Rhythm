@@ -283,6 +283,9 @@ up() {
     "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    # D4.4: forward only the explicit availability kill switch. Durable user
+    # consent stays in the copied sandbox database and is never an env default.
+    "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
     # The gateway port is a THIRD listener and was previously unset, so the
     # sandbox bound the default 4002 — the port `tailscale serve` publishes to
     # the tailnet, while serving a fully-credentialed copy of the real DB.
@@ -401,6 +404,7 @@ restart() {
     "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
     "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
   )
   local api_pid
