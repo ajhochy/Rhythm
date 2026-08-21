@@ -363,7 +363,8 @@ describe('ProjectsScreen', () => {
 
   it('adds, edits, and deletes a template step with offsets and assignee through the gateway round trip', async () => {
     const projectsGateway = fixtureProjectsGateway();
-    const mounted = mountProjects({ projects: projectsGateway });
+    const confirmWorkspaceOperation = vi.fn(async () => true);
+    const mounted = mountProjects({ projects: projectsGateway }, { confirmWorkspaceOperation });
     await flush();
     await actClick(mounted.byTestId('project-template-edit-template-empty')!);
     await flush();
@@ -382,6 +383,7 @@ describe('ProjectsScreen', () => {
     await actSetValue(mounted.byTestId('project-template-step-title') as HTMLInputElement, 'Confirm care plan');
     await actClick(mounted.byTestId('project-template-step-save')!);
     await confirmProject(mounted);
+    expect(confirmWorkspaceOperation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'projects.update-template-step', entityId: step.id }));
     expect((await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps[0]?.title).toBe('Confirm care plan');
     await actClick(mounted.byTestId(`project-template-step-delete-${step.id}`)!);
     await confirmProject(mounted);

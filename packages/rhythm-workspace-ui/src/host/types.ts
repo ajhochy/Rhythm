@@ -88,6 +88,7 @@ export type RhythmWorkspaceCapability =
   | 'projects.delete-instance'
   | 'projects.create-step'
   | 'projects.update-step'
+  | 'projects.update-template-step'
   | 'projects.delete-step'
   | 'projects.reorder-step'
   | 'projects.create-milestone'
