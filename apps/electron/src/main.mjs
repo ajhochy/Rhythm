@@ -146,7 +146,7 @@ if (hasSingleInstanceLock) {
         clientId: resolveGoogleDesktopClientId(GOOGLE_DESKTOP_CLIENT_ID),
         apiBase: RHYTHM_AUTH_API_BASE,
         openExternal: (url) => shell.openExternal(url),
-        fetcher: (url, init) => net.fetch(String(url), init),
+        fetcher: (url, init) => globalThis.fetch(String(url), init),
       }).finally(() => { googleSignInInFlight = undefined; });
     }
     return googleSignInInFlight;

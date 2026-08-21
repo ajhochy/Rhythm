@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   GOOGLE_DESKTOP_SCOPES,
@@ -9,6 +10,17 @@ import {
   withOAuthTimeout,
 } from '../src/google-oauth-core.mjs';
 import { runDesktopGoogleOAuth } from '../src/desktop-google-oauth.mjs';
+
+const mainSource = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
+
+test('desktop OAuth exchange uses Node fetch instead of Chromium net.fetch', () => {
+  assert.doesNotMatch(
+    mainSource,
+    /fetcher:\s*\(url, init\)\s*=>\s*net\.fetch/,
+    'Chromium net.fetch can hang in the macOS trust-store path after a successful loopback callback',
+  );
+  assert.match(mainSource, /fetcher:\s*\(url, init\)\s*=>\s*globalThis\.fetch/);
+});
 
 test('post-m1-auth-c1/c2: PKCE and authorization URL match Flutter', async () => {
   const pkce = await generatePkcePair();

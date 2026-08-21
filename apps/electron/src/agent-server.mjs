@@ -106,6 +106,7 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
   env.AGENT_LOCAL = 'true';
+  env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (mcpRolesDir && !env.MCP_ROLES_DIR) env.MCP_ROLES_DIR = mcpRolesDir;

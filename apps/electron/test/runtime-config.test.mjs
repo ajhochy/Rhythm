@@ -22,3 +22,11 @@ test('packaging copies the runtime config module imported by main', async () => 
   const packageScript = await readFile(new URL('../scripts/package-mac.mjs', import.meta.url), 'utf8');
   assert.match(packageScript, /src\/runtime-config\.mjs/);
 });
+
+test('ordinary Electron tests exclude package-shaped contracts', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.doesNotMatch(packageJson.scripts.test, /electron-unsigned-package|issue-1402-packaged-api-server|post-m1-phase-1-packaged-host|test\/\*\.test/);
+  assert.match(packageJson.scripts['test:package'], /electron-unsigned-package/);
+  assert.match(packageJson.scripts['test:package'], /issue-1402-packaged-api-server/);
+  assert.match(packageJson.scripts['test:package'], /post-m1-phase-1-packaged-host/);
+});
