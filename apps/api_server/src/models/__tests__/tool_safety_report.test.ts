@@ -14,6 +14,7 @@ describe('D1.1 ToolSafetyReport model', () => {
   const report: ToolSafetyReport = {
     id: 'report-1',
     proposalId: 'proposal-1',
+    proposalFingerprint: null,
     toolName: 'example-tool',
     toolVersion: '1.2.3',
     packageSource: 'npm:example-tool',

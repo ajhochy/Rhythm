@@ -40,6 +40,7 @@ import {
   validateProposalChange,
 } from '../services/org_proposal_apply_service';
 import { finalizePostApplyLifecycleAsync } from '../services/post_apply_lifecycle';
+import { CONDITIONAL_TOOL_INSTALL_CONFIRMATION } from '../services/tool_install_safety_policy';
 
 /**
  * IMPORTANT: AgentOrgProposalsRepository's constructor calls getDb() eagerly
@@ -201,7 +202,15 @@ export class OrgProposalsController {
 
       const decidedByUserId = req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID;
 
-      const applyResult = await applyProposal(proposal);
+      // D1.4: request report/verdict fields have no authority. The reusable
+      // apply seam reads durable sandbox evidence itself; this route supplies
+      // only an authenticated, exact human confirmation for `conditional`.
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const explicitConditionalConfirmation =
+        !!req.auth?.user && body.toolSafetyConfirmation === CONDITIONAL_TOOL_INSTALL_CONFIRMATION;
+      const applyResult = await applyProposal(proposal, {
+        explicitHumanConfirmation: explicitConditionalConfirmation,
+      });
       const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
 
       // W1 package C — a scope proposal never reaches `applied` through the

@@ -93,3 +93,11 @@ PR #1454 with final evidence, then return to C6.
 - Concerns: GitNexus has no index for this worktree (impact/detect are
   UNKNOWN). The observer intentionally covers only the three named synthetic
   sentinels; it is not a generic syscall auditor.
+
+### 2026-08-21 — D1.4 tool vetting approval gate (#1429)
+
+- Files modified: central policy, proposal apply/controller boundaries, D1.1 report binding, additive schema parity, focused policy/route/live tests, D1.4 contract/run note.
+- Checks run: D1.1–D1.4 plus adjacent matrix 298 passed / 1 env-gated skip, then final affected subset 149/149; Node 22 typecheck/build; real-Docker safe + blocked vetter evidence; isolated live API 1/1; diff/secret scans.
+- Decisions made: reports bind a SHA-256 fingerprint of proposal id and closed candidate inputs; old/unbound, malformed, stale/mismatched rows never authorize. Conditional reports require an exact authenticated boundary token; reusable/optimizer paths cannot bypass the policy.
+- Deviations from spec: none.
+- Concerns: GitNexus detection remains UNKNOWN because this exact worktree is unindexed; an in-process per-proposal vet dedupe avoids local duplicate runs while cross-process races remain fail-closed under proposal CAS.

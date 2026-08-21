@@ -38,6 +38,10 @@ import { parseStrictJson } from './strict_json';
 import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
 import type { PostApplyTarget } from './post_apply_lifecycle';
 import { validateToolInstallChange } from './tool_install_proposal_validator';
+import {
+  evaluateToolInstallSafetyAsync,
+  type ToolInstallSafetyOptions,
+} from './tool_install_safety_policy';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -400,11 +404,20 @@ function defaultApplier(): ProposalApplyResult {
  * calls {@link validateProposalChange} directly, so any future caller of
  * this function gets the same fail-closed guarantee).
  */
-export async function applyProposal(proposal: AgentOrgProposal): Promise<ProposalApplyResult> {
+export async function applyProposal(
+  proposal: AgentOrgProposal,
+  safetyOptions: ToolInstallSafetyOptions = {},
+): Promise<ProposalApplyResult> {
   strictChangeJsonPreflight(proposal);
   const validation = await validateProposalChange(proposal);
   if (!validation.valid) {
     throw new Error(validation.reason ?? `Proposal ${proposal.id} failed re-validation`);
+  }
+  if (proposal.kind === 'tool-install') {
+    const safety = await evaluateToolInstallSafetyAsync(proposal, safetyOptions);
+    if (!safety.allowed) {
+      throw new Error(`tool-install safety policy refused approval: ${safety.reason}`);
+    }
   }
   const applier = appliers[proposal.kind] ?? defaultApplier;
   return applier(proposal);

@@ -1,0 +1,41 @@
+{
+  "contract_id": "D1.4",
+  "issue": 1429,
+  "phase": "D1.4",
+  "parent_contract": "D1.3",
+  "date": "2026-08-21",
+  "status": "pass",
+  "criteria": [
+    {
+      "id": "safe-auto-allow",
+      "evidence": "tool_install_safety_policy.test.ts: durable safe report is persisted, re-read, and allows apply"
+    },
+    {
+      "id": "conditional-human-only",
+      "evidence": "policy and authenticated route tests require exact server-side confirmation; request report/verdict fields are ignored"
+    },
+    {
+      "id": "fail-closed",
+      "evidence": "unsafe, unknown, unavailable/error, malformed, missing/mismatched report paths refuse; report binding is a SHA-256 fingerprint of proposal id + tool/package/method + closed scenarios"
+    },
+    {
+      "id": "no-apply-bypass",
+      "evidence": "central org_proposal_apply_service gate protects reusable apply; unattended optimizer path explicitly refuses tool-install; route CAS double-approval test retains one winner"
+    },
+    {
+      "id": "live-behavior",
+      "evidence": "isolated sandbox API on 4298 accepted a matching persisted safe report through POST /agent-org-proposals/:id/approve; hostile request verdict fields did not control the result"
+    }
+  ],
+  "verification": {
+    "focused_matrix": "Initial 12-file matrix: 298 passed, 1 env-gated live skipped; final affected policy/route/apply subset: 149 passed",
+    "docker": "2 focused real-Docker vetter classifications passed (safe; broken candidate -> unknown) with vetter exact-name teardown",
+    "live": "1/1 passed against tools/dev/sandbox.sh copied SQLite sandbox; teardown removed directory and released 4297/4298/4299",
+    "static": "Node 22 tsc --noEmit, npm run build, git diff --check passed",
+    "gitnexus": "UNKNOWN: this worktree is not indexed; CLI rejected both unqualified and absolute-path repo selection"
+  },
+  "risks": [
+    "The in-process dedupe map prevents duplicate concurrent vets within one API process; cross-process duplication remains fail-closed at report/policy and proposal CAS boundaries rather than adding a broad lock framework.",
+    "Existing pre-D1.4 unbound reports are deliberately non-authoritative and block until a current fingerprinted vet is produced."
+  ]
+}

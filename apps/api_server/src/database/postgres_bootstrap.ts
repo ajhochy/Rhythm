@@ -2311,6 +2311,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS tool_safety_reports (
       id TEXT PRIMARY KEY,
       proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
       tool_name TEXT NOT NULL,
       tool_version TEXT,
       package_source TEXT NOT NULL,
@@ -2328,6 +2329,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
     )
   `);
+  await pool.query(`ALTER TABLE tool_safety_reports ADD COLUMN IF NOT EXISTS proposal_fingerprint TEXT`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
        ON tool_safety_reports(proposal_id)`,

@@ -4414,6 +4414,7 @@ If someone asks for creative work that needs a local capability:
     CREATE TABLE IF NOT EXISTS tool_safety_reports (
       id TEXT PRIMARY KEY,
       proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
       tool_name TEXT NOT NULL,
       tool_version TEXT,
       package_source TEXT NOT NULL,
@@ -4435,4 +4436,9 @@ If someone asks for creative work that needs a local capability:
     `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
        ON tool_safety_reports(proposal_id)`,
   );
+  const toolSafetyReportCols = (db.pragma('table_info(tool_safety_reports)') as { name: string }[])
+    .map((column) => column.name);
+  if (!toolSafetyReportCols.includes('proposal_fingerprint')) {
+    db.exec(`ALTER TABLE tool_safety_reports ADD COLUMN proposal_fingerprint TEXT`);
+  }
 }

@@ -25,6 +25,8 @@ export interface ToolSafetyReport {
   id: string;
   /** The `agent_org_proposals` row (kind='tool-install') this report was generated for. */
   proposalId: string;
+  /** SHA-256 binding of the exact closed candidate inputs this report vetted. */
+  proposalFingerprint: string | null;
   toolName: string;
   toolVersion: string | null;
   packageSource: string;
@@ -54,6 +56,8 @@ export interface ToolSafetyReport {
 export interface ToolSafetyReportInput {
   id?: string;
   proposalId: string;
+  /** Required for new D1.4 reports; legacy unbound rows are never approval-authoritative. */
+  proposalFingerprint?: string | null;
   toolName: string;
   toolVersion?: string | null;
   packageSource: string;
@@ -77,6 +81,7 @@ export function toolSafetyReportFromJson(json: Record<string, unknown>): ToolSaf
   return {
     id: json.id as string,
     proposalId: json.proposalId as string,
+    proposalFingerprint: (json.proposalFingerprint as string | null) ?? null,
     toolName: json.toolName as string,
     toolVersion: (json.toolVersion as string | null) ?? null,
     packageSource: json.packageSource as string,
@@ -100,6 +105,7 @@ export function toolSafetyReportToJson(report: ToolSafetyReport): Record<string,
   return {
     id: report.id,
     proposalId: report.proposalId,
+    proposalFingerprint: report.proposalFingerprint,
     toolName: report.toolName,
     toolVersion: report.toolVersion,
     packageSource: report.packageSource,

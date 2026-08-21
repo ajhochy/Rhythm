@@ -30,6 +30,7 @@ import { sanitizeD1Json, sanitizeD1PlainText } from '../services/d1_secret_sanit
 interface ToolSafetyReportRow {
   id: string;
   proposal_id: string;
+  proposal_fingerprint: string | null;
   tool_name: string;
   tool_version: string | null;
   package_source: string;
@@ -55,6 +56,7 @@ function rowToModel(row: ToolSafetyReportRow): ToolSafetyReport {
   return {
     id: row.id,
     proposalId: row.proposal_id,
+    proposalFingerprint: row.proposal_fingerprint ?? null,
     toolName: row.tool_name,
     toolVersion: row.tool_version ?? null,
     packageSource: row.package_source,
@@ -129,6 +131,7 @@ export class ToolSafetyReportsRepository {
     const row = {
       id: input.id ?? crypto.randomUUID(),
       proposal_id: input.proposalId,
+      proposal_fingerprint: input.proposalFingerprint ?? null,
       tool_name: sanitizeD1PlainText(input.toolName) ?? '',
       tool_version: sanitizeD1PlainText(input.toolVersion ?? null),
       package_source: sanitizeD1PlainText(input.packageSource) ?? '',
@@ -146,7 +149,7 @@ export class ToolSafetyReportsRepository {
 
     const insertSql = (ph: string) =>
       `INSERT INTO tool_safety_reports
-         (id, proposal_id, tool_name, tool_version, package_source, install_method,
+         (id, proposal_id, proposal_fingerprint, tool_name, tool_version, package_source, install_method,
           sandbox_duration_ms, test_prompts_run_count, forbidden_path_violations_json,
           network_calls_observed_json, file_system_writes_observed_json,
           credential_access_attempts_count, verdict, reason, evidence_json)
@@ -154,11 +157,11 @@ export class ToolSafetyReportsRepository {
 
     if (env.dbClient === 'postgres') {
       await getPostgresPool().query(
-        insertSql('$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15'),
+        insertSql('$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16'),
         Object.values(row),
       );
     } else {
-      this.db!.prepare(insertSql('?,?,?,?,?,?,?,?,?,?,?,?,?,?,?')).run(...Object.values(row));
+      this.db!.prepare(insertSql('?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?')).run(...Object.values(row));
     }
 
     const stored = await this.findByIdAsync(row.id);
