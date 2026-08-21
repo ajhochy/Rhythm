@@ -292,6 +292,10 @@ export interface AgentRunOptions {
   mcpRole?: string;
   /** Working directory for the opencode session */
   cwd?: string;
+  /** Create an engine-managed git worktree before this background run. */
+  isolateWorktree?: boolean;
+  /** Optional name forwarded to the engine when isolateWorktree is enabled. */
+  worktreeName?: string;
   /** Rhythm task ID for 'task_notes' delivery */
   taskId?: string | null;
   /** Durable context linkage for a session that has no task foreign key. */
@@ -535,6 +539,7 @@ function _recordSession(opts: {
   isSystem?: boolean;
   /** USO B1 (#1028): explicit session category; omit to derive from scheduledTaskId. */
   category?: import('../models/agent_session').SessionCategory | null;
+  worktree?: { name: string; path: string; branch: string | null } | null;
 }): string | null {
   try {
     const repo = new AgentSessionsRepository();
@@ -561,6 +566,7 @@ function _recordSession(opts: {
       // 'scheduled'/'chat' when this is null.
       category: opts.category ?? undefined,
     });
+    if (opts.worktree) repo.setWorktree(session.id, opts.worktree);
     return session.id;
   } catch (err) {
     logger.warn(`[AgentRunner] _recordSession failed (non-fatal): ${String(err)}`);
@@ -763,6 +769,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     modelOverride,
     taskKind,
     category,
+    isolateWorktree,
+    worktreeName,
   } = opts;
 
   // #1135 — enforce the independent security lock before consuming a
@@ -927,9 +935,32 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   const effectiveName = sessionName && !_isSessionNamePlaceholder(sessionName)
     ? sessionName
     : promptTitle ?? sessionName ?? (scheduledTaskId ? 'Scheduled run' : 'AgentRunner run');
-  const effectiveCwd = cwd ?? process.cwd();
+  const projectCwd = cwd ?? process.cwd();
+  let effectiveCwd = projectCwd;
+  let worktree: { name: string; path: string; branch: string | null } | null = null;
+  const deadlinePolicy = _createRunDeadlinePolicy();
+  let rhythmSessionId: string | null = null;
+  let opencodeSessionId: string | null = null;
 
-  const rhythmSessionId = _recordSession({
+  try {
+    if (isolateWorktree === true) {
+      if (!opencodeClient.isReady && !(await opencodeClient.ensureReady())) {
+        throw new Error('AgentRunner: opencode engine is not ready to create a worktree');
+      }
+      const created = await _withinRunDeadline(
+        opencodeClient.createWorktree(projectCwd, { name: worktreeName }),
+        deadlinePolicy,
+        'worktree creation',
+      );
+      effectiveCwd = created.directory;
+      worktree = {
+        name: created.name,
+        path: created.directory,
+        branch: created.branch ?? null,
+      };
+    }
+
+  rhythmSessionId = _recordSession({
     name: effectiveName,
     agentKind: effectiveAgentKind,
     cwd: effectiveCwd,
@@ -941,6 +972,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     parentSessionId: parentSessionId ?? null,
     delegationDepth: delegationDepth ?? 0,
     category: category ?? null,
+    worktree,
   });
   if (rhythmSessionId && opts.onSessionCreated) {
     await opts.onSessionCreated(rhythmSessionId);
@@ -961,10 +993,6 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
   }
 
-  const deadlinePolicy = _createRunDeadlinePolicy();
-  let opencodeSessionId: string | null = null;
-
-  try {
     // ── Build mcpRoleConfig via the shared profile scope helper ──────────────
     // P1a: use the resolved profileScope.mcpRoleConfig directly. For the
     // scheduled path allowedMcpsJson was passed as the override, so behavior

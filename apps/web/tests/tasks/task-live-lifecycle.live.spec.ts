@@ -4,15 +4,16 @@ import { createRequire } from 'node:module';
 import { mkdir, readFile } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
+import { liveEnvironment } from '../live-environment';
 
-const apiBase = 'http://127.0.0.1:4098';
-const engineBase = 'http://127.0.0.1:4097';
+const { apiBase, engineBase } = liveEnvironment();
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH;
 const live = process.env.RHYTHM_LIVE_E2E === '1';
 const requireApi = createRequire(new URL('../../../api_server/package.json', import.meta.url));
 const evidence = path.resolve(import.meta.dirname, '../../../../docs/ai/runs/evidence/electron-m1-task-live.png');
 
 test.skip(!live, 'requires RHYTHM_LIVE_E2E=1');
+test.use({ bypassCSP: true });
 
 type Db = {
   prepare(sql: string): { run(...values: unknown[]): { lastInsertRowid: number } };
@@ -36,7 +37,7 @@ function seedIdentity(db: Db, nonce: string, name: string) {
 async function startLiveWeb(token: string) {
   const vite = spawn('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '4175'], {
     cwd: new URL('../..', import.meta.url),
-    env: { ...process.env, VITE_RHYTHM_GATEWAY_MODE: 'live', VITE_RHYTHM_API_BASE: apiBase, VITE_RHYTHM_ENGINE_BASE: engineBase, VITE_RHYTHM_LIVE_TOKEN: token },
+    env: { ...process.env, VITE_RHYTHM_GATEWAY_MODE: 'live', VITE_RHYTHM_API_BASE: apiBase, VITE_RHYTHM_EXPECTED_API_BASE: apiBase, VITE_RHYTHM_ENGINE_BASE: engineBase, VITE_RHYTHM_EXPECTED_ENGINE_BASE: engineBase, VITE_RHYTHM_PRODUCTION_API_BASE: apiBase, VITE_RHYTHM_LIVE_TOKEN: token },
     stdio: 'ignore',
   });
   await new Promise((resolve) => setTimeout(resolve, 1_000));

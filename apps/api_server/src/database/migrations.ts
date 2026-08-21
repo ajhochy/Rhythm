@@ -3231,8 +3231,8 @@ If someone asks for creative work that needs a local capability:
   runOnce('issue_1058_worktree_fields', () => {
     // Marker only — the additive ALTERs above are idempotent STRUCTURE changes.
     // This runOnce records that the #1058 worktree-fields migration landed
-    // (agent_sessions is local-SQLite only; postgres_bootstrap.ts is NOT needed
-    // for agent sessions, per the issue's verification note).
+    // Role-enabled Postgres deployments define the same additive columns in
+    // postgres_bootstrap.ts; hosted cloud deployments skip local agent tables.
   });
 
   // #1088 — decouple picker visibility (session_selectable) from schedulability.

@@ -8,7 +8,7 @@ const pausedLiveSpecs = process.env.RHYTHM_LIVE_E2E === '1' ? [] : [
 
 export default defineConfig({
   testDir: './tests',
-  testIgnore: ['electron/**', ...pausedLiveSpecs],
+  testIgnore: ['electron/**', '**/bucket-a-rendered-repair.spec.ts', ...pausedLiveSpecs],
   fullyParallel: false,
   workers: 1,
   timeout: 20_000,

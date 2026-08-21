@@ -21,7 +21,7 @@ import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
@@ -42,7 +42,9 @@ const SANDBOX_MARKER = '--rhythm-sandbox=';
 
 /** apps/desktop_flutter/lib/app/core/server/api_server_service.dart:487-501 — GUI apps on macOS
  * launch with a minimal PATH, so a bare `which node` misses Homebrew/nvm installs. */
-export async function findNode() {
+export async function findNode(executablePath = process.execPath) {
+  const bundledNode = resolve(dirname(dirname(executablePath)), 'Resources/node/bin/node');
+  if (existsSync(bundledNode)) return bundledNode;
   for (const candidate of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
     if (existsSync(candidate)) return candidate;
   }
@@ -56,19 +58,21 @@ export async function findNode() {
   return null;
 }
 
-/** api_server_service.dart:548-590, simplified: apps/electron does not yet bundle its own copy of
- * api_server into a packaged .app (package-mac.mjs copies only apps/electron's own sources + the
- * built web bundle), so only the dev-mode branch — find `apps/api_server` by walking up from this
- * file — can ever actually resolve today. The bundled-path check is kept for structural parity and
- * so this starts working for free the day api_server bundling is added to package-mac.mjs.
+/** api_server_service.dart:548-590: prefer the detached production payload, otherwise walk up to
+ * source only for development. A packaged Rhythm executable fails closed when its payload is
+ * missing instead of accidentally depending on a nearby checkout.
  * @param {string} nodePath
+ * @param {string} executablePath
  * @returns {ServerEntry | null}
  */
-export function findServerEntry(nodePath) {
-  const packagedCandidate = resolve(electronRoot, '../../Resources/api_server/dist/server.js');
+export function findServerEntry(nodePath, executablePath = process.execPath) {
+  const resourcesDir = resolve(dirname(dirname(executablePath)), 'Resources');
+  const packagedApiServer = resolve(resourcesDir, 'api_server');
+  const packagedCandidate = resolve(packagedApiServer, 'dist/server.js');
   if (existsSync(packagedCandidate)) {
-    return { executable: nodePath, args: [packagedCandidate], workingDir: dirname(packagedCandidate), mcpRolesDir: resolve(dirname(packagedCandidate), '../.mcp-roles') };
+    return { executable: nodePath, args: [packagedCandidate], workingDir: packagedApiServer, mcpRolesDir: resolve(packagedApiServer, '.mcp-roles') };
   }
+  if (basename(executablePath) === 'Rhythm') return null;
   let candidate = electronRoot;
   for (let depth = 0; depth < 12; depth += 1) {
     const apiServerDir = resolve(candidate, 'apps/api_server');
@@ -102,6 +106,7 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
   env.AGENT_LOCAL = 'true';
+  env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (mcpRolesDir && !env.MCP_ROLES_DIR) env.MCP_ROLES_DIR = mcpRolesDir;

@@ -1,0 +1,17 @@
+{
+  "issue": "task-bucket-a-task-sharing-prereq",
+  "date": "2026-08-20",
+  "test_command": "npx vitest run src/__tests__/tasks_permissions.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-task-sharing-prereq-c1",
+      "text": "Create task + collaborator, execute the same repository/controller path used by collaborator PATCH, and assert returned task has isShared:true (plus collaborator data/count if that is the established response contract).",
+      "mode": "integration",
+      "test": "src/__tests__/tasks_permissions.test.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

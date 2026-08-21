@@ -33,7 +33,7 @@ export async function openPhase7Live(
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
   await page.route('http://127.0.0.1:4097/**', (route) =>
     fulfillJson(route, 200, { healthy: true }));
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  await page.route(/^http:\/\/127\.0\.0\.1:(?:4098|4198)\//, async (route) => {
     const request = route.request();
     if (request.method() === 'OPTIONS') {
       await route.fulfill({ status: 204, headers: corsHeadersFor(request) });

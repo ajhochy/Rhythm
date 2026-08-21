@@ -1,11 +1,14 @@
 import { expect, test } from '@playwright/test';
+import { liveEnvironment } from '../live-environment';
+
+const { apiBase, engineBase } = liveEnvironment();
 
 test('post-m1-p1-c1b: live cold launch gates application routes on API, engine, and auth readiness', async ({ page }) => {
   // Regression caught: the renderer exposes application routes while the live receipt still says
   // Connecting, or declares Live without observing both real sandbox health endpoints.
   const healthResponses: string[] = [];
   page.on('response', (response) => {
-    if (/127\.0\.0\.1:409[78]/.test(response.url())) {
+    if (response.url().startsWith(apiBase) || response.url().startsWith(engineBase)) {
       healthResponses.push(`${response.request().method()} ${response.url()} ${response.status()}`);
     }
   });
@@ -24,8 +27,8 @@ test('post-m1-p1-c1b: live cold launch gates application routes on API, engine, 
   await page.goto('/#/agents');
   await expect(page.getByRole('status', { name: 'Environment receipt' })).toContainText('Environment: Live');
   expect(healthResponses).toEqual(expect.arrayContaining([
-    'GET http://127.0.0.1:4098/health 200',
-    'GET http://127.0.0.1:4097/global/health 200',
+    `GET ${apiBase}/health 200`,
+    `GET ${engineBase}/global/health 200`,
   ]));
   expect(await page.evaluate(() => (window as Window & { __phase1Readiness: { routeExposedBeforeReady: boolean } }).__phase1Readiness.routeExposedBeforeReady)).toBe(false);
   await expect(page.locator('#main-content')).toBeVisible();

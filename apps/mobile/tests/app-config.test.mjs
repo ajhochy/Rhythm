@@ -34,6 +34,11 @@ assert.deepEqual(production.scheme, [
 ]);
 assert.equal(production.owner, 'ajhochys-team');
 assert.equal(production.ios.bundleIdentifier, 'org.visaliacrc.rhythm.agents');
+assert.equal(
+  production.ios.config?.usesNonExemptEncryption,
+  false,
+  'production must declare that Rhythm ships no non-exempt encryption',
+);
 assert.equal(production.extra.eas.projectId, 'bd873c89-2fe2-45db-805c-ab819e582e5c');
 assert.equal(
   production.ios.infoPlist?.NSPhotoLibraryUsageDescription,

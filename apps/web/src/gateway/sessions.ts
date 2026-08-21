@@ -409,7 +409,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
 
       const open = () => {
         if (closedByCaller) return;
-        socket = new WebSocketImpl('ws://127.0.0.1:4098/ws/agents');
+        socket = new WebSocketImpl(`${apiBase.replace(/^http:/, 'ws:')}/ws/agents`);
         socket.addEventListener('open', () => {
           attempt = 0;
           const reconnected = !firstOpen;

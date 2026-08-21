@@ -93,7 +93,7 @@ function terminalResult(command: string) {
   return results[command] ?? `fixture: ${command} completed`;
 }
 
-function TerminalPanel({ pty, updatePty, trace, setTrace }: { pty: PtyFixture; updatePty(next: PtyFixture): void; trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void }) {
+function TerminalPanel({ pty, updatePty, trace, setTrace, live }: { pty: PtyFixture; updatePty(next: PtyFixture): void; trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void; live: boolean }) {
   const { selected, notify } = useFixtures();
   const [command, setCommand] = useState('git status --short');
   const runCommand = () => {
@@ -118,7 +118,7 @@ function TerminalPanel({ pty, updatePty, trace, setTrace }: { pty: PtyFixture; u
     setTrace({ method: 'POST', route: `/agent-sessions/${selected.id}/pty` });
   };
   return <section className="inspector-panel terminal-panel" aria-label="Session terminal" data-testid="terminal-panel">
-    <header><span><span className={`status-dot ${pty.status === 'connected' ? 'working' : pty.status === 'connecting' ? 'retrying' : 'offline'}`} />PTY · {pty.status}</span></header>
+    <header><span><span className={`status-dot ${live ? 'offline' : pty.status === 'connected' ? 'working' : pty.status === 'connecting' ? 'retrying' : 'offline'}`} />{live ? 'Not yet live' : `PTY · ${pty.status}`}</span>{live && <span className="kind-badge">Fixture</span>}</header>
     <pre aria-live="polite" data-testid="terminal-output">{pty.output.join('\n')}</pre>
     {pty.status === 'connected' && <><form onSubmit={(event) => { event.preventDefault(); runCommand(); }}><label><span aria-hidden="true">$</span><input value={command} onChange={(event) => setCommand(event.target.value)} aria-label="Terminal command" placeholder="Enter terminal command" data-testid="terminal-input" /></label><button className="primary-button" type="submit" data-testid="terminal-run">Run</button></form><div className="command-chips"><button type="button" onClick={() => setCommand('pwd')}>pwd</button><button type="button" onClick={() => setCommand('git status --short')}>git status</button><button type="button" onClick={() => setCommand('npm test')}>npm test</button><button type="button" onClick={() => setCommand('exit')}>exit</button></div></>}
     {pty.status === 'exited' && <div className="terminal-recovery"><p>[process exited]</p><button className="secondary-button" type="button" onClick={openTerminal} data-testid="terminal-new">New terminal</button></div>}
@@ -129,6 +129,15 @@ function TerminalPanel({ pty, updatePty, trace, setTrace }: { pty: PtyFixture; u
 }
 
 const slug = (value: string) => value.replace(/[^a-z0-9]/gi, '-');
+
+async function copyFilePath(path: string, notify: (message: string) => void) {
+  try {
+    await navigator.clipboard.writeText(path);
+    notify('File path copied');
+  } catch {
+    notify('File path copy failed');
+  }
+}
 
 function FilesPanel({ trace, setTrace }: { trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void }) {
   const { selected, files, activeFile, setActiveFile, notify } = useFixtures();
@@ -163,7 +172,7 @@ function FilesPanel({ trace, setTrace }: { trace: InspectorTrace | null; setTrac
       {directories.map((name) => <button type="button" onClick={() => openDirectory(name)} key={name} data-testid={`file-dir-${slug(prefix + name)}`}><Icon name="worktree" size={14} /><span>{name}</span><em>›</em></button>)}
       {visibleFiles.map((file) => <button type="button" className={file.path === previewPath ? 'selected' : ''} onClick={() => openFile(file)} key={file.path} data-testid={`file-${slug(file.path)}`}><Icon name="file" size={14} /><span>{query ? file.path : file.path.slice(prefix.length)}</span><em>{file.gitStatus ?? '-'}</em></button>)}
     </div>
-    <div className="file-viewer"><header><code>{current?.path ?? `/${directory}`}</code>{current && <button type="button" onClick={() => notify('File path copied')} aria-label="Copy file path"><Icon name="copy" size={13} /></button>}</header>{renderPreview()}</div>
+    <div className="file-viewer"><header><code>{current?.path ?? `/${directory}`}</code>{current && <button type="button" onClick={() => void copyFilePath(current.path, notify)} aria-label="Copy file path"><Icon name="copy" size={13} /></button>}</header>{renderPreview()}</div>
     <Trace trace={trace} />
   </section>;
 }
@@ -218,7 +227,7 @@ function LiveFilesPanel() {
       {!searching && entries.map((entry) => <button type="button" className={entry.name === selectedPath ? 'selected' : ''} onClick={() => openFile(directory ? `${directory}/${entry.name}` : entry.name)} key={entry.name} data-testid={`file-${slug(entry.name)}`}><Icon name={entry.type === 'directory' ? 'worktree' : 'file'} size={14} /><span>{entry.name}</span><em>{statusFor(entry.name) ?? '-'}</em></button>)}
       {!searching && entries.length === 0 && !loading && <p className="rail-empty">No files found.</p>}
     </div>
-    <div className="file-viewer"><header><code>{selectedPath || `/${directory}`}</code>{selectedPath && <button type="button" onClick={() => notify('File path copied')} aria-label="Copy file path"><Icon name="copy" size={13} /></button>}</header>
+    <div className="file-viewer"><header><code>{selectedPath || `/${directory}`}</code>{selectedPath && <button type="button" onClick={() => void copyFilePath(selectedPath, notify)} aria-label="Copy file path"><Icon name="copy" size={13} /></button>}</header>
       {!selectedPath && <div className="inspector-empty file-empty"><Icon name="file" size={22} /><h3>Select a file</h3><p>Text, image, and binary previews stay inside the session workspace.</p></div>}
       {selectedPath && !content && !error && <p className="inspector-state" aria-live="polite">Loading…</p>}
       {content && (content.type === 'binary'
@@ -237,8 +246,8 @@ function LiveChangesPanel() {
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const [scope, setScope] = useState<'session' | 'git' | 'branch'>('session');
-  const [sessionEntries, setSessionEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string }[]>([]);
-  const [vcsEntries, setVcsEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string }[]>([]);
+  const [sessionEntries, setSessionEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; before?: string; after?: string }[]>([]);
+  const [vcsEntries, setVcsEntries] = useState<{ path: string; additions: number; deletions: number; patch?: string; before?: string; after?: string }[]>([]);
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState<'reset' | 'remove' | 'revert' | 'restore' | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -247,7 +256,7 @@ function LiveChangesPanel() {
   const loadSessionDiff = () => {
     setError('');
     sessions.sessionDiff(selected.id)
-      .then((rows) => setSessionEntries(rows.map((row) => ({ path: row.file, additions: row.additions, deletions: row.deletions }))))
+      .then((rows) => setSessionEntries(rows.map((row) => ({ path: row.file, additions: row.additions, deletions: row.deletions, before: row.before, after: row.after }))))
       .catch(() => setError('Diff could not be loaded'));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,7 +313,7 @@ function LiveChangesPanel() {
         <button type="button" aria-expanded={Boolean(expanded[entry.path])} onClick={() => setExpanded((current) => ({ ...current, [entry.path]: !current[entry.path] }))} data-testid={`change-file-${slug(entry.path)}`}>
           <Icon name="chevronRight" size={13} /><code>{entry.path}</code><span>+{entry.additions} −{entry.deletions}</span>
         </button>
-        {expanded[entry.path] && entry.patch && <pre className="diff-code">{entry.patch}</pre>}
+        {expanded[entry.path] && (entry.patch !== undefined || entry.before !== undefined || entry.after !== undefined) && <pre className="diff-code">{entry.patch ?? `--- Before\n${entry.before ?? ''}\n+++ After\n${entry.after ?? ''}`}</pre>}
       </article>)}
       {entries.length === 0 && <p className="rail-empty">No changes.</p>}
     </div>
@@ -357,7 +366,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   const pty = ptySessions[selected.id] ?? { id: `pty-${selected.id}`, status: 'connected' as const, output: ['$ pwd', selected.cwd] };
   const updatePty = (next: PtyFixture) => setPtySessions((current) => ({ ...current, [selected.id]: next }));
   const live = sessionGatewayMode === 'live';
-  const panel = inspectorTab === 'context' ? <ContextPanel /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
+  const panel = inspectorTab === 'context' ? <ContextPanel /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
   const moveTab = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
     event.preventDefault();

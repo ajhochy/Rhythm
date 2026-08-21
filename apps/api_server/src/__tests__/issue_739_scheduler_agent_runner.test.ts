@@ -133,10 +133,9 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     mockFindDueAsync.mockResolvedValue([makeDueTask()]);
 
     const task = startAgentSchedulerJob();
+    expect(task?.boot).toBeInstanceOf(Promise);
     task?.stop();
-
-    // Give async chain time to resolve
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await task?.boot;
 
     expect(mockRun).toHaveBeenCalledOnce();
     expect(mockRun).toHaveBeenCalledWith(expect.objectContaining({
@@ -158,8 +157,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
 
     const task = startAgentSchedulerJob();
     task?.stop();
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await task?.boot;
 
     // AgentRunner.run must NOT have been called
     expect(mockRun).not.toHaveBeenCalled();
@@ -186,8 +184,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
 
     const cronTask = startAgentSchedulerJob();
     cronTask?.stop();
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await cronTask?.boot;
 
     // Both tasks should have been dispatched to AgentRunner
     expect(mockRun).toHaveBeenCalledTimes(2);
@@ -209,7 +206,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     const beforeDispatch = Date.now();
     const cronTask = startAgentSchedulerJob();
     cronTask?.stop();
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await cronTask?.boot;
 
     const capacityUpdate = mockUpdateNextRunAsync.mock.calls.find(
       (call) => call[3] === 'queued',
@@ -235,7 +232,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
 
     const cronTask = startAgentSchedulerJob();
     cronTask?.stop();
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await cronTask?.boot;
 
     const runningUpdate = mockUpdateNextRunAsync.mock.calls.find(
       (call) => call[3] === 'running',
@@ -259,8 +256,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
 
     const cronTask = startAgentSchedulerJob();
     cronTask?.stop();
-
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    await cronTask?.boot;
 
     expect(mockRun).not.toHaveBeenCalled();
     expect(mockDbRun).not.toHaveBeenCalled();

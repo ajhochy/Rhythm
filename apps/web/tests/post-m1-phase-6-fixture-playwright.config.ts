@@ -23,7 +23,7 @@ export default defineConfig({
     serviceWorkers: 'block',
   },
   webServer: {
-    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_LIVE_TOKEN=phase6-contract-token npm run dev -- --host 127.0.0.1 --port 4176',
+    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_PRODUCTION_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_LIVE_TOKEN=phase6-contract-token npm run dev -- --host 127.0.0.1 --port 4176',
     url: 'http://127.0.0.1:4176',
     // post-m1-phase-6: measured — a spec whose locator never resolves (the redspec's mocked
     // find-files/list/diff routes return `{ok:true}`, not real path data, for two assertions

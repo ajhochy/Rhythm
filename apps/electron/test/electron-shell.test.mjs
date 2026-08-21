@@ -34,12 +34,17 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
   assert.equal(result.url, 'rhythm://app/index.html#/agents');
 });
 
-test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway metadata, Google auth, human-approval signing, and agent-server status', async () => {
+test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
   assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer']);
   assert.equal(result.bridge.frozen, true);
-  assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase']);
+  assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
   assert.equal(result.bridge.gateway.frozen, true);
+  assert.deepEqual(result.bridge.gateway.configured, {
+    apiBase: true,
+    engineBase: true,
+    productionApiBase: true,
+  });
   assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle']);
   assert.equal(result.bridge.auth.frozen, true);
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive.
@@ -87,7 +92,13 @@ function spawnElectron(args, userData) {
   return new Promise((resolvePromise, reject) => {
       const child = spawn(electron, args, {
         cwd: shellRoot,
-        env: { ...process.env, ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}) },
+        env: {
+          ...process.env,
+          RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098',
+          RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097',
+          RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
+          ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}),
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let stdout = '';

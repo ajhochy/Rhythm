@@ -8,6 +8,7 @@ function liveDomains(): Record<string, unknown> {
   return createLiveGateway({
     apiBase: 'http://127.0.0.1:4098',
     engineBase: 'http://127.0.0.1:4097',
+    productionApiBase: 'https://api.vcrcapps.com',
     taskToken: 'phase-5-contract-token',
   }, neverFetch).domains as Record<string, unknown>;
 }

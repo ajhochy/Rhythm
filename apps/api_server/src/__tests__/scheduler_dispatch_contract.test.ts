@@ -121,6 +121,21 @@ describe('scheduler dispatch — per-task model override + profile scope inherit
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.AGENT_LOCAL;
+    delete process.env.RHYTHM_LOCAL_SMOKE;
+  });
+
+  it('local smoke never resets, advances, or fires scheduled tasks', async () => {
+    process.env.RHYTHM_LOCAL_SMOKE = '1';
+    mockFindDueAsync.mockResolvedValue([makeDueTask()]);
+
+    const job = startAgentSchedulerJob();
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+    expect(job).toBeNull();
+    expect(mockResetStaleRunning).not.toHaveBeenCalled();
+    expect(mockFindDueAsync).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(mockUpdateNextRunAsync).not.toHaveBeenCalled();
   });
 
   // Regression: scheduler ignores the task's model columns → the per-task

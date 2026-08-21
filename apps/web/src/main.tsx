@@ -14,6 +14,7 @@ const runtimeGateway = (window as Window & {
     gateway?: {
       apiBase?: string;
       engineBase?: string;
+      productionApiBase?: string;
     };
     auth?: DesktopAuthBridge;
   };
@@ -21,12 +22,20 @@ const runtimeGateway = (window as Window & {
 const gatewayMode = environment.VITE_RHYTHM_GATEWAY_MODE;
 const apiBase = runtimeGateway?.gateway?.apiBase ?? environment.VITE_RHYTHM_API_BASE;
 const engineBase = runtimeGateway?.gateway?.engineBase ?? environment.VITE_RHYTHM_ENGINE_BASE;
+const productionApiBase = runtimeGateway?.gateway?.productionApiBase ?? environment.VITE_RHYTHM_PRODUCTION_API_BASE;
+// Electron owns and freezes runtimeGateway. Browser-only alternate ports require a separate,
+// explicit test expectation so a configured URL can never declare itself trusted.
+const expectedApiBase = runtimeGateway ? apiBase : environment.VITE_RHYTHM_EXPECTED_API_BASE;
+const expectedEngineBase = runtimeGateway ? engineBase : environment.VITE_RHYTHM_EXPECTED_ENGINE_BASE;
 
 const renderGateway = (taskToken?: string, user?: AuthUser) => {
   const gateway = composeGateway({
     mode: gatewayMode,
     apiBase,
     engineBase,
+    productionApiBase,
+    expectedApiBase,
+    expectedEngineBase,
     taskToken,
   });
   const app = <FixtureProvider><App /></FixtureProvider>;
@@ -55,14 +64,14 @@ try {
   // The packaged build neutralizes this value, and the Electron host never exposes a token.
   const testOnlyToken = environment.VITE_RHYTHM_LIVE_TOKEN;
   if (gatewayMode === 'live' && !testOnlyToken) {
-    if (!apiBase || !engineBase) {
+    if (!apiBase || !engineBase || !productionApiBase) {
       // A missing ADDRESS and a missing TOKEN are different failures and must not share one state.
       // Signing in cannot supply an API address, so this is a fatal configuration error rather than
       // a signed-out state. slice-2-c5-ui requires exactly that: requested-live with invalid
       // configuration renders a fatal error and never silently mounts the fixture workspace.
       // Routing it through renderNotConfigured() conflated the two and regressed the M1 gate.
       renderStartupError(new Error(
-        'Live configuration error: API and engine addresses must come from the Electron host runtime or explicit Vite development values.',
+        'Live configuration error: local API, engine, and production API addresses must come from the Electron host runtime or explicit Vite development values.',
       ));
     } else {
       const onAuthenticated = (login: AuthLoginResponse) => {

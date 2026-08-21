@@ -15,9 +15,18 @@
 // Node addon or an Electron-specific keytar-like module if that gap needs closing later.
 import { execFile } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign as cryptoSign, createHash } from 'node:crypto';
+import { userInfo } from 'node:os';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
+// Local smoke deliberately gives Electron a disposable HOME so agent configuration cannot leak
+// into the user's real profile. macOS `security`, however, also uses HOME to locate the login
+// Keychain; pointing it at the disposable directory makes an existing app identity unreadable and
+// a new identity impossible to save. Scope the real home override to the Keychain subprocess only.
+export function resolveKeychainEnvironment(env = process.env, userHome = userInfo().homedir) {
+  return { ...env, HOME: userHome };
+}
+const keychainEnvironment = resolveKeychainEnvironment();
 
 const KEYCHAIN_SERVICE = 'rhythm-electron-human-approval-key';
 const KEYCHAIN_ACCOUNT = 'signing-key-v1';
@@ -29,7 +38,7 @@ const CANONICAL_PREFIX = 'rhythm-human-approval-v1';
 /** @param {string} service @param {string} account @returns {Promise<string | null>} */
 async function keychainRead(service, account) {
   try {
-    const { stdout } = await run('security', ['find-generic-password', '-s', service, '-a', account, '-w']);
+    const { stdout } = await run('security', ['find-generic-password', '-s', service, '-a', account, '-w'], { env: keychainEnvironment });
     const value = stdout.trim();
     return value || null;
   } catch {
@@ -40,7 +49,7 @@ async function keychainRead(service, account) {
 /** @param {string} service @param {string} account @param {string} value */
 async function keychainWrite(service, account, value) {
   // -U: update in place if an entry already exists, instead of erroring.
-  await run('security', ['add-generic-password', '-U', '-s', service, '-a', account, '-w', value]);
+  await run('security', ['add-generic-password', '-U', '-s', service, '-a', account, '-w', value], { env: keychainEnvironment });
 }
 
 /** @type {{ privateKey: import('node:crypto').KeyObject, publicKey: import('node:crypto').KeyObject } | undefined} */

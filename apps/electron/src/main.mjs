@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, net, Notification, protocol, session, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -10,6 +10,8 @@ import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.m
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
 import { deepLinkFromArgv, resolveAsset, validateRequest, webDist } from './policy.mjs';
+import { createProductionApiConfig, createProductionApiSetHandler } from './production-api-config.mjs';
+import { resolveGoogleDesktopClientId } from './runtime-config.mjs';
 
 export { deepLinkFromArgv } from './policy.mjs';
 
@@ -25,6 +27,11 @@ if (process.env.RHYTHM_SHELL_USER_DATA) app.setPath('userData', process.env.RHYT
 else if (smokeUserDataPath) app.setPath('userData', smokeUserDataPath);
 // Registered before the lock check so an instance that yields still reaps the directory it created.
 if (smokeUserDataPath) app.on('will-quit', () => rmSync(smokeUserDataPath, { recursive: true, force: true }));
+
+const productionApiConfigPath = resolve(app.getPath('userData'), 'server-config.json');
+const productionApiConfig = createProductionApiConfig({ configPath: productionApiConfigPath, defaultBase: RHYTHM_AUTH_API_BASE, env: process.env });
+let productionApiBase = productionApiConfig.load();
+process.env.RHYTHM_PRODUCTION_API_URL = productionApiBase;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
@@ -50,20 +57,116 @@ if (hasSingleInstanceLock) {
   let mainWindow;
   /** @type {string | null} */
   let pendingDeepLink = deepLinkFromArgv(process.argv);
+  /** @type {Map<string, Notification>} */
+  const nativeNotificationRegistry = new Map();
+  /** @type {Array<{ family: 'approval', sessionId: string, approvalId: string }>} */
+  const pendingNativeNotificationActivations = [];
+  let rendererReady = false;
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
+
+  /** @param {unknown} value */
+  const safeNotificationId = (value) => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
+
+  /** @param {unknown} value @returns {{ family: 'approval', sessionId: string, approvalId: string } | null} */
+  const validateNativeNotificationTarget = (value) => {
+    if (!value || typeof value !== 'object') return null;
+    const { family, sessionId, approvalId } = /** @type {Record<string, unknown>} */ (value);
+    if (family !== 'approval' || !safeNotificationId(sessionId) || !safeNotificationId(approvalId)) return null;
+    return {
+      family,
+      sessionId: /** @type {string} */ (sessionId),
+      approvalId: /** @type {string} */ (approvalId),
+    };
+  };
+
+  /** @param {unknown} target */
+  const routeNativeNotificationActivation = (target) => {
+    const validated = validateNativeNotificationTarget(target);
+    if (!validated) return false;
+    if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) {
+      pendingNativeNotificationActivations.push(validated);
+      return true;
+    }
+    const url = new URL('rhythm://app/index.html');
+    url.hash = `/agents?sessionId=${encodeURIComponent(validated.sessionId)}&approvalId=${encodeURIComponent(validated.approvalId)}`;
+    void mainWindow.loadURL(url.toString());
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return true;
+  };
+
+  /** @param {string} approvalId */
+  const cancelNativeNotification = (approvalId) => {
+    const notification = nativeNotificationRegistry.get(approvalId);
+    if (!notification) return;
+    notification.close();
+    nativeNotificationRegistry.delete(approvalId);
+  };
+
+  /** @param {unknown} payload */
+  const syncNativeApprovalNotifications = (payload) => {
+    if (!Array.isArray(payload) || payload.length > 100) return;
+    const approvals = payload.flatMap((value) => {
+      if (!value || typeof value !== 'object') return [];
+      const approval = /** @type {Record<string, unknown>} */ (value);
+      const target = validateNativeNotificationTarget({ family: 'approval', sessionId: approval.sessionId, approvalId: approval.id });
+      return target && approval.status === 'pending' ? [target] : [];
+    });
+    const pendingIds = new Set(approvals.map(({ approvalId }) => approvalId));
+    for (const approvalId of nativeNotificationRegistry.keys()) {
+      if (!pendingIds.has(approvalId)) cancelNativeNotification(approvalId);
+    }
+    if (!Notification.isSupported()) return;
+    for (const target of approvals) {
+      if (nativeNotificationRegistry.has(target.approvalId)) continue;
+      const notification = new Notification({
+        title: 'Approval requested',
+        body: 'An agent action needs your approval.',
+      });
+      notification.on('click', () => routeNativeNotificationActivation(target));
+      notification.on('close', () => {
+        if (nativeNotificationRegistry.get(target.approvalId) === notification) {
+          nativeNotificationRegistry.delete(target.approvalId);
+        }
+      });
+      nativeNotificationRegistry.set(target.approvalId, notification);
+      notification.show();
+    }
+  };
+
+  ipcMain.on('rhythm:approval-notifications:sync', (event, payload) => {
+    if (event.sender !== mainWindow?.webContents) return;
+    syncNativeApprovalNotifications(payload);
+  });
 
   ipcMain.handle('rhythm:auth:google-sign-in', () => {
     if (!googleSignInInFlight) {
       googleSignInInFlight = runDesktopGoogleOAuth({
-        clientId: GOOGLE_DESKTOP_CLIENT_ID,
+        clientId: resolveGoogleDesktopClientId(GOOGLE_DESKTOP_CLIENT_ID),
         apiBase: RHYTHM_AUTH_API_BASE,
         openExternal: (url) => shell.openExternal(url),
-        fetcher: (url, init) => net.fetch(String(url), init),
+        fetcher: (url, init) => globalThis.fetch(String(url), init),
       }).finally(() => { googleSignInInFlight = undefined; });
     }
     return googleSignInInFlight;
   });
+  // Preload runs in a separate sandboxed process whose inherited environment is fixed before this
+  // module loads persisted configuration. Read the validated current value from main instead of
+  // assuming a later process.env mutation crosses that boundary.
+  ipcMain.on('rhythm:production-api:get', (event) => {
+    if (event.sender !== mainWindow?.webContents) return;
+    event.returnValue = productionApiBase;
+  });
+  ipcMain.handle('rhythm:production-api:set', createProductionApiSetHandler({
+    allowedSender: () => mainWindow?.webContents,
+    save: async (value) => {
+      const serverUrl = await productionApiConfig.save(value);
+      productionApiBase = serverUrl;
+      process.env.RHYTHM_PRODUCTION_API_URL = serverUrl;
+      return serverUrl;
+    },
+  }));
 
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
@@ -82,7 +185,11 @@ if (hasSingleInstanceLock) {
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
   ipcMain.handle('rhythm:human-approval:capability', () => humanApprovalSigner.capability());
-  ipcMain.handle('rhythm:human-approval:sign-decision', (_event, decision) => humanApprovalSigner.signDecision(decision));
+  ipcMain.handle('rhythm:human-approval:sign-decision', async (_event, decision) => {
+    const signature = await humanApprovalSigner.signDecision(decision);
+    cancelNativeNotification(decision.approvalId);
+    return signature;
+  });
   agentServer.onStatusChange((/** @type {import('./agent-server.mjs').AgentServerStatus} */ snapshot) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rhythm:agent-server:status-changed', snapshot);
   });
@@ -136,13 +243,25 @@ if (hasSingleInstanceLock) {
         return new Response('Forbidden', { status: 403 });
       }
       const file = resolveAsset(url.pathname);
-      return file ? net.fetch(pathToFileURL(file).toString()) : new Response('Not found', { status: 404 });
+      if (!file) return new Response('Not found', { status: 404 });
+      if (url.pathname === '/index.html') {
+        const apiOrigin = new URL(process.env.RHYTHM_LIVE_API_URL ?? AGENT_SERVER_BASE_URL).origin;
+        const engineOrigin = new URL(process.env.RHYTHM_LIVE_ENGINE_URL ?? `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`).origin;
+        const websocketOrigin = apiOrigin.replace(/^http:/, 'ws:');
+        const connectOrigins = [...new Set([new URL(productionApiBase).origin, apiOrigin, engineOrigin, websocketOrigin])].join(' ');
+        return readFile(file, 'utf8').then((html) => new Response(
+          html.replace('connect-src ', `connect-src ${connectOrigins} `),
+          { headers: { 'content-type': 'text/html; charset=utf-8' } },
+        ));
+      }
+      return net.fetch(pathToFileURL(file).toString());
     });
 
     const denials = { navigation: false, popup: false, permission: false, download: false };
-    session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-      denials.permission = true;
-      callback(false);
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      const notificationPermission = permission === 'notifications' && webContents === mainWindow?.webContents;
+      if (!notificationPermission) denials.permission = true;
+      callback(notificationPermission);
     });
     session.defaultSession.on('will-download', (event) => {
       denials.download = true;
@@ -210,7 +329,14 @@ if (hasSingleInstanceLock) {
       denials.popup = true;
       return { action: 'deny' };
     });
+    mainWindow.webContents.on('did-finish-load', () => {
+      rendererReady = true;
+      for (const activation of pendingNativeNotificationActivations.splice(0)) {
+        routeNativeNotificationActivation(activation);
+      }
+    });
     await mainWindow.loadURL(pendingDeepLink ?? 'rhythm://app/index.html#/agents');
+    await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
     pendingDeepLink = null;
 
     if (!isSmoke) return;
@@ -223,6 +349,7 @@ if (hasSingleInstanceLock) {
       configured: {
         apiBase: Boolean(window.rhythmShell?.gateway?.apiBase),
         engineBase: Boolean(window.rhythmShell?.gateway?.engineBase),
+        productionApiBase: Boolean(window.rhythmShell?.gateway?.productionApiBase),
       },
     },
     auth: {

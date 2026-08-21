@@ -82,14 +82,18 @@ function attachCollaboratorsToTasks(
   }
 }
 
-const TASK_SELECT = `
+const taskSharingSelect = (userIdBind: string) =>
+  `CASE WHEN tasks.owner_id != ${userIdBind} THEN 1 ELSE 0 END AS is_shared`;
+
+const taskSelect = (sharingUserIdBind?: string) => `
   SELECT
     tasks.*,
     CASE
       WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
       WHEN tasks.source_type = 'recurring_rule' THEN rr.title
       ELSE NULL
-    END AS source_name
+    END AS source_name${sharingUserIdBind ? `,
+    ${taskSharingSelect(sharingUserIdBind)}` : ''}
   FROM tasks
   LEFT JOIN project_instances pi
     ON tasks.source_type = 'project_step'
@@ -100,6 +104,8 @@ const TASK_SELECT = `
     ON tasks.source_type = 'recurring_rule'
    AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
 `;
+
+const TASK_SELECT = taskSelect();
 
 function compareCanonicalTasks(a: Task, b: Task, today: string): number {
   const priority = (task: Task) => task.scheduledDate ?? task.dueDate;
@@ -150,7 +156,7 @@ export class TasksRepository {
             WHEN tasks.source_type = 'recurring_rule' THEN rr.title
             ELSE NULL
           END AS source_name,
-          CASE WHEN tasks.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
+          ${taskSharingSelect('$1')}
          FROM tasks
          LEFT JOIN project_instances pi
            ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
@@ -190,7 +196,7 @@ export class TasksRepository {
             WHEN tasks.source_type = 'recurring_rule' THEN rr.title
             ELSE NULL
           END AS source_name,
-          CASE WHEN tasks.owner_id != ? THEN 1 ELSE 0 END AS is_shared
+          ${taskSharingSelect('?')}
          FROM tasks
          LEFT JOIN project_instances pi
            ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
@@ -264,7 +270,7 @@ export class TasksRepository {
             WHEN tasks.source_type = 'recurring_rule' THEN rr.title
             ELSE NULL
           END AS source_name,
-          CASE WHEN tasks.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
+          ${taskSharingSelect('$1')}
          FROM tasks
          LEFT JOIN project_instances pi
            ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
@@ -374,7 +380,7 @@ export class TasksRepository {
           WHEN tasks.source_type = 'recurring_rule' THEN rr.title
           ELSE NULL
         END AS source_name,
-        CASE WHEN tasks.owner_id != ? THEN 1 ELSE 0 END AS is_shared
+        ${taskSharingSelect('?')}
       FROM tasks
       LEFT JOIN project_instances pi
         ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
@@ -459,7 +465,7 @@ export class TasksRepository {
   async findByIdAsync(id: string, userId: number): Promise<Task> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<TaskRow>(
-        `${TASK_SELECT}
+        `${taskSelect('$2')}
          LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
          WHERE tasks.id = $1 AND (tasks.owner_id = $2 OR tc.user_id IS NOT NULL)`,
         [id, userId],
@@ -484,11 +490,11 @@ export class TasksRepository {
   findById(id: string, userId: number): Task {
     const row = getDb()
       .prepare(
-        `${TASK_SELECT}
+        `${taskSelect('?')}
          LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
          WHERE tasks.id = ? AND (tasks.owner_id = ? OR tc.user_id IS NOT NULL)`,
       )
-      .get(userId, id, userId) as TaskRow | undefined;
+      .get(userId, userId, id, userId) as TaskRow | undefined;
     if (!row) throw AppError.notFound('Task');
     const task = rowToTask(row);
     const collabRows = getDb()
