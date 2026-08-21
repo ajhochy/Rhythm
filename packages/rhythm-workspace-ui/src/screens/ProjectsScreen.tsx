@@ -188,8 +188,10 @@ export function ProjectsScreen() {
   const startProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedTemplate || !anchorDate) return;
-    const input = { anchorDate, name: instanceName.trim() || undefined };
-    requestOperation('projects.create-instance', selectedTemplate.id, { anchorDate: input.anchorDate, name: input.name?.slice(0, 200) ?? null }, async () => {
+    const normalizedName = instanceName.trim().slice(0, 200);
+    const input: { anchorDate: string; name?: string } = { anchorDate };
+    if (normalizedName) input.name = normalizedName;
+    requestOperation('projects.create-instance', selectedTemplate.id, input, async () => {
       const created = await gateway.generate(selectedTemplate.id, input);
       setInstances((current) => [...current, created]);
       setSelectedInstanceId(created.id);

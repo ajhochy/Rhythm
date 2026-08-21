@@ -4,6 +4,7 @@ import { ProjectsScreen } from '../src/screens/ProjectsScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { RhythmGatewayError } from '../src/domain/types';
 import { defaultRhythmTokens } from '../src/host/theme';
+import type { RhythmWorkspaceOperationConfirmation } from '../src/host/types';
 import { assertScreenContract } from './test-utils/screenContract';
 import { fixtureDomainGateway, fixtureProjectsGateway, failingProjectsGateway, emptyProjectsGateway } from './test-utils/fixtures';
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
@@ -322,7 +323,9 @@ describe('ProjectsScreen', () => {
 
   it('browses templates and starts a project from a template through the gateway', async () => {
     const projectsGateway = fixtureProjectsGateway();
-    const mounted = mountProjects({ projects: projectsGateway });
+    const generate = vi.fn(projectsGateway.generate);
+    const confirmWorkspaceOperation = vi.fn(async (_confirmation: RhythmWorkspaceOperationConfirmation) => true);
+    const mounted = mountProjects({ projects: { ...projectsGateway, generate } }, { confirmWorkspaceOperation });
     await flush();
     expect(mounted.byTestId('project-template-template-sunday-service')?.textContent).toContain('Sunday Service Launch');
     await actClick(mounted.byTestId('project-template-select-template-sunday-service')!);
@@ -334,6 +337,8 @@ describe('ProjectsScreen', () => {
     await actSetValue(mounted.byTestId('project-anchor-date') as HTMLInputElement, '2026-09-06');
     await actClick(mounted.byTestId('project-start-submit')!);
     await confirmProject(mounted);
+    const confirmation = confirmWorkspaceOperation.mock.calls[0]![0];
+    expect(generate).toHaveBeenCalledWith('template-sunday-service', confirmation.payload);
     const created = await projectsGateway.list();
     expect(created.some((instance) => instance.templateId === 'template-sunday-service' && instance.anchorDate === '2026-09-06')).toBe(true);
     mounted.unmount();
