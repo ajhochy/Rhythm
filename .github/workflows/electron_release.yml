@@ -4,9 +4,8 @@ name: Electron Release
 # apps/electron is currently the reference/prototype client, not the shipping desktop app
 # (apps/desktop_flutter is) — this workflow exists so a signed, notarized build is possible for
 # parity testing, not so this becomes the primary release channel. Mirrors desktop_release.yml's
-# shape; the Electron shell bundles far less than the Flutter app (no embedded api_server/opencode
-# fork/Node runtime — see apps/electron/scripts/package-mac.mjs), so this pipeline is proportionally
-# smaller.
+# shape. The Electron shell bundles the API server and its matching Node runtime, but not the
+# opencode fork binary — see apps/electron/scripts/package-mac.mjs.
 
 on:
   workflow_dispatch:
@@ -50,17 +49,20 @@ jobs:
       - name: Install dependencies
         run: |
           npm --prefix apps/web install
+          npm --prefix apps/api_server install
           npm --prefix apps/electron install
 
-      - name: Typecheck and unit-test the Electron shell
+      - name: Typecheck the Electron shell
         working-directory: apps/electron
-        run: |
-          npm run typecheck
-          npm test
+        run: npm run typecheck
 
       - name: Build unsigned package
         working-directory: apps/electron
         run: npm run package:mac
+
+      - name: Test the Electron shell with packaged assets
+        working-directory: apps/electron
+        run: npm test
 
       - name: Import signing certificate into a temporary keychain
         run: |
@@ -90,8 +92,12 @@ jobs:
 
       - name: Packaged smoke against the SIGNED bundle (post-m1-p11-c4)
         run: |
-          cd apps/web && npm install
-          cd ../electron && npm test
+          set -euo pipefail
+          APP="apps/electron/dist/Rhythm.app"
+          SMOKE_ROOT="$(mktemp -d)"
+          trap 'rm -rf "${SMOKE_ROOT}"' EXIT
+          RHYTHM_SHELL_USER_DATA="${SMOKE_ROOT}" \
+            "${APP}/Contents/MacOS/Rhythm" --smoke --security-smoke
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

@@ -2,10 +2,9 @@
 // Developer ID Application identity (hardened runtime), then notarizes and staples it.
 //
 // Modeled on tools/release/sign_and_notarize_macos.sh (the Flutter reference), simplified: this
-// Electron shell does not bundle a native Node runtime or opencode fork binary inside Contents/
-// Resources (checked: package-mac.mjs only copies .mjs/.cjs sources + the built web/dist bundle),
-// so there are no extensionless Mach-O binaries or JIT-needing embedded runtimes to sign separately
-// beyond Electron's own bundled Frameworks/Helpers.
+// Electron packages the API server and a matching Node runtime but not the opencode fork binary.
+// findNestedCodeSignTargets() discovers the embedded Node executable and native modules by Mach-O
+// magic, along with Electron's own Frameworks/Helpers, so every nested executable is signed.
 //
 // Required environment (same Apple ID + app-specific-password notarization credentials as
 // tools/release/sign_and_notarize_macos.sh — the Flutter release script — since this is the same

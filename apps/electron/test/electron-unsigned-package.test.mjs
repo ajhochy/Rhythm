@@ -168,6 +168,16 @@ test('slice-7-c6: packaging is deterministic, gitignored, and leak-free', async 
   assert.deepEqual(await worktreePaths(), beforeWorktrees, 'slice-7-c6: packaged smoke changed worktrees');
 });
 
+test('slice-7-c1b: release packaging embeds the requested version in the macOS bundle', async () => {
+  const result = await runWithoutAppleCredentials(...packageCommand, { RELEASE_VERSION: '0.18.60' });
+  assert.equal(result.code, 0, `slice-7-c1b: package command failed\n${result.stderr}`);
+  for (const key of ['CFBundleShortVersionString', 'CFBundleVersion']) {
+    const value = await run('plutil', ['-extract', key, 'raw', resolve(artifactRoot, 'Contents/Info.plist')]);
+    assert.equal(value.code, 0, `slice-7-c1b: unable to read ${key}\n${value.stderr}`);
+    assert.equal(value.stdout.trim(), '0.18.60', `slice-7-c1b: ${key} does not match RELEASE_VERSION`);
+  }
+});
+
 // Worktree PATHS only. `git worktree list --porcelain` also prints every worktree's HEAD sha, and
 // this repository is checked out into eight worktrees driven by separate concurrent agents — so
 // comparing the raw output asserted "nobody anywhere committed during the smoke" and went red for
@@ -264,8 +274,8 @@ function run(command, args, cwd = electronRoot, extraEnvironment = {}, inheritEn
   });
 }
 
-function runWithoutAppleCredentials(command, args) {
-  const environment = { ...process.env, ...poisonedRendererEnvironment };
+function runWithoutAppleCredentials(command, args, extraEnvironment = {}) {
+  const environment = { ...process.env, ...poisonedRendererEnvironment, ...extraEnvironment };
   for (const key of [
     'APPLE_ID',
     'APPLE_APP_SPECIFIC_PASSWORD',

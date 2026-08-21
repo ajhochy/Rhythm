@@ -12,6 +12,15 @@ const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_IN_FLIGHT_REQUESTS = 8;
 
 /**
+ * @typedef {{
+ *   id: string,
+ *   method: string,
+ *   params: Record<string, unknown>,
+ *   nonce: string,
+ * }} ArtifactEnvelope
+ */
+
+/**
  * Validate the closed envelope shape: exactly {id, method, params, nonce}, a canonical method,
  * a safe request id, and object params. Does not check nonce/binding — that is per-bridge state,
  * handled by createArtifactRequestPolicy().
@@ -22,20 +31,21 @@ export function validateArtifactEnvelope(envelope) {
   if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) {
     return { ok: false, reason: 'envelope must be an object' };
   }
-  const keys = Object.keys(envelope);
+  const candidate = /** @type {Record<string, unknown>} */ (envelope);
+  const keys = Object.keys(candidate);
   if (keys.length !== ENVELOPE_KEYS.length || !ENVELOPE_KEYS.every((key) => keys.includes(key))) {
     return { ok: false, reason: 'envelope must contain exactly id, method, params, and nonce' };
   }
-  if (typeof envelope.id !== 'string' || !REQUEST_ID_RE.test(envelope.id)) {
+  if (typeof candidate.id !== 'string' || !REQUEST_ID_RE.test(candidate.id)) {
     return { ok: false, reason: 'invalid request id' };
   }
-  if (typeof envelope.method !== 'string' || !ARTIFACT_METHODS.includes(envelope.method)) {
+  if (typeof candidate.method !== 'string' || !ARTIFACT_METHODS.includes(candidate.method)) {
     return { ok: false, reason: 'unsupported method' };
   }
-  if (!envelope.params || typeof envelope.params !== 'object' || Array.isArray(envelope.params)) {
+  if (!candidate.params || typeof candidate.params !== 'object' || Array.isArray(candidate.params)) {
     return { ok: false, reason: 'params must be an object' };
   }
-  if (typeof envelope.nonce !== 'string' || envelope.nonce.length === 0) {
+  if (typeof candidate.nonce !== 'string' || candidate.nonce.length === 0) {
     return { ok: false, reason: 'invalid nonce' };
   }
   return { ok: true };
@@ -60,14 +70,15 @@ export function createArtifactRequestPolicy({ artifactId, userId, documentNonce,
     accept(envelope, overrides = {}) {
       const validation = validateArtifactEnvelope(envelope);
       if (!validation.ok) return validation;
+      const acceptedEnvelope = /** @type {ArtifactEnvelope} */ (envelope);
       const expectedNonce = overrides.documentNonce ?? documentNonce;
-      if (envelope.nonce !== expectedNonce) return { ok: false, reason: 'nonce mismatch' };
-      if (seenRequestIds.has(envelope.id)) return { ok: false, reason: 'duplicate request id' };
-      if (Buffer.byteLength(JSON.stringify(envelope), 'utf8') > MAX_PAYLOAD_BYTES) {
+      if (acceptedEnvelope.nonce !== expectedNonce) return { ok: false, reason: 'nonce mismatch' };
+      if (seenRequestIds.has(acceptedEnvelope.id)) return { ok: false, reason: 'duplicate request id' };
+      if (Buffer.byteLength(JSON.stringify(acceptedEnvelope), 'utf8') > MAX_PAYLOAD_BYTES) {
         return { ok: false, reason: 'payload exceeds 64 KiB' };
       }
       if (inFlight >= MAX_IN_FLIGHT_REQUESTS) return { ok: false, reason: 'too many in-flight requests' };
-      seenRequestIds.add(envelope.id);
+      seenRequestIds.add(acceptedEnvelope.id);
       inFlight += 1;
       return { ok: true };
     },

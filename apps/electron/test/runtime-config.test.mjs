@@ -30,3 +30,13 @@ test('ordinary Electron tests exclude package-shaped contracts', async () => {
   assert.match(packageJson.scripts['test:package'], /issue-1402-packaged-api-server/);
   assert.match(packageJson.scripts['test:package'], /post-m1-phase-1-packaged-host/);
 });
+
+test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
+  const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /npm --prefix apps\/api_server install/);
+  assert.ok(
+    workflow.indexOf('npm run package:mac') < workflow.indexOf('npm test'),
+    'Electron release must build web/API/package assets before tests that launch the shell',
+  );
+  assert.match(workflow, /Contents\/MacOS\/Rhythm" --smoke --security-smoke/);
+});

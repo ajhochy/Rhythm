@@ -16,6 +16,10 @@ const apiServerSource = resolve(electronRoot, '../api_server');
 const packagedApiServer = resolve(resources, 'api_server');
 const packagedNode = resolve(resources, 'node/bin/node');
 const infoPlist = resolve(stagingArtifact, 'Contents/Info.plist');
+const releaseVersion = process.env.RELEASE_VERSION?.trim() || '0.1.0';
+if (!/^\d+(?:\.\d+){0,2}$/.test(releaseVersion)) {
+  throw new Error(`RELEASE_VERSION must contain one to three numeric components: ${releaseVersion}`);
+}
 const rendererBuildEnvironment = { ...process.env };
 // TEST-ONLY: Vite gateway values remain supported by `npm run dev` and Playwright. A shipping
 // renderer must start from a neutral environment, then receive only the non-secret live-mode
@@ -93,8 +97,8 @@ for (const [key, value] of [
   ['CFBundleIdentifier', 'com.rhythm.desktop'],
   ['CFBundleName', 'Rhythm'],
   ['CFBundleDisplayName', 'Rhythm'],
-  ['CFBundleShortVersionString', '0.1.0'],
-  ['CFBundleVersion', '0.1.0'],
+  ['CFBundleShortVersionString', releaseVersion],
+  ['CFBundleVersion', releaseVersion],
 ]) {
   await run('plutil', ['-replace', key, '-string', value, infoPlist]);
 }
