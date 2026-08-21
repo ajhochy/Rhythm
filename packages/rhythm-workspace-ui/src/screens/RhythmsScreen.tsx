@@ -129,7 +129,7 @@ function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, disable
 export function RhythmsScreen() {
   const { rhythms: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
-  const canWrite = host.currentUser.collaborationCapability !== 'read';
+  const canWrite = host.currentUser.collaborationCapability === 'write';
   const isOwner = (rule: RhythmRhythm) => Boolean(host.currentUser.id && host.currentUser.id === rule.ownerId);
   const [surfaceState, setSurfaceState] = useState<RhythmsSurfaceState>('loading');
   const [rules, setRules] = useState<RhythmRhythm[]>([]);

@@ -69,7 +69,7 @@ function CalendarEvent({ event, onInspect }: { event: RhythmPlannerEvent; onInsp
 export function PlannerScreen() {
   const { planner: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
-  const canWrite = host.currentUser.collaborationCapability !== 'read';
+  const canWrite = host.currentUser.collaborationCapability === 'write';
   const [surfaceState, setSurfaceState] = useState<PlannerSurfaceState>('loading');
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [plan, setPlan] = useState<RhythmPlannerWeek | null>(null);

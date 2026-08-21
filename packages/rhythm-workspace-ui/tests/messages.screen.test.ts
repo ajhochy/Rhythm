@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureMessagesGateway, failingMessagesGateway, e
 import { mount, flush, actClick, actSetValue, actKeyDown } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', collaborationCapability: 'write' as const }, ...overrides };
 }
 
 function mountMessages(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -17,12 +17,12 @@ function mountMessages(gatewayOverrides: Partial<ReturnType<typeof fixtureDomain
 }
 
 describe('MessagesScreen', () => {
-  it('lets read-only hosts inspect conversations but keeps all mutation actions inert with a reason', async () => {
+  it('fails closed when collaboration capability is omitted: message controls and mutation handlers stay inert', async () => {
     const messagesGateway = fixtureMessagesGateway();
     const mutations = {
       createThread: vi.fn(messagesGateway.createThread), send: vi.fn(messagesGateway.send), markRead: vi.fn(messagesGateway.markRead), markUnread: vi.fn(messagesGateway.markUnread), renameThread: vi.fn(messagesGateway.renameThread), deleteThread: vi.fn(messagesGateway.deleteThread),
     };
-    const mounted = mountMessages({ messages: { ...messagesGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    const mounted = mountMessages({ messages: { ...messagesGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH' } });
     await flush();
     await actClick(mounted.byTestId('messages-thread-thread-weekend-team')!);
     await flush();

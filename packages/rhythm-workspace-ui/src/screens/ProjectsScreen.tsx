@@ -34,7 +34,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function ProjectsScreen() {
   const { projects: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
-  const canWrite = host.currentUser.collaborationCapability !== 'read';
+  const canWrite = host.currentUser.collaborationCapability === 'write';
   const isOwner = (ownerId: string) => Boolean(host.currentUser.id && host.currentUser.id === ownerId);
   const [surfaceState, setSurfaceState] = useState<ProjectsSurfaceState>('loading');
   const [templates, setTemplates] = useState<RhythmProjectTemplate[]>([]);

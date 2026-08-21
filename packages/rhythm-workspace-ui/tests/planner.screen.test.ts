@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixturePlannerGateway, failingPlannerGateway, emp
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', collaborationCapability: 'write' as const }, ...overrides };
 }
 
 function mountPlanner(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -53,12 +53,12 @@ describe('PlannerScreen', () => {
     expect(mounted.container.textContent).not.toContain('Stale planner gateway');
     mounted.unmount();
   });
-  it('lets read-only hosts inspect planner work but blocks completion mutations with an accessible reason', async () => {
+  it('fails closed when collaboration capability is omitted: planner controls and mutation handlers stay inert', async () => {
     const plannerGateway = fixturePlannerGateway();
     const mutations = {
       scheduleTask: vi.fn(plannerGateway.scheduleTask), updateProjectStep: vi.fn(plannerGateway.updateProjectStep), scheduleProjectStep: vi.fn(plannerGateway.scheduleProjectStep), create: vi.fn(plannerGateway.create), update: vi.fn(plannerGateway.update), addCollaborator: vi.fn(plannerGateway.addCollaborator), removeCollaborator: vi.fn(plannerGateway.removeCollaborator),
     };
-    const mounted = mountPlanner({ planner: { ...plannerGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    const mounted = mountPlanner({ planner: { ...plannerGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH' } });
     await flush();
     const task = mounted.byTestId('planner-task-task-wed')!;
     await actClick(task);

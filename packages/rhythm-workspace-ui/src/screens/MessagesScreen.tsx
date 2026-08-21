@@ -95,7 +95,7 @@ export function MessagesScreen() {
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const loadGeneration = useRef(0);
   const renameReturnTarget = useRef<HTMLElement | null>(null);
-  const canWrite = host.currentUser.collaborationCapability !== 'read';
+  const canWrite = host.currentUser.collaborationCapability === 'write';
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';

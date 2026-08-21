@@ -43,7 +43,7 @@ export interface RhythmCurrentUser {
   id?: string;
   displayName: string;
   initials: string;
-  /** Omit or set read when the collaboration surfaces are inspect-only. */
+  /** Collaboration surfaces are writable only when this is explicitly set to write; omission is inspect-only. */
   collaborationCapability?: 'read' | 'write';
   /** Host-neutral, affirmative capabilities. An absent list is intentionally read-only. */
   capabilities?: readonly RhythmWorkspaceCapability[];

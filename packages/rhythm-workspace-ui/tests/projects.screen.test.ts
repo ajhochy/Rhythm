@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureProjectsGateway, failingProjectsGateway, e
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', collaborationCapability: 'write' as const }, ...overrides };
 }
 
 function mountProjects(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -295,12 +295,12 @@ describe('ProjectsScreen', () => {
     mounted.unmount();
   });
 
-  it('lets read-only hosts inspect projects but blocks project mutations with an accessible reason', async () => {
+  it('fails closed when collaboration capability is omitted: project controls and mutation handlers stay inert', async () => {
     const projectsGateway = fixtureProjectsGateway();
     const mutations = {
       generate: vi.fn(projectsGateway.generate), createTemplate: vi.fn(projectsGateway.createTemplate), updateTemplate: vi.fn(projectsGateway.updateTemplate), deleteTemplate: vi.fn(projectsGateway.deleteTemplate), addTemplateStep: vi.fn(projectsGateway.addTemplateStep), updateTemplateStep: vi.fn(projectsGateway.updateTemplateStep), deleteTemplateStep: vi.fn(projectsGateway.deleteTemplateStep), delete: vi.fn(projectsGateway.delete), updateStep: vi.fn(projectsGateway.updateStep), addMilestone: vi.fn(projectsGateway.addMilestone), addCollaborator: vi.fn(projectsGateway.addCollaborator), removeCollaborator: vi.fn(projectsGateway.removeCollaborator),
     };
-    const mounted = mountProjects({ projects: { ...projectsGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    const mounted = mountProjects({ projects: { ...projectsGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH' } });
     await flush();
     await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
     await flush();

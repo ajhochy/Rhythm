@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureRhythmsGateway, failingRhythmsGateway, emp
 import { mount, flush, actClick, actSetValue, actKeyDown } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH', collaborationCapability: 'write' as const }, ...overrides };
 }
 
 function mountRhythms(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -274,25 +274,25 @@ describe('RhythmsScreen', () => {
     mounted.unmount();
   });
 
-  it('lets a non-owner inspect a rhythm but never calls mutation gateways', async () => {
+  it('fails closed when collaboration capability is omitted: rhythm controls and mutation handlers stay inert', async () => {
     const rhythmsGateway = fixtureRhythmsGateway();
     const mutations = {
       create: vi.fn(rhythmsGateway.create), update: vi.fn(rhythmsGateway.update), delete: vi.fn(rhythmsGateway.delete), addStep: vi.fn(rhythmsGateway.addStep), replaceSteps: vi.fn(rhythmsGateway.replaceSteps), addCollaborator: vi.fn(rhythmsGateway.addCollaborator), removeCollaborator: vi.fn(rhythmsGateway.removeCollaborator),
     };
-    const mounted = mountRhythms({ rhythms: { ...rhythmsGateway, ...mutations } }, { currentUser: { id: 'workspace-user-9', displayName: 'Viewer', initials: 'VW' } });
+    const mounted = mountRhythms({ rhythms: { ...rhythmsGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH' } });
     await flush();
     await actClick(mounted.byTestId('rhythm-inspect-rhythm-weekend-service')!);
     await flush();
     expect(mounted.byTestId('rhythm-detail')?.textContent).toContain('Weekend service cadence');
     const enabled = mounted.byTestId('rhythm-enabled-rhythm-weekend-service') as HTMLInputElement;
     expect(enabled.disabled).toBe(true);
-    expect(enabled.title).toContain('Only the rhythm owner');
+    expect(enabled.title).toContain('inspection only');
     await actClick(enabled);
     for (const control of ['rhythm-edit-title', 'rhythm-edit-submit', 'rhythm-add-step-title', 'rhythm-add-step-submit', 'rhythm-add-collaborator']) {
       expect((mounted.byTestId(control) as HTMLButtonElement).disabled).toBe(true);
       await actClick(mounted.byTestId(control)!);
     }
-    expect((mounted.byTestId('rhythms-new-rule') as HTMLButtonElement).disabled).toBe(false);
+    expect((mounted.byTestId('rhythms-new-rule') as HTMLButtonElement).disabled).toBe(true);
     for (const mutation of Object.values(mutations)) expect(mutation).not.toHaveBeenCalled();
     mounted.unmount();
   });

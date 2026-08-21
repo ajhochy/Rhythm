@@ -2,8 +2,7 @@
  * — and in every file it imports below — is scoped under .rhythm-workspace-root the same way
  * src/styles/rhythm.css scopes the Tasks/Dashboard group; see tests/css-scoping.test.ts, which
  * sweeps this whole styles/ tree, not just rhythm.css's own @import graph. This file is
- * deliberately not imported by rhythm.css — the final integration reconciler owns wiring the
- * per-screen-group stylesheets together for a host to load. */
+ * imported by rhythm.css so consumers receive every collaboration-screen stylesheet. */
 
 @import './screens/rhythms.css';
 @import './screens/planner.css';
