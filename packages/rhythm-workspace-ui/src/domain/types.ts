@@ -273,14 +273,14 @@ export interface ProjectsGateway {
   createTemplate(input: Pick<RhythmProjectTemplate, 'name' | 'description' | 'anchorType'>): Promise<RhythmProjectTemplate>;
   updateTemplate(id: string, input: Partial<Pick<RhythmProjectTemplate, 'name' | 'description' | 'anchorType'>>): Promise<RhythmProjectTemplate>;
   deleteTemplate(id: string): Promise<void>;
-  addTemplateStep(templateId: string, input: Omit<RhythmProjectTemplateStep, 'id'>): Promise<RhythmProjectTemplateStep>;
-  updateTemplateStep(templateId: string, stepId: string, input: Partial<Omit<RhythmProjectTemplateStep, 'id'>>): Promise<RhythmProjectTemplateStep>;
+  addTemplateStep(templateId: string, input: Omit<RhythmProjectTemplateStep, 'id'> & { templateId: string }): Promise<RhythmProjectTemplateStep>;
+  updateTemplateStep(templateId: string, stepId: string, input: Partial<Omit<RhythmProjectTemplateStep, 'id'>> & { templateId: string }): Promise<RhythmProjectTemplateStep>;
   deleteTemplateStep(templateId: string, stepId: string): Promise<void>;
   delete(id: string): Promise<void>;
   // M1 collaboration-screens extraction (#4): widened with 'milestoneId' so the Projects screen's
   // step row can assign/unassign a step's milestone (apps/web/src/pages/projects/index.tsx
   // assignMilestone → PATCH /project-instances/steps/:stepId {milestoneId}) through this one call.
-  updateStep(instanceId: string, stepId: string, input: Partial<Pick<RhythmProjectStep, 'title' | 'notes' | 'status' | 'dueDate' | 'scheduledDate' | 'assigneeId' | 'milestoneId'>>): Promise<RhythmProjectStep>;
+  updateStep(instanceId: string, stepId: string, input: Partial<Pick<RhythmProjectStep, 'title' | 'notes' | 'status' | 'dueDate' | 'scheduledDate' | 'assigneeId' | 'milestoneId'>> & { instanceId: string }): Promise<RhythmProjectStep>;
   // M1 collaboration-screens extraction (#4): additive — production's "Add milestone" action
   // (POST /project-instances/:id/milestones) has no equivalent port on this narrower contract yet.
   addMilestone(instanceId: string, input: Pick<RhythmProjectMilestone, 'title'>): Promise<RhythmProjectMilestone>;
@@ -297,7 +297,7 @@ export type RhythmCadence = 'weekly' | 'monthly' | 'annual';
 export interface RhythmStep {
   id: string;
   title: string;
-  assigneeId?: string;
+  assigneeId?: string | null;
 }
 
 export interface RhythmRhythm {
@@ -322,7 +322,8 @@ export interface RhythmRhythm {
   createdAt: string;
 }
 
-export type CreateRhythmRhythmInput = Pick<RhythmRhythm, 'title' | 'frequency'> & Partial<Pick<RhythmRhythm, 'dayOfWeek' | 'dayOfMonth' | 'month' | 'sequential' | 'enabled'>>;
+export type RhythmStepDraft = Pick<RhythmStep, 'title'> & { assigneeId?: string | null };
+export type CreateRhythmRhythmInput = Pick<RhythmRhythm, 'title' | 'frequency'> & Partial<Pick<RhythmRhythm, 'dayOfWeek' | 'dayOfMonth' | 'month' | 'sequential' | 'enabled'>> & { steps?: RhythmStepDraft[] };
 
 export interface RhythmsGateway {
   list(): Promise<RhythmRhythm[]>;
@@ -334,9 +335,9 @@ export interface RhythmsGateway {
   // matching production's PATCH /recurring-rules body — see docs/ai/runs for the receipt.
   update(id: string, input: Partial<Pick<RhythmRhythm, 'title' | 'enabled' | 'sequential' | 'frequency' | 'dayOfWeek' | 'dayOfMonth' | 'month'>>): Promise<RhythmRhythm>;
   delete(id: string): Promise<void>;
-  addStep(id: string, input: Pick<RhythmStep, 'title'> & Partial<Pick<RhythmStep, 'assigneeId'>>): Promise<RhythmStep>;
+  addStep(id: string, input: RhythmStepDraft): Promise<RhythmStep>;
   /** Replace is intentional: production persists the complete ordered workflow on edit. */
-  replaceSteps(id: string, steps: Array<Pick<RhythmStep, 'title'> & Partial<Pick<RhythmStep, 'assigneeId'>>>): Promise<RhythmRhythm>;
+  replaceSteps(id: string, steps: RhythmStepDraft[]): Promise<RhythmRhythm>;
   addCollaborator(id: string, memberId: string): Promise<RhythmRhythm>;
   removeCollaborator(id: string, memberId: string): Promise<RhythmRhythm>;
 }

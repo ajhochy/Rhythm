@@ -110,7 +110,7 @@ export interface RhythmTaskOperationConfirmation {
 export interface RhythmWorkspaceOperationConfirmation {
   operation: Exclude<RhythmWorkspaceCapability, 'facilities.manage' | 'facilities.reserve' | 'automations.write' | 'integrations.write' | 'dashboard.write' | 'tasks.write'>;
   entityId: string;
-  payload: Record<string, string | number | boolean | null>;
+  payload: Record<string, string | number | boolean | null | Array<Record<string, string | null>>>;
   generation: string;
 }
 

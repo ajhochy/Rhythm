@@ -154,7 +154,7 @@ describe('ProjectsScreen', () => {
     expect(mounted.byTestId('project-operation-confirmation')).toBeTruthy();
     await actClick(mounted.byTestId('project-operation-confirm')!);
     await flush();
-    expect(confirmWorkspaceOperation).toHaveBeenCalledWith(expect.objectContaining({ operation: 'projects.update-step', entityId: 'step-final-run-sheet', payload: { status: 'done' }, generation: expect.any(String) }));
+    expect(confirmWorkspaceOperation).toHaveBeenCalledWith(expect.objectContaining({ operation: 'projects.update-step', entityId: 'step-final-run-sheet', payload: { instanceId: 'instance-sunday-service-2026-08-16', status: 'done' }, generation: expect.any(String) }));
     expect(updateStep).toHaveBeenCalledOnce();
     mounted.unmount();
   });
@@ -384,7 +384,7 @@ describe('ProjectsScreen', () => {
     await actSetValue(mounted.byTestId('project-template-step-title') as HTMLInputElement, 'Confirm care plan');
     await actClick(mounted.byTestId('project-template-step-save')!);
     await confirmProject(mounted);
-    expect(confirmWorkspaceOperation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'projects.update-template-step', entityId: step.id }));
+    expect(confirmWorkspaceOperation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'projects.update-template-step', entityId: step.id, payload: expect.objectContaining({ templateId: 'template-empty' }) }));
     expect((await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps[0]?.title).toBe('Confirm care plan');
     await actClick(mounted.byTestId(`project-template-step-delete-${step.id}`)!);
     await confirmProject(mounted);

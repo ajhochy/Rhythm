@@ -19,7 +19,7 @@ import type { RhythmWorkspaceOperationConfirmation } from '../host/types';
 type RhythmsSurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
 type RuleDraft = { title: string; frequency: RhythmCadence; dayOfWeek: number; dayOfMonth: number; month: number; sequential: boolean; steps: Array<{ title: string; assigneeId: string }> };
 type RhythmOperation = Extract<RhythmWorkspaceOperationConfirmation['operation'], `rhythms.${string}`>;
-type RhythmOperationTarget = { operation: RhythmOperation; entityId: string; payload: Record<string, string | number | boolean | null>; generation: string; mutate(): Promise<void> };
+type RhythmOperationTarget = { operation: RhythmOperation; entityId: string; payload: Record<string, string | number | boolean | null | Array<Record<string, string | null>>>; generation: string; mutate(): Promise<void> };
 
 const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -232,14 +232,11 @@ export function RhythmsScreen() {
 
   const createRule = async (draft: RuleDraft) => {
     const normalizedSteps = draft.steps.map((step) => ({ title: step.title.trim().slice(0, 200), assigneeId: step.assigneeId || null }));
-    requestOperation('rhythms.create-rule', 'new-rule', { title: draft.title.slice(0, 200), frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential, steps: JSON.stringify(normalizedSteps).slice(0, 2000) }, async () => {
-      const created = await gateway.create({ title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
-      let withSteps = created;
-      for (const step of draft.steps) {
-        withSteps = { ...withSteps, steps: [...withSteps.steps, await gateway.addStep(created.id, { title: step.title, assigneeId: step.assigneeId || undefined })] };
-      }
-      setRules((current) => [...current, withSteps]);
-      setSelectedId(withSteps.id);
+    const input = { title: draft.title.slice(0, 200), frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential, steps: normalizedSteps };
+    requestOperation('rhythms.create-rule', 'new-rule', input, async () => {
+      const created = await gateway.create(input);
+      setRules((current) => [...current, created]);
+      setSelectedId(created.id);
       setCreateOpen(false);
     });
   };

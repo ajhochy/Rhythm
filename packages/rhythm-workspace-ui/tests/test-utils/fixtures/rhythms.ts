@@ -32,9 +32,9 @@ export function fixtureRhythmsGateway(): RhythmsGateway {
     create: async (input) => {
       const created: RhythmRhythm = {
         id: `rhythm-${rhythms.length + 1}`, dayOfWeek: 0, dayOfMonth: 1, month: 1, sequential: false, enabled: true,
-        ownerId: 'workspace-user-1', ownerName: 'AJ Hochhalter', collaborators: [], steps: [],
-        generatedCount: 0, completedCount: 0, remainingCount: 0, waitingOn: null, nextDueDate: null, completionRatio: 0, createdAt: '2026-08-12T15:48:00-07:00',
         ...input,
+        ownerId: 'workspace-user-1', ownerName: 'AJ Hochhalter', collaborators: [], steps: (input.steps ?? []).map((step, index) => ({ id: `rhythm-${rhythms.length + 1}-step-${index + 1}`, title: step.title, ...(step.assigneeId ? { assigneeId: step.assigneeId } : {}) })),
+        generatedCount: 0, completedCount: 0, remainingCount: 0, waitingOn: null, nextDueDate: null, completionRatio: 0, createdAt: '2026-08-12T15:48:00-07:00',
       };
       rhythms = [...rhythms, created];
       return created;

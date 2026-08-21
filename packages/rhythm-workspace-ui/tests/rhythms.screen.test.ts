@@ -258,7 +258,10 @@ describe('RhythmsScreen', () => {
 
   it('creates a rhythm with workflow steps through the create dialog and the gateway', async () => {
     const rhythmsGateway = fixtureRhythmsGateway();
-    const mounted = mountRhythms({ rhythms: rhythmsGateway });
+    const create = vi.fn(rhythmsGateway.create);
+    const addStep = vi.fn(rhythmsGateway.addStep);
+    const confirmWorkspaceOperation = vi.fn(async () => true);
+    const mounted = mountRhythms({ rhythms: { ...rhythmsGateway, create, addStep } }, { confirmWorkspaceOperation });
     await flush();
     await actClick(mounted.byTestId('rhythms-new-rule')!);
     await flush();
@@ -270,9 +273,14 @@ describe('RhythmsScreen', () => {
     await flush();
     await actClick(mounted.byTestId('rhythm-operation-confirm')!);
     await flush();
+    const input = { title: 'Volunteer follow-through', frequency: 'weekly', dayOfWeek: 1, dayOfMonth: 1, month: 1, sequential: false, steps: [{ title: 'Send thank-you note', assigneeId: null }] };
+    expect(confirmWorkspaceOperation).toHaveBeenLastCalledWith(expect.objectContaining({ operation: 'rhythms.create-rule', entityId: 'new-rule', payload: input }));
+    expect(create).toHaveBeenCalledWith(input);
+    expect(addStep).not.toHaveBeenCalled();
     const created = await rhythmsGateway.list();
     const rule = created.find((item) => item.title === 'Volunteer follow-through');
     expect(rule).toBeTruthy();
+    expect(rule?.steps.map((step) => step.title)).toEqual(['Send thank-you note']);
     mounted.unmount();
   });
 

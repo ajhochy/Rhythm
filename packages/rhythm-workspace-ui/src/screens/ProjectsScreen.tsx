@@ -133,15 +133,15 @@ export function ProjectsScreen() {
   };
 
   const toggleComplete = async (instance: RhythmProject, step: RhythmProjectStep) => {
-    requestOperation('projects.update-step', step.id, { status: step.status === 'done' ? 'open' : 'done' }, async () => {
-      const updated = await gateway.updateStep(instance.id, step.id, { status: step.status === 'done' ? 'open' : 'done' });
+    requestOperation('projects.update-step', step.id, { instanceId: instance.id, status: step.status === 'done' ? 'open' : 'done' }, async () => {
+      const updated = await gateway.updateStep(instance.id, step.id, { instanceId: instance.id, status: step.status === 'done' ? 'open' : 'done' });
       applyStep(instance.id, updated);
     });
   };
 
   const assignMilestone = async (instance: RhythmProject, step: RhythmProjectStep, milestoneId: string) => {
-    requestOperation('projects.update-step', step.id, { milestoneId: milestoneId || null }, async () => {
-      const updated = await gateway.updateStep(instance.id, step.id, { milestoneId: milestoneId || null });
+    requestOperation('projects.update-step', step.id, { instanceId: instance.id, milestoneId: milestoneId || null }, async () => {
+      const updated = await gateway.updateStep(instance.id, step.id, { instanceId: instance.id, milestoneId: milestoneId || null });
       applyStep(instance.id, updated);
     });
   };
@@ -156,8 +156,8 @@ export function ProjectsScreen() {
     event.preventDefault();
     if (!inspector || !inspectorDraft || !inspectorDraft.title.trim()) return;
     const input = { ...inspectorDraft, title: inspectorDraft.title.trim() };
-    requestOperation('projects.update-step', inspector.stepId, { title: input.title.slice(0, 200), notes: input.notes.slice(0, 2000), scheduledDate: input.scheduledDate || null, dueDate: input.dueDate || null, assigneeId: input.assigneeId || null }, async () => {
-      const updated = await gateway.updateStep(inspector.instanceId, inspector.stepId, input);
+    requestOperation('projects.update-step', inspector.stepId, { instanceId: inspector.instanceId, title: input.title.slice(0, 200), notes: input.notes.slice(0, 2000), scheduledDate: input.scheduledDate || null, dueDate: input.dueDate || null, assigneeId: input.assigneeId || null }, async () => {
+      const updated = await gateway.updateStep(inspector.instanceId, inspector.stepId, { ...input, instanceId: inspector.instanceId });
       applyStep(inspector.instanceId, updated);
       closeInspector();
     });
@@ -230,10 +230,10 @@ export function ProjectsScreen() {
     };
     if (!input.title || !Number.isFinite(input.offsetDays) || !input.offsetDescription) return;
     const editor = templateStepEditor;
-    requestOperation(editor.step ? 'projects.update-template-step' : 'projects.create-step', editor.step?.id ?? editor.templateId, { title: input.title.slice(0, 200), offsetDays: input.offsetDays, offsetDescription: input.offsetDescription.slice(0, 200), assigneeId: input.assigneeId ?? null }, async () => {
+    requestOperation(editor.step ? 'projects.update-template-step' : 'projects.create-step', editor.step?.id ?? editor.templateId, { templateId: editor.templateId, title: input.title.slice(0, 200), offsetDays: input.offsetDays, offsetDescription: input.offsetDescription.slice(0, 200), assigneeId: input.assigneeId ?? null }, async () => {
       const saved = editor.step
-        ? await gateway.updateTemplateStep(editor.templateId, editor.step.id, input)
-        : await gateway.addTemplateStep(editor.templateId, input);
+        ? await gateway.updateTemplateStep(editor.templateId, editor.step.id, { ...input, templateId: editor.templateId })
+        : await gateway.addTemplateStep(editor.templateId, { ...input, templateId: editor.templateId });
       setTemplates((current) => current.map((template) => template.id !== templateStepEditor.templateId ? template : {
         ...template,
         steps: templateStepEditor.step
