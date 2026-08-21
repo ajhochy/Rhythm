@@ -150,3 +150,11 @@ PR #1454 with final evidence, then return to C6.
 ### 2026-08-21 — D4.6 regression feedback (#1444)
 
 - Accepted at `8ef88032`: durable D2 reverts feed the canonical regression count, disable auto-promotion, and retry sanitized administrator notification without replaying the revert. Parent gates: 99 SQLite and 11 disposable-Postgres tests passed; container removed.
+
+### 2026-08-21 — D4.5 all change types eligible for auto-promotion (#1443)
+
+- Files modified: D4.5 contract, one production-default SQLite all-kinds integration suite, and its run note.
+- Checks run: Node 22 D1/D2/D4 matrix 93 passed / 1 expected Docker-gated skip; API `tsc --noEmit` and build passed. `ai-workflow checks --level issue` is blocked by the inherited `apps/mcp_server` missing TypeScript compiler after Flutter/API checks pass.
+- Decisions made: test the real production availability gate with the feature flag and SQLite runtime instead of injecting availability; prove state, D2 monitor identity, and idempotence for all four accepted mutation paths.
+- Deviations from spec: none; no production correction was needed.
+- Concerns: GitNexus impact/detect remains UNKNOWN because the one permitted local detect attempt could not select this worktree from duplicate Rhythm indexes. See [[2026-08-21-issue-1443-auto-promotion-all-kinds]].
