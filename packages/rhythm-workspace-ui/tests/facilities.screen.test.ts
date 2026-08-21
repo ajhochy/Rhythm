@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FacilitiesScreen } from '../src/screens/FacilitiesScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
@@ -17,6 +17,25 @@ function mountFacilities(gatewayOverrides: Partial<ReturnType<typeof fixtureDoma
 }
 
 describe('FacilitiesScreen', () => {
+  it('binds facility writes to the exact foreground confirmation payload before mutation', async () => {
+    const facilities = fixtureFacilitiesGateway();
+    const confirmWorkspaceOperation = vi.fn(async () => true);
+    const createReservation = vi.fn(facilities.createReservation);
+    const mounted = mountFacilities({ facilities: { ...facilities, createReservation } }, { confirmWorkspaceOperation });
+    await flush(); await actClick(mounted.byTestId('facilities-reserve-space')!); await flush();
+    await actSetValue(mounted.byTestId('facility-form-room') as HTMLSelectElement, '101');
+    await actSetValue(mounted.byTestId('facility-form-title') as HTMLInputElement, 'Exact payload');
+    await actSetValue(mounted.byTestId('facility-form-date') as HTMLInputElement, '2026-08-14');
+    await actSetValue(mounted.byTestId('facility-form-start') as HTMLInputElement, '12:00');
+    await actSetValue(mounted.byTestId('facility-form-end') as HTMLInputElement, '13:00');
+    await actClick(mounted.byTestId('facility-form-submit')!); await flush();
+    expect(createReservation).not.toHaveBeenCalled();
+    const payload = { facilityId: '101', title: 'Exact payload', requesterName: 'AJ Hochhalter', start: '2026-08-14T12:00:00-07:00', end: '2026-08-14T13:00:00-07:00', notes: null };
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
+    expect(confirmWorkspaceOperation).toHaveBeenCalledWith(expect.objectContaining({ operation: 'facilities.create-reservation', entityId: 'new-reservation', payload }));
+    expect(createReservation).toHaveBeenCalledWith(payload);
+    mounted.unmount();
+  });
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
     await assertScreenContract({ Screen: FacilitiesScreen, screenName: 'Facilities', testId: 'rhythm-facilities-screen', gateway: fixtureDomainGateway() });
   });
@@ -177,6 +196,7 @@ describe('FacilitiesScreen', () => {
     await flush();
     await actClick(mounted.byTestId('facility-form-submit')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const created = await facilitiesGateway.reservations({ start: '2026-08-01T00:00:00.000', end: '2026-08-31T23:59:59.999' });
     expect(created.some((reservation) => reservation.title === 'Board meeting')).toBe(true);
     mounted.unmount();
@@ -195,6 +215,7 @@ describe('FacilitiesScreen', () => {
     await actSetValue(titleInput, 'Leadership sync (updated)');
     await actClick(mounted.byTestId('facility-form-submit')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const reservations = await facilitiesGateway.reservations({ start: '2026-08-01T00:00:00.000', end: '2026-08-31T23:59:59.999' });
     expect(reservations.find((reservation) => reservation.id === '501')?.title).toBe('Leadership sync (updated)');
     mounted.unmount();
@@ -211,6 +232,7 @@ describe('FacilitiesScreen', () => {
     expect(mounted.byTestId('facility-reservation-delete-dialog')).toBeTruthy();
     await actClick(mounted.byTestId('facility-reservation-delete-confirm')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const reservations = await facilitiesGateway.reservations({ start: '2026-08-01T00:00:00.000', end: '2026-08-31T23:59:59.999' });
     expect(reservations.some((reservation) => reservation.id === '502')).toBe(false);
     mounted.unmount();
@@ -227,6 +249,7 @@ describe('FacilitiesScreen', () => {
     expect(mounted.byTestId('facility-series-delete-dialog')).toBeTruthy();
     await actClick(mounted.byTestId('facility-series-delete-confirm')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const reservations = await facilitiesGateway.reservations({ start: '2026-08-01T00:00:00.000', end: '2026-08-31T23:59:59.999' });
     expect(reservations.some((reservation) => reservation.seriesId === 'series-choir-weekly')).toBe(false);
     mounted.unmount();
@@ -256,6 +279,7 @@ describe('FacilitiesScreen', () => {
     await actSetValue(mounted.byTestId('facility-editor-name') as HTMLInputElement, 'Youth Room');
     await actClick(mounted.byTestId('facility-editor-submit')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const facilities = await facilitiesGateway.facilities();
     expect(facilities.some((facility) => facility.name === 'Youth Room')).toBe(true);
     mounted.unmount();
@@ -274,6 +298,7 @@ describe('FacilitiesScreen', () => {
     await actSetValue(mounted.byTestId('facility-editor-description') as HTMLTextAreaElement, 'Updated description');
     await actClick(mounted.byTestId('facility-editor-submit')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const facilities = await facilitiesGateway.facilities();
     expect(facilities.find((facility) => facility.id === '101')?.description).toBe('Updated description');
     mounted.unmount();
@@ -292,6 +317,7 @@ describe('FacilitiesScreen', () => {
     expect(mounted.byTestId('facility-delete-dialog')).toBeTruthy();
     await actClick(mounted.byTestId('facility-delete-confirm')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const facilities = await facilitiesGateway.facilities();
     expect(facilities.some((facility) => facility.id === '103')).toBe(false);
     await actClick(mounted.byTestId('facilities-mode-overview')!);
@@ -314,6 +340,7 @@ describe('FacilitiesScreen', () => {
     expect(mounted.byTestId('facility-automation-total')?.textContent).toBe('2');
     await actClick(mounted.byTestId('facility-automation-delete')!);
     await flush();
+    await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     const reservations = await facilitiesGateway.reservations({ start: '2026-08-01T00:00:00.000', end: '2026-08-31T23:59:59.999' });
     expect(reservations.some((reservation) => reservation.id === 'auto-1' || reservation.id === 'auto-2')).toBe(false);
     expect(reservations.some((reservation) => reservation.id === 'auto-3')).toBe(true);

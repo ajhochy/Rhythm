@@ -11,10 +11,13 @@ import { ScreenRoot } from './ScreenRoot';
 import { Icon } from '../components/Icon';
 import { FocusDialog } from '../components/FocusDialog';
 import { RhythmGatewayError, type RhythmFacility, type RhythmReservation } from '../domain/types';
+import type { RhythmWorkspaceOperationConfirmation } from '../host/types';
 
 type SurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
 type Mode = 'overview' | 'rooms';
 type RangeMode = 'day' | 'week' | 'month';
+type FacilityOperation = Extract<RhythmWorkspaceOperationConfirmation['operation'], `facilities.${string}`>;
+type FacilityOperationTarget = Pick<RhythmWorkspaceOperationConfirmation, 'entityId' | 'payload'> & { operation: FacilityOperation; generation: string; mutate(): Promise<void>; };
 
 // A fixed reference date (not wall-clock "today") keeps this screen's default schedule window
 // deterministic — matching the fixed window the seeded fixture reservations were authored
@@ -171,6 +174,7 @@ export function FacilitiesScreen() {
   const [facilityDescription, setFacilityDescription] = useState('');
   const [facilityNameError, setFacilityNameError] = useState('');
   const [deleteFacilityTarget, setDeleteFacilityTarget] = useState<RhythmFacility | null>(null);
+  const [operationTarget, setOperationTarget] = useState<FacilityOperationTarget | null>(null);
 
   const [automationOpen, setAutomationOpen] = useState(false);
   const [automationRoom, setAutomationRoom] = useState('');
@@ -180,6 +184,8 @@ export function FacilitiesScreen() {
   const [mutationPending, setMutationPending] = useState(false);
   const [mutationNotice, setMutationNotice] = useState('');
   const requestGeneration = useRef(0);
+  const operationGeneration = useRef(0);
+  const operationEpoch = useRef(0);
 
   const currentRange = computeRange(rangeMode, rangeOffset);
 
@@ -188,10 +194,36 @@ export function FacilitiesScreen() {
     setSurfaceState(kind === 'forbidden' ? 'forbidden' : kind === 'not_found' ? 'unavailable' : kind === 'unavailable' ? 'unavailable' : 'server_error');
   };
 
-  const canManage = host.currentUser.capabilities?.includes('facilities.manage') ?? false;
-  const canReserve = canManage || (host.currentUser.capabilities?.includes('facilities.reserve') ?? false);
-  const canEditReservation = (reservation: RhythmReservation | null) => Boolean(reservation && (canManage || (canReserve && reservation.creatorId === host.currentUser.id)));
+  const capabilities = host.currentUser.capabilities ?? [];
+  const canManage = capabilities.includes('facilities.manage');
+  const can = (operation: FacilityOperation) => canManage || capabilities.includes(operation);
+  const canReserve = can('facilities.create-reservation') || capabilities.includes('facilities.reserve');
+  const canEditReservation = (reservation: RhythmReservation | null, operation: Extract<FacilityOperation, 'facilities.update-reservation' | 'facilities.delete-reservation' | 'facilities.update-group' | 'facilities.delete-group'>) => Boolean(reservation && (canManage || ((capabilities.includes('facilities.reserve') || capabilities.includes(operation)) && reservation.creatorId === host.currentUser.id)));
+  const canSubmitReservation = editingReservation
+    ? canEditReservation(editingReservation, editingReservation.groupId ? 'facilities.update-group' : 'facilities.update-reservation')
+    : canReserve;
   const mutationExplanation = canManage || canReserve ? '' : 'You can inspect this schedule, but a Facilities manager must grant reservation access.';
+  const queueOperation = (operation: FacilityOperation, entityId: string, payload: RhythmWorkspaceOperationConfirmation['payload'], mutate: () => Promise<void>) => {
+    if (!can(operation) && !(operation === 'facilities.create-reservation' && capabilities.includes('facilities.reserve'))) return;
+    operationGeneration.current += 1;
+    operationEpoch.current += 1;
+    setOperationTarget({ operation, entityId, payload, mutate, generation: `${entityId}:${operation}:${operationGeneration.current}` });
+  };
+  const cancelOperation = () => { operationEpoch.current += 1; setOperationTarget(null); };
+  const confirmOperation = async () => {
+    const target = operationTarget;
+    if (!target || mutationPending) return;
+    const epoch = operationEpoch.current;
+    setMutationPending(true);
+    try {
+      const confirmation: RhythmWorkspaceOperationConfirmation = { operation: target.operation, entityId: target.entityId, payload: target.payload, generation: target.generation };
+      if (host.confirmWorkspaceOperation && !(await host.confirmWorkspaceOperation(confirmation))) return;
+      if (operationEpoch.current !== epoch) return;
+      await target.mutate();
+      if (operationEpoch.current !== epoch) return;
+      setOperationTarget(null);
+    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+  };
 
   const load = async (range = currentRange) => {
     const generation = ++requestGeneration.current;
@@ -284,7 +316,7 @@ export function FacilitiesScreen() {
 
   const submitReservation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canReserve || (editingReservation && !canEditReservation(editingReservation))) return;
+    if (!canSubmitReservation) return;
     const errors: Record<string, string> = {};
     if (!formRoomId) errors.room = 'Select a room';
     if (!formTitle.trim()) errors.title = 'Title is required';
@@ -294,73 +326,61 @@ export function FacilitiesScreen() {
     setFormErrors(errors);
     if (Object.keys(errors).length) return;
 
-    setMutationPending(true);
-    try {
-      const start = `${formDate}T${formStart}:00-07:00`;
-      const end = `${formDate}T${formEnd}:00-07:00`;
-      const input = { title: formTitle.trim(), requesterName: formRequesterName.trim() || host.currentUser.displayName, start, end, notes: formNotes || null };
-      if (editingReservation?.groupId) {
-        const updated = await gateway.updateGroup(editingReservation.groupId, input);
-        setReservations((current) => current.map((reservation) => updated.find((item) => item.id === reservation.id) ?? reservation));
-      } else if (editingReservation) {
+    const start = `${formDate}T${formStart}:00-07:00`;
+    const end = `${formDate}T${formEnd}:00-07:00`;
+    const input = { title: formTitle.trim(), requesterName: formRequesterName.trim() || host.currentUser.displayName, start, end, notes: formNotes || null };
+    if (editingReservation?.groupId) {
+      queueOperation('facilities.update-group', editingReservation.groupId, input, async () => {
+        const updated = await gateway.updateGroup(editingReservation.groupId!, input);
+        setReservations((current) => current.map((reservation) => updated.find((item) => item.id === reservation.id) ?? reservation)); closeReservationEditor();
+      });
+    } else if (editingReservation) {
+      queueOperation('facilities.update-reservation', editingReservation.id, input, async () => {
         const updated = await gateway.updateReservation(editingReservation.id, input);
-        setReservations((current) => current.map((reservation) => (reservation.id === updated.id ? updated : reservation)));
-      } else {
-        const created = await gateway.createReservation({ facilityId: formRoomId, ...input, notes: formNotes || undefined });
-        setReservations((current) => [...current, created]);
-      }
-      closeReservationEditor();
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
+        setReservations((current) => current.map((reservation) => (reservation.id === updated.id ? updated : reservation))); closeReservationEditor();
+      });
+    } else {
+      const createInput = { facilityId: formRoomId, ...input };
+      queueOperation('facilities.create-reservation', 'new-reservation', createInput, async () => {
+        const created = await gateway.createReservation(createInput);
+        setReservations((current) => [...current, created]); closeReservationEditor();
+      });
     }
   };
 
   const confirmDeleteReservation = async () => {
     if (!deleteReservationTarget) return;
-    if (!canEditReservation(deleteReservationTarget)) return;
-    setMutationPending(true);
-    try {
-      await gateway.deleteReservation(deleteReservationTarget.id);
-      setReservations((current) => current.filter((reservation) => reservation.id !== deleteReservationTarget.id));
-      if (selectedReservationId === deleteReservationTarget.id) setSelectedReservationId(null);
-      setDeleteReservationTarget(null);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    if (!canEditReservation(deleteReservationTarget, 'facilities.delete-reservation')) return;
+    const target = deleteReservationTarget;
+    setDeleteReservationTarget(null);
+    queueOperation('facilities.delete-reservation', target.id, {}, async () => {
+      await gateway.deleteReservation(target.id); setReservations((current) => current.filter((reservation) => reservation.id !== target.id)); if (selectedReservationId === target.id) setSelectedReservationId(null);
+    });
   };
 
   const confirmDeleteSeries = async () => {
     if (!deleteSeriesTarget?.seriesId) return;
-    if (!canManage) return;
-    setMutationPending(true);
-    setMutationNotice('');
-    try {
-      const result = await gateway.deleteSeries(deleteSeriesTarget.seriesId);
+    if (!can('facilities.delete-series')) return;
+    const target = deleteSeriesTarget;
+    setDeleteSeriesTarget(null);
+    queueOperation('facilities.delete-series', target.seriesId!, {}, async () => {
+      const result = await gateway.deleteSeries(target.seriesId!);
       setMutationNotice(`${result.deletedCount} recurring reservations were deleted. The schedule was reloaded.`);
       await load();
       setSelectedReservationId(null);
-      setDeleteSeriesTarget(null);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   const confirmDeleteGroup = async () => {
-    if (!deleteGroupTarget?.groupId || !canEditReservation(deleteGroupTarget)) return;
-    setMutationPending(true);
-    try {
-      const result = await gateway.deleteGroup(deleteGroupTarget.groupId);
+    if (!deleteGroupTarget?.groupId || !canEditReservation(deleteGroupTarget, 'facilities.delete-group')) return;
+    const target = deleteGroupTarget;
+    setDeleteGroupTarget(null);
+    queueOperation('facilities.delete-group', target.groupId!, {}, async () => {
+      const result = await gateway.deleteGroup(target.groupId!);
       setMutationNotice(`${result.deletedCount} linked reservations were deleted. The schedule was reloaded.`);
       await load();
       setSelectedReservationId(null);
-      setDeleteGroupTarget(null);
-    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+    });
   };
 
   const openFacilityEditor = (facility: RhythmFacility | null) => {
@@ -376,44 +396,23 @@ export function FacilitiesScreen() {
 
   const submitFacility = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canManage) return;
+    if (!(editingFacility ? can('facilities.update-facility') : can('facilities.create-facility'))) return;
     if (!facilityName.trim()) {
       setFacilityNameError('Room name is required');
       return;
     }
     const building = facilityBuilding === '__new_building__' ? newBuilding.trim() : facilityBuilding;
-    setMutationPending(true);
-    try {
-      if (editingFacility) {
-        const updated = await gateway.updateFacility(editingFacility.id, { name: facilityName.trim(), building: building || null, description: facilityDescription.trim() });
-        setFacilities((current) => current.map((facility) => (facility.id === updated.id ? updated : facility)));
-      } else {
-        const created = await gateway.createFacility({ name: facilityName.trim(), building: building || null, description: facilityDescription.trim() });
-        setFacilities((current) => [...current, created]);
-      }
-      setFacilityEditorOpen(false);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    const input = { name: facilityName.trim(), building: building || null, description: facilityDescription.trim() };
+    if (editingFacility) queueOperation('facilities.update-facility', editingFacility.id, input, async () => { const updated = await gateway.updateFacility(editingFacility.id, input); setFacilities((current) => current.map((facility) => (facility.id === updated.id ? updated : facility))); setFacilityEditorOpen(false); });
+    else queueOperation('facilities.create-facility', 'new-facility', input, async () => { const created = await gateway.createFacility(input); setFacilities((current) => [...current, created]); setFacilityEditorOpen(false); });
   };
 
   const confirmDeleteFacility = async () => {
     if (!deleteFacilityTarget) return;
-    if (!canManage) return;
-    setMutationPending(true);
-    try {
-      await gateway.deleteFacility(deleteFacilityTarget.id);
-      setFacilities((current) => current.filter((facility) => facility.id !== deleteFacilityTarget.id));
-      setReservations((current) => current.filter((reservation) => reservation.facilityId !== deleteFacilityTarget.id));
-      if (selectedRoomId === deleteFacilityTarget.id) setSelectedRoomId(null);
-      setDeleteFacilityTarget(null);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    if (!can('facilities.delete-facility')) return;
+    const target = deleteFacilityTarget;
+    setDeleteFacilityTarget(null);
+    queueOperation('facilities.delete-facility', target.id, {}, async () => { await gateway.deleteFacility(target.id); setFacilities((current) => current.filter((facility) => facility.id !== target.id)); setReservations((current) => current.filter((reservation) => reservation.facilityId !== target.id)); if (selectedRoomId === target.id) setSelectedRoomId(null); });
   };
 
   const filteredAutomation = reservations.filter((reservation) => {
@@ -434,10 +433,9 @@ export function FacilitiesScreen() {
 
   const cleanupAutomation = async () => {
     const targets = filteredAutomation.map((reservation) => reservation.id);
-    if (!canManage) return;
-    setMutationPending(true);
-    setMutationNotice('');
-    try {
+    if (!can('facilities.delete-reservations')) return;
+    queueOperation('facilities.delete-reservations', 'automation-reservations', { ids: targets }, async () => {
+      setMutationNotice('');
       if (gateway.deleteReservations) {
         const result = await gateway.deleteReservations(targets);
         if (result.deletedIds.length !== targets.length) setMutationNotice(`${result.deletedIds.length} of ${targets.length} automation reservations were deleted. The schedule was reloaded.`);
@@ -448,11 +446,7 @@ export function FacilitiesScreen() {
       }
       await load();
       setAutomationOpen(false);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setMutationPending(false);
-    }
+    });
   };
 
   return (
@@ -540,8 +534,8 @@ export function FacilitiesScreen() {
                               </span>
                             </button>
                             <ActionMenu label={`Actions for ${reservation.title}`} testId={`facility-reservation-menu-${reservation.id}`}>
-                              <button className="menu-item" role="menuitem" type="button" disabled={!canEditReservation(reservation)} onClick={() => openReservationEditor(reservation)} data-testid={`facility-reservation-menu-edit-${reservation.id}`}>{reservation.groupId ? 'Edit linked group' : 'Edit reservation'}</button>
-                              <button className="menu-item danger-item" role="menuitem" type="button" disabled={reservation.seriesId ? !canManage : !canEditReservation(reservation)} onClick={() => (reservation.seriesId ? setDeleteSeriesTarget(reservation) : reservation.groupId ? setDeleteGroupTarget(reservation) : setDeleteReservationTarget(reservation))} data-testid={`facility-reservation-menu-delete-${reservation.id}`}>
+                              <button className="menu-item" role="menuitem" type="button" disabled={!canEditReservation(reservation, reservation.groupId ? 'facilities.update-group' : 'facilities.update-reservation')} onClick={() => openReservationEditor(reservation)} data-testid={`facility-reservation-menu-edit-${reservation.id}`}>{reservation.groupId ? 'Edit linked group' : 'Edit reservation'}</button>
+                              <button className="menu-item danger-item" role="menuitem" type="button" disabled={reservation.seriesId ? !can('facilities.delete-series') : !canEditReservation(reservation, reservation.groupId ? 'facilities.delete-group' : 'facilities.delete-reservation')} onClick={() => (reservation.seriesId ? setDeleteSeriesTarget(reservation) : reservation.groupId ? setDeleteGroupTarget(reservation) : setDeleteReservationTarget(reservation))} data-testid={`facility-reservation-menu-delete-${reservation.id}`}>
                                 {reservation.seriesId ? 'Delete series' : reservation.groupId ? 'Delete linked group' : 'Delete reservation'}
                               </button>
                             </ActionMenu>
@@ -574,7 +568,7 @@ export function FacilitiesScreen() {
                         <div className="span-all"><dt>Setup notes</dt><dd>{selectedReservation.notes || 'No setup notes'}</dd></div>
                       </dl>
                       <div className="facilities-detail-actions">
-                        <button className="text-danger-button" type="button" disabled={mutationPending || (selectedReservation.seriesId ? !canManage : !canEditReservation(selectedReservation))} onClick={() => (selectedReservation.seriesId ? setDeleteSeriesTarget(selectedReservation) : selectedReservation.groupId ? setDeleteGroupTarget(selectedReservation) : setDeleteReservationTarget(selectedReservation))} data-testid="facility-inspector-delete">
+                        <button className="text-danger-button" type="button" disabled={mutationPending || (selectedReservation.seriesId ? !can('facilities.delete-series') : !canEditReservation(selectedReservation, selectedReservation.groupId ? 'facilities.delete-group' : 'facilities.delete-reservation'))} onClick={() => (selectedReservation.seriesId ? setDeleteSeriesTarget(selectedReservation) : selectedReservation.groupId ? setDeleteGroupTarget(selectedReservation) : setDeleteReservationTarget(selectedReservation))} data-testid="facility-inspector-delete">
                           {selectedReservation.seriesId ? 'Delete entire series' : selectedReservation.groupId ? 'Delete linked group' : 'Delete reservation'}
                         </button>
                       </div>
@@ -588,10 +582,10 @@ export function FacilitiesScreen() {
               <div className="facilities-rooms">
                 <div className="facilities-manager-bar" data-testid="facility-manager-bar">
                   <div><strong>Space operations</strong><span>Manage rooms and automation-created reservations.</span></div>
-                  <fieldset disabled={mutationPending || !canManage}>
+                  <fieldset disabled={mutationPending}>
                     <legend className="sr-only">Room manager actions</legend>
-                    <button className="secondary-button" type="button" onClick={openAutomation} data-testid="facility-automation-manage">Manage automation reservations</button>
-                    <button className="primary-button" type="button" onClick={() => openFacilityEditor(null)} data-testid="facility-add-space">Add Space</button>
+                    <button className="secondary-button" type="button" disabled={!can('facilities.delete-reservations')} onClick={openAutomation} data-testid="facility-automation-manage">Manage automation reservations</button>
+                    <button className="primary-button" type="button" disabled={!can('facilities.create-facility')} onClick={() => openFacilityEditor(null)} data-testid="facility-add-space">Add Space</button>
                   </fieldset>
                 </div>
                 <div className="facilities-split-shell facilities-room-split">
@@ -610,7 +604,7 @@ export function FacilitiesScreen() {
                                 </button>
                                 <button className="secondary-button" type="button" disabled={mutationPending || !canReserve} onClick={() => openReservationEditor(null, facility.id)} data-testid={`facility-room-reserve-${facility.id}`}>Reserve</button>
                                 <ActionMenu label={`Manage ${facility.name}`} testId={`facility-room-menu-${facility.id}`}>
-                                  <button className="menu-item danger-item" role="menuitem" type="button" disabled={!canManage} onClick={() => setDeleteFacilityTarget(facility)} data-testid={`facility-room-menu-delete-${facility.id}`}>Delete room</button>
+                                  <button className="menu-item danger-item" role="menuitem" type="button" disabled={!can('facilities.delete-facility')} onClick={() => setDeleteFacilityTarget(facility)} data-testid={`facility-room-menu-delete-${facility.id}`}>Delete room</button>
                                 </ActionMenu>
                               </article>
                             );
@@ -631,7 +625,7 @@ export function FacilitiesScreen() {
                         </div>
                         <div className="facilities-detail-actions">
                           <button className="primary-button" type="button" disabled={mutationPending || !canReserve} onClick={() => openReservationEditor(null, selectedRoom.id)} data-testid="facility-room-inspector-reserve">Reserve this room</button>
-                          <button className="secondary-button" type="button" disabled={mutationPending || !canManage} onClick={() => openFacilityEditor(selectedRoom)} data-testid="facility-room-inspector-edit">Edit space</button>
+                          <button className="secondary-button" type="button" disabled={mutationPending || !can('facilities.update-facility')} onClick={() => openFacilityEditor(selectedRoom)} data-testid="facility-room-inspector-edit">Edit space</button>
                         </div>
                       </section>
                     ) : (
@@ -646,7 +640,7 @@ export function FacilitiesScreen() {
 
         <FocusDialog open={reservationDialogOpen} onClose={closeReservationEditor} title={editingReservation ? 'Edit reservation' : 'Reserve space'} description="Availability is calculated from the current room schedule." testId="facility-reservation-dialog" wide>
           <form className="facilities-reservation-form" onSubmit={(event) => void submitReservation(event)}>
-            <fieldset disabled={mutationPending || !canReserve || Boolean(editingReservation && !canEditReservation(editingReservation))} aria-describedby={!canReserve ? 'facilities-read-only' : undefined}>
+            <fieldset disabled={mutationPending || !canSubmitReservation} aria-describedby={!canSubmitReservation ? 'facilities-read-only' : undefined}>
             <div className="facilities-form-grid">
               <label className="field span-2">Title
                 <input data-autofocus value={formTitle} onChange={(event) => setFormTitle(event.target.value)} aria-invalid={Boolean(formErrors.title)} data-testid="facility-form-title" />
@@ -680,7 +674,7 @@ export function FacilitiesScreen() {
 
         <FocusDialog open={facilityEditorOpen} onClose={closeFacilityEditor} title={editingFacility ? 'Edit space' : 'Add space'} description="Facilities use only the room name, building, and description fields exposed by Rhythm." testId="facility-editor-dialog">
           <form onSubmit={(event) => void submitFacility(event)}>
-            <fieldset disabled={mutationPending || !canManage} aria-describedby={!canManage ? 'facilities-read-only' : undefined}>
+            <fieldset disabled={mutationPending || !(editingFacility ? can('facilities.update-facility') : can('facilities.create-facility'))} aria-describedby={!(editingFacility ? can('facilities.update-facility') : can('facilities.create-facility')) ? 'facilities-read-only' : undefined}>
             <label className="field">Room name
               <input data-autofocus value={facilityName} onChange={(event) => { setFacilityName(event.target.value); setFacilityNameError(''); }} aria-invalid={Boolean(facilityNameError)} data-testid="facility-editor-name" />
               {facilityNameError && <span className="facilities-field-error" role="alert" data-testid="facility-editor-name-error">{facilityNameError}</span>}
@@ -705,7 +699,7 @@ export function FacilitiesScreen() {
         </FocusDialog>
 
         <FocusDialog open={automationOpen} onClose={() => setAutomationOpen(false)} title="Manage automation reservations" description="Preview the exact cleanup scope before deleting automation-created reservations." testId="facility-automation-dialog" wide>
-          <fieldset className="facilities-automation-form" disabled={mutationPending || !canManage} aria-describedby={!canManage ? 'facilities-read-only' : undefined}>
+          <fieldset className="facilities-automation-form" disabled={mutationPending || !can('facilities.delete-reservations')} aria-describedby={!can('facilities.delete-reservations') ? 'facilities-read-only' : undefined}>
             <div className="facilities-form-grid">
               <label className="field">Room
                 <select value={automationRoom} onChange={(event) => setAutomationRoom(event.target.value)} data-testid="facility-automation-room-filter">
@@ -733,28 +727,34 @@ export function FacilitiesScreen() {
         <FocusDialog open={Boolean(deleteReservationTarget)} onClose={() => setDeleteReservationTarget(null)} title={deleteReservationTarget ? `Delete "${deleteReservationTarget.title}"?` : 'Delete reservation?'} description="This cannot be undone." testId="facility-reservation-delete-dialog">
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={() => setDeleteReservationTarget(null)} data-testid="facility-reservation-delete-cancel">Cancel</button>
-          <button className="danger-button" type="button" disabled={mutationPending || !canEditReservation(deleteReservationTarget!)} onClick={() => void confirmDeleteReservation()} data-testid="facility-reservation-delete-confirm">Delete reservation</button>
+          <button className="danger-button" type="button" disabled={mutationPending || !canEditReservation(deleteReservationTarget!, 'facilities.delete-reservation')} onClick={() => void confirmDeleteReservation()} data-testid="facility-reservation-delete-confirm">Delete reservation</button>
           </div>
         </FocusDialog>
 
         <FocusDialog open={Boolean(deleteSeriesTarget)} onClose={() => setDeleteSeriesTarget(null)} title={deleteSeriesTarget ? `Delete entire series "${deleteSeriesTarget.title}"?` : 'Delete series?'} description="Every occurrence in this recurring series will be removed. This cannot be undone." testId="facility-series-delete-dialog">
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={() => setDeleteSeriesTarget(null)} data-testid="facility-series-delete-cancel">Cancel</button>
-          <button className="danger-button" type="button" disabled={mutationPending || !canManage} onClick={() => void confirmDeleteSeries()} data-testid="facility-series-delete-confirm">Delete entire series</button>
+          <button className="danger-button" type="button" disabled={mutationPending || !can('facilities.delete-series')} onClick={() => void confirmDeleteSeries()} data-testid="facility-series-delete-confirm">Delete entire series</button>
           </div>
         </FocusDialog>
 
         <FocusDialog open={Boolean(deleteGroupTarget)} onClose={() => setDeleteGroupTarget(null)} title={deleteGroupTarget ? `Delete linked group "${deleteGroupTarget.title}"?` : 'Delete linked group?'} description="Every linked reservation in this group will be removed. This cannot be undone." testId="facility-group-delete-dialog">
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={() => setDeleteGroupTarget(null)} data-testid="facility-group-delete-cancel">Cancel</button>
-            <button className="danger-button" type="button" disabled={mutationPending || !canEditReservation(deleteGroupTarget!)} onClick={() => void confirmDeleteGroup()} data-testid="facility-group-delete-confirm">Delete linked group</button>
+            <button className="danger-button" type="button" disabled={mutationPending || !canEditReservation(deleteGroupTarget!, 'facilities.delete-group')} onClick={() => void confirmDeleteGroup()} data-testid="facility-group-delete-confirm">Delete linked group</button>
           </div>
         </FocusDialog>
 
         <FocusDialog open={Boolean(deleteFacilityTarget)} onClose={() => setDeleteFacilityTarget(null)} title={deleteFacilityTarget ? `Delete "${deleteFacilityTarget.name}"?` : 'Delete space?'} description="This removes the room and its reservations from this workspace. This cannot be undone." testId="facility-delete-dialog">
           <div className="dialog-actions">
             <button className="secondary-button" type="button" onClick={() => setDeleteFacilityTarget(null)} data-testid="facility-delete-cancel">Cancel</button>
-            <button className="danger-button" type="button" disabled={mutationPending} onClick={() => void confirmDeleteFacility()} data-testid="facility-delete-confirm">Delete space</button>
+            <button className="danger-button" type="button" disabled={mutationPending || !can('facilities.delete-facility')} onClick={() => void confirmDeleteFacility()} data-testid="facility-delete-confirm">Delete space</button>
+          </div>
+        </FocusDialog>
+        <FocusDialog open={Boolean(operationTarget)} onClose={cancelOperation} title="Confirm facilities change" description="Confirm this exact facilities change before it is sent to the workspace." testId="facility-operation-confirmation">
+          <div className="dialog-actions">
+            <button className="secondary-button" type="button" disabled={mutationPending} onClick={cancelOperation} data-testid="facility-operation-cancel">Cancel</button>
+            <button className="primary-button" type="button" disabled={mutationPending} onClick={() => void confirmOperation()} data-testid="facility-operation-confirm">Confirm</button>
           </div>
         </FocusDialog>
       </section>

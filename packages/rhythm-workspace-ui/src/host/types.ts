@@ -52,6 +52,16 @@ export interface RhythmCurrentUser {
 export type RhythmWorkspaceCapability =
   | 'facilities.manage'
   | 'facilities.reserve'
+  | 'facilities.create-facility'
+  | 'facilities.update-facility'
+  | 'facilities.delete-facility'
+  | 'facilities.create-reservation'
+  | 'facilities.update-reservation'
+  | 'facilities.delete-reservation'
+  | 'facilities.update-group'
+  | 'facilities.delete-group'
+  | 'facilities.delete-series'
+  | 'facilities.delete-reservations'
   | 'automations.write'
   | 'integrations.write'
   | 'dashboard.write'
@@ -110,7 +120,7 @@ export interface RhythmTaskOperationConfirmation {
 export interface RhythmWorkspaceOperationConfirmation {
   operation: Exclude<RhythmWorkspaceCapability, 'facilities.manage' | 'facilities.reserve' | 'automations.write' | 'integrations.write' | 'dashboard.write' | 'tasks.write'>;
   entityId: string;
-  payload: Record<string, string | number | boolean | null | Array<Record<string, string | null>>>;
+  payload: Record<string, string | number | boolean | null | string[] | Array<Record<string, string | null>>>;
   generation: string;
 }
 
