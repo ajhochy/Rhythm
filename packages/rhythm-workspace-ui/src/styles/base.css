@@ -1,0 +1,101 @@
+/* Shared primitives ported from apps/web/src/styles.css (buttons, dialogs, menus, state
+ * panels, the task-editor form) — every unprefixed custom property (--bg, --fg, --border,
+ * ...) is renamed to this package's own --rhythm-* vocabulary (see src/host/theme.ts) and
+ * every rule is nested under .rhythm-workspace-root so nothing here ever leaks into, or
+ * collides with, a host page's own global styles. See SOURCE_MAP.md. */
+
+.rhythm-workspace-root {
+  --focus: var(--rhythm-focus);
+  box-sizing: border-box;
+  color: var(--rhythm-fg);
+  background: var(--rhythm-bg);
+  font-family: var(--rhythm-font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rhythm-workspace-root * { box-sizing: border-box; }
+.rhythm-workspace-root button,
+.rhythm-workspace-root input,
+.rhythm-workspace-root select,
+.rhythm-workspace-root textarea { font: inherit; color: inherit; }
+.rhythm-workspace-root button,
+.rhythm-workspace-root a,
+.rhythm-workspace-root select,
+.rhythm-workspace-root input,
+.rhythm-workspace-root textarea,
+.rhythm-workspace-root [tabindex] { outline: none; }
+.rhythm-workspace-root button:focus-visible,
+.rhythm-workspace-root a:focus-visible,
+.rhythm-workspace-root select:focus-visible,
+.rhythm-workspace-root input:focus-visible,
+.rhythm-workspace-root textarea:focus-visible,
+.rhythm-workspace-root [tabindex]:focus-visible { box-shadow: var(--rhythm-focus); position: relative; z-index: 5; }
+.rhythm-workspace-root button:disabled,
+.rhythm-workspace-root input:disabled,
+.rhythm-workspace-root textarea:disabled,
+.rhythm-workspace-root select:disabled { cursor: not-allowed; opacity: .58; }
+
+.rhythm-workspace-root .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+.rhythm-workspace-root .page-shell { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; padding: 16px; overflow: hidden; }
+.rhythm-workspace-root .eyebrow { color: var(--rhythm-fg-muted); font-family: var(--rhythm-font-mono); font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+
+.rhythm-workspace-root .icon-button { width: 40px; height: 40px; display: inline-grid; place-items: center; padding: 0; border: 1px solid var(--rhythm-border-soft); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg-secondary); background: var(--rhythm-surface); cursor: pointer; }
+.rhythm-workspace-root .icon-button:hover { color: var(--rhythm-fg); border-color: var(--rhythm-border); background: var(--rhythm-surface-warm); }
+
+.rhythm-workspace-root .primary-button,
+.rhythm-workspace-root .secondary-button,
+.rhythm-workspace-root .danger-button,
+.rhythm-workspace-root .text-danger-button,
+.rhythm-workspace-root .text-button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border-radius: var(--rhythm-radius-sm); cursor: pointer; font-weight: 580; letter-spacing: .02em; }
+.rhythm-workspace-root .primary-button { border: 1px solid var(--rhythm-accent); color: var(--rhythm-accent-on); background: var(--rhythm-accent); }
+.rhythm-workspace-root .primary-button:hover { border-color: var(--rhythm-accent-hover); background: var(--rhythm-accent-hover); }
+.rhythm-workspace-root .secondary-button { border: 1px solid var(--rhythm-border); color: var(--rhythm-fg); background: var(--rhythm-surface); }
+.rhythm-workspace-root .secondary-button:hover { background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .danger-button { border: 1px solid var(--rhythm-danger); color: var(--rhythm-fg); background: var(--rhythm-danger); }
+.rhythm-workspace-root .text-danger-button { border: 0; color: var(--rhythm-danger); background: transparent; }
+.rhythm-workspace-root .text-button { border: 0; color: var(--rhythm-fg-secondary); background: transparent; text-decoration: underline; text-underline-offset: 4px; }
+.rhythm-workspace-root .page-task-action { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
+.rhythm-workspace-root button:disabled.primary-button,
+.rhythm-workspace-root button:disabled.secondary-button { opacity: .58; }
+
+.rhythm-workspace-root .menu-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 260px; display: grid; gap: 3px; padding: 8px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-md); color: var(--rhythm-fg); background: var(--rhythm-surface-raised); box-shadow: var(--rhythm-shadow); }
+.rhythm-workspace-root .menu-item { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: 0; border-radius: 8px; color: var(--rhythm-fg-secondary); background: transparent; cursor: pointer; text-align: left; }
+.rhythm-workspace-root .menu-item:hover { color: var(--rhythm-fg); background: var(--rhythm-surface-warm); }
+.rhythm-workspace-root .menu-item.danger-item { color: var(--rhythm-danger); }
+
+.rhythm-workspace-root .dialog-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(8, 10, 10, 0.72); }
+.rhythm-workspace-root .dialog-panel { width: min(100%, 520px); max-height: min(820px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-md); background: var(--rhythm-surface-raised); box-shadow: var(--rhythm-shadow); }
+.rhythm-workspace-root .dialog-panel.dialog-wide { width: min(100%, 720px); }
+.rhythm-workspace-root .dialog-header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .dialog-header h2 { margin: 0; font-size: 16px; letter-spacing: -.015em; }
+.rhythm-workspace-root .dialog-header p { margin: 2px 0 0; color: var(--rhythm-fg-muted); font-size: 11px; }
+.rhythm-workspace-root .dialog-body { min-height: 0; overflow: auto; padding: 14px; }
+
+.rhythm-workspace-root .task-editor-form fieldset { display: grid; gap: 13px; margin: 0; padding: 0; border: 0; }
+.rhythm-workspace-root .task-editor-field { min-width: 0; display: grid; gap: 5px; color: var(--rhythm-fg-secondary); font-size: 10px; font-weight: 550; letter-spacing: .02em; }
+.rhythm-workspace-root .task-editor-form input,
+.rhythm-workspace-root .task-editor-form textarea,
+.rhythm-workspace-root .task-editor-form select { width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--rhythm-border); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg); background: var(--rhythm-surface); }
+.rhythm-workspace-root .task-editor-form textarea { resize: vertical; }
+.rhythm-workspace-root .task-editor-form input[aria-invalid="true"] { border-color: var(--rhythm-danger); }
+.rhythm-workspace-root .task-editor-pair { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rhythm-workspace-root .task-editor-section { min-width: 0; display: grid; gap: 10px; padding-top: 11px; border-top: 1px solid var(--rhythm-border-soft); }
+.rhythm-workspace-root .task-editor-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.rhythm-workspace-root .task-editor-section-head h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.rhythm-workspace-root .task-editor-section-head p { max-width: 48ch; margin: 3px 0 0; color: var(--rhythm-fg-muted); font-size: 10px; line-height: 1.5; }
+.rhythm-workspace-root .task-editor-error { margin: 0; padding: 8px 10px; border: 1px solid var(--rhythm-danger); border-radius: var(--rhythm-radius-sm); color: var(--rhythm-fg); background: var(--rhythm-danger); font-size: 10px; }
+.rhythm-workspace-root .task-editor-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.rhythm-workspace-root .task-editor-footer button { min-height: 44px; }
+
+.rhythm-workspace-root [class$="-state"] { display: grid; gap: 6px; justify-items: start; padding: 32px 20px; border: 1px dashed var(--rhythm-border-soft); border-radius: var(--rhythm-radius-lg); }
+.rhythm-workspace-root [class$="-state"].danger { border-color: var(--rhythm-danger); }
+.rhythm-workspace-root [class$="-state"].warning { border-color: var(--rhythm-warning); }
+.rhythm-workspace-root [class*="state-skeleton"] { display: flex; gap: 8px; }
+.rhythm-workspace-root [class*="state-skeleton"] span { flex: 1; height: 12px; border-radius: var(--rhythm-radius-pill); background: var(--rhythm-surface-warm); }
+
+@media (max-width: 720px) {
+  .rhythm-workspace-root .task-editor-pair { grid-template-columns: minmax(0, 1fr); }
+  .rhythm-workspace-root .task-editor-footer button { flex: 1 1 140px; }
+}

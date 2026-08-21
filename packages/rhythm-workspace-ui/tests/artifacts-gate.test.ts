@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { ArtifactsScreen } from '../src/artifacts/ArtifactsScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
-import { fixtureDomainGateway } from './test-utils/fixtureGateway';
+import { fixtureDomainGateway } from './test-utils/fixtures';
 import { mount, flush } from './test-utils/mount';
 
 const host = { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ', initials: 'AH' } };

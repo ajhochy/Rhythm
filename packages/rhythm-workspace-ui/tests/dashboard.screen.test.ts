@@ -1,31 +1,126 @@
-import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
+import { describe, expect, it } from 'vitest';
 import { DashboardScreen } from '../src/screens/DashboardScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
 import { assertScreenContract } from './test-utils/screenContract';
-import { fixtureDomainGateway } from './test-utils/fixtureGateway';
-import { mount, flush } from './test-utils/mount';
+import { fixtureDomainGateway, fixtureDashboardGateway, failingDashboardGateway, emptyDashboardGateway } from './test-utils/fixtures';
+import { mount, flush, actClick } from './test-utils/mount';
+
+function buildHost(overrides: Record<string, unknown> = {}) {
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+}
+
+function mountDashboard(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
+  const gateway = { ...fixtureDomainGateway(), ...gatewayOverrides };
+  return mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(hostOverrides), children: createElement(DashboardScreen) }));
+}
 
 describe('DashboardScreen', () => {
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
-    await assertScreenContract({
-      Screen: DashboardScreen,
-      screenName: 'Dashboard',
-      testId: 'rhythm-dashboard-screen',
-      gateway: fixtureDomainGateway(),
-    });
+    await assertScreenContract({ Screen: DashboardScreen, screenName: 'Dashboard', testId: 'rhythm-dashboard-screen', gateway: fixtureDomainGateway() });
   });
 
-  it('renders the summary pulled from the injected dashboard gateway', async () => {
-    const gateway = fixtureDomainGateway();
-    const host = { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ', initials: 'AH' } };
-    const mounted = mount(
-      createElement(RhythmWorkspaceProvider, { gateway, host, children: createElement(DashboardScreen) }),
-    );
+  it('renders the focus-for-the-week cards and planning grid from the injected gateway summary', async () => {
+    const mounted = mountDashboard();
     await flush();
-    expect(mounted.byTestId('rhythm-dashboard-screen')?.textContent).toContain('AJ');
-    expect(mounted.byTestId('rhythm-dashboard-open-count')?.textContent).toContain('2');
+    expect(mounted.byTestId('today-progress')).toBeTruthy();
+    expect(mounted.byTestId('planning-past-due')?.textContent).toContain('Review AV inventory');
+    expect(mounted.byTestId('planning-handoffs')?.textContent).toContain('Riley Chen');
+    expect(mounted.byTestId('project-progress')?.textContent).toContain('Weekend service');
+    mounted.unmount();
+  });
+
+  it('shows the loading, then ready, state', async () => {
+    const mounted = mountDashboard();
+    expect(mounted.byTestId('page-state-loading')).toBeTruthy();
+    await flush();
+    expect(mounted.byTestId('page-state-loading')).toBeNull();
+    mounted.unmount();
+  });
+
+  it('shows the empty state when the gateway has no tasks or project', async () => {
+    const mounted = mountDashboard({ dashboard: emptyDashboardGateway() });
+    await flush();
+    expect(mounted.byTestId('page-state-empty')).toBeTruthy();
+    mounted.unmount();
+  });
+
+  it('shows the forbidden state on a forbidden gateway error', async () => {
+    const mounted = mountDashboard({ dashboard: failingDashboardGateway('forbidden') });
+    await flush();
+    expect(mounted.byTestId('page-state-forbidden')).toBeTruthy();
+    mounted.unmount();
+  });
+
+  it('shows a retryable server-error state', async () => {
+    const mounted = mountDashboard({ dashboard: failingDashboardGateway('server_error') });
+    await flush();
+    expect(mounted.byTestId('page-state-server-error')).toBeTruthy();
+    mounted.unmount();
+  });
+
+  it('toggles a task complete/reopen through the gateway', async () => {
+    const dashboardGateway = fixtureDashboardGateway();
+    const mounted = mountDashboard({ dashboard: dashboardGateway });
+    await flush();
+    await actClick(mounted.byTestId('task-toggle-task-team-briefing')!);
+    await flush();
+    const summary = await dashboardGateway.summary();
+    expect(summary.tasks.find((task) => task.id === 'task-team-briefing')?.status).toBe('done');
+    mounted.unmount();
+  });
+
+  it('opens the task inspector dialog (focus-trapped) and saves an edit through the gateway', async () => {
+    const dashboardGateway = fixtureDashboardGateway();
+    const mounted = mountDashboard({ dashboard: dashboardGateway });
+    await flush();
+    await actClick(mounted.byTestId('task-row-task-review-av-inventory')!);
+    await flush();
+    const dialog = mounted.byTestId('task-inspector');
+    expect(dialog?.getAttribute('role')).toBe('dialog');
+    expect(dialog?.contains(document.activeElement)).toBe(true);
+    const titleInput = mounted.byTestId('task-inspector-title') as HTMLInputElement;
+    titleInput.value = 'Review AV inventory (urgent)';
+    titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await actClick(mounted.byTestId('task-inspector-save')!);
+    await flush();
+    const summary = await dashboardGateway.summary();
+    expect(summary.tasks.find((task) => task.id === 'task-review-av-inventory')?.title).toBe('Review AV inventory (urgent)');
+    mounted.unmount();
+  });
+
+  it('creates a task through the create dialog and the gateway', async () => {
+    const dashboardGateway = fixtureDashboardGateway();
+    const mounted = mountDashboard({ dashboard: dashboardGateway });
+    await flush();
+    await actClick(mounted.byTestId('dashboard-header-add-task')!);
+    await flush();
+    const titleInput = mounted.byTestId('task-title') as HTMLInputElement;
+    titleInput.value = 'Draft volunteer thank-you note';
+    titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await actClick(mounted.byTestId('task-add')!);
+    await flush();
+    const summary = await dashboardGateway.summary();
+    expect(summary.tasks.some((task) => task.title === 'Draft volunteer thank-you note')).toBe(true);
+    mounted.unmount();
+  });
+
+  it('asks the host to navigate to a sibling screen instead of routing itself', async () => {
+    let navigated: unknown = null;
+    const mounted = mountDashboard({}, { onNavigateToScreen: (screenId: string, context?: unknown) => { navigated = { screenId, context }; } });
+    await flush();
+    await actClick(mounted.byTestId('open-planner')!);
+    expect(navigated).toMatchObject({ screenId: 'planner' });
+    mounted.unmount();
+  });
+
+  it('invites the host to handle a quick action rather than creating an agent session itself', async () => {
+    let received: unknown = null;
+    const mounted = mountDashboard({}, { onRequestFollowUp: (context: unknown) => { received = context; } });
+    await flush();
+    await actClick(mounted.byTestId('quick-action-help-me-finish-this')!);
+    expect(received).toMatchObject({ screen: 'dashboard' });
     mounted.unmount();
   });
 });

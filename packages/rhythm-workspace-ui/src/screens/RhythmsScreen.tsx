@@ -1,3 +1,6 @@
+// PENDING PRODUCTION EXTRACTION (issue #4 remaining scope): placeholder view wired to the
+// real RhythmsGateway contract (roster only), not yet ported to feature parity with
+// apps/web/src/pages/rhythms (step editing, collaborator management, completion tracking).
 import { useEffect, useState } from 'react';
 import { useRhythmDomainGateway } from '../context';
 import { ScreenRoot } from './ScreenRoot';
@@ -24,8 +27,8 @@ export function RhythmsScreen() {
         {items.map((rhythm) => (
           <li key={rhythm.id} data-testid={`rhythm-rhythm-row-${rhythm.id}`}>
             <span>{rhythm.title}</span>
-            <span> · {rhythm.cadence}</span>
-            <span> · next {rhythm.nextOccurrence}</span>
+            <span> · {rhythm.frequency}</span>
+            <span> · next {rhythm.nextDueDate ?? 'unscheduled'}</span>
           </li>
         ))}
       </ul>

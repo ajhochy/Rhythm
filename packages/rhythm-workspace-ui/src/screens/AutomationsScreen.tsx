@@ -1,3 +1,6 @@
+// PENDING PRODUCTION EXTRACTION (issue #4 remaining scope): placeholder view wired to the
+// real AutomationsGateway contract, not yet ported to feature parity with
+// apps/web/src/pages/automations. No create/condition-editing UI here yet.
 import { useEffect, useId, useState } from 'react';
 import { useRhythmDomainGateway } from '../context';
 import { ScreenRoot } from './ScreenRoot';
@@ -17,7 +20,7 @@ function AutomationRow({ automation, onToggle }: { automation: RhythmAutomation;
         />
         <span id={labelId}>{automation.name}</span>
       </label>
-      <p>{automation.description}</p>
+      <p>{automation.previewSummary}</p>
     </li>
   );
 }
@@ -37,7 +40,7 @@ export function AutomationsScreen() {
   }, [automations]);
 
   const toggle = async (automation: RhythmAutomation, enabled: boolean) => {
-    const updated = await automations.setEnabled(automation.id, enabled);
+    const updated = await automations.update(automation.id, { enabled });
     setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
   };
 

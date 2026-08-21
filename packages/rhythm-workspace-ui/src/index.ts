@@ -2,32 +2,77 @@ export { RhythmWorkspaceProvider, useRhythmDomainGateway, useRhythmHost } from '
 export type { RhythmWorkspaceProviderProps } from './context';
 
 export { defaultRhythmTokens, mapHostTokens, RHYTHM_ROOT_CLASS } from './host/theme';
-export type { RhythmHostAdapter, RhythmHostTokens, RhythmThemeMode, RhythmViewport, RhythmCurrentUser } from './host/types';
+export type { RhythmHostAdapter, RhythmHostTokens, RhythmThemeMode, RhythmViewport, RhythmCurrentUser, RhythmScreenId } from './host/types';
 
+export { RhythmGatewayError } from './domain/types';
 export type {
-  AutomationsGateway,
-  DashboardGateway,
-  FacilitiesGateway,
-  FacilityRequestStatus,
-  IntegrationsGateway,
-  MessagesGateway,
-  PlannerGateway,
-  ProjectsGateway,
-  ProjectStatus,
-  RhythmAutomation,
-  RhythmCadence,
-  RhythmDashboardSummary,
-  RhythmDomainGateway,
-  RhythmFacilityRequest,
-  RhythmIntegration,
-  RhythmMessageThread,
-  RhythmPlannerDay,
-  RhythmProject,
-  RhythmRhythm,
-  RhythmsGateway,
-  RhythmTask,
+  RhythmGatewayErrorKind,
+  RhythmWorkspaceMember,
+  // Tasks
   TaskStatus,
+  TaskBucket,
+  TaskEnergy,
+  PreferredAgent,
+  RhythmTaskCollaborator,
+  RhythmTask,
+  CreateRhythmTaskInput,
+  UpdateRhythmTaskInput,
   TasksGateway,
+  // Dashboard
+  RhythmDashboardTask,
+  RhythmDashboardProjectStep,
+  RhythmDashboardProject,
+  RhythmDashboardThreadPreview,
+  RhythmDashboardSummary,
+  CreateDashboardTaskInput,
+  UpdateDashboardTaskInput,
+  DashboardGateway,
+  // Planner
+  RhythmPlannerTask,
+  RhythmPlannerEvent,
+  RhythmPlannerDay,
+  RhythmPlannerWeek,
+  PlannerGateway,
+  // Projects
+  ProjectInstanceStatus,
+  RhythmProjectStep,
+  RhythmProjectMilestone,
+  RhythmProjectTemplateStep,
+  RhythmProjectTemplate,
+  RhythmProject,
+  ProjectsGateway,
+  // Rhythms
+  RhythmCadence,
+  RhythmStep,
+  RhythmRhythm,
+  CreateRhythmRhythmInput,
+  RhythmsGateway,
+  // Messages
+  MessageThreadType,
+  RhythmMessage,
+  RhythmMessageThread,
+  MessagesGateway,
+  // Facilities
+  RhythmFacility,
+  RhythmReservation,
+  CreateReservationInput,
+  FacilitiesGateway,
+  // Integrations
+  IntegrationProviderId,
+  IntegrationAccountStatus,
+  RhythmIntegrationAccount,
+  RhythmCalendarSource,
+  RhythmGmailSignal,
+  IntegrationsGateway,
+  // Automations
+  AutomationSource,
+  AutomationActionType,
+  AutomationCondition,
+  RhythmAutomation,
+  CreateAutomationInput,
+  AutomationsGateway,
+  // Composed
+  RhythmDomainGateway,
 } from './domain/types';
 
 export { ArtifactsScreen } from './artifacts/ArtifactsScreen';
@@ -43,3 +88,12 @@ export { PlannerScreen } from './screens/PlannerScreen';
 export { ProjectsScreen } from './screens/ProjectsScreen';
 export { RhythmsScreen } from './screens/RhythmsScreen';
 export { TasksScreen } from './screens/TasksScreen';
+
+export { Icon } from './components/Icon';
+export type { IconName } from './components/Icon';
+export { FocusDialog } from './components/FocusDialog';
+export { HeaderTaskAction } from './components/HeaderTaskAction';
+export { TaskCreateForm } from './components/TaskCreateForm';
+export type { TaskCreateMember } from './components/TaskCreateForm';
+export { quickActionPresets } from './components/quickActions';
+export type { QuickActionPresetId, QuickActionPreset } from './components/quickActions';

@@ -1,6 +1,11 @@
-/* Every rule below is scoped under .rhythm-workspace-root (see src/host/theme.ts,
-   RHYTHM_ROOT_CLASS) so this stylesheet can never leak an unprefixed, global selector into
-   a host page — see tests/css-scoping.test.ts, which enforces that as a standing contract. */
+/* Every rule in this stylesheet — here and in every file it imports below — is scoped under
+ * .rhythm-workspace-root (see src/host/theme.ts, RHYTHM_ROOT_CLASS) so nothing here can ever
+ * leak an unprefixed, global selector into a host page. tests/css-scoping.test.ts enforces
+ * that as a standing contract across this whole concatenation, not just this one file. */
+
+@import './base.css';
+@import './screens/tasks.css';
+@import './screens/dashboard.css';
 
 .rhythm-workspace-root {
   background: var(--rhythm-bg);

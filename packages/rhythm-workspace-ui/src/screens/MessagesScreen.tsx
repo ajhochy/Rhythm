@@ -1,3 +1,6 @@
+// PENDING PRODUCTION EXTRACTION (issue #4 remaining scope): placeholder view wired to the
+// real MessagesGateway contract (thread roster only), not yet ported to feature parity with
+// apps/web/src/pages/messages (thread view, compose, read/unread controls).
 import { useEffect, useState } from 'react';
 import { useRhythmDomainGateway } from '../context';
 import { ScreenRoot } from './ScreenRoot';
@@ -23,8 +26,8 @@ export function MessagesScreen() {
       <ul data-testid="rhythm-threads-list">
         {items.map((thread) => (
           <li key={thread.id} data-testid={`rhythm-thread-row-${thread.id}`}>
-            <span>{thread.subject}</span>
-            <span> · {thread.lastSenderName}</span>
+            <span>{thread.title}</span>
+            <span> · {thread.lastMessage}</span>
             {thread.unreadCount > 0 && <span aria-label={`${thread.unreadCount} unread`}> · {thread.unreadCount}</span>}
           </li>
         ))}
