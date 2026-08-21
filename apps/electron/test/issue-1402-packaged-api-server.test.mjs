@@ -42,15 +42,18 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
   }
 
   const bundledNode = resolve(resources, 'node/bin/node');
-  const probe = spawnSync(bundledNode, ['-e', [
+  const sqliteProbe = spawnSync(bundledNode, ['-e', [
     `const root=${JSON.stringify(resolve(resources, 'api_server'))};`,
     "const Database=require(root+'/node_modules/better-sqlite3');",
     "const db=new Database(':memory:');",
     "if(db.prepare('select 1 as x').get().x!==1)process.exit(1);",
-    "db.close();",
+  ].join('')], { encoding: 'utf8' });
+  assert.equal(sqliteProbe.status, 0, `bundled Node failed its better-sqlite3 ABI probe\n${sqliteProbe.stderr}`);
+  const ptyProbe = spawnSync(bundledNode, ['-e', [
+    `const root=${JSON.stringify(resolve(resources, 'api_server'))};`,
     "require(root+'/node_modules/node-pty');",
   ].join('')], { encoding: 'utf8' });
-  assert.equal(probe.status, 0, `bundled Node failed its native-module ABI probe\n${probe.stderr}`);
+  assert.equal(ptyProbe.status, 0, `bundled Node failed its node-pty ABI probe\n${ptyProbe.stderr}`);
 });
 
 test('issue-1402-c2: packaged resolution uses only Contents/Resources/api_server', async () => {

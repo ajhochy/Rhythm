@@ -93,7 +93,9 @@ test('slice-7-c3: packaged binary registers rhythm before ready and loads the ha
   }, 'slice-7-c3: packaged BrowserWindow options differ from the hardened Slice 5 contract');
 });
 
-test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', async () => {
+test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', {
+  skip: process.env.RHYTHM_LIVE_E2E !== '1',
+}, async () => {
   // Regression caught: the package displays fixture data while claiming the sandbox is live.
   await assertPackagedBundle('slice-7-c4');
   const receipt = await packagedSmoke(['--smoke', '--live-smoke'], sandboxEnvironment);
@@ -166,6 +168,16 @@ test('slice-7-c6: packaging is deterministic, gitignored, and leak-free', async 
   );
   assert.equal(await repositoryState('branch', ['branch', '--format=%(refname)']), beforeBranches, 'slice-7-c6: packaged smoke changed branches');
   assert.deepEqual(await worktreePaths(), beforeWorktrees, 'slice-7-c6: packaged smoke changed worktrees');
+});
+
+test('slice-7-c1b: release packaging embeds the requested version in the macOS bundle', async () => {
+  const result = await runWithoutAppleCredentials(...packageCommand, { RELEASE_VERSION: '0.18.60' });
+  assert.equal(result.code, 0, `slice-7-c1b: package command failed\n${result.stderr}`);
+  for (const key of ['CFBundleShortVersionString', 'CFBundleVersion']) {
+    const value = await run('plutil', ['-extract', key, 'raw', resolve(artifactRoot, 'Contents/Info.plist')]);
+    assert.equal(value.code, 0, `slice-7-c1b: unable to read ${key}\n${value.stderr}`);
+    assert.equal(value.stdout.trim(), '0.18.60', `slice-7-c1b: ${key} does not match RELEASE_VERSION`);
+  }
 });
 
 // Worktree PATHS only. `git worktree list --porcelain` also prints every worktree's HEAD sha, and
@@ -264,8 +276,8 @@ function run(command, args, cwd = electronRoot, extraEnvironment = {}, inheritEn
   });
 }
 
-function runWithoutAppleCredentials(command, args) {
-  const environment = { ...process.env, ...poisonedRendererEnvironment };
+function runWithoutAppleCredentials(command, args, extraEnvironment = {}) {
+  const environment = { ...process.env, ...poisonedRendererEnvironment, ...extraEnvironment };
   for (const key of [
     'APPLE_ID',
     'APPLE_APP_SPECIFIC_PASSWORD',

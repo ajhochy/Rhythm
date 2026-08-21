@@ -16,6 +16,10 @@ const apiServerSource = resolve(electronRoot, '../api_server');
 const packagedApiServer = resolve(resources, 'api_server');
 const packagedNode = resolve(resources, 'node/bin/node');
 const infoPlist = resolve(stagingArtifact, 'Contents/Info.plist');
+const releaseVersion = process.env.RELEASE_VERSION?.trim() || '0.1.0';
+if (!/^\d+(?:\.\d+){0,2}$/.test(releaseVersion)) {
+  throw new Error(`RELEASE_VERSION must contain one to three numeric components: ${releaseVersion}`);
+}
 const rendererBuildEnvironment = { ...process.env };
 // TEST-ONLY: Vite gateway values remain supported by `npm run dev` and Playwright. A shipping
 // renderer must start from a neutral environment, then receive only the non-secret live-mode
@@ -46,6 +50,7 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/policy.mjs'), resolve(packagedApp, 'src/policy.mjs')),
   cp(resolve(electronRoot, 'src/production-api-config.mjs'), resolve(packagedApp, 'src/production-api-config.mjs')),
   cp(resolve(electronRoot, 'src/runtime-config.mjs'), resolve(packagedApp, 'src/runtime-config.mjs')),
+  cp(resolve(electronRoot, 'src/security-smoke-receipt.mjs'), resolve(packagedApp, 'src/security-smoke-receipt.mjs')),
   cp(resolve(electronRoot, 'src/preload.cjs'), resolve(packagedApp, 'src/preload.cjs')),
   cp(resolve(electronRoot, 'src/google-oauth-core.mjs'), resolve(packagedApp, 'src/google-oauth-core.mjs')),
   cp(resolve(electronRoot, 'src/desktop-google-oauth.mjs'), resolve(packagedApp, 'src/desktop-google-oauth.mjs')),
@@ -75,12 +80,17 @@ await rm(resolve(packagedApiServer, '.node-runtime.json'), { force: true });
 await mkdir(dirname(packagedNode), { recursive: true });
 await cp(process.execPath, packagedNode);
 await chmod(packagedNode, 0o755);
+// Probe native addons in separate processes. Loading node-pty after creating a better-sqlite3
+// Statement can force that Statement's GC during Node 24 addon teardown and abort inside
+// RemoveEnvironmentCleanupHook even though each addon is ABI-correct.
 await run(packagedNode, ['-e', [
   `const root=${JSON.stringify(packagedApiServer)};`,
   "const Database=require(root+'/node_modules/better-sqlite3');",
   "const db=new Database(':memory:');",
   "if(db.prepare('select 1 as x').get().x!==1)process.exit(1);",
-  "db.close();",
+].join('')]);
+await run(packagedNode, ['-e', [
+  `const root=${JSON.stringify(packagedApiServer)};`,
   "require(root+'/node_modules/node-pty');",
 ].join('')]);
 
@@ -93,8 +103,8 @@ for (const [key, value] of [
   ['CFBundleIdentifier', 'com.rhythm.desktop'],
   ['CFBundleName', 'Rhythm'],
   ['CFBundleDisplayName', 'Rhythm'],
-  ['CFBundleShortVersionString', '0.1.0'],
-  ['CFBundleVersion', '0.1.0'],
+  ['CFBundleShortVersionString', releaseVersion],
+  ['CFBundleVersion', releaseVersion],
 ]) {
   await run('plutil', ['-replace', key, '-string', value, infoPlist]);
 }
