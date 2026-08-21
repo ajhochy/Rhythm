@@ -60,13 +60,18 @@ function sanitizedChange(input: CreateToolInstallProposalInput): Record<string, 
   return parsed as Record<string, unknown>;
 }
 
-function preflightProposal(input: CreateToolInstallProposalInput, change: Record<string, unknown>): AgentOrgProposal {
+function preflightProposal(
+  input: CreateToolInstallProposalInput,
+  change: Record<string, unknown>,
+  title: string,
+  dedupKey: string | null,
+): AgentOrgProposal {
   return {
     id: 'tool-install-preflight', auditRunId: null, kind: 'tool-install', risk: 'high', external: 0,
-    status: 'proposed', title: sanitizeD1PlainText(input.title) ?? '', rationale: sanitizeD1PlainText(input.rationale ?? null),
+    status: 'proposed', title, rationale: sanitizeD1PlainText(input.rationale ?? null),
     signalRef: sanitizeD1PlainText(input.signalRef ?? null), targetRef: sanitizeD1PlainText(input.targetRef ?? null),
     changeJson: JSON.stringify(change), beforeSnapshotJson: null, provenanceJson: null,
-    dedupKey: input.dedupKey ?? null, baselineScore: null, postScore: null, measureReason: null,
+    dedupKey, baselineScore: null, postScore: null, measureReason: null,
     decidedByUserId: null, ownerUserId: input.ownerUserId ?? null,
     diagnosisConfidence: null, diagnosisConfidenceVersion: null, createdAt: '', updatedAt: '',
   };
@@ -97,14 +102,20 @@ export async function createAndVetToolInstallProposalAsync(
   // request must not gain a durable `change_json` field that could contain a
   // raw prompt or secret-shaped value rejected by the closed D1 schema.
   const change = sanitizedChange(input);
-  const preflight = preflightProposal(input, change);
+  // These caller-controlled scalar values are sanitized exactly once, before
+  // both preflight and persistence, so no raw secret-shaped bytes reach a
+  // durable proposal row and deduplication uses the same deterministic key.
+  const title = sanitizeD1PlainText(input.title);
+  if (!title || title.trim().length === 0) throw new Error('tool-install proposal validation failed');
+  const dedupKey = sanitizeD1PlainText(input.dedupKey ?? null);
+  const preflight = preflightProposal(input, change, title, dedupKey);
   const preflightValidation = validateToolInstallChange(preflight);
   if (!preflightValidation.valid) throw new Error('tool-install proposal validation failed');
   const proposal = await proposals.createAsync({
-    kind: 'tool-install', risk: 'high', status: 'proposed', title: input.title,
+    kind: 'tool-install', risk: 'high', status: 'proposed', title,
     changeJson: JSON.stringify(change), rationale: sanitizeD1PlainText(input.rationale ?? null),
     signalRef: sanitizeD1PlainText(input.signalRef ?? null), targetRef: sanitizeD1PlainText(input.targetRef ?? null),
-    dedupKey: input.dedupKey ?? null, ownerUserId: input.ownerUserId ?? null,
+    dedupKey, ownerUserId: input.ownerUserId ?? null,
   });
 
   // A duplicate dedup-key request returns the same durable proposal rather

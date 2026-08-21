@@ -38,12 +38,13 @@ function vetOutcome(verdict: 'safe' | 'conditional' | 'unsafe' | 'unknown') {
 }
 
 describe('D1.4 tool-install creation → vet → human decision lifecycle', () => {
+  let db: Database.Database;
   let proposals: AgentOrgProposalsRepository;
   let reports: ToolSafetyReportsRepository;
   let input: { title: string; change: Record<string, unknown> };
 
   beforeEach(() => {
-    const db = makeDb();
+    db = makeDb();
     setDb(db);
     proposals = new AgentOrgProposalsRepository(db);
     reports = new ToolSafetyReportsRepository(db);
@@ -102,6 +103,35 @@ describe('D1.4 tool-install creation → vet → human decision lifecycle', () =
     expect(proposal.status).toBe('pending');
     expect(report).toMatchObject({ verdict: 'unknown', reason: 'sandbox_error' });
     expect(JSON.stringify(report)).not.toContain('sk-abcdefghijklmnopqrstuvwx');
+  });
+
+  it('persists redacted title and dedup key values through the production lifecycle seam', async () => {
+    const titleSecret = ['sk', 'd1lifecycletitlefixtureabcdefghijklmnop'].join('-');
+    const dedupSecret = ['sk', 'd1lifecyclededupfixtureqrstuvwxyzabcdef'].join('-');
+    const secretInput = {
+      ...input,
+      title: `Install ${titleSecret}`,
+      dedupKey: `d1-tool-install:${dedupSecret}`,
+    };
+    let vets = 0;
+    const lifecycleDeps = deps(async () => {
+      vets += 1;
+      return vetOutcome('safe');
+    });
+
+    const proposal = await createAndVetToolInstallProposalAsync(secretInput, lifecycleDeps);
+    const duplicate = await createAndVetToolInstallProposalAsync(secretInput, lifecycleDeps);
+    const stored = db.prepare('SELECT title, dedup_key FROM agent_org_proposals WHERE id = ?').get(proposal.id) as {
+      title: string;
+      dedup_key: string | null;
+    };
+
+    expect(proposal.id).toBe(duplicate.id);
+    expect(vets).toBe(1);
+    expect(stored.title).toBe('Install [redacted]');
+    expect(stored.dedup_key).toBe('d1-tool-install:[redacted]');
+    expect(JSON.stringify(stored)).not.toContain(titleSecret);
+    expect(JSON.stringify(stored)).not.toContain(dedupSecret);
   });
 
   it('human denial rejects a vetted proposal and never invokes the installer', async () => {

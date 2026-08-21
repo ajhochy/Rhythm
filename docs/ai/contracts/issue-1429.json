@@ -22,6 +22,11 @@
       "evidence": "denial rejects without installer invocation; approval checks the durable central policy, CAS-claims sandbox-vetted -> approved before the apply boundary, and concurrent approvals invoke an injected installer exactly once."
     },
     {
+      "id": "persisted-proposal-scalar-redaction",
+      "status": "pass",
+      "evidence": "The production lifecycle seam sanitizes title and dedupKey once before both preflight and persistence. Its deterministic synthetic-secret regression reads the SQLite proposal row, finds only [redacted] values, and proves the same sanitized dedupKey returns the existing proposal without a second vet. The raw fixture is neither persisted nor emitted here."
+    },
+    {
       "id": "real-api-and-docker",
       "status": "pass",
       "evidence": "RHYTHM_LIVE_E2E=1 D1.4 test passed 1/1 against tools/dev/sandbox.sh: real Docker safe vet -> sandbox-vetted -> approval -> fixed apply-unavailable failure; real broken Docker candidate -> unknown report -> pending -> denial. No reports/proposals were inserted by the live core path."

@@ -55,3 +55,24 @@ boundary, so a second concurrent approval cannot invoke it.
   `failed`, never `applied`. The injected no-op installer is test-only proof
   of ordering and one-winner CAS; it does not claim an actual host install.
   The issue remains blocked on a separately approved managed installer.
+
+## Follow-up — persisted proposal scalar redaction
+
+The repair commit initially sanitized `title` only for in-memory preflight and
+persisted both raw `title` and raw `dedupKey`. The lifecycle now sanitizes each
+of those values once before preflight and persistence, validates that the
+sanitized title remains non-empty, and uses the sanitized dedup key for the
+unchanged idempotency boundary.
+
+- RED: the deterministic synthetic-secret lifecycle regression failed before
+  the correction; seven existing lifecycle cases still passed. The fixture is
+  deliberately not reproduced in this run note.
+- GREEN: `tool_install_proposal_lifecycle.test.ts` passed 8/8. The regression
+  reads the SQLite proposal row and proves title/dedup values are redacted,
+  raw fixture bytes are absent, a duplicate request resolves to the same row,
+  and the vetter runs once.
+- Recreated explicit D1.1-D1.4 matrix: 333 passed, 1 expected env-gated live
+  skip. Node 22 typecheck/build passed.
+- No Docker/live API rerun was required: this correction changes neither the
+  Docker vetter nor production route control flow. It changes only the
+  already-covered lifecycle persistence inputs.
