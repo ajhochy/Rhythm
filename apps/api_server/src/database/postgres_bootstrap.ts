@@ -2326,6 +2326,13 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE promotion_trust_state ADD COLUMN IF NOT EXISTS auto_promotion_eligible BOOLEAN NOT NULL DEFAULT FALSE
   `);
+  // D4.6 (#1444) — Postgres twin of the narrow user-visible regression alert
+  // idempotency key in migrations.ts.
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_auto_promotion_regression_once
+      ON notifications(recipient_user_id, type, entity_type, entity_id)
+      WHERE type = 'auto_promotion_disabled_regression'
+  `);
 
   // D1.1 (#1426) — tool safety reports. Column set MUST stay identical to
   // migrations.ts — enforced by skill_schema_parity.test.ts.

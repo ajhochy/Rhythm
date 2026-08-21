@@ -38,9 +38,9 @@ export interface PromotionTrustStateUpdate {
 }
 
 /**
- * D4.2 (#1440) — the ONLY shape trust_counter_service.ts writes through.
- * Deliberately excludes `autoPromotionEnabled`/`enabledAt`/`trustThreshold`:
- * the trust counter records eligibility, it never flips the gate itself.
+ * D4.2/D4.6 (#1440/#1444) — the ONLY shape trust_counter_service.ts writes
+ * through. It excludes `trustThreshold`; a non-zero regression atomically
+ * forces the enabled gate off and clears `enabledAt`.
  */
 export interface PromotionTrustStateEligibilityUpdate {
   totalVerified: number;
@@ -196,12 +196,12 @@ export class PromotionTrustStateRepository {
   }
 
   /**
-   * D4.2 (#1440) — the ONLY write path trust_counter_service.ts uses.
-   * Updates the verified/regression counts and derived eligibility; leaves
-   * `autoPromotionEnabled`/`enabledAt`/`trustThreshold` completely untouched
-   * — this method has no parameter that could touch the enable gate, so it
-   * can never flip it. Same singleton-ensuring/race-safe path as
-   * {@link getSingletonAsync}.
+   * D4.2/D4.6 (#1440/#1444) — the ONLY write path trust_counter_service.ts
+   * uses. A zero-regression refresh keeps D4.2's existing eligibility
+   * behavior. A non-zero regression is monotonic and atomically persists the
+   * count, false eligibility, disabled gate, and null enabledAt. Preserving
+   * the maximum regression count protects against a stale zero-refresh
+   * racing after the durable D2 event has already been observed.
    */
   async recordEligibilityAsync(
     update: PromotionTrustStateEligibilityUpdate,
@@ -211,7 +211,20 @@ export class PromotionTrustStateRepository {
     if (env.dbClient === 'postgres') {
       await getPostgresPool().query(
         `UPDATE promotion_trust_state
-            SET total_verified = $1, total_regressions = $2, auto_promotion_eligible = $3,
+            SET total_verified = $1,
+                total_regressions = GREATEST(total_regressions, $2),
+                auto_promotion_eligible = CASE
+                  WHEN GREATEST(total_regressions, $2) > 0 THEN FALSE
+                  ELSE $3
+                END,
+                auto_promotion_enabled = CASE
+                  WHEN GREATEST(total_regressions, $2) > 0 THEN FALSE
+                  ELSE auto_promotion_enabled
+                END,
+                enabled_at = CASE
+                  WHEN GREATEST(total_regressions, $2) > 0 THEN NULL
+                  ELSE enabled_at
+                END,
                 updated_at = $4
           WHERE id = $5`,
         [
@@ -227,14 +240,30 @@ export class PromotionTrustStateRepository {
     this.db!
       .prepare(
         `UPDATE promotion_trust_state
-            SET total_verified = ?, total_regressions = ?, auto_promotion_eligible = ?,
+            SET total_verified = ?,
+                total_regressions = MAX(total_regressions, ?),
+                auto_promotion_eligible = CASE
+                  WHEN MAX(total_regressions, ?) > 0 THEN 0
+                  ELSE ?
+                END,
+                auto_promotion_enabled = CASE
+                  WHEN MAX(total_regressions, ?) > 0 THEN 0
+                  ELSE auto_promotion_enabled
+                END,
+                enabled_at = CASE
+                  WHEN MAX(total_regressions, ?) > 0 THEN NULL
+                  ELSE enabled_at
+                END,
                 updated_at = ?
           WHERE id = ?`,
       )
       .run(
         update.totalVerified,
         update.totalRegressions,
+        update.totalRegressions,
         update.autoPromotionEligible ? 1 : 0,
+        update.totalRegressions,
+        update.totalRegressions,
         now,
         PROMOTION_TRUST_STATE_ID,
       );

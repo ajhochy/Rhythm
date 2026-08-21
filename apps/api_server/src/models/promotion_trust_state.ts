@@ -3,9 +3,9 @@
  * automatic promotion). Singleton: exactly one row exists, keyed by the
  * fixed id in promotion_trust_state_repository.ts.
  *
- * `autoPromotionEnabled` is the actual gate a later D4 issue flips. Nothing
- * in D4.1 (this model) or D4.2 (trust_counter_service.ts) ever sets it true
- * — D4.2 only ever writes the derived `autoPromotionEligible` read below.
+ * `autoPromotionEnabled` is the actual gate a later D4 issue may explicitly
+ * opt into. D4.6 can only force it false after a durable regression; neither
+ * D4.2 nor D4.6 can set it true.
  */
 export interface PromotionTrustState {
   totalVerified: number;

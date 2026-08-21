@@ -1,0 +1,55 @@
+{
+  "issue": 1444,
+  "generated": "2026-08-21",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-1444-c1",
+      "text": "Auto-promotion enabled → regression occurs → auto-promotion auto-disabled",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/post_apply_regression_feedback.test.ts",
+      "test_id": "issue-1444-c1: successful auto-revert disables the enabled promotion gate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1444-c2",
+      "text": "Trust counter increments regression count",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/post_apply_regression_feedback.test.ts",
+      "test_id": "issue-1444-c2: successful auto-revert contributes exactly one durable regression",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1444-c3",
+      "text": "User is alerted",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/post_apply_regression_feedback.test.ts",
+      "test_id": "issue-1444-c3: successful auto-revert writes one sanitized user-visible notification",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1444-c4",
+      "text": "Re-enabling requires explicit opt-in (doesn't auto-re-enable)",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/post_apply_regression_feedback.test.ts",
+      "test_id": "issue-1444-c4: later refresh preserves regression disablement",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1444-c5",
+      "text": "Focused tests pass (RED → GREEN)",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/post_apply_regression_feedback.test.ts",
+      "test_id": "issue-1444-c5: post-apply regression feedback suite",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1444-c6",
+      "text": "Build + typecheck pass",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Validated by the issue-level Node 22 typecheck and API build after the contract suite is green."
+    }
+  ],
+  "not_tested": ["issue-1444-c6"]
+}

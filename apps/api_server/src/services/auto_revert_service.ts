@@ -83,6 +83,7 @@ import { createHash } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { NotificationsRepository } from '../repositories/notifications_repository';
 import { PostApplyEventsRepository } from '../repositories/post_apply_events_repository';
 import { parseRepairProposalIds, type PostApplyEvent, type PostApplyRevertStatus } from '../models/post_apply_event';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
@@ -93,11 +94,18 @@ import {
   type RevertConfigFieldOverride,
   type RevertOutcome,
 } from './org_proposal_apply';
+import { NotificationService } from './notification_service';
+import { recordTrustCountersAsync } from './trust_counter_service';
 
 export interface RunAutoRevertAsyncOptions {
   proposalsRepo?: AgentOrgProposalsRepository;
   configsRepo?: AgentConfigsRepository;
   eventsRepo?: PostApplyEventsRepository;
+  /** Test seam for post-commit failure isolation; production uses durable services. */
+  postCommit?: {
+    recordTrustCountersAsync?: typeof recordTrustCountersAsync;
+    notifyAutoPromotionDisabledAsync?: (proposalId: string, recipientUserId: number) => Promise<void>;
+  };
 }
 
 export type AutoRevertOutcome = 'reverted' | 'revert_failed' | 'not-tripped';
@@ -282,21 +290,73 @@ async function recordOutcome(
 }
 
 /**
+ * D4.6: a successful D2 revert is a durable regression outcome in its own
+ * right. The original fixed-horizon experiment decision is never edited.
+ * This runs only after the event has been terminally recorded, and every
+ * failure is isolated so neither the revert nor the disablement attempt can
+ * be rolled back by notification delivery.
+ */
+async function refreshTrustAfterSuccessfulAutoRevert(
+  proposal: AgentOrgProposal,
+  options: RunAutoRevertAsyncOptions,
+): Promise<void> {
+  let trustState;
+  try {
+    trustState = await (options.postCommit?.recordTrustCountersAsync ?? recordTrustCountersAsync)();
+  } catch {
+    logger.warn(`[auto-revert] trust refresh failed for proposal '${proposal.id}'`);
+    return;
+  }
+
+  // The canonical count includes the just-committed D2 event. Do not emit a
+  // misleading "disabled" notice if a future ledger/schema defect returns
+  // zero instead.
+  if (trustState.totalRegressions <= 0) return;
+  const recipientUserId = proposal.ownerUserId ?? proposal.decidedByUserId;
+  if (recipientUserId === null) {
+    logger.warn(`[auto-revert] regression alert deferred for proposal '${proposal.id}' outcome=no-recipient`);
+    return;
+  }
+
+  try {
+    const notify =
+      options.postCommit?.notifyAutoPromotionDisabledAsync ??
+      ((proposalId: string, userId: number) =>
+        new NotificationService(new NotificationsRepository()).notifyAutoPromotionDisabledDueToRegressionAsync(
+          proposalId,
+          userId,
+        ));
+    await notify(proposal.id, recipientUserId);
+  } catch {
+    // D2 post-commit semantics: delivery is best-effort and safe to retry;
+    // never include an underlying error string because it can contain data.
+    logger.warn(`[auto-revert] regression alert failed for proposal '${proposal.id}'`);
+  }
+}
+
+/**
  * Revert the profile targeted by a `tripped` PostApplyEvent to its
  * pre-change state, after D2.3's repair loop has exhausted all attempts. A
  * no-op when the event isn't currently tripped.
  */
 export async function runAutoRevertAsync(
   event: PostApplyEvent,
-  { proposalsRepo, configsRepo, eventsRepo }: RunAutoRevertAsyncOptions = {},
+  options: RunAutoRevertAsyncOptions = {},
 ): Promise<RunAutoRevertAsyncResult> {
-  if (event.guardrailStatus !== 'tripped') {
+  // A successful revert is terminal and must be idempotent across scheduler
+  // retries. `revert_failed`, however, is deliberately retryable: D2 resumes
+  // a blocked profile-file projection without repeating the value write.
+  if (
+    event.guardrailStatus !== 'tripped' ||
+    event.revertStatus === 'reverted' ||
+    event.revertStatus === 'not_needed'
+  ) {
     return { outcome: 'not-tripped', event };
   }
 
-  const proposals = proposalsRepo ?? new AgentOrgProposalsRepository();
-  const configs = configsRepo ?? new AgentConfigsRepository();
-  const events = eventsRepo ?? new PostApplyEventsRepository();
+  const proposals = options.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const configs = options.configsRepo ?? new AgentConfigsRepository();
+  const events = options.eventsRepo ?? new PostApplyEventsRepository();
 
   const originalProposal = await proposals.findByIdAsync(event.proposalId);
   const repairTrail = await buildRepairTrail(event, proposals);
@@ -422,6 +482,7 @@ export async function runAutoRevertAsync(
   // hand-rolled here anymore.
   const alertPayloadJson = buildAlertPayload(event, originalProposal, repairTrail, { outcome: 'reverted' });
   const updated = await recordOutcome(events, event, 'reverted', alertPayloadJson);
+  await refreshTrustAfterSuccessfulAutoRevert(originalProposal, options);
   logger.info(`[auto-revert] reverted proposal '${event.proposalId}' (profile '${event.profileId}')`);
   return { outcome: 'reverted', event: updated };
 }
