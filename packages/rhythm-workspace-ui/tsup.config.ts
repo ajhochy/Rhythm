@@ -14,4 +14,8 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   external: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom/client'],
+  // The Desktop feature pack must remain a single ESM artifact. Bundle the
+  // package's real icon implementation rather than requiring a second runtime
+  // dependency or substituting simplified host icons.
+  noExternal: ['lucide-react'],
 });
