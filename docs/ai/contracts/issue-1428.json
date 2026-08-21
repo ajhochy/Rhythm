@@ -1,0 +1,87 @@
+{
+  "contract_id": "D1.3",
+  "issue": 1428,
+  "phase": "D1.3",
+  "parent_contract": "D1.2",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1428-c1",
+      "text": "The `tool-install` kind is registered — `validateProposalChange` no longer refuses it as 'no re-validation is registered'.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('is a registered kind — validateProposalChange does not refuse it as unregistered')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c2",
+      "text": "A well-formed proposal (real evidence bound to the live target) is accepted.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('accepts a well-formed proposal with real evidence bound to the live target'; 'accepts test prompts that are typed strings within the size/count bounds')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c3",
+      "text": "Missing packageSource / installMethod are rejected by name (bundled with toolName/agentConfigId in one check).",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal missing toolName/packageSource/installMethod/agentConfigId')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c4",
+      "text": "Missing test prompts (absent, or an empty array) are rejected.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal missing testPrompts entirely'; 'rejects a proposal whose testPrompts is an empty array')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c5",
+      "text": "Test prompts are typed (array of non-empty strings, each entry checked) and sized (bounded COUNT and per-entry LENGTH) — unbounded/raw prompt blobs are refused.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal whose testPrompts is not typed as an array of strings'; 'rejects a proposal with an unbounded number of test prompts'; 'rejects a proposal carrying a raw, unbounded prompt blob and never echoes the blob back')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c6",
+      "text": "Rejection reasons never echo raw prompt CONTENT back (no raw-prompt persistence/logging) — only the offending index and the bound violated.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal carrying a raw, unbounded prompt blob and never echoes the blob back' — asserts neither the raw blob nor its embedded fake-secret-shaped prefix appears in `result.reason`; 'rejects a proposal with an unbounded number of test prompts' — asserts entry content ('prompt 0') is absent from the reason)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c7",
+      "text": "Allowed install methods are a CLOSED set, and the test-only `local-script` escape hatch (tool_sandbox_vetter.ts) is excluded in production.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects installMethod values outside the closed production registry'; 'rejects the test-only local-script install method in a production proposal')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c8",
+      "text": "evidenceBundle presence + the shared C5/C6 shape validator both re-run, and the target ref/hash must equal what is computed fresh from the live agent profile right now (fabricated ref/hash/nonexistent agentConfigId all refused).",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal missing an evidence bundle entirely'; 'rejects a proposal whose evidence bundle fails the C5/C6 shape validator'; 'rejects a proposal with a fabricated target hash...'; 'rejects a proposal with a fabricated target ref...'; 'rejects a proposal referencing a nonexistent agentConfigId')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c9",
+      "text": "Focused + adjacent tests pass; typecheck + build pass.",
+      "mode": "unit",
+      "test": "npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts (16/16); 28 adjacent org-proposal/generator/contract test files (517 tests) referencing org_proposal_apply_service.ts re-run unchanged and green; tsc --noEmit; npm run build",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "The sandbox-safety gate (a `tool_safety_reports` row with a passing verdict gating approval) — out of scope by the test file's own header comment; that is D1.4 (#1429), which will extend this same validator once the report exists.",
+    "Controller/route wiring for creating or approving a real `tool-install` proposal end-to-end (no generator exists yet for this kind, matching D1.1's precedent that model/validator phases land ahead of any generator)."
+  ],
+  "judgment_calls": [
+    "The pre-existing untracked test skeleton did not include `testPrompts` in its shared `validChangeJson` fixture even though the acceptance criteria require rejecting missing/unbounded/mistyped test prompts. Added `testPrompts` to the fixture and 8 new test cases (missing, empty, mistyped entry, over-count, over-length/raw-blob-with-no-echo, in-bounds accept, closed-set installMethod rejection, local-script rejection) rather than leaving that criterion uncovered.",
+    "Check ORDER inside `validateToolInstallChange` was chosen deliberately so the pre-existing 'missing evidence bundle entirely' test (whose fixture also omits testPrompts) still reports 'evidenceBundle' rather than 'testPrompts': required-4-fields → installMethod closed-set → evidenceBundle presence/shape → testPrompts shape/bounds → agentConfigId existence → target ref/hash fabrication check.",
+    "`testPrompts` bounds (max 20 entries, max 4000 chars/entry) are new, undocumented-elsewhere constants chosen as schema hygiene against unbounded `change_json` blobs — not derived from any existing limit in the codebase, since none exists for this shape yet.",
+    "Production install-method registry (`npm install`, `pip install`) intentionally excludes `tool_sandbox_vetter.ts`'s `local-script` TEST-ONLY escape hatch, per that module's own doc comment forward-referencing 'the production proposal validator in D1.3'.",
+    "The pre-existing test skeleton's `beforeEach` called a nonexistent `configsRepo.create(...)` method (typo/stale API) — fixed to the real `AgentConfigsRepository.insert({label, icon, systemPrompt})` API, and its first assertion (`result.reason` on a VALID result) called `.not.toMatch()` on `undefined`, which vitest throws on — fixed with `result.reason ?? ''`. Neither fix touches this issue's actual validation logic.",
+    "No raw-prompt-persistence check beyond the validator's own reason strings: this module performs no database write and no console/logger call of any kind, so there is no additional persistence/logging surface to test directly — the invariant is upheld by the module simply never touching `testPrompts` content outside the bounds check.",
+    "GitNexus `detect-changes` could not run: this worktree (`rhythm-self-improvement/d1-tool-vetting`) is not in the local GitNexus index registry (confirmed via `gitnexus detect-changes` and `--repo <path>`, both erroring with 'not found' against the full list of indexed repos) — recorded as UNKNOWN per the stale-index fallback, same posture as an absent index rather than a false 'no impact' claim."
+  ]
+}

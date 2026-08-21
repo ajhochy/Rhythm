@@ -37,6 +37,7 @@ import { containsScopeBearingPayload } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
 import type { PostApplyTarget } from './post_apply_lifecycle';
+import { validateToolInstallChange } from './tool_install_proposal_validator';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -194,6 +195,7 @@ function validateWebhookWiring(proposal: AgentOrgProposal): ProposalValidationRe
 validators['create-agent'] = validateCreateAgent;
 validators['external-adoption'] = validateExternalAdoption;
 validators['webhook-wiring'] = validateWebhookWiring;
+validators['tool-install'] = validateToolInstallChange;
 
 const SCOPE_PROPOSAL_KINDS = new Set([
   'tighten-scope',
