@@ -98,89 +98,92 @@ class AutoPromotionSettingsSection extends StatelessWidget {
             border: Border.all(color: context.rhythm.borderSubtle),
             boxShadow: RhythmElevation.panel,
           ),
-          child: Semantics(
-            container: true,
-            label: 'Auto-promotion settings',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (isLoading)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: CircularProgressIndicator(
-                        key: Key('auto-promotion-loading'),
-                      ),
-                    ),
-                  )
-                else if (controller.autoPromotionStatus ==
-                    AutoPromotionSettingsStatus.error) ...[
-                  Text(
-                    controller.autoPromotionErrorMessage ??
-                        'Could not load auto-promotion settings.',
-                    key: const Key('auto-promotion-error'),
-                    style: TextStyle(color: context.rhythm.danger),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    key: const Key('auto-promotion-retry'),
-                    onPressed: controller.refreshAutoPromotionState,
-                    child: const Text('Retry'),
-                  ),
-                ] else if (state != null) ...[
-                  Semantics(
-                    label: 'Auto-promote verified changes',
-                    toggled: state.autoPromotionEnabled,
-                    child: SwitchListTile(
-                      key: const Key('auto-promotion-toggle'),
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        'Auto-promote verified changes',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: context.rhythm.textPrimary,
+          child: Material(
+            type: MaterialType.transparency,
+            child: Semantics(
+              container: true,
+              label: 'Auto-promotion settings',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(
+                          key: Key('auto-promotion-loading'),
                         ),
                       ),
-                      subtitle: Text(
-                        state.autoPromotionEnabled
-                            ? 'Enabled since ${state.enabledAt ?? 'now'}. Disable immediately if you need to stop it.'
-                            : 'Requires server availability, current eligibility, and zero regressions.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: context.rhythm.textSecondary,
+                    )
+                  else if (controller.autoPromotionStatus ==
+                      AutoPromotionSettingsStatus.error) ...[
+                    Text(
+                      controller.autoPromotionErrorMessage ??
+                          'Could not load auto-promotion settings.',
+                      key: const Key('auto-promotion-error'),
+                      style: TextStyle(color: context.rhythm.danger),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      key: const Key('auto-promotion-retry'),
+                      onPressed: controller.refreshAutoPromotionState,
+                      child: const Text('Retry'),
+                    ),
+                  ] else if (state != null) ...[
+                    Semantics(
+                      label: 'Auto-promote verified changes',
+                      toggled: state.autoPromotionEnabled,
+                      child: SwitchListTile(
+                        key: const Key('auto-promotion-toggle'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'Auto-promote verified changes',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: context.rhythm.textPrimary,
+                          ),
                         ),
+                        subtitle: Text(
+                          state.autoPromotionEnabled
+                              ? 'Enabled since ${state.enabledAt ?? 'now'}. Disable immediately if you need to stop it.'
+                              : 'Requires server availability, current eligibility, and zero regressions.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: context.rhythm.textSecondary,
+                          ),
+                        ),
+                        value: state.autoPromotionEnabled,
+                        onChanged: canInteract
+                            ? (value) => _change(context, value)
+                            : null,
                       ),
-                      value: state.autoPromotionEnabled,
-                      onChanged: canInteract
-                          ? (value) => _change(context, value)
-                          : null,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    state.availability
-                        ? 'Availability: enabled by this server.'
-                        : 'Availability: disabled by this server. An existing opt-in can still be disabled in an emergency.',
-                    key: const Key('auto-promotion-availability'),
-                    style: TextStyle(
-                        fontSize: 13, color: context.rhythm.textSecondary),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    state.autoPromotionEligible && state.totalRegressions == 0
-                        ? 'Eligibility: verified (${state.totalVerified}/${state.trustThreshold}) with zero regressions.'
-                        : 'Eligibility: unavailable until ${state.trustThreshold} verified changes and zero regressions. Current regressions: ${state.totalRegressions}.',
-                    key: const Key('auto-promotion-eligibility'),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: state.autoPromotionEligible &&
-                              state.totalRegressions == 0
-                          ? context.rhythm.textSecondary
-                          : context.rhythm.danger,
+                    const SizedBox(height: 8),
+                    Text(
+                      state.availability
+                          ? 'Availability: enabled by this server.'
+                          : 'Availability: disabled by this server. An existing opt-in can still be disabled in an emergency.',
+                      key: const Key('auto-promotion-availability'),
+                      style: TextStyle(
+                          fontSize: 13, color: context.rhythm.textSecondary),
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    Text(
+                      state.autoPromotionEligible && state.totalRegressions == 0
+                          ? 'Eligibility: verified (${state.totalVerified}/${state.trustThreshold}) with zero regressions.'
+                          : 'Eligibility: unavailable until ${state.trustThreshold} verified changes and zero regressions. Current regressions: ${state.totalRegressions}.',
+                      key: const Key('auto-promotion-eligibility'),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: state.autoPromotionEligible &&
+                                state.totalRegressions == 0
+                            ? context.rhythm.textSecondary
+                            : context.rhythm.danger,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),

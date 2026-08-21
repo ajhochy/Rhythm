@@ -18,7 +18,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -513,7 +513,30 @@ function dockerDaemonReachable(): boolean {
   }
 }
 
-const dockerAvailable = dockerDaemonReachable();
+function dockerObserverCapable(): boolean {
+  if (!dockerDaemonReachable()) return false;
+  const probeDir = mkdtempSync(join(tmpdir(), 'rhythm-d1-observer-probe-'));
+  const probePath = join(probeDir, 'probe');
+  try {
+    chmodSync(probeDir, 0o755);
+    writeFileSync(probePath, 'probe\n', { mode: 0o644 });
+    const before = statSync(probePath);
+    utimesSync(probePath, new Date(before.mtimeMs - 25 * 60 * 60 * 1000), before.mtime);
+    const atimeBefore = statSync(probePath).atimeMs;
+    execFileSync(
+      'docker',
+      ['run', '--rm', '--pull', 'never', '-v', `${probeDir}:/probe:ro`, 'node:22-alpine', 'sh', '-c', 'cat /probe/probe >/dev/null'],
+      { timeout: 15_000, stdio: 'ignore' },
+    );
+    return statSync(probePath).atimeMs > atimeBefore;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+}
+
+const dockerAvailable = dockerObserverCapable();
 const describeDocker = dockerAvailable ? describe : describe.skip;
 
 /** Writes a `/vet/bin/<toolName>` fixture executable during the local-script install step. */
