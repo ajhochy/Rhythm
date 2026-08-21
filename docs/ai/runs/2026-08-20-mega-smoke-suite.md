@@ -53,7 +53,7 @@ tags: [run, Rhythm, smoke]
 - Local `/health`, `/opencode/health`, and CDP readiness all passed. The frozen preload bridge reported version `5`, local API/engine bases, the configured production API base, and a ready agent server.
 - Production Server URL persistence passed: the isolated `server-config.json` retained `https://api.vcrcapps.com` with mode `0600`, while local agent endpoints remained unchanged.
 - The actual Electron shell smoke reached `rhythm://app/index.html#/agents` with no renderer console errors. Evidence: `docs/ai/runs/evidence/mega-smoke-2026-08-20/electron-0-startup.png`.
-- Google OAuth completed interactively and the signed-in Electron workspace rendered. The first callback attempts hung after local success because the main process used Chromium `net.fetch` for the production token exchange; switching only that exchange to Node `fetch` completed the same real flow.
+- Google OAuth completed interactively and the signed-in Electron workspace rendered. The first callback attempts hung after local success because the main process used Chromium `net.fetch` for the production token exchange; switching only that exchange to Node `fetch` completed the same real flow. In the final post-CORS run, the loopback callback still required one Chrome reload before Electron consumed it; the same listener then authenticated successfully, so callback delivery remains a recorded browser-specific flake rather than a cloud failure.
 - Post-login read-only navigation reached Dashboard, Planner, Tasks, Rhythms, Projects, and Messages. The first attempt isolated one cloud configuration defect: Synology allowed `https://app.vcrcapps.com` but not the Electron `rhythm://app` origin, and the CORS rejection was wrapped as `500 INTERNAL_ERROR` before route logic. AJ added the exact origin to `CORS_ALLOWED_ORIGINS` and recreated only `rhythm-api`; live preflight then returned `204` with the exact origin, health returned `200`, and every production read across all six views returned `200` without a proxy.
 - The Electron-spawned local API and Opencode engine initially had the same renderer-origin omission. Their exact allowlists were repaired, and a fresh launch proved renderer-origin API `200` and engine `200`, both with CORS response type and no wildcard.
 
@@ -82,7 +82,7 @@ tags: [run, Rhythm, smoke]
 
 - API: TypeScript build passed; final targeted set `122/122`, including startup-memory, local-smoke scheduler safety, relay, worktree, artifact, transcript-purge, task-sharing, and permission contracts.
 - OpenCode: arm64 binary remains `0.0.0-codex/mega-smoke-suite-202608210514` (`103 MB`).
-- Web: main Playwright suite `260` passed / `4` skipped, then dedicated Bucket A rendered suite `5/5` passed.
+- Web: main Playwright suite `261` passed / `4` skipped, then dedicated Bucket A rendered suite `5/5` passed.
 - Electron: repaired default non-packaging `npm test` passed `31` / `3` explicit Keychain-integration skips; focused OAuth/API-origin gate `23/23` passed. Package-shaped contracts now require explicit `npm run test:package`.
 - API/engine CORS repair: TypeScript build passed; focused Opencode service suite `59/59`; disposable SDK launch returned engine health `200` with exact `Access-Control-Allow-Origin: rhythm://app`.
 - The aggregate Electron `npm test` was stopped after it unexpectedly entered the unsigned-package contract. The local ignored bundle was already absent after cleanup and tracked smoke images were restored. No Developer ID signing, notarization, upload, or release action ran.
@@ -93,6 +93,6 @@ tags: [run, Rhythm, smoke]
 ### Disposition
 
 - Combined local debug smoke: **PARTIAL PASS**.
-- Merge readiness: **FUNCTIONALLY GREEN WITH OS-EVIDENCE EXCEPTION**. Electron OAuth, both local renderer gateways, the local/cloud bearer split, and all six authenticated production views pass. Flutter functionality passed, but native screenshot evidence remains unavailable until Screen Recording permission is granted.
+- Merge readiness: **FUNCTIONALLY GREEN WITH CALLBACK-RELOAD AND OS-EVIDENCE EXCEPTIONS**. Electron OAuth succeeds after one callback reload, both local renderer gateways and the local/cloud bearer split pass, and all six authenticated production views pass. Flutter functionality passed, but native screenshot evidence remains unavailable until Screen Recording permission is granted.
 - Production was used only for deliberate reads and one no-tool disposable agent turn. AJ changed the Synology CORS env and recreated only `rhythm-api`; Hermes performed no deployment. One unintended unsigned local package-contract invocation occurred and was stopped/cleaned; no signing, notarization, upload, release, merge, tag, purge-enable, Synology recovery, or destructive production action occurred.
 - PR `#1425` remains intentionally deferred and is not represented as shipped.
