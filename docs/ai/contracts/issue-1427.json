@@ -1,0 +1,86 @@
+{
+  "contract_id": "D1.2",
+  "issue": 1427,
+  "phase": "D1.2",
+  "parent_contract": "D1.1",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1427-c1",
+      "text": "Starts a disposable Docker container (Docker lifecycle authorized for this track).",
+      "mode": "unit+live-docker",
+      "test": "apps/api_server/src/services/__tests__/tool_sandbox_vetter.test.ts (describe 'D1.2 DockerSandboxRuntime — real container lifecycle', all cases run against the real local Docker daemon with the already-pulled node:22-alpine image)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c2",
+      "text": "Installs the candidate tool inside the container.",
+      "mode": "live-docker",
+      "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations'; 'an install step that attempts a real network call → verdict conditional' — both genuinely execute the candidate's install step inside the container)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c3",
+      "text": "Safe tool → verdict=safe, zero violations.",
+      "mode": "live-docker",
+      "test": "tool_sandbox_vetter.test.ts ('a well-behaved candidate → verdict safe, zero violations')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c4",
+      "text": "Unsafe tool (touches forbidden paths) → verdict=unsafe with violations listed.",
+      "mode": "live-docker",
+      "test": "tool_sandbox_vetter.test.ts ('a candidate that overwrites a forbidden sentinel path → verdict unsafe'); fake-runtime ('a run touching a forbidden path → verdict unsafe with violations listed', 'forbidden-path violation takes priority over a network call in the same run')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c5",
+      "text": "Tool with unexpected network calls → verdict=conditional.",
+      "mode": "live-docker",
+      "test": "tool_sandbox_vetter.test.ts ('an install step that attempts a real network call → verdict conditional'); fake-runtime ('a run with unexpected network calls (and no forbidden-path touch) → verdict conditional')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c6",
+      "text": "Docker unavailable → verdict=unknown, reason=sandbox_unavailable, no install.",
+      "mode": "unit",
+      "test": "tool_sandbox_vetter.test.ts ('Docker unavailable → verdict unknown, reason sandbox_unavailable, no install attempted' — asserts the runtime's runAsync (the only place an install could happen) was never invoked); live-docker ('a bogus docker binary reports unavailable (real ENOENT path, not a stub)')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c7",
+      "text": "Container is always torn down (even on error).",
+      "mode": "live-docker",
+      "test": "tool_sandbox_vetter.test.ts ('the container is always torn down, even after a timing-sensitive run' — asserts zero rhythm-d1-vet-* containers survive via `docker ps -a`)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c8",
+      "text": "No raw secrets in the report.",
+      "mode": "unit",
+      "test": "tool_sandbox_vetter.test.ts ('never places raw prompt text anywhere in the outcome' — serializes the full outcome and asserts neither the raw prompt text nor a fake secret-shaped token embedded in it ever appears)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1427-c9",
+      "text": "Focused tests pass (RED → GREEN); build + typecheck pass.",
+      "mode": "unit",
+      "test": "npx vitest run src/services/__tests__/tool_sandbox_vetter.test.ts (15/15); tsc --noEmit; npm run build",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "A real `npm install`/`pip install` against a REACHABLE network (this track's sandbox is always `--network none`, by design — every install attempt against a real registry is expected to fail at the network layer, which is exactly the 'network calls observed' signal the report captures; a genuinely reachable-network scenario is out of scope by construction, not merely untested)."
+  ],
+  "judgment_calls": [
+    "No tool-invocation protocol exists anywhere in this codebase for 'run this candidate tool against a typed prompt' (none of the D1 issues define one). `testPrompts` is therefore used only for its COUNT — raw prompt text is never passed into the sandbox container at all, because Docker's default log driver persists container stdout/stderr to disk on the HOST, which would risk raw prompt text landing in durable state and directly violate the track's no-raw-prompts rule. The install step is the one real, well-defined action a tool-install proposal performs, and is what the vetter actually observes.",
+    "Forbidden-path violations are detected via pre-seeded sentinel files with a known content hash, checked for a content/hash change (or disappearance) after the run — verified by hand to work under a ROOT container user (a permission-bit/chmod-000 approach was considered and rejected: root bypasses permission bits, so it would not have detected a root-run write).",
+    "Credential ACCESS attempts (reads, not writes) are counted by how many times a sentinel's marker text appears in the captured install output — a `cat`/read prints the sentinel's content, which the run script redirects into a log this module parses for a COUNT ONLY; the raw log content itself is discarded and never returned or persisted.",
+    "Teardown correctness (`docker kill` + `docker rm -f` in a `finally`, not relying on `--rm` alone) was verified BY HAND against this environment before being encoded: killing the `docker run` CLI client process (e.g. on a timeout) does NOT stop the container — `--rm` only fires on the CONTAINER's own exit, not its client's. An orphaned container was reproduced and confirmed to require explicit `docker kill`/`docker rm -f` to reap.",
+    "Install methods are a closed, explicit set (`npm install`, `pip install`, plus a TEST-ONLY `local-script` escape hatch never accepted by the production proposal validator in D1.3) — an unrecognised installMethod fails closed to `verdict: 'unknown'` rather than guessing at a shell invocation.",
+    "The live Docker tests use `node:22-alpine` (already present locally in this environment, confirmed via `docker images` before writing any code) specifically to avoid any image-pull network dependency in the test suite; `--pull never` is also passed on every real `docker run` so a missing image fails fast and deterministically rather than the vetting infrastructure itself silently reaching the internet.",
+    "The 'network calls observed' detection is a closed set of known DNS/connection-failure error signatures (`getaddrinfo`, `Could not resolve host`, `failed to connect`, `ENETUNREACH`, `ECONNREFUSED`) parsed out of captured install output under `--network none`; a network-capable ecosystem tool not covered by one of these signatures would under-report rather than over-report — ponytail: extend the signature list if a real generator surfaces one this misses."
+  ]
+}
