@@ -143,7 +143,7 @@ describe('issue #4 operations corrective contract', () => {
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, capabilities: ['facilities.manage'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
     await flush(); await actClick(mounted.byTestId('facilities-mode-rooms')!); await actClick(mounted.byTestId('facility-automation-manage')!); await flush();
-    await actClick(mounted.byTestId('facility-automation-delete')!); await flush();
+    await actClick(mounted.byTestId('facility-automation-delete')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     expect(mounted.byTestId('facilities-mutation-notice')?.getAttribute('role')).toBe('alert');
     expect(mounted.byTestId('facilities-mutation-notice')?.textContent).toContain('1 of 2');
     expect(listed).toBeGreaterThanOrEqual(2);
@@ -161,7 +161,7 @@ describe('issue #4 operations corrective contract', () => {
     facilities.deleteSeries = vi.fn(async () => ({ deletedCount: 1 }));
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, capabilities: ['facilities.manage'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
-    await flush(); await actClick(mounted.byTestId('facility-reservation-open-series-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-series-delete-confirm')!); await flush();
+    await flush(); await actClick(mounted.byTestId('facility-reservation-open-series-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-series-delete-confirm')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     expect(facilities.deleteSeries).toHaveBeenCalledWith('weekly');
     expect(mounted.byTestId('facilities-mutation-notice')?.textContent).toContain('1 recurring');
     expect(listed).toBeGreaterThanOrEqual(2);
@@ -175,7 +175,7 @@ describe('issue #4 operations corrective contract', () => {
     facilities.deleteSeries = vi.fn(async () => { const deletedCount = serverSeries.length; serverSeries = []; return { deletedCount }; });
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'user-aj', capabilities: ['facilities.manage'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
-    await flush(); await actClick(mounted.byTestId('facility-reservation-open-visible-weekly')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-series-delete-confirm')!); await flush();
+    await flush(); await actClick(mounted.byTestId('facility-reservation-open-visible-weekly')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-series-delete-confirm')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     expect(facilities.deleteSeries).toHaveBeenCalledWith('weekly');
     expect(serverSeries).toEqual([]);
     expect(mounted.byTestId('facility-reservation-visible-weekly')).toBeNull();
@@ -191,9 +191,9 @@ describe('issue #4 operations corrective contract', () => {
     const host = { ...readonlyHost, currentUser: { ...readonlyHost.currentUser, id: 'manager', capabilities: ['facilities.manage'] as const } };
     const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway: { ...fixtureDomainGateway(), facilities }, host, children: createElement(FacilitiesScreen) }));
     await flush(); await actClick(mounted.byTestId('facility-reservation-menu-group-a')!); await actClick(mounted.byTestId('facility-reservation-menu-edit-group-a')!); await flush();
-    await actSetValue(mounted.byTestId('facility-form-requester') as HTMLInputElement, 'Updated requester'); await actClick(mounted.byTestId('facility-form-submit')!); await flush();
+    await actSetValue(mounted.byTestId('facility-form-requester') as HTMLInputElement, 'Updated requester'); await actClick(mounted.byTestId('facility-form-submit')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     expect(facilities.updateGroup).toHaveBeenCalledWith('linked-team', expect.objectContaining({ requesterName: 'Updated requester' }));
-    await actClick(mounted.byTestId('facility-reservation-open-group-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-group-delete-confirm')!); await flush();
+    await actClick(mounted.byTestId('facility-reservation-open-group-a')!); await actClick(mounted.byTestId('facility-inspector-delete')!); await actClick(mounted.byTestId('facility-group-delete-confirm')!); await flush(); await actClick(mounted.byTestId('facility-operation-confirm')!); await flush();
     expect(facilities.deleteGroup).toHaveBeenCalledWith('linked-team');
     mounted.unmount();
   });
