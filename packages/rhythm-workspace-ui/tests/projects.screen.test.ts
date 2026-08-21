@@ -344,6 +344,27 @@ describe('ProjectsScreen', () => {
     mounted.unmount();
   });
 
+  it('uses the same bounded project name for confirmation and creation', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const generate = vi.fn(projectsGateway.generate);
+    const confirmWorkspaceOperation = vi.fn(async (_confirmation: RhythmWorkspaceOperationConfirmation) => true);
+    const mounted = mountProjects({ projects: { ...projectsGateway, generate } }, { confirmWorkspaceOperation });
+    await flush();
+    await actClick(mounted.byTestId('project-template-select-template-sunday-service')!);
+    await flush();
+    await actClick(mounted.byTestId('project-start')!);
+    await flush();
+    const longName = 'N'.repeat(250);
+    await actSetValue(mounted.byTestId('project-instance-name') as HTMLInputElement, longName);
+    await actSetValue(mounted.byTestId('project-anchor-date') as HTMLInputElement, '2026-09-13');
+    await actClick(mounted.byTestId('project-start-submit')!);
+    await confirmProject(mounted);
+    const confirmation = confirmWorkspaceOperation.mock.calls[0]![0];
+    expect(confirmation.payload.name).toBe('N'.repeat(200));
+    expect(generate).toHaveBeenCalledWith('template-sunday-service', confirmation.payload);
+    mounted.unmount();
+  });
+
   it('creates, edits, and deletes a template through the gateway round trip', async () => {
     const projectsGateway = fixtureProjectsGateway();
     const mounted = mountProjects({ projects: projectsGateway });
