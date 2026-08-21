@@ -26,9 +26,9 @@
     }
   ],
   "verification": {
-    "focused": "159 tests passed across D4 gate, fixed-horizon experiment, D2 lifecycle, human routes, and D1 lifecycle/policy suites.",
+    "focused": "Parent-review repair: 177 passed, 1 Docker-gated test skipped across D4 gate/recovery, fixed-horizon experiment/calibration, D2 lifecycle, human routes, and D1 lifecycle/policy/managed-install suites.",
     "node22": "npx tsc --noEmit && npm run build passed.",
-    "live_behavior": "Not runnable for positive auto-apply in this isolated slice: production availability is intentionally hard-coded false and #1442 alone owns the env-backed enablement. No server was started; the default-disabled production behavior is covered by the real repository/service path in the focused suite."
+    "live_behavior": "Not run for positive auto-apply in this isolated slice: production availability is intentionally hard-coded false and #1442 alone owns the env-backed enablement. No server was started; parent owns the integrated live gate. The focused suite exercises real SQLite repositories, D1's immutable managed installer, and D2 event persistence."
   },
   "boundaries": [
     "#1442 owns UI, routes, and env-backed availability; this gate defaults false.",

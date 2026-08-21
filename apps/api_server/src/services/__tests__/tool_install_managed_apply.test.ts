@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -12,12 +12,14 @@ import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import Database from 'better-sqlite3';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
-import { createAndVetToolInstallProposalAsync, approveVettedToolInstallProposalAsync } from '../tool_install_proposal_lifecycle';
+import { createAndVetToolInstallProposalAsync } from '../tool_install_proposal_lifecycle';
 import { buildProfileRevisionFingerprint, toProfileTargetRef } from '../org_proposal_experiment_service';
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../../models/proposal_evidence_bundle';
 import { GUARDRAIL_NAMES } from '../../models/guardrail_registry';
 import { DockerSandboxRuntime, vetToolInSandboxAsync } from '../tool_sandbox_vetter';
 import { buildToolInstallProposalFingerprint } from '../tool_install_safety_policy';
+import { applyApprovedProposalAsync } from '../org_proposal_apply_service';
+import { PostApplyEventsRepository } from '../../repositories/post_apply_events_repository';
 
 function tarEntry(name: string, body: string): Buffer {
   const header = Buffer.alloc(512);
@@ -231,8 +233,8 @@ describe('D1 managed tool-install apply', () => {
     expect(spawned).toBe(false);
   });
 
-  it('drives the durable approved lifecycle to an actual receipt-verified applied installation', async () => {
-    const { artifacts, managed, digest } = setup();
+  it('drives the managed immutable installer through shared approval and creates one D2 event', async () => {
+    const { root, artifacts, managed, digest } = setup();
     const priorArtifacts = process.env.RHYTHM_TOOL_ARTIFACT_ROOT;
     const priorManaged = process.env.RHYTHM_MANAGED_TOOL_ROOT;
     process.env.RHYTHM_TOOL_ARTIFACT_ROOT = artifacts;
@@ -252,12 +254,15 @@ describe('D1 managed tool-install apply', () => {
         agentConfigId: config.id, testPrompts: ['version-check', 'help-check'], evidenceBundle,
       } }, { vet: async () => ({ verdict: 'safe', reason: null, sandboxDurationMs: 1, testPromptsRunCount: 2, forbiddenPathViolationsJson: '[]', networkCallsObservedJson: '[]', fileSystemWritesObservedJson: '[]', credentialAccessAttemptsCount: 0, evidenceJson: '{}' }) });
       expect(created.status).toBe('sandbox-vetted');
-      const applied = await approveVettedToolInstallProposalAsync(created.id, 7, false);
-      expect(applied.status).toBe('applied');
+      const outcome = await applyApprovedProposalAsync({ proposal: created, decidedByUserId: 7 });
+      expect(outcome.kind).toBe('applied');
+      expect((await new PostApplyEventsRepository().findByProposalIdAsync(created.id))?.profileId).toBe(config.id);
+      expect((db.prepare('SELECT COUNT(*) AS count FROM agent_org_post_apply_events WHERE proposal_id = ?').get(created.id) as { count: number }).count).toBe(1);
       expect(existsSync(join(managed, 'tools'))).toBe(true);
     } finally {
       if (priorArtifacts === undefined) delete process.env.RHYTHM_TOOL_ARTIFACT_ROOT; else process.env.RHYTHM_TOOL_ARTIFACT_ROOT = priorArtifacts;
       if (priorManaged === undefined) delete process.env.RHYTHM_MANAGED_TOOL_ROOT; else process.env.RHYTHM_MANAGED_TOOL_ROOT = priorManaged;
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -34,13 +34,14 @@
 
 import type { AgentOrgProposal, RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
-import { containsScopeBearingPayload } from './scope_mutation_contract';
+import { containsScopeBearingPayload, parseScopeMutation } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
 import type { PostApplyTarget } from './post_apply_lifecycle';
 import { validateToolInstallChange } from './tool_install_proposal_validator';
 import {
   evaluateToolInstallSafetyAsync,
+  readValidatedToolInstallInputs,
   type ToolInstallSafetyOptions,
 } from './tool_install_safety_policy';
 import { applyApprovedScopeProposal } from './org_proposal_scope_lifecycle';
@@ -283,6 +284,44 @@ export function extractValidatedConfigPatch(parsed: unknown): {
   return { configPatch: rawConfigPatch, outsideConfigPatch };
 }
 
+/**
+ * Rebuild D2 identity from proposal bytes that passed the real validator
+ * before the durable applied transition. Only closed profile-mutation forms
+ * are recognized; other mutations deliberately have no recovery target.
+ */
+export function reconstructPostApplyTarget(proposal: AgentOrgProposal): PostApplyTarget | undefined {
+  try {
+    if (proposal.kind === 'tool-install') {
+      if (!readValidatedToolInstallInputs(proposal)) return undefined;
+      const change = parseStrictJson(proposal.changeJson ?? '', 'tool-install change_json');
+      if (!isPlainRecord(change) || typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) {
+        return undefined;
+      }
+      return { profileId: change.agentConfigId, changeType: 'tool' };
+    }
+    if (proposal.kind === 'refine-config') {
+      const { configPatch } = extractValidatedConfigPatch(
+        parseStrictJson(proposal.changeJson ?? '', 'refine-config change_json'),
+      );
+      if (!configPatch || PROTECTED_SCOPE_FIELDS.has(configPatch.field)) return undefined;
+      return {
+        profileId: configPatch.agentConfigId,
+        changeType: configPatch.field === 'allowedDelegatesJson' ? 'tool' : 'prompt',
+      };
+    }
+    if (SCOPE_PROPOSAL_KINDS.has(proposal.kind)) {
+      const scope = parseScopeMutation(
+        proposal.kind as Parameters<typeof parseScopeMutation>[0],
+        proposal.changeJson ?? '',
+      );
+      return { profileId: scope.agentConfigId, changeType: 'scope' };
+    }
+  } catch {
+    // A malformed durable payload is never interpreted as an action on retry.
+  }
+  return undefined;
+}
+
 function createAgentInspectionPayload(parsed: unknown): unknown {
   if (!isPlainRecord(parsed)) return parsed;
   const inspected = Object.create(null) as Record<string, unknown>;
@@ -447,6 +486,8 @@ export async function applyApprovedProposalAsync(input: {
   proposalsRepo?: AgentOrgProposalsRepository;
   finalizePostApply?: typeof import('./post_apply_lifecycle').finalizePostApplyLifecycleAsync;
   measure?: typeof import('./org_proposal_measure').measureProposal;
+  /** D4 automation requires D2 enrollment before it can report success. */
+  requirePostApplyEnrollment?: boolean;
 }): Promise<ApprovedProposalApplyOutcome> {
   const proposalsRepo = input.proposalsRepo ?? new AgentOrgProposalsRepository();
   const proposal = input.proposal;
@@ -457,9 +498,27 @@ export async function applyApprovedProposalAsync(input: {
       input.decidedByUserId,
       input.explicitHumanConfirmation === true,
     );
-    return applied.status === 'applied'
-      ? { kind: 'applied', proposal: applied }
-      : { kind: 'failed', proposal: applied };
+    if (applied.status !== 'applied') return { kind: 'failed', proposal: applied };
+    const target = reconstructPostApplyTarget(applied);
+    try {
+      const finalizePostApplyLifecycleAsync = input.finalizePostApply ??
+        (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+      const enrolled = await finalizePostApplyLifecycleAsync(applied, target);
+      if (enrolled) {
+        return { kind: 'applied', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+      }
+      if (input.requirePostApplyEnrollment && target) {
+        return { kind: 'enrollment-pending', proposal: applied };
+      }
+      return { kind: 'applied', proposal: applied };
+    } catch {
+      logger.warn(
+        `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+      );
+      return input.requirePostApplyEnrollment && target
+        ? { kind: 'enrollment-pending', proposal: applied }
+        : { kind: 'applied', proposal: applied };
+    }
   }
 
   if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
@@ -493,6 +552,9 @@ export async function applyApprovedProposalAsync(input: {
         (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
       const enrolled = await finalizePostApplyLifecycleAsync(outcome.proposal, applyResult.postApplyTarget);
       if (!enrolled) {
+        if (input.requirePostApplyEnrollment && applyResult.postApplyTarget) {
+          return { kind: 'enrollment-pending', proposal: outcome.proposal };
+        }
         const measureProposal = input.measure ?? (await import('./org_proposal_measure')).measureProposal;
         void measureProposal(outcome.proposal).catch(() => undefined);
       }
@@ -519,6 +581,9 @@ export async function applyApprovedProposalAsync(input: {
     const enrolled = await finalizePostApplyLifecycleAsync(applied, applyResult.postApplyTarget);
     if (enrolled) {
       return { kind: 'applied', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+    }
+    if (input.requirePostApplyEnrollment && applyResult.postApplyTarget) {
+      return { kind: 'enrollment-pending', proposal: applied };
     }
   } catch {
     logger.warn(

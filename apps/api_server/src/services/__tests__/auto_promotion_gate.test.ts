@@ -142,7 +142,7 @@ describe('D4.3 auto promotion gate', () => {
     expect((db.prepare('SELECT COUNT(*) AS count FROM agent_org_post_apply_events').get() as { count: number }).count).toBe(1);
   });
 
-  it('does not report an apply when D2 enrollment fails, and re-entry never reapplies the mutation', async () => {
+  it('retries only D2 enrollment after a committed profile mutation and is idempotent after recovery', async () => {
     const proposal = await verifiedConfigProposal('d4-enrollment-failure');
     await enableTrust();
 
@@ -150,12 +150,31 @@ describe('D4.3 auto promotion gate', () => {
       availability: available,
       finalizePostApply: async () => { throw new Error('synthetic D2 enrollment failure'); },
     });
+    const revisionAfterCommit = configs.getById('d4-profile')!.revision;
     const second = await attemptAutoPromotionAsync(proposal.id, { availability: available });
+    const third = await attemptAutoPromotionAsync(proposal.id, { availability: available });
 
     expect(first.status).toBe('enrollment-pending');
     expect(second.status).toBe('already-applied');
+    expect(third.status).toBe('already-applied');
     expect(configs.getById('d4-profile')?.systemPrompt).toBe('after');
-    expect((await proposals.findByIdAsync(proposal.id))?.status).toBe('applied');
+    expect(configs.getById('d4-profile')?.revision).toBe(revisionAfterCommit);
+    expect((await proposals.findByIdAsync(proposal.id))?.status).toBe('measuring');
+    expect(await new PostApplyEventsRepository(db).findByProposalIdAsync(proposal.id)).not.toBeNull();
+    expect((db.prepare('SELECT COUNT(*) AS count FROM agent_org_post_apply_events').get() as { count: number }).count).toBe(1);
+  });
+
+  it('treats a null D2 finalizer result as enrollment-pending in strict auto mode', async () => {
+    const proposal = await verifiedConfigProposal('d4-null-enrollment');
+    await enableTrust();
+
+    const result = await attemptAutoPromotionAsync(proposal.id, {
+      availability: available,
+      finalizePostApply: async () => null,
+    });
+
+    expect(result.status).toBe('enrollment-pending');
+    expect(configs.getById('d4-profile')?.systemPrompt).toBe('after');
     expect(await new PostApplyEventsRepository(db).findByProposalIdAsync(proposal.id)).toBeNull();
   });
 
@@ -184,6 +203,17 @@ describe('D4.3 auto promotion gate', () => {
 
     expect(result.status).toBe('apply-failed');
     expect((await proposals.findByIdAsync(proposal.id))?.status).toBe('failed');
+  });
+
+  it('fails closed when tool safety report infrastructure throws', async () => {
+    const proposal = await verifiedToolInstallProposal('tool-report-failure');
+    await enableTrust();
+    const reports = new ToolSafetyReportsRepository(db);
+    reports.findByProposalIdAsync = async () => { throw new Error('report repository unavailable'); };
+
+    await expect(attemptAutoPromotionAsync(proposal.id, { availability: available, reports }))
+      .resolves.toEqual({ status: 'tool-safety-blocked' });
+    expect((await proposals.findByIdAsync(proposal.id))?.status).toBe('sandbox-vetted');
   });
 
   it('returns a conflict for the losing concurrent CAS attempt without inventing a second D2 enrollment', async () => {

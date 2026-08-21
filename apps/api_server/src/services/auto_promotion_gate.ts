@@ -6,7 +6,11 @@
 import { PromotionTrustStateRepository } from '../repositories/promotion_trust_state_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { ToolSafetyReportsRepository } from '../repositories/tool_safety_reports_repository';
-import { applyApprovedProposalAsync } from './org_proposal_apply_service';
+import { PostApplyEventsRepository } from '../repositories/post_apply_events_repository';
+import {
+  applyApprovedProposalAsync,
+  reconstructPostApplyTarget,
+} from './org_proposal_apply_service';
 import { evaluateToolInstallSafetyAsync } from './tool_install_safety_policy';
 
 export interface AutoPromotionAvailability {
@@ -36,6 +40,7 @@ export interface AutoPromotionGateDeps {
   trustStateRepo?: PromotionTrustStateRepository;
   proposalsRepo?: AgentOrgProposalsRepository;
   reports?: ToolSafetyReportsRepository;
+  postApplyEvents?: PostApplyEventsRepository;
   /** Narrow failure-injection seam; production uses the shared D2 finalizer. */
   finalizePostApply?: typeof import('./post_apply_lifecycle').finalizePostApplyLifecycleAsync;
 }
@@ -91,19 +96,42 @@ export async function attemptAutoPromotionAsync(
     return { status: 'not-verified' };
   }
   if (!proposal || proposal.outcomeStatus !== 'verified') return { status: 'not-verified' };
-  if (isAlreadyApplied(proposal.status)) return { status: 'already-applied' };
+  const events = deps.postApplyEvents ?? new PostApplyEventsRepository();
+  if (isAlreadyApplied(proposal.status)) {
+    const target = reconstructPostApplyTarget(proposal);
+    // Truly non-profile mutations have no D2 target and retain their ordinary
+    // already-applied state. A recognized profile mutation must prove D2.
+    if (!target) return { status: 'already-applied' };
+    try {
+      if (await events.findByProposalIdAsync(proposal.id)) return { status: 'already-applied' };
+      const finalizePostApplyLifecycleAsync = deps.finalizePostApply ??
+        (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+      const enrolled = await finalizePostApplyLifecycleAsync(proposal, target);
+      if (!enrolled || !(await events.findByProposalIdAsync(proposal.id))) {
+        return { status: 'enrollment-pending' };
+      }
+      return { status: 'already-applied' };
+    } catch {
+      return { status: 'enrollment-pending' };
+    }
+  }
 
   if (proposal.kind === 'tool-install') {
     // Supplying a throwing vetter prevents this read-only gate from creating a
     // fresh report. Automation requires the latest *durable* SAFE report; it
     // cannot manufacture vetting or a conditional human confirmation.
-    const safety = await evaluateToolInstallSafetyAsync(proposal, {
-      explicitHumanConfirmation: false,
-      deps: {
-        reports: deps.reports ?? new ToolSafetyReportsRepository(),
-        vet: async () => { throw new Error('automatic promotion cannot synthesize a vetting report'); },
-      },
-    });
+    let safety;
+    try {
+      safety = await evaluateToolInstallSafetyAsync(proposal, {
+        explicitHumanConfirmation: false,
+        deps: {
+          reports: deps.reports ?? new ToolSafetyReportsRepository(),
+          vet: async () => { throw new Error('automatic promotion cannot synthesize a vetting report'); },
+        },
+      });
+    } catch {
+      return { status: 'tool-safety-blocked' };
+    }
     if (!safety.allowed || safety.verdict !== 'safe') return { status: 'tool-safety-blocked' };
   }
 
@@ -114,8 +142,15 @@ export async function attemptAutoPromotionAsync(
       explicitHumanConfirmation: false,
       proposalsRepo: proposals,
       finalizePostApply: deps.finalizePostApply,
+      requirePostApplyEnrollment: true,
     });
-    if (outcome.kind === 'applied') return { status: 'applied' };
+    if (outcome.kind === 'applied') {
+      const target = reconstructPostApplyTarget(outcome.proposal);
+      if (target && !(await events.findByProposalIdAsync(outcome.proposal.id))) {
+        return { status: 'enrollment-pending' };
+      }
+      return { status: 'applied' };
+    }
     if (outcome.kind === 'enrollment-pending') return { status: 'enrollment-pending' };
     if (outcome.kind === 'failed') return { status: 'apply-failed' };
     return { status: 'conflict' };
