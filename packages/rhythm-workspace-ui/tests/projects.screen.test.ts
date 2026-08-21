@@ -297,8 +297,10 @@ describe('ProjectsScreen', () => {
 
   it('lets read-only hosts inspect projects but blocks project mutations with an accessible reason', async () => {
     const projectsGateway = fixtureProjectsGateway();
-    const updateStep = vi.fn(projectsGateway.updateStep);
-    const mounted = mountProjects({ projects: { ...projectsGateway, updateStep } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    const mutations = {
+      generate: vi.fn(projectsGateway.generate), createTemplate: vi.fn(projectsGateway.createTemplate), updateTemplate: vi.fn(projectsGateway.updateTemplate), deleteTemplate: vi.fn(projectsGateway.deleteTemplate), addTemplateStep: vi.fn(projectsGateway.addTemplateStep), updateTemplateStep: vi.fn(projectsGateway.updateTemplateStep), deleteTemplateStep: vi.fn(projectsGateway.deleteTemplateStep), delete: vi.fn(projectsGateway.delete), updateStep: vi.fn(projectsGateway.updateStep), addMilestone: vi.fn(projectsGateway.addMilestone), addCollaborator: vi.fn(projectsGateway.addCollaborator), removeCollaborator: vi.fn(projectsGateway.removeCollaborator),
+    };
+    const mounted = mountProjects({ projects: { ...projectsGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
     await flush();
     await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
     await flush();
@@ -307,7 +309,11 @@ describe('ProjectsScreen', () => {
     expect(complete.disabled).toBe(true);
     expect(complete.title).toContain('inspection only');
     await actClick(complete);
-    expect(updateStep).not.toHaveBeenCalled();
+    for (const control of ['project-template-new', 'project-start', 'project-instance-delete-instance-sunday-service-2026-08-16', 'project-collaborator-add', 'project-milestone-add']) {
+      expect((mounted.byTestId(control) as HTMLButtonElement).disabled).toBe(true);
+      await actClick(mounted.byTestId(control)!);
+    }
+    for (const mutation of Object.values(mutations)) expect(mutation).not.toHaveBeenCalled();
     mounted.unmount();
   });
 });

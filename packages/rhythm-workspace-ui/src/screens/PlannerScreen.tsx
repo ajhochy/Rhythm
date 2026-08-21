@@ -46,16 +46,17 @@ function StatePanel({ state, onRetry, onCreate }: { state: Exclude<PlannerSurfac
 function TaskCard({ task, selected, canWrite, onInspect, onComplete, onSelect, onDragStart }: {
   task: RhythmPlannerTask; selected: boolean; canWrite: boolean; onInspect(task: RhythmPlannerTask): void; onComplete(task: RhythmPlannerTask): void; onSelect(task: RhythmPlannerTask): void; onDragStart(event: DragEvent<HTMLButtonElement>, task: RhythmPlannerTask): void;
 }) {
+  const canMutate = canWrite && (task.source === 'task' || Boolean(task.projectStepId));
   return (
     <article className={`planner-task ${task.readonly ? 'project-step' : ''} ${selected ? 'selected' : ''}`} data-status={task.status}>
-      <button className="task-main" type="button" draggable={canWrite} aria-label={`Inspect ${task.title}`} onDragStart={(event) => onDragStart(event, task)} onClick={() => onInspect(task)} data-testid={`planner-task-${task.id}`}>
+      <button className="task-main" type="button" draggable={canMutate} aria-label={`Inspect ${task.title}`} onDragStart={(event) => onDragStart(event, task)} onClick={() => onInspect(task)} data-testid={`planner-task-${task.id}`}>
         <span className="task-source">{task.readonly ? task.projectName ?? 'Project step' : `${task.energy ?? '-'} Task`}</span>
         <strong>{task.title}</strong>
         {task.dueDate && task.dueDate !== task.scheduledDate && <small>Due {task.dueDate}</small>}
       </button>
       <div className="task-controls">
-        <button type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} aria-label={`Select ${task.title}`} aria-pressed={selected} onClick={() => onSelect(task)} data-testid={`planner-task-select-${task.id}`}><span aria-hidden="true">{selected ? '◆' : '◇'}</span></button>
-        <button type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => onComplete(task)} data-testid={`planner-complete-${task.id}`}><span aria-hidden="true">{task.status === 'done' ? '↺' : '✓'}</span></button>
+        <button type="button" disabled={!canMutate} title={!canWrite ? 'This host grants inspection only.' : !task.projectStepId && task.source === 'project-step' ? 'This project step is missing its source identity.' : undefined} aria-label={`Select ${task.title}`} aria-pressed={selected} onClick={() => onSelect(task)} data-testid={`planner-task-select-${task.id}`}><span aria-hidden="true">{selected ? '◆' : '◇'}</span></button>
+        <button type="button" disabled={!canMutate} title={!canWrite ? 'This host grants inspection only.' : !task.projectStepId && task.source === 'project-step' ? 'This project step is missing its source identity.' : undefined} aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => onComplete(task)} data-testid={`planner-complete-${task.id}`}><span aria-hidden="true">{task.status === 'done' ? '↺' : '✓'}</span></button>
       </div>
     </article>
   );
@@ -108,6 +109,8 @@ export function PlannerScreen() {
   const allTasks = useMemo(() => (plan ? [...plan.backlog, ...plan.days.flatMap((day) => day.tasks)] : []), [plan]);
   const currentTask = inspector?.kind === 'task' ? allTasks.find((task) => task.id === inspector.id) ?? null : null;
   const currentEvent = inspector?.kind === 'event' ? plan?.days.flatMap((day) => day.events).find((event) => event.id === inspector.id) ?? null : null;
+  const canEditCurrentTask = Boolean(currentTask && canWrite && (currentTask.source === 'task' || currentTask.projectStepId));
+  const canManageCurrentTaskCollaborators = Boolean(currentTask && canWrite && currentTask.source === 'task');
 
   const backlog = useMemo(() => (plan?.backlog ?? []).filter((task) => filter === 'all' || task.status === 'open'), [plan, filter]);
   const doneCount = allTasks.filter((task) => task.status === 'done').length;
@@ -116,10 +119,12 @@ export function PlannerScreen() {
   const changeWeek = (next: string) => setWeekStart(next);
 
   const changeStatus = async (task: RhythmPlannerTask, status: 'open' | 'done') => {
-    if (!canWrite || mutationPending) return;
+    if (!canWrite || mutationPending || (task.source === 'project-step' && !task.projectStepId)) return;
     setMutationPending(true);
     try {
-      const updated = await gateway.update(task.id, { status });
+      const updated = task.source === 'project-step'
+        ? await gateway.updateProjectStep(task.projectStepId!, { status })
+        : await gateway.update(task.id, { status });
       setPlan((current) => current && {
         ...current,
         backlog: current.backlog.map((item) => (item.id === updated.id ? updated : item)),
@@ -145,10 +150,12 @@ export function PlannerScreen() {
 
   const moveTask = async (taskId: string, date: string) => {
     const task = allTasks.find((item) => item.id === taskId);
-    if (!canWrite || !task || mutationPending || task.status === 'done') return;
+    if (!canWrite || !task || mutationPending || task.status === 'done' || (task.source === 'project-step' && !task.projectStepId)) return;
     setMutationPending(true);
     try {
-      const updated = await gateway.scheduleTask(task.id, { scheduledDate: date });
+      const updated = task.source === 'project-step'
+        ? await gateway.scheduleProjectStep(task.projectStepId!, { dueDate: date })
+        : await gateway.scheduleTask(task.id, { scheduledDate: date });
       await load(weekStart);
       void updated;
     } catch (error) {
@@ -190,15 +197,15 @@ export function PlannerScreen() {
 
   const saveTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canWrite || !currentTask) return;
+    if (!canWrite || !currentTask || (currentTask.source === 'project-step' && !currentTask.projectStepId)) return;
     const data = new FormData(event.currentTarget);
     setMutationPending(true);
     try {
-      const updated = await gateway.update(currentTask.id, {
-        notes: String(data.get('notes') ?? ''),
-        scheduledDate: String(data.get('scheduledDate') ?? '') || undefined,
-        dueDate: String(data.get('dueDate') ?? '') || undefined,
-      });
+      const notes = String(data.get('notes') ?? '');
+      const dueDate = String(data.get('dueDate') ?? '') || undefined;
+      const updated = currentTask.source === 'project-step'
+        ? await gateway.updateProjectStep(currentTask.projectStepId!, { notes, dueDate })
+        : await gateway.update(currentTask.id, { notes, scheduledDate: String(data.get('scheduledDate') ?? '') || undefined, dueDate });
       setPlan((current) => current && {
         ...current,
         backlog: current.backlog.map((item) => (item.id === updated.id ? updated : item)),
@@ -213,7 +220,7 @@ export function PlannerScreen() {
   };
 
   const addCollaborator = async (memberId: string) => {
-    if (!canWrite || !currentTask) return;
+    if (!canManageCurrentTaskCollaborators || !currentTask) return;
     try {
       const updated = await gateway.addCollaborator(currentTask.id, memberId);
       setPlan((current) => current && {
@@ -228,7 +235,7 @@ export function PlannerScreen() {
   };
 
   const removeCollaborator = async (memberId: string) => {
-    if (!canWrite || !currentTask) return;
+    if (!canManageCurrentTaskCollaborators || !currentTask) return;
     try {
       const updated = await gateway.removeCollaborator(currentTask.id, memberId);
       setPlan((current) => current && {
@@ -327,18 +334,18 @@ export function PlannerScreen() {
           />
         </FocusDialog>
 
-        <FocusDialog open={Boolean(currentTask)} onClose={closeInspector} title={canWrite ? 'Edit task' : 'Task details'} description={canWrite ? 'Planner persists notes and date fields for existing tasks.' : 'This host grants inspection only.'} testId="planner-inspector">
+        <FocusDialog open={Boolean(currentTask)} onClose={closeInspector} title={canEditCurrentTask ? 'Edit task' : 'Task details'} description={canEditCurrentTask ? 'Planner persists notes and date fields for existing tasks.' : 'This host grants inspection only or the source record is unavailable.'} testId="planner-inspector">
           {currentTask && (
             <form className="inspector-form task-editor-form" onSubmit={(event) => void saveTask(event)}>
               <p className="inspector-record-title">{currentTask.title}</p>
-              <label className="task-editor-field">Task notes<textarea name="notes" rows={4} defaultValue={currentTask.notes} data-autofocus data-testid="planner-edit-notes" /></label>
+              <label className="task-editor-field">Task notes<textarea name="notes" rows={4} disabled={!canEditCurrentTask} defaultValue={currentTask.notes} data-autofocus data-testid="planner-edit-notes" /></label>
               <div className="field-pair task-editor-pair">
-                <label className="task-editor-field">Scheduled date<input name="scheduledDate" type="date" defaultValue={currentTask.scheduledDate ?? ''} data-testid="planner-edit-scheduled-date" /></label>
-                <label className="task-editor-field">Due date<input name="dueDate" type="date" defaultValue={currentTask.dueDate ?? ''} data-testid="planner-edit-due-date" /></label>
+                <label className="task-editor-field">Scheduled date<input name="scheduledDate" type="date" disabled={!canEditCurrentTask || currentTask.source === 'project-step'} defaultValue={currentTask.scheduledDate ?? ''} data-testid="planner-edit-scheduled-date" /></label>
+                <label className="task-editor-field">Due date<input name="dueDate" type="date" disabled={!canEditCurrentTask} defaultValue={currentTask.dueDate ?? ''} data-testid="planner-edit-due-date" /></label>
               </div>
               <section className="collaborators task-editor-section" aria-labelledby="planner-collaborators-title">
-                <div className="subhead task-editor-section-head"><h3 id="planner-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" disabled={!canWrite} onClick={() => setCollaboratorPickerOpen((value) => !value)} data-testid="planner-add-collaborator">Add collaborator</button></div>
-                <div className="collaborator-chips">{currentTask.collaborators.map((member) => <span key={member.id}>{member.name}<button type="button" aria-label={`Remove ${member.name}`} onClick={() => void removeCollaborator(member.id)} data-testid={`planner-remove-collaborator-${member.id}`}>×</button></span>)}</div>
+                <div className="subhead task-editor-section-head"><h3 id="planner-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" disabled={!canManageCurrentTaskCollaborators} onClick={() => setCollaboratorPickerOpen((value) => !value)} data-testid="planner-add-collaborator">Add collaborator</button></div>
+                <div className="collaborator-chips">{currentTask.collaborators.map((member) => <span key={member.id}>{member.name}<button type="button" disabled={!canManageCurrentTaskCollaborators} aria-label={`Remove ${member.name}`} onClick={() => void removeCollaborator(member.id)} data-testid={`planner-remove-collaborator-${member.id}`}>×</button></span>)}</div>
                 {collaboratorPickerOpen && (
                   <div className="collaborator-picker" role="listbox" aria-label="Workspace members">
                     {members.filter((member) => !currentTask.collaborators.some((existing) => existing.id === member.id)).map((member) => (
@@ -353,7 +360,7 @@ export function PlannerScreen() {
               </section>
               <footer className="task-editor-footer">
                 <button className="secondary-button" type="button" onClick={closeInspector} data-testid="planner-edit-cancel">Cancel</button>
-                <button className="primary-button" type="submit" disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} data-testid="planner-save-task">Save changes</button>
+                <button className="primary-button" type="submit" disabled={mutationPending || !canEditCurrentTask} title={!canWrite ? 'This host grants inspection only.' : currentTask.source === 'project-step' && !currentTask.projectStepId ? 'This project step is missing its source identity.' : undefined} data-testid="planner-save-task">Save changes</button>
               </footer>
             </form>
           )}

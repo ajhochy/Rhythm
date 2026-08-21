@@ -17,6 +17,20 @@ function mountRhythms(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainG
 }
 
 describe('RhythmsScreen', () => {
+  it('ignores a deferred rhythms load after the rhythms gateway is replaced or the screen unmounts', async () => {
+    const old = fixtureRhythmsGateway();
+    let releaseOld!: (value: Awaited<ReturnType<typeof old.list>>) => void;
+    const stale = { ...old, list: () => new Promise<Awaited<ReturnType<typeof old.list>>>((resolve) => { releaseOld = resolve; }) };
+    const fresh = fixtureRhythmsGateway();
+    const gateway = { ...fixtureDomainGateway(), rhythms: stale };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(), children: createElement(RhythmsScreen) }));
+    mounted.rerender(createElement(RhythmWorkspaceProvider, { gateway: { ...gateway, rhythms: fresh }, host: buildHost(), children: createElement(RhythmsScreen) }));
+    await flush();
+    expect(mounted.container.textContent).toContain('Weekend service cadence');
+    mounted.unmount();
+    releaseOld([]);
+    await flush();
+  });
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
     await assertScreenContract({ Screen: RhythmsScreen, screenName: 'Rhythms', testId: 'rhythm-rhythms-screen', gateway: fixtureDomainGateway() });
   });
@@ -262,8 +276,10 @@ describe('RhythmsScreen', () => {
 
   it('lets a non-owner inspect a rhythm but never calls mutation gateways', async () => {
     const rhythmsGateway = fixtureRhythmsGateway();
-    const update = vi.fn(rhythmsGateway.update);
-    const mounted = mountRhythms({ rhythms: { ...rhythmsGateway, update } }, { currentUser: { id: 'workspace-user-9', displayName: 'Viewer', initials: 'VW' } });
+    const mutations = {
+      create: vi.fn(rhythmsGateway.create), update: vi.fn(rhythmsGateway.update), delete: vi.fn(rhythmsGateway.delete), addStep: vi.fn(rhythmsGateway.addStep), replaceSteps: vi.fn(rhythmsGateway.replaceSteps), addCollaborator: vi.fn(rhythmsGateway.addCollaborator), removeCollaborator: vi.fn(rhythmsGateway.removeCollaborator),
+    };
+    const mounted = mountRhythms({ rhythms: { ...rhythmsGateway, ...mutations } }, { currentUser: { id: 'workspace-user-9', displayName: 'Viewer', initials: 'VW' } });
     await flush();
     await actClick(mounted.byTestId('rhythm-inspect-rhythm-weekend-service')!);
     await flush();
@@ -272,7 +288,12 @@ describe('RhythmsScreen', () => {
     expect(enabled.disabled).toBe(true);
     expect(enabled.title).toContain('Only the rhythm owner');
     await actClick(enabled);
-    expect(update).not.toHaveBeenCalled();
+    for (const control of ['rhythm-edit-title', 'rhythm-edit-submit', 'rhythm-add-step-title', 'rhythm-add-step-submit', 'rhythm-add-collaborator']) {
+      expect((mounted.byTestId(control) as HTMLButtonElement).disabled).toBe(true);
+      await actClick(mounted.byTestId(control)!);
+    }
+    expect((mounted.byTestId('rhythms-new-rule') as HTMLButtonElement).disabled).toBe(false);
+    for (const mutation of Object.values(mutations)) expect(mutation).not.toHaveBeenCalled();
     mounted.unmount();
   });
 });

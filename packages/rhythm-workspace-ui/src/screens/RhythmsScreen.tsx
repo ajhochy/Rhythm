@@ -45,22 +45,22 @@ function StatePanel({ state, onRetry, onCreate }: { state: Exclude<RhythmsSurfac
   return <section className="rhythms-state warning" role="status" data-testid="page-state-unavailable"><span className="eyebrow">Service prerequisite</span><h2>Rhythms are unavailable</h2><p>Reconnect the recurring-rule service before loading or changing rhythms.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
 }
 
-function ScheduleFields({ idPrefix, frequency, dayOfWeek, dayOfMonth, month, onChange }: {
-  idPrefix: string; frequency: RhythmCadence; dayOfWeek: number; dayOfMonth: number; month: number;
+function ScheduleFields({ idPrefix, frequency, dayOfWeek, dayOfMonth, month, disabled = false, onChange }: {
+  idPrefix: string; frequency: RhythmCadence; dayOfWeek: number; dayOfMonth: number; month: number; disabled?: boolean;
   onChange(patch: Partial<Pick<RuleDraft, 'dayOfWeek' | 'dayOfMonth' | 'month'>>): void;
 }) {
   return (
     <div className="rhythm-schedule-fields">
       {frequency === 'weekly' && (
-        <label>Day of week<select value={dayOfWeek} onChange={(event) => onChange({ dayOfWeek: Number(event.target.value) })} data-testid={`${idPrefix}-day-of-week`}>
+        <label>Day of week<select disabled={disabled} value={dayOfWeek} onChange={(event) => onChange({ dayOfWeek: Number(event.target.value) })} data-testid={`${idPrefix}-day-of-week`}>
           {weekdays.map((weekday, index) => <option key={weekday} value={index}>{weekday}</option>)}
         </select></label>
       )}
       {(frequency === 'monthly' || frequency === 'annual') && (
-        <label>Day of month<input type="number" min="1" max="31" required value={dayOfMonth} onChange={(event) => onChange({ dayOfMonth: Number(event.target.value) })} data-testid={`${idPrefix}-day-of-month`} /></label>
+        <label>Day of month<input type="number" disabled={disabled} min="1" max="31" required value={dayOfMonth} onChange={(event) => onChange({ dayOfMonth: Number(event.target.value) })} data-testid={`${idPrefix}-day-of-month`} /></label>
       )}
       {frequency === 'annual' && (
-        <label>Month<select value={month} onChange={(event) => onChange({ month: Number(event.target.value) })} data-testid={`${idPrefix}-month`}>
+        <label>Month<select disabled={disabled} value={month} onChange={(event) => onChange({ month: Number(event.target.value) })} data-testid={`${idPrefix}-month`}>
           {months.map((monthName, index) => <option key={monthName} value={index + 1}>{monthName}</option>)}
         </select></label>
       )}
@@ -68,8 +68,8 @@ function ScheduleFields({ idPrefix, frequency, dayOfWeek, dayOfMonth, month, onC
   );
 }
 
-function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, onCancel, onSave }: {
-  idPrefix: string; initial: RuleDraft; members: RhythmWorkspaceMember[]; showStepsBuilder?: boolean; onCancel(): void; onSave(draft: RuleDraft): void;
+function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, disabled = false, onCancel, onSave }: {
+  idPrefix: string; initial: RuleDraft; members: RhythmWorkspaceMember[]; showStepsBuilder?: boolean; disabled?: boolean; onCancel(): void; onSave(draft: RuleDraft): void;
 }) {
   const [draft, setDraft] = useState<RuleDraft>(() => structuredClone(initial));
   const set = <K extends keyof RuleDraft>(key: K, value: RuleDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
@@ -87,40 +87,40 @@ function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, onCance
 
   return (
     <form className="rhythm-rule-form" onSubmit={submit}>
-      <label>Title<input data-autofocus required value={draft.title} onChange={(event) => set('title', event.target.value)} data-testid={`${idPrefix}-title`} /></label>
-      <label>Frequency<select value={draft.frequency} onChange={(event) => set('frequency', event.target.value as RhythmCadence)} data-testid={`${idPrefix}-frequency`}>
+      <label>Title<input data-autofocus required disabled={disabled} value={draft.title} onChange={(event) => set('title', event.target.value)} data-testid={`${idPrefix}-title`} /></label>
+      <label>Frequency<select disabled={disabled} value={draft.frequency} onChange={(event) => set('frequency', event.target.value as RhythmCadence)} data-testid={`${idPrefix}-frequency`}>
         <option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="annual">Annual</option>
       </select></label>
-      <ScheduleFields idPrefix={idPrefix} frequency={draft.frequency} dayOfWeek={draft.dayOfWeek} dayOfMonth={draft.dayOfMonth} month={draft.month} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
+      <ScheduleFields idPrefix={idPrefix} frequency={draft.frequency} dayOfWeek={draft.dayOfWeek} dayOfMonth={draft.dayOfMonth} month={draft.month} disabled={disabled} onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
       {showStepsBuilder && (
         <section className="rhythm-step-section" aria-labelledby={`${idPrefix}-steps-heading`}>
-          <header><h3 id={`${idPrefix}-steps-heading`}>Workflow steps</h3><button className="secondary-button" type="button" onClick={addStep} data-testid={`${idPrefix}-add-step`}>Add step</button></header>
+          <header><h3 id={`${idPrefix}-steps-heading`}>Workflow steps</h3><button className="secondary-button" type="button" disabled={disabled} onClick={addStep} data-testid={`${idPrefix}-add-step`}>Add step</button></header>
           {draft.steps.length === 0 && <p className="rhythm-step-empty">No workflow steps. The rhythm can still generate its own task.</p>}
           {draft.steps.map((step, index) => (
             <fieldset className="rhythm-step" key={index}>
               <legend>Step {index + 1}</legend>
-              <label>Task title<input value={step.title} onChange={(event) => patchStep(index, { title: event.target.value })} data-testid={`${idPrefix}-step-title-${index}`} /></label>
-              <label>Assignee<select value={step.assigneeId} onChange={(event) => patchStep(index, { assigneeId: event.target.value })} data-testid={`${idPrefix}-step-assignee-${index}`}>
+              <label>Task title<input disabled={disabled} value={step.title} onChange={(event) => patchStep(index, { title: event.target.value })} data-testid={`${idPrefix}-step-title-${index}`} /></label>
+              <label>Assignee<select disabled={disabled} value={step.assigneeId} onChange={(event) => patchStep(index, { assigneeId: event.target.value })} data-testid={`${idPrefix}-step-assignee-${index}`}>
                 <option value="">None</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
               </select></label>
-              <button className="text-danger-button" type="button" onClick={() => removeStep(index)} data-testid={`${idPrefix}-remove-step-${index}`}>Remove step</button>
+              <button className="text-danger-button" type="button" disabled={disabled} onClick={() => removeStep(index)} data-testid={`${idPrefix}-remove-step-${index}`}>Remove step</button>
             </fieldset>
           ))}
           {draft.steps.length > 1 && (
-            <label className="rhythm-sequential"><input type="checkbox" checked={draft.sequential} onChange={(event) => set('sequential', event.target.checked)} data-testid={`${idPrefix}-sequential`} />
+            <label className="rhythm-sequential"><input type="checkbox" disabled={disabled} checked={draft.sequential} onChange={(event) => set('sequential', event.target.checked)} data-testid={`${idPrefix}-sequential`} />
               <span><strong>Sequential</strong><small>Generate each step after the previous one completes.</small></span>
             </label>
           )}
         </section>
       )}
       {!showStepsBuilder && draft.steps.length > 1 && (
-        <label className="rhythm-sequential"><input type="checkbox" checked={draft.sequential} onChange={(event) => set('sequential', event.target.checked)} data-testid={`${idPrefix}-sequential`} />
+        <label className="rhythm-sequential"><input type="checkbox" disabled={disabled} checked={draft.sequential} onChange={(event) => set('sequential', event.target.checked)} data-testid={`${idPrefix}-sequential`} />
           <span><strong>Sequential</strong><small>Generate each step after the previous one completes.</small></span>
         </label>
       )}
       <footer className="dialog-actions">
         <button className="secondary-button" type="button" onClick={onCancel} data-testid={`${idPrefix}-cancel`}>Cancel</button>
-        <button className="primary-button" type="submit" data-testid={`${idPrefix}-submit`}>{idPrefix === 'rhythm-create' ? 'Create rule' : 'Save rule'}</button>
+        <button className="primary-button" type="submit" disabled={disabled} data-testid={`${idPrefix}-submit`}>{idPrefix === 'rhythm-create' ? 'Create rule' : 'Save rule'}</button>
       </footer>
     </form>
   );
@@ -339,6 +339,7 @@ export function RhythmsScreen() {
                         showStepsBuilder
                         initial={{ title: selected.title, frequency: selected.frequency, dayOfWeek: selected.dayOfWeek, dayOfMonth: selected.dayOfMonth, month: selected.month, sequential: selected.sequential, steps: selected.steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId ?? '' })) }}
                         members={members}
+                        disabled={mutationPending || !canWrite || !isOwner(selected)}
                         onCancel={closeSelection}
                         onSave={(draft) => void saveRule(draft)}
                       />
@@ -362,9 +363,9 @@ export function RhythmsScreen() {
                         <ol>{selected.steps.map((step: RhythmStep) => <li key={step.id} data-testid={`rhythm-step-${step.id}`}><strong>{step.title}</strong><span>{members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span></li>)}</ol>
                       )}
                       <form className="rhythm-add-step-form" onSubmit={addWorkflowStep}>
-                        <label>New step title<input value={stepTitle} onChange={(event) => setStepTitle(event.target.value)} data-testid="rhythm-add-step-title" /></label>
-                        <label>Assignee<select value={stepAssignee} onChange={(event) => setStepAssignee(event.target.value)} data-testid="rhythm-add-step-assignee"><option value="">None</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-                        <button className="secondary-button" type="submit" disabled={mutationPending || !stepTitle.trim()} data-testid="rhythm-add-step-submit">Add step</button>
+                        <label>New step title<input disabled={!canWrite || !isOwner(selected)} value={stepTitle} onChange={(event) => setStepTitle(event.target.value)} data-testid="rhythm-add-step-title" /></label>
+                        <label>Assignee<select disabled={!canWrite || !isOwner(selected)} value={stepAssignee} onChange={(event) => setStepAssignee(event.target.value)} data-testid="rhythm-add-step-assignee"><option value="">None</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+                        <button className="secondary-button" type="submit" disabled={mutationPending || !canWrite || !isOwner(selected) || !stepTitle.trim()} data-testid="rhythm-add-step-submit">Add step</button>
                       </form>
                     </section>
                   </section>

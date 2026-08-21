@@ -19,8 +19,10 @@ function mountMessages(gatewayOverrides: Partial<ReturnType<typeof fixtureDomain
 describe('MessagesScreen', () => {
   it('lets read-only hosts inspect conversations but keeps all mutation actions inert with a reason', async () => {
     const messagesGateway = fixtureMessagesGateway();
-    const send = vi.fn(messagesGateway.send);
-    const mounted = mountMessages({ messages: { ...messagesGateway, send } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    const mutations = {
+      createThread: vi.fn(messagesGateway.createThread), send: vi.fn(messagesGateway.send), markRead: vi.fn(messagesGateway.markRead), markUnread: vi.fn(messagesGateway.markUnread), renameThread: vi.fn(messagesGateway.renameThread), deleteThread: vi.fn(messagesGateway.deleteThread),
+    };
+    const mounted = mountMessages({ messages: { ...messagesGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
     await flush();
     await actClick(mounted.byTestId('messages-thread-thread-weekend-team')!);
     await flush();
@@ -29,7 +31,14 @@ describe('MessagesScreen', () => {
     expect(sendButton.disabled).toBe(true);
     expect(sendButton.title).toContain('inspection only');
     await actClick(sendButton);
-    expect(send).not.toHaveBeenCalled();
+    await actClick(mounted.byTestId('messages-selected-thread-actions')!);
+    await flush();
+    for (const control of ['messages-thread-toggle-thread-weekend-team', 'messages-thread-rename-thread-weekend-team', 'messages-thread-delete-thread-weekend-team']) {
+      expect((mounted.byTestId(control) as HTMLButtonElement).disabled).toBe(true);
+      await actClick(mounted.byTestId(control)!);
+    }
+    expect((mounted.byTestId('messages-new-thread') as HTMLButtonElement).disabled).toBe(true);
+    for (const mutation of Object.values(mutations)) expect(mutation).not.toHaveBeenCalled();
     mounted.unmount();
   });
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
@@ -217,8 +226,49 @@ describe('MessagesScreen', () => {
     await flush();
     const threads = await messagesGateway.list();
     expect(threads.some((thread) => thread.id === 'thread-budget-review')).toBe(false);
-    expect(mounted.byTestId('messages-subject')?.textContent).toContain('Weekend Team');
+    expect(mounted.byTestId('messages-subject')?.textContent).toContain('Riley Chen');
     mounted.unmount();
+  });
+
+  it('selects the positional next visible thread after deleting a selected middle thread, including search-filtered order', async () => {
+    const mounted = mountMessages();
+    await flush();
+    await actSetValue(mounted.byTestId('messages-thread-search') as HTMLInputElement, 'e');
+    await flush();
+    await actClick(mounted.byTestId('messages-thread-thread-riley-chen')!);
+    await actClick(mounted.byTestId('messages-selected-thread-actions')!);
+    await actClick(mounted.byTestId('messages-thread-delete-thread-riley-chen')!);
+    await actClick(mounted.byTestId('messages-delete-thread-confirm')!);
+    await flush();
+    expect(mounted.byTestId('messages-subject')?.textContent).toContain('August budget review');
+    mounted.unmount();
+  });
+
+  it('selects the positional previous visible thread after deleting a selected tail thread', async () => {
+    const mounted = mountMessages();
+    await flush();
+    await actClick(mounted.byTestId('messages-thread-thread-budget-review')!);
+    await actClick(mounted.byTestId('messages-selected-thread-actions')!);
+    await actClick(mounted.byTestId('messages-thread-delete-thread-budget-review')!);
+    await actClick(mounted.byTestId('messages-delete-thread-confirm')!);
+    await flush();
+    expect(mounted.byTestId('messages-subject')?.textContent).toContain('Riley Chen');
+    mounted.unmount();
+  });
+
+  it('ignores a deferred messages load after the messages gateway is replaced or the screen unmounts', async () => {
+    const old = fixtureMessagesGateway();
+    let releaseOld!: (value: Awaited<ReturnType<typeof old.list>>) => void;
+    const stale = { ...old, list: () => new Promise<Awaited<ReturnType<typeof old.list>>>((resolve) => { releaseOld = resolve; }) };
+    const fresh = fixtureMessagesGateway();
+    const gateway = { ...fixtureDomainGateway(), messages: stale };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(), children: createElement(MessagesScreen) }));
+    mounted.rerender(createElement(RhythmWorkspaceProvider, { gateway: { ...gateway, messages: fresh }, host: buildHost(), children: createElement(MessagesScreen) }));
+    await flush();
+    expect(mounted.container.textContent).toContain('Weekend Team');
+    mounted.unmount();
+    releaseOld([]);
+    await flush();
   });
 
   it('creates a direct conversation through the new-conversation dialog and the gateway', async () => {

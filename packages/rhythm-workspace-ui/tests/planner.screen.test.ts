@@ -55,8 +55,10 @@ describe('PlannerScreen', () => {
   });
   it('lets read-only hosts inspect planner work but blocks completion mutations with an accessible reason', async () => {
     const plannerGateway = fixturePlannerGateway();
-    const update = vi.fn(plannerGateway.update);
-    const mounted = mountPlanner({ planner: { ...plannerGateway, update } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    const mutations = {
+      scheduleTask: vi.fn(plannerGateway.scheduleTask), updateProjectStep: vi.fn(plannerGateway.updateProjectStep), scheduleProjectStep: vi.fn(plannerGateway.scheduleProjectStep), create: vi.fn(plannerGateway.create), update: vi.fn(plannerGateway.update), addCollaborator: vi.fn(plannerGateway.addCollaborator), removeCollaborator: vi.fn(plannerGateway.removeCollaborator),
+    };
+    const mounted = mountPlanner({ planner: { ...plannerGateway, ...mutations } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
     await flush();
     const task = mounted.byTestId('planner-task-task-wed')!;
     await actClick(task);
@@ -66,7 +68,9 @@ describe('PlannerScreen', () => {
     expect(complete.disabled).toBe(true);
     expect(complete.title).toContain('inspection only');
     await actClick(complete);
-    expect(update).not.toHaveBeenCalled();
+    expect((mounted.byTestId('planner-add-collaborator') as HTMLButtonElement).disabled).toBe(true);
+    expect((mounted.byTestId('planner-save-task') as HTMLButtonElement).disabled).toBe(true);
+    for (const mutation of Object.values(mutations)) expect(mutation).not.toHaveBeenCalled();
     mounted.unmount();
   });
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
@@ -111,9 +115,13 @@ describe('PlannerScreen', () => {
     mounted.unmount();
   });
 
-  it('keeps project-step tasks editable: completion, scheduling, and inspector updates round-trip through the planner gateway', async () => {
+  it('routes project-step completion, edit, and drag scheduling through source-owned project-step operations', async () => {
     const plannerGateway = fixturePlannerGateway();
-    const mounted = mountPlanner({ planner: plannerGateway });
+    const genericUpdate = vi.fn(plannerGateway.update);
+    const genericSchedule = vi.fn(plannerGateway.scheduleTask);
+    const updateProjectStep = vi.fn(plannerGateway.updateProjectStep);
+    const scheduleProjectStep = vi.fn(plannerGateway.scheduleProjectStep);
+    const mounted = mountPlanner({ planner: { ...plannerGateway, update: genericUpdate, scheduleTask: genericSchedule, updateProjectStep, scheduleProjectStep } as typeof plannerGateway });
     await flush();
     const card = mounted.byTestId('planner-task-step-thu');
     expect(card).toBeTruthy();
@@ -121,14 +129,21 @@ describe('PlannerScreen', () => {
     expect(mounted.byTestId('planner-task-select-step-thu')).toBeTruthy();
     await actClick(card!);
     await flush();
-    await actSetValue(mounted.byTestId('planner-edit-scheduled-date') as HTMLInputElement, '2026-08-15');
+    await actSetValue(mounted.byTestId('planner-edit-notes') as HTMLTextAreaElement, 'Source-owned notes');
+    await actSetValue(mounted.byTestId('planner-edit-due-date') as HTMLInputElement, '2026-08-15');
     await actClick(mounted.byTestId('planner-save-task')!);
+    await flush();
+    await act(async () => { card!.dispatchEvent(new Event('dragstart', { bubbles: true })); });
+    await act(async () => { mounted.byTestId('planner-day-2026-08-16')!.dispatchEvent(new Event('drop', { bubbles: true })); });
     await flush();
     await actClick(mounted.byTestId('planner-filter-all')!);
     await actClick(mounted.byTestId('planner-complete-step-thu')!);
-    const week = await plannerGateway.week('current');
-    const step = week.days.flatMap((day) => day.tasks).find((task) => task.id === 'step-thu');
-    expect(step).toMatchObject({ status: 'done', scheduledDate: '2026-08-15' });
+    await flush();
+    expect(updateProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { notes: 'Source-owned notes', dueDate: '2026-08-15' });
+    expect(updateProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { status: 'done' });
+    expect(scheduleProjectStep).toHaveBeenCalledWith('project-step-instance-thu', { dueDate: '2026-08-16' });
+    expect(genericUpdate).not.toHaveBeenCalledWith('step-thu', expect.anything());
+    expect(genericSchedule).not.toHaveBeenCalledWith('step-thu', expect.anything());
     mounted.unmount();
   });
 

@@ -194,7 +194,20 @@ export function MessagesScreen() {
     try {
       await gateway.deleteThread(deleteTarget.id);
       setThreads((current) => current.filter((thread) => thread.id !== deleteTarget.id));
-      if (selectedId === deleteTarget.id) { const next = visibleThreads.find((thread) => thread.id !== deleteTarget.id) ?? threads.find((thread) => thread.id !== deleteTarget.id); setSelectedId(next?.id ?? null); setReply(''); setReplyError(''); }
+      if (selectedId === deleteTarget.id) {
+        // Match the production rail: choose the immediately following *visible* row, falling
+        // back to the previous visible row only at the tail. Searching therefore changes the
+        // navigation set without making a hidden thread unexpectedly active.
+        const visibleIndex = visibleThreads.findIndex((thread) => thread.id === deleteTarget.id);
+        const adjacent = visibleIndex >= 0
+          ? visibleThreads[visibleIndex + 1] ?? visibleThreads[visibleIndex - 1] ?? null
+          : threads[threads.findIndex((thread) => thread.id === deleteTarget.id) + 1]
+            ?? threads[threads.findIndex((thread) => thread.id === deleteTarget.id) - 1]
+            ?? null;
+        setSelectedId(adjacent?.id ?? null);
+        setReply('');
+        setReplyError('');
+      }
       closeDeleteThread();
     } catch (error) {
       handleError(error);

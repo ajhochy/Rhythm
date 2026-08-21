@@ -152,6 +152,9 @@ export interface DashboardGateway {
 export interface RhythmPlannerTask {
   id: string;
   source: 'task' | 'project-step';
+  /** Durable source-owned identity for a project-instance step. This is deliberately distinct
+   * from the planner row id: project-step mutations must never be sent through task routes. */
+  projectStepId?: string;
   title: string;
   notes: string;
   status: 'open' | 'done';
@@ -161,7 +164,8 @@ export interface RhythmPlannerTask {
   energy?: TaskEnergy;
   projectName?: string;
   collaborators: RhythmTaskCollaborator[];
-  /** A project-step-sourced entry is read-only here; changes belong in Projects. */
+  /** A project-step-sourced entry is rendered with source context. Its controls require both
+   * host write capability and a durable projectStepId. */
   readonly: boolean;
 }
 
@@ -192,6 +196,8 @@ export interface PlannerGateway {
   week(weekLabel: string): Promise<RhythmPlannerWeek>;
   members(): Promise<RhythmWorkspaceMember[]>;
   scheduleTask(id: string, input: { scheduledDate?: string }): Promise<RhythmPlannerTask>;
+  updateProjectStep(id: string, input: Partial<Pick<RhythmPlannerTask, 'notes' | 'dueDate' | 'status'>>): Promise<RhythmPlannerTask>;
+  scheduleProjectStep(id: string, input: { dueDate?: string }): Promise<RhythmPlannerTask>;
   // M1 collaboration-screens extraction (#4): widened with 'dueDate' — production's create/edit
   // forms (apps/web/src/pages/planner/index.tsx createTask/saveTask) persist a due date distinct
   // from the scheduled date; this narrower contract had no field for it yet.
