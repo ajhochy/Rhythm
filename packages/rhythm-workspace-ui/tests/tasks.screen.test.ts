@@ -289,6 +289,30 @@ describe('TasksScreen', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
+  it('locks the exact reschedule date while confirmation is pending and keeps its action outside the checkbox label', async () => {
+    const tasksGateway = fixtureTasksGateway();
+    let resolveConfirmation!: (value: boolean) => void;
+    const reschedule = vi.fn(async (id: string, scheduledDate: string) => tasksGateway.update(id, { scheduledDate }));
+    const mounted = mountTasks(
+      { tasks: { ...tasksGateway, reschedule } },
+      {
+        currentUser: { id: 'workspace-user-1', displayName: 'Hermes', initials: 'H', capabilities: ['tasks.reschedule'] },
+        confirmTaskOperation: () => new Promise<boolean>(resolve => { resolveConfirmation = resolve; }),
+      },
+    );
+    await flush();
+    const trigger = mounted.byTestId('task-reschedule-t1')!;
+    expect(trigger.closest('label')).toBeNull();
+    await actClick(trigger);
+    await actSetValue(mounted.byTestId('task-operation-date') as HTMLInputElement, '2026-02-28');
+    await actClick(mounted.byTestId('task-operation-confirm')!);
+    expect((mounted.byTestId('task-operation-date') as HTMLInputElement).disabled).toBe(true);
+    resolveConfirmation(true);
+    await flush();
+    expect(reschedule).toHaveBeenCalledWith('t1', '2026-02-28', expect.any(String));
+    mounted.unmount();
+  });
+
   it.each(['conflict', 'uncertain'] as const)('keeps the task and exact operation dialog open for a %s outcome, and retries with a fresh confirmation', async (kind) => {
     const tasksGateway = fixtureTasksGateway();
     const confirmations = vi.fn<(confirmation: RhythmTaskOperationConfirmation) => Promise<boolean>>(async () => true);

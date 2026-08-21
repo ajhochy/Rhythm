@@ -399,8 +399,8 @@ export function TasksScreen() {
               onChange={() => requestTaskOperation(task, 'complete')}
               data-testid={`task-complete-${task.id}`}
             />
-            {canReschedule && !isSourceReadonly(task) && <button className="text-button" type="button" onClick={() => requestTaskOperation(task, 'reschedule')} data-testid={`task-reschedule-${task.id}`}>Reschedule</button>}
           </label>
+          {canReschedule && !isSourceReadonly(task) && <button className="text-button" type="button" disabled={mutationPending} onClick={() => requestTaskOperation(task, 'reschedule')} data-testid={`task-reschedule-${task.id}`}>Reschedule</button>}
         </span>
         <span className="task-cell main-cell" role="gridcell">
           <button className="task-row-main" type="button" onClick={() => openInspector(task)} data-testid={`task-select-${task.id}`}>
@@ -616,7 +616,7 @@ export function TasksScreen() {
         </FocusDialog>
 
         <FocusDialog open={Boolean(operationTarget)} onClose={() => { operationEpoch.current += 1; setOperationError(null); setOperationTarget(null); }} title={operationTarget?.operation === 'complete' ? `Complete “${operationTarget.task.title}”?` : `Reschedule “${operationTarget?.task.title ?? ''}”?`} description="This action is sent only after you confirm it." testId="task-operation-confirmation">
-          {operationTarget?.operation === 'reschedule' && <label>Scheduled date<input type="date" value={operationTarget.scheduledDate ?? ''} onChange={(event) => setOperationTarget((current) => current ? { ...current, scheduledDate: event.target.value } : current)} data-testid="task-operation-date" /></label>}
+          {operationTarget?.operation === 'reschedule' && <label>Scheduled date<input type="date" value={operationTarget.scheduledDate ?? ''} disabled={mutationPending} onChange={(event) => setOperationTarget((current) => current ? { ...current, scheduledDate: event.target.value } : current)} data-testid="task-operation-date" /></label>}
           <p role="status">{operationTarget?.operation === 'complete' ? 'Mark this task complete.' : `Set the scheduled date to ${operationTarget?.scheduledDate ?? ''}.`}</p>
           {operationError && <div role="alert" data-testid="task-operation-outcome"><p>{operationError === 'conflict' ? 'This task changed elsewhere. Reload before retrying.' : 'We could not verify whether the task operation was applied. Reload before retrying.'}</p><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => void reloadTaskOperationContext()} data-testid="task-operation-reload">Reload</button><button className="secondary-button" type="button" onClick={retryTaskOperation} data-testid="task-operation-retry">Retry</button></div></div>}
           <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => { operationEpoch.current += 1; setOperationError(null); setOperationTarget(null); }}>Cancel</button><button className="primary-button" type="button" disabled={mutationPending || (operationTarget?.operation === 'reschedule' && !isIsoCalendarDate(operationTarget.scheduledDate))} onClick={() => void confirmTaskOperation()} data-autofocus data-testid="task-operation-confirm">Confirm</button></div>
