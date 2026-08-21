@@ -24,7 +24,6 @@
 
 import type { NextFunction, Request, Response } from 'express';
 
-import { applyApprovedScopeProposal } from '../services/org_proposal_scope_lifecycle';
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
@@ -35,7 +34,6 @@ import { buildProposalEvidenceAsync } from '../services/proposal_evidence_builde
 import { attachExperimentSummariesAsync } from '../services/proposal_experiment_summary_service';
 import { attachToolSafetyReviewProjectionsAsync } from '../services/tool_safety_review_projection';
 import {
-  applyProposal,
   hasSecurityNote,
   requiresSecurityNote,
   validateProposalChange,
@@ -43,7 +41,6 @@ import {
 import { finalizePostApplyLifecycleAsync } from '../services/post_apply_lifecycle';
 import { CONDITIONAL_TOOL_INSTALL_CONFIRMATION } from '../services/tool_install_safety_policy';
 import {
-  approveVettedToolInstallProposalAsync,
   createAndVetToolInstallProposalAsync,
   denyToolInstallProposalAsync,
 } from '../services/tool_install_proposal_lifecycle';
@@ -209,164 +206,46 @@ export class OrgProposalsController {
       const proposal = await proposalsRepo.findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
 
-      if (proposal.kind === 'tool-install') {
-        const body = (req.body ?? {}) as Record<string, unknown>;
-        const explicitConditionalConfirmation =
-          !!req.auth?.user && body.toolSafetyConfirmation === CONDITIONAL_TOOL_INSTALL_CONFIRMATION;
-        let applied;
-        try {
-          applied = await approveVettedToolInstallProposalAsync(
-            proposal.id,
-            req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID,
-            explicitConditionalConfirmation,
+      if (proposal.kind !== 'tool-install') {
+        if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
+          throw AppError.conflict(
+            `Proposal ${id} is '${proposal.status}', not 'proposed' (or 'failed', retryable) — cannot approve`,
           );
-        } catch (error) {
-          throw AppError.conflict(`Tool-install proposal ${id} cannot be approved at this time`);
         }
-        res.json(applied);
-        return;
-      }
-
-      // #1056 — a proposal the applier marked 'failed' (e.g. a publish-skill-
-      // to-org attempt that hit an unreachable production API) is retryable:
-      // a re-approve re-runs the SAME apply step from here. No other kind
-      // ever writes 'failed', so this is a no-op for every other kind's flow.
-      if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
-        throw AppError.conflict(
-          `Proposal ${id} is '${proposal.status}', not 'proposed' (or 'failed', retryable) — cannot approve`,
-        );
-      }
-
-      // Gate: external-adoption and webhook-wiring require a non-empty
-      // provenance/security note BEFORE the apply step ever runs. This is the
-      // real gate; the Flutter disabled-button state (#827) is a UX aid only.
-      if (requiresSecurityNote(proposal) && !hasSecurityNote(proposal)) {
-        throw AppError.badRequest(
-          `Proposal ${id} (kind '${proposal.kind}') requires a provenance/security note ` +
-            `(provenance_json) before it can be approved`,
-        );
-      }
-
-      // Re-validate the change at apply time — never trust the state it was
-      // in when proposed. Returns 400 (not 500) on an invalid change so the
-      // reviewer sees an actionable reason.
-      const validation = await validateProposalChange(proposal);
-      if (!validation.valid) {
-        throw AppError.badRequest(
-          validation.reason ?? `Proposal ${id} failed re-validation at approval time`,
-        );
+        if (requiresSecurityNote(proposal) && !hasSecurityNote(proposal)) {
+          throw AppError.badRequest(`Proposal ${id} (kind '${proposal.kind}') requires a provenance/security note (provenance_json) before it can be approved`);
+        }
+        const validation = await validateProposalChange(proposal);
+        if (!validation.valid) throw AppError.badRequest(validation.reason ?? `Proposal ${id} failed re-validation at approval time`);
       }
 
       const decidedByUserId = req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID;
-
-      // D1.4: request report/verdict fields have no authority. The reusable
-      // apply seam reads durable sandbox evidence itself; this route supplies
-      // only an authenticated, exact human confirmation for `conditional`.
       const body = (req.body ?? {}) as Record<string, unknown>;
       const explicitConditionalConfirmation =
         !!req.auth?.user && body.toolSafetyConfirmation === CONDITIONAL_TOOL_INSTALL_CONFIRMATION;
-      const applyResult = await applyProposal(proposal, {
-        explicitHumanConfirmation: explicitConditionalConfirmation,
-      });
-      const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
-
-      // W1 package C — a scope proposal never reaches `applied` through the
-      // generic claim. It is claimed `approved` while its target is still
-      // untouched, then the target and the proposal move in ONE atomic
-      // revision-fenced transaction, then the committed revision is projected.
-      if (applyResult.scopePair) {
-        if (!exactChangeJson || !applyResult.beforeSnapshotJson) {
-          throw AppError.conflict(
-            `Proposal ${id} (kind '${proposal.kind}') lacks the exact change/snapshot binding its scope lifecycle requires`,
-          );
-        }
-        const outcome = await applyApprovedScopeProposal({
+      let outcome;
+      try {
+        const { applyApprovedProposalAsync } = await import('../services/org_proposal_apply_service');
+        outcome = await applyApprovedProposalAsync({
           proposal,
           decidedByUserId,
-          changeJson: exactChangeJson,
-          beforeSnapshotJson: applyResult.beforeSnapshotJson,
-          pair: applyResult.scopePair,
+          explicitHumanConfirmation: explicitConditionalConfirmation,
+          finalizePostApply: finalizePostApplyLifecycleAsync,
+          measure: measureProposal,
         });
-        if (outcome.kind === 'conflict') throw AppError.conflict(`Proposal ${id}: ${outcome.reason}`);
-        if (outcome.kind === 'reconciliation-required') {
-          throw AppError.reconciliationRequired(
-            `Proposal ${id}: ${outcome.reason}; ` +
-            (outcome.durable
-              ? "the proposal is recorded as 'reconciliation-required'"
-              : 'the reconciliation record itself could NOT be persisted') +
-            ' — the proposal, target scope, and projected profile must be inspected before retrying',
-          );
-        }
-        let enrolled;
-        try {
-          enrolled = await finalizePostApplyLifecycleAsync(
-            outcome.proposal,
-            applyResult.postApplyTarget,
-          );
-        } catch {
-          logger.warn(
-            `[org-proposals] post-apply enrollment failed proposal=${id} outcome=committed-success-preserved`,
-          );
-          res.json(outcome.proposal);
-          return;
-        }
-        if (!enrolled) {
-          void measureProposal(outcome.proposal).catch((err) =>
-            logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
-          );
-        }
-        res.json(outcome.proposal);
-        return;
+      } catch (error) {
+        if (proposal.kind === 'tool-install') throw AppError.conflict(`Tool-install proposal ${id} cannot be approved at this time`);
+        throw error;
       }
-
-      const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
-        id,
-        decidedByUserId,
-        applyResult.beforeSnapshotJson ?? null,
-        exactChangeJson,
-      );
-      if (!applied) {
-        throw AppError.conflict(`Proposal ${id} was already claimed by another approval`);
-      }
-
-      let enrolled;
-      try {
-        enrolled = await finalizePostApplyLifecycleAsync(
-          applied,
-          applyResult.postApplyTarget,
-        );
-      } catch {
-        logger.warn(
-          `[org-proposals] post-apply enrollment failed proposal=${id} outcome=committed-success-preserved`,
-        );
-        res.json(await proposalsRepo.findByIdAsync(id));
-        return;
-      }
-
-      if (enrolled) {
-        res.json(await proposalsRepo.findByIdAsync(id));
-        return;
-      }
-
-      if (!applyResult.measurable) {
-        res.json(applied);
-        return;
-      }
-
-      const measuring = await proposalsRepo.updateStatusAsync(id, 'measuring');
-
-      // #971-3 — fire-and-forget a measure attempt so a human-approved proposal
-      // doesn't wait for the next optimizer run's sweep to get keep/revert'd
-      // (closes F3 for the common case). Deliberately NOT awaited — the approve
-      // response returns immediately; measureProposal never throws (the .catch
-      // is belt-and-suspenders against a rejected promise).
-      if (measuring) {
-        void measureProposal(measuring).catch((err) =>
-          logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
+      if (outcome.kind === 'conflict') throw AppError.conflict(`Proposal ${id}: ${outcome.reason}`);
+      if (outcome.kind === 'reconciliation-required') {
+        throw AppError.reconciliationRequired(
+          `Proposal ${id}: ${outcome.reason}; ` +
+          (outcome.durable ? "the proposal is recorded as 'reconciliation-required'" : 'the reconciliation record itself could NOT be persisted') +
+          ' — the proposal, target scope, and projected profile must be inspected before retrying',
         );
       }
-
-      res.json(measuring);
+      res.json(outcome.proposal);
     } catch (err) {
       next(err);
     }

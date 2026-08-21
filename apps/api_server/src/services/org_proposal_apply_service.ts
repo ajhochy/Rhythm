@@ -32,7 +32,8 @@
  *     without touching this file's control flow.
  */
 
-import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import type { AgentOrgProposal, RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
+import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { containsScopeBearingPayload } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
@@ -42,6 +43,9 @@ import {
   evaluateToolInstallSafetyAsync,
   type ToolInstallSafetyOptions,
 } from './tool_install_safety_policy';
+import { applyApprovedScopeProposal } from './org_proposal_scope_lifecycle';
+import { approveVettedToolInstallProposalAsync } from './tool_install_proposal_lifecycle';
+import { logger } from '../utils/logger';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -422,4 +426,112 @@ export async function applyProposal(
   }
   const applier = appliers[proposal.kind] ?? defaultApplier;
   return applier(proposal);
+}
+
+/**
+ * The one durable approval execution path shared by the human route and D4's
+ * automatic gate. It deliberately owns no per-kind writes: all mutation still
+ * happens in the registered applier or D1's dedicated tool lifecycle.
+ */
+export type ApprovedProposalApplyOutcome =
+  | { kind: 'applied'; proposal: RevisionedAgentOrgProposal }
+  | { kind: 'failed'; proposal: RevisionedAgentOrgProposal }
+  | { kind: 'enrollment-pending'; proposal: RevisionedAgentOrgProposal }
+  | { kind: 'conflict'; reason: string }
+  | { kind: 'reconciliation-required'; reason: string; durable: boolean };
+
+export async function applyApprovedProposalAsync(input: {
+  proposal: RevisionedAgentOrgProposal;
+  decidedByUserId: number;
+  explicitHumanConfirmation?: boolean;
+  proposalsRepo?: AgentOrgProposalsRepository;
+  finalizePostApply?: typeof import('./post_apply_lifecycle').finalizePostApplyLifecycleAsync;
+  measure?: typeof import('./org_proposal_measure').measureProposal;
+}): Promise<ApprovedProposalApplyOutcome> {
+  const proposalsRepo = input.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const proposal = input.proposal;
+
+  if (proposal.kind === 'tool-install') {
+    const applied = await approveVettedToolInstallProposalAsync(
+      proposal.id,
+      input.decidedByUserId,
+      input.explicitHumanConfirmation === true,
+    );
+    return applied.status === 'applied'
+      ? { kind: 'applied', proposal: applied }
+      : { kind: 'failed', proposal: applied };
+  }
+
+  if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
+    return { kind: 'conflict', reason: `proposal is '${proposal.status}', not re-approvable` };
+  }
+  if (requiresSecurityNote(proposal) && !hasSecurityNote(proposal)) {
+    return { kind: 'conflict', reason: `proposal kind '${proposal.kind}' requires a provenance/security note` };
+  }
+  const validation = await validateProposalChange(proposal);
+  if (!validation.valid) return { kind: 'conflict', reason: validation.reason ?? 'proposal failed re-validation' };
+
+  const applyResult = await applyProposal(proposal, {
+    explicitHumanConfirmation: input.explicitHumanConfirmation === true,
+  });
+  const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
+  if (applyResult.scopePair) {
+    if (!exactChangeJson || !applyResult.beforeSnapshotJson) {
+      return { kind: 'conflict', reason: 'scope lifecycle requires exact change and snapshot material' };
+    }
+    const outcome = await applyApprovedScopeProposal({
+      proposal,
+      decidedByUserId: input.decidedByUserId,
+      changeJson: exactChangeJson,
+      beforeSnapshotJson: applyResult.beforeSnapshotJson,
+      pair: applyResult.scopePair,
+      deps: { proposalsRepo },
+    });
+    if (outcome.kind === 'conflict' || outcome.kind === 'reconciliation-required') return outcome;
+    try {
+      const finalizePostApplyLifecycleAsync = input.finalizePostApply ??
+        (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+      const enrolled = await finalizePostApplyLifecycleAsync(outcome.proposal, applyResult.postApplyTarget);
+      if (!enrolled) {
+        const measureProposal = input.measure ?? (await import('./org_proposal_measure')).measureProposal;
+        void measureProposal(outcome.proposal).catch(() => undefined);
+      }
+      return { kind: 'applied', proposal: outcome.proposal };
+    } catch {
+      logger.warn(
+        `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+      );
+      return { kind: 'enrollment-pending', proposal: outcome.proposal };
+    }
+  }
+
+  const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
+    proposal.id,
+    input.decidedByUserId,
+    applyResult.beforeSnapshotJson ?? null,
+    exactChangeJson,
+  );
+  if (!applied) return { kind: 'conflict', reason: 'proposal was already claimed by another approval' };
+
+  try {
+    const finalizePostApplyLifecycleAsync = input.finalizePostApply ??
+      (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+    const enrolled = await finalizePostApplyLifecycleAsync(applied, applyResult.postApplyTarget);
+    if (enrolled) {
+      return { kind: 'applied', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+    }
+  } catch {
+    logger.warn(
+      `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+    );
+    return { kind: 'enrollment-pending', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+  }
+
+  if (!applyResult.measurable) return { kind: 'applied', proposal: applied };
+  const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+  if (measuring) {
+    const measureProposal = input.measure ?? (await import('./org_proposal_measure')).measureProposal;
+    void measureProposal(measuring).catch(() => undefined);
+  }
+  return { kind: 'applied', proposal: measuring ?? applied };
 }

@@ -130,6 +130,8 @@ export interface ExperimentDeps {
   experimentsRepo?: AgentOrgExperimentsRepository;
   outcomesRepo?: AgentRunOutcomesRepository;
   proposalsRepo?: AgentOrgProposalsRepository;
+  /** D4.3 test seam; absent production wiring defaults the auto gate closed. */
+  autoPromotion?: import('./auto_promotion_gate').AutoPromotionGateDeps;
 }
 
 function canonicalizeForHash(input: unknown): string {
@@ -1508,6 +1510,10 @@ export async function judgeExperimentAsync(
   // ledger that has moved on, and every re-run bumped the proposal's CAS
   // revision for a fact that did not change.
   if (experiment.decision) {
+    if (experiment.decision === 'promote') {
+      const { attemptAutoPromotionAsync } = await import('./auto_promotion_gate');
+      await attemptAutoPromotionAsync(experiment.proposalId, deps.autoPromotion);
+    }
     const { recordExperimentDecisionObservationAsync } = await import('./calibration_observation_service');
     await recordExperimentDecisionObservationAsync(experiment);
     return decided(experiment.decision, experiment.decisionReason ?? 'already decided', experiment.results);
@@ -1531,11 +1537,17 @@ export async function judgeExperimentAsync(
   const { recordExperimentDecisionObservationAsync } = await import('./calibration_observation_service');
   await recordExperimentDecisionObservationAsync(decidedExperiment);
 
-  await writeOutcomeStatus(
+  const outcomeWritten = await writeOutcomeStatus(
     experiment.proposalId,
     OUTCOME_BY_DECISION[evaluation.decision],
     deps.proposalsRepo,
   );
+  // Only a durable verified transition may cross into D4.3. A failed outcome
+  // CAS leaves the proposal in human review rather than applying an inference.
+  if (evaluation.decision === 'promote' && outcomeWritten) {
+    const { attemptAutoPromotionAsync } = await import('./auto_promotion_gate');
+    await attemptAutoPromotionAsync(experiment.proposalId, deps.autoPromotion);
+  }
 
   return evaluation;
 }

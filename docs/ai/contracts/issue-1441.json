@@ -1,0 +1,39 @@
+{
+  "contract_id": "D4.3",
+  "issue": 1441,
+  "date": "2026-08-21",
+  "scope": "Trust-gated automatic promotion at the fixed-horizon verified transition only.",
+  "criteria": [
+    {
+      "text": "Default/static unavailable, disabled, ineligible, regressed, and missing-enabledAt trust state preserve human review.",
+      "test": "auto_promotion_gate.test.ts — availability and trust matrix"
+    },
+    {
+      "text": "A durably verified eligible proposal reuses the human approval claim/revalidation/validator/CAS/applier path and enrolls D2 after a successful profile mutation.",
+      "test": "auto_promotion_gate.test.ts — human claim/apply path plus PostApplyEventsRepository assertion"
+    },
+    {
+      "text": "Tool-install automation requires the latest durable SAFE report matching the current proposal fingerprint; missing, stale, conditional, unsafe, and unavailable installation remain blocked/fail closed.",
+      "test": "auto_promotion_gate.test.ts — durable tool safety matrix"
+    },
+    {
+      "text": "Concurrent CAS loss, apply failure, D2 enrollment failure, and re-entry never claim a false automatic apply or duplicate D2 enrollment.",
+      "test": "auto_promotion_gate.test.ts — concurrent CAS, unavailable installer, enrollment-pending, idempotent re-entry"
+    },
+    {
+      "text": "Existing human approval behavior remains unchanged.",
+      "test": "org_proposals_routes.test.ts"
+    }
+  ],
+  "verification": {
+    "focused": "159 tests passed across D4 gate, fixed-horizon experiment, D2 lifecycle, human routes, and D1 lifecycle/policy suites.",
+    "node22": "npx tsc --noEmit && npm run build passed.",
+    "live_behavior": "Not runnable for positive auto-apply in this isolated slice: production availability is intentionally hard-coded false and #1442 alone owns the env-backed enablement. No server was started; the default-disabled production behavior is covered by the real repository/service path in the focused suite."
+  },
+  "boundaries": [
+    "#1442 owns UI, routes, and env-backed availability; this gate defaults false.",
+    "#1443 owns broader kind-matrix proof; this gate contains no kind allowlist.",
+    "#1444 owns subsequent regression logic."
+  ],
+  "gitnexus_risk": "UNKNOWN — GitNexus MCP/detect_changes is unavailable in this worktree; the index was not rewritten. Direct inspection covered the fixed-horizon judge, human approval, D1 tool lifecycle, and D2 finalizer call paths."
+}
