@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MessagesScreen } from '../src/screens/MessagesScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureMessagesGateway, failingMessagesGateway, e
 import { mount, flush, actClick, actSetValue, actKeyDown } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
 }
 
 function mountMessages(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -17,6 +17,21 @@ function mountMessages(gatewayOverrides: Partial<ReturnType<typeof fixtureDomain
 }
 
 describe('MessagesScreen', () => {
+  it('lets read-only hosts inspect conversations but keeps all mutation actions inert with a reason', async () => {
+    const messagesGateway = fixtureMessagesGateway();
+    const send = vi.fn(messagesGateway.send);
+    const mounted = mountMessages({ messages: { ...messagesGateway, send } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    await flush();
+    await actClick(mounted.byTestId('messages-thread-thread-weekend-team')!);
+    await flush();
+    expect(mounted.byTestId('messages-subject')?.textContent).toContain('Weekend Team');
+    const sendButton = mounted.byTestId('messages-send') as HTMLButtonElement;
+    expect(sendButton.disabled).toBe(true);
+    expect(sendButton.title).toContain('inspection only');
+    await actClick(sendButton);
+    expect(send).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
     await assertScreenContract({ Screen: MessagesScreen, screenName: 'Messages', testId: 'rhythm-messages-screen', gateway: fixtureDomainGateway() });
   });
@@ -114,6 +129,8 @@ describe('MessagesScreen', () => {
     const messagesGateway = fixtureMessagesGateway();
     const mounted = mountMessages({ messages: messagesGateway });
     await flush();
+    await actClick(mounted.byTestId('messages-thread-thread-budget-review')!);
+    await flush();
     const trigger = mounted.byTestId('messages-thread-actions-thread-budget-review') as HTMLButtonElement;
     trigger.focus();
     await actClick(trigger);
@@ -168,9 +185,26 @@ describe('MessagesScreen', () => {
     mounted.unmount();
   });
 
+  it('restores focus to the explicit action trigger when Escape closes Rename after its menu unmounts', async () => {
+    const mounted = mountMessages();
+    await flush();
+    const trigger = mounted.byTestId('messages-thread-actions-thread-weekend-team') as HTMLButtonElement;
+    await actClick(trigger);
+    await flush();
+    await actClick(mounted.byTestId('messages-thread-rename-thread-weekend-team')!);
+    await flush();
+    await actKeyDown(document, 'Escape');
+    await flush();
+    expect(mounted.byTestId('messages-rename-thread-dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    mounted.unmount();
+  });
+
   it('deletes a thread through a confirmation dialog and the gateway', async () => {
     const messagesGateway = fixtureMessagesGateway();
     const mounted = mountMessages({ messages: messagesGateway });
+    await flush();
+    await actClick(mounted.byTestId('messages-thread-thread-budget-review')!);
     await flush();
     const trigger = mounted.byTestId('messages-thread-actions-thread-budget-review') as HTMLButtonElement;
     trigger.focus();
@@ -183,6 +217,7 @@ describe('MessagesScreen', () => {
     await flush();
     const threads = await messagesGateway.list();
     expect(threads.some((thread) => thread.id === 'thread-budget-review')).toBe(false);
+    expect(mounted.byTestId('messages-subject')?.textContent).toContain('Weekend Team');
     mounted.unmount();
   });
 

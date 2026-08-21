@@ -1,5 +1,5 @@
 import { act, createElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlannerScreen } from '../src/screens/PlannerScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixturePlannerGateway, failingPlannerGateway, emp
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
 }
 
 function mountPlanner(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -17,6 +17,58 @@ function mountPlanner(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainG
 }
 
 describe('PlannerScreen', () => {
+  it('keeps the newest next-week response when earlier planner requests resolve out of order', async () => {
+    const base = fixturePlannerGateway();
+    const releases: Array<(value: Awaited<ReturnType<typeof base.week>>) => void> = [];
+    const planner = { ...base, week: () => new Promise<Awaited<ReturnType<typeof base.week>>>((resolve) => releases.push(resolve)) };
+    const mounted = mountPlanner({ planner });
+    await flush();
+    await actClick(mounted.byTestId('planner-next-week')!);
+    await actClick(mounted.byTestId('planner-next-week')!);
+    expect(releases).toHaveLength(3);
+    const newest = { weekLabel: 'newest', weekStart: '2026-08-24', days: [], backlog: [{ id: 'newest-task', source: 'task' as const, title: 'Newest weekly plan', notes: '', status: 'open' as const, scheduledOrder: 1, collaborators: [], readonly: false }] };
+    releases[2]!(newest);
+    await flush();
+    expect(mounted.container.textContent).toContain('Newest weekly plan');
+    const stale = { ...newest, backlog: [{ ...newest.backlog[0]!, id: 'stale-task', title: 'Stale weekly plan' }] };
+    releases[0]!(stale);
+    releases[1]!(stale);
+    await flush();
+    expect(mounted.container.textContent).not.toContain('Stale weekly plan');
+    mounted.unmount();
+  });
+
+  it('ignores a deferred planner response after its gateway is replaced', async () => {
+    const old = fixturePlannerGateway();
+    let releaseOld!: (value: Awaited<ReturnType<typeof old.week>>) => void;
+    const stalePlanner = { ...old, week: () => new Promise<Awaited<ReturnType<typeof old.week>>>((resolve) => { releaseOld = resolve; }) };
+    const freshPlanner = fixturePlannerGateway();
+    const gateway = { ...fixtureDomainGateway(), planner: stalePlanner };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(), children: createElement(PlannerScreen) }));
+    mounted.rerender(createElement(RhythmWorkspaceProvider, { gateway: { ...gateway, planner: freshPlanner }, host: buildHost(), children: createElement(PlannerScreen) }));
+    await flush();
+    expect(mounted.container.textContent).toContain('Prepare Sunday service handoff');
+    releaseOld({ weekLabel: 'stale', weekStart: '2026-08-10', days: [], backlog: [{ id: 'old', source: 'task', title: 'Stale planner gateway', notes: '', status: 'open', scheduledOrder: 1, collaborators: [], readonly: false }] });
+    await flush();
+    expect(mounted.container.textContent).not.toContain('Stale planner gateway');
+    mounted.unmount();
+  });
+  it('lets read-only hosts inspect planner work but blocks completion mutations with an accessible reason', async () => {
+    const plannerGateway = fixturePlannerGateway();
+    const update = vi.fn(plannerGateway.update);
+    const mounted = mountPlanner({ planner: { ...plannerGateway, update } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    await flush();
+    const task = mounted.byTestId('planner-task-task-wed')!;
+    await actClick(task);
+    await flush();
+    expect(mounted.byTestId('planner-inspector')?.textContent).toContain('Prepare Sunday service handoff');
+    const complete = mounted.byTestId('planner-complete-task-wed') as HTMLButtonElement;
+    expect(complete.disabled).toBe(true);
+    expect(complete.title).toContain('inspection only');
+    await actClick(complete);
+    expect(update).not.toHaveBeenCalled();
+    mounted.unmount();
+  });
   it('satisfies the shared page/focus/responsive/theme/accessibility contract', async () => {
     await assertScreenContract({ Screen: PlannerScreen, screenName: 'Planner', testId: 'rhythm-planner-screen', gateway: fixtureDomainGateway() });
   });
@@ -59,13 +111,24 @@ describe('PlannerScreen', () => {
     mounted.unmount();
   });
 
-  it('treats a project-step-sourced task as read-only: no complete/select controls and not draggable', async () => {
-    const mounted = mountPlanner();
+  it('keeps project-step tasks editable: completion, scheduling, and inspector updates round-trip through the planner gateway', async () => {
+    const plannerGateway = fixturePlannerGateway();
+    const mounted = mountPlanner({ planner: plannerGateway });
     await flush();
     const card = mounted.byTestId('planner-task-step-thu');
     expect(card).toBeTruthy();
-    expect(mounted.byTestId('planner-complete-step-thu')).toBeNull();
-    expect(mounted.byTestId('planner-task-select-step-thu')).toBeNull();
+    expect(mounted.byTestId('planner-complete-step-thu')).toBeTruthy();
+    expect(mounted.byTestId('planner-task-select-step-thu')).toBeTruthy();
+    await actClick(card!);
+    await flush();
+    await actSetValue(mounted.byTestId('planner-edit-scheduled-date') as HTMLInputElement, '2026-08-15');
+    await actClick(mounted.byTestId('planner-save-task')!);
+    await flush();
+    await actClick(mounted.byTestId('planner-filter-all')!);
+    await actClick(mounted.byTestId('planner-complete-step-thu')!);
+    const week = await plannerGateway.week('current');
+    const step = week.days.flatMap((day) => day.tasks).find((task) => task.id === 'step-thu');
+    expect(step).toMatchObject({ status: 'done', scheduledDate: '2026-08-15' });
     mounted.unmount();
   });
 

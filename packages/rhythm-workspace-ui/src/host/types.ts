@@ -39,8 +39,12 @@ export interface RhythmHostTokens {
 export type RhythmViewport = 'compact' | 'regular' | 'expanded';
 
 export interface RhythmCurrentUser {
+  /** Stable host identity used only for local owner/capability decisions. */
+  id?: string;
   displayName: string;
   initials: string;
+  /** Omit or set read when the embedded surface is inspect-only. */
+  collaborationCapability?: 'read' | 'write';
 }
 
 /** The ten non-agent screens this package exposes — used only for host-owned, in-package

@@ -260,6 +260,12 @@ export interface ProjectsGateway {
   list(): Promise<RhythmProject[]>;
   members(): Promise<RhythmWorkspaceMember[]>;
   generate(templateId: string, input: { anchorDate: string; name?: string }): Promise<RhythmProject>;
+  createTemplate(input: Pick<RhythmProjectTemplate, 'name' | 'description' | 'anchorType'>): Promise<RhythmProjectTemplate>;
+  updateTemplate(id: string, input: Partial<Pick<RhythmProjectTemplate, 'name' | 'description' | 'anchorType'>>): Promise<RhythmProjectTemplate>;
+  deleteTemplate(id: string): Promise<void>;
+  addTemplateStep(templateId: string, input: Omit<RhythmProjectTemplateStep, 'id'>): Promise<RhythmProjectTemplateStep>;
+  updateTemplateStep(templateId: string, stepId: string, input: Partial<Omit<RhythmProjectTemplateStep, 'id'>>): Promise<RhythmProjectTemplateStep>;
+  deleteTemplateStep(templateId: string, stepId: string): Promise<void>;
   delete(id: string): Promise<void>;
   // M1 collaboration-screens extraction (#4): widened with 'milestoneId' so the Projects screen's
   // step row can assign/unassign a step's milestone (apps/web/src/pages/projects/index.tsx
@@ -319,6 +325,8 @@ export interface RhythmsGateway {
   update(id: string, input: Partial<Pick<RhythmRhythm, 'title' | 'enabled' | 'sequential' | 'frequency' | 'dayOfWeek' | 'dayOfMonth' | 'month'>>): Promise<RhythmRhythm>;
   delete(id: string): Promise<void>;
   addStep(id: string, input: Pick<RhythmStep, 'title'> & Partial<Pick<RhythmStep, 'assigneeId'>>): Promise<RhythmStep>;
+  /** Replace is intentional: production persists the complete ordered workflow on edit. */
+  replaceSteps(id: string, steps: Array<Pick<RhythmStep, 'title'> & Partial<Pick<RhythmStep, 'assigneeId'>>>): Promise<RhythmRhythm>;
   addCollaborator(id: string, memberId: string): Promise<RhythmRhythm>;
   removeCollaborator(id: string, memberId: string): Promise<RhythmRhythm>;
 }

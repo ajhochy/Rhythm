@@ -60,6 +60,35 @@ export function fixtureProjectsGateway(): ProjectsGateway {
       instances = [...instances, created];
       return created;
     },
+    createTemplate: async (input) => {
+      const created: RhythmProjectTemplate = { id: `template-${templates.length + 1}`, steps: [], ...input };
+      templates.push(created);
+      return created;
+    },
+    updateTemplate: async (id, input) => {
+      const index = templates.findIndex((template) => template.id === id);
+      if (index < 0) throw new RhythmGatewayError('not_found', `unknown template ${id}`);
+      const updated = { ...templates[index]!, ...input };
+      templates[index] = updated;
+      return updated;
+    },
+    deleteTemplate: async (id) => { const index = templates.findIndex((template) => template.id === id); if (index >= 0) templates.splice(index, 1); },
+    addTemplateStep: async (templateId, input) => {
+      const template = templates.find((item) => item.id === templateId);
+      if (!template) throw new RhythmGatewayError('not_found', `unknown template ${templateId}`);
+      const created = { id: `${templateId}-step-${template.steps.length + 1}`, ...input };
+      template.steps.push(created);
+      return created;
+    },
+    updateTemplateStep: async (templateId, stepId, input) => {
+      const template = templates.find((item) => item.id === templateId);
+      const index = template?.steps.findIndex((step) => step.id === stepId) ?? -1;
+      if (!template || index < 0) throw new RhythmGatewayError('not_found', 'unknown template step');
+      const updated = { ...template.steps[index]!, ...input };
+      template.steps[index] = updated;
+      return updated;
+    },
+    deleteTemplateStep: async (templateId, stepId) => { const template = templates.find((item) => item.id === templateId); if (template) template.steps = template.steps.filter((step) => step.id !== stepId); },
     delete: async (id) => {
       instances = instances.filter((instance) => instance.id !== id);
     },
@@ -103,7 +132,7 @@ function created_id(templateId: string) {
 
 export function failingProjectsGateway(kind: 'forbidden' | 'not_found' | 'unavailable' | 'server_error'): ProjectsGateway {
   const fail = async (): Promise<never> => { throw new RhythmGatewayError(kind, `simulated ${kind}`); };
-  return { templates: fail, list: fail, members: fail, generate: fail, delete: fail, updateStep: fail, addMilestone: fail, addCollaborator: fail, removeCollaborator: fail };
+  return { templates: fail, list: fail, members: fail, generate: fail, createTemplate: fail, updateTemplate: fail, deleteTemplate: fail, addTemplateStep: fail, updateTemplateStep: fail, deleteTemplateStep: fail, delete: fail, updateStep: fail, addMilestone: fail, addCollaborator: fail, removeCollaborator: fail };
 }
 
 export function emptyProjectsGateway(): ProjectsGateway {

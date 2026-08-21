@@ -6,6 +6,8 @@
 @import './base.css';
 @import './screens/tasks.css';
 @import './screens/dashboard.css';
+/* This is the supported public stylesheet exported as ./styles.css. */
+@import './collaboration.css';
 
 .rhythm-workspace-root {
   background: var(--rhythm-bg);

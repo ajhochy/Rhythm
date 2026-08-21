@@ -18,7 +18,7 @@ function buildHost(overrides: Partial<RhythmHostAdapter> = {}): RhythmHostAdapte
   return {
     tokens: defaultRhythmTokens,
     viewport: 'regular',
-    currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' },
+    currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' },
     ...overrides,
   };
 }

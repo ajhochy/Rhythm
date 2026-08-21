@@ -8,7 +8,7 @@
 // route, the fixture-only page-state/mutation-mode debug pickers, the "incoming message" demo
 // banner (no real gateway signal backs it), and the API-receipt ledger.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useRhythmDomainGateway } from '../context';
+import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
 import { Icon } from '../components/Icon';
@@ -31,8 +31,8 @@ function StatePanel({ state, onRetry, onNew }: { state: Exclude<MessagesSurfaceS
   return <section className="messages-state warning" role="status" data-testid="page-state-unavailable"><span className="eyebrow">Service prerequisite</span><h2>Messages are unavailable</h2><p>Reconnect the message service before loading or changing conversations.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
 }
 
-function ThreadActions({ thread, onRead, onUnread, onRename, onDelete, testId }: {
-  thread: RhythmMessageThread; onRead(): void; onUnread(): void; onRename(): void; onDelete(): void; testId?: string;
+function ThreadActions({ thread, canWrite, onRead, onUnread, onRename, onDelete, testId }: {
+  thread: RhythmMessageThread; canWrite: boolean; onRead(): void; onUnread(): void; onRename(returnTarget: HTMLElement | null): void; onDelete(): void; testId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -63,9 +63,9 @@ function ThreadActions({ thread, onRead, onUnread, onRename, onDelete, testId }:
       <button ref={triggerRef} className="icon-button messages-thread-actions" type="button" aria-label={`Actions for ${thread.title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} data-testid={testId ?? `messages-thread-actions-${thread.id}`}><Icon name="more" size={16} /></button>
       {open && (
         <div className="menu-popover messages-thread-menu" role="menu" aria-label={`Actions for ${thread.title}`} onKeyDown={moveFocus}>
-          <button className="menu-item" role="menuitem" type="button" onClick={() => { setOpen(false); thread.unreadCount > 0 ? onRead() : onUnread(); }} data-testid={`messages-thread-toggle-${thread.id}`}>{thread.unreadCount > 0 ? 'Mark as read' : 'Mark as unread'}</button>
-          <button className="menu-item" role="menuitem" type="button" onClick={() => { setOpen(false); onRename(); }} data-testid={`messages-thread-rename-${thread.id}`}>Rename thread</button>
-          <button className="menu-item messages-delete-action" role="menuitem" type="button" onClick={() => { setOpen(false); onDelete(); }} data-testid={`messages-thread-delete-${thread.id}`}>Delete thread</button>
+          <button className="menu-item" role="menuitem" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => { setOpen(false); thread.unreadCount > 0 ? onRead() : onUnread(); }} data-testid={`messages-thread-toggle-${thread.id}`}>{thread.unreadCount > 0 ? 'Mark as read' : 'Mark as unread'}</button>
+          <button className="menu-item" role="menuitem" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => { setOpen(false); onRename(triggerRef.current); }} data-testid={`messages-thread-rename-${thread.id}`}>Rename thread</button>
+          <button className="menu-item messages-delete-action" role="menuitem" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => { setOpen(false); onDelete(); }} data-testid={`messages-thread-delete-${thread.id}`}>Delete thread</button>
         </div>
       )}
     </div>
@@ -74,6 +74,7 @@ function ThreadActions({ thread, onRead, onUnread, onRename, onDelete, testId }:
 
 export function MessagesScreen() {
   const { messages: gateway } = useRhythmDomainGateway();
+  const host = useRhythmHost();
   const [surfaceState, setSurfaceState] = useState<MessagesSurfaceState>('loading');
   const [threads, setThreads] = useState<RhythmMessageThread[]>([]);
   const [members, setMembers] = useState<RhythmWorkspaceMember[]>([]);
@@ -92,6 +93,9 @@ export function MessagesScreen() {
   const [mutationPending, setMutationPending] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
+  const loadGeneration = useRef(0);
+  const renameReturnTarget = useRef<HTMLElement | null>(null);
+  const canWrite = host.currentUser.collaborationCapability !== 'read';
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';
@@ -99,18 +103,20 @@ export function MessagesScreen() {
   };
 
   const load = async () => {
+    const generation = ++loadGeneration.current;
     setSurfaceState('loading');
     try {
       const [loadedThreads, loadedMembers] = await Promise.all([gateway.list(), gateway.members()]);
+      if (generation !== loadGeneration.current) return;
       setThreads(loadedThreads);
       setMembers(loadedMembers);
       setSurfaceState(loadedThreads.length ? 'ready' : 'empty');
     } catch (error) {
-      handleError(error);
+      if (generation === loadGeneration.current) handleError(error);
     }
   };
 
-  useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
 
   const showsWorkspace = surfaceState === 'ready';
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
@@ -129,7 +135,7 @@ export function MessagesScreen() {
 
   const openThread = async (id: string) => {
     setSelectedId(id);
-    if (threads.find((thread) => thread.id === id)?.unreadCount) {
+    if (canWrite && threads.find((thread) => thread.id === id)?.unreadCount) {
       try {
         await gateway.markRead(id);
         setThreads((current) => current.map((thread) => (thread.id === id ? { ...thread, unreadCount: 0 } : thread)));
@@ -140,6 +146,7 @@ export function MessagesScreen() {
   };
 
   const markRead = async (id: string) => {
+    if (!canWrite) return;
     try {
       await gateway.markRead(id);
       setThreads((current) => current.map((thread) => (thread.id === id ? { ...thread, unreadCount: 0 } : thread)));
@@ -149,6 +156,7 @@ export function MessagesScreen() {
   };
 
   const markUnread = async (id: string) => {
+    if (!canWrite) return;
     try {
       await gateway.markUnread(id);
       setThreads((current) => current.map((thread) => (thread.id === id ? { ...thread, unreadCount: Math.max(1, thread.unreadCount) } : thread)));
@@ -157,12 +165,12 @@ export function MessagesScreen() {
     }
   };
 
-  const openRenameThread = (thread: RhythmMessageThread) => { setRenameTargetId(thread.id); setRenameTitle(thread.title); setRenameError(''); };
-  const closeRenameThread = () => { setRenameTargetId(null); setRenameTitle(''); setRenameError(''); };
+  const openRenameThread = (thread: RhythmMessageThread, returnTarget: HTMLElement | null) => { renameReturnTarget.current = returnTarget; setRenameTargetId(thread.id); setRenameTitle(thread.title); setRenameError(''); };
+  const closeRenameThread = () => { setRenameTargetId(null); setRenameTitle(''); setRenameError(''); requestAnimationFrame(() => renameReturnTarget.current?.focus()); };
 
   const renameThread = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!renameTarget) return;
+    if (!canWrite || !renameTarget) return;
     const title = renameTitle.trim();
     if (!title) { setRenameError('Enter a thread name.'); return; }
     setMutationPending(true);
@@ -181,12 +189,12 @@ export function MessagesScreen() {
   const closeDeleteThread = () => setDeleteTargetId(null);
 
   const deleteThread = async () => {
-    if (!deleteTarget) return;
+    if (!canWrite || !deleteTarget) return;
     setMutationPending(true);
     try {
       await gateway.deleteThread(deleteTarget.id);
       setThreads((current) => current.filter((thread) => thread.id !== deleteTarget.id));
-      if (selectedId === deleteTarget.id) { setSelectedId(null); setReply(''); setReplyError(''); }
+      if (selectedId === deleteTarget.id) { const next = visibleThreads.find((thread) => thread.id !== deleteTarget.id) ?? threads.find((thread) => thread.id !== deleteTarget.id); setSelectedId(next?.id ?? null); setReply(''); setReplyError(''); }
       closeDeleteThread();
     } catch (error) {
       handleError(error);
@@ -205,7 +213,7 @@ export function MessagesScreen() {
 
   const createThread = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canCreate || mutationPending) return;
+    if (!canWrite || !canCreate || mutationPending) return;
     setMutationPending(true);
     try {
       const created = await gateway.createThread({ participantIds: selectedRecipients, type: threadType, title: threadTitle.trim() || undefined });
@@ -221,7 +229,7 @@ export function MessagesScreen() {
   };
 
   const sendReply = async () => {
-    if (!selectedThread || mutationPending) return;
+    if (!canWrite || !selectedThread || mutationPending) return;
     const body = reply.trim();
     if (!body) { setReplyError('Write a message before sending.'); replyRef.current?.focus(); return; }
     setMutationPending(true);
@@ -242,7 +250,7 @@ export function MessagesScreen() {
       <section className="page-shell pg-messages" aria-busy={surfaceState === 'loading'}>
         <header className="messages-page-header">
           <div className="messages-heading"><span className="eyebrow">Rhythm workspace</span><h1>Messages</h1><p>Move handoffs forward without losing the thread.</p></div>
-          <button className="primary-button" type="button" disabled={!showsWorkspace} onClick={openNewThread} data-testid="messages-new-thread"><Icon name="plus" size={15} /><span>New</span></button>
+          <button className="primary-button" type="button" disabled={!showsWorkspace || !canWrite} title={!canWrite ? 'You can inspect messages, but this host has not granted write permission.' : undefined} onClick={openNewThread} data-testid="messages-new-thread"><Icon name="plus" size={15} /><span>New</span></button>
         </header>
 
         {!showsWorkspace && <StatePanel state={surfaceState} onRetry={() => void load()} onNew={openNewThread} />}
@@ -267,7 +275,7 @@ export function MessagesScreen() {
                       <time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>
                       {thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
                     </div>
-                    <div role="gridcell"><ThreadActions thread={thread} onRead={() => void markRead(thread.id)} onUnread={() => void markUnread(thread.id)} onRename={() => openRenameThread(thread)} onDelete={() => openDeleteThread(thread)} /></div>
+                    <div role="gridcell"><ThreadActions thread={thread} canWrite={canWrite} onRead={() => void markRead(thread.id)} onUnread={() => void markUnread(thread.id)} onRename={(target) => openRenameThread(thread, target)} onDelete={() => openDeleteThread(thread)} /></div>
                   </div>
                 ))}
               </div>
@@ -285,7 +293,7 @@ export function MessagesScreen() {
                       <h2 data-testid="messages-subject">{selectedThread.title}</h2>
                       <p><span data-testid="messages-participants">{selectedThread.participants.map((participant) => participant.name).join(' · ')}</span><span aria-hidden="true"> · </span>{selectedThread.messages.length} {selectedThread.messages.length === 1 ? 'message' : 'messages'}</p>
                     </div>
-                    <ThreadActions thread={selectedThread} onRead={() => void markRead(selectedThread.id)} onUnread={() => void markUnread(selectedThread.id)} onRename={() => openRenameThread(selectedThread)} onDelete={() => openDeleteThread(selectedThread)} testId="messages-selected-thread-actions" />
+                    <ThreadActions thread={selectedThread} canWrite={canWrite} onRead={() => void markRead(selectedThread.id)} onUnread={() => void markUnread(selectedThread.id)} onRename={(target) => openRenameThread(selectedThread, target)} onDelete={() => openDeleteThread(selectedThread)} testId="messages-selected-thread-actions" />
                   </header>
                   <div className="messages-transcript" ref={transcriptRef} tabIndex={0} aria-label={`${selectedThread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
                     {selectedThread.messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : selectedThread.messages.map((message) => (
@@ -300,12 +308,14 @@ export function MessagesScreen() {
                         id="messages-reply-input"
                         rows={2}
                         value={reply}
+                        disabled={!canWrite}
+                        title={!canWrite ? 'This host grants inspection only.' : undefined}
                         onChange={(event) => { setReply(event.target.value); setReplyError(''); }}
                         onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendReply(); } }}
                         aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'}
                         data-testid="messages-reply-input"
                       />
-                      <button className="primary-button messages-send" type="button" disabled={mutationPending} onClick={() => void sendReply()} data-testid="messages-send"><Icon name="plus" size={16} /><span>Send</span></button>
+                      <button className="primary-button messages-send" type="button" disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => void sendReply()} data-testid="messages-send"><Icon name="plus" size={16} /><span>Send</span></button>
                     </div>
                     <small id="messages-reply-help">Enter to send · Shift+Enter for a new line</small>
                     {replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}

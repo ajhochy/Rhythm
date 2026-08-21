@@ -128,6 +128,9 @@ function RuleForm({ idPrefix, initial, members, showStepsBuilder = true, onCance
 
 export function RhythmsScreen() {
   const { rhythms: gateway } = useRhythmDomainGateway();
+  const host = useRhythmHost();
+  const canWrite = host.currentUser.collaborationCapability !== 'read';
+  const isOwner = (rule: RhythmRhythm) => Boolean(host.currentUser.id && host.currentUser.id === rule.ownerId);
   const [surfaceState, setSurfaceState] = useState<RhythmsSurfaceState>('loading');
   const [rules, setRules] = useState<RhythmRhythm[]>([]);
   const [members, setMembers] = useState<RhythmWorkspaceMember[]>([]);
@@ -139,6 +142,7 @@ export function RhythmsScreen() {
   const [stepAssignee, setStepAssignee] = useState('');
   const [mutationPending, setMutationPending] = useState(false);
   const newRuleTriggerRef = useRef<HTMLButtonElement>(null);
+  const loadGeneration = useRef(0);
 
   const selected = rules.find((rule) => rule.id === selectedId) ?? null;
 
@@ -148,18 +152,20 @@ export function RhythmsScreen() {
   };
 
   const load = async () => {
+    const generation = ++loadGeneration.current;
     setSurfaceState('loading');
     try {
       const [loadedRules, loadedMembers] = await Promise.all([gateway.list(), gateway.members()]);
+      if (generation !== loadGeneration.current) return;
       setRules(loadedRules);
       setMembers(loadedMembers);
       setSurfaceState(loadedRules.length ? 'ready' : 'empty');
     } catch (error) {
-      handleError(error);
+      if (generation === loadGeneration.current) handleError(error);
     }
   };
 
-  useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
 
   const showsWorkspace = surfaceState === 'ready';
 
@@ -167,7 +173,7 @@ export function RhythmsScreen() {
   const closeSelection = () => setSelectedId(null);
 
   const toggleEnabled = async (rule: RhythmRhythm, enabled: boolean) => {
-    if (mutationPending) return;
+    if (!canWrite || !isOwner(rule) || mutationPending) return;
     setMutationPending(true);
     try {
       const updated = await gateway.update(rule.id, { enabled });
@@ -180,6 +186,7 @@ export function RhythmsScreen() {
   };
 
   const createRule = async (draft: RuleDraft) => {
+    if (!canWrite) return;
     setMutationPending(true);
     try {
       const created = await gateway.create({ title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
@@ -198,10 +205,11 @@ export function RhythmsScreen() {
   };
 
   const saveRule = async (draft: RuleDraft) => {
-    if (!selected) return;
+    if (!canWrite || !selected || !isOwner(selected)) return;
     setMutationPending(true);
     try {
-      const updated = await gateway.update(selected.id, { title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
+      await gateway.update(selected.id, { title: draft.title, frequency: draft.frequency, dayOfWeek: draft.dayOfWeek, dayOfMonth: draft.dayOfMonth, month: draft.month, sequential: draft.sequential });
+      const updated = await gateway.replaceSteps(selected.id, draft.steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId || undefined })));
       setRules((current) => current.map((rule) => (rule.id === selected.id ? updated : rule)));
     } catch (error) {
       handleError(error);
@@ -212,7 +220,7 @@ export function RhythmsScreen() {
 
   const addWorkflowStep = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selected || !stepTitle.trim()) return;
+    if (!canWrite || !selected || !isOwner(selected) || !stepTitle.trim()) return;
     setMutationPending(true);
     try {
       const step = await gateway.addStep(selected.id, { title: stepTitle.trim(), assigneeId: stepAssignee || undefined });
@@ -227,7 +235,7 @@ export function RhythmsScreen() {
   };
 
   const addCollaborator = async (memberId: string) => {
-    if (!selected) return;
+    if (!canWrite || !selected || !isOwner(selected)) return;
     try {
       const updated = await gateway.addCollaborator(selected.id, memberId);
       setRules((current) => current.map((rule) => (rule.id === updated.id ? updated : rule)));
@@ -238,7 +246,7 @@ export function RhythmsScreen() {
   };
 
   const removeCollaborator = async (memberId: string) => {
-    if (!selected) return;
+    if (!canWrite || !selected || !isOwner(selected)) return;
     try {
       const updated = await gateway.removeCollaborator(selected.id, memberId);
       setRules((current) => current.map((rule) => (rule.id === updated.id ? updated : rule)));
@@ -248,7 +256,7 @@ export function RhythmsScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!canWrite || !deleteTarget || !isOwner(deleteTarget)) return;
     setMutationPending(true);
     try {
       await gateway.delete(deleteTarget.id);
@@ -274,7 +282,7 @@ export function RhythmsScreen() {
           <div className="rhythms-heading"><span className="eyebrow">Recurring work</span><h1>Rhythms</h1><p>Manage recurring rules, owners, generated tasks, and the next scheduled run.</p></div>
           <div className="rhythms-header-actions">
             <span data-testid="rhythms-visible-count">{rules.length} {rules.length === 1 ? 'rule' : 'rules'}</span>
-            <button ref={newRuleTriggerRef} className="primary-button" type="button" disabled={!showsWorkspace} onClick={() => setCreateOpen(true)} data-testid="rhythms-new-rule">New rule</button>
+            <button ref={newRuleTriggerRef} className="primary-button" type="button" disabled={!showsWorkspace || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setCreateOpen(true)} data-testid="rhythms-new-rule">New rule</button>
           </div>
         </header>
 
@@ -295,10 +303,10 @@ export function RhythmsScreen() {
                       <div className="rhythm-card-actions">
                         <button className="secondary-button" type="button" aria-label={`Inspect ${rule.title}`} onClick={() => inspect(rule)} data-testid={`rhythm-inspect-${rule.id}`}>Inspect</button>
                         <label className="rhythm-enabled-toggle">
-                          <input type="checkbox" checked={rule.enabled} disabled={mutationPending} aria-label={`${rule.enabled ? 'Enabled' : 'Paused'} - ${rule.title}`} onChange={(event) => void toggleEnabled(rule, event.target.checked)} data-testid={`rhythm-enabled-${rule.id}`} />
+                          <input type="checkbox" checked={rule.enabled} disabled={mutationPending || !canWrite || !isOwner(rule)} title={!isOwner(rule) ? 'Only the rhythm owner can change this rule.' : !canWrite ? 'This host grants inspection only.' : undefined} aria-label={`${rule.enabled ? 'Enabled' : 'Paused'} - ${rule.title}`} onChange={(event) => void toggleEnabled(rule, event.target.checked)} data-testid={`rhythm-enabled-${rule.id}`} />
                           <span aria-hidden="true" /><b>{rule.enabled ? 'Enabled' : 'Paused'}</b>
                         </label>
-                        <button className="text-danger-button" type="button" disabled={mutationPending} aria-label={`Delete ${rule.title}`} onClick={() => setDeleteTarget(rule)} data-testid={`rhythm-delete-${rule.id}`}>Delete</button>
+                        <button className="text-danger-button" type="button" disabled={mutationPending || !canWrite || !isOwner(rule)} title={!isOwner(rule) ? 'Only the rhythm owner can delete this rule.' : !canWrite ? 'This host grants inspection only.' : undefined} aria-label={`Delete ${rule.title}`} onClick={() => setDeleteTarget(rule)} data-testid={`rhythm-delete-${rule.id}`}>Delete</button>
                       </div>
                     </article>
                   ))}
@@ -328,8 +336,8 @@ export function RhythmsScreen() {
                       <h3 id="rhythm-edit-title">Edit rhythm</h3>
                       <RuleForm
                         idPrefix="rhythm-edit"
-                        showStepsBuilder={false}
-                        initial={{ title: selected.title, frequency: selected.frequency, dayOfWeek: selected.dayOfWeek, dayOfMonth: selected.dayOfMonth, month: selected.month, sequential: selected.sequential, steps: selected.steps.map(() => ({ title: '', assigneeId: '' })) }}
+                        showStepsBuilder
+                        initial={{ title: selected.title, frequency: selected.frequency, dayOfWeek: selected.dayOfWeek, dayOfMonth: selected.dayOfMonth, month: selected.month, sequential: selected.sequential, steps: selected.steps.map((step) => ({ title: step.title, assigneeId: step.assigneeId ?? '' })) }}
                         members={members}
                         onCancel={closeSelection}
                         onSave={(draft) => void saveRule(draft)}
@@ -337,12 +345,12 @@ export function RhythmsScreen() {
                     </section>
 
                     <section className="rhythm-collaborators" aria-labelledby="rhythm-collaborators-title">
-                      <header><h3 id="rhythm-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" onClick={() => setCollaboratorPickerOpen(true)} data-testid="rhythm-add-collaborator">Add collaborator</button></header>
+                      <header><h3 id="rhythm-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" disabled={!canWrite || !isOwner(selected)} onClick={() => setCollaboratorPickerOpen(true)} data-testid="rhythm-add-collaborator">Add collaborator</button></header>
                       <div className="rhythm-people">
                         {selected.collaborators.length ? selected.collaborators.map((person) => (
                           <div className="rhythm-person" key={person.id} data-testid={`rhythm-collaborator-${person.id}`}>
                             <span aria-hidden="true">{person.initials}</span><strong>{person.name}</strong>
-                            <button type="button" aria-label={`Remove ${person.name}`} onClick={() => void removeCollaborator(person.id)} data-testid={`rhythm-remove-collaborator-${person.id}`}>Remove</button>
+                            <button type="button" disabled={!canWrite || !isOwner(selected)} aria-label={`Remove ${person.name}`} onClick={() => void removeCollaborator(person.id)} data-testid={`rhythm-remove-collaborator-${person.id}`}>Remove</button>
                           </div>
                         )) : <p>No collaborators yet.</p>}
                       </div>

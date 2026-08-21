@@ -7,6 +7,7 @@ export interface Mounted {
   byTestId(testId: string): HTMLElement | null;
   allByTestId(testId: string): HTMLElement[];
   byRole(role: string): HTMLElement | null;
+  rerender(element: ReactElement): void;
   unmount(): void;
 }
 
@@ -29,6 +30,7 @@ export function mount(element: ReactElement): Mounted {
     byTestId: (testId) => container.querySelector<HTMLElement>(`[data-testid="${testId}"]`),
     allByTestId: (testId) => [...container.querySelectorAll<HTMLElement>(`[data-testid="${testId}"]`)],
     byRole: (role) => container.querySelector<HTMLElement>(`[role="${role}"]`) ?? container.querySelector<HTMLElement>(role),
+    rerender(element) { act(() => root.render(element)); },
     unmount() {
       act(() => root.unmount());
       container.remove();

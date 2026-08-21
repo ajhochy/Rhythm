@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RhythmsScreen } from '../src/screens/RhythmsScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureRhythmsGateway, failingRhythmsGateway, emp
 import { mount, flush, actClick, actSetValue, actKeyDown } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
 }
 
 function mountRhythms(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -206,7 +206,7 @@ describe('RhythmsScreen', () => {
     mounted.unmount();
   });
 
-  it('edits a selected rhythm’s title and sequential flag and saves through the gateway', async () => {
+  it('replaces, edits, and removes selected rhythm workflow steps through the edit form round trip', async () => {
     const rhythmsGateway = fixtureRhythmsGateway();
     const mounted = mountRhythms({ rhythms: rhythmsGateway });
     await flush();
@@ -215,10 +215,20 @@ describe('RhythmsScreen', () => {
     const titleInput = mounted.byTestId('rhythm-edit-title') as HTMLInputElement;
     expect(titleInput.value).toBe('Weekend service cadence');
     await actSetValue(titleInput, 'Weekend service cadence (updated)');
+    await actSetValue(mounted.byTestId('rhythm-edit-step-title-0') as HTMLInputElement, 'Prepare the updated handoff');
+    await actClick(mounted.byTestId('rhythm-edit-add-step')!);
+    await flush();
+    await actSetValue(mounted.byTestId('rhythm-edit-step-title-1') as HTMLInputElement, 'Send the final reminder');
     await actClick(mounted.byTestId('rhythm-edit-submit')!);
     await flush();
     const updated = await rhythmsGateway.list();
-    expect(updated.find((rule) => rule.id === 'rhythm-weekend-service')?.title).toBe('Weekend service cadence (updated)');
+    const rule = updated.find((item) => item.id === 'rhythm-weekend-service');
+    expect(rule?.title).toBe('Weekend service cadence (updated)');
+    expect(rule?.steps.map((step) => step.title)).toEqual(['Prepare the updated handoff', 'Send the final reminder']);
+    await actClick(mounted.byTestId('rhythm-edit-remove-step-1')!);
+    await actClick(mounted.byTestId('rhythm-edit-submit')!);
+    await flush();
+    expect((await rhythmsGateway.list()).find((item) => item.id === 'rhythm-weekend-service')?.steps.map((step) => step.title)).toEqual(['Prepare the updated handoff']);
     mounted.unmount();
   });
 
@@ -247,6 +257,22 @@ describe('RhythmsScreen', () => {
     await flush();
     expect(mounted.byTestId('rhythm-delete-dialog')).toBeNull();
     expect(document.activeElement).toBe(trigger);
+    mounted.unmount();
+  });
+
+  it('lets a non-owner inspect a rhythm but never calls mutation gateways', async () => {
+    const rhythmsGateway = fixtureRhythmsGateway();
+    const update = vi.fn(rhythmsGateway.update);
+    const mounted = mountRhythms({ rhythms: { ...rhythmsGateway, update } }, { currentUser: { id: 'workspace-user-9', displayName: 'Viewer', initials: 'VW' } });
+    await flush();
+    await actClick(mounted.byTestId('rhythm-inspect-rhythm-weekend-service')!);
+    await flush();
+    expect(mounted.byTestId('rhythm-detail')?.textContent).toContain('Weekend service cadence');
+    const enabled = mounted.byTestId('rhythm-enabled-rhythm-weekend-service') as HTMLInputElement;
+    expect(enabled.disabled).toBe(true);
+    expect(enabled.title).toContain('Only the rhythm owner');
+    await actClick(enabled);
+    expect(update).not.toHaveBeenCalled();
     mounted.unmount();
   });
 });

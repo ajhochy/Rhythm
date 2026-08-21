@@ -6,10 +6,8 @@
 // events. Deliberately dropped at the host-neutral boundary: the ISO-8601 week-number label
 // format and its hardcoded 2026 demo-date validation (replaced with plain ±7-day arithmetic off
 // the requested week's Monday — see shiftIsoDate/startOfWeek below), the hash-based route/query
-// state, and the API-receipt ledger. A project-step-sourced task is fully read-only here (no
-// complete/select/drag) per the `RhythmPlannerTask.readonly` flag already established on this
-// contract (domain/types.ts) — a deliberate simplification from production, where project steps
-// remain completable/schedulable from Planner.
+// state, and the API-receipt ledger. Calendar events are read-only, but project steps retain the
+// same completion, scheduling, and inspector behavior as the production planner.
 import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
@@ -45,22 +43,20 @@ function StatePanel({ state, onRetry, onCreate }: { state: Exclude<PlannerSurfac
   return <section className="planner-state warning" role="status" data-testid="page-state-unavailable"><span className="eyebrow">Planning service prerequisite</span><h2>Planner is unavailable</h2><p>Reconnect the planning service before loading weekly work.</p><button className="primary-button" type="button" onClick={onRetry} data-testid="page-retry">Retry</button></section>;
 }
 
-function TaskCard({ task, selected, onInspect, onComplete, onSelect, onDragStart }: {
-  task: RhythmPlannerTask; selected: boolean; onInspect(task: RhythmPlannerTask): void; onComplete(task: RhythmPlannerTask): void; onSelect(task: RhythmPlannerTask): void; onDragStart(event: DragEvent<HTMLButtonElement>, task: RhythmPlannerTask): void;
+function TaskCard({ task, selected, canWrite, onInspect, onComplete, onSelect, onDragStart }: {
+  task: RhythmPlannerTask; selected: boolean; canWrite: boolean; onInspect(task: RhythmPlannerTask): void; onComplete(task: RhythmPlannerTask): void; onSelect(task: RhythmPlannerTask): void; onDragStart(event: DragEvent<HTMLButtonElement>, task: RhythmPlannerTask): void;
 }) {
   return (
     <article className={`planner-task ${task.readonly ? 'project-step' : ''} ${selected ? 'selected' : ''}`} data-status={task.status}>
-      <button className="task-main" type="button" draggable={!task.readonly} aria-label={`Inspect ${task.title}`} onDragStart={(event) => onDragStart(event, task)} onClick={() => onInspect(task)} data-testid={`planner-task-${task.id}`}>
+      <button className="task-main" type="button" draggable={canWrite} aria-label={`Inspect ${task.title}`} onDragStart={(event) => onDragStart(event, task)} onClick={() => onInspect(task)} data-testid={`planner-task-${task.id}`}>
         <span className="task-source">{task.readonly ? task.projectName ?? 'Project step' : `${task.energy ?? '-'} Task`}</span>
         <strong>{task.title}</strong>
         {task.dueDate && task.dueDate !== task.scheduledDate && <small>Due {task.dueDate}</small>}
       </button>
-      {!task.readonly && (
-        <div className="task-controls">
-          <button type="button" aria-label={`Select ${task.title}`} aria-pressed={selected} onClick={() => onSelect(task)} data-testid={`planner-task-select-${task.id}`}><span aria-hidden="true">{selected ? '◆' : '◇'}</span></button>
-          <button type="button" aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => onComplete(task)} data-testid={`planner-complete-${task.id}`}><span aria-hidden="true">{task.status === 'done' ? '↺' : '✓'}</span></button>
-        </div>
-      )}
+      <div className="task-controls">
+        <button type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} aria-label={`Select ${task.title}`} aria-pressed={selected} onClick={() => onSelect(task)} data-testid={`planner-task-select-${task.id}`}><span aria-hidden="true">{selected ? '◆' : '◇'}</span></button>
+        <button type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} aria-label={`${task.status === 'done' ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => onComplete(task)} data-testid={`planner-complete-${task.id}`}><span aria-hidden="true">{task.status === 'done' ? '↺' : '✓'}</span></button>
+      </div>
     </article>
   );
 }
@@ -72,6 +68,7 @@ function CalendarEvent({ event, onInspect }: { event: RhythmPlannerEvent; onInsp
 export function PlannerScreen() {
   const { planner: gateway } = useRhythmDomainGateway();
   const host = useRhythmHost();
+  const canWrite = host.currentUser.collaborationCapability !== 'read';
   const [surfaceState, setSurfaceState] = useState<PlannerSurfaceState>('loading');
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [plan, setPlan] = useState<RhythmPlannerWeek | null>(null);
@@ -83,6 +80,7 @@ export function PlannerScreen() {
   const [mutationPending, setMutationPending] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const createTitleRef = useRef<HTMLInputElement>(null);
+  const loadGeneration = useRef(0);
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';
@@ -90,19 +88,21 @@ export function PlannerScreen() {
   };
 
   const load = async (targetWeekStart: string) => {
+    const generation = ++loadGeneration.current;
     setSurfaceState('loading');
     try {
       const [loadedPlan, loadedMembers] = await Promise.all([gateway.week(targetWeekStart), gateway.members()]);
+      if (generation !== loadGeneration.current) return;
       setPlan(loadedPlan);
       setMembers(loadedMembers);
       const hasWork = loadedPlan.backlog.length > 0 || loadedPlan.days.some((day) => day.tasks.length > 0);
       setSurfaceState(hasWork ? 'ready' : 'empty');
     } catch (error) {
-      handleError(error);
+      if (generation === loadGeneration.current) handleError(error);
     }
   };
 
-  useEffect(() => { void load(weekStart); }, [gateway, weekStart]);
+  useEffect(() => { void load(weekStart); return () => { loadGeneration.current += 1; }; }, [gateway, weekStart]);
 
   const showsWorkspace = surfaceState === 'ready';
   const allTasks = useMemo(() => (plan ? [...plan.backlog, ...plan.days.flatMap((day) => day.tasks)] : []), [plan]);
@@ -116,7 +116,7 @@ export function PlannerScreen() {
   const changeWeek = (next: string) => setWeekStart(next);
 
   const changeStatus = async (task: RhythmPlannerTask, status: 'open' | 'done') => {
-    if (mutationPending || task.readonly) return;
+    if (!canWrite || mutationPending) return;
     setMutationPending(true);
     try {
       const updated = await gateway.update(task.id, { status });
@@ -136,7 +136,7 @@ export function PlannerScreen() {
   const toggleSelected = (task: RhythmPlannerTask) => setSelectedIds((current) => (current.includes(task.id) ? current.filter((id) => id !== task.id) : [...current, task.id]));
 
   const bulkComplete = async () => {
-    const targets = allTasks.filter((task) => selectedIds.includes(task.id) && task.status === 'open' && !task.readonly);
+    const targets = allTasks.filter((task) => selectedIds.includes(task.id) && task.status === 'open');
     for (const task of targets) await changeStatus(task, 'done');
     setSelectedIds([]);
   };
@@ -145,7 +145,7 @@ export function PlannerScreen() {
 
   const moveTask = async (taskId: string, date: string) => {
     const task = allTasks.find((item) => item.id === taskId);
-    if (!task || mutationPending || task.readonly || task.status === 'done') return;
+    if (!canWrite || !task || mutationPending || task.status === 'done') return;
     setMutationPending(true);
     try {
       const updated = await gateway.scheduleTask(task.id, { scheduledDate: date });
@@ -167,7 +167,7 @@ export function PlannerScreen() {
   const createTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
-    if (!form.reportValidity()) return;
+    if (!canWrite || !form.reportValidity()) return;
     const data = new FormData(form);
     const title = String(data.get('title') ?? '').trim();
     if (!title) { createTitleRef.current?.focus(); return; }
@@ -190,7 +190,7 @@ export function PlannerScreen() {
 
   const saveTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!currentTask || currentTask.readonly) return;
+    if (!canWrite || !currentTask) return;
     const data = new FormData(event.currentTarget);
     setMutationPending(true);
     try {
@@ -213,7 +213,7 @@ export function PlannerScreen() {
   };
 
   const addCollaborator = async (memberId: string) => {
-    if (!currentTask) return;
+    if (!canWrite || !currentTask) return;
     try {
       const updated = await gateway.addCollaborator(currentTask.id, memberId);
       setPlan((current) => current && {
@@ -228,7 +228,7 @@ export function PlannerScreen() {
   };
 
   const removeCollaborator = async (memberId: string) => {
-    if (!currentTask) return;
+    if (!canWrite || !currentTask) return;
     try {
       const updated = await gateway.removeCollaborator(currentTask.id, memberId);
       setPlan((current) => current && {
@@ -259,7 +259,7 @@ export function PlannerScreen() {
             <span><strong data-testid="planner-backlog-count">{backlog.length}</strong> backlog</span>
           </div>
           <div className="planner-header-actions">
-            <HeaderTaskAction onClick={() => setInspector({ kind: 'create' })} disabled={!showsWorkspace || mutationPending} testId="planner-header-add-task" />
+            <HeaderTaskAction onClick={() => setInspector({ kind: 'create' })} disabled={!showsWorkspace || mutationPending || !canWrite} testId="planner-header-add-task" />
             <nav className="week-controls" aria-label="Week navigation">
               <button className="secondary-button" type="button" aria-label="Previous week" onClick={() => changeWeek(shiftIsoDate(weekStart, -7))} data-testid="planner-prev-week">←</button>
               <button className="secondary-button" type="button" disabled={weekStart === startOfWeek(new Date())} onClick={() => changeWeek(startOfWeek(new Date()))} data-testid="planner-today">Today</button>
@@ -275,7 +275,7 @@ export function PlannerScreen() {
               {selectedIds.length > 0 && (
                 <aside className="selection-bar" aria-label="Selected tasks">
                   <strong data-testid="planner-selection-count">{selectedIds.length} selected</strong>
-                  <button className="primary-button" type="button" onClick={() => void bulkComplete()} data-testid="planner-bulk-complete">Mark complete</button>
+                  <button className="primary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => void bulkComplete()} data-testid="planner-bulk-complete">Mark complete</button>
                   <button className="text-button" type="button" onClick={() => setSelectedIds([])} data-testid="planner-clear-selection">Clear</button>
                 </aside>
               )}
@@ -283,9 +283,9 @@ export function PlannerScreen() {
               <section className="planner-board" aria-label="Weekly plan" data-testid="planner-board">
                 <aside className="backlog-lane" data-testid="planner-backlog">
                   <header><span className="eyebrow">Unscheduled</span><h2>Backlog</h2></header>
-                  <button className="secondary-button add-control" type="button" disabled={mutationPending} onClick={() => setInspector({ kind: 'create' })} data-testid="planner-add-backlog-task">+ Add unscheduled task</button>
+                  <button className="secondary-button add-control" type="button" disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setInspector({ kind: 'create' })} data-testid="planner-add-backlog-task">+ Add unscheduled task</button>
                   <div className="lane-list">
-                    {backlog.map((task) => <TaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={(item) => void changeStatus(item, item.status === 'done' ? 'open' : 'done')} onSelect={toggleSelected} onDragStart={onDragStart} />)}
+                          {backlog.map((task) => <TaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} canWrite={canWrite} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={(item) => void changeStatus(item, item.status === 'done' ? 'open' : 'done')} onSelect={toggleSelected} onDragStart={onDragStart} />)}
                   </div>
                 </aside>
 
@@ -297,9 +297,9 @@ export function PlannerScreen() {
                         <header><span>{day.label}</span><h2 id={`planner-day-title-${day.date}`}>{day.date}</h2></header>
                         <div className="event-list">{day.events.map((event) => <CalendarEvent key={event.id} event={event} onInspect={(item) => setInspector({ kind: 'event', id: item.id })} />)}</div>
                         <div className="lane-list">
-                          {dayTasks.map((task) => <TaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={(item) => void changeStatus(item, item.status === 'done' ? 'open' : 'done')} onSelect={toggleSelected} onDragStart={onDragStart} />)}
+                          {dayTasks.map((task) => <TaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} canWrite={canWrite} onInspect={(item) => setInspector({ kind: 'task', id: item.id })} onComplete={(item) => void changeStatus(item, item.status === 'done' ? 'open' : 'done')} onSelect={toggleSelected} onDragStart={onDragStart} />)}
                         </div>
-                        <button className="text-button add-control" type="button" disabled={mutationPending} onClick={() => setInspector({ kind: 'create', scheduledDate: day.date })} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
+                        <button className="text-button add-control" type="button" disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setInspector({ kind: 'create', scheduledDate: day.date })} data-testid={`planner-add-task-${day.date}`}>+ Add task</button>
                       </section>
                     );
                   })}
@@ -322,15 +322,13 @@ export function PlannerScreen() {
             members={members}
             titleRef={createTitleRef}
             defaultScheduledDate={inspector?.kind === 'create' ? inspector.scheduledDate ?? '' : ''}
-            disabled={mutationPending}
+            disabled={mutationPending || !canWrite}
             testIds={{ title: 'planner-create-title', notes: 'planner-create-notes', scheduledDate: 'planner-create-scheduled-date', dueDate: 'planner-create-due-date', collaborator: 'planner-create-collaborator', cancel: 'planner-create-task-cancel', submit: 'planner-create-task-submit' }}
           />
         </FocusDialog>
 
-        <FocusDialog open={Boolean(currentTask)} onClose={closeInspector} title={currentTask?.readonly ? 'Task details' : 'Edit task'} description={currentTask?.readonly ? `Source-owned by ${currentTask.projectName ?? 'its project'}. Read-only here.` : 'Planner persists notes and date fields for existing tasks.'} testId="planner-inspector">
-          {currentTask && (currentTask.readonly ? (
-            <article className="readonly-details"><span className="eyebrow">Read only</span><h3>{currentTask.title}</h3><p>{currentTask.notes || 'No notes'}</p></article>
-          ) : (
+        <FocusDialog open={Boolean(currentTask)} onClose={closeInspector} title={canWrite ? 'Edit task' : 'Task details'} description={canWrite ? 'Planner persists notes and date fields for existing tasks.' : 'This host grants inspection only.'} testId="planner-inspector">
+          {currentTask && (
             <form className="inspector-form task-editor-form" onSubmit={(event) => void saveTask(event)}>
               <p className="inspector-record-title">{currentTask.title}</p>
               <label className="task-editor-field">Task notes<textarea name="notes" rows={4} defaultValue={currentTask.notes} data-autofocus data-testid="planner-edit-notes" /></label>
@@ -339,7 +337,7 @@ export function PlannerScreen() {
                 <label className="task-editor-field">Due date<input name="dueDate" type="date" defaultValue={currentTask.dueDate ?? ''} data-testid="planner-edit-due-date" /></label>
               </div>
               <section className="collaborators task-editor-section" aria-labelledby="planner-collaborators-title">
-                <div className="subhead task-editor-section-head"><h3 id="planner-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" onClick={() => setCollaboratorPickerOpen((value) => !value)} data-testid="planner-add-collaborator">Add collaborator</button></div>
+                <div className="subhead task-editor-section-head"><h3 id="planner-collaborators-title">Collaborators</h3><button className="secondary-button" type="button" disabled={!canWrite} onClick={() => setCollaboratorPickerOpen((value) => !value)} data-testid="planner-add-collaborator">Add collaborator</button></div>
                 <div className="collaborator-chips">{currentTask.collaborators.map((member) => <span key={member.id}>{member.name}<button type="button" aria-label={`Remove ${member.name}`} onClick={() => void removeCollaborator(member.id)} data-testid={`planner-remove-collaborator-${member.id}`}>×</button></span>)}</div>
                 {collaboratorPickerOpen && (
                   <div className="collaborator-picker" role="listbox" aria-label="Workspace members">
@@ -355,10 +353,10 @@ export function PlannerScreen() {
               </section>
               <footer className="task-editor-footer">
                 <button className="secondary-button" type="button" onClick={closeInspector} data-testid="planner-edit-cancel">Cancel</button>
-                <button className="primary-button" type="submit" disabled={mutationPending} data-testid="planner-save-task">Save changes</button>
+                <button className="primary-button" type="submit" disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} data-testid="planner-save-task">Save changes</button>
               </footer>
             </form>
-          ))}
+          )}
         </FocusDialog>
 
         <FocusDialog open={Boolean(currentEvent)} onClose={closeInspector} title="Calendar event" description="Calendar events provide planning context and cannot be changed here." testId="planner-calendar-inspector">

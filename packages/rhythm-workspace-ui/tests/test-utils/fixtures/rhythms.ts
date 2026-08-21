@@ -56,6 +56,13 @@ export function fixtureRhythmsGateway(): RhythmsGateway {
       rhythms = rhythms.map((rhythm) => (rhythm.id === id ? { ...rhythm, steps: [...rhythm.steps, step] } : rhythm));
       return step;
     },
+    replaceSteps: async (id, steps) => {
+      const existing = rhythms.find((rhythm) => rhythm.id === id);
+      if (!existing) throw new RhythmGatewayError('not_found', `unknown rhythm ${id}`);
+      const updated = { ...existing, steps: steps.map((step, index) => ({ id: `${id}-step-${index + 1}`, ...step })) };
+      rhythms = rhythms.map((rhythm) => rhythm.id === id ? updated : rhythm);
+      return updated;
+    },
     addCollaborator: async (id, memberId) => {
       const member = members.find((candidate) => candidate.id === memberId);
       const existing = rhythms.find((rhythm) => rhythm.id === id);
@@ -76,7 +83,7 @@ export function fixtureRhythmsGateway(): RhythmsGateway {
 
 export function failingRhythmsGateway(kind: 'forbidden' | 'not_found' | 'unavailable' | 'server_error'): RhythmsGateway {
   const fail = async (): Promise<never> => { throw new RhythmGatewayError(kind, `simulated ${kind}`); };
-  return { list: fail, members: fail, create: fail, update: fail, delete: fail, addStep: fail, addCollaborator: fail, removeCollaborator: fail };
+  return { list: fail, members: fail, create: fail, update: fail, delete: fail, addStep: fail, replaceSteps: fail, addCollaborator: fail, removeCollaborator: fail };
 }
 
 export function emptyRhythmsGateway(): RhythmsGateway {

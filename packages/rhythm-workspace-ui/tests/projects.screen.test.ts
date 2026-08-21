@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProjectsScreen } from '../src/screens/ProjectsScreen';
 import { RhythmWorkspaceProvider } from '../src/context';
 import { defaultRhythmTokens } from '../src/host/theme';
@@ -8,7 +8,7 @@ import { fixtureDomainGateway, fixtureProjectsGateway, failingProjectsGateway, e
 import { mount, flush, actClick, actSetValue } from './test-utils/mount';
 
 function buildHost(overrides: Record<string, unknown> = {}) {
-  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
+  return { tokens: defaultRhythmTokens, viewport: 'regular' as const, currentUser: { id: 'workspace-user-1', displayName: 'AJ Hochhalter', initials: 'AH' }, ...overrides };
 }
 
 function mountProjects(gatewayOverrides: Partial<ReturnType<typeof fixtureDomainGateway>> = {}, hostOverrides: Record<string, unknown> = {}) {
@@ -34,6 +34,24 @@ describe('ProjectsScreen', () => {
     expect(mounted.byTestId('page-state-loading')).toBeTruthy();
     await flush();
     expect(mounted.byTestId('page-state-loading')).toBeNull();
+    mounted.unmount();
+  });
+
+  it('ignores a deferred stale load after the projects gateway is replaced', async () => {
+    let releaseOld!: (value: Awaited<ReturnType<ReturnType<typeof fixtureProjectsGateway>['templates']>>) => void;
+    const old = fixtureProjectsGateway();
+    const staleGateway = { ...old, templates: () => new Promise<Awaited<ReturnType<typeof old.templates>>>((resolve) => { releaseOld = resolve; }) };
+    const fresh = fixtureProjectsGateway();
+    const freshTemplates = await fresh.templates();
+    fresh.templates = async () => [{ ...freshTemplates[0]!, name: 'Fresh project gateway' }];
+    const gateway = { ...fixtureDomainGateway(), projects: staleGateway };
+    const mounted = mount(createElement(RhythmWorkspaceProvider, { gateway, host: buildHost(), children: createElement(ProjectsScreen) }));
+    mounted.rerender(createElement(RhythmWorkspaceProvider, { gateway: { ...gateway, projects: fresh }, host: buildHost(), children: createElement(ProjectsScreen) }));
+    await flush();
+    expect(mounted.container.textContent).toContain('Fresh project gateway');
+    releaseOld(await old.templates());
+    await flush();
+    expect(mounted.container.textContent).toContain('Fresh project gateway');
     mounted.unmount();
   });
 
@@ -223,6 +241,73 @@ describe('ProjectsScreen', () => {
     await flush();
     const created = await projectsGateway.list();
     expect(created.some((instance) => instance.templateId === 'template-sunday-service' && instance.anchorDate === '2026-09-06')).toBe(true);
+    mounted.unmount();
+  });
+
+  it('creates, edits, and deletes a template through the gateway round trip', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const mounted = mountProjects({ projects: projectsGateway });
+    await flush();
+    await actClick(mounted.byTestId('project-template-new')!);
+    await flush();
+    await actSetValue(mounted.byTestId('project-template-name') as HTMLInputElement, 'Funeral service');
+    await actClick(mounted.byTestId('project-template-save')!);
+    await flush();
+    const created = (await projectsGateway.templates()).find((template) => template.name === 'Funeral service')!;
+    expect(created).toBeTruthy();
+    await actClick(mounted.byTestId(`project-template-edit-${created.id}`)!);
+    await flush();
+    await actSetValue(mounted.byTestId('project-template-name') as HTMLInputElement, 'Funeral service follow-through');
+    await actClick(mounted.byTestId('project-template-save')!);
+    await flush();
+    expect((await projectsGateway.templates()).find((template) => template.id === created.id)?.name).toBe('Funeral service follow-through');
+    await actClick(mounted.byTestId(`project-template-delete-${created.id}`)!);
+    await flush();
+    expect((await projectsGateway.templates()).some((template) => template.id === created.id)).toBe(false);
+    mounted.unmount();
+  });
+
+  it('adds, edits, and deletes a template step with offsets and assignee through the gateway round trip', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const mounted = mountProjects({ projects: projectsGateway });
+    await flush();
+    await actClick(mounted.byTestId('project-template-edit-template-empty')!);
+    await flush();
+    await actClick(mounted.byTestId('project-template-step-add')!);
+    await flush();
+    await actSetValue(mounted.byTestId('project-template-step-title') as HTMLInputElement, 'Confirm care team');
+    await actSetValue(mounted.byTestId('project-template-step-offset-days') as HTMLInputElement, '-3');
+    await actSetValue(mounted.byTestId('project-template-step-offset-description') as HTMLInputElement, 'Three days before');
+    await actSetValue(mounted.byTestId('project-template-step-assignee') as HTMLSelectElement, 'workspace-user-2');
+    await actClick(mounted.byTestId('project-template-step-save')!);
+    await flush();
+    const step = (await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps[0]!;
+    expect(step).toMatchObject({ title: 'Confirm care team', offsetDays: -3, offsetDescription: 'Three days before', assigneeId: 'workspace-user-2' });
+    await actClick(mounted.byTestId(`project-template-step-edit-${step.id}`)!);
+    await flush();
+    await actSetValue(mounted.byTestId('project-template-step-title') as HTMLInputElement, 'Confirm care plan');
+    await actClick(mounted.byTestId('project-template-step-save')!);
+    await flush();
+    expect((await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps[0]?.title).toBe('Confirm care plan');
+    await actClick(mounted.byTestId(`project-template-step-delete-${step.id}`)!);
+    await flush();
+    expect((await projectsGateway.templates()).find((template) => template.id === 'template-empty')!.steps).toHaveLength(0);
+    mounted.unmount();
+  });
+
+  it('lets read-only hosts inspect projects but blocks project mutations with an accessible reason', async () => {
+    const projectsGateway = fixtureProjectsGateway();
+    const updateStep = vi.fn(projectsGateway.updateStep);
+    const mounted = mountProjects({ projects: { ...projectsGateway, updateStep } }, { currentUser: { id: 'workspace-user-1', displayName: 'AJ', initials: 'AH', collaborationCapability: 'read' } });
+    await flush();
+    await actClick(mounted.byTestId('project-instance-expand-instance-sunday-service-2026-08-16')!);
+    await flush();
+    expect(mounted.byTestId('project-inspector')?.textContent).toContain('Sunday Service');
+    const complete = mounted.byTestId('project-step-complete-step-final-run-sheet') as HTMLInputElement;
+    expect(complete.disabled).toBe(true);
+    expect(complete.title).toContain('inspection only');
+    await actClick(complete);
+    expect(updateStep).not.toHaveBeenCalled();
     mounted.unmount();
   });
 });

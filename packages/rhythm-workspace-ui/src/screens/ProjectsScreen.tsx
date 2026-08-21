@@ -5,14 +5,12 @@
 // scheduled-after-due warning), adding a milestone, and collaborator add/remove. Deliberately
 // dropped at the host-neutral boundary: the hash-based mode/route (templates vs active,
 // per-template scoping), the API-receipt ledger, the fixture-only page-state debug picker, and
-// template/template-step authoring (create/edit/delete a template or its steps) — ProjectsGateway
-// only exposes read-only `templates()` plus `generate()`; a template *builder* is a materially
-// larger feature this narrower contract doesn't carry, tracked as a residual for a future gate.
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useRhythmDomainGateway } from '../context';
+// template/template-step authoring, active-project inspection, and the API-receipt ledger.
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useRhythmDomainGateway, useRhythmHost } from '../context';
 import { ScreenRoot } from './ScreenRoot';
 import { FocusDialog } from '../components/FocusDialog';
-import { RhythmGatewayError, type RhythmProject, type RhythmProjectStep, type RhythmProjectTemplate, type RhythmWorkspaceMember } from '../domain/types';
+import { RhythmGatewayError, type RhythmProject, type RhythmProjectStep, type RhythmProjectTemplate, type RhythmProjectTemplateStep, type RhythmWorkspaceMember } from '../domain/types';
 
 type ProjectsSurfaceState = 'loading' | 'ready' | 'empty' | 'forbidden' | 'unavailable' | 'server_error';
 type InspectorDraft = Pick<RhythmProjectStep, 'title' | 'notes' | 'scheduledDate' | 'dueDate' | 'assigneeId'>;
@@ -35,6 +33,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function ProjectsScreen() {
   const { projects: gateway } = useRhythmDomainGateway();
+  const host = useRhythmHost();
+  const canWrite = host.currentUser.collaborationCapability !== 'read';
+  const isOwner = (ownerId: string) => Boolean(host.currentUser.id && host.currentUser.id === ownerId);
   const [surfaceState, setSurfaceState] = useState<ProjectsSurfaceState>('loading');
   const [templates, setTemplates] = useState<RhythmProjectTemplate[]>([]);
   const [instances, setInstances] = useState<RhythmProject[]>([]);
@@ -51,6 +52,9 @@ export function ProjectsScreen() {
   const [inspector, setInspector] = useState<{ instanceId: string; stepId: string } | null>(null);
   const [inspectorDraft, setInspectorDraft] = useState<InspectorDraft | null>(null);
   const [mutationPending, setMutationPending] = useState(false);
+  const [templateEditor, setTemplateEditor] = useState<RhythmProjectTemplate | 'new' | null>(null);
+  const [templateStepEditor, setTemplateStepEditor] = useState<{ templateId: string; step?: RhythmProjectTemplateStep } | null>(null);
+  const loadGeneration = useRef(0);
 
   const handleError = (error: unknown) => {
     const kind = error instanceof RhythmGatewayError ? error.kind : 'server_error';
@@ -58,19 +62,21 @@ export function ProjectsScreen() {
   };
 
   const load = async () => {
+    const generation = ++loadGeneration.current;
     setSurfaceState('loading');
     try {
       const [loadedTemplates, loadedInstances, loadedMembers] = await Promise.all([gateway.templates(), gateway.list(), gateway.members()]);
+      if (generation !== loadGeneration.current) return;
       setTemplates(loadedTemplates);
       setInstances(loadedInstances);
       setMembers(loadedMembers);
       setSurfaceState(loadedTemplates.length || loadedInstances.length ? 'ready' : 'empty');
     } catch (error) {
-      handleError(error);
+      if (generation === loadGeneration.current) handleError(error);
     }
   };
 
-  useEffect(() => { void load(); }, [gateway]);
+  useEffect(() => { void load(); return () => { loadGeneration.current += 1; }; }, [gateway]);
 
   const showsWorkspace = surfaceState === 'ready';
   const visibleInstances = useMemo(() => instances.filter((instance) => showCompleted || derivedStatus(instance) !== 'Done'), [instances, showCompleted]);
@@ -84,7 +90,7 @@ export function ProjectsScreen() {
     setInstances((current) => current.map((instance) => (instance.id === instanceId ? { ...instance, steps: instance.steps.map((item) => (item.id === step.id ? step : item)) } : instance)));
 
   const toggleComplete = async (instance: RhythmProject, step: RhythmProjectStep) => {
-    if (mutationPending) return;
+    if (!canWrite || mutationPending) return;
     setMutationPending(true);
     try {
       const updated = await gateway.updateStep(instance.id, step.id, { status: step.status === 'done' ? 'open' : 'done' });
@@ -97,7 +103,7 @@ export function ProjectsScreen() {
   };
 
   const assignMilestone = async (instance: RhythmProject, step: RhythmProjectStep, milestoneId: string) => {
-    if (mutationPending) return;
+    if (!canWrite || mutationPending) return;
     setMutationPending(true);
     try {
       const updated = await gateway.updateStep(instance.id, step.id, { milestoneId: milestoneId || null });
@@ -117,7 +123,7 @@ export function ProjectsScreen() {
 
   const saveInspector = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!inspector || !inspectorDraft || !inspectorDraft.title.trim() || mutationPending) return;
+    if (!canWrite || !inspector || !inspectorDraft || !inspectorDraft.title.trim() || mutationPending) return;
     setMutationPending(true);
     try {
       const updated = await gateway.updateStep(inspector.instanceId, inspector.stepId, { ...inspectorDraft, title: inspectorDraft.title.trim() });
@@ -132,7 +138,7 @@ export function ProjectsScreen() {
 
   const addMilestone = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedInstance || mutationPending) return;
+    if (!canWrite || !selectedInstance || !isOwner(selectedInstance.ownerId) || mutationPending) return;
     const title = String(new FormData(event.currentTarget).get('title') ?? '').trim();
     if (!title) return;
     setMutationPending(true);
@@ -148,6 +154,7 @@ export function ProjectsScreen() {
   };
 
   const addCollaborator = async (instanceId: string, memberId: string) => {
+    if (!canWrite || !isOwner(instances.find((instance) => instance.id === instanceId)?.ownerId ?? '')) return;
     try {
       const updated = await gateway.addCollaborator(instanceId, memberId);
       applyInstance(updated);
@@ -158,6 +165,7 @@ export function ProjectsScreen() {
   };
 
   const removeCollaborator = async (instanceId: string, memberId: string) => {
+    if (!canWrite || !isOwner(instances.find((instance) => instance.id === instanceId)?.ownerId ?? '')) return;
     try {
       const updated = await gateway.removeCollaborator(instanceId, memberId);
       applyInstance(updated);
@@ -167,7 +175,7 @@ export function ProjectsScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!instanceDelete) return;
+    if (!canWrite || !instanceDelete || !isOwner(instanceDelete.ownerId)) return;
     setMutationPending(true);
     try {
       await gateway.delete(instanceDelete.id);
@@ -182,7 +190,7 @@ export function ProjectsScreen() {
 
   const startProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!selectedTemplate || !anchorDate || mutationPending) return;
+    if (!canWrite || !selectedTemplate || !anchorDate || mutationPending) return;
     setMutationPending(true);
     try {
       const created = await gateway.generate(selectedTemplate.id, { anchorDate, name: instanceName.trim() || undefined });
@@ -199,17 +207,79 @@ export function ProjectsScreen() {
     }
   };
 
+  const saveTemplate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canWrite || !templateEditor) return;
+    const data = new FormData(event.currentTarget);
+    const input = { name: String(data.get('name') ?? '').trim(), description: String(data.get('description') ?? '').trim(), anchorType: String(data.get('anchorType') ?? '').trim() };
+    if (!input.name || !input.anchorType) return;
+    setMutationPending(true);
+    try {
+      const saved = templateEditor === 'new' ? await gateway.createTemplate(input) : await gateway.updateTemplate(templateEditor.id, input);
+      setTemplates((current) => templateEditor === 'new' ? (current.some((template) => template.id === saved.id) ? current : [...current, saved]) : current.map((template) => template.id === saved.id ? saved : template));
+      setSelectedTemplateId(saved.id); setTemplateEditor(null);
+    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+  };
+
+  const deleteTemplate = async (template: RhythmProjectTemplate) => {
+    if (!canWrite || mutationPending) return;
+    setMutationPending(true);
+    try { await gateway.deleteTemplate(template.id); setTemplates((current) => current.filter((item) => item.id !== template.id)); setSelectedTemplateId(null); }
+    catch (error) { handleError(error); } finally { setMutationPending(false); }
+  };
+
+  const saveTemplateStep = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canWrite || !templateStepEditor || mutationPending) return;
+    const data = new FormData(event.currentTarget);
+    const input = {
+      title: String(data.get('title') ?? '').trim(),
+      offsetDays: Number(data.get('offsetDays') ?? 0),
+      offsetDescription: String(data.get('offsetDescription') ?? '').trim(),
+      assigneeId: String(data.get('assigneeId') ?? '') || undefined,
+    };
+    if (!input.title || !Number.isFinite(input.offsetDays) || !input.offsetDescription) return;
+    setMutationPending(true);
+    try {
+      const saved = templateStepEditor.step
+        ? await gateway.updateTemplateStep(templateStepEditor.templateId, templateStepEditor.step.id, input)
+        : await gateway.addTemplateStep(templateStepEditor.templateId, input);
+      setTemplates((current) => current.map((template) => template.id !== templateStepEditor.templateId ? template : {
+        ...template,
+        steps: templateStepEditor.step
+          ? template.steps.map((step) => step.id === saved.id ? saved : step)
+          : (template.steps.some((step) => step.id === saved.id) ? template.steps : [...template.steps, saved]),
+      }));
+      setTemplateEditor((current) => current === 'new' || !current || current.id !== templateStepEditor.templateId ? current : {
+        ...current,
+        steps: templateStepEditor.step ? current.steps.map((step) => step.id === saved.id ? saved : step) : (current.steps.some((step) => step.id === saved.id) ? current.steps : [...current.steps, saved]),
+      });
+      setTemplateStepEditor(null);
+    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+  };
+
+  const deleteTemplateStep = async (templateId: string, stepId: string) => {
+    if (!canWrite || mutationPending) return;
+    setMutationPending(true);
+    try {
+      await gateway.deleteTemplateStep(templateId, stepId);
+      const remove = (template: RhythmProjectTemplate) => ({ ...template, steps: template.steps.filter((step) => step.id !== stepId) });
+      setTemplates((current) => current.map((template) => template.id === templateId ? remove(template) : template));
+      setTemplateEditor((current) => current === 'new' || !current || current.id !== templateId ? current : remove(current));
+    } catch (error) { handleError(error); } finally { setMutationPending(false); }
+  };
+
   const renderStepRow = (instance: RhythmProject, step: RhythmProjectStep) => (
     <article className="instance-step" key={step.id} data-status={step.status} data-testid={`project-instance-step-${step.id}`}>
       <label className="step-check">
         <span className="sr-only">{step.status === 'done' ? 'Reopen' : 'Complete'} {step.title}</span>
-        <input type="checkbox" checked={step.status === 'done'} disabled={mutationPending} onChange={() => void toggleComplete(instance, step)} data-testid={`project-step-complete-${step.id}`} />
+        <input type="checkbox" checked={step.status === 'done'} disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onChange={() => void toggleComplete(instance, step)} data-testid={`project-step-complete-${step.id}`} />
         <span aria-hidden="true" />
       </label>
       <div className="step-copy"><strong>{step.title}</strong><span>{step.scheduledDate ?? 'No date'} · {members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span></div>
       <label className="milestone-select">
         <span className="sr-only">Milestone for {step.title}</span>
-        <select value={step.milestoneId ?? ''} disabled={mutationPending} onChange={(event) => void assignMilestone(instance, step, event.target.value)} data-testid={`project-step-milestone-${step.id}`}>
+        <select value={step.milestoneId ?? ''} disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onChange={(event) => void assignMilestone(instance, step, event.target.value)} data-testid={`project-step-milestone-${step.id}`}>
           <option value="">Ungrouped</option>{instance.milestones.map((milestone) => <option value={milestone.id} key={milestone.id}>{milestone.title}</option>)}
         </select>
       </label>
@@ -230,7 +300,7 @@ export function ProjectsScreen() {
           {showsWorkspace && (
             <>
               <section className="templates-rail" aria-labelledby="project-templates-title">
-                <header><h2 id="project-templates-title">Templates</h2><span>{templates.length}</span></header>
+                <header><h2 id="project-templates-title">Templates</h2><span>{templates.length}</span><button className="secondary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateEditor('new')} data-testid="project-template-new">New template</button></header>
                 <div className="template-list" role="grid" aria-label="Project templates" data-testid="project-templates-list">
                   {templates.map((template) => (
                     <div className="template-row" role="row" aria-selected={template.id === selectedTemplate?.id ? 'true' : 'false'} key={template.id} data-testid={`project-template-${template.id}`}>
@@ -238,12 +308,14 @@ export function ProjectsScreen() {
                         <button className="template-select" type="button" onClick={() => setSelectedTemplateId(template.id)} data-testid={`project-template-select-${template.id}`}>
                           <strong>{template.name}</strong><span>{template.steps.length} steps · {template.anchorType}</span>
                         </button>
+                        <button className="text-button" type="button" disabled={!canWrite} onClick={() => setTemplateEditor(template)} data-testid={`project-template-edit-${template.id}`}>Edit</button>
+                        <button className="text-danger-button" type="button" disabled={!canWrite} onClick={() => void deleteTemplate(template)} data-testid={`project-template-delete-${template.id}`}>Delete</button>
                       </div>
                     </div>
                   ))}
                 </div>
                 {selectedTemplate && (
-                  <button className="primary-button" type="button" onClick={() => setStartOpen(true)} data-testid="project-start">Start Project</button>
+                  <button className="primary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setStartOpen(true)} data-testid="project-start">Start Project</button>
                 )}
               </section>
 
@@ -272,7 +344,7 @@ export function ProjectsScreen() {
                     <aside className="project-inspector" aria-label="Selected project" data-testid="project-inspector">
                       <header className="project-inspector-header">
                         <div><h2>{selectedInstance.name}</h2><p>{selectedInstance.anchorDate} · {derivedStatus(selectedInstance)}</p></div>
-                        <button className="danger-button" type="button" disabled={mutationPending} onClick={() => setInstanceDelete(selectedInstance)} data-testid={`project-instance-delete-${selectedInstance.id}`}>Delete</button>
+                        <button className="danger-button" type="button" disabled={mutationPending || !canWrite || !isOwner(selectedInstance.ownerId)} title={!isOwner(selectedInstance.ownerId) ? 'Only the project owner can delete or manage collaborators.' : !canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setInstanceDelete(selectedInstance)} data-testid={`project-instance-delete-${selectedInstance.id}`}>Delete</button>
                       </header>
 
                       <section className="people-strip" aria-labelledby={`people-${selectedInstance.id}`}>
@@ -281,16 +353,16 @@ export function ProjectsScreen() {
                           {selectedInstance.collaborators.map((person) => (
                             <span className="person-chip" key={person.id} data-testid={`project-collaborator-${person.id}`}>
                               <i aria-hidden="true">{person.initials}</i><strong>{person.name}</strong>
-                              <button className="icon-button" type="button" aria-label={`Remove ${person.name}`} onClick={() => void removeCollaborator(selectedInstance.id, person.id)} data-testid={`project-collaborator-remove-${person.id}`}>×</button>
+                              <button className="icon-button" type="button" disabled={!canWrite || !isOwner(selectedInstance.ownerId)} aria-label={`Remove ${person.name}`} onClick={() => void removeCollaborator(selectedInstance.id, person.id)} data-testid={`project-collaborator-remove-${person.id}`}>×</button>
                             </span>
                           ))}
-                          <button className="secondary-button" type="button" onClick={() => setCollaboratorPickerFor(selectedInstance.id)} data-testid="project-collaborator-add">Add person</button>
+                          <button className="secondary-button" type="button" disabled={!canWrite || !isOwner(selectedInstance.ownerId)} onClick={() => setCollaboratorPickerFor(selectedInstance.id)} data-testid="project-collaborator-add">Add person</button>
                         </div>
                       </section>
 
                       <div className="timeline-toolbar">
                         <h3>Milestones and steps</h3>
-                        <button className="secondary-button" type="button" disabled={mutationPending} onClick={() => setMilestoneOpen(true)} data-testid="project-milestone-add">Add milestone</button>
+                        <button className="secondary-button" type="button" disabled={mutationPending || !canWrite || !isOwner(selectedInstance.ownerId)} onClick={() => setMilestoneOpen(true)} data-testid="project-milestone-add">Add milestone</button>
                       </div>
                       <div className="milestone-list">
                         {selectedInstance.milestones.map((milestone) => (
@@ -323,6 +395,29 @@ export function ProjectsScreen() {
               <button className="primary-button" type="submit" disabled={!anchorDate || mutationPending} data-testid="project-start-submit">Start Project</button>
             </div>
           </form>
+        </FocusDialog>
+
+        <FocusDialog open={Boolean(templateEditor)} onClose={() => setTemplateEditor(null)} title={templateEditor === 'new' ? 'New template' : 'Edit template'} description="Templates stay reusable; project instances are unchanged." testId="project-template-dialog">
+          {templateEditor && <form className="project-dialog-form" onSubmit={saveTemplate}>
+            <Field label="Template name"><input name="name" data-autofocus defaultValue={templateEditor === 'new' ? '' : templateEditor.name} data-testid="project-template-name" /></Field>
+            <Field label="Description"><textarea name="description" defaultValue={templateEditor === 'new' ? '' : templateEditor.description} data-testid="project-template-description" /></Field>
+            <Field label="Anchor type"><input name="anchorType" defaultValue={templateEditor === 'new' ? 'Service date' : templateEditor.anchorType} data-testid="project-template-anchor-type" /></Field>
+            <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setTemplateEditor(null)}>Cancel</button><button className="primary-button" type="submit" disabled={!canWrite || mutationPending} data-testid="project-template-save">Save template</button></div>
+          </form>}
+          {templateEditor !== 'new' && templateEditor && <section className="template-step-editor" aria-labelledby="project-template-steps-title">
+            <header><h3 id="project-template-steps-title">Template steps</h3><button className="secondary-button" type="button" disabled={!canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined} onClick={() => setTemplateStepEditor({ templateId: templateEditor.id })} data-testid="project-template-step-add">Add step</button></header>
+            {templateEditor.steps.map((step) => <div key={step.id} data-testid={`project-template-step-${step.id}`}><strong>{step.title}</strong><span>{step.offsetDescription} · {members.find((person) => person.id === step.assigneeId)?.name ?? 'Unassigned'}</span><button className="text-button" type="button" disabled={!canWrite} onClick={() => setTemplateStepEditor({ templateId: templateEditor.id, step })} data-testid={`project-template-step-edit-${step.id}`}>Edit</button><button className="text-danger-button" type="button" disabled={!canWrite} onClick={() => void deleteTemplateStep(templateEditor.id, step.id)} data-testid={`project-template-step-delete-${step.id}`}>Delete</button></div>)}
+          </section>}
+        </FocusDialog>
+
+        <FocusDialog open={Boolean(templateStepEditor)} onClose={() => setTemplateStepEditor(null)} title={templateStepEditor?.step ? 'Edit template step' : 'Add template step'} description="Offsets are relative to the project anchor date." testId="project-template-step-dialog">
+          {templateStepEditor && <form className="project-dialog-form" onSubmit={saveTemplateStep}>
+            <Field label="Step title"><input name="title" data-autofocus defaultValue={templateStepEditor.step?.title ?? ''} data-testid="project-template-step-title" /></Field>
+            <Field label="Offset days"><input name="offsetDays" type="number" defaultValue={templateStepEditor.step?.offsetDays ?? 0} data-testid="project-template-step-offset-days" /></Field>
+            <Field label="Offset description"><input name="offsetDescription" defaultValue={templateStepEditor.step?.offsetDescription ?? 'On anchor date'} data-testid="project-template-step-offset-description" /></Field>
+            <Field label="Assignee"><select name="assigneeId" defaultValue={templateStepEditor.step?.assigneeId ?? ''} data-testid="project-template-step-assignee"><option value="">Unassigned</option>{members.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
+            <div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setTemplateStepEditor(null)}>Cancel</button><button className="primary-button" type="submit" disabled={!canWrite || mutationPending} data-testid="project-template-step-save">Save step</button></div>
+          </form>}
         </FocusDialog>
 
         <FocusDialog open={milestoneOpen} onClose={() => setMilestoneOpen(false)} title="Add milestone" description="Milestones group steps inside this project only." testId="project-milestone-dialog">
@@ -359,7 +454,7 @@ export function ProjectsScreen() {
         <FocusDialog open={Boolean(inspectorStep)} onClose={closeInspector} title={inspectorStep?.title ?? 'Project step'} description="Project context stays visible while supported step fields are edited." testId="project-step-inspector" wide>
           {inspectorStep && inspectorDraft && (
             <form className="project-dialog-form inspector-form" onSubmit={saveInspector}>
-              <fieldset disabled={mutationPending}>
+              <fieldset disabled={mutationPending || !canWrite} title={!canWrite ? 'This host grants inspection only.' : undefined}>
                 <legend className="sr-only">Project step fields</legend>
                 <Field label="Title"><input data-autofocus value={inspectorDraft.title} onChange={(event) => setInspectorDraft({ ...inspectorDraft, title: event.target.value })} data-testid="project-step-title" /></Field>
                 <Field label="Notes"><textarea rows={4} value={inspectorDraft.notes} onChange={(event) => setInspectorDraft({ ...inspectorDraft, notes: event.target.value })} data-testid="project-step-notes" /></Field>
