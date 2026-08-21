@@ -41,8 +41,19 @@
     "red": "Before implementation, npx vitest run src/services/__tests__/tool_install_proposal_lifecycle.test.ts failed because ../tool_install_proposal_lifecycle did not exist.",
     "focused_matrix": "103 passed, 2 expected env-gated live skips across managed apply and D1 lifecycle/policy/validator/vetter; real-Docker managed artifact vet passed 1/1.",
     "live": "1/1 passed in 11.46s on isolated API 4098, engine 4097, gateway 4099; sandbox removed and all three ports released; no rhythm-d1-vet containers remained.",
-    "static": "Node 22 tsc --noEmit, npm run build, SQLite migration replay, and git diff --check passed.",
+    "static": "Node 22 api_server tsc --noEmit, npm run build, and git diff --check passed. ai-workflow issue/pr gates reached an inherited environment blocker: apps/mcp_server has no installed TypeScript compiler (the tsc shim reports its missing dependency).",
     "gitnexus": "UNKNOWN: this worktree is not indexed. No analyze/index was run because it can rewrite AGENTS.md/CLAUDE.md."
+  },
+  "security_repair_2026_08_21": {
+    "status": "pass",
+    "findings": [
+      "Managed tools/.staging/.locks and an exact destination are now lstat+realpath-validated direct children; verification reads only ordinary non-symlink files/directories below that destination.",
+      "The staging archive is re-hashed and fully re-parsed after the exact-owned copy and before npm; the deterministic post-inspection source mutation never invokes the runner or activates a destination.",
+      "Tar validation consumes the entire archive, rejects duplicate/ambiguous/non-regular entries, packaged node_modules, every dependency family including bundleDependencies, and requires exactly one ordinary package/package.json."
+    ],
+    "red": "The pre-repair adversarial suite reached the runner through each child symlink and after the source-swap hook, accepted a matching outside destination receipt, and accepted duplicate package.json, package/node_modules, and bundleDependencies archives.",
+    "green": "Focused managed apply suite: 15 passed / 1 expected Docker gate skip; full D1.1-D1.4 matrix with RHYTHM_DOCKER_E2E=1: 12 files, 279 passed; live isolated HTTP/Docker local-tarball activation: 1 passed.",
+    "live": "A sanitized 206-byte self-contained local tarball was copied to the isolated sandbox's code-owned artifact root; real Docker vetting reached sandbox-vetted, approval reached applied, and an on-disk receipt was observed. The missing immutable digest stayed pending/unknown and was denied. Sandbox, staging, Docker containers, and ports 4097/4098/4099 were released after the run."
   },
   "risks": [
     "Only self-contained local tarballs with a SHA-256 identity are supported. Legacy npm/pip proposal methods remain fail-closed because their registry bytes/dependency closure are not bound to the vet report.",

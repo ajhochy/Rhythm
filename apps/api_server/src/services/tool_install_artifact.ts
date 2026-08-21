@@ -1,7 +1,7 @@
 /** Immutable, code-owned local artifact contract for D1 managed installs. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { resolve, relative, join } from 'node:path';
+import { posix, resolve, relative, join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 export const LOCAL_TARBALL_INSTALL_METHOD = 'local-tarball';
@@ -33,36 +33,64 @@ function canonicalOwnedDirectory(root: string): string | null {
   }
 }
 
-function readPackageMetadata(archive: Buffer): { name: string; dependencies: boolean; scripts: boolean } | null {
+function parseTarSize(field: Buffer): number | null {
+  const value = field.toString('ascii').replace(/\0.*$/, '').trim();
+  return /^[0-7]*$/.test(value) ? Number.parseInt(value || '0', 8) : null;
+}
+
+function hasValidChecksum(header: Buffer): boolean {
+  const declared = parseTarSize(header.subarray(148, 156));
+  if (declared === null) return false;
+  let sum = 0;
+  for (let index = 0; index < 512; index++) sum += index >= 148 && index < 156 ? 0x20 : header[index];
+  return sum === declared;
+}
+
+function isUnambiguousTarPath(name: string): boolean {
+  return !!name && !name.includes('\0') && !name.includes('\\') && !name.startsWith('/') &&
+    !name.endsWith('/') && posix.normalize(name) === name && !name.split('/').some((segment) => !segment || segment === '.' || segment === '..');
+}
+
+/** Validates all archive bytes that may reach npm; never trusts a partial tar scan. */
+export function validateImmutableLocalTarballBytes(archive: Buffer, digest: string, expectedToolName: string): { packageName: string } | null {
+  if (!DIGEST.test(digest) || createHash('sha256').update(archive).digest('hex') !== digest) return null;
   let tar: Buffer;
   try { tar = gunzipSync(archive); } catch { return null; }
-  for (let offset = 0; offset + 512 <= tar.length;) {
+  const paths = new Set<string>();
+  let packageJson: Buffer | null = null;
+  let offset = 0;
+  for (; offset + 512 <= tar.length;) {
     const header = tar.subarray(offset, offset + 512);
-    if (header.every((byte) => byte === 0)) break;
-    const sizeText = header.subarray(124, 136).toString('utf8').replace(/\0.*$/, '').trim();
-    const size = Number.parseInt(sizeText || '0', 8);
+    if (header.every((byte) => byte === 0)) {
+      if (tar.subarray(offset).every((byte) => byte === 0)) break;
+      return null;
+    }
+    if (!hasValidChecksum(header) || !header.subarray(345, 500).every((byte) => byte === 0)) return null;
+    const size = parseTarSize(header.subarray(124, 136));
     const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
     const type = header[156] === 0 ? '0' : String.fromCharCode(header[156]);
-    if (!Number.isSafeInteger(size) || size < 0 || !name || name.includes('..') || name.startsWith('/') || !['0', ''].includes(type)) return null;
+    if (size === null || !Number.isSafeInteger(size) || size < 0 || !isUnambiguousTarPath(name) || type !== '0' || paths.has(name)) return null;
+    if (name === 'package/node_modules' || name.startsWith('package/node_modules/')) return null;
+    paths.add(name);
     const bodyStart = offset + 512;
     const bodyEnd = bodyStart + size;
     if (bodyEnd > tar.length) return null;
     if (name === 'package/package.json') {
-      try {
-        const parsed = JSON.parse(tar.subarray(bodyStart, bodyEnd).toString('utf8')) as Record<string, unknown>;
-        const dependencies = ['dependencies', 'optionalDependencies', 'peerDependencies', 'bundledDependencies'].some((key) =>
-          key in parsed && Object.keys((parsed[key] ?? {}) as object).length > 0,
-        );
-        return {
-          name: typeof parsed.name === 'string' ? parsed.name : '',
-          dependencies,
-          scripts: !!parsed.scripts && Object.keys(parsed.scripts as object).length > 0,
-        };
-      } catch { return null; }
+      packageJson = tar.subarray(bodyStart, bodyEnd);
     }
-    offset = bodyStart + Math.ceil(size / 512) * 512;
+    const nextOffset = bodyStart + Math.ceil(size / 512) * 512;
+    if (nextOffset > tar.length) return null;
+    offset = nextOffset;
   }
-  return null;
+  const terminated = offset + 1024 <= tar.length && tar.subarray(offset, offset + 1024).every((byte) => byte === 0);
+  if (!terminated || !tar.subarray(offset).every((byte) => byte === 0)) return null;
+  if (!packageJson) return null;
+  try {
+    const parsed = JSON.parse(packageJson.toString('utf8')) as Record<string, unknown>;
+    const forbidden = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'bundledDependencies', 'bundleDependencies', 'scripts'];
+    if (typeof parsed.name !== 'string' || parsed.name !== expectedToolName || forbidden.some((key) => key in parsed)) return null;
+    return { packageName: parsed.name };
+  } catch { return null; }
 }
 
 /**
@@ -83,9 +111,8 @@ export function inspectImmutableLocalTarball(
     const canonicalPath = realpathSync(path);
     if (!stat.isFile() || stat.isSymbolicLink() || relative(root, canonicalPath).startsWith('..')) return null;
     const bytes = readFileSync(path);
-    if (createHash('sha256').update(bytes).digest('hex') !== digest) return null;
-    const metadata = readPackageMetadata(bytes);
-    if (!metadata || metadata.name !== expectedToolName || metadata.dependencies || metadata.scripts) return null;
-    return { digest, path, packageName: metadata.name };
+    const metadata = validateImmutableLocalTarballBytes(bytes, digest, expectedToolName);
+    if (!metadata) return null;
+    return { digest, path, packageName: metadata.packageName };
   } catch { return null; }
 }

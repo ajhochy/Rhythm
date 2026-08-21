@@ -75,6 +75,14 @@ PR #1454 with final evidence, then return to C6.
 
 ## Recent coding-agent runs
 
+### 2026-08-21 — D1 managed installer artifact-boundary repair (#1429)
+
+- Files modified: immutable tar validator, managed apply boundary, adversarial managed-apply tests, live D1.4 activation contract, contract/run evidence.
+- Checks run: RED reproduced child-path symlink, outside receipt, source-swap, and tar ambiguity flaws; focused GREEN 15/15; D1.1–D1.4 Docker matrix 279/279; isolated live HTTP/Docker activation 1/1; Node 22 typecheck/build; diff and changed-line secret scans clean. Workflow issue/pr gates are blocked only by the missing apps/mcp_server TypeScript dependency after Flutter/API checks pass.
+- Decisions made: validate each direct managed child and verification file with `lstat` + canonical containment; validate the copied staging archive with the same full-byte validator used at source inspection.
+- Deviations from spec: none.
+- Concerns: GitNexus impact/detect is UNKNOWN for this unindexed worktree; remaining filesystem checks are path-based Node APIs rather than descriptor-relative openat operations.
+
 ### 2026-08-21 — D1.4 managed immutable tool installer (#1429)
 
 - Files modified: managed apply/artifact contract, validator/safety/vetter, sandbox root wiring, focused tests, D1 contract/run evidence.

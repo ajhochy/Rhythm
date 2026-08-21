@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -17,6 +17,7 @@ import { buildProfileRevisionFingerprint, toProfileTargetRef } from '../org_prop
 import { PROPOSAL_EVIDENCE_BUNDLE_VERSION } from '../../models/proposal_evidence_bundle';
 import { GUARDRAIL_NAMES } from '../../models/guardrail_registry';
 import { DockerSandboxRuntime, vetToolInSandboxAsync } from '../tool_sandbox_vetter';
+import { buildToolInstallProposalFingerprint } from '../tool_install_safety_policy';
 
 function tarEntry(name: string, body: string): Buffer {
   const header = Buffer.alloc(512);
@@ -40,6 +41,10 @@ function fixtureTarball(name: string, scripts?: Record<string, string>): Buffer 
     tarEntry('package/index.js', '#!/usr/bin/env node\nconsole.log("fixture")\n'),
     Buffer.alloc(1024),
   ]));
+}
+
+function tarballWithEntries(entries: Array<[string, string]>): Buffer {
+  return gzipSync(Buffer.concat([...entries.map(([name, body]) => tarEntry(name, body)), Buffer.alloc(1024)]));
 }
 
 function setup(name = 'fixture-tool', scripts?: Record<string, string>) {
@@ -133,6 +138,97 @@ describe('D1 managed tool-install apply', () => {
     expect((await applyVettedToolInstallAsync(proposal(`local-tarball:sha256:${digest}`), undefined, {
       artifactRoot: artifacts, managedRoot: managed, skipSafetyRecheck: true,
     })).reason).toBe('tool_install_apply_immutable_artifact_refused');
+  });
+
+  it.each(['tools', '.staging', '.locks'] as const)('fails closed when managed %s is a symlink', async (child) => {
+    const { root, artifacts, managed, digest } = setup();
+    mkdirSync(managed);
+    const outside = join(root, `outside-${child.replace('.', '')}`);
+    mkdirSync(outside);
+    const sentinel = join(outside, 'sentinel');
+    writeFileSync(sentinel, 'untouched');
+    symlinkSync(outside, join(managed, child));
+    let spawned = false;
+
+    const result = await applyVettedToolInstallAsync(proposal(`local-tarball:sha256:${digest}`), undefined, {
+      artifactRoot: artifacts, managedRoot: managed, skipSafetyRecheck: true,
+      runner: async () => { spawned = true; },
+    });
+
+    expect(result.applied).toBe(false);
+    expect(spawned).toBe(false);
+    expect(readFileSync(sentinel, 'utf8')).toBe('untouched');
+    expect(readdirSync(outside)).toEqual(['sentinel']);
+  });
+
+  it('refuses an exact destination symlink even when its outside receipt matches', async () => {
+    const { root, artifacts, managed, digest, tarball } = setup();
+    const first = proposal(`local-tarball:sha256:${digest}`);
+    const fingerprint = buildToolInstallProposalFingerprint(first)!;
+    const destination = `fixture-tool-${digest.slice(0, 16)}`;
+    const outside = join(root, 'outside-destination');
+    mkdirSync(join(outside, 'node_modules', 'fixture-tool'), { recursive: true });
+    writeFileSync(join(outside, 'artifact.tgz'), tarball);
+    writeFileSync(join(outside, 'node_modules', 'fixture-tool', 'package.json'), JSON.stringify({ name: 'fixture-tool' }));
+    writeFileSync(join(outside, '.rhythm-managed-install.json'), JSON.stringify({
+      version: 1, proposalId: first.id, proposalFingerprint: fingerprint, installMethod: 'local-tarball', artifactDigest: digest,
+      managedRelativePath: join('tools', destination), status: 'active', installedAt: '', verifiedAt: '',
+    }));
+    writeFileSync(join(outside, 'sentinel'), 'untouched');
+    mkdirSync(join(managed, 'tools'), { recursive: true });
+    symlinkSync(outside, join(managed, 'tools', destination));
+
+    const result = await applyVettedToolInstallAsync(first, undefined, {
+      artifactRoot: artifacts, managedRoot: managed, skipSafetyRecheck: true,
+    });
+
+    expect(result.applied).toBe(false);
+    expect(readFileSync(join(outside, 'sentinel'), 'utf8')).toBe('untouched');
+  });
+
+  it('rejects a source mutation after inspection before invoking npm', async () => {
+    const { artifacts, managed, digest } = setup();
+    let spawned = false;
+    const result = await applyVettedToolInstallAsync(proposal(`local-tarball:sha256:${digest}`), undefined, {
+      artifactRoot: artifacts, managedRoot: managed, skipSafetyRecheck: true,
+      afterArtifactInspection: async () => writeFileSync(join(artifacts, `${digest}.tgz`), fixtureTarball('fixture-tool', { install: 'changed-after-inspection' })),
+      runner: async () => { spawned = true; },
+    });
+
+    expect(result.applied).toBe(false);
+    expect(spawned).toBe(false);
+    expect(existsSync(join(managed, 'tools', `fixture-tool-${digest.slice(0, 16)}`))).toBe(false);
+  });
+
+  it.each([
+    ['duplicate package.json', tarballWithEntries([
+      ['package/package.json', JSON.stringify({ name: 'fixture-tool', version: '1.0.0' })],
+      ['package/package.json', JSON.stringify({ name: 'fixture-tool', version: '1.0.0', dependencies: { bad: '1.0.0' } })],
+    ])],
+    ['packaged node_modules', tarballWithEntries([
+      ['package/package.json', JSON.stringify({ name: 'fixture-tool', version: '1.0.0' })],
+      ['package/node_modules/uninspected/index.js', 'module.exports = 1'],
+    ])],
+    ['bundleDependencies alias', tarballWithEntries([
+      ['package/package.json', JSON.stringify({ name: 'fixture-tool', version: '1.0.0', bundleDependencies: ['uninspected'] })],
+    ])],
+  ])('refuses tarball ambiguity: %s before process spawn', async (_label, tarball) => {
+    const root = mkdtempSync(join(tmpdir(), 'rhythm-managed-apply-ambiguous-'));
+    const artifacts = join(root, 'artifacts');
+    const managed = join(root, 'managed');
+    mkdirSync(artifacts);
+    const digest = createHash('sha256').update(tarball).digest('hex');
+    writeFileSync(join(artifacts, `${digest}.tgz`), tarball);
+    let spawned = false;
+
+    const result = await applyVettedToolInstallAsync(proposal(`local-tarball:sha256:${digest}`), undefined, {
+      artifactRoot: artifacts, managedRoot: managed, skipSafetyRecheck: true,
+      runner: async () => { spawned = true; },
+    });
+
+    expect(inspectImmutableLocalTarball(artifacts, digest, 'fixture-tool')).toBeNull();
+    expect(result.reason).toBe('tool_install_apply_immutable_artifact_refused');
+    expect(spawned).toBe(false);
   });
 
   it('drives the durable approved lifecycle to an actual receipt-verified applied installation', async () => {
