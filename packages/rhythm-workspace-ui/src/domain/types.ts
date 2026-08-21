@@ -405,8 +405,19 @@ export interface RhythmReservation {
 
 export type CreateReservationInput = Pick<RhythmReservation, 'facilityId' | 'title' | 'start' | 'end'> & Partial<Pick<RhythmReservation, 'notes'>>;
 
+// Additive for issue #4 (M1 operations-screen extraction): apps/web/src/pages/facilities has a
+// real "Rooms" management surface (add/edit/delete a room) alongside reservation scheduling —
+// dropping it would leave the screen's own namesake capability unimplemented. facilities()
+// already returns RhythmFacility; these three methods are the missing write half of that same
+// resource, mirroring the create/update/delete shape every other domain gateway already uses.
+export type CreateFacilityInput = Pick<RhythmFacility, 'name'> & Partial<Pick<RhythmFacility, 'building' | 'description'>>;
+export type UpdateFacilityInput = Partial<Pick<RhythmFacility, 'name' | 'building' | 'description'>>;
+
 export interface FacilitiesGateway {
   facilities(): Promise<RhythmFacility[]>;
+  createFacility(input: CreateFacilityInput): Promise<RhythmFacility>;
+  updateFacility(id: string, input: UpdateFacilityInput): Promise<RhythmFacility>;
+  deleteFacility(id: string): Promise<void>;
   reservations(range: { start: string; end: string }): Promise<RhythmReservation[]>;
   createReservation(input: CreateReservationInput): Promise<RhythmReservation>;
   updateReservation(id: string, input: Partial<Pick<RhythmReservation, 'title' | 'start' | 'end' | 'notes'>>): Promise<RhythmReservation>;

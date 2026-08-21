@@ -1,0 +1,8 @@
+/* Style entry point for the three operations screens (issue #4: Facilities, Integrations,
+ * Automations). Not imported by src/styles/rhythm.css — the integration reconciler that wires
+ * every screen group together owns that; this file only groups this milestone's own screens so
+ * a host can adopt them as one unit once that wiring lands. */
+
+@import './screens/facilities.css';
+@import './screens/integrations.css';
+@import './screens/automations.css';

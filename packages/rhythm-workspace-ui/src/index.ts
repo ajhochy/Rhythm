@@ -56,6 +56,8 @@ export type {
   RhythmFacility,
   RhythmReservation,
   CreateReservationInput,
+  CreateFacilityInput,
+  UpdateFacilityInput,
   FacilitiesGateway,
   // Integrations
   IntegrationProviderId,
