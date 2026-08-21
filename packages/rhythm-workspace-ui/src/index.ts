@@ -2,7 +2,7 @@ export { RhythmWorkspaceProvider, useRhythmDomainGateway, useRhythmHost } from '
 export type { RhythmWorkspaceProviderProps } from './context';
 
 export { defaultRhythmTokens, mapHostTokens, RHYTHM_ROOT_CLASS } from './host/theme';
-export type { RhythmHostAdapter, RhythmHostTokens, RhythmThemeMode, RhythmViewport, RhythmCurrentUser, RhythmScreenId } from './host/types';
+export type { RhythmHostAdapter, RhythmHostTokens, RhythmThemeMode, RhythmViewport, RhythmCurrentUser, RhythmScreenId, RhythmTaskOperationConfirmation } from './host/types';
 
 export { RhythmGatewayError } from './domain/types';
 export type {
