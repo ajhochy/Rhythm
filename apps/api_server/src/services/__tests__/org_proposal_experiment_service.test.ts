@@ -2042,6 +2042,70 @@ describe('C3-1 promote is re-enabled once treatment-v2 receipts prove the effect
   });
 });
 
+describe('D3.3 feedback is never required for promotion', () => {
+  it('promotes to verified from objective evidence alone, with zero explicit feedback events on either cohort', async () => {
+    // Regression guard: the D3.2 desktop feedback UI (#1437) must not become
+    // a hidden promotion requirement. This proposal uses the default
+    // objective-success-rate metric, which never reads the feedback ledger
+    // at all (see decideExperiment's isFeedbackMetric branch) — promotion
+    // must succeed exactly as it does without the feedback UI existing.
+    const proposalId = 'prop-d3-3-no-feedback';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'a candidate worth measuring',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), { proposalId });
+
+    const baselineIds: string[] = [];
+    const candidateIds: string[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      const baselineId = `d3-3-b-${i}`;
+      const candidateId = `d3-3-c-${i}`;
+      baselineIds.push(baselineId);
+      candidateIds.push(candidateId);
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-d3-3',
+        cohort: 'baseline',
+        runEpisodeId: baselineId,
+        success: i < 10, // 50%
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-d3-3',
+        cohort: 'candidate',
+        runEpisodeId: candidateId,
+        success: i < 18, // 90%
+      });
+    }
+
+    // Confirm the premise directly against the ledger, not just by omission:
+    // not one of these runs has an explicit-user (or inferred) feedback event.
+    const outcomesRepo = new AgentRunOutcomesRepository();
+    for (const rootSessionId of [...baselineIds, ...candidateIds]) {
+      const feedback = await outcomesRepo.listFeedbackAsync(rootSessionId);
+      expect(feedback).toHaveLength(0);
+    }
+    const verdicts = await outcomesRepo.listLatestExplicitUserVerdictsAsync([
+      ...baselineIds,
+      ...candidateIds,
+    ]);
+    expect(verdicts.size).toBe(0);
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('promote');
+
+    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('verified');
+  });
+});
+
 describe('C3-4 explicit-user-verdict-rate: a separate typed metric adapter over append-only feedback', () => {
   function feedbackBundle(minResponseCoverage: number): ProposalEvidenceBundle {
     return {
@@ -2165,6 +2229,35 @@ describe('C3-4 explicit-user-verdict-rate: a separate typed metric adapter over 
     const judged = await computeDecisionAsync(exp);
     expect(judged.status).toBe('collecting');
     expect(judged.reason).toMatch(/response rate/i);
+  });
+
+  it('D3.3: treats zero feedback events on both cohorts as unavailable (no signal) — never a fabricated zero, never a block or regress', async () => {
+    const proposalId = 'prop-d3-3-feedback-zero';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    // minResponseCoverage: 0 isolates the "literally no responses" case from
+    // the separate below-minimum-coverage case covered above.
+    const exp = await declare(experiments, feedbackBundle(0), { proposalId, maxExposure: 1000 });
+
+    // 10 runs per cohort, objective evidence only — no verdict, ever.
+    for (let i = 0; i < 10; i += 1) {
+      await seedRun({ proposalId, cohort: 'baseline', rootSessionId: `d3-3-fbzero-b-${i}` });
+      await seedRun({ proposalId, cohort: 'candidate', rootSessionId: `d3-3-fbzero-c-${i}` });
+    }
+
+    const judged = await computeDecisionAsync(exp);
+    // Non-terminal: the metric is unavailable, so the experiment keeps
+    // collecting rather than being decided at all — not promoted, not
+    // regressed, not silently scored as a failure.
+    expect(judged.status).toBe('collecting');
+    expect(judged.reason).toMatch(/unavailable/i);
+    expect(judged.results?.baseline.responseRate).toBe(0);
+    expect(judged.results?.candidate.responseRate).toBe(0);
   });
 
   it('refuses promotion on a material response-rate imbalance between arms, never regress', async () => {
