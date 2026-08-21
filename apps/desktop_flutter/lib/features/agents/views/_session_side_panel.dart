@@ -603,13 +603,19 @@ class _RunFeedbackSectionState extends State<_RunFeedbackSection> {
   @override
   void didUpdateWidget(_RunFeedbackSection old) {
     super.didUpdateWidget(old);
-    // Deferred to a post-frame callback like initState's fetch: calling it
-    // synchronously here notifies AgentsController's listeners while THIS
-    // widget's own ancestor chain is still mid-rebuild (session switch), and
-    // if some unrelated part of the tree happens to be building at that same
-    // moment, marking the Provider's element dirty then throws "setState()
-    // or markNeedsBuild() called during build".
     if (old.sessionId != widget.sessionId) {
+      // Synchronous, unlike the fetch below: a reason typed for the OLD
+      // session must never survive to be posted against the NEW one. Safe to
+      // clear mid-rebuild — it only notifies this controller's own listeners
+      // (the TextField below), not the Provider tree the deferred fetch
+      // needs to avoid disturbing.
+      _reasonController.clear();
+      // Deferred to a post-frame callback like initState's fetch: calling it
+      // synchronously here notifies AgentsController's listeners while THIS
+      // widget's own ancestor chain is still mid-rebuild (session switch), and
+      // if some unrelated part of the tree happens to be building at that same
+      // moment, marking the Provider's element dirty then throws "setState()
+      // or markNeedsBuild() called during build".
       WidgetsBinding.instance.addPostFrameCallback((_) => _fetch());
     }
   }
