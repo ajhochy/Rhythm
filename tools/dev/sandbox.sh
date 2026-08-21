@@ -262,6 +262,8 @@ up() {
     "PORT=$API_PORT"
     "DB_PATH=$SB/rhythm.db"
     "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
+    "RHYTHM_MANAGED_TOOL_ROOT=$SB/managed-tools"
+    "RHYTHM_TOOL_ARTIFACT_ROOT=$SB/tool-artifacts"
     "MEMORY_VAULT_PATH=$SB/vault"
     "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
     "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
@@ -281,6 +283,9 @@ up() {
     "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    # D4.4: forward only the explicit availability kill switch. Durable user
+    # consent stays in the copied sandbox database and is never an env default.
+    "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
     # The gateway port is a THIRD listener and was previously unset, so the
     # sandbox bound the default 4002 — the port `tailscale serve` publishes to
     # the tailnet, while serving a fully-credentialed copy of the real DB.
@@ -389,6 +394,8 @@ restart() {
     "PORT=$API_PORT"
     "DB_PATH=$SB/rhythm.db"
     "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
+    "RHYTHM_MANAGED_TOOL_ROOT=$SB/managed-tools"
+    "RHYTHM_TOOL_ARTIFACT_ROOT=$SB/tool-artifacts"
     "MEMORY_VAULT_PATH=$SB/vault"
     "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
     "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
@@ -397,6 +404,7 @@ restart() {
     "OPENCODE_DB=opencode-rhythm-sandbox.db"
     "MAX_CONCURRENT_AGENT_RUNS=2"
     "AGENT_LOCAL=true"
+    "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
     "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
   )
   local api_pid

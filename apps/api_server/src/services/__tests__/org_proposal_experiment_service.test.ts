@@ -48,6 +48,7 @@ import type { ExperimentEnrollment } from '../../models/agent_org_experiment_enr
 import { AgentOrgTreatmentReceiptsRepository } from '../../repositories/agent_org_treatment_receipts_repository';
 import { CalibrationObservationsRepository } from '../../repositories/calibration_observations_repository';
 import { UsersRepository } from '../../repositories/users_repository';
+import { ToolSafetyReportsRepository } from '../../repositories/tool_safety_reports_repository';
 
 let db: Database.Database;
 let originalTreatmentV2Enabled: boolean;
@@ -2754,6 +2755,50 @@ describe('C6 production decision calibration recording', () => {
         experimentDecision: 'inconclusive',
         postDeployRegression: null,
       });
+    } finally {
+      env.calibrationEnabled = original;
+    }
+  });
+
+  it('D4.3: a throwing tool-report read cannot interrupt a settled promote, outcome, or calibration observation', async () => {
+    const original = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    try {
+      const owner = new UsersRepository().create({ name: 'Tool report owner', email: 'tool-report-owner@example.com' });
+      const config = new AgentConfigsRepository().insert({ id: 'tool-report-profile', label: 'tool report', icon: 'x' });
+      const proposals = new AgentOrgProposalsRepository();
+      const proposal = await proposals.createAsync({
+        id: 'prop-tool-report-throw', kind: 'tool-install', risk: 'high', status: 'sandbox-vetted', title: 'tool report failure',
+        ownerUserId: owner.id, diagnosisConfidence: 0.8, diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
+        changeJson: JSON.stringify({
+          toolName: 'fixture-tool', packageSource: 'npm:fixture-tool', installMethod: 'npm install', agentConfigId: config.id,
+          testPrompts: ['version-check', 'help-check'],
+          evidenceBundle: {
+            version: PROPOSAL_EVIDENCE_BUNDLE_VERSION, sourceEvidence: { sessionIds: ['fixture'], eventIds: [] },
+            counterEvidenceSearch: { query: 'fixture', searchedAt: '2026-08-21T00:00:00.000Z', contradictingCount: 0 },
+            target: { ref: toProfileTargetRef(config.id), hash: durableTargetFingerprint(config) },
+            expectedOutcome: 'fixture', primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
+            guardrails: ['terminal-error-rate'], experimentAdapter: 'paired-cohort-outcome', rollbackRule: 'restore',
+            generatorVersion: 'fixture', confidenceCalibrationVersion: 'fixture',
+          },
+        }),
+      });
+      await proposals.setOutcomeStatusAtRevisionAsync({ proposalId: proposal.id, expectedRevision: proposal.revision, outcomeStatus: 'verified' });
+      const experiments = new AgentOrgExperimentsRepository();
+      const experiment = await declare(experiments, calibrationBundle(), { proposalId: proposal.id });
+      await experiments.recordDecisionAsync(experiment.id, 'promote', 'pre-set terminal promotion');
+      const reports = new ToolSafetyReportsRepository(db);
+      reports.findByProposalIdAsync = async () => { throw new Error('tool report repository unavailable'); };
+
+      const judged = await judgeExperimentAsync(experiment.id, {
+        autoPromotion: { availability: { isAvailable: () => true }, reports },
+      });
+
+      expect(judged).toMatchObject({ status: 'decided', decision: 'promote' });
+      expect((await proposals.findByIdAsync(proposal.id))?.outcomeStatus).toBe('verified');
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toEqual([
+        expect.objectContaining({ proposalId: proposal.id, experimentId: experiment.id, experimentDecision: 'promote' }),
+      ]);
     } finally {
       env.calibrationEnabled = original;
     }

@@ -67,7 +67,11 @@ class _FakeOrgProposalsDataSource extends OrgProposalsDataSource {
   bool _approveAttempted = false;
 
   @override
-  Future<OrgProposal> approve(String id, {int? decidedByUserId}) async {
+  Future<OrgProposal> approve(
+    String id, {
+    int? decidedByUserId,
+    bool conditionalToolSafetyConfirmation = false,
+  }) async {
     _approveAttempted = true;
     if (id == reconciliationId) {
       // Exactly what assertOk builds from the server's 409 body: the code is

@@ -4396,4 +4396,94 @@ If someone asks for creative work that needs a local capability:
   if (!proposalDiagnosisConfidenceCols.includes('diagnosis_confidence_version')) {
     db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN diagnosis_confidence_version TEXT`);
   }
+
+  // D4.1 (#1439) — promotion_trust_state: singleton row tracking the trust
+  // counters D4 gates automatic promotion on (total verified experiments,
+  // total regressions, whether the gate is enabled, and at what threshold).
+  // Fixed id ('promotion_trust_state') is the singleton key, same pattern as
+  // org_settings above — see promotion_trust_state_repository.ts. Starts
+  // disabled; nothing in D4.1/D4.2 ever flips auto_promotion_enabled true.
+  // The id CHECK enforces the singleton at the schema boundary itself — a
+  // raw INSERT with any other id fails, not just repository-only access.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS promotion_trust_state (
+      id                     TEXT PRIMARY KEY CHECK (id = 'promotion_trust_state'),
+      total_verified         INTEGER NOT NULL DEFAULT 0,
+      total_regressions      INTEGER NOT NULL DEFAULT 0,
+      auto_promotion_enabled INTEGER NOT NULL DEFAULT 0,
+      enabled_at             TEXT,
+      trust_threshold        INTEGER NOT NULL DEFAULT 10,
+      updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )
+  `);
+  runOnce('issue_1439_promotion_trust_state', () => {
+    // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
+  });
+
+  // D4.2 (#1440) — additive eligibility column, recorded by
+  // trust_counter_service.ts. Default false; never inferred/backfilled for
+  // pre-existing rows, matching the additive-nullable-column convention used
+  // throughout this file.
+  const promotionTrustStateCols = (
+    db.pragma('table_info(promotion_trust_state)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!promotionTrustStateCols.includes('auto_promotion_eligible')) {
+    db.exec(
+      `ALTER TABLE promotion_trust_state ADD COLUMN auto_promotion_eligible INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+
+  // D4.6 (#1444) — one user-visible regression-disable alert per recipient
+  // and D2 proposal. This is narrow rather than a general notification
+  // dedupe policy: existing notification types retain their historical fanout.
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_auto_promotion_regression_once
+      ON notifications(recipient_user_id, type, entity_type, entity_id)
+      WHERE type = 'auto_promotion_disabled_regression'
+  `);
+
+  // ── D1.1 (#1426) — tool safety reports (sandbox vetting record) ──────────
+  //
+  // One row per sandbox vetting run for a `tool-install` agent_org_proposals
+  // row (see tool_sandbox_vetter.ts, D1.2). Every observational column is an
+  // aggregate (a count, a JSON array of {path/host, count} descriptors, a
+  // closed enum) — never raw prompt text, raw tool output, or raw credential
+  // bytes. The repository layer (tool_safety_reports_repository.ts)
+  // additionally redacts secret shapes out of the JSON blob columns before
+  // every write, the same way post_apply_events_repository.ts does for its
+  // own snapshot columns. Postgres twin in postgres_bootstrap.ts — enforced
+  // by skill_schema_parity.test.ts. Not UNIQUE on proposal_id: a proposal may
+  // legitimately be re-vetted (e.g. after a sandbox-unavailable result), and
+  // the repository's find-by-proposal-id reads the most recent row.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tool_safety_reports (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
+      tool_name TEXT NOT NULL,
+      tool_version TEXT,
+      package_source TEXT NOT NULL,
+      install_method TEXT NOT NULL,
+      sandbox_duration_ms INTEGER NOT NULL,
+      test_prompts_run_count INTEGER NOT NULL DEFAULT 0,
+      forbidden_path_violations_json TEXT NOT NULL DEFAULT '[]',
+      network_calls_observed_json TEXT NOT NULL DEFAULT '[]',
+      file_system_writes_observed_json TEXT NOT NULL DEFAULT '[]',
+      credential_access_attempts_count INTEGER NOT NULL DEFAULT 0,
+      verdict TEXT NOT NULL CHECK (verdict IN ('safe', 'conditional', 'unsafe', 'unknown')),
+      reason TEXT,
+      evidence_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
+       ON tool_safety_reports(proposal_id)`,
+  );
+  const toolSafetyReportCols = (db.pragma('table_info(tool_safety_reports)') as { name: string }[])
+    .map((column) => column.name);
+  if (!toolSafetyReportCols.includes('proposal_fingerprint')) {
+    db.exec(`ALTER TABLE tool_safety_reports ADD COLUMN proposal_fingerprint TEXT`);
+  }
 }

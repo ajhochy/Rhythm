@@ -1,0 +1,123 @@
+{
+  "contract_id": "D4.2",
+  "issue": 1440,
+  "phase": "D4.2",
+  "parent_contract": "D4.1",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/trust_counter_service.test.ts src/repositories/promotion_trust_state_repository.test.ts src/__tests__/promotion_trust_state_schema_parity.test.ts src/__tests__/migrations_replay_guard.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1440-c1",
+      "text": "trust_counter_service.ts reads the EXISTING experiment/outcome ledger (agent_org_experiments joined to agent_org_proposals.outcome_status, agent_org_experiments.decision) — no second/parallel tally. totalVerified counts VERIFIED EXPERIMENTS (experiment rows whose proposal is verified), not verified proposals — a verified proposal with no experiment does not count.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/trust_counter_service.ts calls AgentOrgExperimentsRepository.getTrustLedgerCountsAsync(), a single aggregate query (added in the D4 repair pass) joining agent_org_experiments to agent_org_proposals and returning both totalVerified and totalRegressions from one statement snapshot. Superseded the original countByOutcomeStatusAsync('verified')/countByDecisionAsync('regress') pair, which counted PROPOSALS with outcome_status='verified' regardless of whether an experiment existed — see 'repair' below.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c2",
+      "text": "10 verified, 0 regressions => auto_promotion_eligible=true.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('10 verified, 0 regressions => eligible') — fixture updated in the D4 repair pass to declare a real experiment per proposal (createVerifiedExperimentAsync) rather than a bare verified proposal, so the count exercises the actual verified-EXPERIMENT semantics.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c3",
+      "text": "10 verified, 1 regression => auto_promotion_eligible=false.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('10 verified, 1 regression => not eligible')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c4",
+      "text": "9 verified, 0 regressions => auto_promotion_eligible=false.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('9 verified, 0 regressions => not eligible')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c11",
+      "text": "(added in the D4 repair pass) A verified proposal with no experiment does NOT count toward totalVerified; an experiment whose proposal is verified DOES count.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('repair (blocking finding B): a verified proposal with no experiment does NOT count', 'repair (blocking finding B): an experiment whose proposal is verified DOES count')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c5",
+      "text": "total_verified, total_regressions, and auto_promotion_eligible are persisted in the D4.1 singleton; auto_promotion_enabled/enabled_at/trust_threshold are never touched by this write path.",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts ('recordTrustCountersAsync persists counts/eligibility on the singleton but never enables auto-promotion'); promotion_trust_state_repository.test.ts ('recordEligibilityAsync updates counts and eligibility only, never the enable gate').",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c6",
+      "text": "auto_promotion_enabled is NEVER set true by this issue — eligibility is recorded, the gate is a separate later decision.",
+      "mode": "unit",
+      "test": "PromotionTrustStateRepository.recordEligibilityAsync's SQL/params (both SQLite and Postgres branches) reference only total_verified, total_regressions, auto_promotion_eligible, updated_at — there is no parameter or code path that can write auto_promotion_enabled or enabled_at.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c7",
+      "text": "SQLite/Postgres schema parity for the new auto_promotion_eligible column.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/promotion_trust_state_schema_parity.test.ts (updated expected column list); migrations.ts additive ALTER TABLE ... ADD COLUMN auto_promotion_eligible (SQLite) matches postgres_bootstrap.ts's ALTER TABLE ... ADD COLUMN IF NOT EXISTS auto_promotion_eligible (Postgres).",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c8",
+      "text": "Singleton/database enforcement from #1439 is preserved (still exactly one row; recordEligibilityAsync can never create a second row).",
+      "mode": "unit",
+      "test": "promotion_trust_state_repository.test.ts ('recordEligibilityAsync updates counts and eligibility only, never the enable gate') asserts COUNT(*) = 1 after the call; recordEligibilityAsync internally calls getSingletonAsync first (same race-safe ON CONFLICT DO NOTHING path) then UPDATEs by fixed id.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c9",
+      "text": "Focused tests pass (RED -> GREEN).",
+      "mode": "unit",
+      "test": "trust_counter_service.test.ts written against a tree with trust_counter_service.ts temporarily removed: RED — 'Cannot find module ../trust_counter_service' (module-resolution failure, all tests unrun). Restored the module: GREEN — 4/4 pass.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1440-c10",
+      "text": "Build + typecheck pass.",
+      "mode": "unit",
+      "test": "cd apps/api_server && npx tsc --noEmit && npm run build",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "No live/sandbox behavioral test: this issue adds a read/record service with no HTTP/WS/MCP entry point wired to it yet (nothing calls recordTrustCountersAsync from a route or scheduler in this wave). AGENTS.md's live-behavioral-test gate applies to features with an entry point to drive; there is none here to exercise.",
+    "No test exercises trust_threshold values other than the D4.1 default of 10 (e.g. an admin-configured threshold != 10) — computeTrustCountersAsync reads current.trustThreshold dynamically so this is expected to generalize, but it is not separately asserted."
+  ],
+  "current_evidence": {
+    "files": [
+      "apps/api_server/src/services/trust_counter_service.ts",
+      "apps/api_server/src/services/__tests__/trust_counter_service.test.ts",
+      "apps/api_server/src/repositories/promotion_trust_state_repository.ts",
+      "apps/api_server/src/repositories/promotion_trust_state_repository.test.ts",
+      "apps/api_server/src/repositories/agent_org_experiments_repository.ts",
+      "apps/api_server/src/repositories/agent_org_proposals_repository.ts",
+      "apps/api_server/src/models/promotion_trust_state.ts",
+      "apps/api_server/src/database/migrations.ts",
+      "apps/api_server/src/database/postgres_bootstrap.ts",
+      "apps/api_server/src/__tests__/promotion_trust_state_schema_parity.test.ts",
+      "docs/ai/contracts/issue-1440.json",
+      "docs/ai/runs/2026-08-20-d4-auto-promotion-trust-counter.md"
+    ],
+    "focused": "16/16 pass (trust_counter_service.test.ts 6, promotion_trust_state_repository.test.ts 7, promotion_trust_state_schema_parity.test.ts 1, migrations_replay_guard.test.ts 3) — updated in the D4 repair pass; see 'repair' below.",
+    "adjacent_regression": "agent_org_experiments_repository.test.ts + org_proposals_routes.test.ts + c6_api_summary.test.ts: 44/44 pass (the new aggregate ledger method on AgentOrgExperimentsRepository does not disturb existing repository behavior)",
+    "typecheck": "pass",
+    "build": "pass",
+    "gitnexus_risk": "UNKNOWN — same as #1439: `gitnexus detect-changes --repo d4-auto-promotion` (re-run during the repair pass) still reports this worktree's repo alias is not present among the session's indexed repos (the list includes sibling worktrees d2-post-apply-lifecycle and integration, but not d4-auto-promotion), so the index remains stale for this branch. Recorded UNKNOWN per the operating instructions; substituted direct caller inspection: grep confirms the sole caller of the new aggregate method (trust_counter_service.ts) and that the two now-unused single-purpose count methods (countByDecisionAsync, countByOutcomeStatusAsync) were removed rather than left as dead code.",
+    "sandbox": "not applicable — no server-dependent behavior introduced by this issue (see not_tested)."
+  },
+  "repair": {
+    "date": "2026-08-20",
+    "reason": "Blocking finding B (D4 focused repair pass): #1440 requires counting EXPERIMENTS with a verified outcome, but the original implementation counted agent_org_proposals rows with outcome_status='verified' directly — including proposals with no experiment at all — which could inflate totalVerified and make the gate eligible incorrectly.",
+    "fix": "Removed AgentOrgProposalsRepository.countByOutcomeStatusAsync (became unused) and AgentOrgExperimentsRepository.countByDecisionAsync (superseded). Added AgentOrgExperimentsRepository.getTrustLedgerCountsAsync(), a single aggregate SQL query (agent_org_experiments JOIN agent_org_proposals) returning { totalVerified, totalRegressions } from one statement snapshot: totalVerified = COUNT of experiment rows whose proposal has outcome_status='verified'; totalRegressions = COUNT of experiment rows with decision='regress'. trust_counter_service.ts now calls only this one method instead of the two removed proposal/experiment counts. auto_promotion_enabled remains untouched/false throughout — recordEligibilityAsync's write path is unchanged.",
+    "tests_added": "trust_counter_service.test.ts: 'repair (blocking finding B): a verified proposal with no experiment does NOT count' and 'repair (blocking finding B): an experiment whose proposal is verified DOES count'. The pre-existing 10/0=>eligible, 10/1=>false, 9/0=>false cases were kept but their fixture (createVerifiedProposalAsync) was replaced with createVerifiedExperimentAsync, which declares a real experiment for each verified proposal — so those three cases now exercise real proposal+experiment pairs rather than bare proposals.",
+    "red": "'repair (blocking finding B): a verified proposal with no experiment does NOT count' — AssertionError: expected 1 to be +0 (totalVerified counted the bare verified proposal before the fix).",
+    "green": "cd apps/api_server && npx vitest run src/repositories/promotion_trust_state_repository.test.ts src/services/__tests__/trust_counter_service.test.ts src/__tests__/promotion_trust_state_schema_parity.test.ts src/__tests__/migrations_replay_guard.test.ts — 16/16 pass; adjacent agent_org_experiments_repository.test.ts + org_proposals_routes.test.ts + c6_api_summary.test.ts — 44/44 pass.",
+    "commit": "see docs/ai/runs/2026-08-20-d4-auto-promotion-trust-counter.md repair addendum"
+  }
+}

@@ -14,6 +14,7 @@ const controller = new OrgProposalsController();
 if (!env.agentLocal) router.use(requireAuth);
 
 router.get('/', (req, res, next) => controller.list(req, res, next));
+router.post('/tool-install', (req, res, next) => controller.createToolInstall(req, res, next));
 router.post('/:id/approve', (req, res, next) => controller.approve(req, res, next));
 router.post('/:id/reject', (req, res, next) => controller.reject(req, res, next));
 router.post('/:id/revert', (req, res, next) => controller.revert(req, res, next));
