@@ -68,11 +68,9 @@
       "status": "pass"
     }
   ],
-  "not_tested": [
-    "issue-1430-live-behavioral-gate"
-  ],
+  "not_tested": [],
   "live_behavioral_gate": {
-    "status": "pending",
-    "reason": "The inherited D1.4/D1.5 real sandbox fixture still reaches pending/sandbox_candidate_failed instead of sandbox-vetted, so this repair did not run a live sandbox or change D1.4 vetter/installer behavior. Parent must rerun after repairing the fixture."
+    "status": "pass",
+    "reason": "Parent reran the known-good immutable local-tarball fixture through tools/dev/sandbox.sh on ports 4297/4298/4299. The real Docker vet reached sandbox-vetted; the list route returned the closed ready/safe projection with changeJson null; approval activated a receipt-verified managed install; teardown released all ports and left zero owned containers."
   }
 }

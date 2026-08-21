@@ -4,7 +4,7 @@ repo: Rhythm
 branch: agent-stack/si-d1-tool-vetting-sonnet
 pr: null
 issues: [1430]
-status: pending
+status: pass
 tags: [run, rhythm, d1, tool-safety]
 ---
 
@@ -28,9 +28,10 @@ tags: [run, rhythm, d1, tool-safety]
 - Post-review Node 22 D1 API matrix (10 files): 144 passed / 1 env-gated skipped.
 - Post-review Node 22 `npx tsc --noEmit` and `npm run build` — passed.
 - Post-review `flutter analyze --no-fatal-infos` — exit 0; 318 existing/info findings.
+- Parent live rerun: `RHYTHM_LIVE_E2E=1 ... npx vitest run src/__tests__/d1_tool_install_approval_live_e2e.test.ts --no-file-parallelism --reporter=verbose` through `tools/dev/sandbox.sh` on isolated ports 4297/4298/4299 — 1/1 passed. The real Docker vet reached `sandbox-vetted`; the shipping list route returned `state: ready`, `verdict: safe`, closed tool identity, two scenario attempts, and `changeJson: null`; approval created a matching active managed-install receipt.
+- Parent cleanup: sandbox directory absent, ports 4297/4298/4299 released, and `rhythm-d1-vet-*` owned container count zero.
 
 ## Notes
 
-- The live D1.4/D1.5 API test was run through `tools/dev/sandbox.sh` with a synthetic, read-only fixture. It reached the real API and Docker vetter, but the pre-existing safe local-tarball fixture returned `pending` with `sandbox_candidate_failed` instead of `sandbox-vetted`, so the live projection assertion did not execute. Keep this behavioral check pending for parent review; no production data or configuration was used.
-- This repair did not start a sandbox or alter D1.4 vetting/installer behavior; the live behavioral gate remains pending for the parent rerun after the fixture is corrected.
+- Terra's first synthetic fixture did not execute successfully inside the vetter. Parent review replaced only that test fixture with the already-proven immutable local-tarball fixture; no D1.4 vetter or installer behavior was changed to make the gate pass.
 - GitNexus impact and detect-changes: UNKNOWN — the GitNexus MCP tools were unavailable in this session; no index/analyze command was run.
