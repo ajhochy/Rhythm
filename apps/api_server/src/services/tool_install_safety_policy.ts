@@ -55,8 +55,7 @@ export interface ValidatedToolInstallInputs {
 const vettingInFlight = new Map<string, Promise<void>>();
 
 export function readValidatedToolInstallInputs(proposal: AgentOrgProposal): ValidatedToolInstallInputs | null {
-  const validation = validateToolInstallChange(proposal);
-  if (!validation.valid || !proposal.changeJson) return null;
+  if (!proposal.changeJson) return null;
   try {
     const change = JSON.parse(proposal.changeJson) as Record<string, unknown>;
     if (
@@ -172,6 +171,9 @@ export async function evaluateToolInstallSafetyAsync(
   proposal: AgentOrgProposal,
   options: ToolInstallSafetyOptions = {},
 ): Promise<ToolInstallSafetyResult> {
+  if (!validateToolInstallChange(proposal).valid) {
+    return { allowed: false, reason: 'invalid_proposal', verdict: 'unknown' };
+  }
   const inputs = readValidatedToolInstallInputs(proposal);
   const fingerprint = buildToolInstallProposalFingerprint(proposal);
   if (!inputs || !fingerprint) return { allowed: false, reason: 'invalid_proposal', verdict: 'unknown' };

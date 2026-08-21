@@ -75,6 +75,14 @@ PR #1454 with final evidence, then return to C6.
 
 ## Recent coding-agent runs
 
+### 2026-08-21 — D1.4 managed immutable tool installer (#1429)
+
+- Files modified: managed apply/artifact contract, validator/safety/vetter, sandbox root wiring, focused tests, D1 contract/run evidence.
+- Checks run: RED one unavailable apply; GREEN 7 managed tests; Docker GREEN 8/8; D1 focused matrix 103 passed / 2 env-gated skips; Node 22 typecheck/build and diff check passed.
+- Decisions made: only `local-tarball:sha256:<digest>` is installed; mutable npm/pip sources fail closed; installs use offline fixed Node/npm argv with scripts disabled and a receipt-verified staged activation.
+- Deviations from spec: isolated HTTP sandbox live route has not been rerun against the new local-artifact lane.
+- Concerns: GitNexus impact/detect is UNKNOWN because no index tool is available; broader registry/dependency installation is intentionally unsupported.
+
 ### 2026-08-21 — D1.4 tool-install lifecycle repair (#1429)
 
 - Files modified: dedicated tool-install creation/vetting/decision/apply

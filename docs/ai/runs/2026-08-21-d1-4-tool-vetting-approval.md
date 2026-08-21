@@ -76,3 +76,22 @@ unchanged idempotency boundary.
 - No Docker/live API rerun was required: this correction changes neither the
   Docker vetter nor production route control flow. It changes only the
   already-covered lifecycle persistence inputs.
+
+## Managed installer completion — 2026-08-21
+
+`local-tarball:sha256:<digest>` is now the sole actual managed-install lane.
+The digest addresses a regular `.tgz` beneath a code-owned artifact root; the
+archive must be self-contained, script-free, and match the approved tool.
+Mutable `npm install` / `pip install` shapes remain fail-closed at apply.
+
+- RED: the new managed-apply test received `tool_install_apply_unavailable`.
+- GREEN: it performs real fixed-argv offline npm installation beneath a temp
+  managed root, reads receipt and archive digest back, and covers mismatch,
+  symlink, script, mutable-source, conflict, and failure cleanup paths plus
+  the durable `create -> vet -> approve -> applied` lifecycle (7 tests).
+- Docker: `RHYTHM_DOCKER_E2E=1 npx vitest run
+  src/services/__tests__/tool_install_managed_apply.test.ts --reporter=verbose`
+  passed 8/8 using the same digest under network-disabled Docker; no exact
+  `rhythm-d1-vet-*` container remained.
+- Focused D1 matrix: 103 passed, 2 env-gated live skips; Node 22 typecheck,
+  build, and `git diff --check` passed. GitNexus is UNKNOWN.

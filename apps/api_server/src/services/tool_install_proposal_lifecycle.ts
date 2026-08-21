@@ -223,5 +223,7 @@ export async function approveVettedToolInstallProposalAsync(
     result = { applied: false, reason: 'tool_install_apply_unavailable' as const };
   }
   if (result.applied) return requireTransition(proposals, approved, 'applied');
-  return requireTransition(proposals, approved, 'failed', { measureReason: 'tool_install_apply_unavailable' });
+  return requireTransition(proposals, approved, 'failed', {
+    measureReason: result.reason ?? 'tool_install_apply_unavailable',
+  });
 }

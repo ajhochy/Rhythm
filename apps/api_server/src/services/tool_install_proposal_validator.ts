@@ -56,13 +56,14 @@ import {
   TOOL_INSTALL_MIN_TEST_SCENARIOS,
   isToolTestScenarioId,
 } from './tool_test_scenarios';
+import { LOCAL_TARBALL_INSTALL_METHOD, parseImmutableLocalTarballSource } from './tool_install_artifact';
 
 /**
  * The CLOSED set of install methods a PRODUCTION `tool-install` proposal may
  * name. Deliberately excludes `tool_sandbox_vetter.ts`'s `local-script`
  * escape hatch — see module doc comment.
  */
-export const TOOL_INSTALL_ALLOWED_INSTALL_METHODS = ['npm install', 'pip install'] as const;
+export const TOOL_INSTALL_ALLOWED_INSTALL_METHODS = ['npm install', 'pip install', LOCAL_TARBALL_INSTALL_METHOD] as const;
 
 export type ToolInstallMethod = (typeof TOOL_INSTALL_ALLOWED_INSTALL_METHODS)[number];
 
@@ -168,6 +169,10 @@ export function validateToolInstallChange(proposal: AgentOrgProposal): ProposalV
       valid: false,
       reason: 'change_json.packageSource is not a safe package identifier',
     };
+  }
+
+  if (change.installMethod === LOCAL_TARBALL_INSTALL_METHOD && !parseImmutableLocalTarballSource(change.packageSource)) {
+    return { valid: false, reason: 'change_json.packageSource must name an immutable local tarball digest' };
   }
 
   if (!isAllowedToolInstallMethod(change.installMethod)) {

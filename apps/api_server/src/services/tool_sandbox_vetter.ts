@@ -126,6 +126,8 @@ import { join } from 'node:path';
 
 import type { ToolSafetyReportInput } from '../models/tool_safety_report';
 import { isSafePackageSource, isSafeToolName } from './tool_install_safety';
+import { LOCAL_TARBALL_INSTALL_METHOD, inspectImmutableLocalTarball, parseImmutableLocalTarballSource } from './tool_install_artifact';
+import { resolveManagedToolArtifactRoot } from '../config/env';
 import {
   TOOL_INSTALL_MAX_TEST_SCENARIOS,
   TOOL_INSTALL_MIN_TEST_SCENARIOS,
@@ -392,6 +394,7 @@ const INSTALL_COMMAND_BUILDERS: Record<string, (packageSource: string) => string
   'npm install': (pkg) => `npm install ${pkg} --no-audit --no-fund`,
   'pip install': (pkg) => `pip install ${pkg}`,
   'local-script': (pkg) => pkg,
+  [LOCAL_TARBALL_INSTALL_METHOD]: () => 'npm install --ignore-scripts --offline --no-audit --no-fund /vet/artifact.tgz',
 };
 
 /** Fail closed BEFORE building any shell command from a caller-controlled string. */
@@ -401,6 +404,10 @@ function validateCandidateForSandbox(candidate: ToolVettingCandidate): void {
   }
   if (!(candidate.installMethod in INSTALL_COMMAND_BUILDERS)) {
     throw new SandboxConfigError('unsupported_install_method');
+  }
+  if (candidate.installMethod === LOCAL_TARBALL_INSTALL_METHOD) {
+    if (!parseImmutableLocalTarballSource(candidate.packageSource)) throw new SandboxConfigError('unsafe_package_source');
+    return;
   }
   if (candidate.installMethod !== 'local-script' && !isSafePackageSource(candidate.packageSource)) {
     throw new SandboxConfigError('unsafe_package_source');
@@ -558,6 +565,9 @@ function buildRunnerScript(candidate: ToolVettingCandidate, scenarioIds: string[
   const sentinelPresenceLines = FORBIDDEN_SENTINELS.map(
     (s) => `[ -e ${s.path} ] && echo "PRESENT ${s.path}" >> /vet/out/sentinel_after.sha256 || echo "MISSING ${s.path}" >> /vet/out/sentinel_after.sha256`,
   ).join('\n');
+  const localBinLink = candidate.installMethod === LOCAL_TARBALL_INSTALL_METHOD
+    ? `if [ -x /vet/node_modules/.bin/${candidate.toolName} ]; then ln -sf /vet/node_modules/.bin/${candidate.toolName} /vet/bin/${candidate.toolName}; fi`
+    : '';
   return [
     '#!/bin/sh',
     'set -u',
@@ -566,6 +576,7 @@ function buildRunnerScript(candidate: ToolVettingCandidate, scenarioIds: string[
     // at the candidate's own privilege (see module doc comment).
     'mkdir -p /vet/out /vet/bin',
     'export PATH="/vet/bin:$PATH"',
+    'export npm_config_cache=/tmp/npm-cache',
     '',
     // This is intentionally the FIRST data read in the container, before
     // any candidate-controlled install or scenario code. It proves atime
@@ -575,6 +586,7 @@ function buildRunnerScript(candidate: ToolVettingCandidate, scenarioIds: string[
     '',
     'sh /vet/install.sh > /vet/out/install.log 2>&1',
     'echo "INSTALL_EXIT=$?" >> /vet/out/install.log',
+    localBinLink,
     '',
     buildScenarioInvocationScript(candidate.toolName, scenarioIds),
     '',
@@ -838,6 +850,8 @@ export interface DockerSandboxRuntimeOptions {
   timeoutMs?: number;
   /** Test-only hook: called with the exact container name this run generates, before `docker run` starts it. */
   onContainerName?: (containerName: string) => void;
+  /** Code-owned artifact store used only for immutable local-tarball vetting. */
+  artifactRoot?: string;
 }
 
 export class DockerSandboxRuntime implements SandboxRuntime {
@@ -845,12 +859,14 @@ export class DockerSandboxRuntime implements SandboxRuntime {
   private readonly scratchRoot: string;
   private readonly timeoutMs: number;
   private readonly onContainerName?: (containerName: string) => void;
+  private readonly artifactRoot?: string;
 
   constructor(opts: DockerSandboxRuntimeOptions = {}) {
     this.dockerBinary = opts.dockerBinary ?? 'docker';
     this.scratchRoot = opts.scratchRoot ?? tmpdir();
     this.timeoutMs = opts.timeoutMs ?? SANDBOX_TIMEOUT_MS;
     this.onContainerName = opts.onContainerName;
+    this.artifactRoot = opts.artifactRoot;
   }
 
   async isAvailableAsync(): Promise<boolean> {
@@ -866,6 +882,16 @@ export class DockerSandboxRuntime implements SandboxRuntime {
     const start = Date.now();
     validateCandidateForSandbox(candidate);
     const installScript = buildInstallScript(candidate);
+    const localArtifact = candidate.installMethod === LOCAL_TARBALL_INSTALL_METHOD
+      ? inspectImmutableLocalTarball(
+        this.artifactRoot ?? resolveManagedToolArtifactRoot(),
+        parseImmutableLocalTarballSource(candidate.packageSource) ?? '',
+        candidate.toolName,
+      )
+      : null;
+    if (candidate.installMethod === LOCAL_TARBALL_INSTALL_METHOD && !localArtifact) {
+      throw new SandboxConfigError('unsafe_package_source');
+    }
 
     const scratchDir = mkdtempSync(join(this.scratchRoot, 'rhythm-tool-vet-'));
     const vetDir = join(scratchDir, 'vet');
@@ -883,6 +909,7 @@ export class DockerSandboxRuntime implements SandboxRuntime {
     chmodSync(scratchDir, 0o777);
     chmodSync(vetDir, 0o777);
     chmodSync(outDir, 0o777);
+    if (localArtifact) writeFileSync(join(vetDir, 'artifact.tgz'), '', { mode: 0o644 });
     chmodSync(sentinelDir, 0o777);
     writeFileSync(join(vetDir, 'install.sh'), installScript, { mode: 0o644 });
     writeFileSync(join(vetDir, 'run.sh'), buildRunnerScript(candidate, scenarioIds), { mode: 0o755 });
@@ -895,7 +922,7 @@ export class DockerSandboxRuntime implements SandboxRuntime {
       // failure is never treated as "no sentinels" — see SandboxObserverError.
       const sentinelBaselines = setupCredentialSentinels(sentinelDir);
       const capabilityProbe = setupObserverCapabilityProbe(sentinelDir);
-      await this.runContainer(containerName, vetDir, sentinelDir);
+      await this.runContainer(containerName, vetDir, sentinelDir, localArtifact?.path);
       // Proof is read from the HOST after container exit. It must advance
       // because the code-owned runner read the probe before candidate code;
       // otherwise the credential observer is unavailable, not silently zero.
@@ -911,7 +938,7 @@ export class DockerSandboxRuntime implements SandboxRuntime {
     }
   }
 
-  private async runContainer(containerName: string, vetDir: string, sentinelDir: string): Promise<void> {
+  private async runContainer(containerName: string, vetDir: string, sentinelDir: string, localArtifactPath?: string): Promise<void> {
     try {
       await new Promise<void>((resolve, reject) => {
         let timedOut = false;
@@ -945,6 +972,7 @@ export class DockerSandboxRuntime implements SandboxRuntime {
             `${vetDir}:/vet:rw`,
             '-v',
             `${sentinelDir}:/vet/sentinel:ro`,
+            ...(localArtifactPath ? ['-v', `${localArtifactPath}:/vet/artifact.tgz:ro`] : []),
             '-w',
             '/vet',
             SANDBOX_IMAGE,
