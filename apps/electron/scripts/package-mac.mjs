@@ -79,12 +79,17 @@ await rm(resolve(packagedApiServer, '.node-runtime.json'), { force: true });
 await mkdir(dirname(packagedNode), { recursive: true });
 await cp(process.execPath, packagedNode);
 await chmod(packagedNode, 0o755);
+// Probe native addons in separate processes. Loading node-pty after creating a better-sqlite3
+// Statement can force that Statement's GC during Node 24 addon teardown and abort inside
+// RemoveEnvironmentCleanupHook even though each addon is ABI-correct.
 await run(packagedNode, ['-e', [
   `const root=${JSON.stringify(packagedApiServer)};`,
   "const Database=require(root+'/node_modules/better-sqlite3');",
   "const db=new Database(':memory:');",
   "if(db.prepare('select 1 as x').get().x!==1)process.exit(1);",
-  "db.close();",
+].join('')]);
+await run(packagedNode, ['-e', [
+  `const root=${JSON.stringify(packagedApiServer)};`,
   "require(root+'/node_modules/node-pty');",
 ].join('')]);
 
