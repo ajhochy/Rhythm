@@ -91,6 +91,19 @@ export function resolveLiveArtifactStorageDir(): string {
   return expandHome(process.env.LIVE_ARTIFACT_STORAGE_DIR ?? path.join(process.cwd(), 'live-artifacts'));
 }
 
+/** D1.4: managed executable tools never use cwd, PATH, or a user package prefix. */
+function rhythmApplicationDataDir(): string {
+  return path.dirname(expandHome(process.env.DB_PATH ?? path.join(os.homedir(), 'Library', 'Application Support', 'Rhythm', 'rhythm.db')));
+}
+
+export function resolveManagedToolRoot(): string {
+  return expandHome(process.env.RHYTHM_MANAGED_TOOL_ROOT ?? path.join(rhythmApplicationDataDir(), 'managed-tools'));
+}
+
+export function resolveManagedToolArtifactRoot(): string {
+  return expandHome(process.env.RHYTHM_TOOL_ARTIFACT_ROOT ?? path.join(rhythmApplicationDataDir(), 'tool-artifacts'));
+}
+
 /** Filesystem root for checksum-addressed generated media bytes (#1309). */
 export function resolveMediaArtifactStorageRoot(): string {
   const appDataDir = path.dirname(

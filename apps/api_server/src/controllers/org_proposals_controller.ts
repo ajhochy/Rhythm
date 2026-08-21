@@ -33,6 +33,7 @@ import { measureProposal } from '../services/org_proposal_measure';
 import { validateEvidenceBundle } from '../services/proposal_evidence_validator';
 import { buildProposalEvidenceAsync } from '../services/proposal_evidence_builder';
 import { attachExperimentSummariesAsync } from '../services/proposal_experiment_summary_service';
+import { attachToolSafetyReviewProjectionsAsync } from '../services/tool_safety_review_projection';
 import {
   applyProposal,
   hasSecurityNote,
@@ -40,6 +41,12 @@ import {
   validateProposalChange,
 } from '../services/org_proposal_apply_service';
 import { finalizePostApplyLifecycleAsync } from '../services/post_apply_lifecycle';
+import { CONDITIONAL_TOOL_INSTALL_CONFIRMATION } from '../services/tool_install_safety_policy';
+import {
+  approveVettedToolInstallProposalAsync,
+  createAndVetToolInstallProposalAsync,
+  denyToolInstallProposalAsync,
+} from '../services/tool_install_proposal_lifecycle';
 
 /**
  * IMPORTANT: AgentOrgProposalsRepository's constructor calls getDb() eagerly
@@ -59,6 +66,36 @@ function repo(): AgentOrgProposalsRepository {
 export const LOCAL_OPERATOR_ACTOR_ID = 0;
 
 export class OrgProposalsController {
+  /** D1.4 — the only authenticated production creation path for tool installs. */
+  async createToolInstall(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof body.title !== 'string' || body.title.length === 0 ||
+          !body.change || typeof body.change !== 'object' || Array.isArray(body.change)) {
+        throw AppError.badRequest('tool-install requires a title and a closed change object');
+      }
+      let proposal;
+      try {
+        proposal = await createAndVetToolInstallProposalAsync({
+          title: body.title,
+          change: body.change as Record<string, unknown>,
+          rationale: typeof body.rationale === 'string' ? body.rationale : null,
+          signalRef: typeof body.signalRef === 'string' ? body.signalRef : null,
+          targetRef: typeof body.targetRef === 'string' ? body.targetRef : null,
+          dedupKey: typeof body.dedupKey === 'string' ? body.dedupKey : null,
+          ownerUserId: req.auth?.user.id ?? null,
+        });
+      } catch {
+        // Never echo caller-controlled payload or sandbox output back to the
+        // client; details are fixed-code report reasons where durable.
+        throw AppError.badRequest('tool-install proposal validation failed');
+      }
+      res.status(201).json(proposal);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   /**
    * W6 wiring — POST /:id/experiment. The production DECLARER.
    *
@@ -156,7 +193,10 @@ export class OrgProposalsController {
           return 0;
         });
       }
-      res.json(withSummaries);
+      // D1.5: the tool report is a closed projection, not report JSON. This
+      // performs one batch report lookup for the page and removes tool apply
+      // JSON before the response reaches any desktop client.
+      res.json(await attachToolSafetyReviewProjectionsAsync(withSummaries));
     } catch (err) {
       next(err);
     }
@@ -168,6 +208,24 @@ export class OrgProposalsController {
       const proposalsRepo = repo();
       const proposal = await proposalsRepo.findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
+
+      if (proposal.kind === 'tool-install') {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const explicitConditionalConfirmation =
+          !!req.auth?.user && body.toolSafetyConfirmation === CONDITIONAL_TOOL_INSTALL_CONFIRMATION;
+        let applied;
+        try {
+          applied = await approveVettedToolInstallProposalAsync(
+            proposal.id,
+            req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID,
+            explicitConditionalConfirmation,
+          );
+        } catch (error) {
+          throw AppError.conflict(`Tool-install proposal ${id} cannot be approved at this time`);
+        }
+        res.json(applied);
+        return;
+      }
 
       // #1056 — a proposal the applier marked 'failed' (e.g. a publish-skill-
       // to-org attempt that hit an unreachable production API) is retryable:
@@ -201,7 +259,15 @@ export class OrgProposalsController {
 
       const decidedByUserId = req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID;
 
-      const applyResult = await applyProposal(proposal);
+      // D1.4: request report/verdict fields have no authority. The reusable
+      // apply seam reads durable sandbox evidence itself; this route supplies
+      // only an authenticated, exact human confirmation for `conditional`.
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const explicitConditionalConfirmation =
+        !!req.auth?.user && body.toolSafetyConfirmation === CONDITIONAL_TOOL_INSTALL_CONFIRMATION;
+      const applyResult = await applyProposal(proposal, {
+        explicitHumanConfirmation: explicitConditionalConfirmation,
+      });
       const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
 
       // W1 package C — a scope proposal never reaches `applied` through the
@@ -360,6 +426,17 @@ export class OrgProposalsController {
       const { id } = req.params;
       const proposal = await repo().findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
+
+      if (proposal.kind === 'tool-install') {
+        let rejected;
+        try {
+          rejected = await denyToolInstallProposalAsync(id, req.auth?.user.id ?? LOCAL_OPERATOR_ACTOR_ID);
+        } catch {
+          throw AppError.conflict(`Tool-install proposal ${id} cannot be rejected at this time`);
+        }
+        res.json(rejected);
+        return;
+      }
 
       if (proposal.status !== 'proposed') {
         throw AppError.conflict(

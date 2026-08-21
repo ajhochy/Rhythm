@@ -2326,4 +2326,34 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE promotion_trust_state ADD COLUMN IF NOT EXISTS auto_promotion_eligible BOOLEAN NOT NULL DEFAULT FALSE
   `);
+
+  // D1.1 (#1426) — tool safety reports. Column set MUST stay identical to
+  // migrations.ts — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tool_safety_reports (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
+      tool_name TEXT NOT NULL,
+      tool_version TEXT,
+      package_source TEXT NOT NULL,
+      install_method TEXT NOT NULL,
+      sandbox_duration_ms INTEGER NOT NULL,
+      test_prompts_run_count INTEGER NOT NULL DEFAULT 0,
+      forbidden_path_violations_json TEXT NOT NULL DEFAULT '[]',
+      network_calls_observed_json TEXT NOT NULL DEFAULT '[]',
+      file_system_writes_observed_json TEXT NOT NULL DEFAULT '[]',
+      credential_access_attempts_count INTEGER NOT NULL DEFAULT 0,
+      verdict TEXT NOT NULL CHECK (verdict IN ('safe', 'conditional', 'unsafe', 'unknown')),
+      reason TEXT,
+      evidence_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(`ALTER TABLE tool_safety_reports ADD COLUMN IF NOT EXISTS proposal_fingerprint TEXT`);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
+       ON tool_safety_reports(proposal_id)`,
+  );
 }

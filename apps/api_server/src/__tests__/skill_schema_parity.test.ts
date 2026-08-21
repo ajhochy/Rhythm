@@ -63,6 +63,8 @@ const TABLES = [
   'agent_org_post_apply_events',
   // C6 — the versioned calibration observation ledger.
   'calibration_observations',
+  // D1.1 (#1426) — the tool-install sandbox vetting report.
+  'tool_safety_reports',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */

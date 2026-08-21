@@ -27,12 +27,18 @@ class OrgProposalsDataSource {
         .toList();
   }
 
-  Future<OrgProposal> approve(String id, {int? decidedByUserId}) async {
+  Future<OrgProposal> approve(
+    String id, {
+    int? decidedByUserId,
+    bool conditionalToolSafetyConfirmation = false,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/agent-org-proposals/$id/approve'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (decidedByUserId != null) 'decidedByUserId': decidedByUserId,
+        if (conditionalToolSafetyConfirmation)
+          'toolSafetyConfirmation': 'approve-conditional-tool-install',
       }),
     );
     assertOk(response);

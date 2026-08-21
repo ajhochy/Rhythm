@@ -37,6 +37,11 @@ import { containsScopeBearingPayload } from './scope_mutation_contract';
 import { parseStrictJson } from './strict_json';
 import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
 import type { PostApplyTarget } from './post_apply_lifecycle';
+import { validateToolInstallChange } from './tool_install_proposal_validator';
+import {
+  evaluateToolInstallSafetyAsync,
+  type ToolInstallSafetyOptions,
+} from './tool_install_safety_policy';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -194,6 +199,7 @@ function validateWebhookWiring(proposal: AgentOrgProposal): ProposalValidationRe
 validators['create-agent'] = validateCreateAgent;
 validators['external-adoption'] = validateExternalAdoption;
 validators['webhook-wiring'] = validateWebhookWiring;
+validators['tool-install'] = validateToolInstallChange;
 
 const SCOPE_PROPOSAL_KINDS = new Set([
   'tighten-scope',
@@ -398,11 +404,21 @@ function defaultApplier(): ProposalApplyResult {
  * calls {@link validateProposalChange} directly, so any future caller of
  * this function gets the same fail-closed guarantee).
  */
-export async function applyProposal(proposal: AgentOrgProposal): Promise<ProposalApplyResult> {
+export async function applyProposal(
+  proposal: AgentOrgProposal,
+  safetyOptions: ToolInstallSafetyOptions = {},
+): Promise<ProposalApplyResult> {
   strictChangeJsonPreflight(proposal);
   const validation = await validateProposalChange(proposal);
   if (!validation.valid) {
     throw new Error(validation.reason ?? `Proposal ${proposal.id} failed re-validation`);
+  }
+  if (proposal.kind === 'tool-install') {
+    // Tool installation has a separate durable lifecycle: it CAS-claims the
+    // human approval before reaching the apply boundary, which is necessary
+    // to prevent concurrent approval requests from invoking an installer
+    // twice. This generic seam must never silently fall through to no-op.
+    throw new Error('tool-install proposals must use the dedicated vetted lifecycle');
   }
   const applier = appliers[proposal.kind] ?? defaultApplier;
   return applier(proposal);
