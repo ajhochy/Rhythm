@@ -49,6 +49,8 @@ import { AgentOrgTreatmentReceiptsRepository } from '../../repositories/agent_or
 import { CalibrationObservationsRepository } from '../../repositories/calibration_observations_repository';
 import { UsersRepository } from '../../repositories/users_repository';
 import { ToolSafetyReportsRepository } from '../../repositories/tool_safety_reports_repository';
+import { PromotionTrustStateRepository } from '../../repositories/promotion_trust_state_repository';
+import { recordTrustCountersAsync } from '../trust_counter_service';
 
 let db: Database.Database;
 let originalTreatmentV2Enabled: boolean;
@@ -2698,6 +2700,152 @@ describe('C4-4 promote sets outcome_status=verified without touching deployment 
 
     const reloadedProfile = new AgentConfigsRepository().getById(profile.id);
     expect(reloadedProfile!.systemPrompt).toBe('before');
+  });
+});
+
+describe('D4 trust refresh precedes auto-promotion', () => {
+  async function seedVerifiedHistory(count: number): Promise<void> {
+    const proposals = new AgentOrgProposalsRepository();
+    const experiments = new AgentOrgExperimentsRepository();
+    for (let index = 0; index < count; index += 1) {
+      const proposal = await proposals.createAsync({
+        id: `prop-d4-history-${index}`,
+        kind: 'create-agent',
+        risk: 'low',
+        title: `D4 history ${index}`,
+        changeJson: JSON.stringify({ agentSlug: `d4-history-${index}` }),
+      });
+      const experiment = await declare(experiments, makeValidBundle(), { proposalId: proposal.id });
+      await experiments.recordDecisionAsync(experiment.id, 'promote', 'historical verified experiment');
+      await proposals.setOutcomeStatusAtRevisionAsync({
+        proposalId: proposal.id,
+        expectedRevision: proposal.revision,
+        outcomeStatus: 'verified',
+      });
+    }
+  }
+
+  async function declareReceiptBackedPromotion(proposalId: string) {
+    const proposals = new AgentOrgProposalsRepository();
+    await proposals.createAsync({
+      id: proposalId,
+      kind: 'create-agent',
+      risk: 'low',
+      title: 'D4 trust-refresh candidate',
+      changeJson: JSON.stringify({ agentSlug: `${proposalId}-agent` }),
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const experiment = await declare(experiments, makeValidBundle(), { proposalId });
+    for (let index = 0; index < 20; index += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: experiment.id,
+        proposalId,
+        profileId: `${proposalId}-profile`,
+        cohort: 'baseline',
+        runEpisodeId: `${proposalId}-baseline-${index}`,
+        success: index < 10,
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: experiment.id,
+        proposalId,
+        profileId: `${proposalId}-profile`,
+        cohort: 'candidate',
+        runEpisodeId: `${proposalId}-candidate-${index}`,
+        success: index < 18,
+      });
+    }
+    return experiment;
+  }
+
+  it('persists the tenth verified counter before the real gate reads durable eligibility, without enabling opt-in', async () => {
+    await seedVerifiedHistory(9);
+    await recordTrustCountersAsync();
+    const trust = new PromotionTrustStateRepository();
+    expect(await trust.getSingletonAsync()).toMatchObject({
+      totalVerified: 9,
+      autoPromotionEligible: false,
+      autoPromotionEnabled: false,
+    });
+    const experiment = await declareReceiptBackedPromotion('prop-d4-tenth-verified');
+    const originalRead = trust.getSingletonAsync.bind(trust);
+    let stateObservedByGate: Awaited<ReturnType<typeof trust.getSingletonAsync>> | undefined;
+    trust.getSingletonAsync = async () => {
+      const state = await originalRead();
+      stateObservedByGate = state;
+      return state;
+    };
+
+    const judged = await judgeExperimentAsync(experiment.id, {
+      autoPromotion: {
+        availability: { isAvailable: () => true },
+        trustStateRepo: trust,
+      },
+    });
+
+    expect(judged).toMatchObject({ status: 'decided', decision: 'promote' });
+    expect(stateObservedByGate).toMatchObject({
+      totalVerified: 10,
+      autoPromotionEligible: true,
+      autoPromotionEnabled: false,
+    });
+    expect(await trust.getSingletonAsync()).toMatchObject({
+      totalVerified: 10,
+      autoPromotionEligible: true,
+      autoPromotionEnabled: false,
+    });
+    expect(await new AgentOrgProposalsRepository().findByIdAsync('prop-d4-tenth-verified')).toMatchObject({
+      status: 'proposed',
+      outcomeStatus: 'verified',
+    });
+  });
+
+  it('re-judges an already-decided promote to retry a failed trust refresh before auto-promotion', async () => {
+    await seedVerifiedHistory(1);
+    const trust = new PromotionTrustStateRepository();
+    await trust.updateAsync({ trustThreshold: 1 });
+    await recordTrustCountersAsync();
+    await trust.enableAutoPromotionAsync('2026-08-21T00:00:00.000Z');
+    const proposalId = 'prop-d4-refresh-retry';
+    const experiment = await declareReceiptBackedPromotion(proposalId);
+    let refreshAttempts = 0;
+    const refresh = async () => {
+      refreshAttempts += 1;
+      if (refreshAttempts === 1) throw new Error('trust state unavailable');
+      return recordTrustCountersAsync();
+    };
+
+    const first = await judgeExperimentAsync(experiment.id, {
+      autoPromotion: { availability: { isAvailable: () => true } },
+      recordTrustCountersAsync: refresh,
+    });
+
+    expect(first).toMatchObject({ status: 'decided', decision: 'promote' });
+    expect(refreshAttempts).toBe(1);
+    expect(await new AgentOrgProposalsRepository().findByIdAsync(proposalId)).toMatchObject({
+      status: 'proposed',
+      outcomeStatus: 'verified',
+    });
+
+    const rejudged = await judgeExperimentAsync(experiment.id, {
+      autoPromotion: { availability: { isAvailable: () => true } },
+      recordTrustCountersAsync: refresh,
+    });
+
+    expect(rejudged).toMatchObject({ status: 'decided', decision: 'promote' });
+    expect(refreshAttempts).toBe(2);
+    expect(await trust.getSingletonAsync()).toMatchObject({
+      totalVerified: 2,
+      autoPromotionEligible: true,
+      autoPromotionEnabled: true,
+    });
+    expect(await new AgentOrgProposalsRepository().findByIdAsync(proposalId)).toMatchObject({
+      status: 'applied',
+      outcomeStatus: 'verified',
+    });
+    expect(await new AgentOrgExperimentsRepository().findByIdAsync(experiment.id)).toMatchObject({
+      decision: 'promote',
+      decisionReason: expect.any(String),
+    });
   });
 });
 

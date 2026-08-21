@@ -132,6 +132,8 @@ export interface ExperimentDeps {
   proposalsRepo?: AgentOrgProposalsRepository;
   /** D4.3 test seam; absent production wiring defaults the auto gate closed. */
   autoPromotion?: import('./auto_promotion_gate').AutoPromotionGateDeps;
+  /** D4 trust-refresh failure seam; production persists the shared counters. */
+  recordTrustCountersAsync?: typeof import('./trust_counter_service').recordTrustCountersAsync;
 }
 
 function canonicalizeForHash(input: unknown): string {
@@ -1490,6 +1492,25 @@ export async function computeDecisionAsync(
 }
 
 /**
+ * D4 — a newly verified experiment must update the durable eligibility
+ * singleton before the promotion gate reads it. Failure is deliberately
+ * fail-closed: the settled experiment outcome and calibration observation
+ * remain durable, and a later re-judge of the terminal promote retries this
+ * refresh before it can retry automation.
+ */
+async function refreshTrustCountersBeforeAutoPromotionAsync(deps: ExperimentDeps): Promise<boolean> {
+  try {
+    const record = deps.recordTrustCountersAsync ??
+      (await import('./trust_counter_service')).recordTrustCountersAsync;
+    await record();
+    return true;
+  } catch {
+    logger.warn('[org-proposal-experiment] trust counter refresh failed; auto-promotion deferred');
+    return false;
+  }
+}
+
+/**
  * Read the cohorts from W4's ledger, decide, and record durably: the results
  * and the decision on the experiment row, and the resulting outcome_status on
  * the proposal through the revision-fenced write.
@@ -1510,7 +1531,7 @@ export async function judgeExperimentAsync(
   // ledger that has moved on, and every re-run bumped the proposal's CAS
   // revision for a fact that did not change.
   if (experiment.decision) {
-    if (experiment.decision === 'promote') {
+    if (experiment.decision === 'promote' && await refreshTrustCountersBeforeAutoPromotionAsync(deps)) {
       const { attemptAutoPromotionAsync } = await import('./auto_promotion_gate');
       await attemptAutoPromotionAsync(experiment.proposalId, deps.autoPromotion);
     }
@@ -1544,7 +1565,11 @@ export async function judgeExperimentAsync(
   );
   // Only a durable verified transition may cross into D4.3. A failed outcome
   // CAS leaves the proposal in human review rather than applying an inference.
-  if (evaluation.decision === 'promote' && outcomeWritten) {
+  if (
+    evaluation.decision === 'promote' &&
+    outcomeWritten &&
+    await refreshTrustCountersBeforeAutoPromotionAsync(deps)
+  ) {
     const { attemptAutoPromotionAsync } = await import('./auto_promotion_gate');
     await attemptAutoPromotionAsync(experiment.proposalId, deps.autoPromotion);
   }
