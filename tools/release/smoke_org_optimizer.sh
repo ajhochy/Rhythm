@@ -4,10 +4,9 @@
 # self-optimizer epic's safety model. Four invariants, all silent when
 # violated:
 #
-#   a. AUTO-PATH REVERT — a forced regression (functional guard fails) on an
-#      applied low-risk proposal restores before_snapshot_json and sets
-#      status='reverted', both in the DB row and in the live agent_configs
-#      value it mutated.
+#   a. AUTO-PATH REVERT — a tied score on an applied low-risk refine-skill
+#      proposal preserves before_snapshot_json and sets the durable DB row's
+#      status='reverted'.
 #
 #   b. GATE INVARIANTS — none of create-agent, grant-delegation,
 #      expand-delegation, broaden-scope, webhook-wiring, external-adoption is
