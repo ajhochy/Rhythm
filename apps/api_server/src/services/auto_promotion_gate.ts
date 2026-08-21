@@ -7,6 +7,7 @@ import { PromotionTrustStateRepository } from '../repositories/promotion_trust_s
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { ToolSafetyReportsRepository } from '../repositories/tool_safety_reports_repository';
 import { PostApplyEventsRepository } from '../repositories/post_apply_events_repository';
+import { isAutoPromotionFeatureAvailable } from '../config/env';
 import {
   applyApprovedProposalAsync,
   reconstructPostApplyTarget,
@@ -17,9 +18,9 @@ export interface AutoPromotionAvailability {
   isAvailable(): boolean | Promise<boolean>;
 }
 
-/** Production-safe until #1442 explicitly wires an operator-controlled source. */
-export const unavailableAutoPromotionAvailability: AutoPromotionAvailability = {
-  isAvailable: () => false,
+/** D4.4's single production kill-switch source; consent remains durable. */
+export const productionAutoPromotionAvailability: AutoPromotionAvailability = {
+  isAvailable: isAutoPromotionFeatureAvailable,
 };
 
 export type AutoPromotionResult = {
@@ -67,7 +68,7 @@ export async function attemptAutoPromotionAsync(
   proposalId: string,
   deps: AutoPromotionGateDeps = {},
 ): Promise<AutoPromotionResult> {
-  const availability = deps.availability ?? unavailableAutoPromotionAvailability;
+  const availability = deps.availability ?? productionAutoPromotionAvailability;
   try {
     if (!(await availability.isAvailable())) return { status: 'unavailable' };
   } catch {

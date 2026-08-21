@@ -104,6 +104,28 @@ describe('D4.3 auto promotion gate', () => {
     expect(configs.getById('d4-profile')?.systemPrompt).toBe('before');
   });
 
+  it('uses D4.4 production availability only with the explicit flag and SQLite D2 runtime', async () => {
+    const priorFlag = process.env.AUTO_PROMOTION_FEATURE_AVAILABLE;
+    const priorDbClient = process.env.DB_CLIENT;
+    process.env.AUTO_PROMOTION_FEATURE_AVAILABLE = 'true';
+    process.env.DB_CLIENT = 'sqlite';
+    try {
+      const proposal = await verifiedConfigProposal('d4-production-availability');
+      await enableTrust();
+
+      const result = await attemptAutoPromotionAsync(proposal.id);
+
+      expect(result.status).toBe('applied');
+      expect(configs.getById('d4-profile')?.systemPrompt).toBe('after');
+      expect(await new PostApplyEventsRepository(db).findByProposalIdAsync(proposal.id)).not.toBeNull();
+    } finally {
+      if (priorFlag === undefined) delete process.env.AUTO_PROMOTION_FEATURE_AVAILABLE;
+      else process.env.AUTO_PROMOTION_FEATURE_AVAILABLE = priorFlag;
+      if (priorDbClient === undefined) delete process.env.DB_CLIENT;
+      else process.env.DB_CLIENT = priorDbClient;
+    }
+  });
+
   it.each([
     ['ineligible', { eligible: false }],
     ['disabled', { enabled: false }],
