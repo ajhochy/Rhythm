@@ -270,7 +270,7 @@ function FixtureDashboardPage({ route }: { route: string }) {
         </>}
       </div>
 
-      <aside className="page-trace" aria-label="Request log" aria-live="polite" data-testid="page-trace"><span>Request log</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
+      <aside className="page-trace" aria-label="Request log" aria-live="polite" tabIndex={0} data-testid="page-trace"><span>Request log</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
 
       <FocusDialog open={taskCreateOpen} onClose={() => { setTaskCreateOpen(false); setTitleError(false); }} title="Add task" description="Set the task details now. More people and agent handoffs are available after creation." testId="dashboard-task-create"><TaskCreateForm idPrefix="dashboard-create" onSubmit={createTask} onCancel={() => { setTaskCreateOpen(false); setTitleError(false); }} members={dashboardCollaborators} titleRef={taskTitleRef} titleError={titleError ? 'Enter a task title.' : undefined} onTitleChange={() => setTitleError(false)} disabled={isReadonly} describedBy={isReadonly ? 'dashboard-readonly-reason' : undefined} noValidate testIds={{ title: 'task-title', notes: 'task-notes', scheduledDate: 'task-schedule', dueDate: 'task-due-date', collaborator: 'task-collaborator', cancel: 'dashboard-task-create-cancel', submit: 'task-add', error: 'task-title-error' }} /></FocusDialog>
 
@@ -614,7 +614,7 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
         </>}
       </div>
 
-      <aside className="page-trace" aria-label="Request log" aria-live="polite" data-testid="page-trace"><span>Request log</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
+      <aside className="page-trace" aria-label="Request log" aria-live="polite" tabIndex={0} data-testid="page-trace"><span>Request log</span><ol>{receipts.map((receipt, index) => <li key={`${receipt}-${index}`}>{receipt}</li>)}</ol></aside>
 
       <FocusDialog open={createOpen} onClose={() => { setCreateOpen(false); setTitleError(false); }} title="Add task" description="Set the task details now." testId="dashboard-task-create">
         <TaskCreateForm idPrefix="dashboard-create" onSubmit={(event) => void createTask(event)} onCancel={() => { setCreateOpen(false); setTitleError(false); }} members={[]} titleRef={taskTitleRef} titleError={titleError ? 'Enter a task title.' : undefined} onTitleChange={() => setTitleError(false)} disabled={mutationPending} noValidate testIds={{ title: 'task-title', notes: 'task-notes', scheduledDate: 'task-schedule', dueDate: 'task-due-date', collaborator: 'task-collaborator', cancel: 'dashboard-task-create-cancel', submit: 'task-add', error: 'task-title-error' }} />
