@@ -42,6 +42,66 @@ void main() {
   });
 
   group('buildApiServerEnvironment', () {
+    test('adds the Electron renderer origin when no origins are configured',
+        () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['RHYTHM_LOCAL_RENDERER_ORIGINS'], 'rhythm://app');
+    });
+
+    test('preserves explicit renderer origins before the Electron origin', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'RHYTHM_LOCAL_RENDERER_ORIGINS': 'http://127.0.0.1:4175',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_LOCAL_RENDERER_ORIGINS'],
+        'http://127.0.0.1:4175,rhythm://app',
+      );
+    });
+
+    test('does not duplicate an existing Electron renderer origin', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {'RHYTHM_LOCAL_RENDERER_ORIGINS': 'rhythm://app'},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['RHYTHM_LOCAL_RENDERER_ORIGINS'], 'rhythm://app');
+    });
+
+    test('normalizes renderer origin whitespace and empty segments', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'RHYTHM_LOCAL_RENDERER_ORIGINS':
+              ' a , , rhythm://app ,  http://127.0.0.1:4175  , ',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_LOCAL_RENDERER_ORIGINS'],
+        'a,rhythm://app,http://127.0.0.1:4175',
+      );
+    });
+
     test(
       'injects MEMORY_VAULT_PATH and MEMORY_VAULT_SUBDIR from the setting',
       () {

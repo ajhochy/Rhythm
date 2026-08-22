@@ -7,12 +7,10 @@ import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AGENT_SERVER_PORT, bui
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
 
-test('post-m1-p7-c4d agent-server: ports match the renderer live-gateway contract, not Flutter production ports', () => {
-  // apps/web/src/gateway/index.ts's validateLiveBase hardcodes exactly these two ports — using
-  // Flutter's 4001/4096 here would make the renderer refuse to treat this spawn as live at all.
-  assert.equal(AGENT_SERVER_PORT, 4098);
-  assert.equal(AGENT_SERVER_ENGINE_PORT, 4097);
-  assert.equal(AGENT_SERVER_BASE_URL, 'http://127.0.0.1:4098');
+test('production agent-server shares Flutter local API and engine ports', () => {
+  assert.equal(AGENT_SERVER_PORT, 4001);
+  assert.equal(AGENT_SERVER_ENGINE_PORT, 4096);
+  assert.equal(AGENT_SERVER_BASE_URL, 'http://127.0.0.1:4001');
 });
 
 test('post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys', () => {

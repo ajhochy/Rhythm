@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { openFixture } from './helpers';
 
+const studioDistPort = Number(process.env.RHYTHM_DIST_PORT ?? Number(process.env.RHYTHM_E2E_PORT ?? 4173) + 1);
+
 test.describe('product shell', () => {
   test('renders and toggles theme when Studio storage access is sandboxed', async ({ page }) => {
     const uncaughtErrors: string[] = [];
     page.on('pageerror', (error) => uncaughtErrors.push(error.message));
-    await page.setContent(`<!doctype html><html><body style="margin:0"><iframe data-testid="studio-sandbox" title="Sandboxed Studio preview" sandbox="allow-scripts" src="http://127.0.0.1:4174/index.html#/agents" style="display:block;width:100vw;height:100vh;border:0"></iframe></body></html>`);
+    await page.setContent(`<!doctype html><html><body style="margin:0"><iframe data-testid="studio-sandbox" title="Sandboxed Studio preview" sandbox="allow-scripts" src="http://127.0.0.1:${studioDistPort}/index.html#/agents" style="display:block;width:100vw;height:100vh;border:0"></iframe></body></html>`);
 
     const studio = page.frameLocator('[data-testid="studio-sandbox"]');
     await expect(studio.getByTestId('connection-status')).toBeVisible();

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../../../features/notifications/data/human_approval_signer.dart';
 
 const defaultRelayUrls = 'wss://api.vcrcapps.com/relay/uplink';
+const electronRendererOrigin = 'rhythm://app';
 
 /// Distinct failure modes for [ApiServerService.start].
 enum AgentServerFailureReason {
@@ -56,6 +57,14 @@ Map<String, String> buildApiServerEnvironment({
   required String humanApprovalCapabilitySha256,
   required String humanApprovalPublicKey,
 }) {
+  final localRendererOrigins = (baseEnv['RHYTHM_LOCAL_RENDERER_ORIGINS'] ?? '')
+      .split(',')
+      .map((origin) => origin.trim())
+      .where((origin) => origin.isNotEmpty)
+      .toList();
+  if (!localRendererOrigins.contains(electronRendererOrigin)) {
+    localRendererOrigins.add(electronRendererOrigin);
+  }
   final env = <String, String>{
     ...Map<String, String>.fromEntries(
       baseEnv.entries.where(
@@ -65,6 +74,7 @@ Map<String, String> buildApiServerEnvironment({
     'PORT': port,
     'DB_PATH': dbPath,
     'AGENT_LOCAL': 'true',
+    'RHYTHM_LOCAL_RENDERER_ORIGINS': localRendererOrigins.join(','),
     'HUMAN_APPROVAL_CAPABILITY_SHA256': humanApprovalCapabilitySha256,
     'HUMAN_APPROVAL_PUBLIC_KEY': humanApprovalPublicKey,
   };

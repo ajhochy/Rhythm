@@ -2,6 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 
 type Seen = { method: string; path: string; body: unknown };
 
+const cloudCors = {
+  'access-control-allow-origin': 'http://127.0.0.1:4176',
+  'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+  'access-control-allow-headers': 'authorization,content-type',
+};
+
 const emptySummary = {
   tasks: { openCount: 0, pastDueCount: 0, pastDeadlineCount: 0, pastDeadlineTasks: [], todayRemainingCount: 0, todayTotalCount: 0, thisWeekRemainingCount: 0, thisWeekTotalCount: 0, unscheduledCount: 0, recent: [], pastDue: [], today: [], thisWeek: [], unscheduled: [] },
   rhythms: { activeCount: 0, items: [] }, projects: { activeCount: 0, items: [] },
@@ -21,12 +27,15 @@ function responseFor(path: string): unknown {
 
 async function openLive(page: Page, hash: string): Promise<Seen[]> {
   const seen: Seen[] = [];
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  const handleApi = async (route: import('@playwright/test').Route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     seen.push({ method: request.method(), path: `${url.pathname}${url.search}`, body: request.postDataJSON() ?? undefined });
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
-  });
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleApi);
+  await page.route('https://api.vcrcapps.com/**', handleApi);
   await page.route('http://127.0.0.1:4097/**', async (route) => {
     const url = new URL(route.request().url());
     seen.push({ method: route.request().method(), path: `${url.pathname}${url.search}`, body: undefined });
@@ -58,6 +67,62 @@ test('post-m1-p3-c2a: live Dashboard consumes its real gateway instead of fixtur
   expect(await page.getByText(/Local preview · no request sent/i).count()).toBe(0);
 });
 
+test('production repair: live Dashboard completion preserves the workspace while silently revalidating', async ({ page }) => {
+  let status: 'open' | 'done' = 'open';
+  let summaryLoads = 0;
+  let releaseRevalidation: (() => void) | undefined;
+  const revalidationGate = new Promise<void>((resolve) => { releaseRevalidation = resolve; });
+  const task = () => ({ id: 'dashboard-live-task', title: 'Keep the dashboard mounted', status, scheduledDate: '2026-08-21', dueDate: null, notes: '', sourceType: 'task' });
+  const summary = () => ({
+    ...emptySummary,
+    tasks: {
+      ...emptySummary.tasks,
+      openCount: status === 'open' ? 1 : 0,
+      todayRemainingCount: status === 'open' ? 1 : 0,
+      todayTotalCount: 1,
+      thisWeekRemainingCount: status === 'open' ? 1 : 0,
+      thisWeekTotalCount: 1,
+      recent: [task()],
+      today: status === 'open' ? [task()] : [],
+      thisWeek: [],
+    },
+  });
+
+  const handleDashboard = async (route: import('@playwright/test').Route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
+    if (url.pathname === '/dashboard/summary') {
+      summaryLoads += 1;
+      if (summaryLoads > 1) await revalidationGate;
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(summary()) });
+      return;
+    }
+    if (url.pathname === '/project-instances') {
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: '[]' });
+      return;
+    }
+    if (url.pathname === '/tasks/dashboard-live-task' && request.method() === 'PATCH') {
+      status = 'done';
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(task()) });
+      return;
+    }
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleDashboard);
+  await page.route('https://api.vcrcapps.com/**', handleDashboard);
+  await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"healthy":true}' }));
+  await page.goto('/#/dashboard');
+  await expect(page.getByTestId('task-row-dashboard-live-task')).toBeVisible();
+
+  await page.getByTestId('task-toggle-dashboard-live-task').click();
+  await expect.poll(() => summaryLoads).toBeGreaterThan(1);
+  await expect(page.getByTestId('page-state-loading')).toHaveCount(0);
+  await expect(page.getByTestId('planning-today')).toBeVisible();
+  await expect(page.getByTestId('task-row-dashboard-live-task')).toHaveCount(0);
+  releaseRevalidation?.();
+});
+
 test('post-m1-p3-c2b: live Planner preserves WeeklyPlan and every persisted scheduling boundary', async ({ page }) => {
   // Regression caught: Planner drag/edit/create/collaborator controls mutate fixtures and never load the requested canonical week.
   const module = await import('../src/gateway/planner').catch(() => null);
@@ -67,6 +132,61 @@ test('post-m1-p3-c2b: live Planner preserves WeeklyPlan and every persisted sche
   expectMethods(gateway, ['plan', 'scheduleTask', 'createTask', 'updateTask', 'updateProjectStep', 'taskCollaborators', 'addTaskCollaborator', 'removeTaskCollaborator']);
   const seen = await openLive(page, 'planner');
   await expectRequest(seen, 'GET', /^\/weekly-plan\?week=\d{4}-W\d{2}$/);
+});
+
+test('production repair: live Planner defaults to Open and completes in place without replacing the board', async ({ page }) => {
+  let status: 'open' | 'done' = 'open';
+  let planLoads = 0;
+  let releaseRevalidation: (() => void) | undefined;
+  const revalidationGate = new Promise<void>((resolve) => { releaseRevalidation = resolve; });
+  const weeklyPlan = () => ({
+    weekLabel: '2026-W34',
+    weekStart: '2026-08-17',
+    backlog: [],
+    days: [{
+      date: '2026-08-17',
+      tasks: [
+        { id: 'live-open', title: 'Ship usable Electron client', status, scheduledDate: '2026-08-17', energy: 'medium', sourceType: 'task' },
+        { id: 'live-done', title: 'Completed history', status: 'done', scheduledDate: '2026-08-17', energy: 'low', sourceType: 'task' },
+      ],
+    }],
+  });
+
+  const handlePlanner = async (route: import('@playwright/test').Route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
+    if (url.pathname === '/weekly-plan') {
+      planLoads += 1;
+      if (planLoads > 1) await revalidationGate;
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(weeklyPlan()) });
+      return;
+    }
+    if (url.pathname === '/tasks/live-open' && request.method() === 'PATCH') {
+      status = 'done';
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify({ ...weeklyPlan().days[0].tasks[0], status }) });
+      return;
+    }
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handlePlanner);
+  await page.route('https://api.vcrcapps.com/**', handlePlanner);
+  await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"healthy":true}' }));
+  await page.goto('/#/planner');
+
+  await expect(page.getByTestId('planner-filter-open')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('planner-task-live-open')).toBeVisible();
+  await expect(page.getByTestId('planner-task-live-done')).toHaveCount(0);
+  await page.getByTestId('planner-filter-all').click();
+  await expect(page.getByTestId('planner-task-live-done')).toBeVisible();
+  await page.getByTestId('planner-filter-open').click();
+
+  await page.getByTestId('planner-complete-live-open').click();
+  await expect.poll(() => planLoads).toBeGreaterThan(1);
+  await expect(page.getByTestId('page-state-loading')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Weekly plan' })).toBeVisible();
+  await expect(page.getByTestId('planner-task-live-open')).toHaveCount(0);
+  releaseRevalidation?.();
 });
 
 test('post-m1-p3-c2c: live Tasks round-trips numeric collaborators and truthful source metadata', async ({ page }) => {
@@ -113,6 +233,67 @@ test('post-m1-p3-c2f: live Messages uses numeric persisted IDs for complete thre
   expectMethods(gateway, ['threads', 'createThread', 'messages', 'sendMessage', 'markRead', 'markUnread']);
   const seen = await openLive(page, 'messages');
   await expectRequest(seen, 'GET', /^\/message-threads\/?$/);
+});
+
+test('production repair: live Messages uses truthful unread state and the usable two-pane interaction contract', async ({ page }) => {
+  const threads = [
+    { id: 41, title: 'Production handoff', threadType: 'group', taskId: null, createdBy: 1, createdAt: '2026-08-21T20:00:00.000Z', updatedAt: '2026-08-21T22:04:00.000Z', lastMessage: 'Everything is read.', unreadCount: 0, isUnread: false, participants: [{ id: 2, name: 'Morgan Lee', email: 'morgan@example.test' }] },
+    { id: 42, title: 'Facilities', threadType: 'direct', taskId: null, createdBy: 2, createdAt: '2026-08-20T20:00:00.000Z', updatedAt: '2026-08-20T21:00:00.000Z', lastMessage: 'Doors are locked.', unreadCount: 0, isUnread: false, participants: [{ id: 3, name: 'Sam Rivera', email: 'sam@example.test' }] },
+  ];
+  const messageRequests: string[] = [];
+  let messageThreadGets = 0;
+  const handleMessages = async (route: import('@playwright/test').Route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    messageRequests.push(`${method} ${url.origin}${url.pathname}`);
+    if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
+    if (url.pathname === '/health') return route.fulfill({ status: 200, headers: cloudCors, json: { status: 'ok' } });
+    if (url.pathname === '/message-threads' && method === 'GET') {
+      messageThreadGets += 1;
+      return route.fulfill({ status: 200, headers: cloudCors, json: threads });
+    }
+    if (url.pathname === '/users') return route.fulfill({ status: 200, headers: cloudCors, json: [] });
+    if (url.pathname === '/message-threads/41/messages' && method === 'GET') return route.fulfill({ status: 200, headers: cloudCors, json: [{ id: 101, threadId: 41, senderId: 2, senderName: 'Morgan Lee', body: 'Everything is read.', createdAt: '2026-08-21T22:04:00.000Z' }] });
+    if (url.pathname === '/message-threads/41/unread' && method === 'POST') { threads[0].unreadCount = 1; threads[0].isUnread = true; return route.fulfill({ status: 204, headers: cloudCors }); }
+    if (url.pathname === '/message-threads/41/read' && method === 'POST') { threads[0].unreadCount = 0; threads[0].isUnread = false; return route.fulfill({ status: 204, headers: cloudCors }); }
+    return route.fulfill({ status: 200, headers: cloudCors, json: responseFor(url.pathname) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleMessages);
+  await page.route('https://api.vcrcapps.com/**', handleMessages);
+  await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, json: { healthy: true } }));
+  await page.goto('/#/messages');
+
+  const nav = page.getByTestId('nav-messages');
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('0 unread threads');
+  await expect(nav.locator('.unread-badge')).toHaveCount(0);
+  await expect(page.getByTestId('messages-thread-search')).toBeVisible();
+  expect(messageRequests, JSON.stringify(messageRequests)).toContain('GET https://api.vcrcapps.com/message-threads');
+  await expect(page.getByTestId('messages-thread-41').locator('.messages-thread-avatar')).toBeVisible();
+  await expect(page.getByTestId('messages-thread-41').locator('time')).toBeVisible();
+
+  await page.getByTestId('messages-thread-search').fill('Facilities');
+  await expect(page.getByTestId('messages-thread-41')).toHaveCount(0);
+  await expect(page.getByTestId('messages-thread-42')).toBeVisible();
+  await page.getByTestId('messages-thread-search').fill('');
+  await page.getByTestId('messages-thread-actions-41').click();
+  await page.getByRole('menuitem', { name: 'Mark as unread' }).click();
+  await expect(nav.locator('.unread-badge')).toHaveText('1');
+
+  await page.getByTestId('messages-thread-41').click();
+  await expect(page.getByTestId('messages-subject')).toHaveText('Production handoff');
+  await expect(page.getByTestId('messages-transcript').locator('.messages-message')).toHaveCount(1);
+  await expect(nav.locator('.unread-badge')).toHaveCount(0);
+
+  threads[1].unreadCount = 2;
+  threads[1].isUnread = true;
+  await page.waitForTimeout(100);
+  const beforeFocusRefresh = messageThreadGets;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => messageThreadGets).toBe(beforeFocusRefresh + 1);
+  await page.waitForTimeout(100);
+  expect(messageThreadGets).toBe(beforeFocusRefresh + 1);
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('1 unread thread');
+  await expect(nav.locator('.unread-badge')).toHaveText('1');
 });
 
 test('post-m1-p3-c2g: live Facilities exposes canonical CRUD, recurrence, conflicts, and automation cleanup', async ({ page }) => {

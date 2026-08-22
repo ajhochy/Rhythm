@@ -45,7 +45,7 @@ async function installAuthBoundary(page: Page) {
       configurable: true,
       value: Object.freeze({
         version: 8,
-        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'http://127.0.0.1:4198' }),
+        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com' }),
         auth: Object.freeze({
           signInWithGoogle: async () => identity === 'owner'
             ? { sessionToken: 'phase-8-owner-token', user: { id: 81, name: 'Avery Owner', email: 'avery@example.test', role: 'admin', artifactTabIds } }
@@ -59,7 +59,7 @@ async function installAuthBoundary(page: Page) {
 async function openLiveDashboard(page: Page, handler?: (route: Route) => Promise<boolean> | boolean) {
   await installAuthBoundary(page);
   await page.route('http://127.0.0.1:4097/**', (route) => fulfillJson(route, 200, { healthy: true }));
-  await page.route(/^http:\/\/127\.0\.0\.1:(?:4098|4198)\//, async (route) => {
+  await page.route(/^(?:http:\/\/127\.0\.0\.1:(?:4098|4198)|https:\/\/api\.vcrcapps\.com)\//, async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     if (handler && await handler(route)) return;
     const url = new URL(route.request().url());

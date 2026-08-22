@@ -67,6 +67,17 @@ describe('RHYTHM_OPENCODE_ENGINE_PORT', () => {
 });
 
 describe('RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge', () => {
+  it('passes Electron and explicit dev origins to the engine cors option', () => {
+    // Regression caught: the shared service parses origins but drops `cors` while spawning the
+    // engine; the exact options assertion fails.
+    const origins = resolveOpencodeCorsOrigins('rhythm://app,http://127.0.0.1:4175');
+    expect(origins).toEqual(['rhythm://app', 'http://127.0.0.1:4175']);
+    expect(buildOpencodeServerOptions(4096, origins)).toEqual({
+      port: 4096,
+      cors: ['rhythm://app', 'http://127.0.0.1:4175'],
+    });
+  });
+
   it('forwards the exact trimmed, deduplicated renderer origins to the engine', () => {
     const origins = resolveOpencodeCorsOrigins(' rhythm://app, http://127.0.0.1:4175, rhythm://app ');
     expect(origins).toEqual([

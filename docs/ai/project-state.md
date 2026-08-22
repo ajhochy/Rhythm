@@ -1,16 +1,36 @@
 # Rhythm — Project State
 
 ## Current focus
-Bucket A task-sharing prerequisite is fixed, verified, and open as draft PR #1463. Preserve the
-parallel Org Optimizer workflow and verified draft PRs #1383, #1453, #1459, #1460, #1461, and
-#1462; none should merge before its documented manual smoke.
+Electron production-acceptance repair (PR #1474, branch `fix/electron-production-acceptance`) is
+AJ-accepted after a real shared-service dogfood (Flutter owning :4001/:4096, Electron reusing them).
+Root causes found live: the web/Electron artifact bridge was missing `state.get`/`state.update`
+(Flutter's bridge has them — this is why dashboards loaded their shell but never their data), two
+nested wrapper divs had no explicit height (collapsed viewer pane), and a pre-existing CSS Grid
+row-count bug in `.pg-dashboard` (exposed only once the pane height was fixed) plus a consequential
+missing `tabIndex` on the scrollable request-log region. All fixes are client-side (apps/web); no
+production API deploy needed. Full evidence in
+`docs/ai/runs/2026-08-22-electron-production-acceptance.md` (see "Addendum"). Not yet committed —
+next step below.
+
+Bucket A task-sharing prerequisite (draft PR #1463) and the other listed drafts below were the
+prior focus; preserve them and the parallel Org Optimizer workflow — none should merge before its
+documented manual smoke.
 
 ## Active branch / PR
+- **PR #1474** `fix/electron-production-acceptance` — AJ-accepted, uncommitted on disk as of this
+  update; commit/push/PR-update is the immediate next step. Keep draft.
 - Current prerequisite branch: `codex/mega-prereq-task-sharing` → draft PR #1463.
 - Mobile rebuild: `mobile/smart-client-rebuild` → draft PR #1383. Do not merge; AJ merges after
   manual on-device testing.
 - Other verified drafts: H1 #1459, mobile relay #1460, H2 #1461, Electron packaging #1462;
   Numbat observability #1453 remains active and separate.
+
+## Filed but not started (out of scope for #1474)
+- #1475 — Add a "Deferred" column to the Task board (Flutter + Electron).
+- #1476 — Electron/web Agents session list should nest child sessions under parent (Flutter
+  parity); sidebar already has an unused "SUB AGENTS" group showing 0.
+- #1477 — Agents session header text collision (title/breadcrumb, branch/status) — likely same
+  root-cause class as the Dashboard-tab collision fixed in #1474.
 
 ## In progress
 - The prerequisite unblocks Bucket A final verification. Contract
@@ -39,5 +59,9 @@ parallel Org Optimizer workflow and verified draft PRs #1383, #1453, #1459, #146
   untouched.
 
 ## Next step
-Run Bucket A final verification against prerequisite PR #1463 and H2 PR #1461. Keep every draft
-unmerged until its documented manual smoke is complete.
+For PR #1474: run GitNexus `detect_changes`, commit, push, update the PR (stay draft), get a fresh
+review at the new HEAD, then wait for AJ's explicit approval before marking ready/merging or
+publishing a replacement Electron prerelease.
+
+Separately: run Bucket A final verification against prerequisite PR #1463 and H2 PR #1461. Keep
+every draft unmerged until its documented manual smoke is complete.

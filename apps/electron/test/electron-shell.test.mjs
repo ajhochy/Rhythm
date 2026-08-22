@@ -36,6 +36,7 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
+  assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
   assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer']);
   assert.equal(result.bridge.frozen, true);
   assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
@@ -44,6 +45,10 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
     apiBase: true,
     engineBase: true,
     productionApiBase: true,
+  });
+  assert.deepEqual(result.bridge.gateway.values, {
+    apiBase: 'http://127.0.0.1:4001',
+    engineBase: 'http://127.0.0.1:4096',
   });
   assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle']);
   assert.equal(result.bridge.auth.frozen, true);
@@ -55,12 +60,53 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
   assert.equal(result.bridge.nodeExposed, false);
 });
 
+test('production repair: alternate local ports require an explicit smoke-only flag', async () => {
+  const userData = await mkdtemp(resolve(tmpdir(), 'rhythm-electron-test-ports-'));
+  try {
+    const output = await runElectron(['.', '--smoke', '--allow-test-runtime-ports'], userData);
+    assert.equal(output.code, 0, output.stderr);
+    assert.deepEqual(JSON.parse(output.stdout.trim()).runtime, {
+      apiBase: 'http://127.0.0.1:4098',
+      engineBase: 'http://127.0.0.1:4097',
+      testOverride: true,
+    });
+  } finally {
+    await rm(userData, { recursive: true, force: true });
+  }
+});
+
 test('slice-5-c5: actual shell denies navigation, popups, permissions, and downloads', async () => {
   const result = await smoke();
   assert.deepEqual(result.denials, { navigation: true, popup: true, permission: true, download: true });
   const missing = await runElectron(['.', '--smoke', '--missing-dist']);
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /requires built web assets/);
+});
+
+test('production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame', async () => {
+  const userData = await mkdtemp(resolve(tmpdir(), 'rhythm-electron-artifact-'));
+  try {
+    const output = await runElectron(['.', '--smoke', '--artifact-frame-smoke'], userData);
+    assert.equal(output.code, 0, output.stderr);
+    const receipt = JSON.parse(output.stdout.trim());
+    assert.deepEqual(receipt.artifactFrame, {
+      loaded: true,
+      protocol: 'rhythm-artifact:',
+      navigationBlocked: true,
+      bridge: {
+        n: 'smoke-nonce',
+        id: 'smoke-request',
+        ok: true,
+        data: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+      },
+      request: {
+        url: 'https://api.vcrcapps.com/live-artifacts/00000000-0000-4000-8000-000000000801/render',
+        authenticated: true,
+      },
+    });
+  } finally {
+    await rm(userData, { recursive: true, force: true });
+  }
 });
 
 async function smoke() {
@@ -76,19 +122,19 @@ async function smoke() {
   }
 }
 
-async function runElectron(args, userData) {
+async function runElectron(args, userData, env = {}) {
   // Always redirect userData to a harness-owned temp dir, even for launches that throw before
   // will-quit (e.g. --missing-dist): the app's own cleanup never runs on those paths, and an
   // un-redirected launch would write to ~/Library/Application Support/rhythm-electron-shell.
   const owned = userData ?? (await mkdtemp(resolve(tmpdir(), 'rhythm-electron-smoke-')));
   try {
-    return await spawnElectron(args, owned);
+    return await spawnElectron(args, owned, env);
   } finally {
     if (!userData) await rm(owned, { recursive: true, force: true });
   }
 }
 
-function spawnElectron(args, userData) {
+function spawnElectron(args, userData, overrides = {}) {
   return new Promise((resolvePromise, reject) => {
       const child = spawn(electron, args, {
         cwd: shellRoot,
@@ -97,6 +143,7 @@ function spawnElectron(args, userData) {
           RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098',
           RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097',
           RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
+          ...overrides,
           ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],

@@ -10,6 +10,7 @@ export default defineConfig({
   reporter: [['line']],
   use: {
     ...devices['Desktop Chrome'],
+    bypassCSP: true,
     browserName: 'chromium',
     baseURL: 'http://127.0.0.1:4180',
     viewport: { width: 1440, height: 900 },
@@ -21,7 +22,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_PRODUCTION_API_BASE=http://127.0.0.1:4098 npm run dev -- --host 127.0.0.1 --port 4180',
+    command: 'VITE_RHYTHM_GATEWAY_MODE=live VITE_RHYTHM_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_EXPECTED_API_BASE=http://127.0.0.1:4098 VITE_RHYTHM_EXPECTED_ENGINE_BASE=http://127.0.0.1:4097 VITE_RHYTHM_PRODUCTION_API_BASE=https://api.vcrcapps.com npm run dev -- --host 127.0.0.1 --port 4180',
     url: 'http://127.0.0.1:4180',
     reuseExistingServer: false,
     timeout: 30_000,

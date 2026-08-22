@@ -8,7 +8,7 @@
     "package:mac": "node scripts/package-mac.mjs",
     "sign:mac": "node scripts/sign-and-notarize-mac.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --test-concurrency=1 test/agent-server.test.mjs test/electron-shell.test.mjs test/google-oauth.test.mjs test/human-approval-isolated-home.test.mjs test/human-approval-main-signer.test.mjs test/post-m1-phase-1-host-policy.test.mjs test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs test/post-m1-phase-8-artifact-policy.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs",
+    "test": "node --test --test-concurrency=1 test/agent-server.test.mjs test/artifact-frame-protocol.test.mjs test/electron-shell.test.mjs test/google-oauth.test.mjs test/human-approval-isolated-home.test.mjs test/human-approval-main-signer.test.mjs test/post-m1-phase-1-host-policy.test.mjs test/post-m1-phase-7-native-notifications.test.mjs test/post-m1-phase-7-packaged-notifications.test.mjs test/post-m1-phase-8-artifact-policy.test.mjs test/production-api-security.test.mjs test/runtime-config.test.mjs test/security-smoke-receipt.test.mjs",
     "test:package": "node --test --test-concurrency=1 test/electron-unsigned-package.test.mjs test/issue-1402-packaged-api-server.test.mjs test/post-m1-phase-1-packaged-host.test.mjs",
     "test:package:live": "RHYTHM_LIVE_E2E=1 node --test --test-concurrency=1 --test-name-pattern='slice-7-c4:' test/electron-unsigned-package.test.mjs",
     "test:keychain": "RHYTHM_KEYCHAIN_INTEGRATION_TEST=1 node --test --test-concurrency=1 test/human-approval-main-signer.test.mjs",

@@ -30,7 +30,29 @@ if (security) {
     let saves = 0;
     const sender = {};
     const handler = createProductionApiSetHandler({ allowedSender: () => sender, save: async (value) => { saves += 1; return normalizeProductionApiBase(value); } });
-    for (const value of ['file:///tmp/api', 'https://user@example.com', 'https://example.com?x=1', 'https://example.com#x']) {
+    for (const value of [
+      'file:///tmp/api',
+      'http://api.example.com',
+      'https://user@example.com',
+      'https://example.com?x=1',
+      'https://example.com#x',
+      'https://localhost',
+      'https://localhost.',
+      'https://preview.localhost',
+      'https://0.0.0.0',
+      'https://10.0.0.1',
+      'https://169.254.1.2',
+      'https://192.168.1.2',
+      'https://127.0.0.1:4001',
+      'https://127.42.0.7',
+      'https://2130706433',
+      'https://0x7f000001',
+      'https://[::1]:4001',
+      'https://[::]',
+      'https://[fe80::1]',
+      'https://[fc00::1]',
+      'https://[::ffff:127.0.0.1]',
+    ]) {
       await assert.rejects(handler({ sender }, value), /production api url/i, value);
     }
     assert.equal(saves, 0);

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService } from './agent-server.mjs';
+import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
@@ -21,6 +22,7 @@ export { deepLinkFromArgv } from './policy.mjs';
 // default ~/Library/Application Support/rhythm-electron-shell path that every smoke run must never
 // touch — slice-7-c6 caught exactly that leak when this ran in the other order.
 const isSmoke = process.argv.includes('--smoke');
+const allowTestRuntimePorts = isSmoke && process.argv.includes('--allow-test-runtime-ports');
 const smokeUserDataPath = isSmoke && !process.env.RHYTHM_SHELL_USER_DATA
   ? mkdtempSync(resolve(tmpdir(), 'rhythm-electron-smoke-'))
   : undefined;
@@ -38,11 +40,10 @@ const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
 if (hasSingleInstanceLock) {
-  protocol.registerSchemesAsPrivileged([{ scheme: 'rhythm', privileges: {
-    standard: true,
-    secure: true,
-    supportFetchAPI: true,
-  } }]);
+  protocol.registerSchemesAsPrivileged([
+    { scheme: 'rhythm', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+    { scheme: 'rhythm-artifact', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  ]);
   const registeredBeforeReady = !app.isReady();
 
   const isMissingDistSmoke = process.argv.includes('--missing-dist');
@@ -50,6 +51,7 @@ if (hasSingleInstanceLock) {
   const isSecuritySmoke = process.argv.includes('--security-smoke');
   const isCleanupSmoke = process.argv.includes('--cleanup-smoke');
   const isProfileSecuritySmoke = process.argv.includes('--profile-security-smoke');
+  const isArtifactFrameSmoke = process.argv.includes('--artifact-frame-smoke');
   const screenshotPath = app.isPackaged
     ? resolve(process.cwd(), '../../docs/ai/runs/evidence/electron-m1-shell.png')
     : resolve(import.meta.dirname, '../../../docs/ai/runs/evidence/electron-m1-shell.png');
@@ -65,6 +67,12 @@ if (hasSingleInstanceLock) {
   let rendererReady = false;
   /** @type {Promise<import('./google-oauth-core.mjs').DesktopAuthLoginResponse> | undefined} */
   let googleSignInInFlight;
+  /** @type {string | undefined} */
+  let productionSessionToken = isArtifactFrameSmoke ? 'artifact-smoke-token' : undefined;
+  /** @type {{ loaded: boolean, protocol: string, bridge: unknown, request: { url: string, authenticated: boolean } | undefined } | undefined} */
+  let artifactFrame;
+  /** @type {{ url: string, authenticated: boolean } | undefined} */
+  let artifactFrameRequest;
 
   /** @param {unknown} value */
   const safeNotificationId = (value) => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
@@ -148,6 +156,11 @@ if (hasSingleInstanceLock) {
         apiBase: RHYTHM_AUTH_API_BASE,
         openExternal: (url) => shell.openExternal(url),
         fetcher: (url, init) => globalThis.fetch(String(url), init),
+      }).then((login) => {
+        // Kept in main-process memory only so authenticated artifact documents can be served through
+        // the private frame protocol without putting credentials in a URL, DOM attribute, or log.
+        productionSessionToken = login.sessionToken;
+        return login;
       }).finally(() => { googleSignInInFlight = undefined; });
     }
     return googleSignInInFlight;
@@ -172,16 +185,12 @@ if (hasSingleInstanceLock) {
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
   // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
-  // developer's own terminal) already has one running. Skipped entirely for --smoke runs so the
-  // existing, carefully-tuned smoke-test contract (11 test files) is untouched — those tests set
-  // their own RHYTHM_LIVE_API_URL/RHYTHM_LIVE_ENGINE_URL explicitly when they want live mode.
+  // developer's own terminal) already has one running. Production always pins these bases to the
+  // Flutter-owned 4001/4096 boundary. Alternate ports exist only behind an explicit smoke-only flag.
   const agentServer = new AgentServerService();
-  if (!isSmoke) {
-    // Explicit overrides (e.g. a test harness pointing at tools/dev/sandbox.sh) always win — set
-    // before the window (and its preload) exist, matching Flutter's "explicit env always wins"
-    // precedence for MEMORY_VAULT_PATH etc. (api_server_service.dart:70-85).
-    if (!process.env.RHYTHM_LIVE_API_URL) process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
-    if (!process.env.RHYTHM_LIVE_ENGINE_URL) process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
+  if (!allowTestRuntimePorts) {
+    process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
+    process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
@@ -258,6 +267,52 @@ if (hasSingleInstanceLock) {
       return net.fetch(pathToFileURL(file).toString());
     });
 
+    protocol.handle('rhythm-artifact', async (request) => {
+      const artifactId = parseArtifactFrameRequest(request);
+      if (!artifactId) return new Response('Forbidden', { status: 403 });
+      if (!productionSessionToken) return new Response('Authentication required', { status: 401 });
+      try {
+        const requestUrl = `${productionApiBase}/live-artifacts/${encodeURIComponent(artifactId)}/render`;
+        /** @type {RequestInit} */
+        const requestInit = {
+          headers: { Authorization: 'Bearer ' + productionSessionToken },
+          redirect: 'error',
+        };
+        const result = isArtifactFrameSmoke
+          ? (() => {
+              artifactFrameRequest = {
+                url: requestUrl,
+                authenticated: new Headers(requestInit.headers).get('authorization') === 'Bearer artifact-smoke-token',
+              };
+              return new Response(`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"><script>
+                window.__rhythmHostResponse = function(payload) {
+                  parent.postMessage({ __artifactSmoke: true, bridge: payload }, '*');
+                  setTimeout(function() { location.href = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000802'; }, 0);
+                };
+                RhythmBridge.postMessage(JSON.stringify({ id: 'smoke-request', nonce: 'smoke-nonce', method: 'pco.services.read', params: { operation: 'list_service_types' } }));
+              </script></head><body>Artifact bridge smoke</body></html>`, { status: 200 });
+            })()
+          : await globalThis.fetch(requestUrl, requestInit);
+        if (!result.ok) {
+          const status = [401, 403, 404, 410].includes(result.status) ? result.status : 502;
+          return new Response('Artifact unavailable', { status });
+        }
+        const document = injectArtifactFrameBridge(await result.text());
+        // The API document already contains its closed CSP as the first meta element. We deliberately
+        // do not forward its `frame-ancestors none` response directive because this private protocol
+        // is the one trusted host; the iframe's sandbox="allow-scripts" still removes same-origin,
+        // forms, downloads, popups, navigation, and all native privileges.
+        return new Response(document, { headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer',
+          'cache-control': 'no-store',
+        } });
+      } catch {
+        return new Response('Artifact service unavailable', { status: 503 });
+      }
+    });
+
     const denials = { navigation: false, popup: false, permission: false, download: false };
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
       const notificationPermission = permission === 'notifications' && webContents === mainWindow?.webContents;
@@ -326,6 +381,17 @@ if (hasSingleInstanceLock) {
       denials.navigation = true;
       event.preventDefault();
     });
+    mainWindow.webContents.on('will-frame-navigate', (event) => {
+      if (event.isMainFrame) return;
+      const currentUrl = event.frame?.url;
+      const targetUrl = event.url;
+      const touchesArtifact = targetUrl.startsWith('rhythm-artifact:') || currentUrl?.startsWith('rhythm-artifact:');
+      if (!touchesArtifact) return;
+      if (typeof currentUrl !== 'string' || !isAllowedArtifactFrameNavigation(currentUrl, targetUrl)) {
+        denials.navigation = true;
+        event.preventDefault();
+      }
+    });
     mainWindow.webContents.setWindowOpenHandler(() => {
       denials.popup = true;
       return { action: 'deny' };
@@ -340,6 +406,44 @@ if (hasSingleInstanceLock) {
     await mainWindow.webContents.executeJavaScript('globalThis.Notification.requestPermission()');
     pendingDeepLink = null;
 
+    if (isArtifactFrameSmoke) {
+      artifactFrame = await mainWindow.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Artifact frame smoke timed out')), 10_000);
+        const frame = document.createElement('iframe');
+        frame.sandbox = 'allow-scripts';
+        frame.hidden = true;
+        frame.src = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801';
+        const onMessage = (event) => {
+          if (event.source !== frame.contentWindow) return;
+          if (event.data?.__rhythmBridgeDocument === true && event.ports[0]) {
+            const documentPort = event.ports[0];
+            const documentToken = event.data.documentToken;
+            documentPort.onmessage = (portEvent) => {
+              if (portEvent.data?.__rhythmBridge !== true || portEvent.data.id !== 'smoke-request' || portEvent.data.method !== 'pco.services.read') return;
+              documentPort.postMessage({
+                __rhythmBridgeResponse: true,
+                documentToken,
+                id: portEvent.data.id,
+                result: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+              });
+            };
+            documentPort.start();
+            return;
+          }
+          if (event.data?.__artifactSmoke !== true) return;
+          const protocol = new URL(frame.src).protocol;
+          setTimeout(() => {
+            clearTimeout(timer);
+            window.removeEventListener('message', onMessage);
+            frame.remove();
+            resolve({ loaded: true, protocol, bridge: event.data.bridge });
+          }, 100);
+        };
+        window.addEventListener('message', onMessage);
+        document.body.append(frame);
+      })`).then((receipt) => ({ ...receipt, navigationBlocked: denials.navigation, request: artifactFrameRequest }));
+    }
+
     if (!isSmoke) return;
   const bridge = await mainWindow.webContents.executeJavaScript(`({
     keys: Object.keys(window.rhythmShell || {}),
@@ -351,6 +455,10 @@ if (hasSingleInstanceLock) {
         apiBase: Boolean(window.rhythmShell?.gateway?.apiBase),
         engineBase: Boolean(window.rhythmShell?.gateway?.engineBase),
         productionApiBase: Boolean(window.rhythmShell?.gateway?.productionApiBase),
+      },
+      values: {
+        apiBase: window.rhythmShell?.gateway?.apiBase,
+        engineBase: window.rhythmShell?.gateway?.engineBase,
       },
     },
     auth: {
@@ -532,10 +640,12 @@ if (hasSingleInstanceLock) {
       url: mainWindow.webContents.getURL(),
       windowOptions,
       bridge,
+      runtime: { apiBase, engineBase, testOverride: allowTestRuntimePorts },
       denials: isSecuritySmoke ? { ...denials, malformedProtocol } : denials,
       environment: isLiveSmoke ? { mode: liveRead?.status === 200 ? 'Live' : 'Unavailable' } : undefined,
       liveRead,
       profileSecurity,
+      artifactFrame,
       cleanup: isCleanupSmoke ? { disposableRows: 0, listeners: 0, worktrees: 0, branches: 0 } : undefined,
       screenshot: { path: screenshotPath, width: image.getSize().width, height: image.getSize().height, sha256: createHash('sha256').update(png).digest('hex') },
     };

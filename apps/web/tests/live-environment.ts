@@ -1,5 +1,8 @@
-const DEFAULT_API_URL = 'http://127.0.0.1:4098';
-const DEFAULT_ENGINE_URL = 'http://127.0.0.1:4097';
+import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
+
+const DEFAULT_API_URL = 'http://127.0.0.1:4001';
+const DEFAULT_ENGINE_URL = 'http://127.0.0.1:4096';
+const DEFAULT_PRODUCTION_API_URL = 'https://api.vcrcapps.com';
 
 function loopbackBase(name: string, value: string): string {
   const url = new URL(value);
@@ -11,11 +14,11 @@ function loopbackBase(name: string, value: string): string {
 }
 
 function productionBase(value: string): string {
-  const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw new Error('RHYTHM_LIVE_PRODUCTION_API_URL must be HTTP(S) without credentials, query, or fragment');
+  try {
+    return normalizeRemoteProductionApiBase(value);
+  } catch {
+    throw new Error('RHYTHM_LIVE_PRODUCTION_API_URL must be remote HTTPS without credentials, query, or fragment');
   }
-  return url.toString().replace(/\/$/, '');
 }
 
 export function liveEnvironment(env: NodeJS.ProcessEnv = process.env) {
@@ -25,7 +28,7 @@ export function liveEnvironment(env: NodeJS.ProcessEnv = process.env) {
   return {
     apiBase,
     engineBase,
-    productionApiBase: productionBase(env.RHYTHM_LIVE_PRODUCTION_API_URL ?? apiBase),
+    productionApiBase: productionBase(env.RHYTHM_LIVE_PRODUCTION_API_URL ?? DEFAULT_PRODUCTION_API_URL),
     wsBase: apiBase.replace(/^http:/, 'ws:'),
   };
 }
