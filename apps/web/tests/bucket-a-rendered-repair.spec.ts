@@ -176,29 +176,32 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
 });
 
 test('self-improvement-review-live: closed tool safety, conditional confirmation, history, and server failures stay truthful', async ({ page }) => {
-  let status = 'proposed';
   const calls: string[] = [];
-  const tool = { id: 'tool-1', title: 'Install verified tool', kind: 'tool-install', risk: 'high', status: 'proposed', outcomeStatus: 'unproven', rationale: 'Required for service planning.', createdAt: '2026-08-21T10:00:00.000Z', updatedAt: '2026-08-21T11:00:00.000Z', changeJson: '{"secret":"never-render"}', experimentSummary: { collectingProgress: 'collecting', eligibleCount: 3, missingCount: 1, treatmentIntegrity: 'ok', guardrailStatus: 'ok', terminalReason: null, testedBaselineHash: 'abc', testedCandidateHash: 'def', staleBeforeApplyConflict: false, calibrationStatus: 'calibrated', calibratedConfidence: 0.8 }, toolSafety: { state: 'ready', verdict: 'conditional', tool: { name: 'planner-tool', packageSource: 'local-tarball:sha256:abc' }, forbiddenPathViolations: [], networkCalls: [], workspaceWriteCount: 0, credentialAccessAttemptsCount: 0, scenarioAttemptsCount: 3, sandboxDurationMs: 150, reason: 'sandbox_candidate_failed' } };
+  const tool = { id: 'tool-1', title: 'Install verified tool', kind: 'tool-install', risk: 'high', status: 'sandbox-vetted', outcomeStatus: 'unproven', rationale: 'Required for service planning.', createdAt: '2026-08-21T10:00:00.000Z', updatedAt: '2026-08-21T11:00:00.000Z', changeJson: '{"secret":"never-render"}', experimentSummary: { collectingProgress: 'collecting', eligibleCount: 3, missingCount: 1, treatmentIntegrity: 'ok', guardrailStatus: 'ok', terminalReason: null, testedBaselineHash: 'abc', testedCandidateHash: 'def', staleBeforeApplyConflict: false, calibrationStatus: 'calibrated', calibratedConfidence: 0.8 }, toolSafety: { state: 'ready', verdict: 'conditional', tool: { name: 'planner-tool', packageSource: 'local-tarball:sha256:abc' }, forbiddenPathViolations: [], networkCalls: [], workspaceWriteCount: 0, credentialAccessAttemptsCount: 0, scenarioAttemptsCount: 3, sandboxDurationMs: 150, reason: 'sandbox_candidate_failed' } };
   await installLiveRoutes(page, async (route, url) => {
-    if (url.pathname === '/agent-org-proposals') { calls.push(`GET ${url.pathname}?${url.searchParams}`); await fulfillJson(route, status === 'active' ? [{ ...tool, status: 'active', outcomeStatus: 'verified' }] : [tool]); return true; }
+    if (url.pathname === '/agent-org-proposals') { const requested = url.searchParams.get('status'); calls.push(`GET ${url.pathname}?${url.searchParams}`); await fulfillJson(route, requested === 'sandbox-vetted' ? [tool] : requested === 'pending' ? [{ ...tool, status: 'pending', toolSafety: { state: 'missing', verdict: 'unknown' } }] : requested === 'active' ? [{ ...tool, status: 'active', outcomeStatus: 'verified' }] : []); return true; }
     if (url.pathname === '/agent-org-proposals/tool-1/approve') { calls.push(`POST approve ${route.request().postData()}`); await fulfillJson(route, { ...tool, status: 'approved' }); return true; }
     if (url.pathname === '/agent-org-proposals/tool-1/revert') { calls.push('POST revert'); await fulfillJson(route, { ...tool, status: 'reverted' }); return true; }
     return false;
   });
   await page.goto('http://127.0.0.1:4181/#/tools/review');
+  await page.getByTestId('review-filter').selectOption('sandbox-vetted');
   const card = page.getByTestId('proposal-tool-1');
   await expect(page.getByText('1 proposal', { exact: true })).toBeVisible();
-  await expect(card).toContainText('Deployment: proposed');
+  await expect(card).toContainText('Deployment: sandbox-vetted');
   await expect(card).toContainText('Outcome: unproven');
   await expect(card).toContainText('planner-tool');
   await expect(card).toContainText('Collecting · 3 eligible · 1 missing');
   await expect(card).toContainText('Integrity: ok · Guardrails: ok');
   await expect(card).not.toContainText('never-render');
+  await expect(page.getByTestId('proposal-reject-tool-1')).toBeVisible();
   await page.getByTestId('proposal-approve-tool-1').click();
   await expect(page.getByTestId('proposal-conditional-dialog')).toBeVisible();
   await page.getByTestId('proposal-conditional-confirm').click();
   await expect.poll(() => calls).toContain('POST approve {"toolSafetyConfirmation":"approve-conditional-tool-install"}');
-  status = 'active';
+  await page.getByTestId('review-filter').selectOption('pending');
+  await expect(page.getByTestId('proposal-reject-tool-1')).toBeVisible();
+  await expect(page.getByTestId('proposal-approve-tool-1')).toHaveCount(0);
   await page.getByTestId('review-filter').selectOption('active');
   await expect(page.getByText('Applied Changes')).toBeVisible();
   await expect(card).toContainText('Deployment: active');

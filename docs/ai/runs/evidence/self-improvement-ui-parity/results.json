@@ -1,0 +1,42 @@
+[
+  {
+    "surface": "review",
+    "scale": 100,
+    "violations": 0,
+    "overflow": 0,
+    "path": "/Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/electron-ui-parity/docs/ai/runs/evidence/self-improvement-ui-parity/rhythm-electron-review-100.png"
+  },
+  {
+    "surface": "settings",
+    "scale": 100,
+    "violations": 0,
+    "overflow": 0,
+    "path": "/Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/electron-ui-parity/docs/ai/runs/evidence/self-improvement-ui-parity/rhythm-electron-settings-100.png"
+  },
+  {
+    "surface": "review",
+    "scale": 200,
+    "violations": 0,
+    "overflow": 0,
+    "path": "/Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/electron-ui-parity/docs/ai/runs/evidence/self-improvement-ui-parity/rhythm-electron-review-200.png"
+  },
+  {
+    "surface": "review",
+    "scale": 200,
+    "actionReachable": true,
+    "path": "/Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/electron-ui-parity/docs/ai/runs/evidence/self-improvement-ui-parity/rhythm-electron-review-200-action.png"
+  },
+  {
+    "surface": "settings",
+    "scale": 200,
+    "violations": 0,
+    "overflow": 0,
+    "path": "/Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/electron-ui-parity/docs/ai/runs/evidence/self-improvement-ui-parity/rhythm-electron-settings-200.png"
+  },
+  {
+    "surface": "settings",
+    "scale": 200,
+    "actionReachable": true,
+    "path": "/Users/ajhochhalter/.hermes/worktrees/rhythm-self-improvement/electron-ui-parity/docs/ai/runs/evidence/self-improvement-ui-parity/rhythm-electron-settings-200-action.png"
+  }
+]
