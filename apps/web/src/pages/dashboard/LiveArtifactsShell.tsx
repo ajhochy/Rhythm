@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { useGateway } from '../../gateway/context';
 import { useAuthUser } from '../../gateway/auth';
@@ -184,15 +184,26 @@ function SharingDialog({
 }
 
 function LiveArtifactSurface({
-  tab, onReload, isOwner, liveArtifacts, listWorkspaceUsers,
+  tab, onReload, setTabs, isOwner, liveArtifacts, listWorkspaceUsers,
 }: {
   tab: ArtifactTab;
   onReload(): void;
+  setTabs: React.Dispatch<React.SetStateAction<ArtifactTab[]>>;
   isOwner: boolean;
   liveArtifacts: LiveArtifactsGateway;
   listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
 }) {
   const [sharingOpen, setSharingOpen] = useState(false);
+  // Referentially stable across renders (tab.id is fixed for this component's lifetime, setTabs
+  // never changes identity) so it belongs in the bridge effect's deps without causing it to
+  // re-run on every render — re-running would tear down the in-flight MessagePort handshake.
+  const onStateRevisionChange = useCallback((revision: number) => {
+    setTabs((current) => current.map((candidate) => (
+      candidate.id === tab.id && candidate.detail
+        ? { ...candidate, detail: { ...candidate.detail, currentStateRevision: revision } }
+        : candidate
+    )));
+  }, [tab.id, setTabs]);
   const [visibility, setVisibility] = useState<LiveArtifactVisibility | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const frameGenerationRef = useRef(0);
@@ -252,6 +263,7 @@ function LiveArtifactSurface({
           liveArtifacts.updateState(tab.id, params!.expectedStateRevision as number, params!.state)
             .then((updated) => {
               currentState = { state: params!.state, stateRevision: updated.currentStateRevision };
+              if (frameGenerationRef.current === generation) onStateRevisionChange(updated.currentStateRevision);
               respond({ result: { stateRevision: updated.currentStateRevision } });
             })
             .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
@@ -273,7 +285,7 @@ function LiveArtifactSurface({
       activePort = null;
       if (frameGenerationRef.current === generation) frameGenerationRef.current += 1;
     };
-  }, [tab.id, tab.status, tab.detail, liveArtifacts]);
+  }, [tab.id, tab.status, tab.detail, liveArtifacts, onStateRevisionChange]);
 
   if (tab.status === 'loading') {
     return (
@@ -655,6 +667,7 @@ function LiveArtifactsWorkspace({
             <LiveArtifactSurface
               tab={tab}
               onReload={() => void loadTab(tab.id)}
+              setTabs={setTabs}
               isOwner={tab.detail?.ownerUserId === currentUserId}
               liveArtifacts={liveArtifacts}
               listWorkspaceUsers={listWorkspaceUsers}

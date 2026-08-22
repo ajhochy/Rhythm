@@ -140,7 +140,6 @@
 }
 
 @media (max-width: 520px) {
-  .pg-dashboard { grid-template-rows: auto minmax(0, 1fr) auto; }
   .pg-dashboard .dashboard-toolbar { flex-wrap: wrap; gap: 10px; }
   .pg-dashboard .dashboard-heading { width: 100%; }
   .pg-dashboard .dashboard-header-actions { width: 100%; justify-content: flex-start; }
