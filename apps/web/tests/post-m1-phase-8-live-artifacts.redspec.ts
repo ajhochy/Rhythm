@@ -25,7 +25,7 @@ async function installAuthenticatedHost(page: Page) {
       configurable: true,
       value: Object.freeze({
         version: 8,
-        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'http://127.0.0.1:4198' }),
+        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com' }),
         auth: Object.freeze({
           signInWithGoogle: async () => ({
             sessionToken: 'phase-8-owner-token',
@@ -40,7 +40,7 @@ async function installAuthenticatedHost(page: Page) {
 async function openDashboard(page: Page, onApi?: (route: Route) => Promise<boolean> | boolean) {
   await installAuthenticatedHost(page);
   await page.route('http://127.0.0.1:4097/**', (route) => json(route, 200, { healthy: true }));
-  await page.route(/^http:\/\/127\.0\.0\.1:(?:4098|4198)\//, async (route) => {
+  const handleApi = async (route: Route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     if (onApi && await onApi(route)) return;
     const url = new URL(route.request().url());
@@ -51,7 +51,9 @@ async function openDashboard(page: Page, onApi?: (route: Route) => Promise<boole
     if (url.pathname.endsWith('/render')) return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: '<!doctype html><main>Rendered artifact</main>' });
     if (url.pathname === '/users/me/preferences' && route.request().method() === 'PATCH') return json(route, 200, { id: 81, artifactTabIds: [] });
     return json(route, 404, { error: { code: 'NOT_FOUND' } });
-  });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleApi);
+  await page.route('https://api.vcrcapps.com/**', handleApi);
   await page.goto('/#/dashboard');
   await page.getByRole('button', { name: 'Continue with Google' }).click();
   await expect(page.getByTestId('page-dashboard')).toBeVisible();
@@ -145,4 +147,55 @@ test('post-m1-p8-c1e: artifact tabs preserve overflow reachability and complete 
   await tabs.getByRole('tab', { name: artifacts[1].title }).focus();
   await page.keyboard.press('Backspace');
   await expect(tabs.getByRole('tab', { name: artifacts[0].title })).toBeFocused();
+});
+
+test('artifact bridge invalidates an in-flight capability response when the frame reloads', async ({ page }) => {
+  let capabilityCalls = 0;
+  let firstRequestStarted = false;
+  let releaseOld!: () => void;
+  const oldRequestGate = new Promise<void>((resolve) => { releaseOld = resolve; });
+  const rendered = `<!doctype html><html><head><script>
+    window.bridgeReceipts = [];
+    window.addEventListener('message', function(event) {
+      if (!event.data || event.data.__rhythmBridgeResponse !== true || event.data.id !== 'reused-request') return;
+      window.bridgeReceipts.push(event.data.result.data.marker);
+      document.body.dataset.receipts = window.bridgeReceipts.join(',');
+    });
+    parent.postMessage({ __rhythmBridge: true, id: 'reused-request', method: 'pco.services.read', params: { operation: 'list_service_types' } }, '*');
+  </script></head><body>Bridge generation probe</body></html>`;
+
+  await openDashboard(page, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === `/live-artifacts/${firstId}` && request.method() === 'GET') {
+      await json(route, 200, { ...artifacts[0], declaredCapabilities: ['pco.services.read'], state: {} });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/render`) {
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: rendered });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/capabilities/pco.services.read`) {
+      capabilityCalls += 1;
+      if (capabilityCalls === 1) {
+        firstRequestStarted = true;
+        await oldRequestGate;
+        await json(route, 200, { operation: 'list_service_types', data: { marker: 'old' } });
+      } else {
+        await json(route, 200, { operation: 'list_service_types', data: { marker: 'new' } });
+      }
+      return true;
+    }
+    return false;
+  });
+
+  await openArtifact(page, artifacts[0].title);
+  await expect.poll(() => firstRequestStarted).toBe(true);
+  await page.getByRole('button', { name: 'Reload' }).click();
+  await expect.poll(() => capabilityCalls).toBe(2);
+  const artifactFrame = page.getByTestId('live-artifact-frame').contentFrame();
+  await expect(artifactFrame.locator('body')).toHaveAttribute('data-receipts', 'new');
+  releaseOld();
+  await page.waitForTimeout(100);
+  await expect(artifactFrame.locator('body')).toHaveAttribute('data-receipts', 'new');
 });

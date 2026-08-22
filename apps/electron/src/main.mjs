@@ -68,8 +68,10 @@ if (hasSingleInstanceLock) {
   let googleSignInInFlight;
   /** @type {string | undefined} */
   let productionSessionToken = isArtifactFrameSmoke ? 'artifact-smoke-token' : undefined;
-  /** @type {{ loaded: boolean, protocol: string } | undefined} */
+  /** @type {{ loaded: boolean, protocol: string, bridge: unknown, request: { url: string, authenticated: boolean } | undefined } | undefined} */
   let artifactFrame;
+  /** @type {{ url: string, authenticated: boolean } | undefined} */
+  let artifactFrameRequest;
 
   /** @param {unknown} value */
   const safeNotificationId = (value) => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
@@ -273,10 +275,24 @@ if (hasSingleInstanceLock) {
       if (!artifactId) return new Response('Forbidden', { status: 403 });
       if (!productionSessionToken) return new Response('Authentication required', { status: 401 });
       try {
-        const result = await globalThis.fetch(`${productionApiBase}/live-artifacts/${encodeURIComponent(artifactId)}/render`, {
-          headers: { Authorization: `Bearer ${productionSessionToken}` },
+        const requestUrl = `${productionApiBase}/live-artifacts/${encodeURIComponent(artifactId)}/render`;
+        /** @type {RequestInit} */
+        const requestInit = {
+          headers: { Authorization: 'Bearer ' + productionSessionToken },
           redirect: 'error',
-        });
+        };
+        const result = isArtifactFrameSmoke
+          ? (() => {
+              artifactFrameRequest = {
+                url: requestUrl,
+                authenticated: new Headers(requestInit.headers).get('authorization') === 'Bearer artifact-smoke-token',
+              };
+              return new Response(`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"><script>
+                window.__rhythmHostResponse = function(payload) { parent.postMessage({ __artifactSmoke: true, bridge: payload }, '*'); };
+                RhythmBridge.postMessage(JSON.stringify({ id: 'smoke-request', nonce: 'smoke-nonce', method: 'pco.services.read', params: { operation: 'list_service_types' } }));
+              </script></head><body>Artifact bridge smoke</body></html>`, { status: 200 });
+            })()
+          : await globalThis.fetch(requestUrl, requestInit);
         if (!result.ok) {
           const status = [401, 403, 404, 410].includes(result.status) ? result.status : 502;
           return new Response('Artifact unavailable', { status });
@@ -387,16 +403,25 @@ if (hasSingleInstanceLock) {
         frame.hidden = true;
         frame.src = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801';
         const onMessage = (event) => {
-          if (event.source !== frame.contentWindow || event.data?.__artifactSmoke !== true) return;
+          if (event.source !== frame.contentWindow) return;
+          if (event.data?.__rhythmBridge === true && event.data.id === 'smoke-request' && event.data.method === 'pco.services.read') {
+            frame.contentWindow.postMessage({
+              __rhythmBridgeResponse: true,
+              id: event.data.id,
+              result: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+            }, '*');
+            return;
+          }
+          if (event.data?.__artifactSmoke !== true) return;
           clearTimeout(timer);
           window.removeEventListener('message', onMessage);
           const protocol = new URL(frame.src).protocol;
           frame.remove();
-          resolve({ loaded: true, protocol });
+          resolve({ loaded: true, protocol, bridge: event.data.bridge });
         };
         window.addEventListener('message', onMessage);
         document.body.append(frame);
-      })`);
+      })`).then((receipt) => ({ ...receipt, request: artifactFrameRequest }));
     }
 
     if (!isSmoke) return;

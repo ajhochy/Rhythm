@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
 import test from 'node:test';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -65,33 +64,26 @@ test('slice-5-c5: actual shell denies navigation, popups, permissions, and downl
 });
 
 test('production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame', async () => {
-  let authorization = '';
-  const api = createServer((request, response) => {
-    authorization = request.headers.authorization ?? '';
-    if (request.url !== '/live-artifacts/00000000-0000-4000-8000-000000000801/render') {
-      response.writeHead(404).end();
-      return;
-    }
-    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'"><script>parent.postMessage({__artifactSmoke:true}, "*")</script></head><body>Artifact smoke</body></html>');
-  });
-  await new Promise((resolvePromise, reject) => {
-    api.once('error', reject);
-    api.listen(0, '127.0.0.1', resolvePromise);
-  });
-  const address = api.address();
-  assert.ok(address && typeof address !== 'string');
   const userData = await mkdtemp(resolve(tmpdir(), 'rhythm-electron-artifact-'));
   try {
-    const output = await runElectron(['.', '--smoke', '--artifact-frame-smoke'], userData, {
-      RHYTHM_PRODUCTION_API_URL: `http://127.0.0.1:${address.port}`,
-    });
+    const output = await runElectron(['.', '--smoke', '--artifact-frame-smoke'], userData);
     assert.equal(output.code, 0, output.stderr);
     const receipt = JSON.parse(output.stdout.trim());
-    assert.deepEqual(receipt.artifactFrame, { loaded: true, protocol: 'rhythm-artifact:' });
-    assert.equal(authorization, 'Bearer artifact-smoke-token');
+    assert.deepEqual(receipt.artifactFrame, {
+      loaded: true,
+      protocol: 'rhythm-artifact:',
+      bridge: {
+        n: 'smoke-nonce',
+        id: 'smoke-request',
+        ok: true,
+        data: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+      },
+      request: {
+        url: 'https://api.vcrcapps.com/live-artifacts/00000000-0000-4000-8000-000000000801/render',
+        authenticated: true,
+      },
+    });
   } finally {
-    await new Promise((resolvePromise) => api.close(resolvePromise));
     await rm(userData, { recursive: true, force: true });
   }
 });

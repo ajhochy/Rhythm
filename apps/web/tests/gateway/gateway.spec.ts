@@ -8,7 +8,7 @@ test('slice-2-c19: renderer CSP permits only the live HTTP and session WebSocket
   // Regression caught: connect-src blocks live health/session input or broadens access beyond the exact sandbox services.
   const html = await readFile(path.resolve(import.meta.dirname, '../../index.html'), 'utf8');
   const connectSrc = html.match(/(?:^|;)\s*connect-src\s+([^;]+)/)?.[1].trim().split(/\s+/);
-  expect(connectSrc).toEqual(['http://127.0.0.1:4098', 'http://127.0.0.1:4097', 'ws://127.0.0.1:4098']);
+  expect(connectSrc).toEqual(['https://api.vcrcapps.com', 'http://127.0.0.1:4098', 'http://127.0.0.1:4097', 'ws://127.0.0.1:4098']);
 });
 
 async function loadGateway(): Promise<any> {
@@ -75,6 +75,29 @@ test('production gateway receipt exposes Flutter runtime ports instead of sandbo
   expect(gateway.environment).toEqual({ apiPort: '4001', enginePort: '4096' });
 });
 
+test('credentialed production base rejects plaintext and every loopback spelling', async () => {
+  const module = await loadGateway();
+  for (const productionApiBase of [
+    'http://api.example.com',
+    'https://localhost',
+    'https://localhost.',
+    'https://preview.localhost',
+    'https://127.0.0.1:4001',
+    'https://127.42.0.7',
+    'https://2130706433',
+    'https://0x7f000001',
+    'https://[::1]:4001',
+    'https://[::ffff:127.0.0.1]',
+  ]) {
+    expect(() => module.createLiveGateway({
+      apiBase: 'http://127.0.0.1:4001',
+      engineBase: 'http://127.0.0.1:4096',
+      productionApiBase,
+      taskToken: 'disposable-boundary-token',
+    })).toThrow(/production API base/i);
+  }
+});
+
 test('bucket-a-repair-c1: trusted alternate expected bases accept only matching distinct unprivileged loopback ports', async () => {
   // Regression caught: custom-port verification either remains pinned to 4098/4097 or accepts an arbitrary configured URL.
   const gateway = await loadGateway();
@@ -86,7 +109,7 @@ test('bucket-a-repair-c1: trusted alternate expected bases accept only matching 
     mode: 'live',
     apiBase: 'http://127.0.0.1:4798',
     engineBase: 'http://127.0.0.1:4797',
-    productionApiBase: 'http://127.0.0.1:4798',
+    productionApiBase: 'https://api.example.test',
     expectedApiBase: 'http://127.0.0.1:4798',
     expectedEngineBase: 'http://127.0.0.1:4797',
     taskToken: 'disposable-repair-token',
@@ -108,7 +131,7 @@ test('bucket-a-repair-c1: trusted alternate expected bases accept only matching 
     mode: 'live',
     apiBase: 'http://127.0.0.1:4798',
     engineBase: 'http://127.0.0.1:4798',
-    productionApiBase: 'http://127.0.0.1:4798',
+    productionApiBase: 'https://api.example.test',
     expectedApiBase: 'http://127.0.0.1:4798',
     expectedEngineBase: 'http://127.0.0.1:4798',
     taskToken: 'disposable-repair-token',

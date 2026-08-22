@@ -2,6 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 
 type Seen = { method: string; path: string; body: unknown };
 
+const cloudCors = {
+  'access-control-allow-origin': 'http://127.0.0.1:4176',
+  'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+  'access-control-allow-headers': 'authorization,content-type',
+};
+
 const emptySummary = {
   tasks: { openCount: 0, pastDueCount: 0, pastDeadlineCount: 0, pastDeadlineTasks: [], todayRemainingCount: 0, todayTotalCount: 0, thisWeekRemainingCount: 0, thisWeekTotalCount: 0, unscheduledCount: 0, recent: [], pastDue: [], today: [], thisWeek: [], unscheduled: [] },
   rhythms: { activeCount: 0, items: [] }, projects: { activeCount: 0, items: [] },
@@ -21,12 +27,15 @@ function responseFor(path: string): unknown {
 
 async function openLive(page: Page, hash: string): Promise<Seen[]> {
   const seen: Seen[] = [];
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  const handleApi = async (route: import('@playwright/test').Route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     seen.push({ method: request.method(), path: `${url.pathname}${url.search}`, body: request.postDataJSON() ?? undefined });
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
-  });
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleApi);
+  await page.route('https://api.vcrcapps.com/**', handleApi);
   await page.route('http://127.0.0.1:4097/**', async (route) => {
     const url = new URL(route.request().url());
     seen.push({ method: route.request().method(), path: `${url.pathname}${url.search}`, body: undefined });
@@ -79,26 +88,29 @@ test('production repair: live Dashboard completion preserves the workspace while
     },
   });
 
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  const handleDashboard = async (route: import('@playwright/test').Route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     if (url.pathname === '/dashboard/summary') {
       summaryLoads += 1;
       if (summaryLoads > 1) await revalidationGate;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(summary()) });
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(summary()) });
       return;
     }
     if (url.pathname === '/project-instances') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: '[]' });
       return;
     }
     if (url.pathname === '/tasks/dashboard-live-task' && request.method() === 'PATCH') {
       status = 'done';
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(task()) });
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(task()) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
-  });
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleDashboard);
+  await page.route('https://api.vcrcapps.com/**', handleDashboard);
   await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"healthy":true}' }));
   await page.goto('/#/dashboard');
   await expect(page.getByTestId('task-row-dashboard-live-task')).toBeVisible();
@@ -140,22 +152,25 @@ test('production repair: live Planner defaults to Open and completes in place wi
     }],
   });
 
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  const handlePlanner = async (route: import('@playwright/test').Route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     if (url.pathname === '/weekly-plan') {
       planLoads += 1;
       if (planLoads > 1) await revalidationGate;
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(weeklyPlan()) });
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(weeklyPlan()) });
       return;
     }
     if (url.pathname === '/tasks/live-open' && request.method() === 'PATCH') {
       status = 'done';
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...weeklyPlan().days[0].tasks[0], status }) });
+      await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify({ ...weeklyPlan().days[0].tasks[0], status }) });
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
-  });
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(responseFor(url.pathname)) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handlePlanner);
+  await page.route('https://api.vcrcapps.com/**', handlePlanner);
   await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"healthy":true}' }));
   await page.goto('/#/planner');
 
@@ -225,17 +240,22 @@ test('production repair: live Messages uses truthful unread state and the usable
     { id: 41, title: 'Production handoff', threadType: 'group', taskId: null, createdBy: 1, createdAt: '2026-08-21T20:00:00.000Z', updatedAt: '2026-08-21T22:04:00.000Z', lastMessage: 'Everything is read.', unreadCount: 0, isUnread: false, participants: [{ id: 2, name: 'Morgan Lee', email: 'morgan@example.test' }] },
     { id: 42, title: 'Facilities', threadType: 'direct', taskId: null, createdBy: 2, createdAt: '2026-08-20T20:00:00.000Z', updatedAt: '2026-08-20T21:00:00.000Z', lastMessage: 'Doors are locked.', unreadCount: 0, isUnread: false, participants: [{ id: 3, name: 'Sam Rivera', email: 'sam@example.test' }] },
   ];
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  const messageRequests: string[] = [];
+  const handleMessages = async (route: import('@playwright/test').Route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
-    if (url.pathname === '/health') return route.fulfill({ status: 200, json: { status: 'ok' } });
-    if (url.pathname === '/message-threads' && method === 'GET') return route.fulfill({ status: 200, json: threads });
-    if (url.pathname === '/users') return route.fulfill({ status: 200, json: [] });
-    if (url.pathname === '/message-threads/41/messages' && method === 'GET') return route.fulfill({ status: 200, json: [{ id: 101, threadId: 41, senderId: 2, senderName: 'Morgan Lee', body: 'Everything is read.', createdAt: '2026-08-21T22:04:00.000Z' }] });
-    if (url.pathname === '/message-threads/41/unread' && method === 'POST') { threads[0].unreadCount = 1; threads[0].isUnread = true; return route.fulfill({ status: 204 }); }
-    if (url.pathname === '/message-threads/41/read' && method === 'POST') { threads[0].unreadCount = 0; threads[0].isUnread = false; return route.fulfill({ status: 204 }); }
-    return route.fulfill({ status: 200, json: responseFor(url.pathname) });
-  });
+    messageRequests.push(`${method} ${url.origin}${url.pathname}`);
+    if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
+    if (url.pathname === '/health') return route.fulfill({ status: 200, headers: cloudCors, json: { status: 'ok' } });
+    if (url.pathname === '/message-threads' && method === 'GET') return route.fulfill({ status: 200, headers: cloudCors, json: threads });
+    if (url.pathname === '/users') return route.fulfill({ status: 200, headers: cloudCors, json: [] });
+    if (url.pathname === '/message-threads/41/messages' && method === 'GET') return route.fulfill({ status: 200, headers: cloudCors, json: [{ id: 101, threadId: 41, senderId: 2, senderName: 'Morgan Lee', body: 'Everything is read.', createdAt: '2026-08-21T22:04:00.000Z' }] });
+    if (url.pathname === '/message-threads/41/unread' && method === 'POST') { threads[0].unreadCount = 1; threads[0].isUnread = true; return route.fulfill({ status: 204, headers: cloudCors }); }
+    if (url.pathname === '/message-threads/41/read' && method === 'POST') { threads[0].unreadCount = 0; threads[0].isUnread = false; return route.fulfill({ status: 204, headers: cloudCors }); }
+    return route.fulfill({ status: 200, headers: cloudCors, json: responseFor(url.pathname) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleMessages);
+  await page.route('https://api.vcrcapps.com/**', handleMessages);
   await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, json: { healthy: true } }));
   await page.goto('/#/messages');
 
@@ -243,6 +263,7 @@ test('production repair: live Messages uses truthful unread state and the usable
   await expect(page.getByTestId('messages-unread-total')).toHaveText('0 unread threads');
   await expect(nav.locator('.unread-badge')).toHaveCount(0);
   await expect(page.getByTestId('messages-thread-search')).toBeVisible();
+  expect(messageRequests, JSON.stringify(messageRequests)).toContain('GET https://api.vcrcapps.com/message-threads');
   await expect(page.getByTestId('messages-thread-41').locator('.messages-thread-avatar')).toBeVisible();
   await expect(page.getByTestId('messages-thread-41').locator('time')).toBeVisible();
 
@@ -258,6 +279,12 @@ test('production repair: live Messages uses truthful unread state and the usable
   await expect(page.getByTestId('messages-subject')).toHaveText('Production handoff');
   await expect(page.getByTestId('messages-transcript').locator('.messages-message')).toHaveCount(1);
   await expect(nav.locator('.unread-badge')).toHaveCount(0);
+
+  threads[1].unreadCount = 2;
+  threads[1].isUnread = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('messages-unread-total')).toHaveText('1 unread thread');
+  await expect(nav.locator('.unread-badge')).toHaveText('1');
 });
 
 test('post-m1-p3-c2g: live Facilities exposes canonical CRUD, recurrence, conflicts, and automation cleanup', async ({ page }) => {

@@ -21,12 +21,12 @@ test('post-m1-p8-c5b: confirmed import creates one canonical private artifact, t
   await page.addInitScript(() => {
     Object.defineProperty(window, 'rhythmShell', { configurable: true, value: Object.freeze({
       version: 8,
-      gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'http://127.0.0.1:4198' }),
+      gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com' }),
       auth: Object.freeze({ signInWithGoogle: async () => ({ sessionToken: 'phase-8-import-token', user: { id: 81, name: 'Avery Owner', email: 'avery@example.test', role: 'admin', artifactTabIds: [] } }) }),
     }) });
   });
   await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, headers: cors, json: { healthy: true } }));
-  await page.route(/^http:\/\/127\.0\.0\.1:(?:4098|4198)\//, async (route: Route) => {
+  await page.route(/^(?:http:\/\/127\.0\.0\.1:(?:4098|4198)|https:\/\/api\.vcrcapps\.com)\//, async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });

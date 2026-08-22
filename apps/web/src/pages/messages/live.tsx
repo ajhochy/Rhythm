@@ -126,16 +126,26 @@ export function LiveMessagesPage({ route }: { route: string }) {
     let active = true;
     setLoading(true);
     setLoadError('');
-    gateway.threads()
-      .then((loaded) => { if (active) setThreads(loaded); })
-      .catch((error) => { if (active) setLoadError(boundedMessage(error)); })
-      .finally(() => { if (active) setLoading(false); });
+    const refreshThreads = () => gateway.threads()
+      .then((loaded) => { if (active) { setThreads(loaded); setLoadError(''); } })
+      .catch((error) => { if (active) setLoadError(boundedMessage(error)); });
+    void refreshThreads().finally(() => { if (active) setLoading(false); });
+    const onFocus = () => { void refreshThreads(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshThreads(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    const refreshTimer = window.setInterval(() => { void refreshThreads(); }, 30_000);
     // The recipient picker needs the workspace directory. A directory failure must not blank the
     // thread list, so it is loaded independently and degrades to the existing bounded empty state.
     gateway.users()
       .then((people) => { if (active) setDirectory(people); })
       .catch(() => { if (active) setDirectory([]); });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(refreshTimer);
+    };
   }, [gateway]);
 
   // Deep-linked selection (/messages/:id) must survive independently of whether the thread list

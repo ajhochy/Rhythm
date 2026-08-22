@@ -18,7 +18,7 @@ const liveBases = liveEnvironment();
 const sandboxEnvironment = {
   RHYTHM_LIVE_API_URL: liveBases.apiBase,
   RHYTHM_LIVE_ENGINE_URL: liveBases.engineBase,
-  RHYTHM_PRODUCTION_API_URL: liveBases.productionApiBase,
+  RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
 };
 
 test('post-m1-p1-c4e: a second packaged launch yields to the first instead of starting a second host', async () => {

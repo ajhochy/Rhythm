@@ -216,10 +216,21 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!live || !gateway.domains.messages) return;
     let active = true;
-    gateway.domains.messages.threads()
+    const refreshUnread = () => gateway.domains.messages!.threads()
       .then((threads) => { if (active) setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length); })
       .catch(() => { if (active) setUnreadThreads(0); });
-    return () => { active = false; };
+    void refreshUnread();
+    const onFocus = () => { void refreshUnread(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshUnread(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    const refreshTimer = window.setInterval(() => { void refreshUnread(); }, 30_000);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(refreshTimer);
+    };
   }, [gateway.domains.messages, live]);
 
   useEffect(() => {

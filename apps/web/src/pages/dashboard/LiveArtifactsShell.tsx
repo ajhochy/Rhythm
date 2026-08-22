@@ -181,19 +181,25 @@ function LiveArtifactSurface({
   const [sharingOpen, setSharingOpen] = useState(false);
   const [visibility, setVisibility] = useState<LiveArtifactVisibility | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const frameGenerationRef = useRef(0);
 
   // Host side of the artifact bridge (post-m1-p8-c4g). Bound to exactly this tab's id and current
   // declaredCapabilities — a stale/removed tab's listener is torn down by the cleanup below, so a
   // response can never be delivered against a since-closed or switched artifact.
   useEffect(() => {
+    const generation = ++frameGenerationRef.current;
     const detail = tab.detail;
-    if (!detail) return;
+    const sourceWindow = iframeRef.current?.contentWindow;
+    if (tab.status !== 'ready' || !detail || !sourceWindow) {
+      return () => { if (frameGenerationRef.current === generation) frameGenerationRef.current += 1; };
+    }
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.source !== sourceWindow) return;
       const data = event.data as { __rhythmBridge?: boolean; id?: string; method?: string; params?: unknown } | null;
       if (!data || data.__rhythmBridge !== true || typeof data.id !== 'string') return;
       const respond = (payload: { result?: unknown; error?: string }) => {
-        iframeRef.current?.contentWindow?.postMessage({ __rhythmBridgeResponse: true, id: data.id, ...payload }, '*');
+        if (frameGenerationRef.current !== generation || iframeRef.current?.contentWindow !== sourceWindow) return;
+        sourceWindow.postMessage({ __rhythmBridgeResponse: true, id: data.id, ...payload }, '*');
       };
       if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
       if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
@@ -203,8 +209,11 @@ function LiveArtifactSurface({
         .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [tab.id, tab.detail, liveArtifacts]);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (frameGenerationRef.current === generation) frameGenerationRef.current += 1;
+    };
+  }, [tab.id, tab.status, tab.detail, liveArtifacts]);
 
   if (tab.status === 'loading') {
     return (

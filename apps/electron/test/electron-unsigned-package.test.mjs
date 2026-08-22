@@ -34,7 +34,7 @@ const liveBases = liveEnvironment();
 const sandboxEnvironment = {
   RHYTHM_LIVE_API_URL: liveBases.apiBase,
   RHYTHM_LIVE_ENGINE_URL: liveBases.engineBase,
-  RHYTHM_PRODUCTION_API_URL: liveBases.productionApiBase,
+  RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
 };
 // Electron derives userData from package.json `name`, so an un-redirected launch writes persistent
 // state to ~/Library/Application Support/rhythm-electron-shell. That is the leak c6 must catch: the
@@ -91,6 +91,25 @@ test('slice-7-c3: packaged binary registers rhythm before ready and loads the ha
     sandbox: true,
     webSecurity: true,
   }, 'slice-7-c3: packaged BrowserWindow options differ from the hardened Slice 5 contract');
+});
+
+test('production repair: packaged binary executes the authenticated artifact protocol and bridge round trip', async () => {
+  await assertPackagedBundle('production-repair-artifact');
+  const receipt = await packagedSmoke(['--smoke', '--artifact-frame-smoke']);
+  assert.deepEqual(receipt.artifactFrame, {
+    loaded: true,
+    protocol: 'rhythm-artifact:',
+    bridge: {
+      n: 'smoke-nonce',
+      id: 'smoke-request',
+      ok: true,
+      data: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+    },
+    request: {
+      url: 'https://api.vcrcapps.com/live-artifacts/00000000-0000-4000-8000-000000000801/render',
+      authenticated: true,
+    },
+  });
 });
 
 test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', {
