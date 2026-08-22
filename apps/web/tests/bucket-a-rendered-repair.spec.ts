@@ -178,7 +178,7 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
 test('self-improvement-review-live: closed tool safety, conditional confirmation, history, and server failures stay truthful', async ({ page }) => {
   let status = 'proposed';
   const calls: string[] = [];
-  const tool = { id: 'tool-1', title: 'Install verified tool', kind: 'tool-install', risk: 'high', status: 'proposed', outcomeStatus: 'unproven', rationale: 'Required for service planning.', createdAt: '2026-08-21T10:00:00.000Z', updatedAt: '2026-08-21T11:00:00.000Z', changeJson: '{"secret":"never-render"}', toolSafety: { state: 'ready', verdict: 'conditional', tool: { name: 'planner-tool', packageSource: 'local-tarball:sha256:abc' }, forbiddenPathViolations: [], networkCalls: [], workspaceWriteCount: 0, credentialAccessAttemptsCount: 0, scenarioAttemptsCount: 3, sandboxDurationMs: 150, reason: 'sandbox_candidate_failed' } };
+  const tool = { id: 'tool-1', title: 'Install verified tool', kind: 'tool-install', risk: 'high', status: 'proposed', outcomeStatus: 'unproven', rationale: 'Required for service planning.', createdAt: '2026-08-21T10:00:00.000Z', updatedAt: '2026-08-21T11:00:00.000Z', changeJson: '{"secret":"never-render"}', experimentSummary: { collectingProgress: 'collecting', eligibleCount: 3, missingCount: 1, treatmentIntegrity: 'ok', guardrailStatus: 'ok', terminalReason: null, testedBaselineHash: 'abc', testedCandidateHash: 'def', staleBeforeApplyConflict: false, calibrationStatus: 'calibrated', calibratedConfidence: 0.8 }, toolSafety: { state: 'ready', verdict: 'conditional', tool: { name: 'planner-tool', packageSource: 'local-tarball:sha256:abc' }, forbiddenPathViolations: [], networkCalls: [], workspaceWriteCount: 0, credentialAccessAttemptsCount: 0, scenarioAttemptsCount: 3, sandboxDurationMs: 150, reason: 'sandbox_candidate_failed' } };
   await installLiveRoutes(page, async (route, url) => {
     if (url.pathname === '/agent-org-proposals') { calls.push(`GET ${url.pathname}?${url.searchParams}`); await fulfillJson(route, status === 'active' ? [{ ...tool, status: 'active', outcomeStatus: 'verified' }] : [tool]); return true; }
     if (url.pathname === '/agent-org-proposals/tool-1/approve') { calls.push(`POST approve ${route.request().postData()}`); await fulfillJson(route, { ...tool, status: 'approved' }); return true; }
@@ -187,9 +187,12 @@ test('self-improvement-review-live: closed tool safety, conditional confirmation
   });
   await page.goto('http://127.0.0.1:4181/#/tools/review');
   const card = page.getByTestId('proposal-tool-1');
+  await expect(page.getByText('1 proposal', { exact: true })).toBeVisible();
   await expect(card).toContainText('Deployment: proposed');
   await expect(card).toContainText('Outcome: unproven');
   await expect(card).toContainText('planner-tool');
+  await expect(card).toContainText('Collecting · 3 eligible · 1 missing');
+  await expect(card).toContainText('Integrity: ok · Guardrails: ok');
   await expect(card).not.toContainText('never-render');
   await page.getByTestId('proposal-approve-tool-1').click();
   await expect(page.getByTestId('proposal-conditional-dialog')).toBeVisible();
@@ -204,6 +207,19 @@ test('self-improvement-review-live: closed tool safety, conditional confirmation
   await expect(page.getByTestId('proposal-revert-dialog')).toBeVisible();
   await page.getByTestId('proposal-revert-confirm').click();
   await expect.poll(() => calls).toContain('POST revert');
+});
+
+test('self-improvement-review-mutation-error: failed decisions stay visible after authoritative refresh', async ({ page }) => {
+  const proposal = { id: 'proposal-1', title: 'Refine skill', kind: 'refine-skill', risk: 'low', status: 'proposed', outcomeStatus: 'unproven', rationale: null, createdAt: null, updatedAt: null, changeJson: null };
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-org-proposals') { await fulfillJson(route, [proposal]); return true; }
+    if (url.pathname === '/agent-org-proposals/proposal-1/approve') { await fulfillJson(route, { error: 'conflict' }, 409); return true; }
+    return false;
+  });
+  await page.goto('http://127.0.0.1:4181/#/tools/review');
+  await page.getByTestId('proposal-approve-proposal-1').click();
+  await page.getByTestId('proposal-confirm').click();
+  await expect(page.getByTestId('review-error')).toContainText('current state');
 });
 
 test('self-improvement-run-feedback-live: outcome loads, posts an explicit verdict, refreshes, and disappears for 404', async ({ page }) => {
@@ -228,6 +244,43 @@ test('self-improvement-run-feedback-live: outcome loads, posts an explicit verdi
   await expect(page.getByTestId('run-feedback')).toHaveCount(0);
 });
 
+test('self-improvement-run-feedback-race-and-error: old sessions cannot overwrite selection and failed feedback remains visible', async ({ page }) => {
+  const other = { ...session, id: 'other-session', name: 'Other session', updatedAt: '2026-08-21T00:00:00.000Z' };
+  let oldStarted = false;
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-sessions' && route.request().method() === 'GET') { await fulfillJson(route, { sessions: [session, other] }); return true; }
+    if (url.pathname === `/agent-sessions/${other.id}`) { await fulfillJson(route, { session: other, messages: [], transcriptPage: { hasMore: false, nextCursor: null } }); return true; }
+    if (url.pathname === '/agent-run-outcomes/rendered-session') { oldStarted = true; await new Promise((resolve) => setTimeout(resolve, 400)); await fulfillJson(route, { explicitUserVerdict: 'partial' }); return true; }
+    if (url.pathname === '/agent-run-outcomes/other-session') { await fulfillJson(route, { explicitUserVerdict: 'success' }); return true; }
+    if (url.pathname === '/agent-run-outcomes/other-session/feedback') { await fulfillJson(route, { error: 'conflict' }, 409); return true; }
+    return false;
+  });
+  await page.goto('http://127.0.0.1:4181/#/agents');
+  await expect.poll(() => oldStarted).toBe(true);
+  await page.getByTestId('session-other-session').click();
+  await expect(page.getByTestId('run-feedback-success')).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('run-feedback-success')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('run-feedback-failure').click();
+  await expect(page.getByTestId('run-feedback')).toContainText('request failed (409)');
+});
+
+test('self-improvement-run-feedback-load-error: switching to a failed outcome never shows the prior verdict controls', async ({ page }) => {
+  const other = { ...session, id: 'failed-session', name: 'Failed outcome session', updatedAt: '2026-08-21T00:00:00.000Z' };
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-sessions' && route.request().method() === 'GET') { await fulfillJson(route, { sessions: [session, other] }); return true; }
+    if (url.pathname === `/agent-sessions/${other.id}`) { await fulfillJson(route, { session: other, messages: [], transcriptPage: { hasMore: false, nextCursor: null } }); return true; }
+    if (url.pathname === '/agent-run-outcomes/rendered-session') { await fulfillJson(route, { explicitUserVerdict: 'success' }); return true; }
+    if (url.pathname === '/agent-run-outcomes/failed-session') { await fulfillJson(route, { error: 'unavailable' }, 500); return true; }
+    return false;
+  });
+  await page.goto('http://127.0.0.1:4181/#/agents');
+  await expect(page.getByTestId('run-feedback-success')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('session-failed-session').click();
+  await expect(page.getByTestId('run-feedback')).toContainText('request failed (500)');
+  await expect(page.getByRole('group', { name: 'How did this run go?' })).toHaveCount(0);
+});
+
 test('self-improvement-auto-promotion-live: default-off gating and explicit cloud-confirmed enable are authoritative', async ({ page }) => {
   const calls: Array<{ method: string; authorization: string | null; confirmation: string | null; body: unknown }> = []; let enabled = false;
   await installLiveRoutes(page, async (route, url) => {
@@ -241,6 +294,7 @@ test('self-improvement-auto-promotion-live: default-off gating and explicit clou
   });
   await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
   await expect(page.getByTestId('auto-promotion')).toContainText('Disabled');
+  expect(calls[0].confirmation).toBeNull();
   await page.getByTestId('auto-promotion-toggle').click();
   await expect(page.getByTestId('auto-promotion-dialog')).toBeVisible();
   await page.getByTestId('auto-promotion-cancel').click();
@@ -250,4 +304,27 @@ test('self-improvement-auto-promotion-live: default-off gating and explicit clou
   await expect.poll(() => calls.filter((call) => call.method === 'POST')).toHaveLength(1);
   expect(calls.at(-1)).toMatchObject({ authorization: 'Bearer bucket-a-rendered-disposable', confirmation: 'enable-auto-promotion', body: { enabled: true } });
   await expect(page.getByTestId('auto-promotion')).toContainText('Enabled');
+  await page.getByTestId('auto-promotion-toggle').click();
+  await page.getByTestId('auto-promotion-confirm').click();
+  await expect.poll(() => calls.filter((call) => call.method === 'POST')).toHaveLength(2);
+  expect(calls.at(-1)).toMatchObject({ body: { enabled: false } });
+  await expect(page.getByTestId('auto-promotion')).toContainText('Disabled');
+});
+
+test('self-improvement-auto-promotion-errors: admin denial and stale eligibility remain explicit', async ({ page }) => {
+  let mode: 'denied' | 'ready' | 'conflict' = 'denied';
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname !== '/optimizer/auto-promotion') return false;
+    if (mode === 'denied') { await fulfillJson(route, { error: 'forbidden' }, 403); return true; }
+    if (route.request().method() === 'POST' && mode === 'conflict') { await fulfillJson(route, { error: 'stale' }, 409); return true; }
+    await fulfillJson(route, { availability: true, state: { autoPromotionEnabled: false, enabledAt: null, autoPromotionEligible: true, totalVerified: 5, totalRegressions: 0, trustThreshold: 5 } }); return true;
+  });
+  await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
+  await expect(page.getByTestId('auto-promotion')).toContainText('Admin/system access required');
+  mode = 'ready';
+  await page.getByTestId('auto-promotion').getByRole('button', { name: 'Retry' }).click();
+  await page.getByTestId('auto-promotion-toggle').click();
+  mode = 'conflict';
+  await page.getByTestId('auto-promotion-confirm').click();
+  await expect(page.getByTestId('auto-promotion')).toContainText('eligibility changed');
 });

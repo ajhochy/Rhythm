@@ -697,6 +697,8 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .proposal-statuses dd, .tool-safety-summary dd { margin: 2px 0 0; overflow-wrap: anywhere; color: var(--fg-2); font-size: 10px; }
 .tool-safety-summary { margin: 4px 0 0; padding-top: 8px; border-top: 1px solid var(--border-soft); }
 .tool-safety-summary h3, .run-feedback h3 { margin: 0; font-size: 11px; }
+.experiment-summary { display: grid; gap: 3px; }
+.experiment-summary span { display: block; }
 .run-feedback { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .run-feedback > header, .auto-promotion-card > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .run-feedback [role="group"] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }

@@ -19,7 +19,7 @@ test('self-improvement-gateway-a1: org proposals use the local boundary, preserv
 
   const [proposal] = await gateway.list('sandbox vetted');
   expect(calls[0].url).toBe(`${localBase}/agent-org-proposals?status=sandbox%20vetted`);
-  expect(calls[0].init?.headers).not.toHaveProperty('Authorization');
+  expect(new Headers(calls[0].init?.headers).has('Authorization')).toBe(false);
   expect(proposal.status).toBe('proposed');
   expect(proposal.outcomeStatus).toBe('future-outcome');
   expect(proposal.changeJson).toBeNull();
@@ -27,6 +27,10 @@ test('self-improvement-gateway-a1: org proposals use the local boundary, preserv
 
   const malformed = await createLiveOrgProposalsGateway(localBase, undefined, async () => json([{ id: 'tool-2', kind: 'tool-install', status: 'proposed', toolSafety: { state: 'ready', verdict: 'safe', tool: { name: 42 } } }])).list('proposed');
   expect(malformed[0].toolSafety).toEqual({ state: 'malformed', verdict: 'unknown' });
+
+  const unknown = await createLiveOrgProposalsGateway(localBase, undefined, async () => json([{ id: 'tool-3', kind: 'tool-install', status: 'proposed', changeJson: '{"raw":"never expose"}', toolSafety: { state: 'ready', verdict: 'unknown', tool: { name: 'uncertain-tool', packageSource: 'local-tarball:sha256:def' }, forbiddenPathViolations: [], networkCalls: [], workspaceWriteCount: 0, credentialAccessAttemptsCount: 0, scenarioAttemptsCount: 1, sandboxDurationMs: 2, reason: 'report incomplete' } }])).list('proposed');
+  expect(unknown[0].toolSafety).toMatchObject({ state: 'ready', verdict: 'unknown' });
+  expect(unknown[0].changeJson).toBeNull();
 });
 
 test('self-improvement-gateway-a2: tool-install approval only transmits the explicit conditional confirmation', async () => {
@@ -72,11 +76,14 @@ test('self-improvement-gateway-a4: auto-promotion uses the cloud token and confi
   await gateway.setEnabled(true);
   expect(calls[0].url).toBe(`${cloudBase}/optimizer/auto-promotion`);
   expect(new Headers(calls[0].init?.headers).get('Authorization')).toBe('Bearer cloud-token');
+  expect(new Headers(calls[0].init?.headers).get('X-Rhythm-Auto-Promotion-Confirmation')).toBeNull();
   expect(new Headers(calls[1].init?.headers).get('X-Rhythm-Auto-Promotion-Confirmation')).toBe('enable-auto-promotion');
   expect(calls[1].init?.body).toBe(JSON.stringify({ enabled: true }));
 
   const malformed = createLiveAutoPromotionGateway(cloudBase, 'cloud-token', async () => json({ availability: true, state: { autoPromotionEnabled: 'yes' } }));
   await expect(malformed.get()).rejects.toThrow(/malformed/i);
+  const malformedCounters = createLiveAutoPromotionGateway(cloudBase, 'cloud-token', async () => json({ availability: true, state: { autoPromotionEnabled: false, enabledAt: null, autoPromotionEligible: false, totalVerified: -1, totalRegressions: 0.5, trustThreshold: 5 } }));
+  await expect(malformedCounters.get()).rejects.toThrow(/malformed/i);
   const denied = createLiveAutoPromotionGateway(cloudBase, 'cloud-token', async () => json({}, 403));
   await expect(denied.get()).rejects.toBeInstanceOf(AutoPromotionGatewayError);
 });
