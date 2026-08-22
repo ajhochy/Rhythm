@@ -46,6 +46,13 @@ test('slice-2-c2: fixture gateway performs zero network operations', async () =>
 test('production live bases default to Flutter runtime ports and reject baked-in sandbox ports', async () => {
   // Regression caught: the packaged Electron renderer was permanently pinned to the parity-test
   // sandbox and could not connect to the user's real API/engine.
+  const { liveEnvironment } = await import('../live-environment');
+  expect(liveEnvironment({})).toEqual({
+    apiBase: 'http://127.0.0.1:4001',
+    engineBase: 'http://127.0.0.1:4096',
+    productionApiBase: 'https://api.vcrcapps.com',
+    wsBase: 'ws://127.0.0.1:4001',
+  });
   const gateway = await loadGateway();
   expect(gateway, 'renderer gateway module must exist').not.toBeNull();
   if (!gateway) return;
