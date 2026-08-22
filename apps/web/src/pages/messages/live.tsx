@@ -86,18 +86,21 @@ export function LiveMessagesPage({ route }: { route: string }) {
   // session; Messages must not build its own gateway from a build-time/test-only env value.
   const gateway = useGateway().domains.messages!;
   const authUser = useAuthUser();
-  const { setUnreadThreads } = useFixtures();
+  const {
+    liveMessageThreads: threads,
+    setLiveMessageThreads: setThreads,
+    liveMessagesLoading: loading,
+    liveMessagesError,
+  } = useFixtures();
   // RESOLVED: the gateway now exposes the workspace directory as `users()`
   // (apps/web/src/gateway/messages.ts), backed by GET /users at
   // apps/api_server/src/app.ts:144. The wiring agent that hit this gap left the picker empty and
   // reported it rather than fetching /users with the test-only token — the right call, since that
   // token is unset in a packaged build.
 
-  const [threads, setThreads] = useState<MessageThread[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(() => threadIdFromRoute(route));
   const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const [pageLoadError, setLoadError] = useState('');
   const [reply, setReply] = useState('');
   const [replyError, setReplyError] = useState('');
   const [newThreadOpen, setNewThreadOpen] = useState(false);
@@ -109,6 +112,7 @@ export function LiveMessagesPage({ route }: { route: string }) {
   const [search, setSearch] = useState('');
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const loadError = pageLoadError || liveMessagesError;
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
   const unreadTotal = threads.filter((thread) => thread.unreadCount > 0).length;
@@ -117,35 +121,18 @@ export function LiveMessagesPage({ route }: { route: string }) {
     return needle ? threads.filter((thread) => thread.title.toLocaleLowerCase().includes(needle)) : threads;
   }, [search, threads]);
 
-  useEffect(() => { setUnreadThreads(unreadTotal); }, [setUnreadThreads, unreadTotal]);
   useLayoutEffect(() => {
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [messages.length, selectedId]);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setLoadError('');
-    const refreshThreads = () => gateway.threads()
-      .then((loaded) => { if (active) { setThreads(loaded); setLoadError(''); } })
-      .catch((error) => { if (active) setLoadError(boundedMessage(error)); });
-    void refreshThreads().finally(() => { if (active) setLoading(false); });
-    const onFocus = () => { void refreshThreads(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshThreads(); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
-    const refreshTimer = window.setInterval(() => { void refreshThreads(); }, 30_000);
     // The recipient picker needs the workspace directory. A directory failure must not blank the
     // thread list, so it is loaded independently and degrades to the existing bounded empty state.
     gateway.users()
       .then((people) => { if (active) setDirectory(people); })
       .catch(() => { if (active) setDirectory([]); });
-    return () => {
-      active = false;
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.clearInterval(refreshTimer);
-    };
+    return () => { active = false; };
   }, [gateway]);
 
   // Deep-linked selection (/messages/:id) must survive independently of whether the thread list

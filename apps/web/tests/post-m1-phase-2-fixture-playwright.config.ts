@@ -13,6 +13,7 @@ export default defineConfig({
   reporter: [['line']],
   use: {
     ...devices['Desktop Chrome'],
+    bypassCSP: true,
     browserName: 'chromium',
     channel: 'chrome',
     baseURL: 'http://127.0.0.1:4173',

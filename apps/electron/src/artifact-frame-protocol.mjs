@@ -5,23 +5,27 @@ const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 // it exposes no token, fetch primitive, filesystem path, shell, popup, or navigation capability.
 export const ARTIFACT_FRAME_BRIDGE = `(function(){
   var nonces = new Map();
+  var tokenBytes = new Uint32Array(4); crypto.getRandomValues(tokenBytes);
+  var documentToken = Array.from(tokenBytes, function(value) { return value.toString(16).padStart(8, '0'); }).join('');
+  var documentChannel = new MessageChannel();
+  documentChannel.port1.onmessage = function(event) {
+    var value = event.data;
+    if (!value || value.__rhythmBridgeResponse !== true || value.documentToken !== documentToken || typeof value.id !== 'string') return;
+    var nonce = nonces.get(value.id);
+    if (!nonce || typeof window.__rhythmHostResponse !== 'function') return;
+    nonces.delete(value.id);
+    window.__rhythmHostResponse({ n: nonce, id: value.id, ok: !value.error, data: value.result, error: value.error });
+  };
+  documentChannel.port1.start();
+  window.parent.postMessage({ __rhythmBridgeDocument: true, documentToken: documentToken }, '*', [documentChannel.port2]);
   var channel = Object.freeze({ postMessage: function(raw) {
     var value;
     try { value = JSON.parse(String(raw)); } catch (_) { return; }
     if (!value || typeof value !== 'object' || typeof value.id !== 'string' || typeof value.nonce !== 'string') return;
     nonces.set(value.id, value.nonce);
-    window.parent.postMessage({ __rhythmBridge: true, id: value.id, method: value.method, params: value.params }, '*');
+    documentChannel.port1.postMessage({ __rhythmBridge: true, documentToken: documentToken, id: value.id, method: value.method, params: value.params });
   }});
   Object.defineProperty(window, 'RhythmBridge', { value: channel, writable: false, configurable: false });
-  window.addEventListener('message', function(event) {
-    if (event.source !== window.parent) return;
-    var value = event.data;
-    if (!value || value.__rhythmBridgeResponse !== true || typeof value.id !== 'string') return;
-    var nonce = nonces.get(value.id);
-    if (!nonce || typeof window.__rhythmHostResponse !== 'function') return;
-    nonces.delete(value.id);
-    window.__rhythmHostResponse({ n: nonce, id: value.id, ok: !value.error, data: value.result, error: value.error });
-  });
 })();`;
 
 /** @param {string} id */

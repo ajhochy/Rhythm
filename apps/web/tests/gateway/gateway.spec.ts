@@ -1,14 +1,20 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 const gatewayModulePath = '../../src/gateway/index.ts';
 
-test('slice-2-c19: renderer CSP permits only the live HTTP and session WebSocket destinations', async () => {
-  // Regression caught: connect-src blocks live health/session input or broadens access beyond the exact sandbox services.
+test('slice-2-c19: renderer CSP permits only production local services and the exact artifact bridge', async () => {
+  // Regression caught: shipping CSP keeps sandbox ports or the content-addressed bridge hash drifts.
   const html = await readFile(path.resolve(import.meta.dirname, '../../index.html'), 'utf8');
   const connectSrc = html.match(/(?:^|;)\s*connect-src\s+([^;]+)/)?.[1].trim().split(/\s+/);
-  expect(connectSrc).toEqual(['https://api.vcrcapps.com', 'http://127.0.0.1:4098', 'http://127.0.0.1:4097', 'ws://127.0.0.1:4098']);
+  expect(connectSrc).toEqual(['https://api.vcrcapps.com', 'http://127.0.0.1:4001', 'http://127.0.0.1:4096', 'ws://127.0.0.1:4001']);
+  const shell = await readFile(path.resolve(import.meta.dirname, '../../src/pages/dashboard/LiveArtifactsShell.tsx'), 'utf8');
+  const rawBridge = shell.match(/const ARTIFACT_BRIDGE_SCRIPT = `<script>([\s\S]*?)<\\\/script>`;/)?.[1];
+  expect(rawBridge).toBeTruthy();
+  const bridgeHash = createHash('sha256').update(rawBridge!.replaceAll('\\/', '/'), 'utf8').digest('base64');
+  expect(html).toContain(`'sha256-${bridgeHash}'`);
 });
 
 async function loadGateway(): Promise<any> {
@@ -89,11 +95,18 @@ test('credentialed production base rejects plaintext and every loopback spelling
     'https://localhost',
     'https://localhost.',
     'https://preview.localhost',
+    'https://0.0.0.0',
+    'https://10.0.0.1',
+    'https://169.254.1.2',
+    'https://192.168.1.2',
     'https://127.0.0.1:4001',
     'https://127.42.0.7',
     'https://2130706433',
     'https://0x7f000001',
     'https://[::1]:4001',
+    'https://[::]',
+    'https://[fe80::1]',
+    'https://[fc00::1]',
     'https://[::ffff:127.0.0.1]',
   ]) {
     expect(() => module.createLiveGateway({

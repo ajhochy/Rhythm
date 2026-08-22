@@ -91,17 +91,7 @@ export function validateLiveBase(value: string | undefined, service: GatewayServ
 
 export function validateProductionApiBase(value: string | undefined): string {
   try {
-    const url = new URL(value ?? '');
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-    const mapped = host.match(/^::ffff:(?:(\d{1,3})(?:\.\d{1,3}){3}|([0-9a-f]{1,4}):[0-9a-f]{1,4})$/i);
-    const loopback = host === 'localhost'
-      || host.endsWith('.localhost')
-      || host === '::1'
-      || /^127(?:\.\d{1,3}){3}$/.test(host)
-      || mapped?.[1] === '127'
-      || (mapped?.[2] ? (Number.parseInt(mapped[2], 16) >> 8) === 127 : false);
-    if (url.protocol !== 'https:' || loopback || url.username || url.password || url.search || url.hash) throw new Error();
-    return url.toString().replace(/\/$/, '');
+    return normalizeRemoteProductionApiBase(value);
   } catch {
     throw new Error('Live configuration error: production API base must be a remote HTTPS URL without credentials, query, or fragment');
   }
@@ -211,7 +201,8 @@ import { createLiveMessagesGateway } from './messages';
 import { createLiveFacilitiesGateway } from './facilities';
 import { createLiveAutomationsGateway } from './automations';
 import { createLiveIntegrationsGateway } from './integrations';
-import { createLiveArtifactsGateway } from './live-artifacts';
+import { createLiveArtifactsGateway, type LiveArtifactsGateway } from './live-artifacts';
+import { normalizeRemoteProductionApiBase } from '../../../shared/production-api-base.mjs';
 import { createLiveUserPreferencesGateway } from './user-preferences';
 import { createLiveNotificationsGateway } from './notifications';
 import { createLiveMemoryGateway } from './memory';

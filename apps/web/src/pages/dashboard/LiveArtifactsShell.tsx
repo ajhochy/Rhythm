@@ -37,19 +37,24 @@ function formatDate(iso: string): string {
 // regenerate the hash: node -e "console.log('sha256-'+require('crypto').createHash('sha256').update(<the text between <script> and <\/script>>,'utf8').digest('base64'))"
 const ARTIFACT_BRIDGE_SCRIPT = `<script>(function(){
   var pending = {}; var n = 0;
+  var tokenBytes = new Uint32Array(4); crypto.getRandomValues(tokenBytes);
+  var documentToken = Array.from(tokenBytes, function(value) { return value.toString(16).padStart(8, '0'); }).join('');
+  var documentChannel = new MessageChannel();
+  documentChannel.port1.onmessage = function(event) {
+    var data = event.data;
+    if (!data || data.__rhythmBridgeResponse !== true || data.documentToken !== documentToken || !pending[data.id]) return;
+    var entry = pending[data.id]; delete pending[data.id];
+    if (data.error) entry.reject(new Error(data.error)); else entry.resolve(data.result);
+  };
+  documentChannel.port1.start();
+  window.parent.postMessage({ __rhythmBridgeDocument: true, documentToken: documentToken }, '*', [documentChannel.port2]);
   window.rhythm = { request: function(method, params) {
     return new Promise(function(resolve, reject) {
       var id = 'r' + (++n) + '-' + Date.now();
       pending[id] = { resolve: resolve, reject: reject };
-      window.parent.postMessage({ __rhythmBridge: true, id: id, method: method, params: params }, '*');
+      documentChannel.port1.postMessage({ __rhythmBridge: true, documentToken: documentToken, id: id, method: method, params: params });
     });
   } };
-  window.addEventListener('message', function(event) {
-    var data = event.data;
-    if (!data || data.__rhythmBridgeResponse !== true || !pending[data.id]) return;
-    var entry = pending[data.id]; delete pending[data.id];
-    if (data.error) entry.reject(new Error(data.error)); else entry.resolve(data.result);
-  });
 })();<\/script>`;
 
 // Exact request-union validation (post-m1-p8-c4g) — matches the server's own contract at
@@ -74,6 +79,15 @@ function isValidPcoRequest(params: unknown): params is PcoServicesReadRequest {
 
 function nativeArtifactFrameUrl(id: string): string | null {
   return window.location.protocol === 'rhythm:' ? `rhythm-artifact://app/${encodeURIComponent(id)}` : null;
+}
+
+function injectBrowserArtifactBridge(document: string): string {
+  const firstScript = document.search(/<script\b/i);
+  if (firstScript >= 0) return `${document.slice(0, firstScript)}${ARTIFACT_BRIDGE_SCRIPT}${document.slice(firstScript)}`;
+  const headEnd = document.search(/<\/head\s*>/i);
+  if (headEnd >= 0) return `${document.slice(0, headEnd)}${ARTIFACT_BRIDGE_SCRIPT}${document.slice(headEnd)}`;
+  const doctypeEnd = document.match(/^<!doctype[^>]*>/i)?.[0].length ?? 0;
+  return `${document.slice(0, doctypeEnd)}${ARTIFACT_BRIDGE_SCRIPT}${document.slice(doctypeEnd)}`;
 }
 
 function mapError(error: unknown): { status: TabStatus; message: string } {
@@ -190,27 +204,38 @@ function LiveArtifactSurface({
     const generation = ++frameGenerationRef.current;
     const detail = tab.detail;
     const sourceWindow = iframeRef.current?.contentWindow;
+    let activePort: MessagePort | null = null;
     if (tab.status !== 'ready' || !detail || !sourceWindow) {
       return () => { if (frameGenerationRef.current === generation) frameGenerationRef.current += 1; };
     }
     const onMessage = (event: MessageEvent) => {
       if (event.source !== sourceWindow) return;
-      const data = event.data as { __rhythmBridge?: boolean; id?: string; method?: string; params?: unknown } | null;
-      if (!data || data.__rhythmBridge !== true || typeof data.id !== 'string') return;
-      const respond = (payload: { result?: unknown; error?: string }) => {
-        if (frameGenerationRef.current !== generation || iframeRef.current?.contentWindow !== sourceWindow) return;
-        sourceWindow.postMessage({ __rhythmBridgeResponse: true, id: data.id, ...payload }, '*');
+      const document = event.data as { __rhythmBridgeDocument?: boolean; documentToken?: string } | null;
+      const port = event.ports[0];
+      if (!document || document.__rhythmBridgeDocument !== true || typeof document.documentToken !== 'string' || !/^[0-9a-f]{32}$/.test(document.documentToken) || !port) return;
+      activePort?.close();
+      activePort = port;
+      port.onmessage = (portEvent: MessageEvent) => {
+        const data = portEvent.data as { __rhythmBridge?: boolean; documentToken?: string; id?: string; method?: string; params?: unknown } | null;
+        if (!data || data.__rhythmBridge !== true || data.documentToken !== document.documentToken || typeof data.id !== 'string') return;
+        const respond = (payload: { result?: unknown; error?: string }) => {
+          if (frameGenerationRef.current !== generation || iframeRef.current?.contentWindow !== sourceWindow || activePort !== port) return;
+          port.postMessage({ __rhythmBridgeResponse: true, documentToken: document.documentToken, id: data.id, ...payload });
+        };
+        if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
+        if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
+        if (!isValidPcoRequest(data.params)) { respond({ error: 'invalid_request' }); return; }
+        liveArtifacts.pcoServicesRead(tab.id, data.params)
+          .then((result) => respond({ result }))
+          .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
       };
-      if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
-      if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
-      if (!isValidPcoRequest(data.params)) { respond({ error: 'invalid_request' }); return; }
-      liveArtifacts.pcoServicesRead(tab.id, data.params)
-        .then((result) => respond({ result }))
-        .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
+      port.start();
     };
     window.addEventListener('message', onMessage);
     return () => {
       window.removeEventListener('message', onMessage);
+      activePort?.close();
+      activePort = null;
       if (frameGenerationRef.current === generation) frameGenerationRef.current += 1;
     };
   }, [tab.id, tab.status, tab.detail, liveArtifacts]);
@@ -255,7 +280,7 @@ function LiveArtifactSurface({
         data-testid="live-artifact-frame"
         title={detail.title}
         sandbox="allow-scripts"
-        {...(tab.frameUrl ? { src: tab.frameUrl } : { srcDoc: `${tab.html ?? ''}${ARTIFACT_BRIDGE_SCRIPT}` })}
+        {...(tab.frameUrl ? { src: tab.frameUrl } : { srcDoc: injectBrowserArtifactBridge(tab.html ?? '') })}
       />
       {isOwner && (
         <SharingDialog

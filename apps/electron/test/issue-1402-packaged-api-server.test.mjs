@@ -34,6 +34,7 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
     'api_server/node_modules/node-pty/package.json',
     'api_server/.mcp-roles/secretary.mcp.json',
     'node/bin/node',
+    'shared/production-api-base.mjs',
   ]) {
     await assert.doesNotReject(
       () => import('node:fs/promises').then(({ stat }) => stat(resolve(resources, relativePath))),

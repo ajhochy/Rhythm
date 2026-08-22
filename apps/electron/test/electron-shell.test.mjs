@@ -36,6 +36,7 @@ test('slice-5-c3: actual Electron launch loads the local agents route', async ()
 
 test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gateway configuration, Google auth, human-approval signing, and agent-server status', async () => {
   const result = await smoke();
+  assert.deepEqual(result.runtime, { apiBase: 'http://127.0.0.1:4001', engineBase: 'http://127.0.0.1:4096', testOverride: false });
   assert.deepEqual(result.bridge.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer']);
   assert.equal(result.bridge.frozen, true);
   assert.deepEqual(result.bridge.gateway.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase']);
@@ -45,6 +46,10 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
     engineBase: true,
     productionApiBase: true,
   });
+  assert.deepEqual(result.bridge.gateway.values, {
+    apiBase: 'http://127.0.0.1:4001',
+    engineBase: 'http://127.0.0.1:4096',
+  });
   assert.deepEqual(result.bridge.auth.keys, ['signInWithGoogle']);
   assert.equal(result.bridge.auth.frozen, true);
   // post-m1-p7-c4e: a narrow, purpose-built surface only — never an arbitrary-sign primitive.
@@ -53,6 +58,21 @@ test('slice-5-c4: actual preload exposes only frozen versioned lifecycle, gatewa
   assert.deepEqual(result.bridge.agentServer.keys, ['status', 'onStatusChange']);
   assert.equal(result.bridge.agentServer.frozen, true);
   assert.equal(result.bridge.nodeExposed, false);
+});
+
+test('production repair: alternate local ports require an explicit smoke-only flag', async () => {
+  const userData = await mkdtemp(resolve(tmpdir(), 'rhythm-electron-test-ports-'));
+  try {
+    const output = await runElectron(['.', '--smoke', '--allow-test-runtime-ports'], userData);
+    assert.equal(output.code, 0, output.stderr);
+    assert.deepEqual(JSON.parse(output.stdout.trim()).runtime, {
+      apiBase: 'http://127.0.0.1:4098',
+      engineBase: 'http://127.0.0.1:4097',
+      testOverride: true,
+    });
+  } finally {
+    await rm(userData, { recursive: true, force: true });
+  }
 });
 
 test('slice-5-c5: actual shell denies navigation, popups, permissions, and downloads', async () => {

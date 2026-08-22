@@ -12,6 +12,7 @@ const artifact = resolve(distRoot, 'Rhythm.app');
 const stagingArtifact = resolve(distRoot, '.Rhythm.app.tmp');
 const resources = resolve(stagingArtifact, 'Contents/Resources');
 const packagedApp = resolve(resources, 'app');
+const packagedShared = resolve(resources, 'shared');
 const apiServerSource = resolve(electronRoot, '../api_server');
 const packagedApiServer = resolve(resources, 'api_server');
 const packagedNode = resolve(resources, 'node/bin/node');
@@ -44,6 +45,7 @@ await Promise.all([
 ]);
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
+await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
 await Promise.all([
   cp(resolve(electronRoot, 'src/main.mjs'), resolve(packagedApp, 'src/main.mjs')),
@@ -58,6 +60,7 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/agent-server.mjs'), resolve(packagedApp, 'src/agent-server.mjs')),
   cp(resolve(electronRoot, 'src/human-approval-main-signer.mjs'), resolve(packagedApp, 'src/human-approval-main-signer.mjs')),
   cp(resolve(electronRoot, 'package.json'), resolve(packagedApp, 'package.json')),
+  cp(resolve(electronRoot, '../shared/production-api-base.mjs'), resolve(packagedShared, 'production-api-base.mjs')),
   cp(resolve(electronRoot, '../web/dist'), resolve(packagedApp, 'web/dist'), { recursive: true }),
   ...['dist', 'scripts', 'opencode_plugins', 'config_seeds', 'vendor', 'resources'].map((entry) =>
     cp(resolve(apiServerSource, entry), resolve(packagedApiServer, entry), { recursive: true })),

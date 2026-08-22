@@ -156,12 +156,12 @@ test('artifact bridge invalidates an in-flight capability response when the fram
   const oldRequestGate = new Promise<void>((resolve) => { releaseOld = resolve; });
   const rendered = `<!doctype html><html><head><script>
     window.bridgeReceipts = [];
-    window.addEventListener('message', function(event) {
-      if (!event.data || event.data.__rhythmBridgeResponse !== true || event.data.id !== 'reused-request') return;
-      window.bridgeReceipts.push(event.data.result.data.marker);
-      document.body.dataset.receipts = window.bridgeReceipts.join(',');
+    window.addEventListener('load', function() {
+      window.rhythm.request('pco.services.read', { operation: 'list_service_types' }).then(function(result) {
+        window.bridgeReceipts.push(result.data.marker);
+        document.body.dataset.receipts = window.bridgeReceipts.join(',');
+      });
     });
-    parent.postMessage({ __rhythmBridge: true, id: 'reused-request', method: 'pco.services.read', params: { operation: 'list_service_types' } }, '*');
   </script></head><body>Bridge generation probe</body></html>`;
 
   await openDashboard(page, async (route) => {

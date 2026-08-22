@@ -241,13 +241,17 @@ test('production repair: live Messages uses truthful unread state and the usable
     { id: 42, title: 'Facilities', threadType: 'direct', taskId: null, createdBy: 2, createdAt: '2026-08-20T20:00:00.000Z', updatedAt: '2026-08-20T21:00:00.000Z', lastMessage: 'Doors are locked.', unreadCount: 0, isUnread: false, participants: [{ id: 3, name: 'Sam Rivera', email: 'sam@example.test' }] },
   ];
   const messageRequests: string[] = [];
+  let messageThreadGets = 0;
   const handleMessages = async (route: import('@playwright/test').Route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
     messageRequests.push(`${method} ${url.origin}${url.pathname}`);
     if (method === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     if (url.pathname === '/health') return route.fulfill({ status: 200, headers: cloudCors, json: { status: 'ok' } });
-    if (url.pathname === '/message-threads' && method === 'GET') return route.fulfill({ status: 200, headers: cloudCors, json: threads });
+    if (url.pathname === '/message-threads' && method === 'GET') {
+      messageThreadGets += 1;
+      return route.fulfill({ status: 200, headers: cloudCors, json: threads });
+    }
     if (url.pathname === '/users') return route.fulfill({ status: 200, headers: cloudCors, json: [] });
     if (url.pathname === '/message-threads/41/messages' && method === 'GET') return route.fulfill({ status: 200, headers: cloudCors, json: [{ id: 101, threadId: 41, senderId: 2, senderName: 'Morgan Lee', body: 'Everything is read.', createdAt: '2026-08-21T22:04:00.000Z' }] });
     if (url.pathname === '/message-threads/41/unread' && method === 'POST') { threads[0].unreadCount = 1; threads[0].isUnread = true; return route.fulfill({ status: 204, headers: cloudCors }); }
@@ -282,7 +286,12 @@ test('production repair: live Messages uses truthful unread state and the usable
 
   threads[1].unreadCount = 2;
   threads[1].isUnread = true;
+  await page.waitForTimeout(100);
+  const beforeFocusRefresh = messageThreadGets;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect.poll(() => messageThreadGets).toBe(beforeFocusRefresh + 1);
+  await page.waitForTimeout(100);
+  expect(messageThreadGets).toBe(beforeFocusRefresh + 1);
   await expect(page.getByTestId('messages-unread-total')).toHaveText('1 unread thread');
   await expect(nav.locator('.unread-badge')).toHaveText('1');
 });

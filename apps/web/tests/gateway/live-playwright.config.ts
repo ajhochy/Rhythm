@@ -7,6 +7,7 @@ export default defineConfig({
   reporter: [['line']],
   use: {
     ...devices['Desktop Chrome'],
+    bypassCSP: true,
     baseURL: 'http://127.0.0.1:4175',
     viewport: { width: 1440, height: 900 },
     screenshot: 'only-on-failure',

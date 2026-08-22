@@ -1,26 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-
-/** @param {string} hostname */
-function isLoopbackHostname(hostname) {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1') return true;
-  if (/^127(?:\.\d{1,3}){3}$/.test(host)) return true;
-  const mapped = host.match(/^::ffff:(?:(\d{1,3})(?:\.\d{1,3}){3}|([0-9a-f]{1,4}):[0-9a-f]{1,4})$/i);
-  if (!mapped) return false;
-  return mapped[1] === '127' || (mapped[2] ? (Number.parseInt(mapped[2], 16) >> 8) === 127 : false);
-}
+import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 
 /** @param {unknown} value */
 export function normalizeProductionApiBase(value) {
-  try {
-    const url = new URL(typeof value === 'string' ? value.trim() : '');
-    if (url.protocol !== 'https:' || isLoopbackHostname(url.hostname) || url.username || url.password || url.search || url.hash) throw new Error();
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    throw new Error('Production API URL must be remote HTTPS without credentials, query, or fragment');
-  }
+  return normalizeRemoteProductionApiBase(value);
 }
 
 /** @param {{ configPath: string, defaultBase: string, env: Record<string, string | undefined> }} options */

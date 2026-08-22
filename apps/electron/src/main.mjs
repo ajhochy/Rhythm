@@ -22,6 +22,7 @@ export { deepLinkFromArgv } from './policy.mjs';
 // default ~/Library/Application Support/rhythm-electron-shell path that every smoke run must never
 // touch — slice-7-c6 caught exactly that leak when this ran in the other order.
 const isSmoke = process.argv.includes('--smoke');
+const allowTestRuntimePorts = isSmoke && process.argv.includes('--allow-test-runtime-ports');
 const smokeUserDataPath = isSmoke && !process.env.RHYTHM_SHELL_USER_DATA
   ? mkdtempSync(resolve(tmpdir(), 'rhythm-electron-smoke-'))
   : undefined;
@@ -184,16 +185,12 @@ if (hasSingleInstanceLock) {
   // Mirrors apps/desktop_flutter/lib/app/core/server/api_server_service.dart +
   // agent_server_controller.dart: THIS process spawns and owns the local api_server, the same way
   // Flutter's Dart code does, instead of assuming some other process (tools/dev/sandbox.sh, a
-  // developer's own terminal) already has one running. Skipped entirely for --smoke runs so the
-  // existing, carefully-tuned smoke-test contract (11 test files) is untouched — those tests set
-  // their own RHYTHM_LIVE_API_URL/RHYTHM_LIVE_ENGINE_URL explicitly when they want live mode.
+  // developer's own terminal) already has one running. Production always pins these bases to the
+  // Flutter-owned 4001/4096 boundary. Alternate ports exist only behind an explicit smoke-only flag.
   const agentServer = new AgentServerService();
-  if (!isSmoke) {
-    // Explicit overrides (e.g. a test harness pointing at tools/dev/sandbox.sh) always win — set
-    // before the window (and its preload) exist, matching Flutter's "explicit env always wins"
-    // precedence for MEMORY_VAULT_PATH etc. (api_server_service.dart:70-85).
-    if (!process.env.RHYTHM_LIVE_API_URL) process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
-    if (!process.env.RHYTHM_LIVE_ENGINE_URL) process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
+  if (!allowTestRuntimePorts) {
+    process.env.RHYTHM_LIVE_API_URL = AGENT_SERVER_BASE_URL;
+    process.env.RHYTHM_LIVE_ENGINE_URL = `http://127.0.0.1:${AGENT_SERVER_ENGINE_PORT}`;
   }
 
   ipcMain.handle('rhythm:agent-server:status', () => agentServer.status);
@@ -404,12 +401,19 @@ if (hasSingleInstanceLock) {
         frame.src = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000801';
         const onMessage = (event) => {
           if (event.source !== frame.contentWindow) return;
-          if (event.data?.__rhythmBridge === true && event.data.id === 'smoke-request' && event.data.method === 'pco.services.read') {
-            frame.contentWindow.postMessage({
-              __rhythmBridgeResponse: true,
-              id: event.data.id,
-              result: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
-            }, '*');
+          if (event.data?.__rhythmBridgeDocument === true && event.ports[0]) {
+            const documentPort = event.ports[0];
+            const documentToken = event.data.documentToken;
+            documentPort.onmessage = (portEvent) => {
+              if (portEvent.data?.__rhythmBridge !== true || portEvent.data.id !== 'smoke-request' || portEvent.data.method !== 'pco.services.read') return;
+              documentPort.postMessage({
+                __rhythmBridgeResponse: true,
+                documentToken,
+                id: portEvent.data.id,
+                result: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+              });
+            };
+            documentPort.start();
             return;
           }
           if (event.data?.__artifactSmoke !== true) return;
@@ -435,6 +439,10 @@ if (hasSingleInstanceLock) {
         apiBase: Boolean(window.rhythmShell?.gateway?.apiBase),
         engineBase: Boolean(window.rhythmShell?.gateway?.engineBase),
         productionApiBase: Boolean(window.rhythmShell?.gateway?.productionApiBase),
+      },
+      values: {
+        apiBase: window.rhythmShell?.gateway?.apiBase,
+        engineBase: window.rhythmShell?.gateway?.engineBase,
       },
     },
     auth: {
@@ -616,6 +624,7 @@ if (hasSingleInstanceLock) {
       url: mainWindow.webContents.getURL(),
       windowOptions,
       bridge,
+      runtime: { apiBase, engineBase, testOverride: allowTestRuntimePorts },
       denials: isSecuritySmoke ? { ...denials, malformedProtocol } : denials,
       environment: isLiveSmoke ? { mode: liveRead?.status === 200 ? 'Live' : 'Unavailable' } : undefined,
       liveRead,

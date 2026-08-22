@@ -10,6 +10,7 @@ export default defineConfig({
   reporter: [['line']],
   use: {
     ...devices['Desktop Chrome'],
+    bypassCSP: true,
     browserName: 'chromium',
     baseURL: 'http://127.0.0.1:4180',
     viewport: { width: 1440, height: 900 },

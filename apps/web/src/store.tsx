@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
 import { mapPart, SessionGatewayError, type ProfileMutation, type SessionSocket, type SessionWireEvent } from './gateway/sessions';
 import type { DomainNotification } from './gateway/notifications';
+import type { MessageThread } from './gateway/messages';
 import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
 import { signApprovalDecision } from './security/humanApprovalSigner';
 import { isSessionOffline } from './sessionState';
@@ -45,6 +46,9 @@ interface FixtureContextValue {
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
   toast: string; connectionMessage: string; runMessage: string; activeFile: string; terminalOutput: string[]; loading: boolean;
   unreadThreads: number; setUnreadThreads(count: number): void;
+  liveMessageThreads: MessageThread[]; setLiveMessageThreads: Dispatch<SetStateAction<MessageThread[]>>;
+  liveMessagesLoading: boolean; liveMessagesError: string;
+  refreshLiveMessageThreads(): Promise<void>;
   selectSession(id: string): void; setScope(scope: SessionScope): void; setTheme(theme: Theme): void; setInspectorTab(tab: InspectorTab): void;
   setDemo(demo: DemoState): void; notify(message: string): void; createSession(input?: Partial<NewSessionInput>): string;
   updateSession(id: string, patch: Partial<Session>): void; archiveSession(id: string): void; unarchiveSession(id: string): void;
@@ -207,31 +211,52 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   // Fixture mode starts from its six seeded unread threads. Live mode starts unknown/zero and is
   // hydrated only from GET /message-threads — never show fixture unread state in production.
   const [unreadThreads, setUnreadThreads] = useState(() => live ? 0 : 6);
+  const [liveMessageThreads, setLiveMessageThreads] = useState<MessageThread[]>([]);
+  const [liveMessagesLoading, setLiveMessagesLoading] = useState(live);
+  const [liveMessagesError, setLiveMessagesError] = useState('');
+  const liveMessagesRefreshRef = useRef<Promise<void> | null>(null);
 
   const selected = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? emptyLiveSession();
   const notify = (message: string) => setToast(message);
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
   const selectSession = (id: string) => { setSelectedId(id); const session = sessions.find((item) => item.id === id); if (session) setRunMessage(`${session.name}: ${session.status}`); };
 
+  const refreshLiveMessageThreads = useCallback(() => {
+    if (!live || !gateway.domains.messages) return Promise.resolve();
+    if (liveMessagesRefreshRef.current) return liveMessagesRefreshRef.current;
+    const request = gateway.domains.messages.threads()
+      .then((threads) => {
+        setLiveMessageThreads(threads);
+        setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length);
+        setLiveMessagesError('');
+      })
+      .catch(() => { setLiveMessagesError('Messages service unavailable'); })
+      .finally(() => {
+        setLiveMessagesLoading(false);
+        if (liveMessagesRefreshRef.current === request) liveMessagesRefreshRef.current = null;
+      });
+    liveMessagesRefreshRef.current = request;
+    return request;
+  }, [gateway.domains.messages, live]);
+
+  useEffect(() => {
+    if (live) setUnreadThreads(liveMessageThreads.filter((thread) => thread.unreadCount > 0).length);
+  }, [live, liveMessageThreads]);
+
   useEffect(() => {
     if (!live || !gateway.domains.messages) return;
-    let active = true;
-    const refreshUnread = () => gateway.domains.messages!.threads()
-      .then((threads) => { if (active) setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length); })
-      .catch(() => { if (active) setUnreadThreads(0); });
-    void refreshUnread();
-    const onFocus = () => { void refreshUnread(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshUnread(); };
+    void refreshLiveMessageThreads();
+    const onFocus = () => { void refreshLiveMessageThreads(); };
+    const onVisibility = () => { if (document.visibilityState === 'visible') void refreshLiveMessageThreads(); };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
-    const refreshTimer = window.setInterval(() => { void refreshUnread(); }, 30_000);
+    const refreshTimer = window.setInterval(() => { void refreshLiveMessageThreads(); }, 30_000);
     return () => {
-      active = false;
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(refreshTimer);
     };
-  }, [gateway.domains.messages, live]);
+  }, [gateway.domains.messages, live, refreshLiveMessageThreads]);
 
   useEffect(() => {
     if (!live) persistFixtureSessions(sessions);
@@ -848,7 +873,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
+  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

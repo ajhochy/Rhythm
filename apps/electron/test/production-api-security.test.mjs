@@ -39,11 +39,18 @@ if (security) {
       'https://localhost',
       'https://localhost.',
       'https://preview.localhost',
+      'https://0.0.0.0',
+      'https://10.0.0.1',
+      'https://169.254.1.2',
+      'https://192.168.1.2',
       'https://127.0.0.1:4001',
       'https://127.42.0.7',
       'https://2130706433',
       'https://0x7f000001',
       'https://[::1]:4001',
+      'https://[::]',
+      'https://[fe80::1]',
+      'https://[fc00::1]',
       'https://[::ffff:127.0.0.1]',
     ]) {
       await assert.rejects(handler({ sender }, value), /production api url/i, value);
