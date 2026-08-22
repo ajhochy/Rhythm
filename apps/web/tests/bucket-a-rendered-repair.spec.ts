@@ -205,3 +205,25 @@ test('self-improvement-review-live: closed tool safety, conditional confirmation
   await page.getByTestId('proposal-revert-confirm').click();
   await expect.poll(() => calls).toContain('POST revert');
 });
+
+test('self-improvement-run-feedback-live: outcome loads, posts an explicit verdict, refreshes, and disappears for 404', async ({ page }) => {
+  const calls: string[] = []; let present = true; let latest = 'partial';
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-run-outcomes/rendered-session' || url.pathname === '/agent-run-outcomes/rendered-session/feedback') {
+      calls.push(`${route.request().method()} ${url.pathname}`);
+      if (!present) { await fulfillJson(route, { error: 'not found' }, 404); return true; }
+      if (route.request().method() === 'POST') latest = 'success';
+      await fulfillJson(route, { explicitUserVerdict: latest }); return true;
+    }
+    return false;
+  });
+  await page.goto('http://127.0.0.1:4181/#/agents');
+  await expect(page.getByTestId('run-feedback')).toBeVisible();
+  await expect(page.getByTestId('run-feedback-partial')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('run-feedback-success').click();
+  await expect.poll(() => calls).toContain('POST /agent-run-outcomes/rendered-session/feedback');
+  await expect(page.getByTestId('run-feedback-success')).toHaveAttribute('aria-pressed', 'true');
+  present = false;
+  await page.getByTestId('run-feedback-refresh').click();
+  await expect(page.getByTestId('run-feedback')).toHaveCount(0);
+});

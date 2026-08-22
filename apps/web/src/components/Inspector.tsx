@@ -19,8 +19,19 @@ function Trace({ trace }: { trace: InspectorTrace | null }) {
   return <output className="inspector-trace" data-testid="inspector-trace"><strong>{trace.method}</strong> {trace.route}</output>;
 }
 
+function RunFeedback({ sessionId, hidden }: { sessionId: string; hidden: boolean }) {
+  const gateway = useGateway();
+  const [verdict, setVerdict] = useState<'success' | 'partial' | 'failure' | null>(null); const [exists, setExists] = useState(false);
+  const [loading, setLoading] = useState(true); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('');
+  const load = async () => { setLoading(true); setError(''); try { const outcome = await gateway.domains.runOutcomes!.get(sessionId); setExists(Boolean(outcome)); setVerdict(outcome?.explicitUserVerdict ?? null); } catch (err) { setExists(false); setError(err instanceof Error ? err.message : 'Run feedback could not be loaded'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (hidden || gateway.mode !== 'live' || loading && !error || !exists && !error) return null;
+  const submit = async (next: 'success' | 'partial' | 'failure') => { setSubmitting(true); setError(''); try { await gateway.domains.runOutcomes!.feedback(sessionId, next); await load(); } catch (err) { setError(err instanceof Error ? err.message : 'Run feedback could not be saved'); await load(); } finally { setSubmitting(false); } };
+  return <section className="run-feedback" aria-label="Run feedback" data-testid="run-feedback"><header><h3>Run feedback</h3><button className="icon-button small" type="button" aria-label="Refresh run feedback" onClick={() => void load()} data-testid="run-feedback-refresh"><Icon name="refresh" size={13} /></button></header>{error && <p role="alert">{error} <button className="text-button" type="button" onClick={() => void load()}>Retry</button></p>}<div role="group" aria-label="How did this run go?">{(['success', 'partial', 'failure'] as const).map((item) => <button className={verdict === item ? 'selected' : ''} type="button" disabled={submitting} aria-pressed={verdict === item} onClick={() => void submit(item)} data-testid={`run-feedback-${item}`} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div></section>;
+}
+
 function ContextPanel() {
-  const { selected, profiles } = useFixtures();
+  const { selected, profiles, sessionGatewayMode } = useFixtures();
   const profile = profiles.find((item) => item.id === selected.profileId);
   const total = selected.inputTokens + selected.outputTokens + selected.cachedTokens;
   const pct = Math.min(100, Math.round((total / selected.totalBudget) * 100));
@@ -32,6 +43,7 @@ function ContextPanel() {
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
     <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>
+    <RunFeedback sessionId={selected.id} hidden={sessionGatewayMode !== 'live' || Boolean(selected.parentSessionId)} />
   </section>;
 }
 
