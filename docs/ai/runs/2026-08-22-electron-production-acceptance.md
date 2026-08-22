@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/electron-production-acceptance
 pr: 1474
 issues: [electron-production-acceptance]
-status: accepted-by-aj
+status: merged-and-released
 tags: [run, Rhythm]
 ---
 
@@ -110,9 +110,30 @@ fixed in a follow-up commit `ecf6131`:
 
 Final HEAD after both commits: `ecf61317e87246ce3058a62441a3b1dcc1112a4`.
 
+### Merge and release
+
+AJ gave explicit approval ("merge + Release") after the review-cleanup commit. Sequence:
+
+1. CI (Desktop/Mobile/Server) green on HEAD `aa68cf31`.
+2. Marked PR #1474 ready for review and merged (not squashed) into `main` — merge commit
+   `452f5c83d672b0588904ac5833fc8d7200941bd4`.
+3. Dispatched `.github/workflows/electron_release.yml` against `main` with
+   `version=0.18.61` (incremented from the only existing tag, `electron-v0.18.60`) and
+   `prerelease=true`.
+4. Build succeeded end-to-end: typecheck, unsigned-package contract tests, signed + notarized,
+   post-sign packaged smoke (post-m1-p11-c4), GitHub release published at tag `electron-v0.18.61`.
+5. Downloaded the published `Rhythm.zip` from the release and verified independently:
+   `codesign --verify --deep --strict` → valid, satisfies designated requirement;
+   `spctl --assess --type execute` → accepted, source=Notarized Developer ID;
+   `xcrun stapler validate` → notarization ticket present and valid.
+6. Confirmed the published bundle's `web/dist` assets actually contain this session's fixes
+   (`state.get` bridge method, `artifact-tab-pane` class) rather than a stale cached build.
+
 ### Standing rules followed
 
-- Never merged, marked ready, or deployed to production without explicit approval.
+- Never merged, marked ready, or deployed to production without explicit approval — waited for
+  AJ's "looks right" (functional acceptance) and separately for "merge + Release" (merge/publish
+  approval) before taking either action.
 - Production API (`apps/api_server`) was investigated as a possible fix site and deliberately NOT
   touched once the real (client-side) root cause was found — avoided an unnecessary, riskier
   production deploy for a fix that didn't need one.
