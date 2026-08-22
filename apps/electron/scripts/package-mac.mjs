@@ -94,6 +94,13 @@ await run(packagedNode, ['-e', [
   `const root=${JSON.stringify(packagedApiServer)};`,
   "require(root+'/node_modules/node-pty');",
 ].join('')]);
+// node-gyp emits rebuild metadata with nondeterministic dependency ordering. The runtime needs the
+// compiled Release addon, not these regeneration inputs; remove them before signing so identical
+// source and Node 22 inputs produce identical bundle bytes.
+await Promise.all([
+  rm(resolve(packagedApiServer, 'node_modules/better-sqlite3/build/Makefile'), { force: true }),
+  rm(resolve(packagedApiServer, 'node_modules/better-sqlite3/build/config.gypi'), { force: true }),
+]);
 
 await rename(
   resolve(stagingArtifact, 'Contents/MacOS/Electron'),
