@@ -227,3 +227,27 @@ test('self-improvement-run-feedback-live: outcome loads, posts an explicit verdi
   await page.getByTestId('run-feedback-refresh').click();
   await expect(page.getByTestId('run-feedback')).toHaveCount(0);
 });
+
+test('self-improvement-auto-promotion-live: default-off gating and explicit cloud-confirmed enable are authoritative', async ({ page }) => {
+  const calls: Array<{ method: string; authorization: string | null; confirmation: string | null; body: unknown }> = []; let enabled = false;
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/optimizer/auto-promotion') {
+      const headers = route.request().headers();
+      calls.push({ method: route.request().method(), authorization: headers.authorization ?? null, confirmation: headers['x-rhythm-auto-promotion-confirmation'] ?? null, body: route.request().postDataJSON() });
+      if (route.request().method() === 'POST') enabled = Boolean((route.request().postDataJSON() as { enabled: boolean }).enabled);
+      await fulfillJson(route, { availability: true, state: { autoPromotionEnabled: enabled, enabledAt: enabled ? '2026-08-22T00:00:00.000Z' : null, autoPromotionEligible: true, totalVerified: 5, totalRegressions: 0, trustThreshold: 5 } }); return true;
+    }
+    return false;
+  });
+  await page.goto('http://127.0.0.1:4181/#/tools/agent-settings');
+  await expect(page.getByTestId('auto-promotion')).toContainText('Disabled');
+  await page.getByTestId('auto-promotion-toggle').click();
+  await expect(page.getByTestId('auto-promotion-dialog')).toBeVisible();
+  await page.getByTestId('auto-promotion-cancel').click();
+  expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0);
+  await page.getByTestId('auto-promotion-toggle').click();
+  await page.getByTestId('auto-promotion-confirm').click();
+  await expect.poll(() => calls.filter((call) => call.method === 'POST')).toHaveLength(1);
+  expect(calls.at(-1)).toMatchObject({ authorization: 'Bearer bucket-a-rendered-disposable', confirmation: 'enable-auto-promotion', body: { enabled: true } });
+  await expect(page.getByTestId('auto-promotion')).toContainText('Enabled');
+});
