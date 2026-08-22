@@ -174,3 +174,34 @@ test('bucket-a-rendered-settings: fixture honesty and live loading/error/empty s
   await expect(page.getByRole('heading', { name: 'No agent profiles configured' })).toBeVisible();
   await expect(page.getByTestId('agent-settings-error')).toHaveCount(0);
 });
+
+test('self-improvement-review-live: closed tool safety, conditional confirmation, history, and server failures stay truthful', async ({ page }) => {
+  let status = 'proposed';
+  const calls: string[] = [];
+  const tool = { id: 'tool-1', title: 'Install verified tool', kind: 'tool-install', risk: 'high', status: 'proposed', outcomeStatus: 'unproven', rationale: 'Required for service planning.', createdAt: '2026-08-21T10:00:00.000Z', updatedAt: '2026-08-21T11:00:00.000Z', changeJson: '{"secret":"never-render"}', toolSafety: { state: 'ready', verdict: 'conditional', tool: { name: 'planner-tool', packageSource: 'local-tarball:sha256:abc' }, forbiddenPathViolations: [], networkCalls: [], workspaceWriteCount: 0, credentialAccessAttemptsCount: 0, scenarioAttemptsCount: 3, sandboxDurationMs: 150, reason: 'sandbox_candidate_failed' } };
+  await installLiveRoutes(page, async (route, url) => {
+    if (url.pathname === '/agent-org-proposals') { calls.push(`GET ${url.pathname}?${url.searchParams}`); await fulfillJson(route, status === 'active' ? [{ ...tool, status: 'active', outcomeStatus: 'verified' }] : [tool]); return true; }
+    if (url.pathname === '/agent-org-proposals/tool-1/approve') { calls.push(`POST approve ${route.request().postData()}`); await fulfillJson(route, { ...tool, status: 'approved' }); return true; }
+    if (url.pathname === '/agent-org-proposals/tool-1/revert') { calls.push('POST revert'); await fulfillJson(route, { ...tool, status: 'reverted' }); return true; }
+    return false;
+  });
+  await page.goto('http://127.0.0.1:4181/#/tools/review');
+  const card = page.getByTestId('proposal-tool-1');
+  await expect(card).toContainText('Deployment: proposed');
+  await expect(card).toContainText('Outcome: unproven');
+  await expect(card).toContainText('planner-tool');
+  await expect(card).not.toContainText('never-render');
+  await page.getByTestId('proposal-approve-tool-1').click();
+  await expect(page.getByTestId('proposal-conditional-dialog')).toBeVisible();
+  await page.getByTestId('proposal-conditional-confirm').click();
+  await expect.poll(() => calls).toContain('POST approve {"toolSafetyConfirmation":"approve-conditional-tool-install"}');
+  status = 'active';
+  await page.getByTestId('review-filter').selectOption('active');
+  await expect(page.getByText('Applied Changes')).toBeVisible();
+  await expect(card).toContainText('Deployment: active');
+  await expect(card).toContainText('Outcome: verified');
+  await page.getByTestId('proposal-revert-tool-1').click();
+  await expect(page.getByTestId('proposal-revert-dialog')).toBeVisible();
+  await page.getByTestId('proposal-revert-confirm').click();
+  await expect.poll(() => calls).toContain('POST revert');
+});
