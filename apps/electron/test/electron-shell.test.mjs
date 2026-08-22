@@ -92,6 +92,7 @@ test('production repair: actual Electron artifact protocol authenticates and exe
     assert.deepEqual(receipt.artifactFrame, {
       loaded: true,
       protocol: 'rhythm-artifact:',
+      navigationBlocked: true,
       bridge: {
         n: 'smoke-nonce',
         id: 'smoke-request',

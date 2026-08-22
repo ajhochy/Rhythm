@@ -199,3 +199,44 @@ test('artifact bridge invalidates an in-flight capability response when the fram
   await page.waitForTimeout(100);
   await expect(artifactFrame.locator('body')).toHaveAttribute('data-receipts', 'new');
 });
+
+test('artifact bridge rejects a replacement document handshake after self-navigation', async ({ page }) => {
+  let capabilityCalls = 0;
+  const rendered = `<!doctype html><html><head><script>
+    window.addEventListener('load', function() {
+      window.rhythm.request('pco.services.read', { operation: 'list_service_types' });
+    });
+  </script></head><body>Authorized artifact A</body></html>`;
+  await openDashboard(page, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === `/live-artifacts/${firstId}` && request.method() === 'GET') {
+      await json(route, 200, { ...artifacts[0], declaredCapabilities: ['pco.services.read'], state: {} });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/render`) {
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: rendered });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/capabilities/pco.services.read`) {
+      capabilityCalls += 1;
+      await json(route, 200, { operation: 'list_service_types', data: {} });
+      return true;
+    }
+    return false;
+  });
+  await openArtifact(page, artifacts[0].title);
+  await expect.poll(() => capabilityCalls).toBe(1);
+  const frame = page.getByTestId('live-artifact-frame').contentFrame();
+  const replacement = `<!doctype html><body>Replacement B<script>
+    const token = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const channel = new MessageChannel();
+    parent.postMessage({ __rhythmBridgeDocument: true, documentToken: token }, '*', [channel.port2]);
+    channel.port1.start();
+    channel.port1.postMessage({ __rhythmBridge: true, documentToken: token, id: 'replacement', method: 'pco.services.read', params: { operation: 'list_service_types' } });
+  </script></body>`;
+  await frame.locator('body').evaluate((_body, value) => { window.location.href = `data:text/html,${encodeURIComponent(value)}`; }, replacement);
+  await expect(frame.locator('body')).toContainText('Replacement B');
+  await page.waitForTimeout(200);
+  expect(capabilityCalls).toBe(1);
+});

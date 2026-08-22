@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AgentServerService } from './agent-server.mjs';
-import { injectArtifactFrameBridge, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
+import { injectArtifactFrameBridge, isAllowedArtifactFrameNavigation, parseArtifactFrameRequest } from './artifact-frame-protocol.mjs';
 import { GOOGLE_DESKTOP_CLIENT_ID, RHYTHM_AUTH_API_BASE } from './build-config.mjs';
 import { runDesktopGoogleOAuth } from './desktop-google-oauth.mjs';
 import * as humanApprovalSigner from './human-approval-main-signer.mjs';
@@ -285,7 +285,10 @@ if (hasSingleInstanceLock) {
                 authenticated: new Headers(requestInit.headers).get('authorization') === 'Bearer artifact-smoke-token',
               };
               return new Response(`<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"><script>
-                window.__rhythmHostResponse = function(payload) { parent.postMessage({ __artifactSmoke: true, bridge: payload }, '*'); };
+                window.__rhythmHostResponse = function(payload) {
+                  parent.postMessage({ __artifactSmoke: true, bridge: payload }, '*');
+                  setTimeout(function() { location.href = 'rhythm-artifact://app/00000000-0000-4000-8000-000000000802'; }, 0);
+                };
                 RhythmBridge.postMessage(JSON.stringify({ id: 'smoke-request', nonce: 'smoke-nonce', method: 'pco.services.read', params: { operation: 'list_service_types' } }));
               </script></head><body>Artifact bridge smoke</body></html>`, { status: 200 });
             })()
@@ -378,6 +381,17 @@ if (hasSingleInstanceLock) {
       denials.navigation = true;
       event.preventDefault();
     });
+    mainWindow.webContents.on('will-frame-navigate', (event) => {
+      if (event.isMainFrame) return;
+      const currentUrl = event.frame?.url;
+      const targetUrl = event.url;
+      const touchesArtifact = targetUrl.startsWith('rhythm-artifact:') || currentUrl?.startsWith('rhythm-artifact:');
+      if (!touchesArtifact) return;
+      if (typeof currentUrl !== 'string' || !isAllowedArtifactFrameNavigation(currentUrl, targetUrl)) {
+        denials.navigation = true;
+        event.preventDefault();
+      }
+    });
     mainWindow.webContents.setWindowOpenHandler(() => {
       denials.popup = true;
       return { action: 'deny' };
@@ -417,15 +431,17 @@ if (hasSingleInstanceLock) {
             return;
           }
           if (event.data?.__artifactSmoke !== true) return;
-          clearTimeout(timer);
-          window.removeEventListener('message', onMessage);
           const protocol = new URL(frame.src).protocol;
-          frame.remove();
-          resolve({ loaded: true, protocol, bridge: event.data.bridge });
+          setTimeout(() => {
+            clearTimeout(timer);
+            window.removeEventListener('message', onMessage);
+            frame.remove();
+            resolve({ loaded: true, protocol, bridge: event.data.bridge });
+          }, 100);
         };
         window.addEventListener('message', onMessage);
         document.body.append(frame);
-      })`).then((receipt) => ({ ...receipt, request: artifactFrameRequest }));
+      })`).then((receipt) => ({ ...receipt, navigationBlocked: denials.navigation, request: artifactFrameRequest }));
     }
 
     if (!isSmoke) return;

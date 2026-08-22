@@ -47,6 +47,18 @@ export function parseArtifactFrameRequest(request) {
   }
 }
 
+/**
+ * A host-created artifact iframe begins at about:blank and may navigate exactly once to its
+ * validated UUID URL. Any later cross-document navigation would preserve WindowProxy identity
+ * while changing the document that receives capability authority, so it must fail closed.
+ * @param {string} currentUrl
+ * @param {string} targetUrl
+ */
+export function isAllowedArtifactFrameNavigation(currentUrl, targetUrl) {
+  if (currentUrl !== '' && currentUrl !== 'about:blank') return false;
+  return parseArtifactFrameRequest({ method: 'GET', url: targetUrl }) !== null;
+}
+
 /** @param {string} document */
 export function injectArtifactFrameBridge(document) {
   if (typeof document !== 'string') throw new TypeError('Artifact document must be text');

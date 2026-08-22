@@ -102,6 +102,7 @@ test('production repair: packaged binary executes the authenticated artifact pro
   assert.deepEqual(receipt.artifactFrame, {
     loaded: true,
     protocol: 'rhythm-artifact:',
+    navigationBlocked: true,
     bridge: {
       n: 'smoke-nonce',
       id: 'smoke-request',

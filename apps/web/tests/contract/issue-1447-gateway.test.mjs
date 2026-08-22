@@ -103,8 +103,8 @@ test('issue-1447-c2: configurable production base accepts servers but rejects un
   try {
     const { validateProductionApiBase } = await vite.ssrLoadModule('/src/gateway/index.ts');
     assert.equal(validateProductionApiBase('https://api.vcrcapps.com/'), 'https://api.vcrcapps.com');
-    assert.equal(validateProductionApiBase('http://rhythm.test/base/'), 'http://rhythm.test/base');
-    for (const value of ['', 'file:///tmp/api', 'https://user@api.test', 'https://api.test?token=x', 'https://api.test/#x']) {
+    assert.equal(validateProductionApiBase('https://rhythm.test/base/'), 'https://rhythm.test/base');
+    for (const value of ['', 'http://rhythm.test/base/', 'file:///tmp/api', 'https://user@api.test', 'https://api.test?token=x', 'https://api.test/#x']) {
       assert.throws(() => validateProductionApiBase(value), /production API base/i);
     }
   } finally {

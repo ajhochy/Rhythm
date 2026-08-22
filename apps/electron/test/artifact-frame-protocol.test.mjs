@@ -8,6 +8,7 @@ import {
   ARTIFACT_FRAME_BRIDGE,
   artifactFrameUrl,
   injectArtifactFrameBridge,
+  isAllowedArtifactFrameNavigation,
   parseArtifactFrameRequest,
 } from '../src/artifact-frame-protocol.mjs';
 
@@ -23,6 +24,19 @@ test('artifact frame protocol accepts only an exact GET app UUID URL', () => {
     { method: 'GET', url: `${artifactFrameUrl(artifactId)}?token=forbidden` },
     { method: 'GET', url: `${artifactFrameUrl(artifactId)}#fragment` },
   ]) assert.equal(parseArtifactFrameRequest(request), null, JSON.stringify(request));
+});
+
+test('artifact frame navigation allows only the initial exact UUID mount', () => {
+  const artifactUrl = artifactFrameUrl(artifactId);
+  assert.equal(isAllowedArtifactFrameNavigation('about:blank', artifactUrl), true);
+  assert.equal(isAllowedArtifactFrameNavigation('', artifactUrl), true);
+  for (const [currentUrl, targetUrl] of [
+    [artifactUrl, artifactUrl],
+    [artifactUrl, artifactFrameUrl('00000000-0000-4000-8000-000000000802')],
+    [artifactUrl, 'data:text/html,replacement'],
+    ['about:blank', 'data:text/html,replacement'],
+    ['about:blank', 'rhythm-artifact://app/not-a-uuid'],
+  ]) assert.equal(isAllowedArtifactFrameNavigation(currentUrl, targetUrl), false, `${currentUrl} -> ${targetUrl}`);
 });
 
 test('artifact frame bridge adapts the server RhythmBridge channel before its bootstrap without rewriting artifact code', () => {
@@ -74,6 +88,7 @@ test('Electron host registers the authenticated artifact scheme and renderer use
   const html = await readFile(resolve(import.meta.dirname, '../../web/index.html'), 'utf8');
   assert.match(main, /scheme:\s*'rhythm-artifact'/);
   assert.match(main, /protocol\.handle\('rhythm-artifact'/);
+  assert.match(main, /will-frame-navigate/);
   assert.match(main, /productionSessionToken/);
   assert.match(shell, /rhythm-artifact:\/\/app/);
   assert.match(shell, /sandbox="allow-scripts"/);

@@ -205,6 +205,7 @@ function LiveArtifactSurface({
     const detail = tab.detail;
     const sourceWindow = iframeRef.current?.contentWindow;
     let activePort: MessagePort | null = null;
+    let handshakeAccepted = false;
     if (tab.status !== 'ready' || !detail || !sourceWindow) {
       return () => { if (frameGenerationRef.current === generation) frameGenerationRef.current += 1; };
     }
@@ -213,7 +214,16 @@ function LiveArtifactSurface({
       const document = event.data as { __rhythmBridgeDocument?: boolean; documentToken?: string } | null;
       const port = event.ports[0];
       if (!document || document.__rhythmBridgeDocument !== true || typeof document.documentToken !== 'string' || !/^[0-9a-f]{32}$/.test(document.documentToken) || !port) return;
-      activePort?.close();
+      // The injected bridge runs before artifact code, so the first handshake belongs to the
+      // exact host-mounted document. WindowProxy survives self-navigation; accepting a second
+      // handshake would authorize a replacement document under this tab's capability closure.
+      if (handshakeAccepted) {
+        port.close();
+        activePort?.close();
+        activePort = null;
+        return;
+      }
+      handshakeAccepted = true;
       activePort = port;
       port.onmessage = (portEvent: MessageEvent) => {
         const data = portEvent.data as { __rhythmBridge?: boolean; documentToken?: string; id?: string; method?: string; params?: unknown } | null;
