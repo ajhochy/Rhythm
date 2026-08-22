@@ -16,6 +16,7 @@ const repositoryRoot = resolve(electronRoot, '../..');
 const packageJsonPath = resolve(electronRoot, 'package.json');
 const artifactRoot = resolve(electronRoot, 'dist/Rhythm.app');
 const packagedBinary = resolve(artifactRoot, 'Contents/MacOS/Rhythm');
+const packagedNode = resolve(artifactRoot, 'Contents/Resources/node/bin/node');
 const sourceWebDist = resolve(electronRoot, '../web/dist');
 const packagedWebDist = resolve(artifactRoot, 'Contents/Resources/app/web/dist');
 const packageCommand = ['npm', ['run', 'package:mac']];
@@ -54,6 +55,8 @@ test('slice-7-c1: one command produces the unsigned macOS app bundle', async () 
   assert.equal(result.code, 0, `slice-7-c1: package command failed\n${result.stderr}`);
   await assertPathExists(artifactRoot, 'slice-7-c1: package command did not produce dist/Rhythm.app');
   await assertPathExists(packagedBinary, 'slice-7-c1: packaged app binary Contents/MacOS/Rhythm is absent');
+  const packagedNodeVersion = await run(packagedNode, ['--version']);
+  assert.match(packagedNodeVersion.stdout.trim(), /^v22\./, 'slice-7-c1: packaged runtime is not Node 22');
   const signature = await run('codesign', ['--display', '--verbose=4', artifactRoot]);
   const signatureDetails = `${signature.stdout}\n${signature.stderr}`;
   assert.doesNotMatch(signatureDetails, /^Authority=/m, 'slice-7-c1: packaged app has a signing authority; only ad-hoc signing is allowed');

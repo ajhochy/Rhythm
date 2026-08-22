@@ -44,6 +44,8 @@ test('web build declares Node types as a required root dependency', async () => 
 
 test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
   const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /node-version:\s*['"]22\.x['"]/);
+  assert.doesNotMatch(workflow, /node-version:\s*['"](?:24|26)\.x['"]/);
   for (const workspace of ['apps/web', 'apps/api_server', 'apps/electron']) {
     assert.match(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} ci`));
     assert.doesNotMatch(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} install`));

@@ -6,6 +6,8 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packageNodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
+if (packageNodeMajor !== 22) throw new Error(`Electron release packaging requires Node 22; received ${process.versions.node}`);
 const sourceApp = resolve(electronRoot, 'node_modules/electron/dist/Electron.app');
 const distRoot = resolve(electronRoot, 'dist');
 const artifact = resolve(distRoot, 'Rhythm.app');
