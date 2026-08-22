@@ -96,6 +96,20 @@ apps themselves.
 - #1477 — Agents session header: title/branch text collides with breadcrumb path — same class of
   bug as fix (3) above, in an unrelated part of the Agents workspace.
 
+### Post-commit independent review and cleanup
+
+Dispatched an independent review agent against the frozen commit `def12c6c` (this addendum's diff).
+No critical/high findings — the security-sensitive `state.get`/`state.update` bridge validation and
+race-safety were confirmed sound against the Flutter reference contract. Two low-severity findings
+fixed in a follow-up commit `ecf6131`:
+- Dead `grid-template-rows` left in `.pg-dashboard`'s 520px media query after the grid→flex
+  conversion — harmless today, but a landmine for a future narrow-breakpoint change.
+- The toolbar's "state revision N" label went stale after an artifact-initiated `state.update`
+  (only the bridge's local closure updated, not `tab.detail`). Fixed with a stable
+  `useCallback`-memoized `onStateRevisionChange` passed down to patch `tabs` state.
+
+Final HEAD after both commits: `ecf61317e87246ce3058a62441a3b1dcc1112a4`.
+
 ### Standing rules followed
 
 - Never merged, marked ready, or deployed to production without explicit approval.
