@@ -50,6 +50,7 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/policy.mjs'), resolve(packagedApp, 'src/policy.mjs')),
   cp(resolve(electronRoot, 'src/production-api-config.mjs'), resolve(packagedApp, 'src/production-api-config.mjs')),
   cp(resolve(electronRoot, 'src/runtime-config.mjs'), resolve(packagedApp, 'src/runtime-config.mjs')),
+  cp(resolve(electronRoot, 'src/artifact-frame-protocol.mjs'), resolve(packagedApp, 'src/artifact-frame-protocol.mjs')),
   cp(resolve(electronRoot, 'src/security-smoke-receipt.mjs'), resolve(packagedApp, 'src/security-smoke-receipt.mjs')),
   cp(resolve(electronRoot, 'src/preload.cjs'), resolve(packagedApp, 'src/preload.cjs')),
   cp(resolve(electronRoot, 'src/google-oauth-core.mjs'), resolve(packagedApp, 'src/google-oauth-core.mjs')),

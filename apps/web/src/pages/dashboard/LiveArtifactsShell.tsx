@@ -16,6 +16,7 @@ interface ArtifactTab {
   status: TabStatus;
   detail: LiveArtifactDetail | null;
   html: string | null;
+  frameUrl: string | null;
   errorMessage: string | null;
 }
 
@@ -69,6 +70,10 @@ function isValidPcoRequest(params: unknown): params is PcoServicesReadRequest {
     return keys.length === 3 && typeof serviceTypeId === 'string' && typeof planId === 'string';
   }
   return false;
+}
+
+function nativeArtifactFrameUrl(id: string): string | null {
+  return window.location.protocol === 'rhythm:' ? `rhythm-artifact://app/${encodeURIComponent(id)}` : null;
 }
 
 function mapError(error: unknown): { status: TabStatus; message: string } {
@@ -236,7 +241,13 @@ function LiveArtifactSurface({
           artifact bundle is untrusted content and must never reach network, file, popup,
           navigation, or download primitives — apps/api_server/src/controllers/live_artifacts_controller.ts:64-69
           already denies connect-src/forms/frames/objects in the served document's own CSP. */}
-      <iframe ref={iframeRef} data-testid="live-artifact-frame" title={detail.title} sandbox="allow-scripts" srcDoc={`${tab.html ?? ''}${ARTIFACT_BRIDGE_SCRIPT}`} />
+      <iframe
+        ref={iframeRef}
+        data-testid="live-artifact-frame"
+        title={detail.title}
+        sandbox="allow-scripts"
+        {...(tab.frameUrl ? { src: tab.frameUrl } : { srcDoc: `${tab.html ?? ''}${ARTIFACT_BRIDGE_SCRIPT}` })}
+      />
       {isOwner && (
         <SharingDialog
           open={sharingOpen}
@@ -419,7 +430,7 @@ function LiveArtifactsWorkspace({
       for (const id of artifactTabIds) {
         try {
           const detail = await liveArtifacts.get(id);
-          loaded.push({ id, title: detail.title, status: 'ready', detail, html: null, errorMessage: null });
+          loaded.push({ id, title: detail.title, status: 'ready', detail, html: null, frameUrl: null, errorMessage: null });
         } catch {
           // A restored tab whose artifact no longer loads is dropped rather than shown broken.
         }
@@ -461,8 +472,10 @@ function LiveArtifactsWorkspace({
     setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status: 'loading' } : tab)));
     try {
       const detail = await liveArtifacts.get(id);
-      const html = await liveArtifacts.render(id);
-      setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status: 'ready', detail, html, title: detail.title, errorMessage: null } : tab)));
+      const rendered = await liveArtifacts.render(id);
+      const frameUrl = nativeArtifactFrameUrl(id);
+      const html = frameUrl ? null : rendered;
+      setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status: 'ready', detail, html, frameUrl, title: detail.title, errorMessage: null } : tab)));
     } catch (error) {
       const { status, message } = mapError(error);
       setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status, errorMessage: message } : tab)));
@@ -472,13 +485,13 @@ function LiveArtifactsWorkspace({
   function selectTab(id: string) {
     setSelected(id);
     const tab = tabs.find((candidate) => candidate.id === id);
-    if (tab && tab.html === null) void loadTab(id);
+    if (tab && tab.html === null && tab.frameUrl === null) void loadTab(id);
   }
 
   async function openArtifact(id: string, title: string) {
     setPickerOpen(false);
     if (tabs.some((tab) => tab.id === id)) { setSelected(id); return; }
-    const nextTabs = [...tabs, { id, title, status: 'loading' as TabStatus, detail: null, html: null, errorMessage: null }];
+    const nextTabs = [...tabs, { id, title, status: 'loading' as TabStatus, detail: null, html: null, frameUrl: null, errorMessage: null }];
     setTabs(nextTabs);
     setSelected(id);
     await persistTabIds(nextTabs.map((tab) => tab.id));

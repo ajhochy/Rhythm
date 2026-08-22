@@ -103,3 +103,29 @@ test('post-m1-auth-c8: host binds loopback, opens externally, exchanges, and clo
   assert.equal(login.sessionToken, 'runtime-token');
   await assert.rejects(fetch(callbackUrl), /fetch failed/);
 });
+
+test('production repair: OAuth does not exchange or tear down until the browser confirmation response flushes', async () => {
+  let browserFinished = false;
+  let browserRequest;
+  const login = await runDesktopGoogleOAuth({
+    clientId: 'desktop-client',
+    apiBase: 'https://api.vcrcapps.com',
+    openExternal: async (authorizationUrl) => {
+      const url = new URL(authorizationUrl);
+      const redirectUri = url.searchParams.get('redirect_uri');
+      const state = url.searchParams.get('state');
+      browserRequest = fetch(`${redirectUri}?code=authorization-code&state=${encodeURIComponent(state)}`)
+        .then(async (response) => {
+          assert.equal(response.status, 200);
+          assert.match(await response.text(), /return to Rhythm/i);
+          browserFinished = true;
+        });
+    },
+    fetcher: async () => {
+      assert.equal(browserFinished, true, 'token exchange started before Chrome received the loopback response');
+      return new Response(JSON.stringify({ sessionToken: 'runtime-token', user: { id: 1, name: 'AJ', email: 'aj@example.test', role: 'admin' } }), { status: 200 });
+    },
+  });
+  await browserRequest;
+  assert.equal(login.sessionToken, 'runtime-token');
+});

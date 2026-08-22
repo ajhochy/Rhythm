@@ -25,6 +25,8 @@ test('issue-1447-c2: production data and local agent traffic use separate authen
     const gateway = createLiveGateway({
       apiBase: 'http://127.0.0.1:4098',
       engineBase: 'http://127.0.0.1:4097',
+      expectedApiBase: 'http://127.0.0.1:4098',
+      expectedEngineBase: 'http://127.0.0.1:4097',
       productionApiBase: 'https://api.vcrcapps.com',
       taskToken: 'disposable-contract-token',
     });
@@ -58,34 +60,37 @@ test('issue-1447-c2: production data and local agent traffic use separate authen
       gateway.domains.designs.list(),
     ]);
 
-    assert.deepEqual(requests, [
-      { url: 'https://api.vcrcapps.com/tasks?status=all', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/project-instances', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/tasks/x/collaborators', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/recurring-rules', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/project-templates', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/message-threads', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/facilities', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/automation-catalog/triggers', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/integrations/accounts', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/live-artifacts?type=html', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/users/me/preferences', authorization: 'Bearer disposable-contract-token' },
-      { url: 'https://api.vcrcapps.com/notifications', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-sessions?scope=chats', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-memory', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-sessions/x/pending-permissions', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-approvals?status=pending', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-delegation/status?callerSessionId=x', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/opencode/mcp', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/opencode/skills', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-schedules', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/mobile-gateway/devices', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/opencode/commands', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agents/run-quality?windowDays=1', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-cookbook', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-research/projects', authorization: 'Bearer disposable-contract-token' },
-      { url: 'http://127.0.0.1:4098/agent-designs', authorization: 'Bearer disposable-contract-token' },
+    assert.deepEqual(requests.map((request) => request.url), [
+      'https://api.vcrcapps.com/tasks?status=all',
+      'https://api.vcrcapps.com/project-instances',
+      'https://api.vcrcapps.com/tasks/x/collaborators',
+      'https://api.vcrcapps.com/recurring-rules',
+      'https://api.vcrcapps.com/project-templates',
+      'https://api.vcrcapps.com/message-threads',
+      'https://api.vcrcapps.com/facilities',
+      'https://api.vcrcapps.com/automation-catalog/triggers',
+      'https://api.vcrcapps.com/integrations/accounts',
+      'https://api.vcrcapps.com/live-artifacts?type=html',
+      'https://api.vcrcapps.com/users/me/preferences',
+      'https://api.vcrcapps.com/notifications',
+      'http://127.0.0.1:4098/agent-sessions?scope=chats',
+      'http://127.0.0.1:4098/agent-memory',
+      'http://127.0.0.1:4098/agent-sessions/x/pending-permissions',
+      'http://127.0.0.1:4098/agent-approvals?status=pending',
+      'http://127.0.0.1:4098/agent-delegation/status?callerSessionId=x',
+      'http://127.0.0.1:4098/opencode/mcp',
+      'http://127.0.0.1:4098/opencode/skills',
+      'http://127.0.0.1:4098/agent-schedules',
+      'http://127.0.0.1:4098/mobile-gateway/devices',
+      'http://127.0.0.1:4098/opencode/commands',
+      'http://127.0.0.1:4098/agents/run-quality?windowDays=1',
+      'http://127.0.0.1:4098/agent-cookbook',
+      'http://127.0.0.1:4098/agent-research/projects',
+      'http://127.0.0.1:4098/agent-designs',
     ]);
+    assert.equal(requests.slice(0, 12).every((request) => request.authorization === 'Bearer disposable-contract-token'), true);
+    assert.equal(requests.slice(12).every((request) => request.authorization === undefined), true);
+
   } finally {
     globalThis.fetch = originalFetch;
     await vite.close();

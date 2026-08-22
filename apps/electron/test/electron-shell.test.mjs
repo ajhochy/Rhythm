@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import test from 'node:test';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +64,38 @@ test('slice-5-c5: actual shell denies navigation, popups, permissions, and downl
   assert.match(missing.stderr, /requires built web assets/);
 });
 
+test('production repair: actual Electron artifact protocol authenticates and executes a sandboxed frame', async () => {
+  let authorization = '';
+  const api = createServer((request, response) => {
+    authorization = request.headers.authorization ?? '';
+    if (request.url !== '/live-artifacts/00000000-0000-4000-8000-000000000801/render') {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'"><script>parent.postMessage({__artifactSmoke:true}, "*")</script></head><body>Artifact smoke</body></html>');
+  });
+  await new Promise((resolvePromise, reject) => {
+    api.once('error', reject);
+    api.listen(0, '127.0.0.1', resolvePromise);
+  });
+  const address = api.address();
+  assert.ok(address && typeof address !== 'string');
+  const userData = await mkdtemp(resolve(tmpdir(), 'rhythm-electron-artifact-'));
+  try {
+    const output = await runElectron(['.', '--smoke', '--artifact-frame-smoke'], userData, {
+      RHYTHM_PRODUCTION_API_URL: `http://127.0.0.1:${address.port}`,
+    });
+    assert.equal(output.code, 0, output.stderr);
+    const receipt = JSON.parse(output.stdout.trim());
+    assert.deepEqual(receipt.artifactFrame, { loaded: true, protocol: 'rhythm-artifact:' });
+    assert.equal(authorization, 'Bearer artifact-smoke-token');
+  } finally {
+    await new Promise((resolvePromise) => api.close(resolvePromise));
+    await rm(userData, { recursive: true, force: true });
+  }
+});
+
 async function smoke() {
   if (smokeResult) return smokeResult;
   const userData = await mkdtemp(resolve(tmpdir(), 'rhythm-electron-shell-'));
@@ -76,19 +109,19 @@ async function smoke() {
   }
 }
 
-async function runElectron(args, userData) {
+async function runElectron(args, userData, env = {}) {
   // Always redirect userData to a harness-owned temp dir, even for launches that throw before
   // will-quit (e.g. --missing-dist): the app's own cleanup never runs on those paths, and an
   // un-redirected launch would write to ~/Library/Application Support/rhythm-electron-shell.
   const owned = userData ?? (await mkdtemp(resolve(tmpdir(), 'rhythm-electron-smoke-')));
   try {
-    return await spawnElectron(args, owned);
+    return await spawnElectron(args, owned, env);
   } finally {
     if (!userData) await rm(owned, { recursive: true, force: true });
   }
 }
 
-function spawnElectron(args, userData) {
+function spawnElectron(args, userData, overrides = {}) {
   return new Promise((resolvePromise, reject) => {
       const child = spawn(electron, args, {
         cwd: shellRoot,
@@ -97,6 +130,7 @@ function spawnElectron(args, userData) {
           RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098',
           RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097',
           RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
+          ...overrides,
           ...(userData ? { RHYTHM_SHELL_USER_DATA: userData } : {}),
         },
         stdio: ['ignore', 'pipe', 'pipe'],

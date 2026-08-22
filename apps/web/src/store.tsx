@@ -204,13 +204,23 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const stableEngineRef = useRef<Promise<void>>(Promise.resolve());
   const selectedIdRef = useRef(selectedId);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
-  // Global Messages unread badge; seeded to match the Messages page fixtures (6 unread threads).
-  const [unreadThreads, setUnreadThreads] = useState(6);
+  // Fixture mode starts from its six seeded unread threads. Live mode starts unknown/zero and is
+  // hydrated only from GET /message-threads — never show fixture unread state in production.
+  const [unreadThreads, setUnreadThreads] = useState(() => live ? 0 : 6);
 
   const selected = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? emptyLiveSession();
   const notify = (message: string) => setToast(message);
   const setTheme = (next: Theme) => { setThemeState(next); persistTheme(next); };
   const selectSession = (id: string) => { setSelectedId(id); const session = sessions.find((item) => item.id === id); if (session) setRunMessage(`${session.name}: ${session.status}`); };
+
+  useEffect(() => {
+    if (!live || !gateway.domains.messages) return;
+    let active = true;
+    gateway.domains.messages.threads()
+      .then((threads) => { if (active) setUnreadThreads(threads.filter((thread) => thread.unreadCount > 0).length); })
+      .catch(() => { if (active) setUnreadThreads(0); });
+    return () => { active = false; };
+  }, [gateway.domains.messages, live]);
 
   useEffect(() => {
     if (!live) persistFixtureSessions(sessions);
@@ -812,7 +822,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = `${id}-copy-${profiles.length}`; setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify('Profile duplicated'); return nextId; };
   const deleteProfile = async (id: string) => { if (profiles.find((profile) => profile.id === id)?.isDefault) { notify('Choose another default before deleting this profile'); return; } if (live && !id.startsWith('profile-created-')) await gateway.domains.sessions!.deleteProfile(id); setProfiles((current) => current.filter((profile) => profile.id !== id)); notify('Profile deleted'); };
   const setDefaultProfile = (id: string) => { setProfiles((current) => current.map((profile) => ({ ...profile, isDefault: profile.id === id }))); notify('Default profile updated'); };
-  const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); setToast('Workspace reset'); };
+  const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(live ? 0 : 6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); setToast('Workspace reset'); };
 
   const setDemo = (next: DemoState) => {
     setDemoState(next); setLoading(next === 'loading');

@@ -41,6 +41,30 @@ const closeServer = (server) => new Promise((resolve) => {
   server.close(() => resolve());
 });
 
+const sendCallbackPage = (response, status, body) => new Promise((resolve, reject) => {
+  const socket = response.socket;
+  let finished = false;
+  const settle = (callback) => {
+    if (finished) return;
+    finished = true;
+    callback();
+  };
+  response.once('error', (error) => settle(() => reject(error)));
+  response.once('finish', () => {
+    const flushed = () => setImmediate(() => settle(resolve));
+    if (!socket || socket.destroyed) flushed();
+    else socket.once('close', flushed);
+  });
+  response.shouldKeepAlive = false;
+  response.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+    Connection: 'close',
+  });
+  response.end(body);
+});
+
 export async function runDesktopGoogleOAuth({
   clientId,
   apiBase,
@@ -61,22 +85,25 @@ export async function runDesktopGoogleOAuth({
     rejectCallback = reject;
   });
   const server = createLoopbackServer((request, response) => {
-    const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
-    if (requestUrl.pathname !== '/callback') {
-      response.statusCode = 404;
-      response.end();
-      return;
-    }
-    const error = requestUrl.searchParams.get('error');
-    const code = requestUrl.searchParams.get('code');
-    response.statusCode = 200;
-    response.setHeader('Content-Type', 'text/html; charset=utf-8');
-    response.end(browserResponse(error, code !== null));
-    try {
-      settleCallback(validateGoogleCallback(requestUrl.searchParams, state));
-    } catch (callbackError) {
-      rejectCallback(callbackError);
-    }
+    void (async () => {
+      const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (request.method !== 'GET' || requestUrl.pathname !== '/callback') {
+        await sendCallbackPage(response, 404, 'Not found');
+        return;
+      }
+      const error = requestUrl.searchParams.get('error');
+      const code = requestUrl.searchParams.get('code');
+      let validatedCode;
+      try {
+        validatedCode = validateGoogleCallback(requestUrl.searchParams, state);
+      } catch (callbackError) {
+        await sendCallbackPage(response, 200, browserResponse(error, code !== null)).catch(() => undefined);
+        rejectCallback(callbackError);
+        return;
+      }
+      await sendCallbackPage(response, 200, browserResponse(error, true));
+      settleCallback(validatedCode);
+    })().catch((error) => rejectCallback(error));
   });
 
   try {

@@ -46,8 +46,8 @@ export function EnvironmentReceipt() {
   const text = gateway.mode === 'fixture'
     ? 'Environment: Fixture · deterministic local data · no network'
     : health.api === 'healthy' && health.engine === 'healthy'
-      ? 'Environment: Live · API :4098 healthy · Engine :4097 healthy'
-      : `Environment: Connecting · API :4098 ${health.api} · Engine :4097 ${health.engine}`;
+      ? `Environment: Live · API :${gateway.environment?.apiPort ?? '?'} healthy · Engine :${gateway.environment?.enginePort ?? '?'} healthy`
+      : `Environment: Connecting · API :${gateway.environment?.apiPort ?? '?'} ${health.api} · Engine :${gateway.environment?.enginePort ?? '?'} ${health.engine}`;
 
   return (
     <div

@@ -5,6 +5,8 @@ const pausedLiveSpecs = process.env.RHYTHM_LIVE_E2E === '1' ? [] : [
   '**/issue-0-live-mode.spec.ts',
   '**/invalid-live.spec.ts',
 ];
+const e2ePort = Number(process.env.RHYTHM_E2E_PORT ?? 4173);
+const distPort = Number(process.env.RHYTHM_DIST_PORT ?? e2ePort + 1);
 
 export default defineConfig({
   testDir: './tests',
@@ -17,7 +19,7 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     browserName: 'chromium',
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: `http://127.0.0.1:${e2ePort}`,
     viewport: { width: 1440, height: 900 },
     timezoneId: 'America/Los_Angeles',
     locale: 'en-US',
@@ -28,14 +30,14 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 4173',
-      url: 'http://127.0.0.1:4173',
+      command: `npm run dev -- --host 127.0.0.1 --port ${e2ePort}`,
+      url: `http://127.0.0.1:${e2ePort}`,
       reuseExistingServer: false,
       timeout: 30_000,
     },
     {
-      command: 'node tests/serve-dist.mjs',
-      url: 'http://127.0.0.1:4174/index.html',
+      command: `RHYTHM_DIST_PORT=${distPort} node tests/serve-dist.mjs`,
+      url: `http://127.0.0.1:${distPort}/index.html`,
       reuseExistingServer: false,
       timeout: 30_000,
     },

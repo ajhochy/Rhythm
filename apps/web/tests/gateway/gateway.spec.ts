@@ -43,24 +43,36 @@ test('slice-2-c2: fixture gateway performs zero network operations', async () =>
   expect(calls).toBe(0);
 });
 
-test('slice-2-c3: live bases accept only exact loopback HTTP ports', async () => {
-  // Regression caught: aliases, credentials, paths, or production ports bypass the fail-closed live seam.
+test('production live bases default to Flutter runtime ports and reject baked-in sandbox ports', async () => {
+  // Regression caught: the packaged Electron renderer was permanently pinned to the parity-test
+  // sandbox and could not connect to the user's real API/engine.
   const gateway = await loadGateway();
   expect(gateway, 'renderer gateway module must exist').not.toBeNull();
   if (!gateway) return;
-  expect(gateway.validateLiveBase('http://127.0.0.1:4098', 'api')).toBe('http://127.0.0.1:4098');
-  expect(gateway.validateLiveBase('http://127.0.0.1:4097/', 'engine')).toBe('http://127.0.0.1:4097');
+  expect(gateway.validateLiveBase('http://127.0.0.1:4001', 'api')).toBe('http://127.0.0.1:4001');
+  expect(gateway.validateLiveBase('http://127.0.0.1:4096/', 'engine')).toBe('http://127.0.0.1:4096');
 
   const rejected = [
-    ['', 'api'], ['https://127.0.0.1:4098', 'api'], ['http://localhost:4098', 'api'],
-    ['http://127.0.0.1:4001', 'api'], ['http://127.0.0.1:4096', 'engine'],
-    ['http://user@127.0.0.1:4098', 'api'], ['http://127.0.0.1:4098/v1', 'api'],
-    ['http://127.0.0.1:4098?x=1', 'api'], ['http://127.0.0.1:4098/#x', 'api'],
-    ['http://127.0.0.1:4097', 'api'], ['http://127.0.0.1:4098', 'engine'],
+    ['', 'api'], ['https://127.0.0.1:4001', 'api'], ['http://localhost:4001', 'api'],
+    ['http://127.0.0.1:4098', 'api'], ['http://127.0.0.1:4097', 'engine'],
+    ['http://user@127.0.0.1:4001', 'api'], ['http://127.0.0.1:4001/v1', 'api'],
+    ['http://127.0.0.1:4001?x=1', 'api'], ['http://127.0.0.1:4001/#x', 'api'],
+    ['http://127.0.0.1:4096', 'api'], ['http://127.0.0.1:4001', 'engine'],
   ];
   for (const [value, service] of rejected) {
     expect(() => gateway.validateLiveBase(value, service), `${service}: ${value}`).toThrow(/live configuration/i);
   }
+});
+
+test('production gateway receipt exposes Flutter runtime ports instead of sandbox constants', async () => {
+  const module = await loadGateway();
+  const gateway = module.createLiveGateway({
+    apiBase: 'http://127.0.0.1:4001',
+    engineBase: 'http://127.0.0.1:4096',
+    productionApiBase: 'https://api.vcrcapps.com',
+    taskToken: 'disposable-receipt-token',
+  });
+  expect(gateway.environment).toEqual({ apiPort: '4001', enginePort: '4096' });
 });
 
 test('bucket-a-repair-c1: trusted alternate expected bases accept only matching distinct unprivileged loopback ports', async () => {
@@ -123,7 +135,14 @@ test('slice-2-c5: API and engine health failures remain separate live errors', a
     return new Response(JSON.stringify({ healthy: true }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
   // Disposable dummy token: satisfies the Slice 3 explicit-token requirement so this test reaches its original assertions; never sent anywhere real.
-  const live = gateway.createLiveGateway({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com', taskToken: 'disposable-dummy-token' }, fetcher);
+  const live = gateway.createLiveGateway({
+    apiBase: 'http://127.0.0.1:4098',
+    engineBase: 'http://127.0.0.1:4097',
+    expectedApiBase: 'http://127.0.0.1:4098',
+    expectedEngineBase: 'http://127.0.0.1:4097',
+    productionApiBase: 'https://api.vcrcapps.com',
+    taskToken: 'disposable-dummy-token',
+  }, fetcher);
   await expect(live.health.api()).rejects.toThrow(/API.*503/i);
   await expect(live.health.engine()).resolves.toMatchObject({ service: 'engine', state: 'healthy' });
 });
@@ -143,6 +162,8 @@ test('post-login local boundary omits the cloud bearer while production keeps it
   const live = gateway.createLiveGateway({
     apiBase: 'http://127.0.0.1:4098',
     engineBase: 'http://127.0.0.1:4097',
+    expectedApiBase: 'http://127.0.0.1:4098',
+    expectedEngineBase: 'http://127.0.0.1:4097',
     productionApiBase: 'https://api.vcrcapps.com',
     taskToken: 'disposable-cloud-token',
   }, fetcher);
@@ -163,7 +184,14 @@ test('slice-2-c7: failed live requests cannot return fixture data', async () => 
   if (!gateway) return;
   // Disposable dummy token: satisfies the Slice 3 explicit-token requirement so this test reaches its original assertions; never sent anywhere real.
   const live = gateway.createLiveGateway(
-    { apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com', taskToken: 'disposable-dummy-token' },
+    {
+      apiBase: 'http://127.0.0.1:4098',
+      engineBase: 'http://127.0.0.1:4097',
+      expectedApiBase: 'http://127.0.0.1:4098',
+      expectedEngineBase: 'http://127.0.0.1:4097',
+      productionApiBase: 'https://api.vcrcapps.com',
+      taskToken: 'disposable-dummy-token',
+    },
     async () => { throw new TypeError('connection refused'); },
   );
   await expect(live.health.api()).rejects.toThrow(/API.*connection refused/i);

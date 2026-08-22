@@ -339,8 +339,8 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
     return message;
   };
 
-  const load = async () => {
-    setSurfaceState('loading');
+  const load = async ({ blocking = true }: { blocking?: boolean } = {}) => {
+    if (blocking) setSurfaceState('loading');
     try {
       // apps/api_server/src/routes/dashboard_routes.ts:9, apps/api_server/src/routes/project_instances_routes.ts:10
       const [loadedSummary, loadedInstances] = await Promise.all([gateway.summary(), gateway.projectInstances()]);
@@ -349,10 +349,19 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
       setSummary(loadedSummary);
       setProjectInstances(loadedInstances);
       setErrorMessage(null);
-      const hasWork = [loadedSummary.tasks.recent, loadedSummary.tasks.pastDue, loadedSummary.tasks.today, loadedSummary.tasks.thisWeek, loadedSummary.tasks.unscheduled].some((list) => list.length > 0) || loadedInstances.length > 0;
-      setSurfaceState(hasWork ? 'ready' : 'empty');
+      if (blocking) {
+        const hasWork = [loadedSummary.tasks.recent, loadedSummary.tasks.pastDue, loadedSummary.tasks.today, loadedSummary.tasks.thisWeek, loadedSummary.tasks.unscheduled].some((list) => list.length > 0) || loadedInstances.length > 0;
+        setSurfaceState(hasWork ? 'ready' : 'empty');
+      }
     } catch (error) {
-      setErrorMessage(recordError('GET', '/dashboard/summary', error));
+      if (blocking) {
+        setErrorMessage(recordError('GET', '/dashboard/summary', error));
+      } else {
+        const status = error instanceof DashboardGatewayError ? error.status : 0;
+        const message = error instanceof DashboardGatewayError ? error.message : 'Dashboard service unavailable';
+        appendReceipt(`GET /dashboard/summary → ${status || 'network error'}`);
+        setErrorMessage(`Change saved, but the latest dashboard summary could not be refreshed. ${message}`);
+      }
     }
   };
 
@@ -389,6 +398,55 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
     } catch (error) { setErrorMessage(recordError('POST', '/agent-sessions', error)); } finally { setQuickActionPending(false); }
   };
 
+  const applyTaskStatusToSummary = (taskId: string, nextStatus: LiveTaskStatus) => {
+    setSummary((current) => {
+      if (!current) return current;
+      const { tasks } = current;
+      const inPastDue = tasks.pastDue.some((task) => task.id === taskId);
+      const inPastDeadline = tasks.pastDeadlineTasks.some((task) => task.id === taskId);
+      const inToday = tasks.today.some((task) => task.id === taskId);
+      const inThisWeek = tasks.thisWeek.some((task) => task.id === taskId);
+      const inUnscheduled = tasks.unscheduled.some((task) => task.id === taskId);
+      const update = (items: Task[]) => nextStatus === 'done'
+        ? items.filter((task) => task.id !== taskId)
+        : items.map((task) => task.id === taskId ? { ...task, status: nextStatus } : task);
+      const decrement = (value: number, member: boolean) => member ? Math.max(0, value - 1) : value;
+      return {
+        ...current,
+        tasks: {
+          ...tasks,
+          openCount: nextStatus === 'done' ? Math.max(0, tasks.openCount - 1) : tasks.openCount,
+          pastDueCount: nextStatus === 'done' ? decrement(tasks.pastDueCount, inPastDue) : tasks.pastDueCount,
+          pastDeadlineCount: nextStatus === 'done' ? decrement(tasks.pastDeadlineCount, inPastDeadline) : tasks.pastDeadlineCount,
+          pastDeadlineTasks: nextStatus === 'done' ? tasks.pastDeadlineTasks.filter((task) => task.id !== taskId) : tasks.pastDeadlineTasks,
+          todayRemainingCount: nextStatus === 'done' ? decrement(tasks.todayRemainingCount, inToday) : tasks.todayRemainingCount,
+          thisWeekRemainingCount: nextStatus === 'done' ? decrement(tasks.thisWeekRemainingCount, inThisWeek) : tasks.thisWeekRemainingCount,
+          unscheduledCount: nextStatus === 'done' ? decrement(tasks.unscheduledCount, inUnscheduled) : tasks.unscheduledCount,
+          recent: update(tasks.recent),
+          pastDue: update(tasks.pastDue),
+          today: update(tasks.today),
+          thisWeek: update(tasks.thisWeek),
+          unscheduled: update(tasks.unscheduled),
+        },
+      };
+    });
+  };
+
+  const applyStepStatusToSummary = (stepId: string, nextStatus: 'open' | 'done') => {
+    setSummary((current) => current ? {
+      ...current,
+      projects: {
+        ...current.projects,
+        items: current.projects.items.map((project) => ({
+          ...project,
+          onDeckSteps: nextStatus === 'done'
+            ? project.onDeckSteps.filter((step) => step.id !== stepId)
+            : project.onDeckSteps.map((step) => step.id === stepId ? { ...step, status: nextStatus } : step),
+        })),
+      },
+    } : current);
+  };
+
   // apps/api_server/src/models/task.ts:7 — TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done'
   const toggleTask = async (task: Task) => {
     if (mutationPending) return;
@@ -397,8 +455,9 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
     try {
       await gateway.updateTask(task.id, { status: nextStatus });
       appendReceipt(`PATCH /tasks/${task.id} {status:"${nextStatus}"} → 200`);
+      applyTaskStatusToSummary(task.id, nextStatus);
       notify(nextStatus === 'done' ? `${task.title} completed` : `${task.title} reopened`);
-      await load();
+      await load({ blocking: false });
     } catch (error) { setErrorMessage(recordError('PATCH', `/tasks/${task.id}`, error)); } finally { setMutationPending(false); }
   };
 
@@ -410,8 +469,9 @@ function LiveDashboardPage({ route: _route }: { route: string }) {
     try {
       await gateway.updateProjectStep(step.id, { status: nextStatus });
       appendReceipt(`PATCH /project-instances/steps/${step.id} {status:"${nextStatus}"} → 200`);
+      applyStepStatusToSummary(step.id, nextStatus);
       notify(nextStatus === 'done' ? `${step.title} completed` : `${step.title} reopened`);
-      await load();
+      await load({ blocking: false });
     } catch (error) { setErrorMessage(recordError('PATCH', `/project-instances/steps/${step.id}`, error)); } finally { setMutationPending(false); }
   };
 

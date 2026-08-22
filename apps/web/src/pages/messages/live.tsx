@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
+import { navigate } from '../../components/Shell';
+import { useAuthUser } from '../../gateway/auth';
 import { useGateway } from '../../gateway/context';
+import { Icon } from '../../icons';
+import { useFixtures } from '../../store';
 import {
   MessagesGatewayError,
   type Message,
@@ -29,10 +33,60 @@ function threadIdFromRoute(route: string): number | null {
   return Number.isFinite(id) ? id : null;
 }
 
+function timeLabel(timestamp: string): string {
+  const value = new Date(timestamp);
+  if (Number.isNaN(value.getTime())) return '';
+  return value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'R';
+}
+
+function LiveThreadActions({ thread, onRead, onUnread, testId }: {
+  thread: MessageThread;
+  onRead(): void;
+  onUnread(): void;
+  testId?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: MouseEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus(); } };
+    document.addEventListener('mousedown', outside);
+    document.addEventListener('keydown', escape);
+    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
+    return () => { document.removeEventListener('mousedown', outside); document.removeEventListener('keydown', escape); };
+  }, [open]);
+
+  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    if (!items.length) return;
+    event.preventDefault();
+    const current = Math.max(0, items.indexOf(document.activeElement as HTMLElement));
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    items[next]?.focus();
+  };
+
+  return <div className="messages-thread-menu-anchor" ref={rootRef}>
+    <button ref={triggerRef} className="icon-button messages-thread-actions" type="button" aria-label={`Actions for ${thread.title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} data-testid={testId ?? `messages-thread-actions-${thread.id}`}><Icon name="more" size={16} /></button>
+    {open && <div className="menu-popover messages-thread-menu" role="menu" aria-label={`Actions for ${thread.title}`} onKeyDown={moveFocus}>
+      <button className="menu-item" role="menuitem" type="button" onClick={() => { setOpen(false); thread.unreadCount > 0 ? onRead() : onUnread(); }}>{thread.unreadCount > 0 ? 'Mark as read' : 'Mark as unread'}</button>
+    </div>}
+  </div>;
+}
+
 export function LiveMessagesPage({ route }: { route: string }) {
   // apps/web/src/gateway/index.ts:98 — every domain shares the one bearer from the signed-in
   // session; Messages must not build its own gateway from a build-time/test-only env value.
   const gateway = useGateway().domains.messages!;
+  const authUser = useAuthUser();
+  const { setUnreadThreads } = useFixtures();
   // RESOLVED: the gateway now exposes the workspace directory as `users()`
   // (apps/web/src/gateway/messages.ts), backed by GET /users at
   // apps/api_server/src/app.ts:144. The wiring agent that hit this gap left the picker empty and
@@ -52,9 +106,21 @@ export function LiveMessagesPage({ route }: { route: string }) {
   const [directory, setDirectory] = useState<LiveDirectoryUser[]>([]);
   const [selectedRecipients, setSelectedRecipients] = useState<number[]>([]);
   const [createError, setCreateError] = useState('');
+  const [search, setSearch] = useState('');
   const replyRef = useRef<HTMLTextAreaElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
+  const unreadTotal = threads.filter((thread) => thread.unreadCount > 0).length;
+  const visibleThreads = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase();
+    return needle ? threads.filter((thread) => thread.title.toLocaleLowerCase().includes(needle)) : threads;
+  }, [search, threads]);
+
+  useEffect(() => { setUnreadThreads(unreadTotal); }, [setUnreadThreads, unreadTotal]);
+  useLayoutEffect(() => {
+    if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+  }, [messages.length, selectedId]);
 
   useEffect(() => {
     let active = true;
@@ -169,54 +235,52 @@ export function LiveMessagesPage({ route }: { route: string }) {
   return (
     <section className="page-shell pg-messages" aria-labelledby="messages-title" data-testid="page-messages" {...(selectedId != null ? { 'data-selected-stable-id': selectedId } : {})}>
       <header className="messages-page-header">
-        <div className="messages-heading"><span className="eyebrow">Rhythm workspace</span><h1 id="messages-title">Messages</h1><p>Move handoffs forward without losing the thread.</p></div>
-        <button className="primary-button" type="button" onClick={() => void openNewThread()} data-testid="messages-new-thread">New</button>
+        <div className="messages-heading"><span className="eyebrow">Rhythm workspace</span><h1 id="messages-title">Messages</h1><p>Conversations, participants, and handoffs in one focused workspace.</p></div>
+        <fieldset className="messages-header-mutations"><legend className="sr-only">Conversation actions</legend><button className="primary-button" type="button" onClick={() => void openNewThread()} data-testid="messages-new-thread"><Icon name="plus" size={15} />New</button></fieldset>
       </header>
 
       {loadError && <p role="alert" data-testid="messages-live-error">{loadError}</p>}
 
       <div className={`messages-workspace ${selectedThread ? 'has-selection' : ''}`} data-testid="messages-responsive-primary">
         <aside className="messages-thread-rail" aria-label="Conversations">
-          {loading ? <p role="status" data-testid="page-state-loading">Loading conversations…</p> : threads.length === 0 ? <p data-testid="messages-no-results">No conversations yet.</p> : (
-            <ul className="messages-thread-list" role="list" data-testid="messages-thread-list">
-              {threads.map((thread) => (
-                <li key={thread.id} className="messages-thread-item">
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    aria-selected={selectedId === thread.id}
-                    onClick={() => void openThread(thread.id)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openThread(thread.id); } }}
-                    data-testid={`messages-thread-${thread.id}`}
-                  >
-                    <strong>{thread.title}</strong>
-                    <small>{thread.lastMessage ?? ''}</small>
-                    {thread.unreadCount > 0 && <span data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
+          <div className="messages-rail-summary"><div><strong data-testid="messages-unread-total">{unreadTotal} unread {unreadTotal === 1 ? 'thread' : 'threads'}</strong><span>{visibleThreads.length} {visibleThreads.length === 1 ? 'conversation' : 'conversations'}</span></div><span aria-hidden="true">{String(unreadTotal).padStart(2, '0')}</span></div>
+          <label className="search-field messages-search"><Icon name="search" size={14} /><span className="sr-only">Search conversations by title</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" data-testid="messages-thread-search" /></label>
+          {loading ? <div className="messages-selection-state" role="status" data-testid="page-state-loading"><span className="messages-spinner" aria-hidden="true" /><p>Loading conversations…</p></div> : threads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No conversations yet</h2><p>Start a direct message or group handoff.</p></div> : visibleThreads.length === 0 ? <div className="messages-no-results" data-testid="messages-no-results"><h2>No matching conversations</h2><p>Try a shorter title or clear the search.</p><button className="secondary-button" type="button" onClick={() => setSearch('')}>Clear search</button></div> : (
+            <ul className="messages-thread-list" role="grid" aria-label="Conversation list" data-testid="messages-thread-list">
+              {visibleThreads.map((thread) => {
+                const participant = thread.participants[0];
+                return <li key={thread.id} className="messages-thread-item" role="row">
+                  <div className="messages-thread-row" role="gridcell" tabIndex={0} aria-selected={selectedId === thread.id} data-unread={thread.unreadCount > 0 ? 'true' : 'false'} onClick={() => void openThread(thread.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void openThread(thread.id); } }} data-testid={`messages-thread-${thread.id}`}>
+                    <span className="messages-thread-avatar" aria-hidden="true">{initials(participant?.name ?? thread.title)}</span>
+                    <span className="messages-thread-copy"><strong>{thread.title}</strong><small>{thread.lastMessage ?? 'No messages yet'}</small></span>
+                    <time dateTime={thread.updatedAt}>{timeLabel(thread.updatedAt)}</time>
+                    {thread.unreadCount > 0 && <span className="messages-row-unread" aria-label={`${thread.unreadCount} unread message${thread.unreadCount === 1 ? '' : 's'}`} data-testid={`messages-thread-unread-${thread.id}`}>{thread.unreadCount}</span>}
                   </div>
-                  <button type="button" onClick={() => void toggleUnread(thread)} data-testid={`messages-thread-toggle-${thread.id}`}>{thread.unreadCount > 0 ? 'Mark read' : 'Mark unread'}</button>
-                </li>
-              ))}
+                  <div role="gridcell"><LiveThreadActions thread={thread} onRead={() => void toggleUnread(thread)} onUnread={() => void toggleUnread(thread)} /></div>
+                </li>;
+              })}
             </ul>
           )}
         </aside>
 
         <section className="messages-conversation" aria-label="Selected conversation">
-          {!selectedThread ? <div className="messages-selection-state" data-testid="messages-empty-selection"><h2>Select a conversation</h2></div> : (
+          {!selectedThread ? <div className="messages-selection-state" data-testid="messages-empty-selection"><span className="messages-state-mark" aria-hidden="true">↗</span><h2>Select a conversation</h2><p>Choose a thread to read its participants and transcript.</p></div> : (
             <>
               <header className="messages-conversation-header">
-                <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{selectedThread.threadType === 'group' ? 'Group' : 'Direct'}</span><h2 data-testid="messages-subject">{selectedThread.title}</h2></div>
+                <button className="text-button messages-mobile-back" type="button" onClick={() => { setSelectedId(null); setMessages([]); navigate('/messages'); }}>Back to conversations</button>
+                <div className="messages-conversation-heading"><span className="eyebrow" data-testid="messages-thread-type">{selectedThread.threadType === 'group' ? 'Group' : 'Direct'}</span><h2 data-testid="messages-subject">{selectedThread.title}</h2><p>{selectedThread.participants.map((participant) => participant.name).join(' · ')}<span aria-hidden="true"> · </span>{messages.length} {messages.length === 1 ? 'message' : 'messages'}</p></div>
+                <LiveThreadActions thread={selectedThread} onRead={() => void toggleUnread(selectedThread)} onUnread={() => void toggleUnread(selectedThread)} testId="messages-selected-thread-actions" />
               </header>
-              <div className="messages-transcript" data-testid="messages-transcript">
-                {messages.length === 0 ? <p>No messages yet.</p> : messages.map((message) => (
-                  <article key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong></header><p>{message.body}</p></article>
+              <div className="messages-transcript" ref={transcriptRef} tabIndex={0} aria-label={`${selectedThread.title} transcript`} aria-live="polite" data-testid="messages-transcript">
+                {messages.length === 0 ? <div className="messages-transcript-empty"><p>No messages yet. Start the conversation below.</p></div> : messages.map((message) => (
+                  <article className={`messages-message ${message.senderId === authUser?.user.id ? 'own' : ''}`} key={message.id} data-message-row="true"><header><strong>{message.senderName}</strong><time dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time></header><p>{message.body}</p></article>
                 ))}
               </div>
-              <div className="messages-composer">
+              <fieldset className="messages-composer-fieldset"><legend className="sr-only">Reply to {selectedThread.title}</legend><div className="messages-composer">
                 <label htmlFor="messages-reply-input">Reply</label>
-                <textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} data-testid="messages-reply-input" />
-                <button className="primary-button messages-send" type="button" onClick={() => void sendReply()} data-testid="messages-send">Send</button>
-                {replyError && <p role="alert" data-testid="messages-reply-error">{replyError}</p>}
-              </div>
+                <div><textarea ref={replyRef} id="messages-reply-input" rows={2} value={reply} onChange={(event) => { setReply(event.target.value); setReplyError(''); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendReply(); } }} aria-describedby={replyError ? 'messages-reply-error' : 'messages-reply-help'} data-testid="messages-reply-input" /><button className="primary-button messages-send" type="button" onClick={() => void sendReply()} data-testid="messages-send"><Icon name="send" size={16} /><span>Send</span></button></div>
+                <small id="messages-reply-help">Enter to send · Shift+Enter for a new line</small>{replyError && <p id="messages-reply-error" role="alert" data-testid="messages-reply-error">{replyError}</p>}
+              </div></fieldset>
             </>
           )}
         </section>
