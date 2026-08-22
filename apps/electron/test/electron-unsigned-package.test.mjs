@@ -29,6 +29,9 @@ const poisonedRendererEnvironment = {
   VITE_RHYTHM_GATEWAY_MODE: 'poisoned-gateway-mode-sentinel',
   VITE_RHYTHM_API_BASE: 'https://compiled-api.invalid',
   VITE_RHYTHM_ENGINE_BASE: 'https://compiled-engine.invalid',
+  VITE_RHYTHM_PRODUCTION_API_BASE: 'https://poisoned-production.invalid',
+  VITE_RHYTHM_EXPECTED_API_BASE: 'http://127.0.0.1:49191',
+  VITE_RHYTHM_EXPECTED_ENGINE_BASE: 'http://127.0.0.1:49192',
   VITE_RHYTHM_LIVE_TOKEN: 'non-credential-build-sentinel',
 };
 const liveBases = liveEnvironment();
