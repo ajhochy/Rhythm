@@ -92,9 +92,20 @@ function fakeSandboxEnv(): {
   const fakeHome = join(root, "home");
   const sandbox = join(root, "sandbox");
   const liveDb = join(root, "live.db");
+  const opencodeConfigDir = join(root, "opencode-config");
   mkdirSync(fakeBin, { recursive: true });
   mkdirSync(fakeHome, { recursive: true });
+  mkdirSync(opencodeConfigDir, { recursive: true });
   writeFileSync(liveDb, "");
+  chmodSync(liveDb, 0o400);
+  // C6 item 6 — validate_copied_data_inputs requires an approved fixture
+  // root, a read-only sanitized opencode config (non-empty mcp map, shadow
+  // optimizer mode if declared at all), and both source paths read-only.
+  writeFileSync(
+    join(opencodeConfigDir, "opencode.json"),
+    JSON.stringify({ mcp: { local: { type: "local" } } }),
+  );
+  chmodSync(join(opencodeConfigDir, "opencode.json"), 0o400);
 
   const writeExecutable = (name: string, body: string) => {
     const path = join(fakeBin, name);
@@ -172,8 +183,13 @@ function fakeSandboxEnv(): {
       ...process.env,
       HOME: fakeHome,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+      RHYTHM_APPROVED_FIXTURE_ROOT: root,
       RHYTHM_LIVE_DB_PATH: liveDb,
+      RHYTHM_SANDBOX_OPENCODE_CONFIG: opencodeConfigDir,
       RHYTHM_SANDBOX_DIR: sandbox,
+      RHYTHM_SANDBOX_ENGINE_PORT: "4097",
+      RHYTHM_SANDBOX_API_PORT: "4098",
+      RHYTHM_SANDBOX_GATEWAY_PORT: "4099",
       RHYTHM_TEST_ENGINE_EXECUTABLE: join(
         repoRoot,
         "apps/opencode_fork/packages/opencode/dist/opencode-darwin-arm64/bin/opencode",
@@ -270,7 +286,7 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
     const { env, sandbox } = fakeSandboxEnv();
     const result = await run("bash", [sandboxScript, "up"], env);
 
-    expect(result.code).toBe(0);
+    expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("Sandbox ready:");
     expect(result.stdout).not.toContain("foreground hold active");
 

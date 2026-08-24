@@ -32,7 +32,16 @@ vi.mock('../../repositories/agent_session_messages_repository', () => ({
 }));
 
 // Keep the failure classifier deterministic: no detector fires unless a test
-// opts in. classifyRerunFailure runs these over synthetic single-turn doubles.
+// opts in. classifyRerunFailure now runs these over the REAL persisted
+// messages for the rerun session (see listBySessionMock) — mocked here only
+// to keep this file's focus on run()-routing, not detector behavior (that's
+// covered by workflow_failure_signal_extractor.test.ts and the
+// org_proposal_measure_rerun_integration.test.ts real-extractor suite).
+//
+// The terminal-success/integrity check itself is NOT mocked — classifyRerunFailure
+// consumes the real `persisted_tool_evidence.ts` parser directly, so
+// `listBySessionMock`'s fixture data must be producer-valid to be read as a
+// genuine clean pass (see PRODUCER_VALID_SUCCESS_MESSAGES below).
 const detectRetryLoopSignals = vi.fn(() => [] as { category: string }[]);
 vi.mock('../workflow_failure_signal_extractor', () => ({
   detectRetryLoopSignals: (...args: unknown[]) => detectRetryLoopSignals(...(args as [])),
@@ -53,13 +62,41 @@ const ctx = {
   categories: ['retry-loop'],
 };
 
+/** A replayable prompt message — read by defaultRerunScenario to find the original prompt. */
+const REPLAYABLE_INPUT = { role: 'input', strippedText: 'do the failing thing', partsJson: null, sdkMessageId: null };
+
+/** A single producer-valid completed, non-MCP-error tool part — genuine terminal success evidence. */
+function terminalSuccessMessage() {
+  return {
+    role: 'output',
+    strippedText: '',
+    sdkMessageId: 'msg-rerun-1',
+    partsJson: JSON.stringify([
+      {
+        id: 'prt-rerun-1',
+        type: 'tool',
+        sessionID: 'ses-rerun',
+        messageID: 'msg-rerun-1',
+        callID: 'call-rerun-1',
+        tool: 'bash',
+        state: {
+          status: 'completed',
+          input: { cmd: 'echo ok' },
+          output: 'ok',
+          title: 'Tool result',
+          metadata: {},
+          time: { start: 0, end: 1 },
+        },
+      },
+    ]),
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   detectRetryLoopSignals.mockReturnValue([]);
   resolveRunModelMock.mockReturnValue({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' });
-  listBySessionMock.mockReturnValue([
-    { role: 'input', strippedText: 'do the failing thing', partsJson: null },
-  ]);
+  listBySessionMock.mockReturnValue([REPLAYABLE_INPUT, terminalSuccessMessage()]);
 });
 
 describe('defaultRerunScenario routes the behavioral re-run through AgentRunner.run', () => {
@@ -121,5 +158,53 @@ describe('defaultRerunScenario routes the behavioral re-run through AgentRunner.
     const outcome = await defaultRerunScenario(proposal, ctx);
     expect(outcome.status).toBe('infra-error');
     expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('W3 corrective: retry-loop category with NO structured tool-attempt evidence at all -> infra-error, never completed', async () => {
+    // Nothing reproduced AND no readable tool-attempt evidence at all — this
+    // must NEVER be treated as a clean pass (that was the original bug: a
+    // synthetic partsJson:null double always looked evidence-free and always
+    // kept). The rerun session's real persisted messages carry only the
+    // replayable prompt, no tool parts whatsoever.
+    listBySessionMock.mockReturnValue([REPLAYABLE_INPUT]);
+    runMock.mockResolvedValue({
+      sessionId: 'rerun-sess',
+      status: 'done',
+      result: 'A sufficiently long, clean-looking output with no lexical failure signature.',
+    });
+
+    const outcome = await defaultRerunScenario(proposal, ctx);
+
+    expect(outcome.status).toBe('infra-error');
+    expect(outcome.reason).toContain('inconclusive');
+  });
+
+  it('W3 final architectural corrective: retry-loop category with ONLY a pending tool attempt -> infra-error, never completed', async () => {
+    // A nonzero attempt count is not proof of a clean pass — a lone pending
+    // attempt is exactly zero terminal success evidence.
+    listBySessionMock.mockReturnValue([
+      REPLAYABLE_INPUT,
+      {
+        role: 'output',
+        strippedText: '',
+        sdkMessageId: 'msg-rerun-1',
+        partsJson: JSON.stringify([
+          {
+            id: 'prt-rerun-1', type: 'tool', sessionID: 'ses-rerun', messageID: 'msg-rerun-1',
+            callID: 'call-rerun-1', tool: 'bash', state: { status: 'pending', input: {}, raw: 'echo ok' },
+          },
+        ]),
+      },
+    ]);
+    runMock.mockResolvedValue({
+      sessionId: 'rerun-sess',
+      status: 'done',
+      result: 'A sufficiently long, clean-looking output with no lexical failure signature.',
+    });
+
+    const outcome = await defaultRerunScenario(proposal, ctx);
+
+    expect(outcome.status).toBe('infra-error');
+    expect(outcome.reason).toContain('inconclusive');
   });
 });

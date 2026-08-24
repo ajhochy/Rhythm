@@ -19,13 +19,19 @@
  *
  * Status state machine (enforced by AgentOrgProposalsRepository.updateStatusAsync):
  *
- *   proposed  -> approved | rejected | applied | failed
+ *   proposed  -> approved | rejected | applied | failed | sandbox-running
+ *   sandbox-running -> sandbox-vetted | rejected | pending  (D1.4 tool-install only)
+ *   sandbox-vetted -> approved | rejected                     (D1.4 tool-install only)
  *   approved  -> applied
  *   applied   -> measuring
  *   measuring -> active | reverted
  *   active    -> reverted   (#857 — human-triggered undo of an already-kept proposal)
  *   failed    -> applied | failed   (#1056 — retryable: a re-approve re-runs
  *                                    the same apply step)
+ *
+ * Scope projection compensation additionally permits `applied -> approved`
+ * only through the revision-bound atomic target+proposal primitive. The
+ * generic status updater deliberately does not expose that transition.
  *
  * `proposed -> applied` (skipping `approved`) is the auto-apply lane for
  * low-risk, reversible proposals per the maintainer's full-autonomy-with-
@@ -34,6 +40,8 @@
  * decision made before calling updateStatusAsync, not something the state
  * machine itself enforces.
  */
+import type { ProposalOutcomeStatus } from './agent_org_experiment';
+
 export interface AgentOrgProposal {
   id: string;
   /** Groups proposals from one optimizer run. Null for ad hoc/manual proposals. */
@@ -50,7 +58,7 @@ export interface AgentOrgProposal {
   /** 1 for external-adoption (extra vetting gate); 0 otherwise. */
   external: number;
   /**
-   * proposed|approved|rejected|applied|measuring|active|reverted|failed.
+   * proposed|sandbox-running|sandbox-vetted|pending|approved|rejected|applied|measuring|active|reverted|failed.
    * See the state machine documented above.
    */
   status: string;
@@ -75,7 +83,50 @@ export interface AgentOrgProposal {
   baselineScore: number | null;
   postScore: number | null;
   measureReason: string | null;
+  /**
+   * Why proposal/target/projection coherence could not be proved. Kept
+   * separate from `measureReason` on purpose: measurement prose and an
+   * unresolved-operation record must never be mistaken for one another.
+   */
+  reconciliationReason?: string | null;
   decidedByUserId: number | null;
+  /**
+   * #1175 — nullable per-user ownership (Mobile Activity projection). NULL
+   * means organization/system-global. The column has existed on
+   * `agent_org_proposals` since #1175 (`migrations.ts`/`postgres_bootstrap.ts`)
+   * but was never exposed on this model until C6 (repair item 2), which
+   * reads it as the durable source of a calibration observation's owner
+   * scope — never inferred from request input.
+   */
+  ownerUserId: number | null;
+  /**
+   * C6 (repair item 3) — a truthful [0,1] confidence, converted ONCE at
+   * proposal creation from the generator's own high/medium/low diagnosis
+   * verdict through a named, versioned mapping (see
+   * DIAGNOSIS_CONFIDENCE_MAPPING_VERSION in org_diagnosis_types.ts). Null
+   * when the generator recorded no diagnosis confidence (e.g. a manually
+   * created proposal, or a diagnosis shape that predates this field) —
+   * NEVER inferred or backfilled. This is the ONLY durable source
+   * proposal_evidence_builder.ts may read `initialConfidence` from; when
+   * null, the builder fails closed rather than inventing a number.
+   */
+  diagnosisConfidence: number | null;
+  /** The named/versioned mapping that produced {@link diagnosisConfidence}, or null alongside it. */
+  diagnosisConfidenceVersion: string | null;
+  /**
+   * W6-c8 — OUTCOME authority, deliberately separate from `status`, which
+   * remains the DEPLOYMENT field. A proposal can be simultaneously
+   * status='active' (deployed) and outcome_status='inconclusive' (nothing was
+   * proven about it). `inconclusive` is NOT a proposal status and the status
+   * state machine is not extended by W6.
+   *
+   * `unproven` (default) | `inconclusive` | `verified` | `regressed`. Only the
+   * experiment service may write `verified` or `regressed`; the body/rerun
+   * measure path may write `inconclusive` and nothing stronger.
+   */
+  outcomeStatus?: ProposalOutcomeStatus;
+  /** Monotonic lifecycle CAS token. Incremented exactly once per mutation. */
+  revision?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,14 +150,24 @@ export interface AgentOrgProposalInput {
   baselineScore?: number | null;
   postScore?: number | null;
   measureReason?: string | null;
+  reconciliationReason?: string | null;
   decidedByUserId?: number | null;
+  /** #1175 nullable ownership — see {@link AgentOrgProposal.ownerUserId}. */
+  ownerUserId?: number | null;
+  /** See {@link AgentOrgProposal.diagnosisConfidence}. */
+  diagnosisConfidence?: number | null;
+  /** See {@link AgentOrgProposal.diagnosisConfidenceVersion}. */
+  diagnosisConfidenceVersion?: string | null;
 }
+
+/** Repository-backed proposal row with the migration-guaranteed CAS token. */
+export type RevisionedAgentOrgProposal = AgentOrgProposal & { revision: number };
 
 /**
  * Build an {@link AgentOrgProposal} from a plain JSON object (camelCase keys).
  * Round-trips losslessly with {@link agentOrgProposalToJson}.
  */
-export function agentOrgProposalFromJson(json: Record<string, unknown>): AgentOrgProposal {
+export function agentOrgProposalFromJson(json: Record<string, unknown>): RevisionedAgentOrgProposal {
   return {
     id: json.id as string,
     auditRunId: (json.auditRunId as string | null) ?? null,
@@ -125,7 +186,13 @@ export function agentOrgProposalFromJson(json: Record<string, unknown>): AgentOr
     baselineScore: (json.baselineScore as number | null) ?? null,
     postScore: (json.postScore as number | null) ?? null,
     measureReason: (json.measureReason as string | null) ?? null,
+    reconciliationReason: (json.reconciliationReason as string | null) ?? null,
     decidedByUserId: (json.decidedByUserId as number | null) ?? null,
+    ownerUserId: (json.ownerUserId as number | null) ?? null,
+    diagnosisConfidence: (json.diagnosisConfidence as number | null) ?? null,
+    diagnosisConfidenceVersion: (json.diagnosisConfidenceVersion as string | null) ?? null,
+    outcomeStatus: (json.outcomeStatus as ProposalOutcomeStatus) ?? 'unproven',
+    revision: (json.revision as number) ?? 0,
     createdAt: json.createdAt as string,
     updatedAt: json.updatedAt as string,
   };
@@ -151,7 +218,13 @@ export function agentOrgProposalToJson(proposal: AgentOrgProposal): Record<strin
     baselineScore: proposal.baselineScore,
     postScore: proposal.postScore,
     measureReason: proposal.measureReason,
+    reconciliationReason: proposal.reconciliationReason,
     decidedByUserId: proposal.decidedByUserId,
+    ownerUserId: proposal.ownerUserId,
+    diagnosisConfidence: proposal.diagnosisConfidence,
+    diagnosisConfidenceVersion: proposal.diagnosisConfidenceVersion,
+    outcomeStatus: proposal.outcomeStatus,
+    revision: proposal.revision,
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,
   };

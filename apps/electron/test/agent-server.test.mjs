@@ -7,12 +7,10 @@ import { AGENT_SERVER_BASE_URL, AGENT_SERVER_ENGINE_PORT, AGENT_SERVER_PORT, bui
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
 
-test('post-m1-p7-c4d agent-server: ports match the renderer live-gateway contract, not Flutter production ports', () => {
-  // apps/web/src/gateway/index.ts's validateLiveBase hardcodes exactly these two ports — using
-  // Flutter's 4001/4096 here would make the renderer refuse to treat this spawn as live at all.
-  assert.equal(AGENT_SERVER_PORT, 4098);
-  assert.equal(AGENT_SERVER_ENGINE_PORT, 4097);
-  assert.equal(AGENT_SERVER_BASE_URL, 'http://127.0.0.1:4098');
+test('production agent-server shares Flutter local API and engine ports', () => {
+  assert.equal(AGENT_SERVER_PORT, 4001);
+  assert.equal(AGENT_SERVER_ENGINE_PORT, 4096);
+  assert.equal(AGENT_SERVER_BASE_URL, 'http://127.0.0.1:4001');
 });
 
 test('post-m1-p7-c4d agent-server: buildEnvironment sets every required var and strips stale HUMAN_APPROVAL_* keys', () => {
@@ -29,19 +27,20 @@ test('post-m1-p7-c4d agent-server: buildEnvironment sets every required var and 
   assert.equal(env.RHYTHM_OPENCODE_ENGINE_PORT, '4097');
   assert.equal(env.DB_PATH, '/tmp/rhythm-electron/rhythm.db');
   assert.equal(env.AGENT_LOCAL, 'true');
+  assert.equal(env.RHYTHM_LOCAL_RENDERER_ORIGINS, 'rhythm://app');
   assert.equal(env.HUMAN_APPROVAL_PUBLIC_KEY, 'real-key');
   assert.equal(env.HUMAN_APPROVAL_CAPABILITY_SHA256, 'real-hash');
   assert.equal(env.HOME, '/Users/test', 'unrelated base env vars must pass through untouched');
   assert.equal(env.MCP_ROLES_DIR, undefined, 'must not fabricate MCP_ROLES_DIR when none was resolved');
 });
 
-test('post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for the two security-critical vars', () => {
-  // Unlike MEMORY_VAULT_PATH/MCP_ROLES_DIR (explicit-override-wins, matching Flutter), the two
+test('post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit override win for security-critical vars', () => {
+  // Unlike MEMORY_VAULT_PATH/MCP_ROLES_DIR (explicit-override-wins, matching Flutter), the
   // HUMAN_APPROVAL_* vars must always be exactly what THIS process's signer just computed — a
   // caller-supplied value here would mean the server verifies decisions against a key nobody
-  // controls the matching private half of.
+  // controls the matching private half of. The renderer allowlist is likewise host-owned.
   const env = buildEnvironment({
-    baseEnv: { HUMAN_APPROVAL_PUBLIC_KEY: 'attacker-supplied', HUMAN_APPROVAL_CAPABILITY_SHA256: 'attacker-supplied' },
+    baseEnv: { HUMAN_APPROVAL_PUBLIC_KEY: 'attacker-supplied', HUMAN_APPROVAL_CAPABILITY_SHA256: 'attacker-supplied', RHYTHM_LOCAL_RENDERER_ORIGINS: 'http://attacker.invalid' },
     port: 4098,
     enginePort: 4097,
     dbPathValue: '/tmp/db',
@@ -51,6 +50,7 @@ test('post-m1-p7-c4d agent-server: buildEnvironment never lets an explicit overr
   });
   assert.equal(env.HUMAN_APPROVAL_PUBLIC_KEY, 'real-key');
   assert.equal(env.HUMAN_APPROVAL_CAPABILITY_SHA256, 'real-hash');
+  assert.equal(env.RHYTHM_LOCAL_RENDERER_ORIGINS, 'rhythm://app');
 });
 
 test('post-m1-p7-c4d agent-server: buildEnvironment respects explicit MCP_ROLES_DIR override, matching Flutter precedence', () => {

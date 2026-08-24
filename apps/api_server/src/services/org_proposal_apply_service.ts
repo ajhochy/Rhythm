@@ -32,7 +32,21 @@
  *     without touching this file's control flow.
  */
 
-import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import type { AgentOrgProposal, RevisionedAgentOrgProposal } from '../models/agent_org_proposal';
+import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { containsScopeBearingPayload, parseScopeMutation } from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
+import { CONFIG_PATCH_FIELDS } from './org_diagnosis_types';
+import type { PostApplyTarget } from './post_apply_lifecycle';
+import { validateToolInstallChange } from './tool_install_proposal_validator';
+import {
+  evaluateToolInstallSafetyAsync,
+  readValidatedToolInstallInputs,
+  type ToolInstallSafetyOptions,
+} from './tool_install_safety_policy';
+import { applyApprovedScopeProposal } from './org_proposal_scope_lifecycle';
+import { approveVettedToolInstallProposalAsync } from './tool_install_proposal_lifecycle';
+import { logger } from '../utils/logger';
 
 export interface ProposalValidationResult {
   valid: boolean;
@@ -55,6 +69,25 @@ export interface ProposalApplyResult {
    * step reads. Undefined leaves `change_json` untouched (the common case).
    */
   changeJson?: string;
+  /**
+   * W1 package C — the prepared human scope pair. Present iff this proposal is
+   * a scope kind. Preparation touches neither the database nor the disk; the
+   * lifecycle service claims `approved`, commits the target and the proposal in
+   * ONE atomic revision-fenced transaction, and only then projects. A callback
+   * that mutated the target after a `proposed -> applied` claim could not be
+   * fenced on the target revision, which is why that seam is gone.
+   */
+  scopePair?: PreparedScopePair;
+  /** Present only when this apply mutated one identifiable agent_configs row. */
+  postApplyTarget?: PostApplyTarget;
+}
+
+/** The exact, revision-fenceable target mutation a scope proposal describes. */
+export interface PreparedScopePair {
+  targetId: string;
+  field: 'allowedMcpsJson' | 'allowedSkillsJson' | 'corePermissionsJson';
+  priorValue: string | null;
+  nextValue: string;
 }
 
 export type ProposalApplier = (
@@ -171,6 +204,192 @@ function validateWebhookWiring(proposal: AgentOrgProposal): ProposalValidationRe
 validators['create-agent'] = validateCreateAgent;
 validators['external-adoption'] = validateExternalAdoption;
 validators['webhook-wiring'] = validateWebhookWiring;
+validators['tool-install'] = validateToolInstallChange;
+
+const SCOPE_PROPOSAL_KINDS = new Set([
+  'tighten-scope',
+  'prune-scope',
+  'refine-scope',
+  'broaden-scope',
+]);
+const PROTECTED_SCOPE_FIELDS = new Set([
+  'allowedMcpsJson',
+  'allowedSkillsJson',
+  'corePermissionsJson',
+]);
+const CONFIG_PATCH_FIELD_SET = new Set<string>(CONFIG_PATCH_FIELDS);
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A `configPatch` subtree that genuinely matches the machine-applyable shape. */
+export interface ValidatedConfigPatch {
+  agentConfigId: string;
+  field: (typeof CONFIG_PATCH_FIELDS)[number];
+  value: string;
+}
+
+function isValidatedConfigPatchShape(value: unknown): value is ValidatedConfigPatch {
+  if (!isPlainRecord(value)) return false;
+  if (typeof value.agentConfigId !== 'string') return false;
+  if (typeof value.field !== 'string' || !CONFIG_PATCH_FIELD_SET.has(value.field)) return false;
+  if (typeof value.value !== 'string') return false;
+  const extras = Object.keys(value).filter(
+    (key) => key !== 'agentConfigId' && key !== 'field' && key !== 'value',
+  );
+  return extras.length === 0;
+}
+
+/**
+ * Split a genuinely validated `configPatch` ({agentConfigId, field, value},
+ * field in {@link CONFIG_PATCH_FIELDS}, no extra keys) out of a refine-config
+ * `changeJson` payload, re-attaching `agentConfigId` to the remainder so a
+ * scope-bearing check on "everything outside the patch" still sees it.
+ *
+ * #1434 root-cause fix: this narrowing was previously inlined only in this
+ * module's `strictChangeJsonPreflight`. `org_proposal_apply.ts`'s
+ * `revertProposal` ran `containsScopeBearingPayload` on the RAW `changeJson`
+ * (no narrowing), which meant EVERY refine-config revert was misclassified
+ * as scope-bearing and refused as `'unsafe-legacy-scope'` before it ever
+ * reached its real config-field restore branch —
+ * `containsScopeBearingPayload({configPatch:{agentConfigId,field,value}})`
+ * is `true` on its own, since a bare `{agentConfigId, field, value}` object
+ * is itself detected as scope-bearing regardless of its parent key. Both
+ * modules now share this exact narrowing so they can never drift apart on
+ * what counts as a validated machine-apply patch vs. an actual scope-bearing
+ * mutation.
+ *
+ * Returns `{configPatch: null, outsideConfigPatch: parsed}` — i.e. NO
+ * narrowing — whenever `parsed` isn't a plain object or `configPatch` isn't
+ * exactly that validated shape. A malformed or unexpected-shape payload
+ * fails closed: the caller's scope-bearing check then runs against the FULL
+ * payload, unnarrowed.
+ */
+export function extractValidatedConfigPatch(parsed: unknown): {
+  configPatch: ValidatedConfigPatch | null;
+  outsideConfigPatch: unknown;
+} {
+  if (!isPlainRecord(parsed)) return { configPatch: null, outsideConfigPatch: parsed };
+  const rawConfigPatch = parsed.configPatch;
+  if (!isValidatedConfigPatchShape(rawConfigPatch)) {
+    return { configPatch: null, outsideConfigPatch: parsed };
+  }
+  const outsideConfigPatch: Record<string, unknown> = Object.fromEntries(
+    Object.entries(parsed).filter(([key]) => key !== 'configPatch'),
+  );
+  if (!Object.prototype.hasOwnProperty.call(outsideConfigPatch, 'agentConfigId')) {
+    outsideConfigPatch.agentConfigId = rawConfigPatch.agentConfigId;
+  }
+  return { configPatch: rawConfigPatch, outsideConfigPatch };
+}
+
+/**
+ * Rebuild D2 identity from proposal bytes that passed the real validator
+ * before the durable applied transition. Only closed profile-mutation forms
+ * are recognized; other mutations deliberately have no recovery target.
+ */
+export function reconstructPostApplyTarget(proposal: AgentOrgProposal): PostApplyTarget | undefined {
+  try {
+    if (proposal.kind === 'tool-install') {
+      if (!readValidatedToolInstallInputs(proposal)) return undefined;
+      const change = parseStrictJson(proposal.changeJson ?? '', 'tool-install change_json');
+      if (!isPlainRecord(change) || typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) {
+        return undefined;
+      }
+      return { profileId: change.agentConfigId, changeType: 'tool' };
+    }
+    if (proposal.kind === 'refine-config') {
+      const { configPatch } = extractValidatedConfigPatch(
+        parseStrictJson(proposal.changeJson ?? '', 'refine-config change_json'),
+      );
+      if (!configPatch || PROTECTED_SCOPE_FIELDS.has(configPatch.field)) return undefined;
+      return {
+        profileId: configPatch.agentConfigId,
+        changeType: configPatch.field === 'allowedDelegatesJson' ? 'tool' : 'prompt',
+      };
+    }
+    if (SCOPE_PROPOSAL_KINDS.has(proposal.kind)) {
+      const scope = parseScopeMutation(
+        proposal.kind as Parameters<typeof parseScopeMutation>[0],
+        proposal.changeJson ?? '',
+      );
+      return { profileId: scope.agentConfigId, changeType: 'scope' };
+    }
+  } catch {
+    // A malformed durable payload is never interpreted as an action on retry.
+  }
+  return undefined;
+}
+
+function createAgentInspectionPayload(parsed: unknown): unknown {
+  if (!isPlainRecord(parsed)) return parsed;
+  const inspected = Object.create(null) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (
+      (key === 'allowedMcpsJson' || key === 'allowedSkillsJson') &&
+      typeof value === 'string'
+    ) continue;
+    Object.defineProperty(inspected, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (!Object.prototype.hasOwnProperty.call(inspected, 'agentConfigId')) {
+    Object.defineProperty(inspected, 'agentConfigId', {
+      value: parsed.agentSlug,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return inspected;
+}
+
+function strictChangeJsonPreflight(proposal: AgentOrgProposal): void {
+  if (proposal.changeJson === null || proposal.changeJson === undefined) return;
+  const parsed = parseStrictJson(proposal.changeJson, 'proposal change_json');
+  if (SCOPE_PROPOSAL_KINDS.has(proposal.kind)) return;
+
+  if (proposal.kind === 'create-agent') {
+    if (containsScopeBearingPayload(createAgentInspectionPayload(parsed))) {
+      throw new Error("proposal kind 'create-agent' cannot carry an unconsumed protected scope mutation");
+    }
+    return;
+  }
+
+  if (proposal.kind === 'refine-config') {
+    const change = isPlainRecord(parsed) ? parsed : null;
+    const rawConfigPatch = change?.configPatch;
+    const configPatch = isPlainRecord(rawConfigPatch) ? rawConfigPatch : null;
+    if (configPatch) {
+      const extras = Object.keys(configPatch).filter(
+        (key) => key !== 'agentConfigId' && key !== 'field' && key !== 'value',
+      );
+      if (extras.length > 0) {
+        throw new Error(
+          `proposal kind 'refine-config' configPatch contains unsupported key(s): ${extras.join(', ')}`,
+        );
+      }
+      if (PROTECTED_SCOPE_FIELDS.has(String(configPatch.field))) {
+        throw new Error(
+          `proposal kind 'refine-config' cannot mutate protected scope field '${String(configPatch.field)}'`,
+        );
+      }
+    }
+    const { outsideConfigPatch } = extractValidatedConfigPatch(parsed);
+    if (containsScopeBearingPayload(outsideConfigPatch)) {
+      throw new Error("proposal kind 'refine-config' cannot carry a protected scope mutation");
+    }
+    return;
+  }
+
+  if (containsScopeBearingPayload(parsed)) {
+    throw new Error(`proposal kind '${proposal.kind}' cannot carry a protected scope mutation`);
+  }
+}
 
 /**
  * Re-validate a proposal's `change_json` at apply time. Fail-closed: a kind
@@ -181,6 +400,14 @@ validators['webhook-wiring'] = validateWebhookWiring;
 export async function validateProposalChange(
   proposal: AgentOrgProposal,
 ): Promise<ProposalValidationResult> {
+  try {
+    strictChangeJsonPreflight(proposal);
+  } catch (error) {
+    return {
+      valid: false,
+      reason: error instanceof Error ? error.message : 'proposal change_json is invalid',
+    };
+  }
   const validator = validators[proposal.kind];
   if (!validator) {
     return {
@@ -220,11 +447,156 @@ function defaultApplier(): ProposalApplyResult {
  * calls {@link validateProposalChange} directly, so any future caller of
  * this function gets the same fail-closed guarantee).
  */
-export async function applyProposal(proposal: AgentOrgProposal): Promise<ProposalApplyResult> {
+export async function applyProposal(
+  proposal: AgentOrgProposal,
+  safetyOptions: ToolInstallSafetyOptions = {},
+): Promise<ProposalApplyResult> {
+  strictChangeJsonPreflight(proposal);
   const validation = await validateProposalChange(proposal);
   if (!validation.valid) {
     throw new Error(validation.reason ?? `Proposal ${proposal.id} failed re-validation`);
   }
+  if (proposal.kind === 'tool-install') {
+    // Tool installation has a separate durable lifecycle: it CAS-claims the
+    // human approval before reaching the apply boundary, which is necessary
+    // to prevent concurrent approval requests from invoking an installer
+    // twice. This generic seam must never silently fall through to no-op.
+    throw new Error('tool-install proposals must use the dedicated vetted lifecycle');
+  }
   const applier = appliers[proposal.kind] ?? defaultApplier;
   return applier(proposal);
+}
+
+/**
+ * The one durable approval execution path shared by the human route and D4's
+ * automatic gate. It deliberately owns no per-kind writes: all mutation still
+ * happens in the registered applier or D1's dedicated tool lifecycle.
+ */
+export type ApprovedProposalApplyOutcome =
+  | { kind: 'applied'; proposal: RevisionedAgentOrgProposal }
+  | { kind: 'failed'; proposal: RevisionedAgentOrgProposal }
+  | { kind: 'enrollment-pending'; proposal: RevisionedAgentOrgProposal }
+  | { kind: 'conflict'; reason: string }
+  | { kind: 'reconciliation-required'; reason: string; durable: boolean };
+
+export async function applyApprovedProposalAsync(input: {
+  proposal: RevisionedAgentOrgProposal;
+  decidedByUserId: number;
+  explicitHumanConfirmation?: boolean;
+  proposalsRepo?: AgentOrgProposalsRepository;
+  finalizePostApply?: typeof import('./post_apply_lifecycle').finalizePostApplyLifecycleAsync;
+  measure?: typeof import('./org_proposal_measure').measureProposal;
+  /** D4 automation requires D2 enrollment before it can report success. */
+  requirePostApplyEnrollment?: boolean;
+}): Promise<ApprovedProposalApplyOutcome> {
+  const proposalsRepo = input.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const proposal = input.proposal;
+
+  if (proposal.kind === 'tool-install') {
+    const applied = await approveVettedToolInstallProposalAsync(
+      proposal.id,
+      input.decidedByUserId,
+      input.explicitHumanConfirmation === true,
+    );
+    if (applied.status !== 'applied') return { kind: 'failed', proposal: applied };
+    const target = reconstructPostApplyTarget(applied);
+    try {
+      const finalizePostApplyLifecycleAsync = input.finalizePostApply ??
+        (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+      const enrolled = await finalizePostApplyLifecycleAsync(applied, target);
+      if (enrolled) {
+        return { kind: 'applied', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+      }
+      if (input.requirePostApplyEnrollment && target) {
+        return { kind: 'enrollment-pending', proposal: applied };
+      }
+      return { kind: 'applied', proposal: applied };
+    } catch {
+      logger.warn(
+        `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+      );
+      return input.requirePostApplyEnrollment && target
+        ? { kind: 'enrollment-pending', proposal: applied }
+        : { kind: 'applied', proposal: applied };
+    }
+  }
+
+  if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
+    return { kind: 'conflict', reason: `proposal is '${proposal.status}', not re-approvable` };
+  }
+  if (requiresSecurityNote(proposal) && !hasSecurityNote(proposal)) {
+    return { kind: 'conflict', reason: `proposal kind '${proposal.kind}' requires a provenance/security note` };
+  }
+  const validation = await validateProposalChange(proposal);
+  if (!validation.valid) return { kind: 'conflict', reason: validation.reason ?? 'proposal failed re-validation' };
+
+  const applyResult = await applyProposal(proposal, {
+    explicitHumanConfirmation: input.explicitHumanConfirmation === true,
+  });
+  const exactChangeJson = applyResult.changeJson ?? proposal.changeJson;
+  if (applyResult.scopePair) {
+    if (!exactChangeJson || !applyResult.beforeSnapshotJson) {
+      return { kind: 'conflict', reason: 'scope lifecycle requires exact change and snapshot material' };
+    }
+    const outcome = await applyApprovedScopeProposal({
+      proposal,
+      decidedByUserId: input.decidedByUserId,
+      changeJson: exactChangeJson,
+      beforeSnapshotJson: applyResult.beforeSnapshotJson,
+      pair: applyResult.scopePair,
+      deps: { proposalsRepo },
+    });
+    if (outcome.kind === 'conflict' || outcome.kind === 'reconciliation-required') return outcome;
+    try {
+      const finalizePostApplyLifecycleAsync = input.finalizePostApply ??
+        (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+      const enrolled = await finalizePostApplyLifecycleAsync(outcome.proposal, applyResult.postApplyTarget);
+      if (!enrolled) {
+        if (input.requirePostApplyEnrollment && applyResult.postApplyTarget) {
+          return { kind: 'enrollment-pending', proposal: outcome.proposal };
+        }
+        const measureProposal = input.measure ?? (await import('./org_proposal_measure')).measureProposal;
+        void measureProposal(outcome.proposal).catch(() => undefined);
+      }
+      return { kind: 'applied', proposal: outcome.proposal };
+    } catch {
+      logger.warn(
+        `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+      );
+      return { kind: 'enrollment-pending', proposal: outcome.proposal };
+    }
+  }
+
+  const applied = await proposalsRepo.claimAppliedWithSnapshotAsync(
+    proposal.id,
+    input.decidedByUserId,
+    applyResult.beforeSnapshotJson ?? null,
+    exactChangeJson,
+  );
+  if (!applied) return { kind: 'conflict', reason: 'proposal was already claimed by another approval' };
+
+  try {
+    const finalizePostApplyLifecycleAsync = input.finalizePostApply ??
+      (await import('./post_apply_lifecycle')).finalizePostApplyLifecycleAsync;
+    const enrolled = await finalizePostApplyLifecycleAsync(applied, applyResult.postApplyTarget);
+    if (enrolled) {
+      return { kind: 'applied', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+    }
+    if (input.requirePostApplyEnrollment && applyResult.postApplyTarget) {
+      return { kind: 'enrollment-pending', proposal: applied };
+    }
+  } catch {
+    logger.warn(
+      `[org-proposals] post-apply enrollment failed proposal=${proposal.id} outcome=committed-success-preserved`,
+    );
+    return { kind: 'enrollment-pending', proposal: (await proposalsRepo.findByIdAsync(proposal.id)) ?? applied };
+  }
+
+  if (!applyResult.measurable) return { kind: 'applied', proposal: applied };
+  const measuring = await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+  if (measuring) {
+    const measureProposal = input.measure ?? (await import('./org_proposal_measure')).measureProposal;
+    void measureProposal(measuring).catch(() => undefined);
+  }
+  return { kind: 'applied', proposal: measuring ?? applied };
 }

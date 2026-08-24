@@ -1,0 +1,302 @@
+/**
+ * W4 — outcome ledger repository. Covers the exact links (c3), the three
+ * distinct verdict fields (c4), idempotent finalization and explicit-over-
+ * inferred precedence (c5), append-only feedback (c2), post-finalization
+ * immutability (c11) and root-run resolution across a session tree (c12).
+ */
+import Database from 'better-sqlite3';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+import { runMigrations } from '../../database/migrations';
+import { setDb } from '../../database/db';
+import { AgentRunOutcomesRepository } from '../agent_run_outcomes_repository';
+import { buildAttribution } from '../../services/run_outcome_service';
+
+let db: Database.Database;
+let repo: AgentRunOutcomesRepository;
+
+function session(id: string, parentId: string | null = null): void {
+  db.prepare(
+    `INSERT INTO agent_sessions (id, agent_kind, cwd, name, parent_session_id)
+     VALUES (?, 'build', '/tmp', ?, ?)`,
+  ).run(id, id, parentId);
+}
+
+beforeEach(() => {
+  db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  runMigrations(db);
+  setDb(db);
+  repo = new AgentRunOutcomesRepository(db);
+});
+
+afterEach(() => {
+  db.close();
+});
+
+function finalizeInput(over: Record<string, unknown> = {}) {
+  return {
+    rootSessionId: 'root-1',
+    sessionId: 'root-1',
+    terminalStatus: 'completed' as const,
+    objectiveVerdict: 'success' as const,
+    objectiveEvidence: { producedArtifact: true, errorCount: 0, approvalDenied: false },
+    attribution: buildAttribution({ configRevision: 4 }),
+    ...over,
+  };
+}
+
+describe('W4-c3 exact links', () => {
+  it('persists session, root session, scheduled occurrence, variant, revision and attribution', async () => {
+    await repo.finalizeAsync(
+      finalizeInput({
+        sessionId: 'child-9',
+        scheduledOccurrenceId: 'occ-42',
+        experimentVariant: 'candidate-b',
+        proposalId: 'prop-7',
+        profileId: 'church-admin',
+        configRevision: 4,
+      }),
+    );
+
+    const view = await repo.findByRootSessionIdAsync('root-1');
+    expect(view?.outcome).toMatchObject({
+      rootSessionId: 'root-1',
+      sessionId: 'child-9',
+      scheduledOccurrenceId: 'occ-42',
+      experimentVariant: 'candidate-b',
+      proposalId: 'prop-7',
+      profileId: 'church-admin',
+      configRevision: 4,
+    });
+    expect(view?.outcome.attribution.configRevision).toBe(4);
+  });
+});
+
+describe('W4-c5 idempotent finalization', () => {
+  it('finalizing the same root run twice yields the same single row', async () => {
+    const first = await repo.finalizeAsync(finalizeInput());
+    const second = await repo.finalizeAsync(
+      finalizeInput({ objectiveVerdict: 'failure', terminalStatus: 'error' }),
+    );
+
+    expect(second.id).toBe(first.id);
+    expect(second.objectiveVerdict).toBe('success');
+    expect(
+      db.prepare(`SELECT COUNT(*) AS n FROM agent_run_outcomes`).get(),
+    ).toEqual({ n: 1 });
+  });
+});
+
+describe('W4-c4 / W4-c5 distinct verdict fields and explicit precedence', () => {
+  it('keeps objective, explicit and inferred verdicts in separate fields', async () => {
+    await repo.finalizeAsync(
+      finalizeInput({
+        objectiveVerdict: 'partial',
+        objectiveEvidence: { producedArtifact: true, errorCount: 2, approvalDenied: false },
+      }),
+    );
+    await repo.appendFeedbackAsync({
+      rootSessionId: 'root-1',
+      source: 'explicit_user',
+      verdict: 'failure',
+      confidence: 1,
+      actor: 'user:3',
+    });
+    await repo.appendFeedbackAsync({
+      rootSessionId: 'root-1',
+      source: 'inferred',
+      verdict: 'success',
+      confidence: 0.6,
+    });
+
+    const view = await repo.findByRootSessionIdAsync('root-1');
+    expect(view?.objectiveVerdict).toBe('partial');
+    expect(view?.explicitUserVerdict).toBe('failure');
+    expect(view?.inferredVerdict).toBe('success');
+    // The human wins, whatever inference says and whenever it arrives.
+    expect(view?.authoritativeVerdict).toBe('failure');
+  });
+
+  it('an inferred verdict arriving after an explicit one does not replace it', async () => {
+    await repo.finalizeAsync(finalizeInput());
+    await repo.appendFeedbackAsync({
+      rootSessionId: 'root-1',
+      source: 'explicit_user',
+      verdict: 'failure',
+      confidence: 1,
+      actor: 'user:3',
+    });
+    for (const verdict of ['success', 'partial', 'success'] as const) {
+      await repo.appendFeedbackAsync({
+        rootSessionId: 'root-1',
+        source: 'inferred',
+        verdict,
+        confidence: 0.9,
+      });
+    }
+
+    const view = await repo.findByRootSessionIdAsync('root-1');
+    expect(view?.explicitUserVerdict).toBe('failure');
+    expect(view?.authoritativeVerdict).toBe('failure');
+  });
+});
+
+describe('W4-c2 append-only feedback', () => {
+  it('retains a contradictory later verdict alongside the earlier one', async () => {
+    await repo.finalizeAsync(finalizeInput());
+    await repo.appendFeedbackAsync({
+      rootSessionId: 'root-1',
+      source: 'explicit_user',
+      verdict: 'success',
+      confidence: 1,
+      actor: 'user:3',
+    });
+    await repo.appendFeedbackAsync({
+      rootSessionId: 'root-1',
+      source: 'explicit_user',
+      verdict: 'failure',
+      confidence: 1,
+      actor: 'user:3',
+    });
+
+    const view = await repo.findByRootSessionIdAsync('root-1');
+    expect(view?.feedback.map((f) => f.verdict)).toEqual(['success', 'failure']);
+    // Latest explicit verdict is authoritative, but the earlier one is still on record.
+    expect(view?.explicitUserVerdict).toBe('failure');
+  });
+
+  it('every stored row carries a source and a confidence', async () => {
+    await repo.finalizeAsync(finalizeInput());
+    await repo.appendFeedbackAsync({
+      rootSessionId: 'root-1',
+      source: 'inferred',
+      verdict: 'partial',
+      confidence: 0.25,
+    });
+    const view = await repo.findByRootSessionIdAsync('root-1');
+    expect(view?.feedback[0]).toMatchObject({ source: 'inferred', confidence: 0.25 });
+  });
+
+  it('exposes no update or delete path', () => {
+    const surface = new Set([
+      ...Object.getOwnPropertyNames(AgentRunOutcomesRepository.prototype),
+      ...Object.getOwnPropertyNames(repo),
+    ]);
+    for (const name of surface) {
+      expect(name).not.toMatch(/update|delete|remove|clear|purge|set[A-Z]/i);
+    }
+  });
+});
+
+describe('W4-c11 post-finalization immutability', () => {
+  it('a finalized row cannot be altered through the repository or the database', async () => {
+    await repo.finalizeAsync(finalizeInput());
+    // No repository path exists (asserted above); the database refuses too, so a
+    // future writer that bypasses the repository still cannot rewrite history.
+    expect(() =>
+      db.prepare(`UPDATE agent_run_outcomes SET objective_verdict = 'failure'`).run(),
+    ).toThrow(/immutable/i);
+
+    const view = await repo.findByRootSessionIdAsync('root-1');
+    expect(view?.outcome.objectiveVerdict).toBe('success');
+  });
+});
+
+describe('W4-c12 root-run resolution', () => {
+  it('resolves a delegated child to the root of its session tree', async () => {
+    session('root-1');
+    session('child-1', 'root-1');
+    session('grandchild-1', 'child-1');
+
+    expect(await repo.resolveRootSessionIdAsync('grandchild-1')).toBe('root-1');
+    expect(await repo.resolveRootSessionIdAsync('child-1')).toBe('root-1');
+    expect(await repo.resolveRootSessionIdAsync('root-1')).toBe('root-1');
+  });
+
+  it('falls back to the session id itself when no session row exists', async () => {
+    expect(await repo.resolveRootSessionIdAsync('orphan')).toBe('orphan');
+  });
+
+  it('pins the exact immutability boundary: UPDATE and DELETE are blocked, REPLACE is not', () => {
+    // This test exists so the guarantee cannot quietly drift from what the
+    // schema actually provides. SQLite fires BEFORE DELETE for INSERT OR
+    // REPLACE only when PRAGMA recursive_triggers is ON; it is OFF here, so
+    // REPLACE bypasses the immutability trigger. No writer in this repository
+    // uses REPLACE. If someone turns the pragma on, or adds a REPLACE writer,
+    // one of these two assertions changes and the reviewer has to think about
+    // it — which is the point.
+    expect(db.pragma('recursive_triggers', { simple: true })).toBe(0);
+
+    db.prepare(
+      `INSERT INTO agent_run_outcomes
+         (id, session_id, root_session_id, terminal_status, objective_verdict, finalized_at)
+       VALUES ('boundary-1', 's1', 'boundary-root', 'completed', 'success', datetime('now'))`,
+    ).run();
+
+    expect(() =>
+      db.prepare(`UPDATE agent_run_outcomes SET objective_verdict = 'failure' WHERE id = 'boundary-1'`).run(),
+    ).toThrow(/immutable/);
+    expect(() =>
+      db.prepare(`DELETE FROM agent_run_outcomes WHERE id = 'boundary-1'`).run(),
+    ).toThrow(/immutable/);
+
+    // The documented gap, asserted rather than hidden.
+    db.prepare(
+      `INSERT OR REPLACE INTO agent_run_outcomes
+         (id, session_id, root_session_id, terminal_status, objective_verdict, finalized_at)
+       VALUES ('boundary-1', 's1', 'boundary-root', 'error', 'failure', datetime('now'))`,
+    ).run();
+    expect(
+      (db.prepare(`SELECT objective_verdict FROM agent_run_outcomes WHERE id = 'boundary-1'`)
+        .get() as { objective_verdict: string }).objective_verdict,
+    ).toBe('failure');
+  });
+
+});
+
+describe('C5 listByProfileAsync — the evidence builder\'s fact source', () => {
+  it('returns only outcomes for the requested profile, ordered by finalization', async () => {
+    await repo.finalizeAsync(finalizeInput({ rootSessionId: 'r-a', sessionId: 'r-a', profileId: 'profile-x' }));
+    await repo.finalizeAsync(finalizeInput({ rootSessionId: 'r-b', sessionId: 'r-b', profileId: 'profile-y' }));
+    await repo.finalizeAsync(finalizeInput({ rootSessionId: 'r-c', sessionId: 'r-c', profileId: 'profile-x' }));
+
+    const facts = await repo.listByProfileAsync('profile-x');
+    expect(new Set(facts.map((f) => f.rootSessionId))).toEqual(new Set(['r-a', 'r-c']));
+    expect(facts.every((f) => f.profileId === 'profile-x')).toBe(true);
+  });
+
+  it('returns an empty array for a profile with no ledger rows', async () => {
+    expect(await repo.listByProfileAsync('never-run-profile')).toEqual([]);
+  });
+});
+
+describe('D2.2 (#1432) profile-scoped since query', () => {
+  function insertOutcome(over: {
+    id: string;
+    profileId: string;
+    finalizedAt: string;
+    terminalStatus?: string;
+  }): void {
+    db.prepare(
+      `INSERT INTO agent_run_outcomes
+         (id, session_id, root_session_id, profile_id, terminal_status, objective_verdict, finalized_at)
+       VALUES (?, ?, ?, ?, ?, 'success', ?)`,
+    ).run(over.id, over.id, over.id, over.profileId, over.terminalStatus ?? 'completed', over.finalizedAt);
+  }
+
+  it('returns only outcomes for the given profile finalized at/after the given timestamp', async () => {
+    insertOutcome({ id: 'o-before', profileId: 'profile-1', finalizedAt: '2026-08-17T23:00:00.000Z' });
+    insertOutcome({ id: 'o-after', profileId: 'profile-1', finalizedAt: '2026-08-18T01:00:00.000Z' });
+    // Regression this catches: a naive query missing the profile_id filter
+    // would leak another profile's runs into this profile's guardrail check.
+    insertOutcome({ id: 'o-other-profile', profileId: 'profile-2', finalizedAt: '2026-08-18T02:00:00.000Z' });
+
+    const results = await repo.listByProfileSinceAsync('profile-1', '2026-08-18T00:00:00.000Z');
+    expect(results.map((o) => o.id)).toEqual(['o-after']);
+  });
+
+  it('returns [] for a profile with no outcomes in the window', async () => {
+    expect(await repo.listByProfileSinceAsync('no-such-profile', '2026-08-18T00:00:00.000Z')).toEqual([]);
+  });
+});

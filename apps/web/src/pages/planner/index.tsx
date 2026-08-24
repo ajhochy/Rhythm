@@ -467,6 +467,7 @@ function LivePlannerPage({ route }: { route: string }) {
   const [createScheduledDate, setCreateScheduledDate] = useState<string | undefined>(undefined);
   const [mutationPending, setMutationPending] = useState(false);
   const [quickActionPending, setQuickActionPending] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const appendReceipt = (line: string) => setReceipts((current) => [...current, line]);
   const days = useMemo(() => liveWeekDays(week), [week]);
@@ -479,8 +480,8 @@ function LivePlannerPage({ route }: { route: string }) {
     return message;
   };
 
-  const load = async (targetWeek: string) => {
-    setSurfaceState('loading');
+  const load = async (targetWeek: string, { blocking = true }: { blocking?: boolean } = {}) => {
+    if (blocking) setSurfaceState('loading');
     try {
       // apps/api_server/src/routes/weekly_plan_routes.ts:9
       const loaded = await gateway.plan(targetWeek);
@@ -490,7 +491,14 @@ function LivePlannerPage({ route }: { route: string }) {
       const hasWork = loaded.backlog.length > 0 || loaded.days.some((day) => day.tasks.length > 0);
       setSurfaceState(hasWork ? 'ready' : 'empty');
     } catch (error) {
-      setErrorMessage(recordError('GET', `/weekly-plan?week=${targetWeek}`, error));
+      if (blocking) {
+        setErrorMessage(recordError('GET', `/weekly-plan?week=${targetWeek}`, error));
+      } else {
+        const status = error instanceof PlannerGatewayError ? error.status : 0;
+        const message = error instanceof PlannerGatewayError ? error.message : 'Planner service unavailable';
+        appendReceipt(`GET /weekly-plan?week=${targetWeek} → ${status || 'network error'}`);
+        setErrorMessage(`Task saved, but the latest weekly plan could not be refreshed. ${message}`);
+      }
     }
   };
 
@@ -507,6 +515,16 @@ function LivePlannerPage({ route }: { route: string }) {
 
   const allTasks = useMemo(() => plan ? [...plan.backlog, ...plan.days.flatMap((day) => day.tasks)] : [], [plan]);
   const currentTask = inspectorTaskId ? allTasks.find((task) => task.id === inspectorTaskId) ?? null : null;
+  const updateVisibleTask = (taskId: string, status: 'open' | 'done') => {
+    setPlan((current) => current ? {
+      ...current,
+      backlog: current.backlog.map((item) => item.id === taskId ? { ...item, status } : item),
+      days: current.days.map((day) => ({
+        ...day,
+        tasks: day.tasks.map((item) => item.id === taskId ? { ...item, status } : item),
+      })),
+    } : current);
+  };
 
   const toggleComplete = async (task: Task) => {
     if (mutationPending || isCalendarShadow(task)) return;
@@ -521,9 +539,10 @@ function LivePlannerPage({ route }: { route: string }) {
         await gateway.updateTask(task.id, { status: nextStatus });
         appendReceipt(`PATCH /tasks/${task.id} {status:${nextStatus}} → 200`);
       }
+      updateVisibleTask(task.id, nextStatus);
       setSelectedIds((current) => current.filter((id) => id !== task.id));
       notify(nextStatus === 'done' ? 'Task marked complete.' : `${task.title} reopened`);
-      await load(week);
+      await load(week, { blocking: false });
     } catch (error) { setErrorMessage(recordError('PATCH', `/tasks/${task.id}`, error)); } finally { setMutationPending(false); }
   };
 
@@ -662,6 +681,7 @@ function LivePlannerPage({ route }: { route: string }) {
 
   const contentVisible = surfaceState === 'ready';
   const backlog = plan?.backlog ?? [];
+  const visibleBacklog = showCompleted ? backlog : backlog.filter((task) => task.status !== 'done');
   const doneCount = allTasks.filter((task) => task.status === 'done').length;
   const scheduledOpen = allTasks.filter((task) => task.status === 'open' && (plan?.days.some((day) => day.tasks.some((entry) => entry.id === task.id)) ?? false)).length;
 
@@ -675,6 +695,10 @@ function LivePlannerPage({ route }: { route: string }) {
           <span><strong data-testid="planner-summary-unscheduled">{backlog.length}</strong> backlog</span>
         </div>
         <div className="planner-header-actions">
+          <div className="filter-control" role="group" aria-label="Task visibility">
+            <button type="button" aria-pressed={!showCompleted} onClick={() => setShowCompleted(false)} data-testid="planner-filter-open">Open</button>
+            <button type="button" aria-pressed={showCompleted} onClick={() => setShowCompleted(true)} data-testid="planner-filter-all">All</button>
+          </div>
           <HeaderTaskAction onClick={() => { setCreateScheduledDate(undefined); setCreateOpen(true); }} disabled={!contentVisible || mutationPending} testId="planner-header-add-task" />
           <nav className="week-controls" aria-label="Week navigation">
             <button className="secondary-button" type="button" aria-label="Previous week" onClick={() => changeWeek(adjacentWeek(week, -1))} data-testid="planner-prev-week">←</button>
@@ -692,15 +716,16 @@ function LivePlannerPage({ route }: { route: string }) {
 
           <section className="planner-board" aria-label="Weekly plan">
             <aside className="backlog-lane" data-testid="planner-backlog">
-              <header><div><span className="eyebrow">Unscheduled</span><h2>Backlog</h2></div><span className="count-badge" data-testid="planner-backlog-count">{backlog.length}</span></header>
+              <header><div><span className="eyebrow">Unscheduled</span><h2>Backlog</h2></div><span className="count-badge" data-testid="planner-backlog-count">{visibleBacklog.length}</span></header>
               <p>Open work without a date, including overdue project steps.</p>
               <button className="secondary-button add-control" type="button" disabled={mutationPending} onClick={() => { setCreateScheduledDate(undefined); setCreateOpen(true); }} data-testid="planner-add-backlog-task">+ Add unscheduled task</button>
-              <div className="lane-list">{backlog.map((task) => <LiveTaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
+              <div className="lane-list">{visibleBacklog.map((task) => <LiveTaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>
             </aside>
 
             <div className="days-grid">
               {days.map((day) => {
-                const dayTasks = plan.days.find((entry) => entry.date === day.date)?.tasks ?? [];
+                const dayTasks = (plan.days.find((entry) => entry.date === day.date)?.tasks ?? [])
+                  .filter((task) => showCompleted || task.status !== 'done');
                 return <section className={`day-lane ${day.isToday ? 'today' : ''}`} key={day.date} aria-labelledby={`planner-day-title-${day.date}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropOnDay(event, day.date)} data-testid={`planner-day-${day.date}`}>
                   <header><span>{day.weekday}</span><h2 id={`planner-day-title-${day.date}`}>{day.monthDay}</h2>{day.isToday && <em>Today</em>}</header>
                   <div className="lane-list">{dayTasks.map((task) => <LiveTaskCard key={task.id} task={task} selected={selectedIds.includes(task.id)} onInspect={(item) => void openInspector(item)} onComplete={(item) => void toggleComplete(item)} onSelect={toggleSelected} onDragStart={onDragStart} />)}</div>

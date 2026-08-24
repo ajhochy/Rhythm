@@ -9,13 +9,16 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { liveEnvironment } from '../../web/tests/live-environment.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
 const packagedBinary = resolve(electronRoot, 'dist/Rhythm.app/Contents/MacOS/Rhythm');
+const liveBases = liveEnvironment();
 const sandboxEnvironment = {
-  RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098',
-  RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097',
+  RHYTHM_LIVE_API_URL: liveBases.apiBase,
+  RHYTHM_LIVE_ENGINE_URL: liveBases.engineBase,
+  RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
 };
 
 test('post-m1-p1-c4e: a second packaged launch yields to the first instead of starting a second host', async () => {

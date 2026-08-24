@@ -28,6 +28,9 @@ export interface GatewayDomainContracts {
   cookbook?: CookbookGateway;
   research?: ResearchGateway;
   designs?: DesignsGateway;
+  orgProposals?: OrgProposalsGateway;
+  runOutcomes?: RunOutcomesGateway;
+  autoPromotion?: AutoPromotionGateway;
 }
 
 export interface GatewayHealth {
@@ -37,6 +40,7 @@ export interface GatewayHealth {
 
 export interface RendererGateway {
   readonly mode: GatewayMode;
+  readonly environment: { apiPort: string; enginePort: string } | null;
   readonly domains: GatewayDomainContracts;
   readonly health: {
     api(): Promise<GatewayHealth>;
@@ -48,6 +52,9 @@ export interface RendererGateway {
 export interface LiveGatewayConfig {
   apiBase: string;
   engineBase: string;
+  productionApiBase: string;
+  expectedApiBase?: string;
+  expectedEngineBase?: string;
   taskToken?: string;
 }
 
@@ -55,19 +62,42 @@ export interface GatewayEnvironment {
   mode?: string;
   apiBase?: string;
   engineBase?: string;
+  productionApiBase?: string;
+  expectedApiBase?: string;
+  expectedEngineBase?: string;
   taskToken?: string;
 }
 
 type Fetcher = typeof fetch;
 
-const ports: Record<GatewayService, string> = { api: '4098', engine: '4097' };
+// Shipping Electron and Flutter share the same local Rhythm runtime. Alternate loopback ports are
+// allowed only when the trusted host supplies matching expectedApiBase/expectedEngineBase values
+// (the hermetic test path); they must never become production defaults again.
+const ports: Record<GatewayService, string> = { api: '4001', engine: '4096' };
 
-export function validateLiveBase(value: string | undefined, service: GatewayService): string {
-  const expected = `http://127.0.0.1:${ports[service]}`;
+export function validateLiveBase(value: string | undefined, service: GatewayService, expectedValue?: string): string {
+  const fallback = `http://127.0.0.1:${ports[service]}`;
+  let expected: string;
+  try {
+    const url = new URL(expectedValue ?? fallback);
+    const port = Number(url.port);
+    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || port < 1024 || port > 65535 || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error();
+    expected = `http://127.0.0.1:${port}`;
+  } catch {
+    throw new Error(`Live configuration error: trusted ${service} expected base must be plain loopback HTTP on an unprivileged port`);
+  }
   if (!value || (value !== expected && value !== `${expected}/`)) {
     throw new Error(`Live configuration error: ${service} base must be exactly ${expected}`);
   }
   return expected;
+}
+
+export function validateProductionApiBase(value: string | undefined): string {
+  try {
+    return normalizeRemoteProductionApiBase(value);
+  } catch {
+    throw new Error('Live configuration error: production API base must be a remote HTTPS URL without credentials, query, or fragment');
+  }
 }
 
 const unsupported = (mode: GatewayMode, operation: string) =>
@@ -76,6 +106,7 @@ const unsupported = (mode: GatewayMode, operation: string) =>
 export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
   return {
     mode: 'fixture',
+    environment: null,
     domains: {},
     health: {
       api: async () => ({ service: 'api', state: 'fixture' }),
@@ -86,8 +117,15 @@ export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
 }
 
 export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = fetch): RendererGateway {
-  const apiBase = validateLiveBase(config.apiBase, 'api');
-  const engineBase = validateLiveBase(config.engineBase, 'engine');
+  const apiBase = validateLiveBase(config.apiBase, 'api', config.expectedApiBase);
+  const engineBase = validateLiveBase(config.engineBase, 'engine', config.expectedEngineBase);
+  if (apiBase === engineBase) throw new Error('Live configuration error: API and engine expected bases must use distinct ports');
+  const productionApiBase = validateProductionApiBase(config.productionApiBase);
+  const localFetcher: Fetcher = (input, init) => {
+    const headers = new Headers(init?.headers);
+    headers.delete('authorization');
+    return fetcher(input, { ...init, headers });
+  };
 
   const check = async (service: GatewayService, url: string): Promise<GatewayHealth> => {
     try {
@@ -102,39 +140,40 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
 
   return {
     mode: 'live',
-    // Every domain shares ONE bearer, and it arrives here from the signed-in session rather than
-    // from a build-time constant. Pages must consume these through `useGateway().domains.*` instead
-    // of constructing their own gateway from `import.meta.env.VITE_RHYTHM_LIVE_TOKEN`: that variable
-    // is TEST-ONLY, is unset in a packaged build, and a page wired to it renders a config error for
-    // every real user. Two wiring units independently reached for it because these domains were not
-    // exposed here yet.
+    environment: { apiPort: new URL(apiBase).port, enginePort: new URL(engineBase).port },
+    // The signed-in cloud bearer belongs only on production requests. The local API mirrors
+    // Flutter's localHeaders() trust boundary: a present cloud bearer must be omitted because
+    // AGENT_LOCAL fails closed on invalid Authorization instead of using the local bypass.
     domains: {
-      tasks: createLiveTasksGateway(apiBase, config.taskToken),
-      sessions: createLiveSessionsGateway(apiBase, config.taskToken),
-      dashboard: createLiveDashboardGateway(apiBase, config.taskToken),
-      planner: createLivePlannerGateway(apiBase, config.taskToken),
-      rhythms: createLiveRhythmsGateway(apiBase, config.taskToken),
-      projects: createLiveProjectsGateway(apiBase, config.taskToken),
-      messages: createLiveMessagesGateway(apiBase, config.taskToken),
-      facilities: createLiveFacilitiesGateway(apiBase, config.taskToken),
-      automations: createLiveAutomationsGateway(apiBase, config.taskToken),
-      integrations: createLiveIntegrationsGateway(apiBase, config.taskToken),
-      liveArtifacts: createLiveArtifactsGateway(apiBase, config.taskToken),
-      userPreferences: createLiveUserPreferencesGateway(apiBase, config.taskToken),
-      notifications: createLiveNotificationsGateway(apiBase, config.taskToken),
-      memory: createLiveMemoryGateway(apiBase, config.taskToken),
-      permissions: createLivePermissionGateway(apiBase, config.taskToken),
-      approvals: createLiveApprovalGateway(apiBase, config.taskToken),
-      delegation: createLiveDelegationGateway(apiBase, config.taskToken),
-      mcp: createLiveMcpGateway(apiBase, config.taskToken),
-      skills: createLiveSkillGateway(apiBase, config.taskToken),
-      schedules: createLiveScheduleGateway(apiBase, config.taskToken),
-      mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken),
-      commands: createLiveCommandGateway(apiBase, config.taskToken),
-      runQuality: createLiveRunQualityGateway(apiBase, config.taskToken),
-      cookbook: createLiveCookbookGateway(apiBase, config.taskToken),
-      research: createLiveResearchGateway(apiBase, config.taskToken),
-      designs: createLiveDesignsGateway(apiBase, config.taskToken),
+      tasks: createLiveTasksGateway(productionApiBase, config.taskToken, fetcher),
+      sessions: createLiveSessionsGateway(apiBase, config.taskToken, localFetcher),
+      dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken, fetcher),
+      planner: createLivePlannerGateway(productionApiBase, config.taskToken, fetcher),
+      rhythms: createLiveRhythmsGateway(productionApiBase, config.taskToken, fetcher),
+      projects: createLiveProjectsGateway(productionApiBase, config.taskToken, fetcher),
+      messages: createLiveMessagesGateway(productionApiBase, config.taskToken, fetcher),
+      facilities: createLiveFacilitiesGateway(productionApiBase, config.taskToken, fetcher),
+      automations: createLiveAutomationsGateway(productionApiBase, config.taskToken, fetcher),
+      integrations: createLiveIntegrationsGateway(productionApiBase, config.taskToken, fetcher),
+      liveArtifacts: createLiveArtifactsGateway(productionApiBase, config.taskToken, fetcher),
+      userPreferences: createLiveUserPreferencesGateway(productionApiBase, config.taskToken, fetcher),
+      notifications: createLiveNotificationsGateway(productionApiBase, config.taskToken, fetcher),
+      memory: createLiveMemoryGateway(apiBase, config.taskToken, localFetcher),
+      permissions: createLivePermissionGateway(apiBase, config.taskToken, localFetcher),
+      approvals: createLiveApprovalGateway(apiBase, config.taskToken, localFetcher),
+      delegation: createLiveDelegationGateway(apiBase, config.taskToken, localFetcher),
+      mcp: createLiveMcpGateway(apiBase, config.taskToken, localFetcher),
+      skills: createLiveSkillGateway(apiBase, config.taskToken, localFetcher),
+      schedules: createLiveScheduleGateway(apiBase, config.taskToken, localFetcher),
+      mobileAccess: createLiveMobileAccessGateway(apiBase, config.taskToken, localFetcher),
+      commands: createLiveCommandGateway(apiBase, config.taskToken, localFetcher),
+      runQuality: createLiveRunQualityGateway(apiBase, config.taskToken, localFetcher),
+      cookbook: createLiveCookbookGateway(apiBase, config.taskToken, localFetcher),
+      research: createLiveResearchGateway(apiBase, config.taskToken, localFetcher),
+      designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
+      orgProposals: createLiveOrgProposalsGateway(apiBase, config.taskToken, localFetcher),
+      runOutcomes: createLiveRunOutcomesGateway(apiBase, config.taskToken, localFetcher),
+      autoPromotion: createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -149,7 +188,14 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
   if (environment.mode !== 'live') {
     throw new Error('Live configuration error: gateway mode must be fixture or live');
   }
-  return createLiveGateway({ apiBase: environment.apiBase ?? '', engineBase: environment.engineBase ?? '', taskToken: environment.taskToken });
+  return createLiveGateway({
+    apiBase: environment.apiBase ?? '',
+    engineBase: environment.engineBase ?? '',
+    productionApiBase: environment.productionApiBase ?? '',
+    expectedApiBase: environment.expectedApiBase,
+    expectedEngineBase: environment.expectedEngineBase,
+    taskToken: environment.taskToken,
+  });
 }
 import { createLiveTasksGateway, type TaskGateway } from './tasks';
 import { createLiveSessionsGateway, type SessionGateway } from './sessions';
@@ -161,7 +207,8 @@ import { createLiveMessagesGateway } from './messages';
 import { createLiveFacilitiesGateway } from './facilities';
 import { createLiveAutomationsGateway } from './automations';
 import { createLiveIntegrationsGateway } from './integrations';
-import { createLiveArtifactsGateway } from './live-artifacts';
+import { createLiveArtifactsGateway, type LiveArtifactsGateway } from './live-artifacts';
+import { normalizeRemoteProductionApiBase } from '../../../shared/production-api-base.mjs';
 import { createLiveUserPreferencesGateway } from './user-preferences';
 import { createLiveNotificationsGateway } from './notifications';
 import { createLiveMemoryGateway } from './memory';
@@ -177,3 +224,6 @@ import { createLiveRunQualityGateway, type RunQualityGateway } from './run-quali
 import { createLiveCookbookGateway, type CookbookGateway } from './cookbook';
 import { createLiveResearchGateway, type ResearchGateway } from './research';
 import { createLiveDesignsGateway, type DesignsGateway } from './designs';
+import { createLiveOrgProposalsGateway, type OrgProposalsGateway } from './org-proposals';
+import { createLiveRunOutcomesGateway, type RunOutcomesGateway } from './run-outcomes';
+import { createLiveAutoPromotionGateway, type AutoPromotionGateway } from './auto-promotion';

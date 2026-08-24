@@ -18,6 +18,8 @@ vi.mock('fs', async (importOriginal) => {
 import {
   OpencodeClientService,
   augmentPathForOpencode,
+  buildOpencodeServerOptions,
+  resolveOpencodeCorsOrigins,
 } from './opencode_client_service';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import type { McpRoleConfig } from './agent_profile_scope';
@@ -61,6 +63,33 @@ describe('RHYTHM_OPENCODE_ENGINE_PORT', () => {
     await expect(import('./opencode_client_service')).rejects.toThrow(
       'RHYTHM_OPENCODE_ENGINE_PORT must be an integer',
     );
+  });
+});
+
+describe('RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge', () => {
+  it('passes Electron and explicit dev origins to the engine cors option', () => {
+    // Regression caught: the shared service parses origins but drops `cors` while spawning the
+    // engine; the exact options assertion fails.
+    const origins = resolveOpencodeCorsOrigins('rhythm://app,http://127.0.0.1:4175');
+    expect(origins).toEqual(['rhythm://app', 'http://127.0.0.1:4175']);
+    expect(buildOpencodeServerOptions(4096, origins)).toEqual({
+      port: 4096,
+      cors: ['rhythm://app', 'http://127.0.0.1:4175'],
+    });
+  });
+
+  it('forwards the exact trimmed, deduplicated renderer origins to the engine', () => {
+    const origins = resolveOpencodeCorsOrigins(' rhythm://app, http://127.0.0.1:4175, rhythm://app ');
+    expect(origins).toEqual([
+      'rhythm://app',
+      'http://127.0.0.1:4175',
+    ]);
+    expect(buildOpencodeServerOptions(4097, origins)).toEqual({ port: 4097, cors: origins });
+  });
+
+  it('does not fabricate an engine CORS allowlist when the host supplied none', () => {
+    expect(resolveOpencodeCorsOrigins(undefined)).toEqual([]);
+    expect(buildOpencodeServerOptions(4096, [])).toEqual({ port: 4096 });
   });
 });
 

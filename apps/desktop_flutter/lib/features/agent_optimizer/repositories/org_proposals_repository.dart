@@ -9,8 +9,18 @@ class OrgProposalsRepository {
   Future<List<OrgProposal>> listProposed({String status = 'proposed'}) =>
       _dataSource.listProposed(status: status);
 
-  Future<OrgProposal> approve(String id, {int? decidedByUserId}) =>
-      _dataSource.approve(id, decidedByUserId: decidedByUserId);
+  Future<OrgProposal> approve(
+    String id, {
+    int? decidedByUserId,
+    bool conditionalToolSafetyConfirmation = false,
+  }) =>
+      _dataSource.approve(
+        id,
+        decidedByUserId: decidedByUserId,
+        conditionalToolSafetyConfirmation: conditionalToolSafetyConfirmation,
+      );
+
+  Future<OrgProposal> revert(String id) => _dataSource.revert(id);
 
   Future<OrgProposal> reject(String id, {int? decidedByUserId}) =>
       _dataSource.reject(id, decidedByUserId: decidedByUserId);

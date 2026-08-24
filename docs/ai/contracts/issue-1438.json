@@ -1,0 +1,42 @@
+{
+  "issue": 1438,
+  "date": "2026-08-21",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/org_proposal_experiment_service.test.ts src/models/__tests__/feedback_metric_adapter.test.ts",
+  "waiver": null,
+  "superseded_note": "The behavior this issue asks to verify was already fully implemented by C3/C4 (feedback_metric_adapter.ts's computeExplicitUserVerdictRate, and decideExperiment's isFeedbackMetric branch in org_proposal_experiment_service.ts): an objective-metric bundle never reads the feedback ledger at all, and a feedback-metric bundle with zero responses returns value: null (never a fabricated zero) and the experiment stays 'collecting' rather than being blocked or regressed. No production code changed for this issue. The work was two new regression tests (already present, uncommitted, at the time this pass started) proving both required behaviors end to end against the real decideExperiment/judgeExperimentAsync path, so a future change to that branch cannot silently start requiring feedback for promotion without breaking a test.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1438-c1",
+      "text": "Test: proposal promoted to verified with zero feedback events.",
+      "mode": "vitest",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts",
+      "status": "pass",
+      "reason": "'D3.3 feedback is never required for promotion > promotes to verified from objective evidence alone, with zero explicit feedback events on either cohort' seeds 20 receipt-backed outcomes per cohort (50% vs 90% success) on a default objective-success-rate bundle, asserts listFeedbackAsync/listLatestExplicitUserVerdictsAsync return empty for every seeded rootSessionId, then asserts judgeExperimentAsync returns decision 'promote' and the proposal's outcomeStatus reaches 'verified'."
+    },
+    {
+      "criterion_id": "issue-1438-c2",
+      "text": "Test: feedback metric adapter returns unavailable when no feedback exists — never blocks promotion.",
+      "mode": "vitest",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts",
+      "status": "pass",
+      "reason": "'C3-4 ... > D3.3: treats zero feedback events on both cohorts as unavailable (no signal) — never a fabricated zero, never a block or regress' declares a feedback-metric bundle (minResponseCoverage: 0) with 10 objective-only runs per cohort and zero verdicts, asserts computeDecisionAsync returns status 'collecting' (never 'decided'/'regress') with reason matching /unavailable/i and responseRate 0 on both cohorts. Complemented by the unit-level feedback_metric_adapter.test.ts cases ('is unavailable (null), never zero, below the predeclared minimum coverage' and 'is unavailable for a cohort with no responses at all, never a fabricated zero'), which assert the same null-not-zero contract directly on computeExplicitUserVerdictRate."
+    },
+    {
+      "criterion_id": "issue-1438-c3",
+      "text": "Existing C3/C4 tests still pass.",
+      "mode": "vitest",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts",
+      "status": "pass",
+      "reason": "Full focused run: org_proposal_experiment_service.test.ts, feedback_metric_adapter.test.ts, proposal_evidence_bundle.test.ts, proposal_evidence_validator.test.ts — 4 files, 145/145 passed, including every pre-existing C3 (explicit-user-verdict-rate) and C4 (fixed-horizon stopping rule) case."
+    },
+    {
+      "criterion_id": "issue-1438-c4",
+      "text": "Build + typecheck pass.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "`npx tsc --noEmit` (Node 22, apps/api_server): 0 errors. `npm run build` (Node 22, apps/api_server): tsc -p tsconfig.json + postbuild copy, exit 0."
+    }
+  ],
+  "not_tested": []
+}

@@ -16,16 +16,15 @@
  * or a future queue regression tries to push a high-risk proposal through.
  *
  * `revertProposal` (used by #821's measure step, `org_proposal_measure.ts`,
- * on a non-improving change) replays `before_snapshot_json` to restore the
- * exact prior state and sets `status='reverted'`. The reverted row is NOT
+ * on a non-improving change) restores non-scope snapshots and uses versioned
+ * CAS + entry-level inverses for scope deltas before setting `status='reverted'`. The reverted row is NOT
  * deleted — it remains in the table so `existsByDedupKeyAsync` continues to
  * report the dedup_key as seen, preventing an apply/revert flip-flop loop
  * where the same change gets re-proposed every optimizer run.
  *
- * Only ONE apply target kind is wired in v1: `agent_configs` scope fields
- * (`allowedMcpsJson` / `allowedSkillsJson`), covering `tighten-scope` and
- * `prune-scope` — the two mechanical LOW-risk kinds with a concrete field to
- * snapshot/mutate/restore. `refine-skill` / `consolidate-skill` /
+ * Direct scope-shaped payloads (`allowedMcpsJson` / `allowedSkillsJson`) are
+ * refused defensively by the unattended entry point, independent of risk
+ * classification. `refine-skill` / `consolidate-skill` /
  * `refine-recipe` proposals are also accepted here (their `changeJson` is
  * carried through to `measuring` unmodified — the LLM-scored measure step is
  * what determines keep/revert for those kinds; per the skill loop precedent
@@ -48,13 +47,20 @@ import {
   AgentConfigsRepository,
   type AgentConfig,
   type AgentConfigInput,
+  type RevisionedAgentConfig,
 } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import {
   AgentScheduledTasksRepository,
   type AgentScheduledTask,
 } from '../repositories/agent_scheduled_tasks_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
+import {
+  isProjectionSettled,
+  projectAgentProfileAfterWrite,
+  projectLatestAgentProfile,
+  type ProjectionCause,
+} from './agent_profile_projection_service';
+import { classifyAmbiguousScopePair } from './scope_pair_classification';
 import {
   writeManagedSkill,
   deleteManagedSkill,
@@ -67,6 +73,21 @@ import {
   type DraftedConsolidationPayload,
 } from './skill_consolidation_drafter';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import {
+  createScopeDeltaV2Snapshot as createStrictScopeDeltaV2Snapshot,
+  createScopeStateV2Snapshot as createStrictScopeStateV2Snapshot,
+  containsScopeBearingPayload,
+  isReservedScopeIdentifier as isStrictReservedScopeIdentifier,
+  isScopeSnapshotVersion,
+  verifyScopeSnapshotForRevert,
+  type ScopeDeltaV2RemovedEntry as StrictScopeDeltaV2RemovedEntry,
+  type ScopeDeltaV2Snapshot as StrictScopeDeltaV2Snapshot,
+  type ScopeStateV2Snapshot as StrictScopeStateV2Snapshot,
+  type ScopeStateKind,
+  type ScopeRemovalKind,
+} from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
+import { extractValidatedConfigPatch } from './org_proposal_apply_service';
 
 export type ApplyOutcome = 'applied-ok' | 'refused-high-risk' | 'skipped';
 
@@ -85,7 +106,29 @@ interface AgentConfigScopeChange {
   add?: string[];
 }
 
-function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
+type ScopeFieldName = AgentConfigScopeChange['field'];
+export type ScopeStateFieldName =
+  | ScopeFieldName
+  | 'corePermissionsJson';
+
+/** Reject JavaScript prototype-pollution identifiers at every scope boundary. */
+export function isReservedScopeIdentifier(name: unknown): name is string {
+  return isStrictReservedScopeIdentifier(name);
+}
+
+export type ScopeDeltaV2RemovedEntry = StrictScopeDeltaV2RemovedEntry;
+
+/** Versioned, entry-level scope rollback record. */
+export type ScopeDeltaV2Snapshot = StrictScopeDeltaV2Snapshot;
+
+/** Exact-state rollback record for mixed, additive, and core scope mutations. */
+export type ScopeStateV2Snapshot = StrictScopeStateV2Snapshot;
+
+/**
+ * Broad direct-shape recognition retained only for unattended refusal and
+ * legacy revert detection. It must never authorize a scope mutation.
+ */
+function isDirectAgentConfigScopePayload(v: unknown): v is AgentConfigScopeChange {
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
   return (
@@ -94,15 +137,11 @@ function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
   );
 }
 
-// ── Shared agent_config field mechanics (#971 refine-config / refine-scope) ──
+// ── Shared agent_config field mechanics (#971 refine-config + legacy recognition) ──
 //
-// The refine-config (ConfigPatch scalar swap) and refine-scope (ScopePatch
-// add/remove) appliers live in org_proposal_appliers_wiring.ts (the approve
-// lane), but their SNAPSHOT + RESTORE mechanics live here so revertProposal
-// and both appliers share one definition of "read a field" / "write a field"
-// and can never drift. Both kinds snapshot the same shape —
-// {agentConfigId, field, priorValue} — so a single revert branch restores
-// either one.
+// refine-config still uses the generic scalar snapshot below. Human scope
+// mutations use scope-delta-v2 or scope-state-v2; generic scope snapshots are
+// recognized only so revertProposal can refuse them fail-closed.
 
 /** Union of every agent_configs field the two patch shapes can target. */
 export type ConfigFieldName =
@@ -115,6 +154,16 @@ export interface ConfigFieldSnapshot {
   field: ConfigFieldName;
   /** Prior value in the same representation {@link readAgentConfigField} yields. */
   priorValue: string | null;
+  /**
+   * The value the apply/repair write actually landed, in the same
+   * representation. Optional for backward compatibility with snapshots
+   * written before this field existed (which restore unconditionally, with
+   * no CAS — see the revert branch below). When present, revert only
+   * restores `priorValue` if the LIVE field still equals this exact value —
+   * a concurrent edit (human or another automation) is detected and refused
+   * rather than silently overwritten.
+   */
+  expectedAppliedValue?: string | null;
 }
 
 const CONFIG_FIELD_NAMES = new Set<string>([...CONFIG_PATCH_FIELDS, ...SCOPE_PATCH_FIELDS]);
@@ -126,13 +175,32 @@ export function isConfigFieldName(v: unknown): v is ConfigFieldName {
 export function isConfigFieldSnapshot(v: unknown): v is ConfigFieldSnapshot {
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
-  return (
-    typeof c.agentConfigId === 'string' &&
-    isConfigFieldName(c.field) &&
-    'priorValue' in c &&
-    (typeof c.priorValue === 'string' || c.priorValue === null)
-  );
+  if (
+    !(
+      typeof c.agentConfigId === 'string' &&
+      isConfigFieldName(c.field) &&
+      'priorValue' in c &&
+      (typeof c.priorValue === 'string' || c.priorValue === null)
+    )
+  ) {
+    return false;
+  }
+  if ('expectedAppliedValue' in c) {
+    return typeof c.expectedAppliedValue === 'string' || c.expectedAppliedValue === null;
+  }
+  return true;
 }
+
+/**
+ * Fields whose {@link ConfigFieldSnapshot} is a whole-field snapshot with no
+ * exact post-apply value — restoring by field alone can't distinguish a safe
+ * rollback from clobbering a LATER operator edit to that same field, so a
+ * whole-field revert of any of these must always fail closed (see the
+ * `revertProposal` refusal branch below). #1434: shared with D2.4's
+ * `auto_revert_service.ts` so the human `/revert` path and the unattended
+ * auto-revert path can never drift apart on which fields this applies to.
+ */
+export const UNSAFE_WHOLE_FIELD_SCOPE_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson', 'corePermissionsJson'] as const;
 
 /**
  * Read one logical field off a live agent_configs row in the representation
@@ -192,12 +260,109 @@ export function agentConfigFieldPatch(
   }
 }
 
+/** Map an `agentConfigFieldPatch()` result's camelCase keys to their real DB columns. */
+const AGENT_CONFIG_INPUT_COLUMN_BY_KEY: Record<string, string> = {
+  modelProvider: 'model_provider',
+  modelId: 'model_id',
+  allowedMcpsJson: 'allowed_mcps_json',
+  allowedSkillsJson: 'allowed_skills_json',
+  corePermissionsJson: 'core_permissions_json',
+  allowedDelegatesJson: 'allowed_delegates_json',
+  systemPrompt: 'system_prompt',
+};
+
+/** Re-key an `agentConfigFieldPatch()` result to the exact columns it touches. */
+function configFieldColumns(field: ConfigFieldName, value: string | null): Record<string, string | null> {
+  const patch = agentConfigFieldPatch(field, value);
+  const columns: Record<string, string | null> = {};
+  for (const [key, v] of Object.entries(patch)) {
+    columns[AGENT_CONFIG_INPUT_COLUMN_BY_KEY[key]] = v as string | null;
+  }
+  return columns;
+}
+
+/**
+ * Compare-and-set one {@link ConfigFieldName} scalar at an explicit expected
+ * prior value + revision, reusing {@link AgentConfigsRepository.compareAndSetColumnsAtRevision}
+ * (the same generic CAS primitive, never raw SQL). The repair write
+ * (auto_repair_service.ts) and the config-field revert restore below both
+ * route through this, so a concurrent edit (human or another automation)
+ * during either window is detected and refused, never silently overwritten.
+ * `model` alone spans two columns (model_provider/model_id); both are
+ * derived from the SAME representation {@link readAgentConfigField} /
+ * {@link agentConfigFieldPatch} already use, so there is no separate
+ * model-splitting logic to keep in sync.
+ */
+export function compareAndSetConfigField(
+  configsRepo: AgentConfigsRepository,
+  id: string,
+  field: ConfigFieldName,
+  expectedPriorValue: string | null,
+  expectedRevision: number,
+  nextValue: string | null,
+): RevisionedAgentConfig | null {
+  return configsRepo.compareAndSetColumnsAtRevision(
+    id,
+    configFieldColumns(field, nextValue),
+    configFieldColumns(field, expectedPriorValue),
+    expectedRevision,
+  );
+}
+
+export type ConfigFieldLandOutcome =
+  /** The field now equals `targetValue` (written this call, or already landed by a prior crashed call) AND the live profile file is confirmed consistent with it (or correctly absent). */
+  | { status: 'landed'; config: RevisionedAgentConfig }
+  /** The live field matched neither `expectedCurrentValue` nor `targetValue`, or the target row vanished — a real concurrent edit; nothing was mutated. */
+  | { status: 'conflict' }
+  /** The field value is correct (written this call, or already landed), but {@link isProjectionSettled} is false for the resulting projection — the served opencode file does not (yet) match. */
+  | { status: 'projection-not-settled'; config: RevisionedAgentConfig };
+
+/**
+ * Idempotent, crash-safe "make this agent_configs field equal `targetValue`,
+ * and don't report it settled until the live opencode profile file is
+ * consistent with that too" — the one primitive D2.3's repair-attempt landing
+ * and D2.4/#857's config-field revert restore both need, so they can never
+ * drift on either half of "did this actually take effect."
+ *
+ * Safe to call again after ANY outcome: if the field already equals
+ * `targetValue` (a resumed call after a crash, or after a prior call's
+ * projection failed post-write), the CAS write is skipped entirely — only
+ * projection is retried — so a resumed caller never mutates (or re-CASes)
+ * twice for the same logical transition.
+ */
+export function landConfigFieldWithProjection(
+  configsRepo: AgentConfigsRepository,
+  id: string,
+  field: ConfigFieldName,
+  expectedCurrentValue: string | null,
+  targetValue: string | null,
+  cause: ProjectionCause,
+): ConfigFieldLandOutcome {
+  const live = configsRepo.getById(id);
+  if (!live) return { status: 'conflict' };
+  const liveValue = readAgentConfigField(live, field);
+  let landed: RevisionedAgentConfig;
+  if (liveValue === targetValue) {
+    // Already the target value — never re-write (and never re-CAS) an
+    // already-landed transition; only projection needs retrying.
+    landed = live;
+  } else {
+    const cas = compareAndSetConfigField(configsRepo, id, field, expectedCurrentValue, live.revision, targetValue);
+    if (!cas) return { status: 'conflict' };
+    landed = cas;
+  }
+  const projection = projectAgentProfileAfterWrite(landed, cause);
+  if (!isProjectionSettled(projection)) {
+    return { status: 'projection-not-settled', config: landed };
+  }
+  return { status: 'landed', config: landed };
+}
+
 /**
  * Set-arithmetic on a JSON string[] allowlist: start from `priorJson`, drop
  * every name in `remove`, append every name in `add` not already present
- * (order-stable). Returns a JSON array string. Shared by the auto-lane
- * scope prune ({@link applyAgentConfigScopeChange}) and the human-gate
- * refine-scope applier so the two never diverge.
+ * (order-stable). Returns a JSON array string used by human-gated scope
+ * appliers and V2 snapshot/revert mechanics.
  */
 export function computeScopeList(
   priorJson: string | null,
@@ -213,7 +378,15 @@ export function computeScopeList(
   // meaning the array shape carries.
   const priorMap = parseScopeMap(priorJson);
   if (priorMap) {
-    const next: Record<string, unknown> = { ...priorMap };
+    const next = Object.create(null) as Record<string, unknown>;
+    for (const [name, value] of Object.entries(priorMap)) {
+      Object.defineProperty(next, name, {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
     for (const name of patch.remove ?? []) delete next[name];
     for (const name of patch.add ?? []) if (!(name in next)) next[name] = [];
     return JSON.stringify(next);
@@ -226,6 +399,46 @@ export function computeScopeList(
     if (!next.includes(name)) next.push(name);
   }
   return JSON.stringify(next);
+}
+
+export function createScopeStateV2Snapshot(
+  agentConfigId: string,
+  field: ScopeStateFieldName,
+  priorValue: string | null,
+  expectedAppliedValue: string,
+  exactChangeJson: string,
+  proposalKind: ScopeStateKind,
+): ScopeStateV2Snapshot {
+  return createStrictScopeStateV2Snapshot(
+    agentConfigId,
+    field,
+    priorValue,
+    expectedAppliedValue,
+    exactChangeJson,
+    proposalKind,
+  );
+}
+
+/**
+ * Build the V2 delta before a scope mutation. It records only entries the
+ * mutation actually removes plus the exact post-apply value used for CAS.
+ */
+export function createScopeDeltaV2Snapshot(
+  agentConfigId: string,
+  field: ScopeFieldName,
+  priorValue: string | null,
+  remove: string[],
+  proposalKind: ScopeRemovalKind,
+  exactChangeJson: string,
+): ScopeDeltaV2Snapshot {
+  return createStrictScopeDeltaV2Snapshot(
+    agentConfigId,
+    field,
+    priorValue,
+    remove,
+    proposalKind,
+    exactChangeJson,
+  );
 }
 
 // ── Shared skill-body revert snapshot (#971 workflow-prompt-fix / #976 refine-skill) ──
@@ -352,6 +565,15 @@ export async function applyProposal(
   deps: ApplyDeps = {},
 ): Promise<ApplyResult> {
   try {
+    // D1.4: executable adoption is never eligible for the unattended
+    // optimizer lane. Its only authorizing path is the central durable
+    // sandbox-safety policy in org_proposal_apply_service.ts.
+    if (proposal.kind === 'tool-install') {
+      logger.info(
+        `[org-proposal-apply] refused tool-install '${proposal.id}' — sandbox safety approval required`,
+      );
+      return { status: 'refused-high-risk' };
+    }
     const risk = classifyProposalRisk({
       kind: proposal.kind,
       changeJson: proposal.changeJson,
@@ -365,11 +587,9 @@ export async function applyProposal(
     }
 
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
-    const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
-
     let change: unknown;
     try {
-      change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
+      change = proposal.changeJson ? parseStrictJson(proposal.changeJson, 'proposal change_json') : null;
     } catch (err) {
       logger.warn(
         `[org-proposal-apply] malformed changeJson for '${proposal.id}' (non-fatal): ${String(err)}`,
@@ -377,8 +597,11 @@ export async function applyProposal(
       return { status: 'skipped', reason: 'malformed-change-json' };
     }
 
-    if (isAgentConfigScopeChange(change)) {
-      return await applyAgentConfigScopeChange(proposal, change, { proposalsRepo, configsRepo });
+    if (containsScopeBearingPayload(change)) {
+      logger.info(
+        `[org-proposal-apply] refused direct scope payload for '${proposal.id}' — human approval required`,
+      );
+      return { status: 'refused-high-risk' };
     }
 
     // #852 — consolidate-skill: scope_hygiene_generator.ts only ever emits
@@ -415,53 +638,6 @@ export async function applyProposal(
     logger.warn(`[org-proposal-apply] FAILED (non-fatal): ${String(err)}`);
     return { status: 'skipped', reason: String(err) };
   }
-}
-
-/**
- * Apply an `agent_configs` scope mutation (tighten-scope / prune-scope):
- * snapshot the field's current value, remove the named entries, persist the
- * change, then transition the proposal to measuring.
- */
-async function applyAgentConfigScopeChange(
-  proposal: AgentOrgProposal,
-  change: AgentConfigScopeChange,
-  deps: Required<Pick<ApplyDeps, 'proposalsRepo' | 'configsRepo'>>,
-): Promise<ApplyResult> {
-  const { proposalsRepo, configsRepo } = deps;
-
-  const config = configsRepo.getById(change.agentConfigId);
-  if (!config) {
-    logger.warn(
-      `[org-proposal-apply] no agent_config '${change.agentConfigId}' for proposal '${proposal.id}'`,
-    );
-    return { status: 'skipped', reason: 'target-not-found' };
-  }
-
-  const priorValue = config[change.field] ?? null;
-  const beforeSnapshot = JSON.stringify({ [change.field]: priorValue });
-
-  // 1. Snapshot FIRST (before any mutation) — this is what makes the apply
-  //    reversible by construction.
-  const snapshotted = await proposalsRepo.updateStatusAsync(proposal.id, 'applied', {
-    beforeSnapshotJson: beforeSnapshot,
-  });
-  if (!snapshotted) {
-    return { status: 'skipped', reason: 'proposal-not-found' };
-  }
-
-  // 2. Mutate — remove the named entries from the current allowlist (shared
-  //    set-arithmetic with the human-gate refine-scope applier).
-  const nextList = computeScopeList(priorValue, { remove: change.remove });
-
-  configsRepo.update(change.agentConfigId, { [change.field]: nextList });
-
-  // 3. Advance to measuring.
-  await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
-
-  logger.info(
-    `[org-proposal-apply] applied scope prune for '${proposal.id}' on agent_config '${change.agentConfigId}' (${change.field}: removed ${(change.remove ?? []).join(',')}) -> measuring`,
-  );
-  return { status: 'applied-ok' };
 }
 
 /** Shape of the before_snapshot_json a consolidate-skill apply writes (#852). */
@@ -501,23 +677,15 @@ function isExternalAdoptionRevertSnapshot(v: unknown): v is ExternalAdoptionReve
  */
 function parseScopeMap(json: string | null): Record<string, unknown> | null {
   if (!json) return null;
-  try {
-    const parsed: unknown = JSON.parse(json);
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
+  const parsed = parseStrictJson(json, 'scope tools-map bytes');
+  return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
 }
 
 function safeParseStringArray(json: string): string[] {
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
-  } catch {
-    return [];
-  }
+  const parsed = parseStrictJson(json, 'scope allowlist bytes');
+  return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
 }
 
 /**
@@ -611,13 +779,63 @@ async function applyConsolidateSkillChange(
   return { status: 'applied-ok' };
 }
 
-export type RevertOutcome = 'reverted' | 'skipped';
+export type RevertOutcome =
+  | 'reverted'
+  | 'skipped'
+  | 'conflict'
+  | 'unsafe-legacy-scope'
+  | 'reconciliation-required';
 
 /** Audit fields the measure step may want persisted alongside the revert transition. */
 export interface RevertPatch {
   baselineScore?: number | null;
   postScore?: number | null;
   measureReason?: string | null;
+}
+
+/**
+ * The revert lane's unresolved exits must leave the same durable trace the
+ * apply lane leaves: a status an operator can see and filter on, not just a log
+ * line and a 409. Marked from whatever the row actually is right now, because
+ * an ambiguous transition may or may not have committed. Failing to write the
+ * record does not change the outcome — an unresolved operation is unresolved
+ * either way — but it is logged as such.
+ */
+async function recordRevertReconciliation(
+  proposalsRepo: AgentOrgProposalsRepository,
+  proposalId: string,
+  reason: string,
+): Promise<RevertOutcome> {
+  try {
+    const current = await proposalsRepo.findByIdAsync(proposalId);
+    if (current) {
+      await proposalsRepo.markReconciliationRequiredAsync({
+        proposalId,
+        expectedStatus: current.status,
+        expectedRevision: current.revision,
+        reason,
+      });
+    }
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-apply] could not persist reconciliation for '${proposalId}': ${String(error)}`,
+    );
+  }
+  return 'reconciliation-required';
+}
+
+/**
+ * For the `isConfigFieldSnapshot` restore branch only: overrides which value
+ * is expected to be CURRENTLY live for the CAS check, in place of the
+ * snapshot's own `expectedAppliedValue`. Needed when one or more repair
+ * attempts have legitimately mutated the SAME field on top of the original
+ * apply (D2.4 auto-revert unwinding a whole D2.3 repair chain) — the
+ * original snapshot's own `expectedAppliedValue` is stale in that case, but
+ * the rollback TARGET (`priorValue`) is unaffected. Ignored for any other
+ * snapshot kind.
+ */
+export interface RevertConfigFieldOverride {
+  expectedCurrentValue: string | null;
 }
 
 /**
@@ -632,32 +850,240 @@ export async function revertProposal(
   proposal: AgentOrgProposal,
   deps: ApplyDeps = {},
   patch?: RevertPatch,
+  configFieldOverride?: RevertConfigFieldOverride,
 ): Promise<RevertOutcome> {
   try {
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
     const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
+    const isScopeMutationKind =
+      proposal.kind === 'tighten-scope' ||
+      proposal.kind === 'prune-scope' ||
+      proposal.kind === 'refine-scope' ||
+      proposal.kind === 'broaden-scope';
 
     if (!proposal.beforeSnapshotJson) {
       logger.warn(`[org-proposal-apply] no before_snapshot_json for '${proposal.id}' — cannot revert`);
-      return 'skipped';
+      return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
-    let snapshot: Record<string, unknown>;
+    let snapshot: unknown;
     try {
-      snapshot = JSON.parse(proposal.beforeSnapshotJson);
+      snapshot = parseStrictJson(proposal.beforeSnapshotJson, 'proposal before_snapshot_json');
     } catch (err) {
       logger.warn(`[org-proposal-apply] unparseable snapshot for '${proposal.id}': ${String(err)}`);
-      return 'skipped';
+      return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
     let change: unknown = null;
     try {
-      change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
-    } catch {
-      change = null;
+      change = proposal.changeJson ? parseStrictJson(proposal.changeJson, 'proposal change_json') : null;
+    } catch (error) {
+      logger.warn(`[org-proposal-apply] invalid change_json for revert '${proposal.id}': ${String(error)}`);
+      return isScopeMutationKind ? 'unsafe-legacy-scope' : 'skipped';
     }
 
-    if (proposal.kind === 'external-adoption' && isExternalAdoptionRevertSnapshot(snapshot)) {
+    // #1434 root-cause fix: narrow past a genuinely validated refine-config
+    // `configPatch` (shared with org_proposal_apply_service.ts's apply-time
+    // preflight) before the scope-bearing check below. Without this, a
+    // legitimate `{configPatch:{agentConfigId,field,value}}` refine-config
+    // change_json was ALWAYS misclassified as scope-bearing — a bare
+    // `{agentConfigId, field, value}` object is detected as scope-bearing on
+    // its own, regardless of its parent key — and every refine-config revert
+    // (including this service's own auto-revert callers) was refused as
+    // 'unsafe-legacy-scope' before it could ever reach the config-field
+    // restore branch below. `UNSAFE_WHOLE_FIELD_SCOPE_FIELDS` further down
+    // still refuses a whole-field revert of allowedMcpsJson/allowedSkillsJson/
+    // corePermissionsJson, so narrowing here does not weaken that guard.
+    const { outsideConfigPatch } = extractValidatedConfigPatch(change);
+    const isScopeBearing = isScopeMutationKind || containsScopeBearingPayload(outsideConfigPatch);
+    const hasScopeSnapshotVersion = isScopeSnapshotVersion(snapshot);
+    if (isScopeBearing && !hasScopeSnapshotVersion) {
+      logger.warn(`[org-proposal-apply] refusing invalid/legacy scope revert for '${proposal.id}'`);
+      return 'unsafe-legacy-scope';
+    }
+
+    if (hasScopeSnapshotVersion) {
+      const verified = verifyScopeSnapshotForRevert(snapshot, proposal.kind, proposal.changeJson);
+      if (!verified) {
+        logger.warn(`[org-proposal-apply] semantic scope snapshot conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+      const scopeSnapshot = verified.snapshot;
+      if (proposal.status !== 'active' && proposal.status !== 'measuring') {
+        logger.warn(`[org-proposal-apply] invalid scope revert source status for '${proposal.id}'`);
+        return 'conflict';
+      }
+      const nextBaselineScore = patch?.baselineScore !== undefined
+        ? patch.baselineScore
+        : proposal.baselineScore;
+      const nextPostScore = patch?.postScore !== undefined ? patch.postScore : proposal.postScore;
+      const nextMeasureReason = patch?.measureReason !== undefined
+        ? patch.measureReason
+        : proposal.measureReason;
+
+      // Revision-bound on BOTH rows: a value-only CAS cannot see an
+      // A -> B -> A operator sequence, which is the same ABA hole the apply
+      // lane fences against. The proposal revision comes from the row the
+      // caller already read — deliberately NOT a fresh readback, so a read
+      // outage cannot turn a committed revert into a reported failure.
+      const expectedProposalRevision = proposal.revision;
+      const liveTarget = configsRepo.getById(scopeSnapshot.target.id);
+      if (!Number.isSafeInteger(expectedProposalRevision) || (expectedProposalRevision as number) < 0) {
+        logger.warn(
+          `[org-proposal-apply] scope revert for '${proposal.id}' has no usable CAS token — refusing`,
+        );
+        return 'conflict';
+      }
+      if (!liveTarget) {
+        logger.warn(`[org-proposal-apply] scope revert target vanished for '${proposal.id}'`);
+        return 'conflict';
+      }
+      let transitioned;
+      try {
+        transitioned = await proposalsRepo.transitionScopeAtomicallyAtRevisionsAsync({
+          proposalId: proposal.id,
+          expectedProposalStatus: proposal.status,
+          expectedProposalRevision: expectedProposalRevision as number,
+          expectedTargetRevision: liveTarget.revision,
+          nextProposalStatus: 'reverted',
+          expectedKind: proposal.kind,
+          expectedChangeJson: proposal.changeJson!,
+          expectedBeforeSnapshotJson: proposal.beforeSnapshotJson,
+          targetId: scopeSnapshot.target.id,
+          field: scopeSnapshot.field,
+          expectedTargetValue: scopeSnapshot.expectedAppliedValue,
+          nextTargetValue: scopeSnapshot.priorValue,
+          nextBaselineScore,
+          nextPostScore,
+          nextMeasureReason,
+        });
+      } catch (error) {
+        // The thrown text is never evidence of whether the transaction
+        // committed. Use the SAME classifier the apply lane uses — two
+        // hand-written copies is exactly how one lane ended up without a
+        // preimage arm and terminalized healthy rows on a transient rollback.
+        const classified = await classifyAmbiguousScopePair({
+          proposalsRepo,
+          configsRepo,
+          proposalId: proposal.id,
+          targetId: scopeSnapshot.target.id,
+          field: scopeSnapshot.field,
+          preimageStatus: proposal.status,
+          preimageValue: scopeSnapshot.expectedAppliedValue,
+          postimageStatus: 'reverted',
+          postimageValue: scopeSnapshot.priorValue,
+        });
+        if (classified.kind === 'preimage') {
+          // Nothing committed: retryable, and the measuring sweep still owns it.
+          logger.warn(
+            `[org-proposal-apply] atomic scope revert failed and rolled back for ` +
+            `'${proposal.id}': ${String(error)}`,
+          );
+          return 'conflict';
+        }
+        logger.warn(
+          `[org-proposal-apply] atomic scope revert reported an ambiguous error for ` +
+          `'${proposal.id}' (durable state: ${classified.kind}): ${String(error)}`,
+        );
+        return await recordRevertReconciliation(
+          proposalsRepo, proposal.id,
+          classified.kind === 'postimage'
+            // The rows prove it committed; only the projection never ran, so
+            // say that rather than calling the result indeterminate.
+            ? 'the scope revert committed durably but threw before its profile ' +
+              'projection could be attempted'
+            : 'the atomic scope revert transaction reported an indeterminate result',
+        );
+      }
+      if (!transitioned) {
+        logger.warn(`[org-proposal-apply] atomic scope revert CAS conflict for '${proposal.id}'`);
+        return 'conflict';
+      }
+
+      // Project by ID + committed revision, never the row this function is
+      // holding: the await above is a real suspension point, so a concurrent
+      // operator edit may already be committed AND projected by now. The
+      // boundary re-reads the latest row so the file can lag the database but
+      // can never contradict a newer revision.
+      const projectionOutcome = projectLatestAgentProfile({
+        profileId: scopeSnapshot.target.id,
+        expectedRevision: transitioned.target.revision,
+        cause: 'scope-revert',
+      });
+      const projection = projectionOutcome.kind === 'missing' ? 'failed'
+        : projectionOutcome.kind === 'not-applicable' ? 'skipped'
+        : projectionOutcome.kind;
+      if (projection === 'blocked' || projection === 'failed') {
+        let inverse;
+        try {
+          inverse = await proposalsRepo.transitionScopeAtomicallyAtRevisionsAsync({
+            proposalId: proposal.id,
+            expectedProposalStatus: 'reverted',
+            expectedProposalRevision: transitioned.proposal.revision,
+            expectedTargetRevision: transitioned.target.revision,
+            nextProposalStatus: proposal.status,
+            expectedKind: proposal.kind,
+            expectedChangeJson: proposal.changeJson!,
+            expectedBeforeSnapshotJson: proposal.beforeSnapshotJson,
+            targetId: scopeSnapshot.target.id,
+            field: scopeSnapshot.field,
+            expectedTargetValue: scopeSnapshot.priorValue,
+            nextTargetValue: scopeSnapshot.expectedAppliedValue,
+            nextBaselineScore: proposal.baselineScore,
+            nextPostScore: proposal.postScore,
+            nextMeasureReason: proposal.measureReason,
+          });
+        } catch (error) {
+          logger.warn(
+            `[org-proposal-apply] atomic scope inverse reported an ambiguous error for ` +
+            `'${proposal.id}'; reconciliation required: ${String(error)}`,
+          );
+          return await recordRevertReconciliation(
+            proposalsRepo, proposal.id,
+            'the compensating scope transaction reported an indeterminate result',
+          );
+        }
+        if (!inverse) {
+          logger.warn(
+            `[org-proposal-apply] atomic scope inverse lost a target/status CAS for ` +
+            `'${proposal.id}'; reconciliation required`,
+          );
+          return await recordRevertReconciliation(
+            proposalsRepo, proposal.id,
+            'the exact compensation lost a concurrent update, so the target bytes were ' +
+            'preserved as found and the applied scope was NOT restored',
+          );
+        }
+        const inverseOutcome = projectLatestAgentProfile({
+          profileId: scopeSnapshot.target.id,
+          expectedRevision: inverse.target.revision,
+          cause: 'scope-compensation',
+        });
+        const inverseProjection = inverseOutcome.kind === 'missing' ? 'failed'
+          : inverseOutcome.kind === 'not-applicable' ? 'skipped'
+          : inverseOutcome.kind;
+        if (inverseProjection === 'blocked' || inverseProjection === 'failed') {
+          logger.warn(
+            `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
+            `the database pair was atomically restored but compensating projection ` +
+            `${inverseProjection}; reconciliation required`,
+          );
+          return await recordRevertReconciliation(
+            proposalsRepo, proposal.id,
+            'the database pair was atomically restored but the compensating projection ' +
+            'did not succeed',
+          );
+        }
+        logger.warn(
+          `[org-proposal-apply] scope revert projection ${projection} for '${proposal.id}'; ` +
+          `atomically restored proposal and applied scope, projection=${inverseProjection}`,
+        );
+        return 'conflict';
+      }
+
+      logger.info(`[org-proposal-apply] reverted '${proposal.id}' (kind=${proposal.kind})`);
+      return 'reverted';
+    } else if (proposal.kind === 'external-adoption' && isExternalAdoptionRevertSnapshot(snapshot)) {
       // Undo the adopt: remove the skill we wrote (only if WE created it —
       // never delete a pre-existing engine-owned library skill), and restore
       // the agent's prior allowlist + resync its file. The capability-gap is
@@ -671,16 +1097,91 @@ export async function revertProposal(
           allowedSkillsJson: snapshot.priorAllowedSkillsJson ?? null,
         });
         const restored = configsRepo.getById(snapshot.agentConfigId);
-        if (restored) writeAgentProfileFile(restored);
+        if (restored) projectAgentProfileAfterWrite(restored, 'scope-revert');
       }
+    } else if (
+      isConfigFieldSnapshot(snapshot) &&
+      (UNSAFE_WHOLE_FIELD_SCOPE_FIELDS as readonly string[]).includes(snapshot.field)
+    ) {
+      logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
+      return 'unsafe-legacy-scope';
     } else if (isConfigFieldSnapshot(snapshot)) {
       // #971 — refine-config (scalar swap) AND refine-scope (add/remove) both
       // snapshot {agentConfigId, field, priorValue}; restore the field to its
       // prior value and re-project the opencode agent file the same way the
       // REST config-update path does after any config mutation.
-      configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
-      const restored = configsRepo.getById(snapshot.agentConfigId);
-      if (restored) writeAgentProfileFile(restored);
+      //
+      // ROOT-CAUSE FIX (D2 post-apply lifecycle repair): the write to
+      // agent_configs and the projection to the live opencode profile file
+      // are NOT atomic with each other. Reporting this revert `'reverted'`
+      // (a terminal proposal status) the instant the DB half lands — while
+      // ignoring a `blocked`/`failed`/`missing` projection outcome — leaves
+      // the served profile still reflecting the OLD value while the
+      // proposal claims the change is fully undone. `landConfigFieldWithProjection`
+      // gates on BOTH halves; a not-yet-settled projection returns 'conflict'
+      // here (proposal stays at its current, non-terminal status — safely
+      // retryable) instead of falling through to the unconditional
+      // `updateStatusAsync(proposal.id, 'reverted', ...)` below. A retry
+      // re-enters this branch, finds the field already at `priorValue`, and
+      // retries ONLY the projection — never a second write.
+      const expectedCurrentValue = configFieldOverride
+        ? configFieldOverride.expectedCurrentValue
+        : snapshot.expectedAppliedValue;
+      if (expectedCurrentValue !== undefined) {
+        // #1434-c2 root-cause fix: value+revision CAS at the agent_configs
+        // field boundary — restore priorValue ONLY if the live field still
+        // equals the value expected to currently be live. A later operator
+        // edit (or another automation) to the same field is detected and
+        // refused rather than silently overwritten; the human /revert path
+        // and every unattended auto-revert share this one guard
+        // (compareAndSetConfigField, never duplicated). `configFieldOverride`
+        // (set by auto-revert when 1+ repairs mutated this SAME field on top
+        // of the original apply) anchors the CAS to the CHAIN's latest known
+        // value instead of this proposal's own now-stale `expectedAppliedValue`.
+        const result = landConfigFieldWithProjection(
+          configsRepo,
+          snapshot.agentConfigId,
+          snapshot.field,
+          expectedCurrentValue,
+          snapshot.priorValue,
+          'scope-revert',
+        );
+        if (result.status === 'conflict') {
+          logger.warn(
+            `[org-proposal-apply] config field revert CAS conflict for '${proposal.id}' — ` +
+            'live value has drifted since apply',
+          );
+          return 'conflict';
+        }
+        if (result.status === 'projection-not-settled') {
+          logger.warn(
+            `[org-proposal-apply] config field revert landed for '${proposal.id}' but the ` +
+            'profile projection is not yet settled — leaving the proposal retryable',
+          );
+          return 'conflict';
+        }
+      } else {
+        // Legacy snapshot written before expectedAppliedValue existed — no
+        // safe CAS target to compare against; fall back to the original
+        // unconditional restore, still gated on projection settling before
+        // this revert can be reported as terminal.
+        if (!configsRepo.getById(snapshot.agentConfigId)) {
+          logger.warn(`[org-proposal-apply] config field revert target vanished for '${proposal.id}'`);
+          return 'conflict';
+        }
+        configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
+        const restored = configsRepo.getById(snapshot.agentConfigId);
+        const projection = restored
+          ? projectAgentProfileAfterWrite(restored, 'scope-revert')
+          : ({ kind: 'missing' } as const);
+        if (!isProjectionSettled(projection)) {
+          logger.warn(
+            `[org-proposal-apply] legacy config field revert landed for '${proposal.id}' but the ` +
+            'profile projection is not yet settled — leaving the proposal retryable',
+          );
+          return 'conflict';
+        }
+      }
     } else if (isScheduledTaskFieldSnapshot(snapshot)) {
       // #981 — refine-task: restore the scheduled-task field the applier
       // overwrote to its exact prior value via updateAsync (no raw SQL).
@@ -689,12 +1190,12 @@ export async function revertProposal(
         snapshot.scheduledTaskId,
         scheduledTaskFieldPatch(snapshot.field, snapshot.priorValue),
       );
-    } else if (isAgentConfigScopeChange(change)) {
-      // tighten-scope / prune-scope (auto lane) — snapshot is {[field]: priorValue}.
-      const priorValue = snapshot[change.field];
-      configsRepo.update(change.agentConfigId, {
-        [change.field]: typeof priorValue === 'string' ? priorValue : null,
-      });
+    } else if (containsScopeBearingPayload(change)) {
+      // Legacy auto-scope snapshots replayed a whole field. Without an exact
+      // post-apply value they cannot distinguish safe rollback from clobbering
+      // a later operator edit, so they fail closed.
+      logger.warn(`[org-proposal-apply] refusing legacy whole-field scope revert for '${proposal.id}'`);
+      return 'unsafe-legacy-scope';
     } else if (proposal.kind === 'consolidate-skill' && isConsolidateSkillRevertSnapshot(snapshot)) {
       // #852 — restore BOTH skills to their exact pre-merge state: the
       // survivor's original body/status, and the retired skill's original

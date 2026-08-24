@@ -1,0 +1,157 @@
+{
+  "contract_id": "causal-runtime-v2",
+  "title": "Truthful pre-deployment causal experiment runtime and calibration",
+  "base_commit": "1a35f352a570645ada661bffc1227d4653761873",
+  "branch": "agent-stack/si-causal-runtime-v2",
+  "authority": "User-approved continuation of docs/ai/plans/2026-08-14-self-improvement-engine-foundation.md. This contract resolves the post-foundation gaps found by parent source review. It does not amend the campaign safety invariants.",
+  "target_loop": [
+    "eligible run episode starts",
+    "pre-run deterministic enrollment is reserved",
+    "baseline or candidate treatment is applied ephemerally and verified",
+    "the run executes under the exact treatment",
+    "a treatment-bound outcome and optional explicit feedback are recorded",
+    "the experiment remains collecting until its predeclared terminal rule is satisfied",
+    "a causal promote, regress, or terminal inconclusive decision is recorded",
+    "promoted risky proposals receive human review",
+    "the exact tested candidate is CAS-applied only if the target still matches the tested baseline",
+    "post-deployment outcomes feed a versioned calibration snapshot"
+  ],
+  "global_invariants": [
+    "No experiment may establish outcome_status=verified unless both cohorts contain valid, finalized treatment receipts bound to the exact experiment, proposal, run episode, profile, baseline revision, spec hash, and effective system-prompt hash.",
+    "No current A/A experiment can verify. Until treatment-v2 receipts exist, paired-cohort-outcome is fail-closed for promotion.",
+    "Enrollment happens before prompt dispatch and before treatment materialization, never at terminal finalization.",
+    "Only runs targeting the evidence bundle's exact profile are eligible. Do not enroll unrelated runs into the globally oldest experiment.",
+    "Exposure reservation and cap enforcement are atomic under SQLite and Postgres. Concurrent starts cannot exceed max_exposure.",
+    "Baseline receives the exact pre-change system prompt. Candidate receives the exact proposed system prompt. Neither cohort durably mutates AgentConfig, Skill, recipe, filesystem projection, or OpenCode global config.",
+    "The first shippable treatment family is system-prompt-v1 only: refine-config proposals whose strict configPatch targets field systemPrompt on the evidence bundle's exact AgentConfig. All other kinds remain non-verifying/human-only until a separate adapter exists.",
+    "The tested target is exact-state bound. Any target revision/hash drift before enrollment, during treatment materialization, or before durable promotion makes the run ineligible or the promotion stale; it never falls back to current bytes.",
+    "Empty or undersized cohorts are collecting, not a terminal inconclusive decision. Interim results remain recomputable and must not be written into immutable final result columns.",
+    "Terminal inconclusive is permitted only for a predeclared terminal cause: max exposure reached without enough valid observations, unavailable/invalid evidence or metric, treatment integrity failure that exhausts the experiment, or a typed guardrail stop.",
+    "Experiment guardrails are executable typed predicates from a closed registry. Free-text guardrail names never execute and can never establish verified.",
+    "Objective verdict and objective evidence must be internally consistent. A success verdict cannot be counted when its evidence is unknown or contradicts success.",
+    "Explicit user feedback remains append-only. If used as a metric, it uses a separate predeclared adapter and reports response-rate imbalance; it is never silently substituted for objective evidence.",
+    "Calibration is versioned by proposal kind, generator version, detector/fact family, metric adapter, and treatment adapter. Unknown/insufficient calibration remains uncalibrated and cannot authorize automatic mutation.",
+    "Deployment status and causal outcome status remain separate. An experiment can verify a proposed candidate while the durable target remains unchanged.",
+    "A verified candidate may be durably applied only through existing exact-revision CAS paths and only when the current target revision/hash equals the tested baseline. Risky changes remain human-gated.",
+    "Actor 0 remains the valid local-operator sentinel. Do not add a durable applying proposal status.",
+    "No live Rhythm or OpenCode database access, no production writes, no persistent servers, no external network calls, no merge to main, no GitHub push, and no dashboard writes from the builder session. Use in-memory/disposable fixtures only."
+  ],
+  "phases": [
+    {
+      "id": "C0",
+      "name": "Truthful verdict hotfix",
+      "required_behavior": [
+        "Introduce a nonterminal collecting evaluation result distinct from ExperimentDecision.",
+        "Empty baseline/candidate or cohorts below minSamplesPerCohort return collecting while total eligible exposure is below maxExposure.",
+        "judgeExperimentAsync does not record results_json, decision, decided_at, or proposal outcome_status for collecting evaluations.",
+        "When maxExposure is reached without enough valid observations, record a terminal inconclusive with the final eligible counts and explicit reason.",
+        "Temporarily make paired-cohort-outcome unable to establish verified until the treatment-v2 receipt filter in C2 is active. Regress and terminal inconclusive remain available when causally valid; synthetic A/A data never promotes.",
+        "Add focused tests that fail on the base commit and prove each behavior through the repository/optimizer wiring, not only a pure function."
+      ],
+      "commit": "fix(optimizer): keep unready experiments collecting"
+    },
+    {
+      "id": "C1",
+      "name": "Pre-run episode enrollment and atomic exposure reservation",
+      "required_behavior": [
+        "Add a dedicated experiment enrollment record with a stable runEpisodeId. Interactive executions use a per-prompt episode ID; scheduled runs use scheduledOccurrenceId; headless/delegated executions receive an explicit episode ID.",
+        "Persist reservation before prompt dispatch with experimentId, proposalId, profileId, cohort, assignment digest, baseline target revision/hash, treatment spec hash, reservedAt, and a nonterminal state.",
+        "Reserve atomically and uniquely per run episode. Enforce maxExposure in the same transaction. Implement SQLite and Postgres parity and fresh-bootstrap coverage.",
+        "Select only an undecided experiment whose evidence target exactly matches the run profile and whose treatment adapter supports its strict proposal shape. Use deterministic cohort assignment after eligibility filtering.",
+        "Remove terminal-time implicit enrollment. recordTerminalOutcome may resolve a preexisting enrollment only; it never invents one.",
+        "On dispatch failure finalize the reservation as treatment_failed with a safe error code and no raw prompt/output/tool arguments."
+      ],
+      "commit": "feat(optimizer): reserve experiment cohorts before runs"
+    },
+    {
+      "id": "C2",
+      "name": "Ephemeral system-prompt treatment and immutable receipt",
+      "required_behavior": [
+        "Create a closed ExperimentTreatmentAdapter registry. Ship system-prompt-v1 only.",
+        "system-prompt-v1 accepts only a strict refine-config configPatch with field=systemPrompt, exact AgentConfig target, string prior/current/candidate values, and matching evidence target revision/hash. Reject unsupported and extra/smuggled keys.",
+        "At prompt dispatch, baseline passes the exact baseline system prompt as an explicit run-scoped system override; candidate passes the exact candidate system prompt. This override must work even when the OpenCode agent name equals the target profile; do not omit it as a duplicate.",
+        "Do not write AgentConfig, managed profile files, skills, recipes, or OpenCode config during treatment.",
+        "Immediately before dispatch re-read and re-hash the durable target. Drift cancels the reservation and no prompt is sent under an unbound treatment.",
+        "Finalize an immutable treatment receipt only after the exact effective system override is constructed and handed to the real prompt dispatch boundary. Receipt includes spec/effective hashes and no raw prompt/system-prompt bytes.",
+        "Outcomes count only finalized receipts. Baseline and candidate receipts must prove distinct effective hashes for a non-no-op candidate; otherwise terminal integrity failure, never verified.",
+        "Re-enable promote for paired-cohort-outcome only through the receipt-filtered treatment-v2 path.",
+        "Add a live isolated sandbox test that starts real baseline and candidate runs through the public execution surface and proves distinct effective prompts without durable target mutation."
+      ],
+      "commit": "feat(optimizer): apply run-scoped experiment treatments"
+    },
+    {
+      "id": "C3",
+      "name": "Treatment-bound outcomes, executable metrics, and guardrails",
+      "required_behavior": [
+        "Outcomes reference runEpisodeId and enrollment/receipt identity. Populate profileId and configRevision/baseline revision from the pre-run enrollment rather than nullable terminal guesses.",
+        "Reject or exclude internally inconsistent objective verdict/evidence pairs from experiment metrics. Preserve the raw immutable row for audit but mark it unavailable for causal judgment.",
+        "Keep objective-success-rate fail closed: completed with unknown produced artifact is unknown, not success.",
+        "Add explicit-user-verdict-rate as a separate typed metric adapter using append-only feedback. Predeclare scoring and minimum response coverage; partial=0.5, success=1, failure=0. Report arm response rates and refuse promotion on material response-rate imbalance.",
+        "Replace free-text guardrail execution with a closed registry initially supporting terminal-error-rate and treatment-integrity-failure-rate. Unknown guardrails make declaration invalid.",
+        "Guardrail breach stops new enrollment atomically and records terminal regress/stop without mutating the durable target.",
+        "Do not expose raw prompts, outputs, tool arguments, secrets, or free-form feedback reasons in experiment result payloads."
+      ],
+      "commit": "feat(optimizer): bind causal outcomes and guardrails"
+    },
+    {
+      "id": "C4",
+      "name": "Fixed-horizon decision and tested-candidate promotion",
+      "required_behavior": [
+        "Use a fixed-horizon v2 stopping rule with minSamplesPerCohort, maxExposure, minimumEffect, and a predeclared confidence criterion. Interim evaluations only collect; do not repeatedly promote through optional stopping.",
+        "At the terminal horizon compute effect and uncertainty with a deterministic versioned implementation suitable for binary/bounded metrics. Persist analysisVersion and complete cohort/missingness/response summaries.",
+        "Detect sample-ratio mismatch, excessive missing outcomes, and treatment receipt mismatch; these block promotion.",
+        "A promote decision sets causal outcome_status=verified while deployment status stays proposed/approved as appropriate and target bytes remain unchanged.",
+        "Durable apply after verified must revalidate evidence, proposal bytes, tested baseline revision/hash, and tested candidate hash. Target drift returns conflict and requires a new experiment; it never applies a stale winner.",
+        "Risky kinds remain human-gated. system-prompt-v1 refine-config remains human-gated for durable apply even after verification.",
+        "Post-deployment measurement is monitoring, not the source of the original causal verdict. Regression uses the existing exact inverse/CAS safety path."
+      ],
+      "commit": "feat(optimizer): promote only tested causal winners"
+    },
+    {
+      "id": "C5",
+      "name": "Automatic evidence construction",
+      "required_behavior": [
+        "Add a normalized immutable behavioral fact record/view with stable factId, source session/event IDs, detector version, profile/config revision, fact family, evidence availability, and safe hashes/aggregate values only.",
+        "Proposal generators may propose a hypothesis but may not fabricate source IDs, target snapshots, counter-evidence, or calibration metadata.",
+        "A deterministic evidence builder fills exact target identity/revision/hash from durable state, selects source fact IDs, executes a typed counter-evidence search with recorded coverage, and emits proposal-evidence-v2.",
+        "No qualifying facts, incomplete counter-evidence coverage, missing target state, or unknown metric leaves the proposal unexperimentable/human-only rather than inventing evidence.",
+        "The operator declaration route accepts builder-produced bundles and may still accept explicit operator bundles after the same validation."
+      ],
+      "commit": "feat(optimizer): build evidence from durable facts"
+    },
+    {
+      "id": "C6",
+      "name": "Versioned calibration and operator/release surface",
+      "required_behavior": [
+        "Persist immutable calibration observations for generator/detector/kind/treatment/metric versions, initial confidence, human decision, experiment decision/effect, and post-deploy regression where available.",
+        "Create versioned calibration snapshots per homogeneous family. Insufficient data remains explicitly uncalibrated. Use calibration for ranking and review thresholds only; never bypass validation, risk policy, CAS, or human gates.",
+        "Expose deployment status and causal outcome separately in API summaries and desktop UI. Show collecting progress, eligible/missing counts, treatment integrity, guardrail status, experiment terminal reason, tested baseline/candidate hashes, and stale-before-apply conflicts without exposing content bytes.",
+        "Complete the approved-changes Revert tab and report-card summary on top of the independently reviewed UI branches only after reconciling them into this branch; do not edit their active worktrees.",
+        "Add feature flags so treatment-v2 and calibration can ship disabled. Default optimizer posture remains shadow until the live gate passes.",
+        "Run Node 22 API full suite/build/tsc, SQLite and disposable Postgres bootstrap tests, Flutter format/analyze/tests/build for touched UI, added-line security scan, isolated live sandbox baseline/candidate behavior, and a copied-real-data zero-mutation shadow test.",
+        "Update docs/ai/project-state.md and a dated run log with exact observed commands/results. Do not claim GitHub Actions, merge, or production release unless separately observed by the parent."
+      ],
+      "commit": "feat(optimizer): calibrate and surface causal improvements"
+    }
+  ],
+  "builder_protocol": [
+    "The builder implements exactly one parent-assigned phase at a time using strict RED-GREEN-REFACTOR.",
+    "The builder does not redesign the contract, ask product questions, delegate architecture, merge branches, push, or touch the dashboard.",
+    "When an implementation detail is ambiguous, choose the narrowest fail-closed behavior consistent with this contract and record it in the phase run note; do not broaden scope.",
+    "Each phase ends with a clean commit, focused tests, build/typecheck where applicable, git diff --check, and a concise residual-risk report. The parent independently verifies before assigning the next phase.",
+    "Use Node 22: export PATH=/opt/homebrew/opt/node@22/bin:$PATH.",
+    "Never access /Users/ajhochhalter/Library/Application Support/Rhythm/rhythm.db or /Users/ajhochhalter/.local/share/opencode/opencode.db."
+  ],
+  "ship_gate": [
+    "No path can write verified without valid treatment-v2 receipts from both cohorts.",
+    "Undersized experiments stay collecting and can later reach a terminal decision.",
+    "A real baseline/candidate run pair receives distinct bound effective system prompts while durable target bytes remain identical.",
+    "Concurrent run starts cannot over-enroll or exceed max exposure.",
+    "Only exact target-profile runs enroll.",
+    "Invalid, missing, stale, no-op, or mismatched specs/receipts fail closed.",
+    "Real outcome/feedback adapters and guardrails execute; unknown evidence is never treated as zero or success.",
+    "A verified candidate is applied only after exact tested-baseline CAS and human review; stale apply refuses.",
+    "Evidence builder and calibration operate without fabricated provenance or mutation authority.",
+    "All parent gates and fresh independent adversarial review pass at the final immutable head."
+  ]
+}

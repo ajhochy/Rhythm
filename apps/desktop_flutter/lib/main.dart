@@ -490,14 +490,24 @@ class _RhythmAppContent extends StatelessWidget {
               // not `managerAgent` — the catalog carries more than one manager
               // (e.g. the dev workflow-orchestrator / "Coding Workflow"), and
               // managerAgent returns the first, which is the wrong default.
-              managerAgentNameResolver: () =>
-                  cfgCtrl.secretaryAgent?.ocAgent ??
-                  cfgCtrl.managerAgent?.ocAgent,
+              managerAgentNameResolver: () {
+                final profiles = cfgCtrl.sessionSelectableAgents;
+                for (final profile in profiles) {
+                  if (profile.ocAgent == 'secretary') return profile.ocAgent;
+                }
+                return profiles.firstOrNull?.ocAgent;
+              },
               // #890: app-level "Default profile" override, read lazily so a
               // later change from the Agent Profile sheet takes effect on the
               // next createSession call without reconstructing the controller.
-              configuredDefaultAgentResolver: () =>
-                  defaultAgentProfileService.defaultOcAgent,
+              configuredDefaultAgentResolver: () {
+                final configured = defaultAgentProfileService.defaultOcAgent;
+                if (configured == null) return null;
+                return cfgCtrl.sessionSelectableAgents
+                        .any((profile) => profile.ocAgent == configured)
+                    ? configured
+                    : null;
+              },
             )..initialize();
             _maybeSeedDebugTrigger(controller);
             return controller;

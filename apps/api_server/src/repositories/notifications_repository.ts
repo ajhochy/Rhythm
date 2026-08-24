@@ -32,6 +32,31 @@ function rowToNotification(row: NotificationRow): Notification {
 }
 
 export class NotificationsRepository {
+  /**
+   * Insert a user-visible notification at most once for its stable semantic
+   * identity. The D4.6 partial unique index is the concurrency backstop: a
+   * repeated post-commit sweep cannot create a second regression alert.
+   */
+  async insertOnceAsync(dto: InsertNotificationDto): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `INSERT INTO notifications (recipient_user_id, type, entity_type, entity_id, message)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
+        [dto.recipientUserId, dto.type, dto.entityType, dto.entityId, dto.message],
+      );
+      return result.rows.length === 1;
+    }
+    const result = getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO notifications (recipient_user_id, type, entity_type, entity_id, message)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(dto.recipientUserId, dto.type, dto.entityType, dto.entityId, dto.message);
+    return result.changes === 1;
+  }
+
   async insertAsync(dto: InsertNotificationDto): Promise<void> {
     if (env.dbClient === 'postgres') {
       await getPostgresPool().query(
@@ -92,7 +117,7 @@ export class NotificationsRepository {
   markRead(id: number, userId: number): void {
     getDb()
       .prepare(
-        `UPDATE notifications SET read_at = datetime('now')
+        `UPDATE notifications SET read_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id = ? AND recipient_user_id = ?`,
       )
       .run(id, userId);
@@ -113,7 +138,7 @@ export class NotificationsRepository {
   markAllRead(userId: number): void {
     getDb()
       .prepare(
-        `UPDATE notifications SET read_at = datetime('now')
+        `UPDATE notifications SET read_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE recipient_user_id = ? AND read_at IS NULL`,
       )
       .run(userId);

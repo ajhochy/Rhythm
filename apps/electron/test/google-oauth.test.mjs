@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import {
   GOOGLE_DESKTOP_SCOPES,
@@ -9,6 +10,17 @@ import {
   withOAuthTimeout,
 } from '../src/google-oauth-core.mjs';
 import { runDesktopGoogleOAuth } from '../src/desktop-google-oauth.mjs';
+
+const mainSource = await readFile(new URL('../src/main.mjs', import.meta.url), 'utf8');
+
+test('desktop OAuth exchange uses Node fetch instead of Chromium net.fetch', () => {
+  assert.doesNotMatch(
+    mainSource,
+    /fetcher:\s*\(url, init\)\s*=>\s*net\.fetch/,
+    'Chromium net.fetch can hang in the macOS trust-store path after a successful loopback callback',
+  );
+  assert.match(mainSource, /fetcher:\s*\(url, init\)\s*=>\s*globalThis\.fetch/);
+});
 
 test('post-m1-auth-c1/c2: PKCE and authorization URL match Flutter', async () => {
   const pkce = await generatePkcePair();
@@ -90,4 +102,30 @@ test('post-m1-auth-c8: host binds loopback, opens externally, exchanges, and clo
   assert.match(openedUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?/);
   assert.equal(login.sessionToken, 'runtime-token');
   await assert.rejects(fetch(callbackUrl), /fetch failed/);
+});
+
+test('production repair: OAuth does not exchange or tear down until the browser confirmation response flushes', async () => {
+  let browserFinished = false;
+  let browserRequest;
+  const login = await runDesktopGoogleOAuth({
+    clientId: 'desktop-client',
+    apiBase: 'https://api.vcrcapps.com',
+    openExternal: async (authorizationUrl) => {
+      const url = new URL(authorizationUrl);
+      const redirectUri = url.searchParams.get('redirect_uri');
+      const state = url.searchParams.get('state');
+      browserRequest = fetch(`${redirectUri}?code=authorization-code&state=${encodeURIComponent(state)}`)
+        .then(async (response) => {
+          assert.equal(response.status, 200);
+          assert.match(await response.text(), /return to Rhythm/i);
+          browserFinished = true;
+        });
+    },
+    fetcher: async () => {
+      assert.equal(browserFinished, true, 'token exchange started before Chrome received the loopback response');
+      return new Response(JSON.stringify({ sessionToken: 'runtime-token', user: { id: 1, name: 'AJ', email: 'aj@example.test', role: 'admin' } }), { status: 200 });
+    },
+  });
+  await browserRequest;
+  assert.equal(login.sessionToken, 'runtime-token');
 });

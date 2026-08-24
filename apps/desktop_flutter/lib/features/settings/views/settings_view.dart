@@ -19,6 +19,7 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agents/views/mobile_access_dialog.dart';
 import '../controllers/settings_controller.dart';
 import '../widgets/semantic_memory_section.dart';
+import '../widgets/auto_promotion_settings_section.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -31,6 +32,7 @@ class _SettingsViewState extends State<SettingsView> {
   late final TextEditingController _urlController;
   bool _saving = false;
   bool _loadedPermissionsOnce = false;
+  bool _loadedAutoPromotionOnce = false;
 
   @override
   void initState() {
@@ -71,6 +73,13 @@ class _SettingsViewState extends State<SettingsView> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         context.read<SettingsController>().loadUsers();
+      });
+    }
+    if (!_loadedAutoPromotionOnce) {
+      _loadedAutoPromotionOnce = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<SettingsController>().refreshAutoPromotionState();
       });
     }
 
@@ -218,6 +227,8 @@ class _SettingsViewState extends State<SettingsView> {
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _AgentServerSection(),
+          const SizedBox(height: 24),
+          AutoPromotionSettingsSection(controller: settingsController),
           const SizedBox(height: 24),
           const MobileAccessSettingsSection(),
           const SizedBox(height: 24),

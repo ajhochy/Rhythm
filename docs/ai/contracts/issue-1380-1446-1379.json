@@ -1,0 +1,86 @@
+{
+  "issue": "1380,1446,1379",
+  "date": "2026-08-19",
+  "test_command": "npm run test:app-config && npx jest --runInBand tests/relay-offline-contract.test.ts tests/session-refresh-pinning.test.ts && node --test tests/contract/msp-004-atomic-open-session.test.mjs && cd ../api_server && npx vitest run src/__tests__/relay_uplink_client_contract.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1380-c1",
+      "text": "ITSAppUsesNonExemptEncryption=false present in the built app's Info.plist.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/app-config.test.mjs",
+      "status": "not_tested",
+      "reason": "not_tested — Expo introspection proved ITSAppUsesNonExemptEncryption=false, but inspecting a real built archive requires a production iOS build"
+    },
+    {
+      "criterion_id": "issue-1380-c2",
+      "text": "A fresh production TestFlight build reaches Ready to Test with no manual step.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "not_tested — requires a real production TestFlight build"
+    },
+    {
+      "criterion_id": "issue-1380-c3",
+      "text": "Confirm the exemption is accurate (standard/exempt encryption only) before shipping.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Source review found only OS HTTPS/TLS, OAuth PKCE, secure random identifiers/nonces, and OS credential storage; no proprietary or app-implemented encryption."
+    },
+    {
+      "criterion_id": "issue-1446-c1",
+      "text": "Every path that can throw/reject MacOfflineError consumes it through offline state handling rather than allowing an unhandled rejection.",
+      "mode": "unit",
+      "test": "apps/mobile/tests/relay-offline-contract.test.ts",
+      "status": "pass",
+      "reason": "Prewarm, post-prompt polling, stream-event refreshes, and safety polling now consume offline failures through the shared presence tracker."
+    },
+    {
+      "criterion_id": "issue-1446-c2",
+      "text": "Investigate asymmetric phone transcript latency and fix only if the cause is clearly in scope and low risk.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "The native async generator did not start its SSE fetch until five initial reads completed; stream consumption now starts immediately and those reads settle in the background. Device timing remains a smoke target."
+    },
+    {
+      "criterion_id": "issue-1379-c1",
+      "text": "From a cold app start over a representative remote gateway, first transcript open completes within the documented budget on the first user-visible attempt (no double 15s timeout).",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "not_tested — requires physical iPhone + remote gateway"
+    },
+    {
+      "criterion_id": "issue-1379-c2",
+      "text": "Exact-session pinning preserved during any background warmup/discovery.",
+      "mode": "unit",
+      "test": "apps/mobile/tests/session-refresh-pinning.test.ts",
+      "status": "pass",
+      "reason": "The passing contract asserts prewarm calls only /mobile-gateway/health and never a session route."
+    },
+    {
+      "criterion_id": "issue-1379-c2b",
+      "text": "Transparent retry remains inside a larger first-open budget, and relay warmup failures are classified as transient 504 responses rather than hard 502 responses.",
+      "mode": "integration",
+      "test": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs; apps/api_server/src/__tests__/relay_uplink_client_contract.test.ts",
+      "status": "pass",
+      "reason": "The first-open budget is 40 seconds, GET retries remain bounded, and uplink dispatch failures return retryable 504."
+    },
+    {
+      "criterion_id": "issue-1379-c3",
+      "text": "Physical-device evidence recorded (timings, before/after).",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "not_tested — requires physical iPhone + remote gateway"
+    }
+  ],
+  "not_tested": [
+    "issue-1380-c1",
+    "issue-1380-c2",
+    "issue-1379-c1",
+    "issue-1379-c3"
+  ]
+}

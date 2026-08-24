@@ -2,16 +2,19 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
-import type { PendingApproval } from '../gateway/approvals';
+import type { OrgProposal } from '../gateway/org-proposals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
 import type { CookbookRecipe } from '../gateway/cookbook';
 import type { ResearchProject as LiveResearchProject, ResearchProjectRun } from '../gateway/research';
 import type { AgentDesign } from '../gateway/designs';
+import type { SkillEntry } from '../gateway/skills';
+import type { Profile } from '../types';
 import { Icon } from '../icons';
 import { useFixtures } from '../store';
 import { FocusDialog } from './FocusDialog';
+import { profileAvatarLabel } from './Profiles';
 import { navigate } from './Shell';
 
 // Parses a JSON array field defensively — live rows always carry these as JSON text
@@ -543,21 +546,112 @@ function WebhooksTool() {
   </ToolFrame>;
 }
 
-type ManagedItem = { id: string; name: string; description: string; source: string; managed: boolean; body: string; score?: string; uses?: number };
+type ManagedItem = { id: string; name: string; description: string; source: string; managed: boolean; body: string };
 function ManagedCatalog({ kind }: { kind: 'skills' | 'playbooks' }) {
   const isSkills = kind === 'skills'; const title = isSkills ? 'Skills' : 'Playbooks'; const singular = isSkills ? 'skill' : 'playbook'; const base = isSkills ? '/opencode/skills' : '/opencode/commands'; const { notify } = useFixtures();
-  const [items, setItems] = useState<ManagedItem[]>(isSkills ? [{ id: 'verification', name: 'verification', description: 'Run evidence-backed checks before handoff.', source: 'managed', managed: true, body: '# Verification\n\nBuild, test, and report exact evidence.', score: '82', uses: 14 }, { id: 'research', name: 'research', description: 'Find and synthesize source-backed context.', source: 'org', managed: false, body: '# Research\n\nRead-only organization skill.', score: '76', uses: 9 }] : [{ id: 'review', name: 'review', description: 'Review the active project and report prioritized findings.', source: 'command', managed: true, body: 'Review $ARGUMENTS and cite the affected files.' }, { id: 'status', name: 'status', description: 'Summarize the current session state.', source: 'built-in', managed: false, body: 'Read-only built-in command.' }]);
-  const [selectedId, setSelectedId] = useState(items[0].id); const [query, setQuery] = useState(''); const [editing, setEditing] = useState<ManagedItem | 'new' | null>(null); const [deleting, setDeleting] = useState<ManagedItem | null>(null); const listRoute = isSkills ? `${base}?withMetadata=true` : base; const [trace, setTrace] = useState<Trace>({ method: 'GET', route: listRoute, detail: `${title} catalog loaded` }); const visible = items.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())); const selected = items.find((item) => item.id === selectedId) ?? items[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
-  const save = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const name = String(data.get('name')).trim(); const next = { id: name, name, description: String(data.get('description')), source: 'managed', managed: true, body: String(data.get('body')), score: isSkills ? '-' : undefined, uses: isSkills ? 0 : undefined }; if (editing === 'new') { setItems((current) => [...current, next]); setSelectedId(next.id); record('POST', base, `${singular} created with its exact managed content shape`); } else if (editing) { setItems((current) => current.map((item) => item.id === editing.id ? { ...item, ...next, id: editing.id, name: editing.name } : item)); record('PUT', `${base}/${encodeURIComponent(editing.name)}`, `${singular} content updated`); } setEditing(null); };
-  return <ToolFrame slug={kind} title={title} description={isSkills ? 'Search live engine skills, inspect source and measurement metadata, and author Rhythm-managed capabilities.' : 'Manage the custom slash commands that appear in the Agents composer.'} trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => { record(isSkills ? 'POST' : 'GET', isSkills ? '/system/refresh' : base, `${title} refreshed`); }} data-testid={`${kind}-refresh`}><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid={`${kind}-new`}><Icon name="plus" size={14} />New {singular}</button></>}>
+  const [items, setItems] = useState<ManagedItem[]>(isSkills ? [{ id: 'verification', name: 'verification', description: 'Fixture skill for deterministic UI checks.', source: 'fixture', managed: true, body: '# Verification\n\nFixture content only.' }, { id: 'research', name: 'research', description: 'Read-only fixture skill.', source: 'fixture', managed: false, body: '# Research\n\nFixture content only.' }] : [{ id: 'review', name: 'review', description: 'Review the active project and report prioritized findings.', source: 'command', managed: true, body: 'Review $ARGUMENTS and cite the affected files.' }, { id: 'status', name: 'status', description: 'Summarize the current session state.', source: 'built-in', managed: false, body: 'Read-only built-in command.' }]);
+  const [selectedId, setSelectedId] = useState(items[0].id); const [query, setQuery] = useState(''); const [editing, setEditing] = useState<ManagedItem | 'new' | null>(null); const [deleting, setDeleting] = useState<ManagedItem | null>(null); const listRoute = isSkills ? 'fixture://skills' : base; const [trace, setTrace] = useState<Trace>({ method: isSkills ? 'LOCAL' : 'GET', route: listRoute, detail: `${title} fixture loaded` }); const visible = items.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(query.toLowerCase())); const selected = items.find((item) => item.id === selectedId) ?? items[0]; const record = (method: string, route: string, detail: string) => { setTrace({ method, route, detail }); notify(detail); };
+  const save = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); const name = String(data.get('name')).trim(); const next = { id: name, name, description: String(data.get('description')), source: isSkills ? 'fixture' : 'managed', managed: true, body: String(data.get('body')) }; const route = isSkills ? `fixture://skills/${encodeURIComponent(name)}` : base; if (editing === 'new') { setItems((current) => [...current, next]); setSelectedId(next.id); record(isSkills ? 'LOCAL' : 'POST', route, `${singular} fixture created`); } else if (editing) { setItems((current) => current.map((item) => item.id === editing.id ? { ...item, ...next, id: editing.id, name: editing.name } : item)); record(isSkills ? 'LOCAL' : 'PUT', isSkills ? `fixture://skills/${encodeURIComponent(editing.name)}` : `${base}/${encodeURIComponent(editing.name)}`, `${singular} fixture updated`); } setEditing(null); };
+  return <ToolFrame slug={kind} title={title} description={isSkills ? 'Deterministic fixture skills for UI preview only. Switch to Live mode to inspect or edit the engine catalog.' : 'Manage the custom slash commands that appear in the Agents composer.'} trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => { record(isSkills ? 'LOCAL' : 'GET', listRoute, `${title} fixture refreshed`); }} data-testid={`${kind}-refresh`}><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid={`${kind}-new`}><Icon name="plus" size={14} />New {singular}</button></>}>
     {!isSkills && <div className="tool-notice"><Icon name="command" size={15} /><span>Managed playbooks appear as <strong>/slash commands</strong> in every session composer after refresh.</span></div>}
     <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search {kind}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${kind} by name or description…`} data-testid={`${kind}-search`} /></label><span>{visible.length} {kind}</span></div>
     {visible.length === 0 && <div className="tool-search-empty" data-testid={`${kind}-no-results`}><EmptyState title={`No ${kind} match`}>Try another term or clear the search to restore the full catalog.</EmptyState><button className="secondary-button" type="button" onClick={() => setQuery('')} data-testid={`${kind}-clear-search`}><Icon name="close" size={14} />Clear search</button></div>}
     {visible.length > 0 &&
-    <div className="tool-split"><aside className="tool-rail">{visible.map((item) => <button type="button" className={item.id === selected.id ? 'selected' : ''} key={item.id} onClick={() => { setSelectedId(item.id); record('GET', `${base}/${encodeURIComponent(item.name)}/content`, `${singular} content opened`); }} data-testid={`${kind}-item-${item.id}`}><strong>{isSkills ? item.name : `/${item.name}`}</strong><small>{item.source} · {item.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{isSkills ? selected.name : `/${selected.name}`}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid={`${kind}-edit`}><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid={`${kind}-delete`}><Icon name="delete" size={13} />Delete</button></div>}</header>{isSkills && <dl className="tool-properties"><div><dt>Capabilities</dt><dd>Files · verification · scoped shell</dd></div><div><dt>Post score</dt><dd>{selected.score ?? 'Not measured'}</dd></div><div><dt>Uses</dt><dd>{selected.uses ?? 0}</dd></div><div><dt>Source</dt><dd>{selected.source}</dd></div></dl>}<pre className="managed-body">{selected.body}</pre></section></div>
+    <div className="tool-split"><aside className="tool-rail">{visible.map((item) => <button type="button" className={item.id === selected.id ? 'selected' : ''} key={item.id} onClick={() => { setSelectedId(item.id); record(isSkills ? 'LOCAL' : 'GET', isSkills ? `fixture://skills/${encodeURIComponent(item.name)}` : `${base}/${encodeURIComponent(item.name)}/content`, `${singular} fixture opened`); }} data-testid={`${kind}-item-${item.id}`}><strong>{isSkills ? item.name : `/${item.name}`}</strong><small>{item.source} · {item.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{isSkills ? selected.name : `/${selected.name}`}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid={`${kind}-edit`}><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid={`${kind}-delete`}><Icon name="delete" size={13} />Delete</button></div>}</header><pre className="managed-body">{selected.body}</pre></section></div>
     }
     <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? `New ${singular}` : `Edit ${singular}`} description={isSkills ? 'Managed skills are discovered through the engine store.' : 'The template is invoked from the composer as a slash command.'} testId={`${kind}-editor`} wide><form className="form-grid" onSubmit={save}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description : ''} /></label><label className="field span-2">{isSkills ? 'SKILL.md content' : 'Command template'}<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? editing.body : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid={`${kind}-save`}>Save</button></footer></form></FocusDialog>
-    <ConfirmDialog open={Boolean(deleting)} title={`Delete ${title.slice(0, -1)}`} description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed ${singular} from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record('DELETE', `${base}/${encodeURIComponent(deleting.name)}`, `${singular} deleted`); setSelectedId(items.find((item) => item.id !== deleting.id)?.id || ''); setDeleting(null); }} testId={`${kind}-delete-dialog`} />
+    <ConfirmDialog open={Boolean(deleting)} title={`Delete ${title.slice(0, -1)}`} description={deleting ? `Delete “${deleting.name}” from this ${isSkills ? 'fixture' : 'catalog'}?` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (!deleting) return; setItems((current) => current.filter((item) => item.id !== deleting.id)); record(isSkills ? 'LOCAL' : 'DELETE', isSkills ? `fixture://skills/${encodeURIComponent(deleting.name)}` : `${base}/${encodeURIComponent(deleting.name)}`, `${singular} fixture deleted`); setSelectedId(items.find((item) => item.id !== deleting.id)?.id || ''); setDeleting(null); }} testId={`${kind}-delete-dialog`} />
+  </ToolFrame>;
+}
+
+function LiveSkillsTool() {
+  const gateway = useGateway();
+  const { notify } = useFixtures();
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [query, setQuery] = useState('');
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [content, setContent] = useState('');
+  const [editing, setEditing] = useState<SkillEntry | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<SkillEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/opencode/skills?withMetadata=true', detail: 'Loading live skill catalog' });
+  const visible = skills.filter((skill) => `${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(query.toLowerCase()));
+  const selected = visible.find((skill) => skill.name === selectedName) ?? visible[0] ?? null;
+
+  const load = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const next = await gateway.domains.skills!.list(true);
+      setSkills(next);
+      setSelectedName((current) => (current && next.some((skill) => skill.name === current) ? current : (next[0]?.name ?? null)));
+      setTrace({ method: 'GET', route: '/opencode/skills?withMetadata=true', detail: `${next.length} live skills loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Skill catalog failed to load'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selected) { setContent(''); setContentLoading(false); setContentError(null); return; }
+    let active = true;
+    setContent('');
+    setContentError(null);
+    setContentLoading(true);
+    gateway.domains.skills!.content(selected.name)
+      .then((next) => { if (active) setContent(next.content); })
+      .catch((err) => { if (active) setContentError(err instanceof Error ? err.message : 'Skill content failed to load'); })
+      .finally(() => { if (active) setContentLoading(false); });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.name]);
+
+  const refresh = async () => {
+    try {
+      await gateway.domains.skills!.reload();
+      setTrace({ method: 'POST', route: '/system/refresh', detail: 'Engine skill catalog refreshed' });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Skill refresh failed'); }
+  };
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const name = String(data.get('name')).trim();
+    const input = { description: String(data.get('description') || '').trim() || undefined, content: String(data.get('body')) };
+    try {
+      if (editing === 'new') {
+        await gateway.domains.skills!.create({ name, ...input });
+        setTrace({ method: 'POST', route: '/opencode/skills', detail: `Managed skill ${name} created` });
+      } else if (editing) {
+        await gateway.domains.skills!.update(editing.name, input);
+        setTrace({ method: 'PUT', route: `/opencode/skills/${encodeURIComponent(editing.name)}`, detail: `Managed skill ${editing.name} updated` });
+      }
+      setEditing(null);
+      setSelectedName(name);
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Skill save failed'); }
+  };
+
+  const remove = async (skill: SkillEntry) => {
+    try {
+      await gateway.domains.skills!.remove(skill.name);
+      setTrace({ method: 'DELETE', route: `/opencode/skills/${encodeURIComponent(skill.name)}`, detail: `Managed skill ${skill.name} deleted` });
+      await load();
+    } catch (err) { notify(err instanceof Error ? err.message : 'Skill delete failed'); }
+    setDeleting(null);
+  };
+
+  return <ToolFrame slug="skills" title="Skills" description="Search the live engine skill catalog, inspect real metadata, and author Rhythm-managed capabilities." trace={trace} actions={<><button className="secondary-button compact" type="button" onClick={() => void refresh()} data-testid="skills-refresh"><Icon name="refresh" size={14} />Refresh</button><button className="primary-button" type="button" onClick={() => setEditing('new')} data-testid="skills-new"><Icon name="plus" size={14} />New skill</button></>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="skills-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {loading && <p role="status">Loading skills…</p>}
+    <div className="tool-filterbar"><label className="search-field"><Icon name="search" size={14} /><span className="sr-only">Search skills</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search skills by name or description…" data-testid="skills-search" /></label><span>{visible.length} skills</span></div>
+    {!loading && !error && visible.length === 0 && <EmptyState title="No managed skills found">Create a managed skill or refresh after adding one to the engine.</EmptyState>}
+    {selected && <div className="tool-split"><aside className="tool-rail">{visible.map((skill) => <button type="button" className={skill.name === selected.name ? 'selected' : ''} key={skill.name} onClick={() => setSelectedName(skill.name)} data-testid={`skills-item-${skill.name}`}><strong>{skill.name}</strong><small>{skill.source} · {skill.managed ? 'Managed' : 'Read only'}</small></button>)}</aside><section className="tool-detail"><header className="detail-header"><div><span className="kind-badge">{selected.source}</span><h2>{selected.name}</h2><p>{selected.description}</p></div>{selected.managed && <div className="row-actions"><button className="secondary-button compact" type="button" onClick={() => setEditing(selected)} data-testid="skills-edit"><Icon name="rename" size={13} />Edit</button><button className="text-danger-button" type="button" onClick={() => setDeleting(selected)} data-testid="skills-delete"><Icon name="delete" size={13} />Delete</button></div>}</header><dl className="tool-properties"><div><dt>Status</dt><dd>{selected.metadata?.status ?? 'Not measured'}</dd></div><div><dt>Version</dt><dd>{selected.metadata?.version ?? 1}</dd></div><div><dt>Post score</dt><dd>{selected.metadata?.postScore ?? 'Not measured'}</dd></div><div><dt>Uses</dt><dd>{selected.metadata?.uses ?? 'Not measured'}</dd></div></dl><pre className="managed-body" role={contentError ? 'alert' : undefined}>{contentError ?? (contentLoading ? 'Loading…' : content)}</pre></section></div>}
+    <FocusDialog open={Boolean(editing)} onClose={() => setEditing(null)} title={editing === 'new' ? 'New skill' : 'Edit skill'} description="Managed skills are discovered through the engine store." testId="skills-editor" wide><form className="form-grid" onSubmit={(event) => void save(event)}><label className="field">Name<input name="name" required data-autofocus defaultValue={editing && editing !== 'new' ? editing.name : ''} disabled={editing !== 'new'} /></label><label className="field">Description<input name="description" defaultValue={editing && editing !== 'new' ? editing.description ?? '' : ''} /></label><label className="field span-2">SKILL.md content<textarea name="body" required rows={8} defaultValue={editing && editing !== 'new' ? content : ''} /></label><footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="primary-button" type="submit" data-testid="skills-save">Save</button></footer></form></FocusDialog>
+    <ConfirmDialog open={Boolean(deleting)} title="Delete skill" description={deleting ? `Delete “${deleting.name}”? This removes the Rhythm-managed skill from the engine.` : ''} confirmLabel="Delete" onClose={() => setDeleting(null)} onConfirm={() => { if (deleting) void remove(deleting); }} testId="skills-delete-dialog" />
   </ToolFrame>;
 }
 
@@ -732,31 +826,37 @@ type Proposal = { id: string; title: string; kind: string; risk: string; rationa
 // post-m1-phase-5 c2b: the pending human-approval boundary (apps/api_server/src/controllers/agent_approvals_controller.ts:118-186)
 // is a single shared list — Review Queue must read it live, the same GET /agent-approvals the
 // originating transcript reads, never the seeded org-optimizer proposal fixtures below.
+const reviewStatuses = ['proposed', 'sandbox-running', 'sandbox-vetted', 'pending', 'approved', 'rejected', 'applied', 'measuring', 'active', 'reverted', 'failed'];
+const appliedStatuses = new Set(['applied', 'measuring', 'active', 'reverted']);
+
+function ToolSafetyDetails({ proposal }: { proposal: OrgProposal }) {
+  const safety = proposal.toolSafety;
+  if (!safety || safety.state !== 'ready') return <p className="tool-notice" role="status">Approval unavailable: tool safety projection is {safety?.state ?? 'missing'}.</p>;
+  return <section className="tool-safety-summary" aria-label="Tool safety summary"><h3>Tool safety review</h3><dl><div><dt>Verdict</dt><dd>{safety.verdict}</dd></div><div><dt>Tool</dt><dd>{safety.tool?.name} · {safety.tool?.packageSource}</dd></div><div><dt>Forbidden paths</dt><dd>{safety.forbiddenPathViolations?.map((entry) => `${entry.label} (${entry.count})`).join(', ') || 'None'}</dd></div><div><dt>Network hosts</dt><dd>{safety.networkCalls?.map((entry) => `${entry.host} (${entry.count})`).join(', ') || 'None'}</dd></div><div><dt>Workspace writes</dt><dd>{safety.workspaceWriteCount}</dd></div><div><dt>Credential attempts</dt><dd>{safety.credentialAccessAttemptsCount}</dd></div><div><dt>Scenarios</dt><dd>{safety.scenarioAttemptsCount}</dd></div><div><dt>Duration</dt><dd>{safety.sandboxDurationMs} ms</dd></div><div><dt>Reason</dt><dd>{safety.reason ?? 'None'}</dd></div></dl></section>;
+}
+
 function LiveReviewTool() {
   const gateway = useGateway();
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-approvals?status=pending', detail: 'Loading pending approvals' });
-
-  const load = async () => {
-    setError(null);
-    try {
-      const next = await gateway.domains.approvals!.listPending();
-      setApprovals(next);
-      setTrace({ method: 'GET', route: '/agent-approvals?status=pending', detail: `${next.length} approvals loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Approval list failed'); }
-  };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return <ToolFrame slug="review" title="Review Queue" description="Pending human-gated approvals, shared with the originating session transcript." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+  const [items, setItems] = useState<OrgProposal[]>([]); const [status, setStatus] = useState('proposed');
+  const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<{ proposal: OrgProposal; action: 'approve' | 'conditional' | 'reject' | 'revert' } | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-org-proposals?status=proposed', detail: 'Loading organization proposals' });
+  const load = async (nextStatus = status, clearError = true) => { setLoading(true); if (clearError) setError(null); try { const next = await gateway.domains.orgProposals!.list(nextStatus); setItems(next); setTrace({ method: 'GET', route: `/agent-org-proposals?status=${encodeURIComponent(nextStatus)}`, detail: `${next.length} proposals loaded` }); } catch (err) { setError(err instanceof Error ? err.message : 'Proposal list failed'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const approveable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' : proposal.status === 'proposed' || proposal.status === 'failed';
+  const rejectable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' || proposal.status === 'pending' : proposal.status === 'proposed';
+  const canApprove = (proposal: OrgProposal) => proposal.kind !== 'tool-install' || proposal.toolSafety?.state === 'ready' && ['safe', 'conditional'].includes(proposal.toolSafety.verdict);
+  const mutate = async () => { if (!confirmation) return; const { proposal, action } = confirmation; setConfirmation(null); let failed = false; try { if (action === 'approve' || action === 'conditional') await gateway.domains.orgProposals!.approve(proposal.id, action === 'conditional'); if (action === 'reject') await gateway.domains.orgProposals!.reject(proposal.id); if (action === 'revert') await gateway.domains.orgProposals!.revert(proposal.id); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Proposal update failed'); } await load(status, !failed); };
+  const title = confirmation?.action === 'conditional' ? 'Approve conditional tool install?' : confirmation?.action === 'approve' ? 'Approve proposal?' : confirmation?.action === 'reject' ? 'Reject proposal?' : 'Revert applied change?';
+  const description = confirmation?.action === 'conditional' ? 'This tool install is conditional. Confirm that you explicitly approve the closed safety review above.' : 'The server remains authoritative. The queue will refresh after this decision.';
+  return <ToolFrame slug="review" title="Review Queue" description="Review organization proposals and their applied-change history." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    <div className="tool-filterbar"><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)} data-testid="review-filter">{reviewStatuses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><span>{items.length} {items.length === 1 ? 'proposal' : 'proposals'}</span></div>
+    {appliedStatuses.has(status) && <p className="tool-notice"><strong>Applied Changes</strong> · deployment history remains separate from measured outcome.</p>}
+    {loading && <p role="status">Loading proposals…</p>}
     {error && <section className="tool-state-panel error" role="alert" data-testid="review-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
-    <div className="proposal-grid" data-testid="review-list">{approvals.map((approval) => <article className="proposal-card" key={approval.id} data-testid={`approval-${approval.id}`}>
-      <header><span className="kind-badge">{approval.status}</span></header>
-      <h2>{approval.action}</h2>
-      {approval.preview && <p>{approval.preview}</p>}
-      {approval.consequence && <p className="tool-notice"><Icon name="background" size={14} /><span>{approval.consequence}</span></p>}
-    </article>)}</div>
-    {approvals.length === 0 && !error && <EmptyState title="Nothing waiting for review">Approvals raised by a live session will appear here.</EmptyState>}
+    <div className="proposal-grid" data-testid="review-list">{items.map((proposal) => <article className="proposal-card" key={proposal.id} data-testid={`proposal-${proposal.id}`}><header><span className="kind-badge">{proposal.kind}</span><span className={`risk-badge ${proposal.risk}`}>{proposal.risk} risk</span></header><h2>{proposal.title}</h2><p>{proposal.rationale ?? 'No rationale provided.'}</p><dl className="proposal-statuses"><div><dt>Deployment</dt><dd>{`Deployment: ${proposal.status}`}</dd></div><div><dt>Outcome</dt><dd>{`Outcome: ${proposal.outcomeStatus}`}</dd></div><div><dt>Created</dt><dd>{proposal.createdAt ?? 'Unknown'}</dd></div><div><dt>Updated</dt><dd>{proposal.updatedAt ?? 'Unknown'}</dd></div></dl>{proposal.experimentSummary && <div className="tool-notice experiment-summary"><strong>{proposal.experimentSummary.collectingProgress === 'no_experiment' ? 'No experiment' : proposal.experimentSummary.collectingProgress[0].toUpperCase() + proposal.experimentSummary.collectingProgress.slice(1)} · {proposal.experimentSummary.eligibleCount} eligible · {proposal.experimentSummary.missingCount} missing</strong><span>Integrity: {proposal.experimentSummary.treatmentIntegrity} · Guardrails: {proposal.experimentSummary.guardrailStatus}</span>{proposal.experimentSummary.terminalReason && <span>Decision: {proposal.experimentSummary.terminalReason}</span>}{proposal.experimentSummary.staleBeforeApplyConflict && <span role="alert">Candidate is stale before apply.</span>}</div>}{proposal.kind === 'tool-install' && <ToolSafetyDetails proposal={proposal} />}<footer>{rejectable(proposal) && <button className="secondary-button" type="button" onClick={() => setConfirmation({ proposal, action: 'reject' })} data-testid={`proposal-reject-${proposal.id}`}>Reject</button>}{approveable(proposal) && <button className="primary-button" type="button" disabled={!canApprove(proposal)} title={!canApprove(proposal) ? 'A safe or conditionally safe closed tool-safety projection is required.' : undefined} onClick={() => setConfirmation({ proposal, action: proposal.kind === 'tool-install' && proposal.toolSafety?.verdict === 'conditional' ? 'conditional' : 'approve' })} data-testid={`proposal-approve-${proposal.id}`}>Approve</button>}{proposal.status === 'active' && <button className="danger-button" type="button" onClick={() => setConfirmation({ proposal, action: 'revert' })} data-testid={`proposal-revert-${proposal.id}`}>Revert</button>}</footer></article>)}</div>
+    {!loading && items.length === 0 && !error && <EmptyState title="Nothing waiting for review">Choose a proposal status to inspect its review or applied-change history.</EmptyState>}
+    <FocusDialog open={Boolean(confirmation)} onClose={() => setConfirmation(null)} title={title} description={description} testId={confirmation?.action === 'conditional' ? 'proposal-conditional-dialog' : confirmation?.action === 'revert' ? 'proposal-revert-dialog' : 'proposal-confirm-dialog'}><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirmation(null)}>Cancel</button><button className={confirmation?.action === 'revert' ? 'danger-button' : 'primary-button'} type="button" onClick={() => void mutate()} data-testid={confirmation?.action === 'conditional' ? 'proposal-conditional-confirm' : confirmation?.action === 'revert' ? 'proposal-revert-confirm' : 'proposal-confirm'}>Confirm</button></div></FocusDialog>
   </ToolFrame>;
 }
 
@@ -842,6 +942,19 @@ function EmailTool() {
 // (GET /agent-designs/:id/artifact) instead of just recording a fixture trace, and "Launch Creative
 // Media" seeds the new session from this design's own canonical `id` in the POST /agent-sessions
 // body — never a locally re-typed title/type/project summary.
+const imageArtifactTypes = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif']);
+const videoArtifactTypes = new Set(['mp4', 'webm', 'mov']);
+
+function DesignPreview({ design }: { design: AgentDesign }) {
+  const [failed, setFailed] = useState(false);
+  const type = design.artifactType?.toLowerCase() ?? '';
+  const previewUrl = design.thumbnailUrl ?? ((imageArtifactTypes.has(type) || videoArtifactTypes.has(type)) ? design.artifactUrl : null);
+  if (!failed && videoArtifactTypes.has(type) && design.artifactUrl) return <><video src={design.artifactUrl} poster={design.thumbnailUrl ?? undefined} muted preload="metadata" aria-hidden="true" onError={() => setFailed(true)} /><span>{design.artifactType}</span></>;
+  if (!failed && previewUrl) return <><img src={previewUrl} alt="" onError={() => setFailed(true)} /><span>{design.artifactType ?? 'unknown'}</span></>;
+  // ponytail: the API's thumbnailUrl is nullable, so rows without a real asset stay honest.
+  return <><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></>;
+}
+
 function LiveGalleryTool() {
   const gateway = useGateway();
   const { notify } = useFixtures();
@@ -883,7 +996,7 @@ function LiveGalleryTool() {
     {!error && designs.length === 0 && <EmptyState title="No creative artifacts yet">Generated images, documents, and interactive artifacts will collect here.</EmptyState>}
     {selected && <section className="gallery-detail" aria-live="polite" data-testid="gallery-detail"><span className="tool-icon"><Icon name={selected.artifactType === 'html' ? 'artifact' : 'gallery'} /></span><div><span className="eyebrow">Selected artifact</span><h2>{selected.title ?? selected.id}</h2><p>{selected.artifactType ?? 'unknown'} · {selected.provider ?? 'unknown provider'}</p></div></section>}
     <div className="design-grid" aria-label="Creative Media artifacts">{designs.map((design) => <article className={design.id === selected?.id ? 'selected' : ''} key={design.id} data-testid={`design-${design.id}`}>
-      <button className="design-preview" type="button" onClick={() => setSelectedId(design.id)} aria-label={`Select ${design.title ?? design.id}`}><Icon name={design.artifactType === 'html' ? 'artifact' : 'gallery'} size={28} /><span>{design.artifactType ?? 'unknown'}</span></button>
+      <button className="design-preview" type="button" onClick={() => setSelectedId(design.id)} aria-label={`Select ${design.title ?? design.id}`}><DesignPreview design={design} /></button>
       <h2>{design.title ?? design.id}</h2>
       <p>{design.provider ?? 'unknown provider'}</p>
       <footer>
@@ -905,12 +1018,50 @@ function GalleryTool() {
 
 function SettingsTool() {
   const [trace, setTrace] = useState<Trace>({ method: 'LOCAL', route: 'fixture://agent-settings', detail: 'Local runtime defaults loaded' });
-  return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Connected · local workspace</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
+  return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Fixture preview · not connected</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
+}
+
+function AutoPromotionSettings() {
+  const gateway = useGateway(); const [state, setState] = useState<Awaited<ReturnType<NonNullable<typeof gateway.domains.autoPromotion>['get']>> | null>(null);
+  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [confirm, setConfirm] = useState(false); const [submitting, setSubmitting] = useState(false);
+  const load = async (clearError = true) => { setLoading(true); if (clearError) setError(''); try { setState(await gateway.domains.autoPromotion!.get()); } catch (err) { setError(err instanceof Error ? err.message : 'Auto-promotion state could not be loaded'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const enabled = state?.state.autoPromotionEnabled ?? false; const canEnable = Boolean(state?.availability && state.state.autoPromotionEligible && state.state.totalRegressions === 0);
+  const submit = async () => { setConfirm(false); setSubmitting(true); setError(''); let failed = false; try { await gateway.domains.autoPromotion!.setEnabled(!enabled); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Auto-promotion update failed'); } await load(!failed); setSubmitting(false); };
+  return <section className="auto-promotion-card" aria-label="Auto-promotion" data-testid="auto-promotion"><header><div><h2>Auto-promotion</h2><p>Verified changes may be promoted automatically only when the organization is eligible.</p></div><span className={`kind-badge ${enabled ? 'active' : ''}`}>{enabled ? 'Enabled' : 'Disabled'}</span></header>{loading && <p role="status">Loading auto-promotion state…</p>}{error && <p role="alert">{error} <button className="text-button" type="button" onClick={() => void load()}>Retry</button></p>}{state && <dl className="property-list"><div><dt>Availability</dt><dd>{state.availability ? 'Available' : 'Unavailable'}</dd></div><div><dt>Eligibility</dt><dd>{state.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}</dd></div><div><dt>Verified changes</dt><dd>{state.state.totalVerified} / {state.state.trustThreshold}</dd></div><div><dt>Regressions</dt><dd>{state.state.totalRegressions}</dd></div>{state.state.enabledAt && <div><dt>Enabled</dt><dd>{state.state.enabledAt}</dd></div>}</dl>}<footer><button className={enabled ? 'danger-button' : 'primary-button'} type="button" disabled={submitting || loading || !enabled && !canEnable} title={!enabled && !canEnable ? 'Requires availability, eligibility, and zero regressions.' : undefined} onClick={() => setConfirm(true)} data-testid="auto-promotion-toggle">{enabled ? 'Disable' : 'Enable'}</button></footer><FocusDialog open={confirm} onClose={() => setConfirm(false)} title={enabled ? 'Disable auto-promotion?' : 'Enable auto-promotion?'} description={enabled ? 'Disable is an emergency stop. The server requires your explicit acknowledgement.' : 'Verified changes may be promoted automatically when eligibility is maintained.'} testId="auto-promotion-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirm(false)} data-testid="auto-promotion-cancel">Cancel</button><button className={enabled ? 'danger-button' : 'primary-button'} type="button" onClick={() => void submit()} data-testid="auto-promotion-confirm">Confirm</button></div></FocusDialog></section>;
+}
+
+function LiveSettingsTool() {
+  const gateway = useGateway();
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-configs', detail: 'Loading live agent configuration' });
+
+  const load = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const next = await gateway.domains.sessions!.profiles();
+      setProfiles(next);
+      setTrace({ method: 'GET', route: '/agent-configs', detail: `${next.length} agent profiles loaded` });
+    } catch (err) { setError(err instanceof Error ? err.message : 'Agent settings failed to load'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <ToolFrame slug="agent-settings" title="Agent settings" description="Live execution defaults from the configured agent profiles." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="agent-settings-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    {error && <section className="tool-state-panel error" role="alert" data-testid="agent-settings-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
+    {loading && <p role="status">Loading agent settings…</p>}
+    {!loading && !error && profiles.length === 0 && <EmptyState title="No agent profiles configured">Create an agent profile before starting a configured session.</EmptyState>}
+    <div className="tool-list">{profiles.map((profile) => <article className="tool-row settings-row" key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}</small></span>{profile.isDefault && <span className="kind-badge">Default</span>}</article>)}</div>
+    <AutoPromotionSettings />
+  </ToolFrame>;
 }
 
 export function ToolWorkspace({ slug }: { slug: string }) {
   const { sessionGatewayMode } = useFixtures();
   const live = sessionGatewayMode === 'live';
-  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': <SettingsTool /> };
+  const tools: Record<string, ReactNode> = { brain: live ? <LiveBrainTool /> : <FixtureBrainTool />, 'deep-research': live ? <LiveResearchTool /> : <ResearchTool />, tasks: live ? <LiveSchedulesTool /> : <FixtureSchedulesTool />, webhooks: <WebhooksTool />, skills: live ? <LiveSkillsTool /> : <ManagedCatalog key="skills" kind="skills" />, playbooks: live ? <LivePlaybooksTool /> : <ManagedCatalog key="playbooks" kind="playbooks" />, cookbook: live ? <LiveCookbookTool /> : <CookbookTool />, review: live ? <LiveReviewTool /> : <FixtureReviewTool />, 'report-card': live ? <LiveReportCardTool /> : <ReportCardTool />, email: <EmailTool />, gallery: live ? <LiveGalleryTool /> : <GalleryTool />, 'agent-settings': live ? <LiveSettingsTool /> : <SettingsTool /> };
   return <div key={slug} className="tool-route-boundary">{tools[slug] ?? (live ? <LiveBrainTool /> : <FixtureBrainTool />)}</div>;
 }

@@ -85,6 +85,16 @@ export function resolveOpencodeEnginePort(): number {
   return port;
 }
 
+/** Exact renderer origins inherited by the engine's CORS configuration. */
+export function resolveOpencodeCorsOrigins(raw = process.env.RHYTHM_LOCAL_RENDERER_ORIGINS): string[] {
+  if (!raw?.trim()) return [];
+  return [...new Set(raw.split(',').map((value) => value.trim()).filter(Boolean))];
+}
+
+export function buildOpencodeServerOptions(port: number, cors: string[]): { port: number; cors?: string[] } {
+  return cors.length > 0 ? { port, cors } : { port };
+}
+
 /** TCP port used by this api_server process's bundled opencode engine. */
 export const OPENCODE_ENGINE_PORT = resolveOpencodeEnginePort();
 
@@ -872,7 +882,9 @@ export class OpencodeClientService {
 
       const t5 = Date.now();
       clearTrustedMcpVerifier();
-      const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });
+      const corsOrigins = resolveOpencodeCorsOrigins();
+      const engineOptions = buildOpencodeServerOptions(OPENCODE_ENGINE_PORT, corsOrigins);
+      const { client, server } = await mod.createOpencode(engineOptions);
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 
       this.client = client;
@@ -1618,6 +1630,22 @@ export class OpencodeClientService {
   /**
    * Send a prompt to a session and wait for the full response.
    * Used for synchronous user input via the WS gateway.
+   *
+   * C2-C — `beforeDispatch` is the real prompt-dispatch boundary hook: the
+   * exact SDK request (including `opts.system`) is constructed FIRST, then
+   * `beforeDispatch` runs, then (and only then) the real SDK call fires. It
+   * exists so a caller (AgentRunner) can atomically commit an experiment
+   * treatment's dispatched-state transition + immutable receipt in the exact
+   * window between "the effective prompt is final" and "the model saw it" —
+   * never before (the prompt could still change) and never after (the model
+   * may already have run under an unrecorded treatment).
+   *
+   * If `beforeDispatch` throws, the error propagates to the caller UNCHANGED
+   * in shape (a plain closed Error, never the caller's raw error) and the SDK
+   * is never called — this method does not catch or swallow a hook failure
+   * into `null` the way a transport failure below is. Callers with no hook
+   * (the default — every existing call site) see byte-for-byte unchanged
+   * behavior.
    */
   async prompt(
     sessionId: string,
@@ -1625,18 +1653,30 @@ export class OpencodeClientService {
     model?: { providerID: string; modelID: string },
     directory?: string,
     opts?: Record<string, unknown>,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
+    const requestArgs = {
+      path: { id: sessionId },
+      body: {
+        model,
+        parts: [{ type: 'text' as const, text }],
+        ...(opts ?? {}),
+      },
+      ...(directory ? { query: { directory } } : {}),
+    };
+    if (beforeDispatch) {
+      try {
+        await beforeDispatch();
+      } catch {
+        logger.error(
+          `[OpencodeClientService] prompt beforeDispatch hook failed for session ${sessionId} — dispatch blocked, no SDK call made`,
+        );
+        throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
+      }
+    }
     try {
-      const raw = await this.client.session.prompt({
-        path: { id: sessionId },
-        body: {
-          model,
-          parts: [{ type: 'text', text }],
-          ...(opts ?? {}),
-        },
-        ...(directory ? { query: { directory } } : {}),
-      });
+      const raw = await this.client.session.prompt(requestArgs);
       if (raw.error || !raw.data) {
         logger.error(`[OpencodeClientService] prompt error for ${sessionId}:`, raw.error);
         return null;
@@ -1671,24 +1711,38 @@ export class OpencodeClientService {
     directory?: string,
     opts?: Record<string, unknown>,
     parts?: Array<import('@opencode-ai/sdk').PartInput>,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<boolean> {
     if (!this.client) return false;
+    // OPC-M4-1: use the caller-supplied parts array when present; otherwise
+    // fall back to a single text part so all existing call-sites are unchanged.
+    const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
+      ? parts
+      : [{ type: 'text', text }];
+    const requestArgs = {
+      path: { id: sessionId },
+      body: {
+        model,
+        parts: sdkParts,
+        ...(opts ?? {}),
+      },
+      ...(directory ? { query: { directory } } : {}),
+    };
+    // C2-C — same boundary contract as prompt() above: request constructed
+    // first, hook runs immediately before the real SDK call, a hook failure
+    // propagates unchanged and the SDK is never invoked.
+    if (beforeDispatch) {
+      try {
+        await beforeDispatch();
+      } catch {
+        logger.error(
+          `[OpencodeClientService] promptAsync beforeDispatch hook failed for session ${sessionId} — dispatch blocked, no SDK call made`,
+        );
+        throw new Error('OpencodeClientService: pre-dispatch hook failed — prompt not sent');
+      }
+    }
     try {
-      // OPC-M4-1: use the caller-supplied parts array when present; otherwise
-      // fall back to a single text part so all existing call-sites are unchanged.
-      const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
-        ? parts
-        : [{ type: 'text', text }];
-
-      const raw = await this.client.session.promptAsync({
-        path: { id: sessionId },
-        body: {
-          model,
-          parts: sdkParts,
-          ...(opts ?? {}),
-        },
-        ...(directory ? { query: { directory } } : {}),
-      });
+      const raw = await this.client.session.promptAsync(requestArgs);
       if (raw.error) {
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;

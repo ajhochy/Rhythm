@@ -27,6 +27,7 @@ import 'package:rhythm_desktop/features/agent_optimizer/data/org_proposals_data_
 import 'package:rhythm_desktop/features/agent_optimizer/models/org_proposal.dart';
 import 'package:rhythm_desktop/features/agent_optimizer/repositories/org_proposals_repository.dart';
 import 'package:rhythm_desktop/features/agent_optimizer/views/org_proposals_view.dart';
+import 'package:rhythm_desktop/app/core/errors/app_error.dart';
 
 // ---------------------------------------------------------------------------
 // Fake data source — the ONLY faked boundary. Everything above it (model,
@@ -46,13 +47,48 @@ class _FakeOrgProposalsDataSource extends OrgProposalsDataSource {
   String? failId;
 
   @override
-  Future<List<OrgProposal>> listProposed({String status = 'proposed'}) async =>
-      _proposals;
+  Future<List<OrgProposal>> listProposed({String status = 'proposed'}) async {
+    listCalls += 1;
+    final refreshed = refreshedProposals;
+    if (refreshed != null && _approveAttempted) return refreshed;
+    return _proposals;
+  }
+
+  /// If set, approve() throws the server's reconciliation conflict for this
+  /// id — the operation was durably recorded as unresolved, which is neither
+  /// success nor a retryable failure.
+  String? reconciliationId;
+
+  /// Rows the server would return on a re-read after a failed approve. The
+  /// controller re-reads because the server may have moved the row out of
+  /// `proposed` even though the approve did not succeed.
+  List<OrgProposal>? refreshedProposals;
+  int listCalls = 0;
+  bool _approveAttempted = false;
 
   @override
-  Future<OrgProposal> approve(String id, {int? decidedByUserId}) async {
+  Future<OrgProposal> approve(
+    String id, {
+    int? decidedByUserId,
+    bool conditionalToolSafetyConfirmation = false,
+  }) async {
+    _approveAttempted = true;
+    if (id == reconciliationId) {
+      // Exactly what assertOk builds from the server's 409 body: the code is
+      // what the client must discriminate on, never the prose.
+      throw AppError(
+        'Proposal $id: profile projection blocked; the proposal, target scope '
+        'and projected profile must be inspected before retrying',
+        code: 'RECONCILIATION_REQUIRED',
+        statusCode: 409,
+      );
+    }
     if (id == failId) {
-      throw Exception('Approve refused: missing security note');
+      throw AppError(
+        'Approve refused: missing security note',
+        code: 'BAD_REQUEST',
+        statusCode: 400,
+      );
     }
     lastApprovedId = id;
     final proposal = _proposals.firstWhere((p) => p.id == id);
@@ -121,6 +157,76 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('OrgProposalsView (REAL SURFACE)', () {
+    testWidgets(
+        'W1: a reconciliation outcome is not reported as a retryable failure, '
+        'and the queue re-reads', (tester) async {
+      // Bug this catches: the client treating the server's reconciliation
+      // conflict like any other approve failure — telling the operator to
+      // retry an operation that was durably recorded as unresolved, and
+      // leaving the row in the proposed queue after the server moved it out.
+      final dataSource = _FakeOrgProposalsDataSource([
+        _makeProposal(
+          id: 'rec1',
+          kind: 'prune-scope',
+          risk: 'high',
+          title: 'Prune an unused MCP scope',
+          rationale: 'Never invoked in the trailing window.',
+        ),
+      ])
+        ..reconciliationId = 'rec1'
+        ..refreshedProposals = <OrgProposal>[];
+      final controller = OrgProposalsController(
+        OrgProposalsRepository(dataSource),
+      );
+      await controller.refresh();
+
+      await tester.pumpWidget(await _buildApp(controller));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('approve-proposal-rec1')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.lastApproveNeedsReconciliation, isTrue);
+      expect(find.textContaining('Needs reconciliation'), findsOneWidget);
+      expect(find.textContaining('Proposal approved'), findsNothing);
+      expect(find.textContaining('Approve failed'), findsNothing);
+      // The server moved the row out of `proposed`; the queue must follow.
+      expect(dataSource.listCalls, greaterThan(1));
+      expect(controller.proposals, isEmpty);
+
+      controller.dispose();
+    });
+
+    testWidgets('W1: an ordinary approve failure still reads as retryable',
+        (tester) async {
+      final dataSource = _FakeOrgProposalsDataSource([
+        _makeProposal(
+          id: 'ord1',
+          kind: 'prune-scope',
+          risk: 'high',
+          title: 'Prune an unused MCP scope',
+          rationale: 'Never invoked in the trailing window.',
+        ),
+      ])
+        ..failId = 'ord1';
+      final controller = OrgProposalsController(
+        OrgProposalsRepository(dataSource),
+      );
+      await controller.refresh();
+
+      await tester.pumpWidget(await _buildApp(controller));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('approve-proposal-ord1')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.lastApproveNeedsReconciliation, isFalse);
+      expect(find.textContaining('Needs reconciliation'), findsNothing);
+      expect(find.textContaining('missing security note'), findsOneWidget);
+
+      controller.dispose();
+    });
+
     testWidgets(
         'issue-827-c1: lists proposed proposals with kind, risk, title, rationale, evidence toggle',
         (tester) async {

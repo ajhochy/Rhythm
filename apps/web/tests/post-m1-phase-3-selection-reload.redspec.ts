@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
 type RequestReceipt = { method: string; path: string };
+const cloudCors = {
+  'access-control-allow-origin': 'http://127.0.0.1:4176',
+  'access-control-allow-methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS',
+  'access-control-allow-headers': 'authorization,content-type',
+};
 
 // Canonical ProjectInstance/ProjectInstanceStep/ProjectMilestone shape:
 // apps/api_server/src/models/project_instance.ts:1-52. The Dashboard/Planner-side mocks above
@@ -18,8 +23,9 @@ const projectStepPlannerTask = { id: 'step-contract', title: 'Contract step', no
 
 async function mockedLivePage(page: Page, hash: string): Promise<RequestReceipt[]> {
   const receipts: RequestReceipt[] = [];
-  await page.route('http://127.0.0.1:4098/**', async (route) => {
+  const handleApi = async (route: import('@playwright/test').Route) => {
     const url = new URL(route.request().url());
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cloudCors });
     receipts.push({ method: route.request().method(), path: `${url.pathname}${url.search}` });
     const task = { id: 'task-contract', title: 'Contract task', notes: null, dueDate: null, scheduledDate: null, scheduledOrder: null, locked: false, status: 'open', sourceType: 'manual', sourceId: null, sourceName: null, ownerId: 1, priority: null, tags: [], energy: null, workspaceId: 1, isShared: false, collaborators: [], createdAt: '2026-08-15T00:00:00Z', updatedAt: '2026-08-15T00:00:00Z', preferredAgent: null };
     const body = url.pathname === '/health' ? { status: 'ok' }
@@ -30,8 +36,10 @@ async function mockedLivePage(page: Page, hash: string): Promise<RequestReceipt[
               : url.pathname === '/project-instances' ? [projectInstanceContract]
                 : url.pathname === '/project-instances/steps/step-contract' ? { ...projectStepContract, ...(route.request().method() === 'PATCH' ? JSON.parse(route.request().postData() || '{}') : {}) }
                   : [];
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-  });
+    await route.fulfill({ status: 200, headers: cloudCors, contentType: 'application/json', body: JSON.stringify(body) });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleApi);
+  await page.route('https://api.vcrcapps.com/**', handleApi);
   await page.route('http://127.0.0.1:4097/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"healthy":true}' }));
   await page.goto(`/#/${hash}`);
   await expect(page.getByRole('status', { name: 'Environment receipt' })).toContainText('Environment: Live');

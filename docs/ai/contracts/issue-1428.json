@@ -1,0 +1,106 @@
+{
+  "contract_id": "D1.3",
+  "issue": 1428,
+  "phase": "D1.3",
+  "parent_contract": "D1.2",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts",
+  "waiver": null,
+  "repair": {
+    "date": "2026-08-21",
+    "blocker": "Blocker D — the schema allowed 1-20 arbitrary strings in `testPrompts` (contradicting D1.2's closed-scenario contract and the track's no-raw-prompt rule), and never validated `toolName`/`packageSource` as safe shell-interpolation-bound identifiers before a sandbox run could ever be built from them.",
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-repair-tool-vetting.md",
+    "files_changed": [
+      "apps/api_server/src/services/tool_install_proposal_validator.ts (testPrompts now validated against the closed tool_test_scenarios.ts registry, exactly 2-3 unique entries; added toolName/packageSource safety checks via tool_install_safety.ts)",
+      "apps/api_server/src/services/__tests__/tool_install_proposal_validator.test.ts (fixture updated to closed scenario IDs; replaced the old count/length-bound test cases with 2-accepted/3-accepted/1-rejected/4-rejected/unknown-id-rejected-no-echo/duplicate-rejected/unsafe-toolName-no-echo/unsafe-packageSource-no-echo)"
+    ]
+  },
+  "repair_2": {
+    "date": "2026-08-21",
+    "authorized_by": "AJ (explicit, out-of-band authorization for a second repair loop after an independent agent — GPT — reproduced the same fail-closed invariant gap post-repair)",
+    "boundary_hardening": "The installMethod-rejection reason echoed the raw untrusted `change.installMethod` value verbatim (`change_json.installMethod '<value>' is not in...`) — the same untrusted-echo shape the 2026-08-21 repair above already fixed for `toolName`/`packageSource` but missed for `installMethod`. Repaired: the reason is now a fixed message plus the closed allowed-methods list only, never the submitted value.",
+    "commit": "see run note docs/ai/runs/2026-08-21-d1-final-verdict-repair.md",
+    "files_changed": [
+      "apps/api_server/src/services/tool_install_proposal_validator.ts (installMethod rejection reason no longer echoes `change.installMethod`)",
+      "apps/api_server/src/services/__tests__/tool_install_proposal_validator.test.ts (new case: 'rejects an unsupported installMethod without echoing the untrusted value back' — a secret-shaped installMethod string; asserts neither the raw value nor the embedded token appears in the reason)"
+    ]
+  },
+  "criteria": [
+    {
+      "criterion_id": "issue-1428-c1",
+      "text": "The `tool-install` kind is registered — `validateProposalChange` no longer refuses it as 'no re-validation is registered'.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('is a registered kind — validateProposalChange does not refuse it as unregistered')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c2",
+      "text": "A well-formed proposal (real evidence bound to the live target) is accepted.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('accepts a well-formed proposal with real evidence bound to the live target'; 'accepts test prompts that are typed strings within the size/count bounds')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c3",
+      "text": "Missing packageSource / installMethod are rejected by name (bundled with toolName/agentConfigId in one check).",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal missing toolName/packageSource/installMethod/agentConfigId')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c4",
+      "text": "Missing test prompts (absent, or an empty array) are rejected.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal missing testPrompts entirely'; 'rejects a proposal whose testPrompts is an empty array')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c5",
+      "text": "`testPrompts` is exactly 2 or 3 CLOSED scenario identifiers (never arbitrary/raw prompt strings, never fewer than 2, never more than 3, never a duplicate).",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('accepts exactly 2 closed scenario identifiers'; 'accepts exactly 3 closed scenario identifiers'; 'rejects a proposal naming only 1 scenario identifier'; 'rejects a proposal naming 4 scenario identifiers'; 'rejects a proposal with duplicated scenario identifiers'; 'rejects a proposal whose testPrompts entries are not typed as strings, without echoing the entry')",
+      "status": "pass",
+      "repair_note": "Previously this field accepted 1-20 ARBITRARY strings up to 4000 characters each — direct contradiction of D1.2's closed-scenario contract and the track's durable-state no-raw-prompt rule (an arbitrary string is, structurally, a place prompt text or a secret can be smuggled through). Repaired to a closed membership check against `tool_test_scenarios.ts` (shared with the D1.2 sandbox vetter) with an exact 2-3 count bound and a uniqueness check."
+    },
+    {
+      "criterion_id": "issue-1428-c6",
+      "text": "Rejection reasons never echo raw/unrecognised scenario identifier content back — only the offending index.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects an unknown/raw scenario string and never echoes it back' — a raw prompt-shaped string containing a fake secret-shaped token; asserts neither the raw string nor the embedded token appears in `result.reason`)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c7",
+      "text": "Allowed install methods are a CLOSED set, and the test-only `local-script` escape hatch (tool_sandbox_vetter.ts) is excluded in production. `toolName` is a safe executable identifier and `packageSource` a safe package identifier for the selected install method, validated BEFORE any runtime use, with rejection reasons that never echo the untrusted value.",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects installMethod values outside the closed production registry'; 'rejects the test-only local-script install method in a production proposal'; 'rejects an unsafe toolName without echoing it back'; 'rejects an unsafe packageSource without echoing it back')",
+      "status": "pass",
+      "repair_note": "Previously toolName/packageSource were checked only for non-empty-string presence — a value with shell metacharacters (e.g. `; rm -rf /`) would pass this validator and only be caught (if at all) deep inside the sandbox runtime's own defensive regex. Repaired by adding shared `isSafeToolName`/`isSafePackageSource` checks (tool_install_safety.ts, the SAME predicates the D1.2 sandbox vetter now uses) here at proposal-apply time, before a sandbox run can ever be attempted."
+    },
+    {
+      "criterion_id": "issue-1428-c8",
+      "text": "evidenceBundle presence + the shared C5/C6 shape validator both re-run, and the target ref/hash must equal what is computed fresh from the live agent profile right now (fabricated ref/hash/nonexistent agentConfigId all refused).",
+      "mode": "unit",
+      "test": "tool_install_proposal_validator.test.ts ('rejects a proposal missing an evidence bundle entirely'; 'rejects a proposal whose evidence bundle fails the C5/C6 shape validator'; 'rejects a proposal with a fabricated target hash...'; 'rejects a proposal with a fabricated target ref...'; 'rejects a proposal referencing a nonexistent agentConfigId')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1428-c9",
+      "text": "Focused + adjacent tests pass; typecheck + build pass.",
+      "mode": "unit",
+      "test": "npx vitest run src/services/__tests__/tool_install_proposal_validator.test.ts (21/21 after the 2026-08-21 repair, up from 16/16); 30 adjacent org-proposal/generator/contract test files (553 tests, 1 pre-existing skip) referencing org_proposal_apply_service.ts re-run unchanged and green; tsc --noEmit; npm run build",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "The sandbox-safety gate (a `tool_safety_reports` row with a passing verdict gating approval) — out of scope by the test file's own header comment; that is D1.4 (#1429), which will extend this same validator once the report exists.",
+    "Controller/route wiring for creating or approving a real `tool-install` proposal end-to-end (no generator exists yet for this kind, matching D1.1's precedent that model/validator phases land ahead of any generator)."
+  ],
+  "judgment_calls": [
+    "SUPERSEDED by the 2026-08-21 repair: `testPrompts` bounds are no longer '1-20 entries, ≤4000 chars each' — that shape directly contradicted D1.2's closed-scenario contract and the track's no-raw-prompt rule. Replaced with a closed-membership check against `tool_test_scenarios.ts` (shared with D1.2), exactly 2-3 unique entries, no length bound needed since an identifier's shape is fixed and enumerable.",
+    "Check ORDER inside `validateToolInstallChange` (post-repair): required-4-fields → toolName safety → packageSource safety → installMethod closed-set → evidenceBundle presence/shape → testPrompts closed-scenario shape/bounds → agentConfigId existence → target ref/hash fabrication check. The toolName/packageSource safety checks were inserted right after the presence check and before installMethod, since a proposal with an unsafe identifier should never be considered 'well-formed enough' to reach the sandbox-relevant checks; this does not change any pre-existing test's expected reason substring (all pre-repair fixtures use safe `example-tool`/`npm:example-tool` values).",
+    "Production install-method registry (`npm install`, `pip install`) intentionally excludes `tool_sandbox_vetter.ts`'s `local-script` TEST-ONLY escape hatch, per that module's own doc comment forward-referencing 'the production proposal validator in D1.3'.",
+    "No raw-prompt-persistence check beyond the validator's own reason strings: this module performs no database write and no console/logger call of any kind, so there is no additional persistence/logging surface to test directly — the invariant is upheld structurally (there is no longer any field capable of carrying prompt text at all, only closed scenario identifiers).",
+    "GitNexus `detect-changes` could not run against this worktree during either the original D1.3 pass or this repair pass: `gitnexus detect-changes --scope staged` errors with 'Multiple repositories indexed... specify with repo', and passing `--repo <this worktree's absolute path>` errors 'not found' against the full list of indexed repos (checked 2026-08-21). Recorded as UNKNOWN per the stale/no-symbol fallback, same posture as an absent index rather than a false 'no impact' claim."
+  ]
+}

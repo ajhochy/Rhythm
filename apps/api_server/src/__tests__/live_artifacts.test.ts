@@ -1,8 +1,9 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { createApp } from '../app';
@@ -15,6 +16,13 @@ import { UsersRepository } from '../repositories/users_repository';
 import { startTestServer } from './helpers/real_server';
 
 const bundle = { html: '<h1>Calendar</h1><script>evil()</script>', css: 'h1 { color: red }', js: 'window.calendar = true;' };
+// The afterEach below recursively wipes env.liveArtifactStorageDir, which defaults to the
+// cwd-relative `live-artifacts` path shared by every test file. Under vitest's parallel file
+// execution that deletes another file's fixtures mid-test, so own a private root and only ever
+// delete that. (Enforced for all files by the guard at the bottom of this file.)
+const storageRoot = path.join(tmpdir(), `av02-live-artifacts-${randomUUID()}`);
+const defaultStorageRoot = env.liveArtifactStorageDir;
+env.liveArtifactStorageDir = storageRoot;
 
 async function json(response: Response) {
   const text = await response.text();
@@ -38,7 +46,8 @@ describe('live artifacts (AV-02)', () => {
     ({ baseUrl, close } = await startTestServer(createApp()));
   });
 
-  afterEach(async () => { await close(); db.close(); await rm(env.liveArtifactStorageDir, { recursive: true, force: true }); });
+  afterEach(async () => { await close(); db.close(); await rm(storageRoot, { recursive: true, force: true }); });
+  afterAll(async () => { env.liveArtifactStorageDir = defaultStorageRoot; await rm(storageRoot, { recursive: true, force: true }); });
 
   async function header(userId: number) {
     const session = await sessions.createAsync(userId);
@@ -401,12 +410,20 @@ describe('live artifacts (AV-02)', () => {
     await rm(path.join(env.liveArtifactStorageDir, artifact.id), { recursive: true, force: true });
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(owner.id) });
+    const responseBody = await json(response);
     const logged = JSON.stringify(error.mock.calls);
     expect(response.status).toBe(500);
-    expect(JSON.stringify(await json(response))).not.toMatch(/state|bundles|ENOENT|\n\s+at\s/);
+    expect(responseBody).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Live artifact content unavailable' },
+    });
+    expect(JSON.stringify(responseBody)).not.toMatch(/\/state\/|\/bundles\/|ENOENT|\n\s+at\s|LIVE_ARTIFACT_STORAGE_DIR/);
     expect(logged).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
     expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'state', op: 'read', code: 'ENOENT' });
-    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(500);
+    const renderResponse = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    expect(renderResponse.status).toBe(500);
+    expect(await json(renderResponse)).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Live artifact content unavailable' },
+    });
     expect(JSON.stringify(error.mock.calls)).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
     expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'bundle', op: 'read', code: 'ENOENT' });
     error.mockRestore();
@@ -431,5 +448,28 @@ describe('live artifacts (AV-02)', () => {
     const tombstone = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(member.id) });
     expect(tombstone.status).toBe(410);
     expect(JSON.stringify(await json(tombstone))).toContain('artifact_deleted');
+  });
+});
+
+describe('live-artifact storage isolation (parallel-suite guard)', () => {
+  // Sibling-race precedent: helpers/real_server.ts. `env.liveArtifactStorageDir`
+  // defaults to a single cwd-relative path shared by every test file, and files
+  // that touch it recursively delete it between their own tests. Under vitest's
+  // parallel file execution one file's afterEach can wipe another file's
+  // fixtures mid-test (ENOTEMPTY on rmdir, 500 on a create landing in a
+  // directory being removed). The fix is per-file isolation, not serialisation,
+  // so this guard requires every test file that touches the storage dir to
+  // first point it at a private root it alone owns.
+  it('every test file touching the storage dir overrides it with a private root', () => {
+    const offenders = readdirSync(__dirname)
+      .filter((file) => file.endsWith('.test.ts'))
+      .filter((file) => {
+        const source = readFileSync(path.join(__dirname, file), 'utf8');
+        return (
+          source.includes('liveArtifactStorageDir') &&
+          !/env\.liveArtifactStorageDir\s*=/.test(source)
+        );
+      });
+    expect(offenders).toEqual([]);
   });
 });

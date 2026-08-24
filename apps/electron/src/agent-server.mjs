@@ -4,24 +4,15 @@
 // every renderer live-mode call previously assumed some OTHER process (usually
 // `tools/dev/sandbox.sh`) was already running api_server.
 //
-// Deliberately deviates from Flutter in exactly two places, both to avoid touching the REAL
-// production Flutter app's live state, never for convenience:
-//   - Ports: PORT=4098 / RHYTHM_OPENCODE_ENGINE_PORT=4097, not Flutter's 4001/4096 (default). This
-//     repo's own React/Electron gateway (apps/web/src/gateway/index.ts's validateLiveBase) hardcodes
-//     exactly 4098/4097 for every phase of this parity program — those are the ports THIS renderer
-//     is actually built to expect, not a throwaway sandbox convention. Using Flutter's 4001 would
-//     make this renderer refuse to treat its own spawned server as live at all.
-//   - DB_PATH: a dedicated `Rhythm-electron` Application Support directory, not Flutter's
-//     `~/Library/Application Support/Rhythm/rhythm.db`. Two independently-spawned processes writing
-//     to the SAME live SQLite file is a real corruption/data-loss risk to the user's actual
-//     production data — not a hypothetical, given tonight already had two unrelated data-loss
-//     incidents. Everything else (env var shape, health-check timings, orphan handling, graceful
-//     shutdown sequence, stderr capture) mirrors Flutter's Dart implementation field-for-field.
+// Production Electron is another client for the same local Rhythm runtime, not a permanent test
+// sandbox. It therefore discovers/reuses Flutter's canonical API/engine ports and local database.
+// Hermetic smoke runs remain isolated by their explicit RHYTHM_LIVE_* URLs plus isolated HOME and
+// RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { capabilityMaterial } from './human-approval-main-signer.mjs';
@@ -35,14 +26,16 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * @typedef {{ executable: string, args: string[], workingDir: string, mcpRolesDir: string | undefined }} ServerEntry
  */
 
-export const AGENT_SERVER_PORT = 4098;
-export const AGENT_SERVER_ENGINE_PORT = 4097;
+export const AGENT_SERVER_PORT = 4001;
+export const AGENT_SERVER_ENGINE_PORT = 4096;
 export const AGENT_SERVER_BASE_URL = `http://127.0.0.1:${AGENT_SERVER_PORT}`;
 const SANDBOX_MARKER = '--rhythm-sandbox=';
 
 /** apps/desktop_flutter/lib/app/core/server/api_server_service.dart:487-501 — GUI apps on macOS
  * launch with a minimal PATH, so a bare `which node` misses Homebrew/nvm installs. */
-export async function findNode() {
+export async function findNode(executablePath = process.execPath) {
+  const bundledNode = resolve(dirname(dirname(executablePath)), 'Resources/node/bin/node');
+  if (existsSync(bundledNode)) return bundledNode;
   for (const candidate of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
     if (existsSync(candidate)) return candidate;
   }
@@ -56,19 +49,21 @@ export async function findNode() {
   return null;
 }
 
-/** api_server_service.dart:548-590, simplified: apps/electron does not yet bundle its own copy of
- * api_server into a packaged .app (package-mac.mjs copies only apps/electron's own sources + the
- * built web bundle), so only the dev-mode branch — find `apps/api_server` by walking up from this
- * file — can ever actually resolve today. The bundled-path check is kept for structural parity and
- * so this starts working for free the day api_server bundling is added to package-mac.mjs.
+/** api_server_service.dart:548-590: prefer the detached production payload, otherwise walk up to
+ * source only for development. A packaged Rhythm executable fails closed when its payload is
+ * missing instead of accidentally depending on a nearby checkout.
  * @param {string} nodePath
+ * @param {string} executablePath
  * @returns {ServerEntry | null}
  */
-export function findServerEntry(nodePath) {
-  const packagedCandidate = resolve(electronRoot, '../../Resources/api_server/dist/server.js');
+export function findServerEntry(nodePath, executablePath = process.execPath) {
+  const resourcesDir = resolve(dirname(dirname(executablePath)), 'Resources');
+  const packagedApiServer = resolve(resourcesDir, 'api_server');
+  const packagedCandidate = resolve(packagedApiServer, 'dist/server.js');
   if (existsSync(packagedCandidate)) {
-    return { executable: nodePath, args: [packagedCandidate], workingDir: dirname(packagedCandidate), mcpRolesDir: resolve(dirname(packagedCandidate), '../.mcp-roles') };
+    return { executable: nodePath, args: [packagedCandidate], workingDir: packagedApiServer, mcpRolesDir: resolve(packagedApiServer, '.mcp-roles') };
   }
+  if (basename(executablePath) === 'Rhythm') return null;
   let candidate = electronRoot;
   for (let depth = 0; depth < 12; depth += 1) {
     const apiServerDir = resolve(candidate, 'apps/api_server');
@@ -84,7 +79,7 @@ export function findServerEntry(nodePath) {
 }
 
 function dbPath() {
-  const supportDir = join(homedir(), 'Library/Application Support/Rhythm-electron');
+  const supportDir = join(homedir(), 'Library/Application Support/Rhythm');
   return join(supportDir, 'rhythm.db');
 }
 
@@ -102,6 +97,7 @@ export function buildEnvironment({ baseEnv, port, enginePort, dbPathValue, human
   env.RHYTHM_OPENCODE_ENGINE_PORT = String(enginePort);
   env.DB_PATH = dbPathValue;
   env.AGENT_LOCAL = 'true';
+  env.RHYTHM_LOCAL_RENDERER_ORIGINS = 'rhythm://app';
   env.HUMAN_APPROVAL_PUBLIC_KEY = humanApprovalPublicKey;
   env.HUMAN_APPROVAL_CAPABILITY_SHA256 = humanApprovalCapabilitySha256;
   if (mcpRolesDir && !env.MCP_ROLES_DIR) env.MCP_ROLES_DIR = mcpRolesDir;

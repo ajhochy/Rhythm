@@ -139,6 +139,12 @@ export interface RunGeneratorInput {
   maxResults?: number;
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
   proposalsRepo?: AgentOrgProposalsRepository;
+  /**
+   * The audit run that produced `gaps`. Stamped on every emitted proposal so
+   * the row is findable by the run that created it — without it the row is
+   * invisible to per-run reporting and to deleteRunProposals cleanup.
+   */
+  auditRunId: string;
 }
 
 export interface RunGeneratorResult {
@@ -260,6 +266,7 @@ export async function runExternalDiscoveryGenerator(
 
       // 4. Emit — risk='high', external=1 (issue-828-c3), never auto-applied.
       await proposalsRepo.createAsync({
+        auditRunId: input.auditRunId,
         kind: 'external-adoption',
         risk: 'high',
         external: 1,

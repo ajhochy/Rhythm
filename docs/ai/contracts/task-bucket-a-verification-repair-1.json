@@ -1,0 +1,41 @@
+{
+  "issue": "task-bucket-a-verification-repair-1",
+  "date": "2026-08-20",
+  "test_command": "cd apps/web && npx playwright test tests/gateway/gateway.spec.ts --workers=1 && npx playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts; cd ../electron && node --test test/production-api-security.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-bucket-a-verification-repair-1-c1",
+      "text": "Trusted alternate live bases are exact, distinct, unprivileged loopback HTTP URLs supplied by Electron runtime metadata or an explicit test-only Vite expectation.",
+      "mode": "integration",
+      "test": "apps/web/tests/gateway/gateway.spec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-verification-repair-1-c2",
+      "text": "Production API persistence rejects unauthorized or unsafe updates and writes the persisted config with mode 0600.",
+      "mode": "unit",
+      "test": "apps/electron/test/production-api-security.test.mjs",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-bucket-a-verification-repair-1-c3",
+      "text": "Rendered browser evidence proves profile, session, Gallery, Skills, and Settings repair behavior.",
+      "mode": "ui",
+      "test": "apps/web/tests/bucket-a-rendered-repair.spec.ts",
+      "status": "pass",
+      "reason": "Dedicated intercepted-live Playwright flow passes 5/5 and captures all five named screenshots."
+    },
+    {
+      "criterion_id": "task-bucket-a-verification-repair-1-c4",
+      "text": "Electron package tests sharing dist/Rhythm.app run serially.",
+      "mode": "integration",
+      "test": "apps/electron/package.json",
+      "status": "pass",
+      "reason": "npm test runs node --test with --test-concurrency=1; the serialized full suite passes 35/35."
+    }
+  ],
+  "not_tested": []
+}

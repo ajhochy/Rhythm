@@ -1,0 +1,60 @@
+{
+  "contract_id": "causal-runtime-v2-C5",
+  "phase": "C5",
+  "parent_contract": "docs/ai/contracts/issue-causal-runtime-v2.json",
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/models/__tests__/behavioral_fact.test.ts src/repositories/__tests__/agent_run_outcomes_repository.test.ts src/models/__tests__/proposal_evidence_bundle.test.ts src/services/__tests__/proposal_evidence_validator.test.ts src/services/__tests__/proposal_evidence_builder.test.ts src/__tests__/c5_evidence_builder_route_wiring.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "c5-1",
+      "text": "Add a normalized immutable behavioral fact record/view with stable factId, source session/event IDs, detector version, profile/config revision, fact family, evidence availability, and safe hashes/aggregate values only (no raw prompt/output/tool-argument content).",
+      "mode": "unit",
+      "test": "apps/api_server/src/models/__tests__/behavioral_fact.test.ts (describe: 'C5-1 behavioralFactFromRunOutcome')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c5-2",
+      "text": "Proposal generators may propose a hypothesis but may not fabricate source IDs, target snapshots, counter-evidence, or calibration metadata.",
+      "mode": "unit (architectural guard)",
+      "test": "apps/api_server/src/services/__tests__/proposal_evidence_builder.test.ts (describe: 'C5-2 no proposal generator fabricates evidence itself')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c5-3",
+      "text": "A deterministic evidence builder fills exact target identity/revision/hash from durable state, selects source fact IDs, executes a typed counter-evidence search with recorded coverage, and emits proposal-evidence-v2.",
+      "mode": "unit+integration",
+      "test": "apps/api_server/src/services/__tests__/proposal_evidence_builder.test.ts (describe: 'C5-3 builds a proposal-evidence-v2 bundle from real durable facts')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c5-4",
+      "text": "No qualifying facts, incomplete counter-evidence coverage, missing target state, or unknown metric leaves the proposal unexperimentable/human-only rather than inventing evidence.",
+      "mode": "unit+integration",
+      "test": "apps/api_server/src/services/__tests__/proposal_evidence_builder.test.ts (describe: 'C5-4 fail-closed: no qualifying facts, missing target state, unresolvable change')",
+      "status": "pass",
+      "note": "The 'incomplete counter-evidence coverage' and 'unknown metric' failure modes are real, reachable code paths (a caught ledger-read exception; a defensive KNOWN_METRIC_NAMES check mirroring guardrail_registry.ts's own posture) but are not independently unit-tested with a forced-failure injection this phase — both are structurally identical in shape to the tested 'missing target state' fail-closed return and use the same EvidenceBuildResult contract, so a regression in either would show the same shape of failure the tested paths already cover."
+    },
+    {
+      "criterion_id": "c5-5",
+      "text": "The operator declaration route accepts builder-produced bundles and may still accept explicit operator bundles after the same validation.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/c5_evidence_builder_route_wiring.test.ts (describe: 'C5-5 declareExperiment builds evidence automatically when none is supplied')",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [
+    "A forced ledger-read-failure injection proving the 'incomplete counter-evidence coverage' fail-closed branch specifically (see c5-4 note) — the branch exists and is reachable, but no test drives a thrown listByProfileAsync to hit it directly this phase.",
+    "The 'unknown metric' defensive branch in proposal_evidence_builder.ts is unreachable with today's closed KNOWN_METRIC_NAMES registry (same as guardrail_registry.ts's own defensive checks) — kept real rather than assumed, per that module's established style, but not independently exercised."
+  ],
+  "judgment_calls": [
+    "Requirement 1 ('normalized immutable behavioral fact record/view') is satisfied as a VIEW, not a new table — the contract's own wording explicitly allows this. AgentRunOutcome (W4) is already the normalized, immutable, safe-aggregate-only ledger row this requirement describes (stable id, source session identity, profileId/configRevision, no raw content by construction); behavioral_fact.ts is a pure projection function over it, not a second store to keep in sync. factFamily ('run-outcome-v1') and detectorVersion ('run-outcome-finalizer-v1') are closed/fixed constants today because exactly one detector (the deterministic run-outcome finalizer) produces facts — a second family/detector version is added, never repurposed, the day a second detector exists.",
+    "The evidence builder is scoped to 'refine-config' (system-prompt-v1) proposals ONLY, matching the parent contract's own global invariant that system-prompt-v1 is 'the first shippable treatment family... All other kinds remain non-verifying/human-only until a separate adapter exists.' Building v2 evidence for a kind with no experiment adapter at all would be evidence nothing could ever act on — refusing by name (requirement 4's 'unexperimentable/human-only') is the correct fail-closed behavior for every other kind, not a scope gap.",
+    "'Qualifying facts' (the hypothesis source) are defined as prior AgentRunOutcome rows for the target profile with terminalStatus='error' OR objectiveVerdict='failure' — real evidence the profile has an active problem. 'Counter-evidence' (contradictingCount) is the count of objectiveVerdict='success' rows for the SAME profile scan — evidence that would contradict 'this profile needs fixing.' MIN_QUALIFYING_FACTS=1 (ponytail: not a statistical minimum — the experiment's own C4 fixed-horizon stopping rule owns statistical sufficiency; this is only 'not fabricated out of thin air,' i.e. at least one real prior fact exists to justify the hypothesis at declaration time).",
+    "The counter-evidence search always scans the profile's ENTIRE ledger history (no artificial page/cap), so successful completion always records coverage=1 (a full, honest scan) rather than a partial-coverage number computed against an arbitrary sampling window. The ONLY way coverage is less than complete is the search failing to run at all (a caught DB read exception), which fails the whole build closed with an explicit 'incomplete counter-evidence coverage' reason rather than reporting a partial number. Chosen because self-improvement engine fact volumes per profile are small (this is not a high-traffic production table) — an artificial cap would need its own justification this phase does not need to invent.",
+    "'Typed counter-evidence search' is implemented as a new closed CounterEvidenceSearchMethod registry (today: only 'same-profile-ledger-scan') on proposal-evidence-v2 bundles, mirroring the exact established pattern of EXPERIMENT_ADAPTERS/GUARDRAIL_NAMES/KNOWN_METRIC_NAMES — an unrecognised method is a validator rejection, not silently accepted free text. This field (plus the new required `coverage`) is REQUIRED only on v2 bundles; v1 bundles (operator hand-typed, pre-existing) are validated exactly as before with no new required fields, so every existing v1 fixture across the test suite keeps passing unchanged.",
+    "toProfileTargetRef and buildProfileRevisionFingerprint (org_proposal_experiment_service.ts) were changed from module-private to exported, with no other change to their bodies — the evidence builder MUST produce target.ref/target.hash values that are byte-identical to what the experiment eligibility check (findEligibleExperiment) will later recompute and compare against; a second hand-written hash implementation would be a landmine the day the two drift. This is a pure visibility widening (zero behavior change to any existing caller) verified by a full tsc/build pass and the complete pre-existing C0-C4 regression suite for this file staying green.",
+    "Requirement 5's wiring adds exactly one fallback branch to declareExperiment: when the operator's request body omits `evidenceBundle` entirely (undefined/null), the route calls buildProposalEvidenceAsync and validates the result through the SAME validateEvidenceBundle call an explicit bundle already goes through — no new/looser validation path for builder-produced evidence. When the operator DOES supply evidenceBundle, behavior is byte-for-byte unchanged from before this phase (proven by a dedicated regression test and the full pre-existing C0-C4 declare-route test suite staying green).",
+    "GitNexus impact/context lookups for buildProfileRevisionFingerprint, toProfileTargetRef and declareExperiment returned 'not found' this phase (stale index for this worktree/branch) — proceeded on manual grep-based impact analysis instead (every call site of each symbol was located and read before editing) per AGENTS.md's fallback posture when the tool cannot resolve a symbol; flagging for the parent's attention rather than silently skipping the required check."
+  ]
+}

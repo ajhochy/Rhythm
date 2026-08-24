@@ -1,0 +1,16 @@
+{
+  "issue": "c6-production-calibration",
+  "date": "2026-08-20",
+  "test_command": "npx vitest run src/services/__tests__/org_proposal_experiment_service.test.ts src/services/__tests__/org_proposal_measure.test.ts src/__tests__/c6_calibration_observation.test.ts src/__tests__/c6_calibration_snapshot.test.ts src/__tests__/c6r_2_calibration_owner_scope.test.ts src/__tests__/c6_api_summary.test.ts src/__tests__/org_proposals_routes.test.ts src/__tests__/c6_calibration_boundaries.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "task-c6-calibration-c1", "text": "Record one immutable owner-scoped experiment-decision observation after decision and on retry without duplication.", "mode": "integration", "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-c6-calibration-c2", "text": "Skip observation when durable initial confidence or evidence versions are unavailable.", "mode": "integration", "test": "apps/api_server/src/services/__tests__/org_proposal_experiment_service.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-c6-calibration-c3", "text": "Record a separate post-deploy regression observation without changing the original observation or verified outcome.", "mode": "integration", "test": "apps/api_server/src/services/__tests__/org_proposal_measure.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-c6-calibration-c4", "text": "Calibration snapshots count only experiment-decision observations.", "mode": "unit", "test": "apps/api_server/src/__tests__/c6_calibration_snapshot.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-c6-calibration-c5", "text": "Proposal summaries expose owner-scoped calibration status and confidence.", "mode": "integration", "test": "apps/api_server/src/__tests__/c6_api_summary.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-c6-calibration-c6", "text": "Proposed proposals are stably ranked by calibrated confidence before uncalibrated proposals.", "mode": "integration", "test": "apps/api_server/src/__tests__/org_proposals_routes.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "task-c6-calibration-c7", "text": "Calibration never affects auto-apply, risk, promotion, CAS, authorization, or gate bypass.", "mode": "unit", "test": "apps/api_server/src/__tests__/c6_calibration_boundaries.test.ts", "status": "pass", "reason": "" }
+  ],
+  "not_tested": []
+}

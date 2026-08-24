@@ -153,8 +153,14 @@ describe('issue #1244 acceptance contract: task priority and tags', () => {
     );
 
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
-    await runPostgresBootstrap({ query } as unknown as Pool);
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
     const postgresSql = query.mock.calls
       .map(([statement]) => String(statement))
       .join('\n')

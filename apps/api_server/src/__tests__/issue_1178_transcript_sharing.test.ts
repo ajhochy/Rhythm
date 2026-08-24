@@ -60,7 +60,7 @@ describe('issue #1178 transcript sharing contracts', () => {
     app.use(transcriptShareCreationRouter);
     app.use('/shares', sharedTranscriptsRouter);
     app.use(errorHandler);
-    server = app.listen(0);
+    server = app.listen(0, '127.0.0.1');
     server.maxRequestsPerSocket = 1;
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();

@@ -64,32 +64,24 @@ function freshDb() {
 }
 
 /**
- * (a) AUTO-PATH REVERT — apply a low-risk prune-scope proposal, force the
- * functional guard to fail (the pruned tool turns out to be exercised), and
- * confirm the revert restores both the DB row (status='reverted', the
- * original before_snapshot_json retained) and the live agent_configs value.
+ * (a) AUTO-PATH REVERT — apply a genuinely low-risk refine-skill proposal,
+ * force its score guard to tie, and confirm the revert restores the durable
+ * row to status='reverted' while retaining the original before snapshot.
  */
 async function checkAutoPathRevert(): Promise<void> {
   freshDb();
-  const configsRepo = new AgentConfigsRepository();
-  const config = configsRepo.insert({
-    label: 'Secretary',
-    icon: 'mail',
-    allowedMcpsJson: JSON.stringify(['nfl_mcp', 'rhythm']),
-  });
-
   const proposalsRepo = new AgentOrgProposalsRepository();
   const proposal = await proposalsRepo.createAsync({
-    kind: 'prune-scope',
+    kind: 'refine-skill',
     risk: 'low',
-    title: 'Prune nfl_mcp (guard-check forced regression)',
-    targetRef: `agent_config:${config.id}`,
+    title: 'Refine skill body (guard-check forced tie)',
+    targetRef: 'skill:guard-check-example',
     changeJson: JSON.stringify({
-      agentConfigId: config.id,
-      field: 'allowedMcpsJson',
-      remove: ['nfl_mcp'],
+      skillName: 'guard-check-example',
+      priorBody: 'Existing precise body.',
+      revisedBody: 'Cosmetically different but no better body.',
     }),
-    dedupKey: 'guard-check:prune-scope:forced-regression',
+    dedupKey: 'guard-check:refine-skill:forced-tie',
   });
 
   const applied = await applyProposal(proposal);
@@ -104,9 +96,8 @@ async function checkAutoPathRevert(): Promise<void> {
   }
   const originalSnapshot = measuring.beforeSnapshotJson;
 
-  // Force the regression: the pruned tool WAS actually exercised.
   const outcome = await measureProposal(measuring, {
-    exercisedTools: async () => new Set(['nfl_mcp']),
+    scoreSkillBody: async () => ({ score: 60, reason: 'guard-check forced tie' }),
   });
   if (outcome !== 'reverted') {
     bad('auto-path-revert', `measureProposal expected 'reverted', got '${outcome}'`);
@@ -122,14 +113,8 @@ async function checkAutoPathRevert(): Promise<void> {
     bad('auto-path-revert', 'before_snapshot_json was not preserved through the revert transition');
     return;
   }
-  const restoredConfig = configsRepo.getById(config.id);
-  const restoredList = JSON.parse(restoredConfig?.allowedMcpsJson ?? '[]');
-  if (JSON.stringify(restoredList) !== JSON.stringify(['nfl_mcp', 'rhythm'])) {
-    bad('auto-path-revert', `live agent_configs.allowedMcpsJson not restored: got ${restoredConfig?.allowedMcpsJson}`);
-    return;
-  }
 
-  ok('auto-path-revert: status=reverted, before_snapshot_json preserved, live config restored');
+  ok('auto-path-revert: low-risk refine-skill reverted on tie with snapshot preserved');
 }
 
 const NEVER_AUTO_APPLY_KINDS = [
@@ -387,6 +372,7 @@ async function checkThinHistoryNoAutoAppliedTighten(): Promise<void> {
     deniedPairs,
     sessionCountByProfile,
     observationDaysByProfile,
+    { availability: 'available', canonicalPairs: new Set<string>(), unavailableProfileIds: new Set<string>() },
   );
 
   const thinGaps = gaps.filter((g) => g.evidence.includes(thinProfile.id));

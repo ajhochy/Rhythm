@@ -19,6 +19,7 @@ import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
+import '../models/run_outcome_feedback.dart';
 // AgentInfo is defined in chat_models.dart (OPC-M4-4).
 import '../repositories/agents_repository.dart';
 import 'pty_terminal_session.dart';
@@ -259,6 +260,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // succeeded). Lets the Changes tab distinguish an error state from an
   // empty-but-successful diff (acceptance criterion c3).
   final Map<String, String> _sessionDiffError = {};
+
+  // D3.2: Per-session run-outcome feedback (explicit_user verdict).
+  // Populated by fetchRunOutcomeFeedback(). An absent key means no fetch has
+  // happened yet; a present key with a null value means the fetch succeeded
+  // and the run has no outcome recorded yet (no feedback surface to show).
+  final Map<String, RunOutcomeFeedback?> _runOutcomeFeedbackBySession = {};
+  final Set<String> _runOutcomeFeedbackLoading = {};
+  final Set<String> _runFeedbackSubmitting = {};
+  final Map<String, String> _runFeedbackError = {};
 
   // OPC-M3-2: Per-session revert state.
   // true means the session currently has a revert applied (some messages are
@@ -686,6 +696,84 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Triggers a refetch for [sessionId] only — other sessions are unaffected.
   void handleSessionDiffEvent(String sessionId) {
     unawaited(fetchSessionDiff(sessionId));
+  }
+
+  /// D3.2 — This run's latest explicit-user verdict, or null when either no
+  /// fetch has happened yet or the run has no outcome recorded. Callers that
+  /// need to distinguish "not fetched" from "fetched, no outcome" should
+  /// check [runOutcomeFeedbackLoading] first.
+  RunFeedbackVerdict? currentRunVerdictFor(String sessionId) =>
+      _runOutcomeFeedbackBySession[sessionId]?.explicitUserVerdict;
+
+  /// D3.2 — True once a fetch has completed and found an outcome for
+  /// [sessionId] to attach feedback to (whether or not it carries a verdict
+  /// yet). False both before the first fetch and when the run has no
+  /// recorded outcome — in both cases there is nothing to show.
+  bool runOutcomeExistsFor(String sessionId) =>
+      _runOutcomeFeedbackBySession[sessionId] != null;
+
+  /// D3.2 — True while the initial outcome fetch is in-flight for [sessionId].
+  bool runOutcomeFeedbackLoading(String sessionId) =>
+      _runOutcomeFeedbackLoading.contains(sessionId);
+
+  /// D3.2 — True while a feedback submission is in-flight for [sessionId].
+  /// Drives the disabled/spinner state on the feedback buttons.
+  bool runFeedbackSubmitting(String sessionId) =>
+      _runFeedbackSubmitting.contains(sessionId);
+
+  /// D3.2 — Error message from the most recent feedback submission for
+  /// [sessionId], or null when the last submission succeeded (or none was
+  /// attempted).
+  String? runFeedbackErrorFor(String sessionId) => _runFeedbackError[sessionId];
+
+  /// D3.2 — Fetch this run's outcome + latest explicit-user verdict.
+  /// Safe to call multiple times; concurrent calls for the same session are
+  /// gated so only one HTTP round-trip is in-flight at a time.
+  Future<void> fetchRunOutcomeFeedback(String sessionId) async {
+    if (_runOutcomeFeedbackLoading.contains(sessionId)) return;
+    _runOutcomeFeedbackLoading.add(sessionId);
+    notifyListeners();
+    try {
+      final feedback = await _repository.fetchRunOutcomeFeedback(sessionId);
+      if (_disposed) return;
+      _runOutcomeFeedbackBySession[sessionId] = feedback;
+    } catch (_) {
+      // Non-fatal — an outcome fetch failing just means the feedback surface
+      // stays hidden (same as "no outcome yet"); the retry is the next tab
+      // visit, not a user-facing error toast for a section that isn't shown.
+      if (_disposed) return;
+    } finally {
+      _runOutcomeFeedbackLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// D3.2 — Submit [verdict] as this run's explicit-user feedback, with an
+  /// optional free-text [reason]. The server always appends a new event
+  /// rather than overwriting, so "changing" a verdict is just calling this
+  /// again with a different value. Returns true on success.
+  Future<bool> submitRunFeedback(
+    String sessionId,
+    RunFeedbackVerdict verdict, {
+    String? reason,
+  }) async {
+    _runFeedbackSubmitting.add(sessionId);
+    _runFeedbackError.remove(sessionId);
+    notifyListeners();
+    try {
+      await _repository.postRunFeedback(sessionId, verdict, reason: reason);
+      if (_disposed) return true;
+      _runOutcomeFeedbackBySession[sessionId] =
+          RunOutcomeFeedback(explicitUserVerdict: verdict);
+      return true;
+    } catch (e) {
+      if (_disposed) return false;
+      _runFeedbackError[sessionId] = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _runFeedbackSubmitting.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
   }
 
   /// #720 — Called when a `session.compacted` WS event arrives.
@@ -1936,19 +2024,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // yet OR has no authorized entries, pass null through to the repository
     // — the server will respond with 400 ('agent not configured') and we
     // surface that to the user verbatim (consistent with existing 4xx UX).
-    final resolvedAgentId = agentId ?? _resolveDefaultAgentIdForCreate() ?? '';
     // OPC-#713: signal that a create is in-flight so the view can show an
     // optimistic loading indicator while the SDK session spins up.
     _creating = true;
     notifyListeners();
     try {
+      final explicitRole = (mcpRole ?? '').trim();
+      final resolvedDefault = agentId == null && explicitRole.isEmpty
+          ? await _resolveDefaultAgentForCreate(cwd)
+          : null;
+      final resolvedAgentId = agentId ??
+          (explicitRole.isNotEmpty ? explicitRole : null) ??
+          resolvedDefault?.agentId;
       final session = await _repository.createSession(
         // #1365: persist the effective profile binding — an explicit profileId,
         // else the explicit/resolved default agent — so the session row is not
         // left Unassigned (which mobile would then display).
-        profileId:
-            profileId ?? (resolvedAgentId.isEmpty ? agentId : resolvedAgentId),
-        agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
+        profileId: profileId ?? resolvedDefault?.profileId ?? resolvedAgentId,
+        agentId: resolvedAgentId,
         taskId: taskId,
         cwd: cwd,
         name: name,
@@ -1992,35 +2085,44 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Picks the default agent for `createSession` callers that haven't chosen
-  /// one. Returns null when the catalog hasn't loaded yet or has no authorized
-  /// entries — caller surfaces an error in that case.
+  /// one. The loaded Agent Profiles are preferred; if that catalog is still
+  /// warming on a fresh install, the server's current available-agent catalog
+  /// is the authority. No profile slug is assumed to exist.
   ///
   /// #890: resolution order is
   ///   1. The app-level "Default profile" override from
   ///      [_configuredDefaultAgentResolver], IF it matches an `authorized`
   ///      catalog entry with a non-empty agent slug. An override pointing at
   ///      a since-removed/unauthorized profile is ignored (falls through).
-  ///   2. Secretary (#889) — the seeded default hub; delegates domain work to
-  ///      specialists and coding to the workflow-orchestrator.
-  ///   3. The first authorized catalog entry (#653).
-  String? _resolveDefaultAgentIdForCreate() {
-    // The default agent is an agent PROFILE (ocAgent, e.g. 'secretary'), which
-    // the server resolves — NOT a `_catalog` entry. `_catalog` lists only
-    // engine kinds (claude-code/codex/gemini-cli/opencode), so gating the
-    // profile default on catalog membership never matched and silently fell
-    // through to an engine kind (the #889/#890 bug). Return the profile
-    // directly instead.
-    // #890: the user-configured "Default profile" override wins.
+  ///   2. The first selectable profile resolved by AgentConfigsController.
+  ///   3. The first available profile returned by the server catalog.
+  Future<({String agentId, String? profileId})?> _resolveDefaultAgentForCreate(
+      String cwd) async {
     final override = _configuredDefaultAgentResolver?.call();
-    if (override != null && override.isNotEmpty) return override;
-    // #889: Secretary is the seeded product-default hub (always seeded), which
-    // then delegates domain work to specialists and coding to the
-    // workflow-orchestrator.
-    return _secretaryAgentSlug;
+    if (override != null && override.isNotEmpty) {
+      return (agentId: override, profileId: override);
+    }
+    final availableProfile = _managerAgentNameResolver?.call();
+    if (availableProfile != null && availableProfile.isNotEmpty) {
+      return (agentId: availableProfile, profileId: availableProfile);
+    }
+    try {
+      final agents = await _repository.fetchAvailableAgents(cwd: cwd);
+      for (final agent in agents) {
+        if (agent.profileAvailability == 'available' &&
+            agent.executionAgentId.isNotEmpty) {
+          return (
+            agentId: agent.executionAgentId,
+            profileId: agent.profileId,
+          );
+        }
+      }
+    } catch (_) {
+      // The create endpoint remains the final authority and surfaces its own
+      // user-facing validation error if the catalog is temporarily unavailable.
+    }
+    return null;
   }
-
-  /// Stable engine-agent slug for the Secretary manager profile (#888/#889).
-  static const String _secretaryAgentSlug = 'secretary';
 
   // ==========================================================================
   // Issue #653: client-owned composer drafts

@@ -24,6 +24,16 @@ export class AppError extends Error {
     return new AppError(409, 'CONFLICT', message);
   }
 
+  /**
+   * A durably-recorded unresolved operation. Distinct from CONFLICT on purpose:
+   * a conflict is retryable, this is not — the database, the target and the
+   * projected profile disagree and a human has to look. Clients must be able to
+   * tell them apart from a machine-readable code, not by matching prose.
+   */
+  static reconciliationRequired(message: string): AppError {
+    return new AppError(409, 'RECONCILIATION_REQUIRED', message);
+  }
+
   static forbidden(message = 'Forbidden'): AppError {
     return new AppError(403, 'FORBIDDEN', message);
   }

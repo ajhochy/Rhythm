@@ -11,7 +11,7 @@ import {
 } from 'ws';
 
 import { getDb } from '../database/db';
-import { resolveLiveArtifactStorageDir } from '../config/env';
+import { resolveRelayArtifactStorageDir } from '../config/env';
 import {
   initializeMobilePairingSchema,
 } from '../repositories/mobile_devices_repository';
@@ -513,7 +513,7 @@ export class RelayUplinkServer {
   }
 
   private async storeArtifact(frame: FileArtifactFrame): Promise<void> {
-    const storageDir = resolveLiveArtifactStorageDir();
+    const storageDir = resolveRelayArtifactStorageDir();
     await mkdir(storageDir, { recursive: true });
     await writeFile(
       join(storageDir, `${frame.artifactId}.meta.json`),

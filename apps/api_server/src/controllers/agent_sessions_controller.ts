@@ -186,7 +186,18 @@ const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 const mcpAppCapabilityBroker = new McpAppCapabilityBroker();
 
-import { gitCheckout, probeVcs } from '../services/vcs_probe';
+import { getPrimaryWorktreePath, gitCheckout, probeVcs } from '../services/vcs_probe';
+
+function resolveWorktreeEngineDirectory(session: {
+  projectId: string | null;
+  worktreePath: string | null;
+}): string | null {
+  if (!session.worktreePath) return null;
+  const projectCwd = session.projectId
+    ? new ProjectsRepository().findById(session.projectId)?.cwd
+    : null;
+  return projectCwd ?? getPrimaryWorktreePath(session.worktreePath) ?? session.worktreePath;
+}
 
 /**
  * Learn a session's actual model from opencode when the row never recorded one
@@ -1565,21 +1576,9 @@ export class AgentSessionsController {
 
       streamBridge.stopStream(session.id);
 
-      // OCU-17 (#1058) — optional worktree cleanup on hard delete. Default is
-      // KEEP the worktree (an explicit ?removeWorktree=true / body flag opts in).
-      // post-m1-p6-c4a: fail CLOSED — an explicit `false`/thrown failure from the
-      // engine must not be reported as a successful delete, and the local row
-      // (with its worktree identity) must be retained so the caller can retry.
       const removeWorktreeFlag =
         (req.query.removeWorktree === 'true') ||
         ((req.body as Record<string, unknown> | undefined)?.removeWorktree === true);
-      if (removeWorktreeFlag && session.worktreePath) {
-        const projectDir = session.projectId
-          ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
-          : session.worktreePath;
-        const ok = await opencodeClient.removeWorktree(projectDir, session.worktreePath);
-        if (!ok) throw new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree');
-      }
 
       // #1048 (OCU-07) — hard delete also removes the engine-side session so
       // messages/parts/snapshots don't leak forever. Engine delete is recursive
@@ -1597,6 +1596,15 @@ export class AgentSessionsController {
             `[AgentSessionsController] destroy: engine session delete failed for ${session.id} (${sdkSessionId}) — continuing local delete: ${String(err)}`,
           );
         }
+      }
+
+      // OCU-17 (#1058) — destructive cleanup remains opt-in. Delete the engine
+      // session while its cwd still exists, then remove the linked worktree.
+      // A failed worktree removal retains the local row and metadata for retry.
+      if (removeWorktreeFlag && session.worktreePath) {
+        const projectDir = resolveWorktreeEngineDirectory(session)!;
+        const ok = await opencodeClient.removeWorktree(projectDir, session.worktreePath);
+        if (!ok) throw new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree');
       }
 
       opencodeSessionMap.delete(session.id);
@@ -1626,9 +1634,7 @@ export class AgentSessionsController {
       if (!session.worktreePath) {
         throw AppError.badRequest('Session is not running in an isolated worktree');
       }
-      const projectDir = session.projectId
-        ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
-        : session.worktreePath;
+      const projectDir = resolveWorktreeEngineDirectory(session)!;
       const ok = await opencodeClient.resetWorktree(projectDir, session.worktreePath);
       if (!ok) return next(new AppError(502, 'WORKTREE_RESET_FAILED', 'engine failed to reset worktree'));
       res.json({ ok: true });
@@ -1650,9 +1656,7 @@ export class AgentSessionsController {
       if (!session.worktreePath) {
         throw AppError.badRequest('Session is not running in an isolated worktree');
       }
-      const projectDir = session.projectId
-        ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
-        : session.worktreePath;
+      const projectDir = resolveWorktreeEngineDirectory(session)!;
       const ok = await opencodeClient.removeWorktree(projectDir, session.worktreePath);
       if (!ok) return next(new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree'));
       repo.clearWorktree(session.id);

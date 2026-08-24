@@ -1,0 +1,113 @@
+{
+  "issue": "W1-corrective-3",
+  "generated": "2026-08-14",
+  "review_status": "failed-superseded-by-corrective-4",
+  "criteria": [
+    {
+      "criterion_id": "issue-W1-corrective-3-c1",
+      "text": "refine-scope allowedSkills/allowedMcps claim persistence failure via real SQLite trigger: prior bytes unchanged, proposal proposed, snapshot null, no profile file/write, no measurement.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "real SQLite trigger claim failure is mutation-free for $kind $field",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c2",
+      "text": "Same claim-first proof for corePermissionsJson and broaden-scope.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "real SQLite trigger claim failure is mutation-free for $kind $field",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c3",
+      "text": "Preparation via applyHumanProposal leaves DB/file untouched and returns versioned snapshot + exact change + callback.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "prepares $label without DB/file mutation and returns exact deferred state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c4",
+      "text": "CAS stale-target conflict after preparation preserves intervening bytes and no projection.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "refine-scope %s CAS miss preserves intervening bytes and skips projection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c5",
+      "text": "Actual writer return probes—not only thrown mocks—for blocked and failed on refine-scope allowlist and corePermissions: durable proposal remains applied with actor/exact change/versioned snapshot; DB compensated to exact prior when possible; no measuring/fire-and-forget. written and skipped succeed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "uses the actual writer return for refine-scope <field>: <result>",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c6",
+      "text": "Approval compensation miss: inject concurrent write before compensation; conflict, proposal applied, concurrent bytes preserved.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "preserves concurrent bytes when scope-state approval compensation loses after actual blocked projection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c7",
+      "text": "Behavioral failed rerun for refine-scope uses new snapshot and safely reverts; successful projection transitions per existing lifecycle.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "uses scope-state-v2 for a $rerunStatus behavioral rerun",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c8",
+      "text": "Revert actual writer blocked|failed: compensate restored->expected, return conflict, proposal state remains active/measuring; compensation miss preserves concurrent bytes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "uses actual <result> writer outcome when reverting refine-scope <field>",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c9",
+      "text": "Successful revert for allowed arrays and corePermissions restores exact prior bytes (including null/whitespace/object key order where producer accepts it).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "restores exact prior bytes for $label",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c10",
+      "text": "Tamper matrix: target, field, priorValue, expectedAppliedValue/hash, change hash, integrity hash, and live exact change JSON each fail before mutation/projection.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "rejects scope-state-v2 tampering of $label before mutation/projection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c11",
+      "text": "Legacy generic snapshots for allowedMcps, allowedSkills, and corePermissions all return unsafe-legacy-scope/no writes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "refuses a generic legacy %s snapshot without mutation or projection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c12",
+      "text": "Existing reserved identifiers, ordinary map keys, duplicate arrays, one-winner race, actor, PostgreSQL parameter order remain green.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "required 12-file corrective regression command",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-W1-corrective-3-c13",
+      "text": "Broaden-scope claim failure/projection failure cannot leave grant applied. If its status means route revert is unavailable, test revertProposal directly against its snapshot so the rollback primitive is proven.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "compensates a broaden-scope grant when the actual profile writer fails",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

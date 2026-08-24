@@ -108,7 +108,7 @@ export class AgentSessionMemoryProvenanceRepository {
       .prepare(
         `INSERT INTO agent_session_memory_provenance
            (session_id, memory_ids_json, note_paths_json, items_json, updated_at)
-         VALUES (?, ?, ?, ?, datetime('now'))
+         VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          ON CONFLICT(session_id) DO UPDATE SET
            memory_ids_json = excluded.memory_ids_json,
            note_paths_json = excluded.note_paths_json,

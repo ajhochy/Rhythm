@@ -1,4 +1,11 @@
-.pg-dashboard { height: 100%; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; color: var(--fg); background: color-mix(in oklab, var(--bg), var(--surface) 18%); }
+/* flex column, not a fixed-row-count grid: LiveDashboardPage has an extra always-visible quick-card
+   section between the toolbar and the scroll area that FixtureDashboardPage doesn't, so a grid with
+   a fixed grid-template-rows count silently mis-assigns rows for whichever variant doesn't match it
+   (the scrollable content lands in an auto-sized track meant for the footer, and everything after it
+   overlaps or misplaces) — previously invisible only because the container was too short to reveal
+   the mis-sizing. Flex naturally sizes any number of auto children to content and gives the one
+   flex:1 child (.dashboard-scroll) the remaining space regardless of how many siblings precede it. */
+.pg-dashboard { height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--fg); background: color-mix(in oklab, var(--bg), var(--surface) 18%); }
 .pg-dashboard .dashboard-toolbar { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 24px; border-bottom: 1px solid var(--border-soft); background: color-mix(in oklab, var(--surface), var(--bg) 8%); }
 .pg-dashboard .dashboard-heading { min-width: 0; }
 .pg-dashboard .dashboard-heading h1 { margin: 2px 0 0; font-size: clamp(20px, 2vw, 27px); line-height: 1.15; font-weight: 620; letter-spacing: -.025em; }
@@ -6,7 +13,7 @@
 .pg-dashboard .dashboard-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .pg-dashboard .dashboard-summary-chips { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 .pg-dashboard .dashboard-summary-chips > span { min-height: 32px; display: inline-flex; align-items: center; padding: 0 10px; border: 1px solid var(--border-soft); border-radius: var(--r-pill); color: var(--fg-2); background: var(--surface); font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pg-dashboard .dashboard-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 24px; scroll-padding-bottom: 150px; }
+.pg-dashboard .dashboard-scroll { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto; padding: 24px; scroll-padding-bottom: 150px; }
 .pg-dashboard .dashboard-state { width: min(100%, 720px); min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto; padding: 40px 24px; border: 1px solid var(--border-soft); border-radius: var(--r-lg); background: color-mix(in oklab, var(--surface), var(--bg) 6%); text-align: center; }
 .pg-dashboard .dashboard-state h2 { margin: 12px 0 4px; font-size: 20px; }
 .pg-dashboard .dashboard-state p { max-width: 52ch; margin: 0 0 18px; color: var(--muted); }
@@ -133,7 +140,6 @@
 }
 
 @media (max-width: 520px) {
-  .pg-dashboard { grid-template-rows: auto minmax(0, 1fr) auto; }
   .pg-dashboard .dashboard-toolbar { flex-wrap: wrap; gap: 10px; }
   .pg-dashboard .dashboard-heading { width: 100%; }
   .pg-dashboard .dashboard-header-actions { width: 100%; justify-content: flex-start; }

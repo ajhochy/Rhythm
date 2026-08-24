@@ -1,0 +1,138 @@
+{
+  "issue": 1435,
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/delegation_generator.test.ts src/services/__tests__/org_proposal_appliers_wiring.test.ts src/__tests__/org_proposal_apply.test.ts src/__tests__/org_proposals_routes.test.ts src/services/__tests__/post_apply_lifecycle.integration.test.ts src/services/__tests__/org_proposal_measure.test.ts src/repositories/__tests__/post_apply_events_repository.test.ts src/services/__tests__/post_apply_monitor.test.ts src/__tests__/new_agent_generator.test.ts src/services/generators/__tests__/external_discovery_generator.test.ts src/services/__tests__/issue_1152_prompt_fix_skill_create.test.ts --no-file-parallelism",
+  "waiver": null,
+  "superseded_note": "SECOND PASS (independent review, 2026-08-20): c3/c4 below are re-verified against the corrected, evidence-gated D2.3/D2.4 state machine (see docs/ai/contracts/issue-1433.json's superseded_note) — post_apply_lifecycle.integration.test.ts's repair/revert scenarios now drive multiple real sweep ticks with explicit seeded evidence between them, never a single tick that fabricates a same-instant pass. sweepPostApplyLifecycleAsync now calls runAutoRepairAsync on every tick for a tripped, non-terminal event (not only once), matching the new one-decision-per-call contract.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1435-c1",
+      "text": "Enroll exactly one lifecycle event only for a successful human-approved mutation of an existing agent_configs row whose applier emits one PostApplyTarget and whose persisted snapshot is safely reversible through revertProposal: refine-config model/system_prompt as prompt, refine-config allowedDelegatesJson plus grant-delegation/expand-delegation as tool, and human scope V2 mutations as scope. Exclude create-agent, external MCP adoption, external skill adoption, and workflow missing-skill creation until versioned race-safe rollback covers every side effect.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/delegation_generator.test.ts",
+      "status": "pass",
+      "reason": "Direct metadata/revert evidence: delegation_generator.test.ts; refine-config classification: org_proposal_appliers_wiring.test.ts; scope classification: org_proposal_apply.test.ts; exclusions: new_agent_generator.test.ts, external_discovery_generator.test.ts, and issue_1152_prompt_fix_skill_create.test.ts; one durable event: post_apply_lifecycle.integration.test.ts. External MCP generic whole-field allowedMcps rollback is refused; external skill and missing-skill creation have incomplete multi-side-effect rollback; create-agent has no reversible existing-row snapshot/type."
+    },
+    {
+      "criterion_id": "issue-1435-c2",
+      "text": "Repeated bounded sweep evaluates monitoring events.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c3",
+      "text": "Trip → repair attempt 1 succeeds → original proposal/config stays, event terminal, original proposal settled active, no revert/alert.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c4",
+      "text": "Trip → 3 repairs fail → auto-revert → original config restored → original proposal reverted → alert persisted.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c5",
+      "text": "No breach + expired window → clear → original proposal active → no repair/revert; later outcomes cannot reopen.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c6",
+      "text": "No recursive monitoring of auto-repair proposals.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c7",
+      "text": "Legacy measureProposal must not race/settle an enrolled proposal while event is monitoring/tripped.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c8",
+      "text": "SQLite/local-only. Postgres skips enrollment/sweep; never rely on in-memory fallback in production wiring.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c9",
+      "text": "Trigger failures are non-fatal per-event and logs contain IDs/safe outcomes only.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c10",
+      "text": "New event/alert/repair audit/log records contain no raw diagnosis context, prompts, secret-shaped patch values, snapshots, or unrestricted error strings.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1435-c11",
+      "text": "A successful eligible approval creates a post-apply event and scheduler owns evaluation through the actual sandboxed API/bootstrap.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_apply_lifecycle_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed against the isolated sandbox on ports 4098/4097."
+    },
+    {
+      "criterion_id": "issue-1435-c12",
+      "text": "A lifecycle enrollment rejection after the approval mutation/claim committed is isolated for both generic and scope exits: return the committed successful HTTP response, log only proposal ID plus a fixed safe outcome, and do not start legacy measurement under ambiguous enrollment ownership.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "status": "pass",
+      "reason": "Table-driven route test injects a secret-bearing rejection after durable refine-config and scope commits, mocks the org_proposal_measure.measureProposal module seam before importing the controller, and for both controller branches asserts HTTP 200, persisted mutation/status, exact redacted warning, and zero legacy measurement calls. Explicitly invoking that bound mock made both rows fail before the falsification was restored."
+    },
+    {
+      "criterion_id": "issue-1435-c13",
+      "text": "The scheduler defers tripped events while diagnosis is unready, isolates per-event trigger rejection, rejects overlapping sweeps, and honors the requested bounded repository limit.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "status": "pass",
+      "reason": "Each property has a dedicated integration test using the real SQLite repository and lifecycle composition."
+    },
+    {
+      "criterion_id": "issue-1435-c14",
+      "text": "Legacy measureProposal skips lifecycle-owned proposals in both monitoring and tripped states without invoking measurement/revert dependencies or changing proposal/config state.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_measure.test.ts",
+      "status": "pass",
+      "reason": "Direct table-driven monitoring/tripped test."
+    },
+    {
+      "criterion_id": "issue-1435-c15",
+      "text": "Second pass: the scheduler sweep re-invokes the repair state machine on EVERY tick for a tripped, non-terminal event (not only when no repair has ever been attempted), so real evidence-gated advance/repair/exhaust actually progresses across real sweep ticks.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_apply_lifecycle_repair_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed against an isolated sandbox on ports 4297/4298/4299 (distinct from any concurrently running worktree sandbox). See docs/ai/contracts/issue-1433.json's issue-1433-c11."
+    },
+    {
+      "criterion_id": "issue-1435-c16",
+      "text": "THIRD PASS (finding #5): the live E2E's final resolution assertion requires the EXACT persisted terminal state after real clean evidence is fed — guardrail_status='clear', revert_status='not_needed', repair_attempt_count equal to the exact repair-proposal-id trail length, that trail unchanged from the landed-attempt checkpoint, no alert payload, and the original proposal settled 'active' (never 'reverted') — not merely 'the recheck floor changed,' which an ADVANCING (still-breaching, next-attempt) outcome could also produce and would incorrectly read as a pass under the prior assertion.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/post_apply_lifecycle_repair_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Passed in the isolated 4297/4298/4299 sandbox with a synthetic DB and disposable OpenAI MRU model: actual post-apply-regression guardrail signals produced a real diagnosis and repair proposal; the event stayed tripped across a cron tick with no post-repair evidence; five clean outcomes then settled guardrail_status=clear, revert_status=not_needed, an unchanged one-repair trail, no alert, and the original proposal active. 1/1 live test passed in 160.53s."
+    }
+  ],
+  "not_tested": []
+}

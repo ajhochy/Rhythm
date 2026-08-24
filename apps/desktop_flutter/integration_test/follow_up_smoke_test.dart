@@ -29,6 +29,7 @@ import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
+import 'package:rhythm_desktop/features/agents/models/run_outcome_feedback.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/_permission_mode_picker.dart';
 import 'package:rhythm_desktop/features/agents/views/_project_vcs_chip.dart';
@@ -289,6 +290,16 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async => [];
+
+  @override
+  Future<RunOutcomeFeedback?> fetchRunOutcomeFeedback(String id) async => null;
+
+  @override
+  Future<void> postRunFeedback(
+    String id,
+    RunFeedbackVerdict verdict, {
+    String? reason,
+  }) async {}
 
   @override
   Future<void> revertSession(String sessionId, String messageId) async {}

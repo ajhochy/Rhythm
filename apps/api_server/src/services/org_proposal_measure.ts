@@ -54,13 +54,41 @@
  */
 
 import { logger } from '../utils/logger';
-import { revertProposal, type ApplyDeps, type RevertPatch } from './org_proposal_apply';
+import { alignMcpName } from './mcp_name_alignment';
+import {
+  readAgentConfigField,
+  revertProposal,
+  type ApplyDeps,
+  type RevertPatch,
+} from './org_proposal_apply';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { TASK_PATCH_TEXT_FIELDS } from './org_diagnosis_types';
+import {
+  verifyScopeSnapshotForRevert,
+  type VerifiedScopeSnapshot,
+} from './scope_mutation_contract';
+import { parseStrictJson } from './strict_json';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { ScoreCall, SkillPurpose } from './skill_refiner';
+import type { ExercisedToolsTelemetry } from './org_exercised_tools_resolver';
+import { PostApplyEventsRepository } from '../repositories/post_apply_events_repository';
+import { env } from '../config/env';
 
-export type MeasureOutcome = 'kept' | 'reverted' | 'skipped';
+export type MeasureOutcome =
+  | 'kept'
+  | 'reverted'
+  /** Retryable: nothing is durably wrong, a later pass may decide. */
+  | 'skipped'
+  /**
+   * Durably unresolvable by measurement. A row whose scope binding cannot be
+   * proven will never become provable on its own, so leaving it `measuring`
+   * makes the sweep retry it forever while an operator sees a healthy-looking
+   * row. It is CAS-transitioned to `reconciliation-required` instead, and this
+   * outcome must be propagated verbatim — collapsing it into `skipped` is what
+   * hid the condition in the first place.
+   */
+  | 'reconciliation-required';
 
 /**
  * #971-3 — outcome of a BEHAVIORAL re-run (refine-config / refine-scope). The
@@ -87,23 +115,6 @@ export interface RerunContext {
 
 export type RerunScenario = (proposal: AgentOrgProposal, ctx: RerunContext) => Promise<RerunOutcome>;
 
-/** Shape of the `changeJson` payload for an `agent_configs` scope mutation (mirrors org_proposal_apply.ts). */
-interface AgentConfigScopeChange {
-  agentConfigId: string;
-  field: 'allowedMcpsJson' | 'allowedSkillsJson';
-  remove?: string[];
-  add?: string[];
-}
-
-function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
-  if (!v || typeof v !== 'object') return false;
-  const c = v as Record<string, unknown>;
-  return (
-    typeof c.agentConfigId === 'string' &&
-    (c.field === 'allowedMcpsJson' || c.field === 'allowedSkillsJson')
-  );
-}
-
 /** Shape of the `changeJson` payload for a body-scored kind (refine-skill etc). */
 interface BodyRefinementChange {
   skillName?: string;
@@ -128,10 +139,13 @@ export interface MeasureDeps extends ApplyDeps {
    * (#830 — {@link resolveExercisedTools}), which derives usage from
    * tool-call parts persisted on sessions run under the profile's scheduled
    * tasks (see that module's doc for the exact signal and its documented
-   * approximation). Tests inject a deterministic set to keep assertions
-   * independent of the real DB-backed signal.
+   * approximation). The discriminated result keeps unavailable telemetry
+   * distinct from a genuine empty observation. Legacy Set-returning test or
+   * integration seams remain supported narrowly for compatibility.
    */
-  exercisedTools?: (agentConfigId: string) => Promise<Set<string>>;
+  exercisedTools?: (
+    agentConfigId: string,
+  ) => Promise<ExercisedToolsTelemetry | Set<string>>;
   /** Injectable purpose-anchored scorer (defaults to skill_refiner.scoreSkillBody's real impl). */
   scoreSkillBody?: ScoreCall;
   /**
@@ -148,9 +162,88 @@ export interface MeasureDeps extends ApplyDeps {
  * (session tool-call-part telemetry), closing the #821 prune-guard stub that
  * previously always returned an empty set here.
  */
-async function defaultExercisedTools(agentConfigId: string): Promise<Set<string>> {
+async function defaultExercisedTools(agentConfigId: string): Promise<ExercisedToolsTelemetry> {
   const { resolveExercisedTools } = await import('./org_exercised_tools_resolver');
-  return resolveExercisedTools(agentConfigId);
+  const { opencodeClient } = await import('./opencode_engine');
+  try {
+    if (!opencodeClient.isReady) throw new Error('engine not ready');
+    const knownServerNames = Object.keys(await opencodeClient.listMcp());
+    if (knownServerNames.length === 0) throw new Error('empty MCP catalog');
+    return resolveExercisedTools(agentConfigId, undefined, knownServerNames);
+  } catch {
+    return {
+      availability: 'unavailable',
+      reason: 'catalog-unavailable',
+      rawCallableNames: new Set<string>(),
+      canonicalServerIds: new Set<string>(),
+      knownServerIds: new Set<string>(),
+      has: () => false,
+    };
+  }
+}
+
+function liveBoundScope(
+  proposal: AgentOrgProposal,
+  deps: MeasureDeps,
+): VerifiedScopeSnapshot | null {
+  const exactChangeJson = proposal.changeJson;
+  const exactSnapshotJson = proposal.beforeSnapshotJson;
+  if (!exactChangeJson || !exactSnapshotJson) return null;
+  let snapshot: unknown;
+  try {
+    snapshot = parseStrictJson(exactSnapshotJson, 'proposal before_snapshot_json');
+  } catch {
+    return null;
+  }
+  const verified = verifyScopeSnapshotForRevert(snapshot, proposal.kind, exactChangeJson);
+  if (!verified) return null;
+  const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
+  const current = configsRepo.getById(verified.prepared.agentConfigId);
+  if (
+    !current ||
+    readAgentConfigField(current, verified.prepared.field) !== verified.prepared.expectedAppliedValue
+  ) return null;
+  return verified;
+}
+
+/**
+ * W6-c7 — the demotion.
+ *
+ * The three sites below where this module used to establish "the change
+ * worked" — scope hygiene, the LLM body score and the behavioral re-run — keep
+ * their DEPLOYMENT transition, their measureReason prose and every safety exit
+ * (revert on a failed functional guard, revert on an unknown/non-improved
+ * score, `skipped` on infra error, reconciliation-required via
+ * markMeasuringUnresolvable). What they lose is authority over the OUTCOME
+ * field: a keep here records `inconclusive`, never `verified`. Only
+ * org_proposal_experiment_service, judging a predeclared experiment against
+ * paired cohorts, may write `verified`.
+ *
+ * NEVER throws and never changes the returned MeasureOutcome: measureProposal
+ * has four call sites, two of them fire-and-forget on the human-approved lane
+ * that is deliberately NOT policy-gated. A failed outcome stamp is a logged
+ * gap, not a broken human apply — and the row still reaches its terminal
+ * deployment status either way, so nothing is stranded in `measuring`.
+ */
+async function recordDiagnosticOutcome(
+  proposalId: string,
+  deps: MeasureDeps,
+  outcomeStatus: 'inconclusive' | 'regressed' = 'inconclusive',
+): Promise<void> {
+  try {
+    const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+    const current = await proposalsRepo.findByIdAsync(proposalId);
+    if (!current || current.outcomeStatus === 'verified') return;
+    await proposalsRepo.setOutcomeStatusAtRevisionAsync({
+      proposalId,
+      expectedRevision: current.revision,
+      outcomeStatus,
+    });
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-measure] could not record diagnostic outcome for '${proposalId}': ${String(error)}`,
+    );
+  }
 }
 
 /**
@@ -161,6 +254,7 @@ export async function measureProposal(
   deps: MeasureDeps = {},
 ): Promise<MeasureOutcome> {
   try {
+    if (proposal.status === 'reconciliation-required') return 'reconciliation-required';
     if (proposal.status !== 'measuring') {
       logger.warn(
         `[org-proposal-measure] '${proposal.id}' is not in status=measuring (got '${proposal.status}') — skipping`,
@@ -168,10 +262,55 @@ export async function measureProposal(
       return 'skipped';
     }
 
+    if (env.dbClient !== 'postgres') {
+      const lifecycle = await new PostApplyEventsRepository().findByProposalIdAsync(proposal.id);
+      if (lifecycle?.guardrailStatus === 'monitoring' || lifecycle?.guardrailStatus === 'tripped') {
+        logger.info(
+          `[org-proposal-measure] '${proposal.id}' owned by post-apply lifecycle (${lifecycle.guardrailStatus}) — skipping`,
+        );
+        return 'skipped';
+      }
+    }
+
+    if (proposal.changeJson !== null && proposal.changeJson !== undefined) {
+      try {
+        parseStrictJson(proposal.changeJson, 'proposal change_json');
+      } catch (error) {
+        // Stored bytes that do not parse strictly will never start parsing, so
+        // this is durably unresolvable rather than "try again next sweep".
+        logger.warn(
+          `[org-proposal-measure] invalid strict changeJson for '${proposal.id}': ${String(error)}`,
+        );
+        return await markMeasuringUnresolvable(
+          proposal,
+          deps,
+          `the stored change_json is not strictly parseable: ${String(error)}`,
+        );
+      }
+    }
+
     const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
 
     if (proposal.kind === 'tighten-scope' || proposal.kind === 'prune-scope') {
       return await measureScopeChange(proposal, { ...deps, proposalsRepo });
+    }
+
+    if (proposal.kind === 'refine-scope') {
+      const verified = liveBoundScope(proposal, deps);
+      if (!verified || verified.snapshot.version !== 'scope-state-v2') {
+        logger.warn(
+          `[org-proposal-measure] '${proposal.id}' refine-scope snapshot is invalid, unbound, or no longer live`,
+        );
+        return await markMeasuringUnresolvable(
+          proposal, { ...deps, proposalsRepo },
+          'the measuring refine-scope snapshot is invalid, unbound, or no longer matches the live target',
+        );
+      }
+      return await measureBehavioralRerun(
+        proposal,
+        { ...deps, proposalsRepo },
+        () => liveBoundScope(proposal, deps)?.snapshot.version === 'scope-state-v2',
+      );
     }
 
     if (
@@ -186,14 +325,13 @@ export async function measureProposal(
       return await measureBodyRefinement(proposal, { ...deps, proposalsRepo });
     }
 
-    // #971-3 + Stage B — refine-config / refine-scope / external-adoption: the
+    // #971-3 + Stage B — refine-config / external-adoption: the
     // fix is a config/scope/library mutation, not a text body, so there is
     // nothing to LLM-score. Measure BEHAVIORALLY — replay the failing scenario
     // (the capability-gap's sample session, under the wired agent) and keep iff
     // the original failure signature is gone.
     if (
       proposal.kind === 'refine-config' ||
-      proposal.kind === 'refine-scope' ||
       proposal.kind === 'external-adoption'
     ) {
       return await measureBehavioralRerun(proposal, { ...deps, proposalsRepo });
@@ -206,8 +344,14 @@ export async function measureProposal(
       return await measureRefineTask(proposal, { ...deps, proposalsRepo });
     }
 
-    logger.warn(`[org-proposal-measure] unsupported kind '${proposal.kind}' for '${proposal.id}' — skipping`);
-    return 'skipped';
+    // A kind with no measurement strategy will never acquire one while the row
+    // sits there, so the sweep must not keep picking it up.
+    logger.warn(`[org-proposal-measure] unsupported kind '${proposal.kind}' for '${proposal.id}'`);
+    return await markMeasuringUnresolvable(
+      proposal,
+      { ...deps, proposalsRepo },
+      `proposal kind '${proposal.kind}' has no measurement strategy`,
+    );
   } catch (err) {
     logger.warn(`[org-proposal-measure] FAILED (non-fatal): ${String(err)}`);
     return 'skipped';
@@ -255,29 +399,64 @@ async function measureScopeChange(
 ): Promise<MeasureOutcome> {
   const proposalsRepo = deps.proposalsRepo!;
 
-  let change: unknown;
-  try {
-    change = proposal.changeJson ? JSON.parse(proposal.changeJson) : null;
-  } catch (err) {
-    logger.warn(`[org-proposal-measure] malformed changeJson for '${proposal.id}': ${String(err)}`);
-    return 'skipped';
+  // Corrective-6 package A deliberately leaves invalid/drifted measurement
+  // rows in status=measuring. Package C owns durable reconciliation outcome
+  // propagation; this boundary must not activate or revert unbound bytes.
+  const verified = liveBoundScope(proposal, deps);
+  if (!verified || verified.snapshot.version !== 'scope-delta-v2') {
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' scope snapshot is invalid, unbound, or no longer live`,
+    );
+    return await markMeasuringUnresolvable(
+      proposal, deps,
+      'the measuring scope snapshot is invalid, unbound, or no longer matches the live target',
+    );
   }
 
-  if (!isAgentConfigScopeChange(change)) {
-    logger.warn(`[org-proposal-measure] '${proposal.id}' changeJson is not a scope change — skipping`);
-    return 'skipped';
-  }
-
+  const change = verified.prepared;
+  // `remove` is non-empty by construction: exactNameArray rejects an empty or
+  // absent list, so liveBoundScope above would have returned null first. The
+  // old "nothing was removed -> revert" branch here could no longer fire and
+  // read as a live path that could.
   const removed = change.remove ?? [];
-  if (removed.length === 0) {
-    // Nothing was actually removed — no hygiene improvement to speak of.
-    return await doRevert(proposal, deps);
-  }
 
   const exercisedTools = deps.exercisedTools ?? defaultExercisedTools;
   const exercised = await exercisedTools(change.agentConfigId);
 
-  const guardFailed = removed.some((name) => exercised.has(name));
+  // W1: the telemetry lookup above was awaited, so the target may have moved
+  // under us. Re-prove the exact bound scope before any keep/revert effect.
+  if (liveBoundScope(proposal, deps)?.snapshot.version !== 'scope-delta-v2') {
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' scope target drifted during measurement`,
+    );
+    return await markMeasuringUnresolvable(
+      proposal, deps, 'the scope target drifted while the measurement was running',
+    );
+  }
+
+  // W2 governing rule: positive usage evidence is monotonic and canonical —
+  // check it BEFORE looking at availability. Partial/unreadable coverage only
+  // blocks a NEW negative inference; it must never erase an already-proven
+  // positive veto (e.g. partial-structured-telemetry that still retained a
+  // canonical hit from its covered sessions). Only once no removed name
+  // matches do we fall back to skipping on unavailable telemetry.
+  const guardFailed = removed.some((name) => {
+    if (exercised instanceof Set) return exercised.has(name);
+    if (exercised.canonicalServerIds.has(name)) return true;
+    // Canonicalize the raw removal name (which may be an alias form, e.g.
+    // `nfl-mcp` vs the live/canonical `nfl_mcp`) against the SAME live
+    // catalog that canonicalized the successful calls, before comparing.
+    const aligned = alignMcpName(name, exercised.knownServerIds);
+    return aligned.matched && exercised.canonicalServerIds.has(aligned.resolved);
+  });
+
+  if (!guardFailed && !(exercised instanceof Set) && exercised.availability === 'unavailable') {
+    logger.info(
+      `[org-proposal-measure] '${proposal.id}' scope telemetry unavailable (${exercised.reason}) — leaving measuring`,
+    );
+    return 'skipped';
+  }
+
   if (guardFailed) {
     logger.info(
       `[org-proposal-measure] functional guard FAILED for '${proposal.id}' — a removed scope was actually exercised`,
@@ -292,6 +471,9 @@ async function measureScopeChange(
   await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
     measureReason: `scope-hygiene: removed ${removed.length} dead/unused entr${removed.length === 1 ? 'y' : 'ies'}; functional guard passed`,
   });
+  // W6-c7 — a shorter allowlist is tidiness, not measured improvement. The
+  // final acceptance gate names allowlist shrink explicitly.
+  await recordDiagnosticOutcome(proposal.id, deps);
   logger.info(`[org-proposal-measure] KEPT scope change for '${proposal.id}'`);
   return 'kept';
 }
@@ -316,8 +498,12 @@ async function measureBodyRefinement(
   }
 
   if (!isBodyRefinementChange(change)) {
-    logger.warn(`[org-proposal-measure] '${proposal.id}' changeJson is not a body refinement — skipping`);
-    return 'skipped';
+    // Stored bytes of the wrong shape do not start being the right shape, so
+    // this is durably unresolvable, not "try again next sweep".
+    logger.warn(`[org-proposal-measure] '${proposal.id}' changeJson is not a body refinement`);
+    return await markMeasuringUnresolvable(
+      proposal, deps, 'the stored change_json is not a body refinement payload',
+    );
   }
 
   const { scoreSkillBody: scorer } = await import('./skill_refiner');
@@ -350,6 +536,8 @@ async function measureBodyRefinement(
       postScore: post.score,
       measureReason: reason,
     });
+    // W6-c7 — one LLM score is a proxy. It deploys; it does not verify.
+    await recordDiagnosticOutcome(proposal.id, deps);
     logger.info(`[org-proposal-measure] KEPT '${proposal.id}' (post ${post.score} > baseline ${baseline.score})`);
     return 'kept';
   }
@@ -371,13 +559,55 @@ async function measureBodyRefinement(
  * transition, since the repository only accepts patch fields alongside a
  * real status change.
  */
+/**
+ * A measuring row whose scope binding cannot be proven will never become
+ * provable on its own — the snapshot is invalid, or an operator moved the
+ * target. Leaving it `measuring` makes the sweep retry it forever while the
+ * operator sees a row that still looks healthy. Record it durably instead,
+ * fenced on the exact status and revision observed.
+ */
+async function markMeasuringUnresolvable(
+  proposal: AgentOrgProposal,
+  deps: MeasureDeps,
+  reason: string,
+): Promise<MeasureOutcome> {
+  const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+  try {
+    const current = await proposalsRepo.findByIdAsync(proposal.id);
+    if (current && current.status === 'measuring') {
+      await proposalsRepo.markReconciliationRequiredAsync({
+        proposalId: proposal.id,
+        expectedStatus: 'measuring',
+        expectedRevision: current.revision,
+        reason,
+      });
+    }
+  } catch (error) {
+    logger.warn(
+      `[org-proposal-measure] could not persist reconciliation for '${proposal.id}': ${String(error)}`,
+    );
+  }
+  return 'reconciliation-required';
+}
+
 async function doRevert(
   proposal: AgentOrgProposal,
   deps: MeasureDeps,
   patch?: RevertPatch,
 ): Promise<MeasureOutcome> {
   const outcome = await revertProposal(proposal, deps, patch);
-  return outcome === 'reverted' ? 'reverted' : 'skipped';
+  if (outcome === 'reverted') {
+    // W6-c7 / P1-2 — a completed revert is the record that a guard CAUGHT
+    // something, and it must be distinguishable from the `unproven` default,
+    // which means nobody ever looked. `regressed` is not a promotion, so a
+    // proxy may establish it; only `verified` is fenced behind an experiment.
+    // Every revert path routes through here, so this is the one place it goes.
+    await recordDiagnosticOutcome(proposal.id, deps, 'regressed');
+    return 'reverted';
+  }
+  // Never collapse a durable unresolved state into the retryable one.
+  if (outcome === 'reconciliation-required') return 'reconciliation-required';
+  return 'skipped';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -407,6 +637,7 @@ interface DiagnosisChange {
 async function measureBehavioralRerun(
   proposal: AgentOrgProposal,
   deps: Required<Pick<MeasureDeps, 'proposalsRepo'>> & MeasureDeps,
+  preFinalize?: () => boolean,
 ): Promise<MeasureOutcome> {
   const proposalsRepo = deps.proposalsRepo!;
 
@@ -436,14 +667,16 @@ async function measureBehavioralRerun(
   ];
 
   if (!patchedProfileId || sessionIds.length === 0) {
-    // Nothing to reproduce -> we cannot behaviorally decide. Leave `measuring`
-    // (a later sweep may have more luck) rather than guessing keep/revert.
-    // ponytail: these proposals always carry a profile + replay list from the
-    // diagnosis brain; this only fires for a malformed/legacy payload.
+    // Nothing to reproduce, and the stored payload will not grow a profile or a
+    // replay list on a later pass — these come from the diagnosis brain at
+    // creation time. Durably unresolvable rather than retried forever.
     logger.warn(
-      `[org-proposal-measure] '${proposal.id}' missing patched profile or replay sessionIds — leaving measuring`,
+      `[org-proposal-measure] '${proposal.id}' missing patched profile or replay sessionIds`,
     );
-    return 'skipped';
+    return await markMeasuringUnresolvable(
+      proposal, deps,
+      'the stored payload carries no patched profile or replay sessionIds to reproduce',
+    );
   }
 
   const rerun = deps.rerunScenario ?? defaultRerunScenario;
@@ -462,15 +695,31 @@ async function measureBehavioralRerun(
     return 'skipped';
   }
 
+  if (preFinalize && !preFinalize()) {
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' target drifted during behavioral re-run`,
+    );
+    return await markMeasuringUnresolvable(
+      proposal, deps, 'the scope target drifted while the behavioral re-run was in flight',
+    );
+  }
+
   if (outcome.status === 'failed') {
-    return await doRevert(proposal, deps, {
+    const reverted = await doRevert(proposal, deps, {
       measureReason: `behavioral re-run reproduced the original failure: ${outcome.reason}`,
     });
+    if (reverted === 'reverted' && proposal.outcomeStatus === 'verified') {
+      const { recordPostDeployRegressionObservationAsync } = await import('./calibration_observation_service');
+      await recordPostDeployRegressionObservationAsync(proposal.id);
+    }
+    return reverted;
   }
 
   await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
     measureReason: `behavioral re-run completed without the original failure signature: ${outcome.reason}`,
   });
+  // W6-c7 — one replay is a proxy. It deploys; it does not verify.
+  await recordDiagnosticOutcome(proposal.id, deps);
 
   // Stage B — an adopted external skill that measured clean RESOLVES its
   // originating capability-gap (signalRef carries `gapId:<dedup_key>`). On a
@@ -583,12 +832,22 @@ export const defaultRerunScenario: RerunScenario = async (proposal, ctx) => {
       };
     }
 
-    const detected = await classifyRerunFailure(rerunSessionId, ctx.patchedProfileId, replayPrompt, outputText);
-    const reproduced = detected.filter((c) => ctx.categories.includes(c));
-    if (reproduced.length > 0) {
+    const classification = await classifyRerunFailure(
+      rerunSessionId,
+      ctx.patchedProfileId,
+      ctx.categories,
+      messagesRepo,
+    );
+    if (classification.status === 'reproduced') {
       return {
         status: 'failed',
-        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${reproduced.join(',')}] (session ${rerunSessionId})`,
+        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${classification.categories.join(',')}] (session ${rerunSessionId})`,
+      };
+    }
+    if (classification.status === 'inconclusive') {
+      return {
+        status: 'infra-error',
+        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} inconclusive: ${classification.reason} (session ${rerunSessionId})`,
       };
     }
     return {
@@ -600,27 +859,58 @@ export const defaultRerunScenario: RerunScenario = async (proposal, ctx) => {
   }
 };
 
+/** Outcome of classifying a rerun session against the ORIGINAL failure categories. */
+export type RerunClassification =
+  | { status: 'reproduced'; categories: string[] }
+  | { status: 'clean' }
+  | { status: 'inconclusive'; reason: string };
+
 /**
  * Reuse the workflow-failure-signal extractor's OWN detectors to classify a
- * fresh re-run session — no duplicated failure heuristics. Builds a synthetic
- * single-session view (the replayed prompt as `input`, the model's answer as
- * `output`) and runs the message-based detectors over it, returning the failure
- * categories they emit. Multi-session / multi-turn patterns (hallucinated-claim
- * needs a user correction; stale-redo needs an issue redo) structurally can't
- * fire on one headless turn — those categories are given the benefit of the
- * doubt, which is the intended coarseness of a single tool-less replay.
+ * fresh re-run session — no duplicated failure heuristics.
+ *
+ * W3 final review corrective — this used to synthesize a fake two-message
+ * session (`partsJson: null`) instead of loading the rerun's ACTUAL persisted
+ * messages. `extractToolAttempts` (the retry-loop detector's ONLY evidence
+ * source) requires real `partsJson`, so that synthetic double could NEVER
+ * carry structured tool-attempt evidence — a reproduced retry-loop was
+ * therefore invisible to this classifier, and every retry-loop diagnosis
+ * proposal was silently kept regardless of whether the patch actually fixed
+ * anything. This now loads the rerun session's real messages via
+ * `AgentSessionMessagesRepository.listBySession` (the existing seam) and runs
+ * every detector, including retry-loop, against that real evidence.
+ *
+ * Raw prompt/output text can still support the TEXT-based detectors
+ * (hallucinated-claim, unverified-claim, tool-unavailable-attempted,
+ * repeated-correction, delegate-result) because those read real message
+ * `strippedText` either way — but it can never substitute for retry-loop's
+ * structured tool-attempt evidence, so retry-loop is judged ONLY on what
+ * `extractToolAttempts` finds in the real persisted parts.
+ *
+ * Returns:
+ *   - `reproduced` — a category from the original failure signature actually
+ *     reproduced under the patch (a REAL retry-loop signal, not a guess).
+ *   - `inconclusive` — the original categories include 'retry-loop' but this
+ *     rerun has NO readable structured tool-attempt evidence at all (a
+ *     tool-less/bare probe can't exercise the built-in tools a retry-loop
+ *     would show up on) — the caller must leave the proposal `measuring`,
+ *     never treat this as a clean pass.
+ *   - `clean` — nothing reproduced, AND (when 'retry-loop' was an original
+ *     category) valid persisted tool-attempt evidence existed and showed no
+ *     retry loop — a genuine, evidence-backed pass.
  */
-async function classifyRerunFailure(
+export async function classifyRerunFailure(
   sessionId: string,
   profileId: string,
-  promptText: string,
-  outputText: string,
-): Promise<string[]> {
+  categories: string[],
+  messagesRepo: import('../repositories/agent_session_messages_repository').AgentSessionMessagesRepository,
+): Promise<RerunClassification> {
   try {
     const extractor = await import('./workflow_failure_signal_extractor');
+    const messages = messagesRepo.listBySession(sessionId);
 
     const now = new Date().toISOString();
-    // Minimal read-only doubles — only the fields the detectors touch matter.
+    // Minimal read-only double — only the fields the detectors touch matter.
     const session = {
       id: sessionId,
       status: 'idle',
@@ -633,11 +923,6 @@ async function classifyRerunFailure(
       createdAt: now,
     } as unknown as import('../models/agent_session').AgentSession;
 
-    const messages = [
-      { role: 'input', strippedText: promptText, partsJson: null },
-      { role: 'output', strippedText: outputText, partsJson: null },
-    ] as unknown as import('../models/agent_session').AgentSessionMessage[];
-
     const getMessages = () => messages;
 
     const detectors = [
@@ -649,17 +934,42 @@ async function classifyRerunFailure(
       extractor.detectDelegateResultSignals,
     ];
 
-    const categories = new Set<string>();
+    const detectedCategories = new Set<string>();
     for (const detect of detectors) {
       try {
-        for (const signal of detect([session], getMessages)) categories.add(signal.category);
+        for (const signal of detect([session], getMessages)) detectedCategories.add(signal.category);
       } catch {
         // A single detector failing must not mask the others.
       }
     }
-    return [...categories];
+
+    const reproduced = categories.filter((c) => detectedCategories.has(c));
+    if (reproduced.length > 0) {
+      return { status: 'reproduced', categories: reproduced };
+    }
+
+    // W3 final architectural corrective — consume the SAME shared strict
+    // parser detectRetryLoopSignals itself uses (persisted_tool_evidence.ts),
+    // not a length check on the narrow extractToolAttempts compatibility
+    // export. A nonzero attempt count is NOT proof of a clean pass: one
+    // persisted pending/fresh-running/timed-out/errored/completed-MCP-error
+    // attempt is exactly nonzero-length while being zero evidence of a
+    // genuine success. 'clean' requires evidence integrity to be valid AND at
+    // least one producer-valid TERMINAL SUCCESS (completed, isError!==true).
+    if (categories.includes('retry-loop')) {
+      const { parsePersistedToolEvidence, isTerminalSuccess } = await import('./persisted_tool_evidence');
+      const evidence = parsePersistedToolEvidence(messages);
+      if (evidence.integrity !== 'valid' || !evidence.attempts.some(isTerminalSuccess)) {
+        return {
+          status: 'inconclusive',
+          reason: `original failure includes retry-loop but rerun session ${sessionId} has no producer-valid terminal tool success evidence`,
+        };
+      }
+    }
+
+    return { status: 'clean' };
   } catch (err) {
     logger.warn(`[org-proposal-measure] classifyRerunFailure failed (non-fatal): ${String(err)}`);
-    return [];
+    return { status: 'inconclusive', reason: `classifyRerunFailure threw: ${String(err)}` };
   }
 }

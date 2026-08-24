@@ -112,6 +112,29 @@ export interface DiagnosisResult {
   taskPatch?: TaskPatch;
 }
 
+/**
+ * C6 (repair item 3) — a named, versioned, FIXED mapping from the LLM
+ * diagnosis's high/medium/low confidence verdict to a numeric [0,1] the
+ * evidence builder may later cite as a proposal's durable
+ * `diagnosisConfidence`. Bump the version string (never mutate the numbers
+ * behind an already-shipped version) if the mapping ever changes — mirrors
+ * ANALYSIS_VERSION in org_proposal_experiment_service.ts. These are FIXED
+ * calibration constants, not a per-proposal guess: the mapping itself is
+ * never parsed from prose and never invented per call.
+ */
+export const DIAGNOSIS_CONFIDENCE_MAPPING_VERSION = 'diagnosis-confidence-map-v1';
+
+const DIAGNOSIS_CONFIDENCE_MAP: Record<DiagnosisResult['confidence'], number> = {
+  high: 0.8,
+  medium: 0.5,
+  low: 0.2,
+};
+
+/** Converts a diagnosis's high/medium/low verdict through the fixed, versioned mapping above. */
+export function mapDiagnosisConfidence(confidence: DiagnosisResult['confidence']): number {
+  return DIAGNOSIS_CONFIDENCE_MAP[confidence];
+}
+
 /** The single source of truth for legal `refine-config` (ConfigPatch) fields. */
 export const CONFIG_PATCH_FIELDS = ['model', 'allowedSkillsJson', 'allowedDelegatesJson', 'system_prompt'] as const;
 /** The single source of truth for legal `refine-task` (TaskPatch) fields. */

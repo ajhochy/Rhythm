@@ -22,6 +22,8 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { revertProposal } from '../services/org_proposal_apply';
 import { classifyProposalRisk } from '../services/org_risk_classifier';
 import type { ProposalApplier } from '../services/org_proposal_apply_service';
 
@@ -282,6 +284,89 @@ describe('issue-825-c3: only managers (is_manager=1) are valid target_ref', () =
 });
 
 describe('issue-825-c4: apply-time re-validation of auth + depth (not just proposal time)', () => {
+  it.each(['grant-delegation', 'expand-delegation'] as const)(
+    'D2.5: %s emits reversible lifecycle metadata for the mutated manager row',
+    async (kind) => {
+      // Regression caught: delegation mutates allowedDelegatesJson but omits
+      // the exact ConfigFieldSnapshot/PostApplyTarget needed for safe repair.
+      const { registerDelegationApplier } = await import(
+        '../services/generators/delegation_generator'
+      );
+      const configsRepo = new AgentConfigsRepository();
+      const priorValue = kind === 'grant-delegation' ? null : JSON.stringify(['existing-agent']);
+      const manager = configsRepo.insert({
+        id: `manager-${kind}`,
+        label: `Manager ${kind}`,
+        icon: 'gear',
+        isManager: true,
+        allowedDelegatesJson: priorValue,
+      });
+      const specialist = configsRepo.insert({
+        id: `specialist-${kind}`,
+        label: `Specialist ${kind}`,
+        icon: 'code',
+      });
+      const appliers: Record<string, ProposalApplier> = {};
+      registerDelegationApplier(
+        { registerProposalApplier: (registeredKind, applier) => (appliers[registeredKind] = applier) },
+        { configsRepo },
+      );
+      const changeJson = JSON.stringify({
+        agentConfigId: manager.id,
+        allowed_delegates_json: { add: [specialist.id] },
+      });
+      const proposal = {
+        id: `metadata-${kind}`,
+        auditRunId: null,
+        kind,
+        risk: 'high',
+        external: 0,
+        status: 'approved',
+        title: kind,
+        rationale: null,
+        signalRef: null,
+        targetRef: `agent_config:${manager.id}`,
+        changeJson,
+        beforeSnapshotJson: null,
+        provenanceJson: null,
+        dedupKey: `metadata-${kind}`,
+        baselineScore: null,
+        postScore: null,
+        measureReason: null,
+        decidedByUserId: null,
+        ownerUserId: null,
+        diagnosisConfidence: null,
+        diagnosisConfidenceVersion: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const result = await appliers[kind](proposal);
+      expect(result.postApplyTarget).toEqual({ profileId: manager.id, changeType: 'tool' });
+      expect(JSON.parse(result.beforeSnapshotJson!)).toEqual({
+        agentConfigId: manager.id,
+        field: 'allowedDelegatesJson',
+        priorValue,
+      });
+      expect(configsRepo.getById(manager.id)?.allowedDelegatesJson).not.toBe(priorValue);
+
+      const proposalsRepo = new AgentOrgProposalsRepository();
+      const measuring = await proposalsRepo.createAsync({
+        id: proposal.id,
+        kind,
+        risk: 'high',
+        status: 'measuring',
+        title: proposal.title,
+        dedupKey: proposal.dedupKey,
+        targetRef: proposal.targetRef,
+        changeJson,
+        beforeSnapshotJson: result.beforeSnapshotJson,
+      });
+      expect(await revertProposal(measuring, { proposalsRepo, configsRepo })).toBe('reverted');
+      expect(configsRepo.getById(manager.id)?.allowedDelegatesJson).toBe(priorValue);
+    },
+  );
+
   it('writes allowed_delegates_json for a still-valid manager/target pair', async () => {
     const { registerDelegationApplier } = await import(
       '../services/generators/delegation_generator'
@@ -318,6 +403,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -368,6 +456,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -417,6 +508,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

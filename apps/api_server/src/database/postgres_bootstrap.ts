@@ -826,6 +826,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     return;
   }
 
+  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
+  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      agent_kind TEXT NOT NULL,
+      profile_id TEXT,
+      status TEXT NOT NULL DEFAULT 'starting',
+      session_token TEXT,
+      cwd TEXT NOT NULL,
+      name TEXT NOT NULL,
+      last_preview TEXT,
+      last_activity_at TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   // #1219 — keep the agent-memory projection schema compatible anywhere the
   // agent-execution role is enabled. The vault remains canonical; these rows
   // are still a derived query index plus an append-only lifecycle ledger.
@@ -1084,7 +1103,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
       ON agent_research_qa_links(project_id, created_at)
   `);
-  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  // NOTE: the agent_session_id FK on this table is added further down, right
+  // after `agent_sessions` is created — adding it here referenced a table that
+  // does not exist yet, which aborted the whole bootstrap on a FRESH database.
   await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_snapshot_json TEXT NOT NULL DEFAULT '{}'`);
   await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS context_hash TEXT`);
   await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS model_usage_json TEXT NOT NULL DEFAULT '{}'`);
@@ -1278,6 +1299,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
+      revision      INTEGER NOT NULL DEFAULT 0,
+      reconciliation_reason TEXT,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1342,6 +1365,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       output_marker TEXT,
       preset_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -1362,29 +1386,14 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ON CONFLICT (id) DO NOTHING;
   `);
 
-  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
-  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS agent_sessions (
-      id TEXT PRIMARY KEY,
-      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
-      agent_kind TEXT NOT NULL,
-      profile_id TEXT,
-      status TEXT NOT NULL DEFAULT 'starting',
-      session_token TEXT,
-      cwd TEXT NOT NULL,
-      name TEXT NOT NULL,
-      last_preview TEXT,
-      last_activity_at TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  `);
   // MSP-001 — production parity for existing databases. Additive, nullable,
   // and idempotent; no legacy row is assigned a guessed Rhythm profile.
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS profile_id TEXT;
   `);
+  // Deferred from the agent_research_qa_links block above: this FK cannot be
+  // declared before agent_sessions exists.
+  await pool.query(`ALTER TABLE agent_research_qa_links ADD COLUMN IF NOT EXISTS agent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
 
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`
@@ -1402,6 +1411,39 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_by TEXT;
+  `);
+  // Column drift repair: 13 columns shipped in migrations.ts (SQLite) and never
+  // in this file, so every repository read/write naming one of them was a
+  // production 500 against Postgres. Additive only — no backfill, no rewrite.
+  //
+  // INTEGER, not BOOLEAN, for the 0/1 flags. The repository layer compares them
+  // numerically and writes numbers: agent_approvals_repository does
+  // `row.auto_approve_actions === 1`, agent_configs_repository does
+  // `(row.image_generation_enabled ?? 0) !== 0` and `row.schedulable !== 0`,
+  // agent_sessions_repository does `row.fast_mode === 1`. A BOOLEAN column
+  // makes pg return `true`/`false`, and `false !== 0` is TRUE — every flag
+  // would read as SET. INTEGER also matches the neighbouring `is_manager` /
+  // `locked` / `is_system` flags already in this file.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS provider_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS model_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS agent_mode TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS archived_at TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS permission_mode TEXT NOT NULL DEFAULT 'default';
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS approval_bypass_explicit INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS thinking_budget INTEGER;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS fast_mode INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_sessions_archived ON agent_sessions(archived_at)`,
+  );
+  await pool.query(`
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_tier_hint TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS default_anthropic_account_id TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS auto_approve_actions INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS schedulable INTEGER;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS image_generation_enabled INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS reasoning_effort TEXT;
   `);
   // #1135 — append-only application audit log for security lock/reviewed
   // re-enable transitions. Deliberately no cascading FK: deleting a profile
@@ -1464,6 +1506,86 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
+
+  // W1 package C — the durable projection ledger. Its own table, not columns on
+  // agent_configs: that table's auto-bump trigger would advance the lifecycle
+  // CAS token for a fact that is not a domain change at all.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_profile_projections (
+      profile_id              TEXT PRIMARY KEY,
+      file_projected_revision INTEGER,
+      projection_state        TEXT NOT NULL DEFAULT 'pending',
+      last_error_code         TEXT,
+      last_attempt_at         TIMESTAMPTZ,
+      attempt_count           INTEGER NOT NULL DEFAULT 0,
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_profile_projections_state
+       ON agent_profile_projections(projection_state)`,
+  );
+
+  // W1 corrective-6 package B — monotonic persistence revisions. Existing
+  // rows receive the same revision-zero baseline as rows from the fresh DDL.
+  await pool.query(`
+    ALTER TABLE agent_configs
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS reconciliation_reason TEXT;
+  `);
+  // `revision` is the lifecycle CAS token, so the same two invariants the
+  // SQLite engine installs (see installRevisionInvariants in migrations.ts)
+  // must hold here: a non-negative stored domain, and an auto-bump for any raw
+  // writer that changes a row without touching `revision` (the marker-guarded
+  // profile repairs further below, ad-hoc backfills, manual SQL) plus a
+  // forward-only rule so a rollback cannot revive a stale CAS token.
+  // Repository writes
+  // that already do `revision = revision + 1` change the value themselves, so
+  // the trigger's equality guard leaves them alone rather than double-counting.
+  // ADD CONSTRAINT has no IF NOT EXISTS, hence the catalog guard; the ALTER
+  // itself fails CLOSED if a deployment already holds a negative revision.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_configs_revision_non_negative'
+      ) THEN
+        ALTER TABLE agent_configs
+          ADD CONSTRAINT agent_configs_revision_non_negative CHECK (revision >= 0);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_org_proposals_revision_non_negative'
+      ) THEN
+        ALTER TABLE agent_org_proposals
+          ADD CONSTRAINT agent_org_proposals_revision_non_negative CHECK (revision >= 0);
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_bump_unchanged_revision() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.revision = OLD.revision THEN
+        NEW.revision := OLD.revision + 1;
+      ELSIF NEW.revision < OLD.revision THEN
+        RAISE EXCEPTION 'revision must move forward (% -> %)', OLD.revision, NEW.revision;
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_configs_revision_autobump ON agent_configs;
+    CREATE TRIGGER trg_agent_configs_revision_autobump
+      BEFORE UPDATE ON agent_configs
+      FOR EACH ROW EXECUTE FUNCTION rhythm_bump_unchanged_revision();
+    DROP TRIGGER IF EXISTS trg_agent_org_proposals_revision_autobump ON agent_org_proposals;
+    CREATE TRIGGER trg_agent_org_proposals_revision_autobump
+      BEFORE UPDATE ON agent_org_proposals
+      FOR EACH ROW EXECUTE FUNCTION rhythm_bump_unchanged_revision();
   `);
 
   // #1175 — Activity schema + owner-index parity. All changes are additive and
@@ -1640,4 +1762,626 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
       ON agent_scheduled_task_runs(task_id, started_at DESC);
   `);
+
+  // ── W4 — immutable run-outcome ledger (Postgres twin) ─────────────────────
+  //
+  // Column set MUST stay identical to the SQLite migration in migrations.ts —
+  // enforced by skill_schema_parity.test.ts, whose parser only reads a CREATE
+  // TABLE body whose closing paren is immediately followed by a backtick and
+  // single-line `ALTER TABLE ... ADD COLUMN`. Keep the table in its own
+  // pool.query and every index in a separate call, or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_run_outcomes (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL UNIQUE,
+      session_id TEXT,
+      scheduled_occurrence_id TEXT,
+      experiment_variant TEXT,
+      proposal_id TEXT,
+      profile_id TEXT,
+      config_revision INTEGER,
+      terminal_status TEXT NOT NULL,
+      objective_verdict TEXT NOT NULL,
+      objective_evidence_json TEXT NOT NULL DEFAULT '{}',
+      attribution_json TEXT NOT NULL DEFAULT '{}',
+      finalized_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_finalized
+       ON agent_run_outcomes(finalized_at DESC)`,
+  );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_run_feedback_events (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      confidence DOUBLE PRECISION NOT NULL,
+      actor TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_feedback_events_root
+       ON agent_run_feedback_events(root_session_id, seq)`,
+  );
+  // Twin of the SQLite append-only / immutability triggers. TG_ARGV carries the
+  // same message text the SQLite RAISE(ABORT, ...) uses, so a caller sees one
+  // wording regardless of engine.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_reject_ledger_write() RETURNS trigger AS $$
+    BEGIN
+      RAISE EXCEPTION '%', TG_ARGV[0];
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_run_outcomes_immutable ON agent_run_outcomes;
+    CREATE TRIGGER trg_agent_run_outcomes_immutable
+      BEFORE UPDATE OR DELETE ON agent_run_outcomes
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent run outcomes are immutable once finalized');
+    DROP TRIGGER IF EXISTS trg_agent_run_feedback_events_append_only ON agent_run_feedback_events;
+    CREATE TRIGGER trg_agent_run_feedback_events_append_only
+      BEFORE UPDATE OR DELETE ON agent_run_feedback_events
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent run feedback is append-only');
+  `);
+
+  // ── W6 — experiment contracts (Postgres twin) ─────────────────────────────
+  //
+  // W6-c5: the cohort read's supporting index. No column is added to the W4
+  // ledger and no update path exists.
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_experiment
+       ON agent_run_outcomes(proposal_id, experiment_variant)`,
+  );
+
+  // W6-c8: outcome status, separate from the deployment status. Single-line
+  // ALTER on purpose — skill_schema_parity.test.ts's parser only reads
+  // single-line `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS outcome_status TEXT NOT NULL DEFAULT 'unproven';
+  `);
+
+  // W6-c3: column set MUST stay identical to the SQLite migration in
+  // migrations.ts — enforced by skill_schema_parity.test.ts. Table in its own
+  // pool.query with the closing paren immediately before the backtick, indexes
+  // in separate calls, or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiments (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      evidence_bundle_json TEXT NOT NULL,
+      baseline_spec_json TEXT NOT NULL,
+      candidate_spec_json TEXT NOT NULL,
+      assignment_key TEXT NOT NULL,
+      stopping_rule_json TEXT NOT NULL,
+      max_exposure INTEGER NOT NULL,
+      results_json TEXT,
+      decision TEXT,
+      decision_reason TEXT,
+      declared_at TEXT NOT NULL,
+      results_recorded_at TEXT,
+      decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiments_proposal
+       ON agent_org_experiments(proposal_id, declared_at)`,
+  );
+  // Twin of the SQLite partial unique index: at most one UNDECIDED experiment
+  // per proposal, so two stopping rules can never judge one cohort pool.
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiments_one_undecided
+       ON agent_org_experiments(proposal_id) WHERE decision IS NULL`,
+  );
+  // Behavioural twin of the SQLite spec-immutability triggers: the same guarded
+  // column list and the same message text, reusing rhythm_reject_ledger_write
+  // so a caller sees one wording regardless of engine. Results and decision
+  // writes are deliberately outside the WHEN clause.
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiments_spec_immutable ON agent_org_experiments;
+    CREATE TRIGGER trg_agent_org_experiments_spec_immutable
+      BEFORE UPDATE ON agent_org_experiments
+      FOR EACH ROW WHEN (
+        NEW.proposal_id IS DISTINCT FROM OLD.proposal_id
+        OR NEW.adapter IS DISTINCT FROM OLD.adapter
+        OR NEW.evidence_bundle_json IS DISTINCT FROM OLD.evidence_bundle_json
+        OR NEW.baseline_spec_json IS DISTINCT FROM OLD.baseline_spec_json
+        OR NEW.candidate_spec_json IS DISTINCT FROM OLD.candidate_spec_json
+        OR NEW.assignment_key IS DISTINCT FROM OLD.assignment_key
+        OR NEW.stopping_rule_json IS DISTINCT FROM OLD.stopping_rule_json
+        OR NEW.max_exposure IS DISTINCT FROM OLD.max_exposure
+        OR NEW.declared_at IS DISTINCT FROM OLD.declared_at
+      )
+      EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
+    DROP TRIGGER IF EXISTS trg_agent_org_experiments_no_delete ON agent_org_experiments;
+    CREATE TRIGGER trg_agent_org_experiments_no_delete
+      BEFORE DELETE ON agent_org_experiments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('agent org experiment specs are immutable once declared');
+  `);
+
+  // C1-C-B3: Postgres twin of the durable, pre-dispatch enrollment lifecycle.
+  // Keep the CREATE body in its own query so skill_schema_parity.test.ts can
+  // compare it to the real SQLite migration. Existing early deployments can
+  // only lack the failure fields, which are added below without backfill.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_enrollments (
+      id TEXT PRIMARY KEY,
+      run_episode_id TEXT NOT NULL,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline', 'candidate')),
+      assignment_digest TEXT NOT NULL,
+      baseline_target_revision_hash TEXT NOT NULL,
+      treatment_spec_hash TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'reserved'
+        CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
+      failure_code TEXT,
+      failure_reason TEXT,
+      reserved_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `ALTER TABLE agent_org_experiment_enrollments ADD COLUMN IF NOT EXISTS failure_code TEXT`,
+  );
+  await pool.query(
+    `ALTER TABLE agent_org_experiment_enrollments ADD COLUMN IF NOT EXISTS failure_reason TEXT`,
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_run_episode
+       ON agent_org_experiment_enrollments(run_episode_id)`,
+  );
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
+       ON agent_org_experiment_enrollments(experiment_id)`,
+  );
+
+  // PostgreSQL behavioral twin of SQLite's C1 lifecycle trigger. The function
+  // owns both insert-domain and update-transition validation so all rejects use
+  // one stable error string and NULL comparisons stay engine-equivalent.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state()
+    RETURNS trigger AS $$
+    DECLARE
+      canonical_failure_reason TEXT;
+    BEGIN
+      IF NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized') THEN
+        RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+      END IF;
+
+      IF NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN (
+        'pre_dispatch_failed',
+        'prompt_dispatch_failed',
+        'provider_unavailable',
+        'invalid_model',
+        'prompt_timeout',
+        'target_drifted'
+      ) THEN
+        RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+      END IF;
+
+      canonical_failure_reason := CASE NEW.failure_code
+        WHEN 'pre_dispatch_failed' THEN 'pre_dispatch_failed'
+        WHEN 'prompt_dispatch_failed' THEN 'prompt_dispatch_failed'
+        WHEN 'provider_unavailable' THEN 'provider_unavailable'
+        WHEN 'invalid_model' THEN 'invalid_model'
+        WHEN 'prompt_timeout' THEN 'prompt_timeout'
+        WHEN 'target_drifted' THEN 'target_drifted'
+        ELSE NULL
+      END;
+
+      IF TG_OP = 'INSERT' THEN
+        IF NEW.state = 'treatment_failed' THEN
+          IF NEW.failure_code IS NULL
+             OR NEW.failure_reason IS DISTINCT FROM canonical_failure_reason THEN
+            RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+          END IF;
+        ELSIF NEW.failure_code IS NOT NULL OR NEW.failure_reason IS NOT NULL THEN
+          RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+        END IF;
+        RETURN NEW;
+      END IF;
+
+      IF NEW.state IS NOT DISTINCT FROM OLD.state
+         AND NEW.failure_code IS NOT DISTINCT FROM OLD.failure_code
+         AND NEW.failure_reason IS NOT DISTINCT FROM OLD.failure_reason THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'reserved'
+         AND NEW.state = 'dispatched'
+         AND NEW.failure_code IS NULL
+         AND NEW.failure_reason IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'reserved'
+         AND NEW.state = 'treatment_failed'
+         AND NEW.failure_code IS NOT NULL
+         AND NEW.failure_reason IS NOT DISTINCT FROM canonical_failure_reason THEN
+        RETURN NEW;
+      END IF;
+
+      IF OLD.state = 'dispatched'
+         AND NEW.state = 'terminalized'
+         AND NEW.failure_code IS NULL
+         AND NEW.failure_reason IS NULL THEN
+        RETURN NEW;
+      END IF;
+
+      RAISE EXCEPTION 'agent_org_experiment_enrollments state transition is invalid';
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_insert_domain
+      ON agent_org_experiment_enrollments;
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_insert_domain
+      BEFORE INSERT ON agent_org_experiment_enrollments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
+
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_update_domain
+      ON agent_org_experiment_enrollments;
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_update_domain
+      BEFORE UPDATE OF state, failure_code, failure_reason ON agent_org_experiment_enrollments
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_enrollment_state();
+  `);
+
+  // ── C2-B — the durable, immutable, sanitized treatment receipt (Postgres
+  // twin). Column set MUST stay identical to the SQLite migration in
+  // migrations.ts — enforced by skill_schema_parity.test.ts. Closed-domain
+  // CHECKs mirror the SQLite GLOB patterns using Postgres regex; `target_ref`
+  // is bound to `profile_id` in the same row so a caller cannot smuggle a
+  // mismatched ref past the DB layer. Table in its own pool.query with the
+  // closing paren immediately before the backtick or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_treatment_receipts (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES agent_org_experiment_enrollments(id),
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline', 'candidate')),
+      assignment_digest TEXT NOT NULL,
+      adapter TEXT NOT NULL CHECK (adapter = 'system-prompt-v1'),
+      target_ref TEXT NOT NULL CHECK (target_ref = ('agent_config:' || profile_id)),
+      baseline_target_revision_hash TEXT NOT NULL CHECK (baseline_target_revision_hash ~ '^sha256:[0-9a-f]{64}$'),
+      profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+      treatment_spec_hash TEXT NOT NULL CHECK (treatment_spec_hash ~ '^[0-9a-f]{64}$'),
+      effective_prompt_hash TEXT NOT NULL CHECK (effective_prompt_hash ~ '^[0-9a-f]{64}$'),
+      finalized_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_treatment_receipts_experiment
+       ON agent_org_experiment_treatment_receipts(experiment_id)`,
+  );
+
+  // Postgres twin of the SQLite INSERT-binding trigger: a receipt can only be
+  // inserted for an enrollment that exists, is ALREADY `dispatched`, and
+  // matches the receipt's copied binding fields exactly. Real DB-level
+  // enforcement, not merely repository discipline.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION rhythm_guard_agent_org_experiment_treatment_receipt_binding()
+    RETURNS trigger AS $$
+    DECLARE
+      bound_enrollment RECORD;
+    BEGIN
+      SELECT * INTO bound_enrollment
+        FROM agent_org_experiment_enrollments
+       WHERE id = NEW.enrollment_id;
+
+      IF NOT FOUND
+         OR bound_enrollment.state <> 'dispatched'
+         OR bound_enrollment.run_episode_id <> NEW.run_episode_id
+         OR bound_enrollment.experiment_id <> NEW.experiment_id
+         OR bound_enrollment.proposal_id <> NEW.proposal_id
+         OR bound_enrollment.profile_id <> NEW.profile_id
+         OR bound_enrollment.cohort <> NEW.cohort
+         OR bound_enrollment.assignment_digest <> NEW.assignment_digest
+         OR bound_enrollment.baseline_target_revision_hash <> NEW.baseline_target_revision_hash
+         OR bound_enrollment.treatment_spec_hash <> NEW.treatment_spec_hash
+      THEN
+        RAISE EXCEPTION 'treatment receipt does not match its bound dispatched enrollment';
+      END IF;
+
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_binding
+      ON agent_org_experiment_treatment_receipts;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_binding
+      BEFORE INSERT ON agent_org_experiment_treatment_receipts
+      FOR EACH ROW EXECUTE FUNCTION rhythm_guard_agent_org_experiment_treatment_receipt_binding();
+  `);
+
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_immutable
+      ON agent_org_experiment_treatment_receipts;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_immutable
+      BEFORE UPDATE OR DELETE ON agent_org_experiment_treatment_receipts
+      FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('treatment receipts are immutable once finalized');
+  `);
+
+  // W5-c12: the proposal retirement sidecar. Column set MUST stay identical to
+  // the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Table in its own pool.query with the closing
+  // paren immediately before the backtick or the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposal_retirements (
+      proposal_id TEXT PRIMARY KEY,
+      classification TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      proposal_revision INTEGER NOT NULL,
+      retired_at TEXT NOT NULL
+    )
+  `);
+
+  // C2-D (S2): bind outcomes to their run episode (Postgres twin). Column set
+  // MUST stay identical to the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Single-line ALTER on purpose — the parser
+  // only reads single-line `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_run_outcomes ADD COLUMN IF NOT EXISTS run_episode_id TEXT;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
+       ON agent_run_outcomes(run_episode_id)`,
+  );
+
+  // D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record
+  // (Postgres twin). Column set MUST stay identical to the SQLite migration
+  // in migrations.ts — enforced by skill_schema_parity.test.ts. Table in its
+  // own pool.query with the closing paren immediately before the backtick or
+  // the guard goes blind.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_post_apply_events (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL UNIQUE REFERENCES agent_org_proposals(id),
+      profile_id TEXT NOT NULL,
+      change_type TEXT NOT NULL CHECK (change_type IN ('prompt', 'tool', 'scope')),
+      pre_change_snapshot_json TEXT NOT NULL,
+      monitoring_window_start TEXT NOT NULL,
+      monitoring_window_end TEXT NOT NULL,
+      guardrail_status TEXT NOT NULL DEFAULT 'monitoring'
+        CHECK (guardrail_status IN ('monitoring', 'clear', 'tripped')),
+      repair_proposal_ids_json TEXT NOT NULL DEFAULT '[]',
+      revert_status TEXT NOT NULL DEFAULT 'none'
+        CHECK (revert_status IN ('none', 'reverted', 'not_needed', 'revert_failed')),
+      alert_payload_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_post_apply_events_profile
+       ON agent_org_post_apply_events(profile_id)`,
+  );
+
+  // D2.2 (#1432) — Postgres twin of the profile-scoped outcomes index.
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
+       ON agent_run_outcomes(profile_id)`,
+  );
+
+  // D2.3 (#1433, second pass) — durable repair-attempt state machine
+  // (Postgres twin). Column set MUST stay identical to the SQLite migration
+  // in migrations.ts — enforced by skill_schema_parity.test.ts. Single-line
+  // ALTERs on purpose — the parser only reads single-line
+  // `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>`.
+  await pool.query(`
+    ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_attempt_count INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_recheck_after TEXT;
+  `);
+
+  // C6 — versioned calibration observations (Postgres twin). Column set MUST
+  // stay identical to the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Reuses the existing rhythm_reject_ledger_write
+  // trigger function (already defined above) for the same no-update/no-delete
+  // guarantee as agent_run_outcomes / treatment receipts.
+  //
+  // C6 (repair item 2) — owner_id is historical ledger provenance, not a live
+  // user reference. A foreign key with ON DELETE SET NULL would internally
+  // UPDATE this immutable row and make user deletion impossible.
+  //
+  // The trigger is dropped only for the one-time legacy-column backfill, and
+  // that drop/backfill/recreate sequence is transactional: a failed ALTER,
+  // UPDATE, or index build can never leave the ledger unprotected.
+  const calibrationClient = await pool.connect();
+  try {
+    await calibrationClient.query('BEGIN');
+    const calibrationShape = await calibrationClient.query<{
+      table_exists: boolean;
+      owner_exists: boolean;
+      owner_fk_exists: boolean;
+    }>(`
+      SELECT
+        to_regclass('public.calibration_observations') IS NOT NULL AS table_exists,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'calibration_observations'
+            AND column_name = 'owner_id'
+        ) AS owner_exists,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = 'public'
+            AND t.relname = 'calibration_observations'
+            AND c.contype = 'f'
+            AND pg_get_constraintdef(c.oid) LIKE '%(owner_id)%'
+        ) AS owner_fk_exists
+    `);
+    const shape = calibrationShape.rows[0];
+    const needsCalibrationBackfill =
+      shape?.table_exists === true &&
+      (shape.owner_exists !== true || shape.owner_fk_exists === true);
+    if (needsCalibrationBackfill) {
+      await calibrationClient.query(
+        `DROP TRIGGER IF EXISTS trg_calibration_observations_immutable ON calibration_observations`,
+      );
+    }
+    await calibrationClient.query(`
+      CREATE TABLE IF NOT EXISTS calibration_observations (
+        id TEXT PRIMARY KEY,
+        owner_id INTEGER,
+        source_event_id TEXT NOT NULL,
+        observation_type TEXT NOT NULL,
+        proposal_id TEXT NOT NULL,
+        experiment_id TEXT,
+        generator_version TEXT NOT NULL,
+        detector_version TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        treatment_version TEXT NOT NULL,
+        metric_version TEXT NOT NULL,
+        initial_confidence DOUBLE PRECISION NOT NULL,
+        human_decision TEXT,
+        experiment_decision TEXT,
+        experiment_effect DOUBLE PRECISION,
+        post_deploy_regression DOUBLE PRECISION,
+        revision INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+        updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+      )
+    `);
+    // Additive backfill for a database that already created the table in its
+    // pre-repair shape. Never inferred: owner stays NULL, source_event_id
+    // becomes the row's own immutable id, observation_type becomes 'legacy'.
+    await calibrationClient.query(`
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER;
+      DO $$
+      DECLARE owner_fk_name TEXT;
+      BEGIN
+        FOR owner_fk_name IN
+          SELECT c.conname
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = 'public'
+            AND t.relname = 'calibration_observations'
+            AND c.contype = 'f'
+            AND pg_get_constraintdef(c.oid) LIKE '%(owner_id)%'
+        LOOP
+          EXECUTE format('ALTER TABLE calibration_observations DROP CONSTRAINT %I', owner_fk_name);
+        END LOOP;
+      END $$;
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS source_event_id TEXT;
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS observation_type TEXT NOT NULL DEFAULT 'legacy';
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS experiment_id TEXT;
+      UPDATE calibration_observations SET source_event_id = id WHERE source_event_id IS NULL;
+      ALTER TABLE calibration_observations ALTER COLUMN source_event_id SET NOT NULL;
+    `);
+    await calibrationClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
+         ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
+    );
+    await calibrationClient.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
+         ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
+    );
+    await calibrationClient.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_trigger
+          WHERE tgname = 'trg_calibration_observations_immutable'
+            AND tgrelid = 'calibration_observations'::regclass
+        ) THEN
+          CREATE TRIGGER trg_calibration_observations_immutable
+            BEFORE UPDATE OR DELETE ON calibration_observations
+            FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('calibration observations are immutable once recorded');
+        END IF;
+      END $$;
+    `);
+    await calibrationClient.query('COMMIT');
+  } catch (error) {
+    await calibrationClient.query('ROLLBACK');
+    throw error;
+  } finally {
+    calibrationClient.release();
+  }
+
+  // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
+  // proposal creation from the generator's own high/medium/low diagnosis
+  // verdict. Column set MUST stay identical to migrations.ts — enforced by
+  // skill_schema_parity.test.ts.
+  await pool.query(`
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence DOUBLE PRECISION;
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence_version TEXT;
+  `);
+
+  // D4.1 (#1439) — promotion_trust_state: matching singleton table for the
+  // trust counters D4 gates automatic promotion on (see migrations.ts for
+  // the full rationale). Purely additive — a brand-new table, no ALTER on an
+  // existing one. Column set MUST stay identical to the SQLite migration.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS promotion_trust_state (
+      id                     TEXT PRIMARY KEY CHECK (id = 'promotion_trust_state'),
+      total_verified         INTEGER NOT NULL DEFAULT 0,
+      total_regressions      INTEGER NOT NULL DEFAULT 0,
+      auto_promotion_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      enabled_at             TIMESTAMPTZ,
+      trust_threshold        INTEGER NOT NULL DEFAULT 10,
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  // D4.2 (#1440) — additive eligibility column; see migrations.ts for the
+  // matching SQLite ALTER TABLE and the full rationale. Column set MUST stay
+  // identical to the SQLite migration.
+  await pool.query(`
+    ALTER TABLE promotion_trust_state ADD COLUMN IF NOT EXISTS auto_promotion_eligible BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+  // D4.6 (#1444) — Postgres twin of the narrow user-visible regression alert
+  // idempotency key in migrations.ts.
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_auto_promotion_regression_once
+      ON notifications(recipient_user_id, type, entity_type, entity_id)
+      WHERE type = 'auto_promotion_disabled_regression'
+  `);
+
+  // D1.1 (#1426) — tool safety reports. Column set MUST stay identical to
+  // migrations.ts — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tool_safety_reports (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
+      tool_name TEXT NOT NULL,
+      tool_version TEXT,
+      package_source TEXT NOT NULL,
+      install_method TEXT NOT NULL,
+      sandbox_duration_ms INTEGER NOT NULL,
+      test_prompts_run_count INTEGER NOT NULL DEFAULT 0,
+      forbidden_path_violations_json TEXT NOT NULL DEFAULT '[]',
+      network_calls_observed_json TEXT NOT NULL DEFAULT '[]',
+      file_system_writes_observed_json TEXT NOT NULL DEFAULT '[]',
+      credential_access_attempts_count INTEGER NOT NULL DEFAULT 0,
+      verdict TEXT NOT NULL CHECK (verdict IN ('safe', 'conditional', 'unsafe', 'unknown')),
+      reason TEXT,
+      evidence_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(`ALTER TABLE tool_safety_reports ADD COLUMN IF NOT EXISTS proposal_fingerprint TEXT`);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
+       ON tool_safety_reports(proposal_id)`,
+  );
 }

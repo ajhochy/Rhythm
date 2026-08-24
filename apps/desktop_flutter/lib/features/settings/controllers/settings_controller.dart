@@ -2,8 +2,11 @@ import 'package:flutter/foundation.dart';
 
 import '../../../app/core/auth/auth_user.dart';
 import '../repositories/settings_repository.dart';
+import '../models/auto_promotion_settings_state.dart';
 
 enum SettingsUsersStatus { idle, loading, ready, error }
+
+enum AutoPromotionSettingsStatus { idle, loading, ready, error }
 
 class SettingsController extends ChangeNotifier {
   SettingsController(this._repository);
@@ -15,6 +18,12 @@ class SettingsController extends ChangeNotifier {
   String? _usersErrorMessage;
   final Set<int> _savingUserIds = <int>{};
 
+  AutoPromotionSettingsStatus _autoPromotionStatus =
+      AutoPromotionSettingsStatus.idle;
+  AutoPromotionSettingsState? _autoPromotionState;
+  String? _autoPromotionErrorMessage;
+  bool _savingAutoPromotion = false;
+
   bool _emailNotificationsEnabled = true;
   bool get emailNotificationsEnabled => _emailNotificationsEnabled;
 
@@ -23,6 +32,50 @@ class SettingsController extends ChangeNotifier {
   String? get usersErrorMessage => _usersErrorMessage;
 
   bool isSavingUser(int userId) => _savingUserIds.contains(userId);
+
+  AutoPromotionSettingsStatus get autoPromotionStatus => _autoPromotionStatus;
+  AutoPromotionSettingsState? get autoPromotionState => _autoPromotionState;
+  String? get autoPromotionErrorMessage => _autoPromotionErrorMessage;
+  bool get isSavingAutoPromotion => _savingAutoPromotion;
+
+  Future<void> refreshAutoPromotionState() async {
+    if (_autoPromotionStatus == AutoPromotionSettingsStatus.loading) return;
+    _autoPromotionStatus = AutoPromotionSettingsStatus.loading;
+    _autoPromotionErrorMessage = null;
+    notifyListeners();
+    try {
+      _autoPromotionState = await _repository.fetchAutoPromotionState();
+      _autoPromotionStatus = AutoPromotionSettingsStatus.ready;
+    } catch (error) {
+      _autoPromotionStatus = AutoPromotionSettingsStatus.error;
+      _autoPromotionErrorMessage = error.toString();
+    }
+    notifyListeners();
+  }
+
+  /// Never changes the displayed toggle optimistically. The durable GET after
+  /// the mutation is authoritative, including after a server refusal/race.
+  Future<void> setAutoPromotionEnabled(bool enabled) async {
+    if (_savingAutoPromotion) return;
+    _savingAutoPromotion = true;
+    _autoPromotionErrorMessage = null;
+    notifyListeners();
+    Object? failure;
+    StackTrace? failureStack;
+    try {
+      await _repository.setAutoPromotionEnabled(enabled);
+    } catch (error, stackTrace) {
+      failure = error;
+      failureStack = stackTrace;
+    }
+    await refreshAutoPromotionState();
+    _savingAutoPromotion = false;
+    if (failure != null) {
+      _autoPromotionErrorMessage = failure.toString();
+    }
+    notifyListeners();
+    if (failure != null) Error.throwWithStackTrace(failure, failureStack!);
+  }
 
   Future<void> loadUsers({bool force = false}) async {
     if (_usersStatus == SettingsUsersStatus.loading) return;

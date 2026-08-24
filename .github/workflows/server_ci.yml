@@ -29,6 +29,11 @@ jobs:
           cache-dependency-path: apps/api_server/package.json
       - run: npm install --workspaces=false
       - run: npm run lint
+      # D1 vetting deliberately uses `docker run --pull never`: candidate
+      # execution must not gain an ambient network dependency. Fresh GitHub
+      # runners therefore prepare the exact sandbox image before the tests.
+      - name: Prepare D1 sandbox image
+        run: docker pull node:22-alpine
       - run: npm test
       - name: Supply-chain advisory scan (#877 — fail CI on known-compromised package version)
         run: npx vitest run src/security/security_advisories.test.ts
@@ -43,3 +48,42 @@ jobs:
       - name: Smoke org-optimizer safety guards (#831 — auto-path revert, gate invariants, note-required, fail-injection)
         working-directory: .
         run: tools/release/smoke_org_optimizer.sh
+
+  # Separate job on purpose: it needs a Postgres service container that
+  # server-checks does not, and running in parallel keeps it off that job's
+  # critical path. The suite DROPs and recreates the `public` schema, so it may
+  # only ever see this disposable service container — the test's own
+  # assertDisposableLocalPostgres() refuses any non-loopback host, and the
+  # service is reachable only as 127.0.0.1 on the runner.
+  live-postgres-bootstrap:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api_server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: probe
+          POSTGRES_PASSWORD: probe
+          POSTGRES_DB: probe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/api_server/package.json
+      - run: npm install --workspaces=false
+      - name: Live Postgres bootstrap gate — executes the real production DDL
+        env:
+          RHYTHM_LIVE_PG: '1'
+          RHYTHM_LIVE_PG_URL: postgres://probe:probe@127.0.0.1:5432/probe
+        run: npx vitest run src/__tests__/live_postgres_bootstrap.test.ts

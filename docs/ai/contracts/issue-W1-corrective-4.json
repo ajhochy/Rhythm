@@ -1,0 +1,75 @@
+{
+  "issue": "W1-corrective-4",
+  "generated": "2026-08-14",
+  "review_status": "failed-independent-review-superseded-by-corrective-5",
+  "criteria": [
+    {
+      "criterion_id": "issue-W1-corrective-4-c1",
+      "text": "One strict shared scope mutation contract rejects malformed, ambiguous, duplicate, overlapping, stale, unsupported, empty, reserved, and no-op operations before preparation, claim, target mutation, projection, or measurement.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c1: strict live scope mutation contract",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: 8 reviewer validation/preparation cases were accepted or normalized; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 regression file: strict validation, preparation, and claim-path invariants passed within the final 39/39 run."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c2",
+      "text": "Both scope snapshot versions bind allowed proposal kind, exact change_json bytes, exact target/field/prior/applied bytes, and independently replay valid semantics before any revert mutation.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c2: proposal-kind-bound semantic snapshots",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: constructors accepted malformed states, mislabeled state reverted, delta accepted byte-different change_json, and parseable null returned skipped; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 regression file: constructors and independent revert replay refused every named malformed, ambiguous, mislabeled, no-op, reserved, and byte-different case within the final 39/39 run."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c3",
+      "text": "Recursive scope-bearing payloads, including core permission set/unset/content under a mislabeled text kind, classify HIGH and cannot enter unattended apply; unrelated text stays LOW.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c3: recursive scope risk and human gate",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: three nested/direct core scope shapes classified LOW and the auto lane advanced the proposal; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 regression file: recursive core shapes classify HIGH, unattended apply is side-effect-free, and unrelated text remains LOW within the final 39/39 run."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c4",
+      "text": "If the final reverted status transition throws, returns null, or is not durable, scope-only exact CAS compensation restores applied bytes and reprojection; a compensation miss preserves concurrent bytes and reports conflict.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c4: final status failure compensation",
+      "status": "pass",
+      "red_evidence": "RED on immutable 47bd426e: state/delta trigger cases left prior target bytes under active proposals; null status was treated as success; the initial corrective file run reported 25 failed and 1 passed.",
+      "green_evidence": "Node 22 in-memory SQLite trigger/null/concurrency/after-durable-commit regressions passed within the final 39/39 run, proving exact applied-byte compensation, durable-success preservation, or concurrent-byte preservation."
+    },
+    {
+      "criterion_id": "issue-W1-corrective-4-c5",
+      "text": "Normal unambiguous array, supported tools-map, and core mutations preserve exact semantics while all prior claim-first, CAS, projection, legacy, human-only, parity, and route guarantees remain green.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/w1_corrective_4_contract.test.ts",
+      "test_id": "issue-W1-corrective-4-c5: normal exact scope mutations stay supported",
+      "status": "pass",
+      "green_evidence": "Parent Node 22 complete 13-file gate passed 323 tests with 1 existing skip, including 23/23 real HTTP route tests and 39/39 corrective-4 regressions; API build passed."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [],
+  "independent_review": {
+    "reviewed_head": "db78072b411d32c3f493387443e80e245afdcd6e",
+    "passed": false,
+    "semantic_lane": {
+      "p1_findings": 7,
+      "security_findings": 1,
+      "spec_blockers": 7,
+      "report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-0-20260814_203941_736647.txt"
+    },
+    "lifecycle_lane": {
+      "p1_findings": 3,
+      "security_findings": 1,
+      "spec_blockers": 3,
+      "report": "/Users/ajhochhalter/.hermes/cache/delegation/subagent-summary-1-20260814_203941_737447.txt"
+    },
+    "summary": "Parent gates were green, but adversarial review reproduced duplicate-key and smuggled-scope acceptance, null-unrestricted narrowing, incomplete shared gating, runtime kind gaps, mislabeled revert status changes, a stale status race, and one-sided compensation after an ambiguous durable commit."
+  }
+}

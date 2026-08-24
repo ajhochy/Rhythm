@@ -4,6 +4,7 @@ export type ServerOptions = {
     port?: number;
     signal?: AbortSignal;
     timeout?: number;
+    cors?: string[];
     config?: Config;
 };
 export type TuiOptions = {

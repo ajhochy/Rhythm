@@ -1,0 +1,40 @@
+{
+  "contract_id": "D4.5",
+  "issue": 1443,
+  "date": "2026-08-21",
+  "scope": "Production-default, SQLite-only all-kinds auto-promotion proof.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1443-c1",
+      "text": "With AUTO_PROMOTION_FEATURE_AVAILABLE=true and durable eligible/enabled/no-regression trust plus outcome_status=verified, system-prompt refinement, tool installation, tool removal, and scope tightening auto-apply through the production gate without an injected availability bypass.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/auto_promotion_all_kinds.integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1443-c2",
+      "text": "Each successful profile mutation has exactly one D2 monitor with the expected profile and prompt/tool/scope change type; re-entry does not mutate again or create another event.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/auto_promotion_all_kinds.integration.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1443-c3",
+      "text": "Unavailable/Postgres, ineligible, disabled, regressed, conditional/unsafe/stale or malformed tool reports, malformed or stale CAS proposals, and unsupported kinds fail closed without a mutation or D2 event.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/auto_promotion_all_kinds.integration.test.ts",
+      "status": "pass"
+    }
+  ],
+  "verification": {
+    "red": "Deliberate assertion-mutation control: the system-prompt case failed 1/16 with received systemPrompt='after prompt' when expected 'intentional-red-control'; the correct assertion was restored before GREEN.",
+    "green": "Node 22: npx vitest run src/services/__tests__/auto_promotion_all_kinds.integration.test.ts src/services/__tests__/auto_promotion_gate.test.ts src/services/__tests__/tool_install_managed_apply.test.ts src/services/__tests__/tool_install_proposal_lifecycle.test.ts src/services/__tests__/tool_install_safety_policy.test.ts src/services/__tests__/post_apply_lifecycle.integration.test.ts src/__tests__/auto_promotion_settings_routes.test.ts src/services/__tests__/post_apply_regression_feedback.test.ts --no-file-parallelism — 93 passed, 1 expected Docker-gated skip.",
+    "node22": "apps/api_server: npx tsc --noEmit && npm run build — pass.",
+    "gitnexus": "UNKNOWN — the one permitted local detect-changes attempt could not select this worktree from multiple duplicate Rhythm indexes; no reindex/analyze was run.",
+    "repo_issue_gate": "ai-workflow checks --level issue reached the known unrelated apps/mcp_server compiler setup failure after Flutter format/analyze and api_server typecheck passed. Reproduced with cd apps/mcp_server && npx tsc --noEmit; no dependency change belongs to #1443."
+  },
+  "boundaries": [
+    "D2 remains SQLite-only; Postgres availability must stay false.",
+    "This contract does not alter admin confirmation, durable trust accounting, D1 safety evidence, CAS, or D4.6 regression disablement."
+  ]
+}

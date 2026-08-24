@@ -36,7 +36,16 @@ beforeEach(() => {
 
 describe('issue-1223-c3: broaden-scope validation rejects a tool id', () => {
   it('names the malformed entry and tells the reviewer to use the server name', async () => {
-    new AgentConfigsRepository().insert({ id: 'workflow-orchestrator', label: 'Workflow Orchestrator', icon: 'flow' });
+    // W1: a null allowlist means UNRESTRICTED, and add/remove on it is refused
+    // before any entry-shape check — so give this profile a real restricted
+    // allowlist, which is the state in which the tool-id-vs-server-name
+    // distinction this contract is about actually matters.
+    new AgentConfigsRepository().insert({
+      id: 'workflow-orchestrator',
+      label: 'Workflow Orchestrator',
+      icon: 'flow',
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+    });
     const proposal = await new AgentOrgProposalsRepository().createAsync({
       kind: 'broaden-scope',
       risk: 'high',
@@ -58,7 +67,12 @@ describe('issue-1223-c3: broaden-scope validation rejects a tool id', () => {
 
 describe('issue-1223-c4: removal proposals reject non-server MCP entries', () => {
   it.each(['tighten-scope', 'prune-scope'])('%s rejects a model-facing tool id', async (kind) => {
-    new AgentConfigsRepository().insert({ id: 'workflow-orchestrator', label: 'Workflow Orchestrator', icon: 'flow' });
+    new AgentConfigsRepository().insert({
+      id: 'workflow-orchestrator',
+      label: 'Workflow Orchestrator',
+      icon: 'flow',
+      allowedMcpsJson: JSON.stringify(['gitnexus_query']),
+    });
     const proposal = await new AgentOrgProposalsRepository().createAsync({
       kind,
       risk: 'low',

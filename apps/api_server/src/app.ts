@@ -16,6 +16,7 @@ import { pcoBrokerRouter } from './routes/pco_broker_routes';
 import { messagesRouter } from './routes/messages_routes';
 import { orgSkillsRouter } from './routes/org_skills_routes';
 import { orgSettingsRouter } from './routes/org_settings_routes';
+import { autoPromotionSettingsRouter } from './routes/auto_promotion_settings_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
 import { projectsRouter } from './routes/projects_routes';
@@ -33,6 +34,7 @@ import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { usageBudgetRouter } from './routes/usage_budget_routes';
 import { runQualityRouter } from './routes/run_quality_routes';
+import { runOutcomeRouter } from './routes/run_outcome_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
@@ -118,7 +120,7 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
-      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256', 'Range', 'X-Rhythm-Project', 'X-Rhythm-Project-ID', 'X-Rhythm-Auto-Promotion-Confirmation'],
     }),
   );
   // Allow larger bodies for OAuth token exchange and session creation.
@@ -205,6 +207,10 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
+    // W4 — the immutable run-outcome ledger + its append-only feedback API.
+    // Same agent-execution gate as its sibling agent routes: the hosted 'cloud'
+    // role never runs agents, so it has no run outcomes to serve.
+    app.use('/agent-run-outcomes', runOutcomeRouter);
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     app.use('/agent-delegation', agentDelegationRouter);
@@ -232,6 +238,8 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     // org-optimizer-16 (#850): the live run-loop trigger — POST /agent-org-optimizer/run
     // executes the whole audit->generate->persist->auto-apply pass server-side.
     app.use('/agent-org-optimizer', orgOptimizerRunRouter);
+    // D4.4: authenticated local desktop Settings state and explicit opt-in.
+    app.use('/optimizer', autoPromotionSettingsRouter);
     app.use('/agent-designs', agentDesignsRouter);
     app.use('/agent-sessions', agentSessionsRouter);
     app.use(ptyRouter);

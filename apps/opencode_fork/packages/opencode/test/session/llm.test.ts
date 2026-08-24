@@ -844,9 +844,11 @@ describe("session.llm.stream", () => {
     const providerID = "alibaba"
     const modelID = "qwen-plus"
     const fixture = await loadFixture(providerID, modelID)
-    const request = waitActiveStreamingRequest("/chat/completions", 30, 4)
+    // Keep the complete stream longer than the watchdog while leaving enough
+    // per-chunk margin for decoding under shared CI runner load.
+    const request = waitActiveStreamingRequest("/chat/completions", 25, 12)
     const previousTimeout = process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
-    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = "50"
+    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = "200"
 
     await using tmp = await tmpdir({
       init: async (dir) => {

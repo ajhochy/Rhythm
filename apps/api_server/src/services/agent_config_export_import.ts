@@ -26,7 +26,7 @@
 
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentConfig, AgentConfigInput } from '../repositories/agent_configs_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import { syncOpencodeAgentProfiles } from './agent_profile_sync';
 import { logger } from '../utils/logger';
 
@@ -298,7 +298,7 @@ export async function importAgentConfigBundle(bundle: AgentConfigBundle): Promis
         action = 'created';
       }
 
-      writeAgentProfileFile(saved);
+      projectAgentProfileAfterWrite(saved, 'import');
       results.push({ id: saved.id, label: saved.label, action });
     } catch (err) {
       logger.warn(`[AgentConfigImport] failed to import profile "${incoming.id}": ${String(err)}`);

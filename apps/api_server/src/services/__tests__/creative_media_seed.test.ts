@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getById, insert, writeAgentProfileFile } = vi.hoisted(() => ({
+const { getById, insert, writeAgentProfileFile, projectAgentProfileAfterWrite } = vi.hoisted(() => ({
   getById: vi.fn(),
   insert: vi.fn(),
-  writeAgentProfileFile: vi.fn(),
+  writeAgentProfileFile: vi.fn(), projectAgentProfileAfterWrite: vi.fn(),
 }));
 
 vi.mock("../../config/env", () => ({
@@ -16,6 +16,9 @@ vi.mock("../../repositories/agent_configs_repository", () => ({
   },
 }));
 vi.mock("../opencode_agent_writer", () => ({ writeAgentProfileFile }));
+// The seed projects through the ONE boundary now, so that is the seam
+// the contract asserts on — the boundary owns re-reading the latest row.
+vi.mock("../agent_profile_projection_service", () => ({ projectAgentProfileAfterWrite }));
 vi.mock("../../utils/logger", () => ({ logger: { info: vi.fn() } }));
 
 import {
@@ -50,7 +53,7 @@ describe("seedCreativeMediaProfile", () => {
         allowedSkillsJson: JSON.stringify([...CREATIVE_MEDIA_SKILLS]),
       }),
     );
-    expect(writeAgentProfileFile).toHaveBeenCalledWith(result.config);
+    expect(projectAgentProfileAfterWrite).toHaveBeenCalledWith(result.config, 'seed');
   });
 
   it("preserves and re-projects an existing user-edited profile", () => {
@@ -61,7 +64,7 @@ describe("seedCreativeMediaProfile", () => {
 
     expect(result).toEqual({ created: false, config: existing });
     expect(insert).not.toHaveBeenCalled();
-    expect(writeAgentProfileFile).toHaveBeenCalledWith(existing);
+    expect(projectAgentProfileAfterWrite).toHaveBeenCalledWith(existing, 'seed');
   });
 
   it("ships a path-agnostic prompt", () => {

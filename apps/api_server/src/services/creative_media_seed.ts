@@ -4,7 +4,7 @@ import {
   type AgentConfig,
 } from "../repositories/agent_configs_repository";
 import { logger } from "../utils/logger";
-import { writeAgentProfileFile } from "./opencode_agent_writer";
+import { projectAgentProfileAfterWrite } from "./agent_profile_projection_service";
 
 export const CREATIVE_MEDIA_AGENT_ID = "creative-media";
 
@@ -52,7 +52,7 @@ export function seedCreativeMediaProfile(): CreativeMediaSeedResult {
   const repo = new AgentConfigsRepository();
   const existing = repo.getById(CREATIVE_MEDIA_AGENT_ID);
   if (existing) {
-    writeAgentProfileFile(existing);
+    projectAgentProfileAfterWrite(existing, 'seed');
     return { created: false, config: existing };
   }
 
@@ -73,7 +73,7 @@ export function seedCreativeMediaProfile(): CreativeMediaSeedResult {
     imageGenerationEnabled: true,
     reasoningEffort: "medium",
   });
-  writeAgentProfileFile(config);
+  projectAgentProfileAfterWrite(config, 'seed');
   logger.info("[creative-media] seeded Creative Media Agent profile");
   return { created: true, config };
 }

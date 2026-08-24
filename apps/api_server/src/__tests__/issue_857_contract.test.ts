@@ -36,7 +36,9 @@ import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { createScopeDeltaV2Snapshot } from '../services/org_proposal_apply';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -47,6 +49,7 @@ function makeDb() {
 
 // ── opencode_engine mock — controls isReady / listMcp per test ─────────────
 import { vi } from 'vitest';
+import { forceAppliedScopeFixture } from './helpers/force_applied_scope_fixture';
 
 const mockListMcp = vi.fn();
 let mockIsReady = true;
@@ -133,6 +136,7 @@ describe('issue-857-c2: sufficient observation window + activity still yields a 
     insertProfileWithAge(configsRepo, 'secretary', JSON.stringify(['rhythm', 'nfl-mcp']), 30);
 
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const s = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -144,6 +148,12 @@ describe('issue-857-c2: sufficient observation window + activity still yields a 
       // #1004: only EXECUTED sessions count toward the tighten-scope floor;
       // insert() stamps 'starting', so mark these as a real (idle) run.
       sessionsRepo.updateStatus(s.id, 'idle');
+      // Genuinely instrumented zero-use coverage: a readable empty
+      // parts_json row proves structured telemetry actually captured this
+      // session's traffic and recorded no tool use (W2 fail-closed
+      // distinction — a session with zero readable rows is missing capture,
+      // not proof of zero use).
+      messagesRepo.upsertStructured(s.id, `session-${i}-msg`, 'output', '[]', null, null);
     }
 
     const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
@@ -191,6 +201,7 @@ describe('issue-857-c4: tighten-scope gap evidence surfaces the observation basi
     insertProfileWithAge(configsRepo, 'secretary', JSON.stringify(['rhythm', 'nfl-mcp']), 30);
 
     const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
     for (let i = 0; i < 10; i++) {
       const s = sessionsRepo.insert({
         agentKind: 'claude-code',
@@ -202,6 +213,12 @@ describe('issue-857-c4: tighten-scope gap evidence surfaces the observation basi
       // #1004: only EXECUTED sessions count toward the tighten-scope floor;
       // insert() stamps 'starting', so mark these as a real (idle) run.
       sessionsRepo.updateStatus(s.id, 'idle');
+      // Genuinely instrumented zero-use coverage: a readable empty
+      // parts_json row proves structured telemetry actually captured this
+      // session's traffic and recorded no tool use (W2 fail-closed
+      // distinction — a session with zero readable rows is missing capture,
+      // not proof of zero use).
+      messagesRepo.upsertStructured(s.id, `session-${i}-msg`, 'output', '[]', null, null);
     }
 
     const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
@@ -221,40 +238,48 @@ describe('issue-857-c5: revertProposal succeeds on an active proposal', () => {
     // measuring -> reverted, so calling revert on an already-active proposal
     // threw "Illegal status transition 'active' -> 'reverted'" — the exact
     // failure the maintainer hit hand-reverting the 16 live proposals.
+    //
+    // W1 (self-improvement-engine-foundation review) replaced the legacy
+    // whole-field snapshot ({allowedMcpsJson: prior}) with a versioned,
+    // entry-level scope-delta-v2 snapshot — replaying the OLD legacy shape is
+    // now refused (unsafe-legacy-scope) because it cannot distinguish a safe
+    // rollback from clobbering a later operator edit. This test now drives
+    // the same active-proposal-revert scenario through the V2 snapshot the
+    // real apply step actually writes.
     const { revertProposal } = await import('../services/org_proposal_apply');
 
     const configsRepo = new AgentConfigsRepository();
+    const priorMcps = JSON.stringify(['rhythm', 'nfl-mcp']);
     const config = configsRepo.insert({
       label: 'Secretary',
       icon: 'mail',
-      allowedMcpsJson: JSON.stringify(['rhythm']),
+      allowedMcpsJson: priorMcps,
     });
+
+    const exactChangeJson = JSON.stringify({ agentConfigId: config.id, field: 'allowedMcpsJson', remove: ['nfl-mcp'] });
+    const snapshot = createScopeDeltaV2Snapshot(config.id, 'allowedMcpsJson', priorMcps, ['nfl-mcp'], 'tighten-scope', exactChangeJson);
 
     const proposalsRepo = new AgentOrgProposalsRepository();
     const proposal = await proposalsRepo.createAsync({
       kind: 'tighten-scope',
-      risk: 'low',
+      risk: 'high',
       title: 'Tighten unused mcp scope nfl-mcp from secretary',
-      changeJson: JSON.stringify({
-        agentConfigId: config.id,
-        field: 'allowedMcpsJson',
-        remove: ['nfl-mcp'],
-      }),
-      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']) }),
+      changeJson: exactChangeJson,
+      beforeSnapshotJson: JSON.stringify(snapshot),
       dedupKey: 'issue-857-c5:active-revert',
     });
 
     // Drive the row all the way to 'active' (applied -> measuring -> active),
     // simulating a proposal that already passed measurement and was kept —
     // exactly the state the maintainer needed to revert by hand.
-    await proposalsRepo.updateStatusAsync(proposal.id, 'applied');
+    forceAppliedScopeFixture(proposal.id);
     await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
     const active = await proposalsRepo.updateStatusAsync(proposal.id, 'active');
     expect(active?.status).toBe('active');
 
-    // Mutate the live config to the "applied" (pruned) state, as the real
+    // Mutate the live config to the exact post-apply value, as the real
     // apply step would have already done before this row reached 'active'.
-    configsRepo.update(config.id, { allowedMcpsJson: JSON.stringify(['rhythm']) });
+    configsRepo.update(config.id, { allowedMcpsJson: snapshot.expectedAppliedValue });
 
     const outcome = await revertProposal(active!);
     expect(outcome).toBe('reverted');
@@ -282,7 +307,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:active-reverted',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     const updated = await repo.updateStatusAsync(p.id, 'reverted');
@@ -297,7 +322,7 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:active-approved-still-illegal',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     await expect(repo.updateStatusAsync(p.id, 'approved')).rejects.toThrow();
@@ -311,10 +336,67 @@ describe('issue-857-c6: repository state machine permits active -> reverted, not
       title: 'A',
       dedupKey: 'issue-857-c6:reverted-terminal',
     });
-    await repo.updateStatusAsync(p.id, 'applied');
+    forceAppliedScopeFixture(p.id);
     await repo.updateStatusAsync(p.id, 'measuring');
     await repo.updateStatusAsync(p.id, 'active');
     await repo.updateStatusAsync(p.id, 'reverted');
     await expect(repo.updateStatusAsync(p.id, 'active')).rejects.toThrow();
+  });
+});
+
+describe('issue-857-c7: the observation floor is not decided by a capped session read', () => {
+  it('a qualifying profile still produces its tighten-scope gap when >1000 newer unrelated sessions exist', async () => {
+    // Bug this catches: buildOrgAuditSnapshot fed the per-profile observation
+    // floor (sessionCount >= 10) from sessionsRepo.listAll(1000, ...), which is
+    // `ORDER BY created_at DESC LIMIT 1000`. Past 1000 sessions the read is
+    // newest-first truncated, so an older-but-qualifying profile's runs fall
+    // outside the read entirely, its count reads 0, the floor is never met, and
+    // the audit returns "no tighten-scope gap" — a confident empty answer that
+    // means "we didn't look", not "nothing to improve". The false negative is
+    // silent: no error, no warning, and c2/c4 stay green because they seed
+    // fewer than 1000 sessions.
+    mockListMcp.mockResolvedValue({ rhythm: { name: 'rhythm' }, 'nfl-mcp': { name: 'nfl-mcp' } });
+
+    const configsRepo = new AgentConfigsRepository();
+    insertProfileWithAge(configsRepo, 'secretary', JSON.stringify(['rhythm', 'nfl-mcp']), 30);
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const messagesRepo = new AgentSessionMessagesRepository();
+    for (let i = 0; i < 10; i++) {
+      const s = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `secretary-session-${i}`,
+        mcpRole: 'secretary',
+      });
+      sessionsRepo.updateStatus(s.id, 'idle');
+      messagesRepo.upsertStructured(s.id, `secretary-${i}-msg`, 'output', '[]', null, null);
+    }
+    // Back-date secretary's runs so the newest-first read demonstrably reaches
+    // the noise first — without this the tie on created_at makes order arbitrary.
+    getDb()
+      .prepare(`UPDATE agent_sessions SET created_at = ? WHERE mcp_role = 'secretary'`)
+      .run(new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString());
+
+    // 1001 newer sessions owned by nobody the audit tracks. They contribute
+    // nothing to any profile's count — they only fill the LIMIT.
+    const insertNoise = getDb().prepare(
+      `INSERT INTO agent_sessions (id, agent_kind, cwd, name, status, category, is_system, created_at, updated_at)
+       VALUES (?, 'claude-code', '/tmp', ?, 'idle', 'chat', 0, ?, ?)`,
+    );
+    const noiseAt = new Date().toISOString();
+    for (let i = 0; i < 1001; i++) {
+      insertNoise.run(`noise-${i}`, `noise-session-${i}`, noiseAt, noiseAt);
+    }
+
+    const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    const tightenGap = snapshot.gaps.find(
+      (g) => g.kind === 'tighten-scope' && g.evidence.includes('secretary') && g.evidence.includes('nfl-mcp'),
+    );
+    expect(tightenGap).toBeDefined();
+    expect(tightenGap?.evidence).toContain('sessionCount=10');
   });
 });

@@ -41,38 +41,56 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
   Widget build(BuildContext context) {
     return Consumer<OrgProposalsController>(
       builder: (context, controller, _) {
-        return Scaffold(
-          backgroundColor: context.rhythm.canvas,
-          appBar: AppBar(
-            backgroundColor: context.rhythm.surface,
-            elevation: 0,
-            title: Text(
-              'Review Queue',
-              style: TextStyle(
-                color: context.rhythm.textPrimary,
-                fontWeight: FontWeight.w700,
-                fontSize: 17,
+        return DefaultTabController(
+          length: 2,
+          child: Scaffold(
+            backgroundColor: context.rhythm.canvas,
+            appBar: AppBar(
+              backgroundColor: context.rhythm.surface,
+              elevation: 0,
+              title: Text(
+                'Review Queue',
+                style: TextStyle(
+                  color: context.rhythm.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 17,
+                ),
+              ),
+              iconTheme: IconThemeData(color: context.rhythm.textSecondary),
+              actions: [
+                IconButton(
+                  icon: Icon(
+                    Icons.refresh,
+                    color: context.rhythm.textSecondary,
+                  ),
+                  tooltip: 'Refresh',
+                  onPressed: () {
+                    controller.refresh();
+                    controller.refreshApplied();
+                  },
+                ),
+                const SizedBox(width: 8),
+              ],
+              bottom: TabBar(
+                labelColor: context.rhythm.accent,
+                unselectedLabelColor: context.rhythm.textSecondary,
+                indicatorColor: context.rhythm.accent,
+                tabs: const [
+                  Tab(
+                    key: ValueKey('org-proposals-tab-review'),
+                    text: 'Waiting for you',
+                  ),
+                  Tab(
+                    key: ValueKey('org-proposals-tab-applied'),
+                    text: 'Already in use',
+                  ),
+                ],
               ),
             ),
-            iconTheme: IconThemeData(color: context.rhythm.textSecondary),
-            actions: [
-              IconButton(
-                icon: Icon(Icons.refresh, color: context.rhythm.textSecondary),
-                tooltip: 'Refresh',
-                onPressed: controller.refresh,
-              ),
-              const SizedBox(width: 8),
-            ],
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Divider(
-                height: 1,
-                thickness: 1,
-                color: context.rhythm.border,
-              ),
+            body: TabBarView(
+              children: [_buildBody(context, controller), const _AppliedTab()],
             ),
           ),
-          body: _buildBody(context, controller),
         );
       },
     );
@@ -161,16 +179,72 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
     OrgProposalsController controller,
     OrgProposal proposal,
   ) async {
-    final ok = await controller.approve(proposal.id);
+    final safety = proposal.toolSafety;
+    var conditionalConfirmation = false;
+    if (proposal.kind == 'tool-install' &&
+        safety?.needsConditionalConfirmation == true) {
+      final generation = controller.reviewGeneration;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogCtx) => AlertDialog(
+          title: const Text('Approve conditional tool install?'),
+          content: const Text(
+            'The sandbox observed conditions that need your explicit approval. '
+            'Approve only if you understand the listed safety report.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: ValueKey('confirm-conditional-approve-${proposal.id}'),
+              onPressed: () => Navigator.pop(dialogCtx, true),
+              child: const Text('Approve conditional install'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      // A dialog cannot carry confirmation through a refresh. The user must
+      // reopen it against the fresh, durable report instead.
+      if (controller.reviewGeneration != generation) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'The proposal changed. Review the latest safety report before approving.'),
+          behavior: SnackBarBehavior.floating,
+        ));
+        return;
+      }
+      conditionalConfirmation = true;
+    }
+    final ok = await controller.approve(
+      proposal.id,
+      conditionalToolSafetyConfirmation: conditionalConfirmation,
+    );
     if (!mounted) return;
+    // A reconciliation outcome is neither success nor a retryable failure: the
+    // database, the target scope and the projected profile disagree and a human
+    // has to look. Saying "Approve failed" would invite exactly the retry that
+    // must not happen.
+    final needsReconciliation = controller.lastApproveNeedsReconciliation;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? 'Proposal approved' : (controller.error ?? 'Approve failed'),
+          ok
+              ? 'Proposal approved'
+              : needsReconciliation
+                  ? 'Needs reconciliation — inspect the proposal, its target '
+                      'scope and the projected profile before retrying'
+                  : (controller.error ?? 'Approve failed'),
         ),
-        backgroundColor: ok ? context.rhythm.success : context.rhythm.danger,
+        backgroundColor: ok
+            ? context.rhythm.success
+            : needsReconciliation
+                ? context.rhythm.warning
+                : context.rhythm.danger,
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+        duration: Duration(seconds: needsReconciliation ? 6 : 2),
       ),
     );
   }
@@ -236,6 +310,508 @@ class _OrgProposalsViewState extends State<OrgProposalsView> {
 }
 
 // ---------------------------------------------------------------------------
+// Already-in-use tab (#857 revert lane)
+//
+// Two facts per row, kept deliberately apart: WHERE the change is in its
+// rollout (`status`) and WHETHER it has been shown to help (`outcomeStatus`).
+// A change is routinely live and unmeasured at the same time; one merged
+// label would state a verdict the engine has not reached.
+//
+// Revert is offered only for rows the server can actually undo. The check is
+// a UX aid — the server stays the authority, and its refusal message is shown
+// verbatim when a revert is refused anyway.
+// ---------------------------------------------------------------------------
+
+/// Plain language for non-technical staff. `unproven` is the honest state of
+/// nearly every row today (nothing has been measured yet) — it must read as
+/// "not measured", never as a negative verdict.
+String _outcomeLabel(String outcomeStatus) {
+  switch (outcomeStatus) {
+    case 'verified':
+      return 'Checked — it helped';
+    case 'regressed':
+      return 'Checked — it made things worse';
+    case 'inconclusive':
+      return 'Checked, but no clear difference';
+    default:
+      return 'Not measured yet';
+  }
+}
+
+String _deploymentLabel(String status) {
+  switch (status) {
+    case 'applied':
+      return 'Just turned on';
+    case 'measuring':
+      return 'In use now, being checked';
+    default:
+      return 'In use now';
+  }
+}
+
+/// C6-3 — plain language for the additive experiment summary. Kept in the
+/// same "never a negative-sounding default" style as [_outcomeLabel].
+String _collectingProgressLabel(String progress) {
+  switch (progress) {
+    case 'collecting':
+      return 'Still gathering results';
+    case 'decided':
+      return 'Finished testing';
+    default:
+      return 'Not tested yet';
+  }
+}
+
+String _treatmentIntegrityLabel(String status) {
+  switch (status) {
+    case 'ok':
+      return 'Working normally';
+    case 'degraded':
+      return 'Some test runs failed to apply';
+    default:
+      return 'Not enough data yet';
+  }
+}
+
+String _guardrailStatusLabel(String status) {
+  switch (status) {
+    case 'ok':
+      return 'No safety limits triggered';
+    case 'breached':
+      return 'A safety limit was triggered';
+    default:
+      return 'Not enough data yet';
+  }
+}
+
+String? _shortSha256(String? hash) {
+  if (hash == null || !RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(hash)) return null;
+  return 'sha256:${hash.substring(0, 12).toLowerCase()}';
+}
+
+class _AppliedTab extends StatefulWidget {
+  const _AppliedTab();
+
+  @override
+  State<_AppliedTab> createState() => _AppliedTabState();
+}
+
+class _AppliedTabState extends State<_AppliedTab> {
+  @override
+  void initState() {
+    super.initState();
+    // The tab body is only built once the tab is opened, so this is also the
+    // lazy load: the review queue costs no extra requests until then.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<OrgProposalsController>().refreshApplied();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<OrgProposalsController>(
+      builder: (context, controller, _) {
+        if (controller.appliedStatus == OrgProposalsStatus.loading &&
+            controller.applied.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (controller.appliedStatus == OrgProposalsStatus.error &&
+            controller.applied.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: context.rhythm.danger,
+                  size: 40,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  controller.appliedError ?? 'Could not load applied changes',
+                  style: TextStyle(color: context.rhythm.textSecondary),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: controller.refreshApplied,
+                  child: const Text('Try again'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (controller.applied.isEmpty) {
+          return Center(
+            key: const ValueKey('applied-proposals-empty-state'),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.done_all, size: 56, color: context.rhythm.textMuted),
+                const SizedBox(height: 16),
+                Text(
+                  'No changes are in use yet',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Changes you approve will show up here once they go live.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: context.rhythm.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          key: const ValueKey('applied-proposals-list'),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          itemCount: controller.applied.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final proposal = controller.applied[index];
+            return _AppliedCard(
+              key: ValueKey('applied-card-${proposal.id}'),
+              proposal: proposal,
+              pending: controller.isPending(proposal.id),
+              onRevert: () => _revert(context, controller, proposal),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _revert(
+    BuildContext context,
+    OrgProposalsController controller,
+    OrgProposal proposal,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: context.rhythm.surfaceRaised,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(RhythmRadius.lg),
+          side: BorderSide(color: context.rhythm.border),
+        ),
+        title: Text(
+          'Undo this change?',
+          style: TextStyle(
+            color: context.rhythm.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          '"${proposal.title}" will be put back the way it was before.',
+          style: TextStyle(color: context.rhythm.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: context.rhythm.textSecondary),
+            ),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: context.rhythm.danger,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Undo change'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final ok = await controller.revert(proposal.id);
+    if (!mounted) return;
+    // On refusal the SERVER's message is the message. It names the actual
+    // reason (wrong state, legacy snapshot, reconciliation) far better than
+    // any generic "Revert failed" the client could invent.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Change undone'
+              : (controller.appliedError ??
+                  'The change could not be undone. Nothing was altered.'),
+        ),
+        backgroundColor: ok ? context.rhythm.success : context.rhythm.warning,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: ok ? 2 : 8),
+      ),
+    );
+  }
+}
+
+class _AppliedCard extends StatelessWidget {
+  const _AppliedCard({
+    super.key,
+    required this.proposal,
+    required this.pending,
+    required this.onRevert,
+  });
+
+  final OrgProposal proposal;
+  final bool pending;
+  final VoidCallback onRevert;
+
+  @override
+  Widget build(BuildContext context) {
+    // Only `active` rows are revertable at all (server state machine), and of
+    // those only the ones carrying a versioned rollback record.
+    final canRevert =
+        proposal.status == 'active' && !proposal.revertNeedsOperator;
+    final testedBaseline =
+        _shortSha256(proposal.experimentSummary?.testedBaselineHash);
+    final testedCandidate =
+        _shortSha256(proposal.experimentSummary?.testedCandidateHash);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: context.rhythm.surface,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _KindBadge(kind: proposal.kind),
+          const SizedBox(height: 10),
+          Text(
+            proposal.title,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: context.rhythm.textPrimary,
+            ),
+          ),
+          if (proposal.rationale != null &&
+              proposal.rationale!.trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              proposal.rationale!,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          _FactRow(label: 'Status', value: _deploymentLabel(proposal.status)),
+          const SizedBox(height: 4),
+          _FactRow(
+            label: 'Is it helping?',
+            value: _outcomeLabel(proposal.outcomeStatus),
+          ),
+          if (proposal.experimentSummary?.hasExperiment ?? false) ...[
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Testing',
+              value: _collectingProgressLabel(
+                proposal.experimentSummary!.collectingProgress,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Checked runs',
+              value: '${proposal.experimentSummary!.eligibleCount} ok, '
+                  '${proposal.experimentSummary!.missingCount} missing',
+            ),
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Reliability',
+              value: _treatmentIntegrityLabel(
+                proposal.experimentSummary!.treatmentIntegrity,
+              ),
+            ),
+            const SizedBox(height: 4),
+            _FactRow(
+              label: 'Safety checks',
+              value: _guardrailStatusLabel(
+                proposal.experimentSummary!.guardrailStatus,
+              ),
+            ),
+            if (testedBaseline != null) ...[
+              const SizedBox(height: 4),
+              _FactRow(label: 'Tested baseline', value: testedBaseline),
+            ],
+            if (testedCandidate != null) ...[
+              const SizedBox(height: 4),
+              _FactRow(label: 'Tested candidate', value: testedCandidate),
+            ],
+            if (proposal.experimentSummary!.terminalReason != null) ...[
+              const SizedBox(height: 4),
+              _FactRow(
+                label: 'Why it stopped',
+                value: proposal.experimentSummary!.terminalReason!,
+              ),
+            ],
+          ],
+          const SizedBox(height: 14),
+          if (canRevert)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                key: ValueKey('revert-proposal-${proposal.id}'),
+                onPressed: pending ? null : onRevert,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: context.rhythm.danger,
+                  side: BorderSide(color: context.rhythm.border),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                  ),
+                ),
+                child: pending
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Undo this change'),
+              ),
+            )
+          else
+            Container(
+              key: ValueKey('revert-blocked-${proposal.id}'),
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: context.rhythm.surfaceMuted,
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                border: Border.all(color: context.rhythm.border),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.build_outlined,
+                    size: 15,
+                    color: context.rhythm.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      proposal.status == 'active'
+                          ? "This change can't be undone from here. Rhythm "
+                              "didn't keep a precise enough record of the "
+                              'earlier settings, so someone on the tech team '
+                              'has to put them back by hand.'
+                          : "This change can't be undone from here until it "
+                              'has finished settling in.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FactRow extends StatelessWidget {
+  const _FactRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 104,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.textPrimary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// C6-3 — a refine-config proposal whose experiment already promoted a
+/// candidate, but whose live target drifted again before a human approved
+/// it. Shown only on the pre-apply review card ([_ProposalCard]):
+/// [OrgProposal.experimentSummary]'s `staleBeforeApplyConflict` is only ever
+/// true while the proposal is still `proposed`/`approved`/`failed` — once
+/// applied, "before it can be applied" no longer applies, so this banner is
+/// never shown on [_AppliedCard].
+class _StaleConflictBanner extends StatelessWidget {
+  const _StaleConflictBanner({required this.proposalId});
+
+  final String proposalId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: ValueKey('stale-conflict-$proposalId'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.warning),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_outlined,
+            size: 15,
+            color: context.rhythm.warning,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This was tested, but the settings changed again since then '
+              '— it needs to be tested again before it can be trusted.',
+              style:
+                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Proposal card
 // ---------------------------------------------------------------------------
 
@@ -265,7 +841,12 @@ class _ProposalCardState extends State<_ProposalCard> {
     final proposal = widget.proposal;
     final needsNote = proposal.requiresSecurityNote;
     final noteSatisfied = !needsNote || proposal.hasSecurityNote;
-    final approveEnabled = !widget.pending && noteSatisfied;
+    final toolSafety = proposal.toolSafety;
+    final toolApprovalAllowed = proposal.kind != 'tool-install' ||
+        (proposal.status == 'sandbox-vetted' &&
+            toolSafety?.isApprovalAllowed == true);
+    final approveEnabled =
+        !widget.pending && noteSatisfied && toolApprovalAllowed;
 
     return Container(
       decoration: BoxDecoration(
@@ -320,15 +901,25 @@ class _ProposalCardState extends State<_ProposalCard> {
             const SizedBox(height: 6),
             Text(
               proposal.rationale!,
-              style:
-                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
             ),
           ],
           const SizedBox(height: 12),
-          _ProposalChangeBlock(proposal: proposal),
+          if (proposal.kind == 'tool-install')
+            _ToolSafetyCard(proposal: proposal)
+          else
+            _ProposalChangeBlock(proposal: proposal),
           if (needsNote) ...[
             const SizedBox(height: 12),
             _SecurityNoteBlock(proposal: proposal),
+          ],
+          if (proposal.experimentSummary?.staleBeforeApplyConflict ??
+              false) ...[
+            const SizedBox(height: 12),
+            _StaleConflictBanner(proposalId: proposal.id),
           ],
           const SizedBox(height: 10),
           InkWell(
@@ -425,10 +1016,165 @@ class _ProposalCardState extends State<_ProposalCard> {
               style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
             ),
           ],
+          if (proposal.kind == 'tool-install' && !toolApprovalAllowed) ...[
+            const SizedBox(height: 6),
+            Text(
+              _toolApprovalBlockedReason(proposal),
+              key: ValueKey('tool-safety-blocked-${proposal.id}'),
+              style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
+            ),
+          ],
         ],
       ),
     );
   }
+}
+
+String _toolApprovalBlockedReason(OrgProposal proposal) {
+  final safety = proposal.toolSafety;
+  if (safety == null || safety.state == 'missing') {
+    return 'Approval is blocked: the durable safety report is missing.';
+  }
+  if (safety.state == 'malformed') {
+    return 'Approval is blocked: the safety report could not be verified.';
+  }
+  if (safety.verdict == 'unsafe') {
+    return 'Approval is blocked: the sandbox marked this tool unsafe.';
+  }
+  if (safety.verdict == 'unknown') {
+    return 'Approval is blocked: the sandbox could not reach a safe verdict.';
+  }
+  return 'Approval is blocked until sandbox vetting is complete.';
+}
+
+class _ToolSafetyCard extends StatelessWidget {
+  const _ToolSafetyCard({required this.proposal});
+
+  final OrgProposal proposal;
+
+  @override
+  Widget build(BuildContext context) {
+    final safety = proposal.toolSafety;
+    if (safety == null || !safety.isReady) {
+      return Container(
+        key: ValueKey('tool-safety-card-${proposal.id}'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+          border: Border.all(color: context.rhythm.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tool safety'),
+            const SizedBox(height: 6),
+            Semantics(
+              key: ValueKey('tool-safety-verdict-${proposal.id}'),
+              label: 'Tool safety verdict: Unknown — report unavailable',
+              child: const Row(
+                children: [
+                  Icon(Icons.help_outline, size: 16),
+                  SizedBox(width: 6),
+                  Text('Unknown — report unavailable'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _toolApprovalBlockedReason(proposal),
+              style:
+                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+    final verdictLabel = switch (safety.verdict) {
+      'safe' => 'Safe',
+      'conditional' => 'Conditional — confirmation required',
+      'unsafe' => 'Unsafe',
+      _ => 'Unknown',
+    };
+    final verdictIcon = switch (safety.verdict) {
+      'safe' => Icons.verified_outlined,
+      'conditional' => Icons.warning_amber_outlined,
+      'unsafe' => Icons.dangerous_outlined,
+      _ => Icons.help_outline,
+    };
+    final verdictColor = switch (safety.verdict) {
+      'safe' => context.rhythm.success,
+      'conditional' => context.rhythm.warning,
+      'unsafe' => context.rhythm.danger,
+      _ => context.rhythm.textMuted,
+    };
+    return Container(
+      key: ValueKey('tool-safety-card-${proposal.id}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Tool safety',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: context.rhythm.textPrimary)),
+          const SizedBox(height: 8),
+          Semantics(
+            key: ValueKey('tool-safety-verdict-${proposal.id}'),
+            label: 'Tool safety verdict: $verdictLabel',
+            child: Row(children: [
+              Icon(verdictIcon, size: 16, color: verdictColor),
+              const SizedBox(width: 6),
+              Text(verdictLabel,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: verdictColor)),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          _FactRow(label: 'Tool', value: safety.toolName!),
+          const SizedBox(height: 4),
+          _FactRow(label: 'Package', value: safety.packageSource!),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Forbidden paths',
+              value: _counts(safety.forbiddenPathViolations)),
+          const SizedBox(height: 4),
+          _FactRow(label: 'Network calls', value: _counts(safety.networkCalls)),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Workspace writes',
+              value: '${safety.workspaceWriteCount}'),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Credential attempts',
+              value: '${safety.credentialAccessAttemptsCount}'),
+          const SizedBox(height: 4),
+          _FactRow(
+              label: 'Scenarios',
+              value:
+                  '${safety.scenarioAttemptsCount} in ${safety.sandboxDurationMs} ms'),
+          if (safety.reason != null) ...[
+            const SizedBox(height: 4),
+            _FactRow(label: 'Reason', value: safety.reason!),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _counts(List<ToolSafetyCount> counts) => counts.isEmpty
+      ? 'None observed'
+      : counts.map((entry) => '${entry.name}: ${entry.count}').join(', ');
 }
 
 // ---------------------------------------------------------------------------
@@ -612,11 +1358,7 @@ class _ProposalChangeBlock extends StatelessWidget {
     final directChanges = change.entries
         .where((entry) => entry.key != 'agentConfigId' && entry.value is! Map)
         .map(
-          (entry) => _FieldChange(
-            entry.key,
-            before?[entry.key],
-            entry.value,
-          ),
+          (entry) => _FieldChange(entry.key, before?[entry.key], entry.value),
         )
         .toList();
     return directChanges.isEmpty ? null : directChanges;
@@ -660,10 +1402,14 @@ class _ProposalChangeBlock extends StatelessWidget {
     return labels[field] ??
         field
             .replaceAllMapped(
-                RegExp(r'([a-z])([A-Z])'), (match) => '${match[1]} ${match[2]}')
+              RegExp(r'([a-z])([A-Z])'),
+              (match) => '${match[1]} ${match[2]}',
+            )
             .replaceAll('_', ' ')
             .replaceFirstMapped(
-                RegExp(r'^.'), (match) => match[0]!.toUpperCase());
+              RegExp(r'^.'),
+              (match) => match[0]!.toUpperCase(),
+            );
   }
 
   static String _displayValue(Object? value) {

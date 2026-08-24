@@ -13,7 +13,7 @@ beforeAll(async () => {
   app.post('/agent-sessions', (_req, res) => res.status(201).json({ id: 'unused' }));
   app.use(errorHandler);
 
-  const server = app.listen(0);
+  const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   closeServer = () =>

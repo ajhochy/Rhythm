@@ -27,13 +27,34 @@ class OrgProposalsDataSource {
         .toList();
   }
 
-  Future<OrgProposal> approve(String id, {int? decidedByUserId}) async {
+  Future<OrgProposal> approve(
+    String id, {
+    int? decidedByUserId,
+    bool conditionalToolSafetyConfirmation = false,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/agent-org-proposals/$id/approve'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (decidedByUserId != null) 'decidedByUserId': decidedByUserId,
+        if (conditionalToolSafetyConfirmation)
+          'toolSafetyConfirmation': 'approve-conditional-tool-install',
       }),
+    );
+    assertOk(response);
+    return OrgProposal.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// #857 — undo an already-applied proposal, restoring its before-snapshot.
+  /// The server refuses anything that is not `status == 'active'`, and refuses
+  /// legacy whole-field scope snapshots, with a 409; both surface here as an
+  /// [AppError] carrying the server's own message.
+  Future<OrgProposal> revert(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-org-proposals/$id/revert'),
+      headers: {'Content-Type': 'application/json'},
     );
     assertOk(response);
     return OrgProposal.fromJson(

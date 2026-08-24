@@ -29,6 +29,7 @@ import { DeniedToolEventsRepository } from '../../../repositories/denied_tool_ev
 import { resetProposalPluginsForTests } from '../../org_proposal_apply_service';
 import type { OrgAuditSnapshot } from '../../org_audit_service';
 import type { WorkflowFailureSignal } from '../../workflow_failure_signal_extractor';
+import type { DiagnosisContext } from '../workflow_signal_generator';
 
 // ── opencode_engine mock — mirrors org_audit_service.test.ts / issue_850_contract.test.ts ──
 const listMcp = vi.fn();
@@ -187,6 +188,38 @@ describe('issue-935-c2: behavioral categories map to create-recipe', () => {
   });
 });
 
+describe('post-apply regression diagnosis', () => {
+  it('treats post-apply-regression as a diagnosable workflow signal', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({ id: 'secretary', label: 'Secretary', icon: 'x' });
+    const signal = makeSignal({
+      category: 'post-apply-regression',
+      sessionIds: ['outcome-1'],
+      count: 5,
+      confidence: 'high',
+      evidence: 'proposalId=proposal-1 guardrail=terminal-error-rate rate=1 sampleCount=5',
+      dedupToken: 'proposal-1:terminal-error-rate',
+    });
+    let receivedSignals: WorkflowFailureSignal[] | undefined;
+    const diagnose = vi.fn(async (ctx: DiagnosisContext) => {
+      receivedSignals = ctx.signals;
+      return {
+        diagnosis: 'external regression',
+        rootCause: 'external' as const,
+        fixType: 'external-noop' as const,
+        concreteFix: 'none',
+        confidence: 'high' as const,
+      };
+    });
+
+    const { generateDiagnosisProposals } = await import('../workflow_signal_generator');
+    await generateDiagnosisProposals(baseSnapshot([signal]), { configsRepo, diagnose });
+
+    expect(diagnose).toHaveBeenCalledTimes(1);
+    expect(receivedSignals).toEqual([signal]);
+  });
+});
+
 describe("issue-935-c3: delegateOutcome='unknown' never produces a proposal", () => {
   it('skips low-confidence/unknown delegate evidence entirely', async () => {
     const signal = makeSignal({ category: 'delegate-result', delegateOutcome: 'unknown', confidence: 'low' });
@@ -275,6 +308,49 @@ describe('issue-935-c7: end-to-end via runOrgOptimizer — proposal stays propos
     for (const status of ['applied', 'measuring', 'active', 'reverted']) {
       const rows = await proposalsRepo.listByStatusAsync(status);
       expect(rows.some((p) => p.kind === 'broaden-scope')).toBe(false);
+    }
+  });
+});
+
+/**
+ * Run attribution. Found by the FIRST live execution of the W7 gate: the
+ * deterministic lanes wrote `audit_run_id = NULL`, so their proposals were
+ * invisible to every per-run query — the optimizer's own reporting, the live
+ * gate's positive control, and `deleteRunProposals` cleanup alike. Orphan rows
+ * accumulated across sandbox runs because nothing could find them.
+ *
+ * The LLM-diagnosis path in the same file always stamped it
+ * (workflow_signal_generator.ts:1278), which is what makes this an oversight
+ * rather than a design choice.
+ */
+describe('workflow-signal proposals are attributable to the run that created them', () => {
+  it.each([
+    ['create-recipe', makeSignal()],
+    [
+      'broaden-scope',
+      makeSignal({
+        category: 'missing-scope',
+        confidence: 'high',
+        evidence: 'profile=secretary deniedTool=gitnexus_query count=3 sessionIds=s1,s2,s3',
+      }),
+    ],
+  ])('stamps the audit run id on a %s proposal', async (kind, signal) => {
+    new AgentConfigsRepository().insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify([]),
+    });
+    listMcp.mockResolvedValue({ gitnexus: { status: 'connected' } });
+
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+    const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
+
+    expect(created.map((p) => p.kind)).toContain(kind);
+    // The behaviour: every row this run produced is findable BY that run.
+    expect(created.length).toBeGreaterThan(0);
+    for (const proposal of created) {
+      expect(proposal.auditRunId, `${proposal.kind} proposal is unattributed`).toBe('run-1');
     }
   });
 });

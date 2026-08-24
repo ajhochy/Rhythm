@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { liveEnvironment } from '../../web/tests/live-environment.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const electronRoot = resolve(here, '..');
@@ -15,6 +16,7 @@ const repositoryRoot = resolve(electronRoot, '../..');
 const packageJsonPath = resolve(electronRoot, 'package.json');
 const artifactRoot = resolve(electronRoot, 'dist/Rhythm.app');
 const packagedBinary = resolve(artifactRoot, 'Contents/MacOS/Rhythm');
+const packagedNode = resolve(artifactRoot, 'Contents/Resources/node/bin/node');
 const sourceWebDist = resolve(electronRoot, '../web/dist');
 const packagedWebDist = resolve(artifactRoot, 'Contents/Resources/app/web/dist');
 const packageCommand = ['npm', ['run', 'package:mac']];
@@ -27,11 +29,16 @@ const poisonedRendererEnvironment = {
   VITE_RHYTHM_GATEWAY_MODE: 'poisoned-gateway-mode-sentinel',
   VITE_RHYTHM_API_BASE: 'https://compiled-api.invalid',
   VITE_RHYTHM_ENGINE_BASE: 'https://compiled-engine.invalid',
+  VITE_RHYTHM_PRODUCTION_API_BASE: 'https://poisoned-production.invalid',
+  VITE_RHYTHM_EXPECTED_API_BASE: 'http://127.0.0.1:49191',
+  VITE_RHYTHM_EXPECTED_ENGINE_BASE: 'http://127.0.0.1:49192',
   VITE_RHYTHM_LIVE_TOKEN: 'non-credential-build-sentinel',
 };
+const liveBases = liveEnvironment();
 const sandboxEnvironment = {
-  RHYTHM_LIVE_API_URL: 'http://127.0.0.1:4098',
-  RHYTHM_LIVE_ENGINE_URL: 'http://127.0.0.1:4097',
+  RHYTHM_LIVE_API_URL: liveBases.apiBase,
+  RHYTHM_LIVE_ENGINE_URL: liveBases.engineBase,
+  RHYTHM_PRODUCTION_API_URL: 'https://api.vcrcapps.com',
 };
 // Electron derives userData from package.json `name`, so an un-redirected launch writes persistent
 // state to ~/Library/Application Support/rhythm-electron-shell. That is the leak c6 must catch: the
@@ -51,6 +58,8 @@ test('slice-7-c1: one command produces the unsigned macOS app bundle', async () 
   assert.equal(result.code, 0, `slice-7-c1: package command failed\n${result.stderr}`);
   await assertPathExists(artifactRoot, 'slice-7-c1: package command did not produce dist/Rhythm.app');
   await assertPathExists(packagedBinary, 'slice-7-c1: packaged app binary Contents/MacOS/Rhythm is absent');
+  const packagedNodeVersion = await run(packagedNode, ['--version']);
+  assert.match(packagedNodeVersion.stdout.trim(), /^v22\./, 'slice-7-c1: packaged runtime is not Node 22');
   const signature = await run('codesign', ['--display', '--verbose=4', artifactRoot]);
   const signatureDetails = `${signature.stdout}\n${signature.stderr}`;
   assert.doesNotMatch(signatureDetails, /^Authority=/m, 'slice-7-c1: packaged app has a signing authority; only ad-hoc signing is allowed');
@@ -90,15 +99,41 @@ test('slice-7-c3: packaged binary registers rhythm before ready and loads the ha
   }, 'slice-7-c3: packaged BrowserWindow options differ from the hardened Slice 5 contract');
 });
 
-test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', async () => {
+test('production repair: packaged binary executes the authenticated artifact protocol and bridge round trip', async () => {
+  await assertPackagedBundle('production-repair-artifact');
+  const receipt = await packagedSmoke(['--smoke', '--artifact-frame-smoke']);
+  assert.deepEqual(receipt.artifactFrame, {
+    loaded: true,
+    protocol: 'rhythm-artifact:',
+    navigationBlocked: true,
+    bridge: {
+      n: 'smoke-nonce',
+      id: 'smoke-request',
+      ok: true,
+      data: { operation: 'list_service_types', data: { marker: 'host-round-trip' } },
+    },
+    request: {
+      url: 'https://api.vcrcapps.com/live-artifacts/00000000-0000-4000-8000-000000000801/render',
+      authenticated: true,
+    },
+  });
+});
+
+test('slice-7-c4: packaged live smoke reaches Live and completes a real gateway read', {
+  skip: process.env.RHYTHM_LIVE_E2E !== '1',
+}, async () => {
   // Regression caught: the package displays fixture data while claiming the sandbox is live.
   await assertPackagedBundle('slice-7-c4');
   const receipt = await packagedSmoke(['--smoke', '--live-smoke'], sandboxEnvironment);
   assert.equal(receipt.environment?.mode, 'Live', 'slice-7-c4: packaged environment receipt did not read `Live`');
-  assert.match(receipt.liveRead?.url ?? '', /^http:\/\/127\.0\.0\.1:4098\/(agent-sessions|tasks)(?:[/?#]|$)/, 'slice-7-c4: no real sandbox /agent-sessions or /tasks read was recorded');
+  assert.match(receipt.liveRead?.url ?? '', new RegExp(`^${escapeRegExp(liveBases.apiBase)}/(agent-sessions|tasks)(?:[/?#]|$)`), 'slice-7-c4: no real sandbox /agent-sessions or /tasks read was recorded');
   assert.equal(receipt.liveRead?.status, 200, 'slice-7-c4: real live gateway read did not return HTTP 200');
   assert.equal(receipt.liveRead?.fixtureFallback, false, 'slice-7-c4: fixture fallback attempted to satisfy packaged live smoke');
 });
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed policies', async () => {
   // Regression caught: security checks exercise source Electron while the shipped preload or policies are permissive.
@@ -107,7 +142,7 @@ test('slice-7-c5: packaged binary preserves renderer isolation and fail-closed p
   assert.equal(receipt.bridge?.nodeExposed, false, 'slice-7-c5: Node is exposed in the packaged renderer');
   assert.deepEqual(receipt.bridge?.keys, ['version', 'appVersion', 'platform', 'gateway', 'auth', 'humanApproval', 'agentServer'], 'slice-7-c5: packaged preload exposes capabilities beyond lifecycle, gateway metadata, Google auth, human-approval signing, and agent-server status');
   assert.equal(receipt.bridge?.frozen, true, 'slice-7-c5: packaged lifecycle object is not frozen');
-  assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase'], 'slice-7-c5: packaged preload gateway metadata is broader than the approved runtime values');
+  assert.deepEqual(receipt.bridge?.gateway?.keys, ['apiBase', 'engineBase', 'productionApiBase', 'setProductionApiBase'], 'slice-7-c5: packaged preload gateway configuration differs from the approved runtime values');
   assert.equal(receipt.bridge?.gateway?.frozen, true, 'slice-7-c5: packaged gateway metadata is not frozen');
   assert.deepEqual(receipt.bridge?.auth?.keys, ['signInWithGoogle'], 'slice-7-c5: packaged preload auth surface is broader than the approved Google sign-in capability');
   assert.equal(receipt.bridge?.auth?.frozen, true, 'slice-7-c5: packaged auth surface is not frozen');
@@ -141,7 +176,7 @@ test('slice-7-c6: packaging is deterministic, gitignored, and leak-free', async 
   assert.equal(result.code, 0, `slice-7-c6: repeated package command failed\n${result.stderr}`);
   assert.deepEqual(await sha256Manifest(artifactRoot), beforeArtifact, 'slice-7-c6: repeated packaging changed the artifact byte manifest');
 
-  assert.equal(existsSync(persistentUserData), false, `slice-7-c6: stale persistent userData exists before the smoke: ${persistentUserData}`);
+  const persistentUserDataExisted = existsSync(persistentUserData);
   const receipt = await packagedSmoke(['--smoke', '--cleanup-smoke'], sandboxEnvironment);
   assert.deepEqual(receipt.cleanup, {
     disposableRows: 0,
@@ -149,9 +184,10 @@ test('slice-7-c6: packaging is deterministic, gitignored, and leak-free', async 
     worktrees: 0,
     branches: 0,
   }, 'slice-7-c6: packaged smoke reported leaked disposable state');
-  // Independent of the app's self-reported counts: a packaged smoke must never write persistent
-  // Electron state outside the isolated temp userData the harness owns.
-  assert.equal(existsSync(persistentUserData), false, `slice-7-c6: packaged smoke leaked persistent userData at ${persistentUserData}`);
+  // The installed app may legitimately own persistent userData on a developer machine. The smoke
+  // must not create or remove that directory; its stronger write-isolation guarantee comes from the
+  // harness-owned RHYTHM_SHELL_USER_DATA path and the no-leftover-temp assertion below.
+  assert.equal(existsSync(persistentUserData), persistentUserDataExisted, `slice-7-c6: packaged smoke changed persistent userData existence at ${persistentUserData}`);
   assert.deepEqual(
     (await readdir(tmpdir())).filter((entry) => entry.startsWith('rhythm-electron-smoke-')),
     [],
@@ -159,6 +195,16 @@ test('slice-7-c6: packaging is deterministic, gitignored, and leak-free', async 
   );
   assert.equal(await repositoryState('branch', ['branch', '--format=%(refname)']), beforeBranches, 'slice-7-c6: packaged smoke changed branches');
   assert.deepEqual(await worktreePaths(), beforeWorktrees, 'slice-7-c6: packaged smoke changed worktrees');
+});
+
+test('slice-7-c1b: release packaging embeds the requested version in the macOS bundle', async () => {
+  const result = await runWithoutAppleCredentials(...packageCommand, { RELEASE_VERSION: '0.18.60' });
+  assert.equal(result.code, 0, `slice-7-c1b: package command failed\n${result.stderr}`);
+  for (const key of ['CFBundleShortVersionString', 'CFBundleVersion']) {
+    const value = await run('plutil', ['-extract', key, 'raw', resolve(artifactRoot, 'Contents/Info.plist')]);
+    assert.equal(value.code, 0, `slice-7-c1b: unable to read ${key}\n${value.stderr}`);
+    assert.equal(value.stdout.trim(), '0.18.60', `slice-7-c1b: ${key} does not match RELEASE_VERSION`);
+  }
 });
 
 // Worktree PATHS only. `git worktree list --porcelain` also prints every worktree's HEAD sha, and
@@ -257,8 +303,8 @@ function run(command, args, cwd = electronRoot, extraEnvironment = {}, inheritEn
   });
 }
 
-function runWithoutAppleCredentials(command, args) {
-  const environment = { ...process.env, ...poisonedRendererEnvironment };
+function runWithoutAppleCredentials(command, args, extraEnvironment = {}) {
+  const environment = { ...process.env, ...poisonedRendererEnvironment, ...extraEnvironment };
   for (const key of [
     'APPLE_ID',
     'APPLE_APP_SPECIFIC_PASSWORD',

@@ -12,6 +12,7 @@ import '../controllers/agents_controller.dart';
 import '../data/agents_data_source.dart';
 import '../data/usage_budget_data_source.dart';
 import '../models/agent_session.dart';
+import '../models/run_outcome_feedback.dart';
 import '../models/usage_budget.dart';
 import '../../live_artifacts/data/live_artifacts_data_source.dart';
 import '../../live_artifacts/controllers/live_artifacts_controller.dart';
@@ -275,6 +276,7 @@ class _ContextTab extends StatelessWidget {
         _row(context, 'Agent', _agentLabel(context)),
         _row(context, 'Cwd', session.cwd),
         _row(context, 'Status', session.status.wireValue),
+        _RunFeedbackSection(sessionId: session.id),
         const SizedBox(height: 8),
         _ContextUsageGauge(
           tokensUsed: totalTokens,
@@ -562,6 +564,214 @@ class _ContextTab extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// D3.2 — compact explicit-feedback control for the Context tab.
+///
+/// Renders success/partial/failure buttons only once an outcome exists for
+/// this run (fetched via [AgentsController.fetchRunOutcomeFeedback]) — a run
+/// that hasn't finalized has no outcome row to attach feedback to, so the
+/// section stays absent rather than showing controls that would 404. The
+/// selected button (if any) reflects the LATEST explicit_user verdict; the
+/// server never overwrites feedback, so picking a different verdict just
+/// appends a new event and this refreshes to reflect it.
+class _RunFeedbackSection extends StatefulWidget {
+  const _RunFeedbackSection({required this.sessionId});
+
+  final String sessionId;
+
+  @override
+  State<_RunFeedbackSection> createState() => _RunFeedbackSectionState();
+}
+
+class _RunFeedbackSectionState extends State<_RunFeedbackSection> {
+  final _reasonController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fetch());
+  }
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_RunFeedbackSection old) {
+    super.didUpdateWidget(old);
+    if (old.sessionId != widget.sessionId) {
+      // Synchronous, unlike the fetch below: a reason typed for the OLD
+      // session must never survive to be posted against the NEW one. Safe to
+      // clear mid-rebuild — it only notifies this controller's own listeners
+      // (the TextField below), not the Provider tree the deferred fetch
+      // needs to avoid disturbing.
+      _reasonController.clear();
+      // Deferred to a post-frame callback like initState's fetch: calling it
+      // synchronously here notifies AgentsController's listeners while THIS
+      // widget's own ancestor chain is still mid-rebuild (session switch), and
+      // if some unrelated part of the tree happens to be building at that same
+      // moment, marking the Provider's element dirty then throws "setState()
+      // or markNeedsBuild() called during build".
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fetch());
+    }
+  }
+
+  void _fetch() {
+    if (!mounted) return;
+    context.read<AgentsController>().fetchRunOutcomeFeedback(widget.sessionId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    if (!controller.runOutcomeExistsFor(widget.sessionId)) {
+      return const SizedBox.shrink();
+    }
+    final current = controller.currentRunVerdictFor(widget.sessionId);
+    final submitting = controller.runFeedbackSubmitting(widget.sessionId);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'HOW DID THIS GO?',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _verdictButton(
+                context,
+                RunFeedbackVerdict.success,
+                Icons.thumb_up_alt_outlined,
+                Icons.thumb_up_alt,
+                'Success',
+                current,
+                submitting,
+              ),
+              const SizedBox(width: 6),
+              _verdictButton(
+                context,
+                RunFeedbackVerdict.partial,
+                Icons.adjust_outlined,
+                Icons.adjust,
+                'Partial',
+                current,
+                submitting,
+              ),
+              const SizedBox(width: 6),
+              _verdictButton(
+                context,
+                RunFeedbackVerdict.failure,
+                Icons.thumb_down_alt_outlined,
+                Icons.thumb_down_alt,
+                'Failure',
+                current,
+                submitting,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            key: const ValueKey('run-feedback-reason'),
+            controller: _reasonController,
+            enabled: !submitting,
+            style: const TextStyle(fontSize: 11),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'Add an optional reason…',
+              hintStyle: TextStyle(fontSize: 11),
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            ),
+          ),
+          if (current != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Marked: ${_verdictLabel(current)}',
+              key: const ValueKey('run-feedback-current-verdict'),
+              style: TextStyle(
+                fontSize: 11,
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _verdictButton(
+    BuildContext context,
+    RunFeedbackVerdict verdict,
+    IconData outlineIcon,
+    IconData filledIcon,
+    String label,
+    RunFeedbackVerdict? current,
+    bool submitting,
+  ) {
+    final selected = current == verdict;
+    return Tooltip(
+      message: label,
+      child: IconButton(
+        key: ValueKey('run-feedback-${verdict.wireValue}'),
+        onPressed: submitting ? null : () => _submit(verdict),
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        padding: EdgeInsets.zero,
+        icon: Icon(
+          selected ? filledIcon : outlineIcon,
+          size: 18,
+          color: selected ? context.rhythm.accent : context.rhythm.textMuted,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit(RunFeedbackVerdict verdict) async {
+    final controller = context.read<AgentsController>();
+    final reason = _reasonController.text.trim();
+    final ok = await controller.submitRunFeedback(
+      widget.sessionId,
+      verdict,
+      reason: reason.isEmpty ? null : reason,
+    );
+    if (!mounted) return;
+    if (ok) _reasonController.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Feedback saved'
+              : (controller.runFeedbackErrorFor(widget.sessionId) ??
+                  'Could not save feedback.'),
+        ),
+        backgroundColor: ok ? context.rhythm.success : context.rhythm.warning,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: ok ? 2 : 8),
+      ),
+    );
+  }
+
+  String _verdictLabel(RunFeedbackVerdict v) {
+    switch (v) {
+      case RunFeedbackVerdict.success:
+        return 'Success';
+      case RunFeedbackVerdict.partial:
+        return 'Partial';
+      case RunFeedbackVerdict.failure:
+        return 'Failure';
+    }
   }
 }
 

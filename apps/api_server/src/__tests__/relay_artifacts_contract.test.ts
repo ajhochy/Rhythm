@@ -60,7 +60,7 @@ async function captureMacPairing(): Promise<PairedFixture> {
   });
   const session = new SessionsRepository().create(user.id);
   const { createApp } = await import('../app');
-  const server = createApp().listen(0);
+  const server = createApp().listen(0, '127.0.0.1');
   await new Promise<void>((r) => server.once('listening', () => r()));
   const { port } = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -257,17 +257,34 @@ describe('Track 7 contract — artifacts + presence', () => {
     });
     // Wait for the bytes to land, then kill the Mac.
     const deadline = Date.now() + 5_000;
+    let partitionedBytes: Buffer | null = null;
     while (Date.now() < deadline) {
       try {
-        readFileSync(join(relay.storageDir, 'art_push_1'));
+        partitionedBytes = readFileSync(join(relay.storageDir, 'relay-artifacts', 'art_push_1'));
         break;
       } catch {
         await new Promise((r) => setTimeout(r, 25));
       }
     }
+    expect(partitionedBytes).toEqual(PNG_BYTES);
     mac.close();
 
     const response = await getArtifact(relay, 'art_push_1');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('image/png');
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG_BYTES);
+  });
+
+  it('continues serving relay artifacts written at the legacy storage root', async () => {
+    const relay = await startRelay(fixture);
+    cleanups.push(() => relay.close());
+    writeFileSync(join(relay.storageDir, 'art_legacy_1'), PNG_BYTES);
+    writeFileSync(
+      join(relay.storageDir, 'art_legacy_1.meta.json'),
+      JSON.stringify({ contentType: 'image/png' }),
+    );
+
+    const response = await getArtifact(relay, 'art_legacy_1');
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('image/png');
     expect(Buffer.from(await response.arrayBuffer())).toEqual(PNG_BYTES);
@@ -335,14 +352,17 @@ describe('Track 7 contract — artifacts + presence', () => {
       dataB64: null,
     });
     const deadline = Date.now() + 5_000;
+    let metadataStored = false;
     while (Date.now() < deadline) {
       try {
-        readFileSync(join(relay.storageDir, 'art_meta_only.meta.json'));
+        readFileSync(join(relay.storageDir, 'relay-artifacts', 'art_meta_only.meta.json'));
+        metadataStored = true;
         break;
       } catch {
         await new Promise((r) => setTimeout(r, 25));
       }
     }
+    expect(metadataStored).toBe(true);
     mac.close();
     // No bytes cached → offline read is an honest 404.
     const response = await getArtifact(relay, 'art_meta_only');

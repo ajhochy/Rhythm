@@ -14,14 +14,17 @@
  * This module is the ONE place that imports all six generators and calls
  * their registration functions, wiring REAL dependencies (not test fakes):
  *
- *   - scope_hygiene_generator (#822): registers NOTHING here. Per the
- *     2026-07-02 project-state.md run notes, its three kinds
- *     (tighten-scope / prune-scope / consolidate-skill) are `risk='low'`
- *     and flow through the direct `proposed -> applied` auto-apply lane
- *     (`org_proposal_apply.ts`'s `applyAgentConfigScopeChange`, already
- *     wired), NOT the human-gate queue's registered-applier path this
- *     module wires. Listed here only so this file is the single documented
- *     place confirming all six generators were considered.
+ *   - scope_hygiene_generator (#822): its `consolidate-skill` kind is
+ *     `risk='low'` and still flows through the direct `proposed -> applied`
+ *     auto-apply lane (`org_proposal_apply.ts`). Its `tighten-scope` /
+ *     `prune-scope` kinds are `risk='high'` as of the W1 self-improvement-
+ *     engine-foundation review (2026-08-14): scope REMOVAL is reversible
+ *     only while no later config edit has occurred, so it is human-gated
+ *     like every other HIGH-risk kind and refused outright by
+ *     `org_proposal_apply.applyProposal`. This module registers their ONLY
+ *     apply path — `registerProposalValidator`/`registerProposalApplier` for
+ *     `tighten-scope`/`prune-scope` below — reachable exclusively through
+ *     `OrgProposalsController.approve()`'s explicit human-consent gate.
  *   - recipe_generator (#823, applier added by #851): `generateRecipeProposals`
  *     produces proposal INPUTS for both `create-recipe` and `refine-recipe`.
  *     `refine-recipe` (LOW risk) is handled by `org_proposal_measure.ts`'s
@@ -92,24 +95,24 @@ import { downloadSkillBody } from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
 import { stripFrontmatterBlock } from './skill_frontmatter';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
-import { writeAgentProfileFile } from './opencode_agent_writer';
+import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import {
   readAgentConfigField,
   agentConfigFieldPatch,
-  computeScopeList,
+  createScopeDeltaV2Snapshot,
+  createScopeStateV2Snapshot,
   readScheduledTaskField,
   scheduledTaskFieldPatch,
+  type ScopeDeltaV2Snapshot,
+  type ScopeStateFieldName,
+  type ScopeStateV2Snapshot,
 } from './org_proposal_apply';
 import {
   CONFIG_PATCH_FIELDS,
-  CORE_PERMISSION_ACTIONS,
-  CORE_PERMISSION_NAMES,
   SCOPE_ALLOWLIST_FIELDS,
-  SCOPE_PATCH_FIELDS,
   TASK_PATCH_FIELDS,
   TASK_PATCH_TEXT_FIELDS,
   type ConfigPatch,
-  type ScopePatch,
   type TaskPatch,
 } from './org_diagnosis_types';
 import { alignMcpName } from './mcp_name_alignment';
@@ -119,9 +122,17 @@ import { resolveProdApiBase } from './opencode_plugin_config';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import type { CuratedMcpServer } from '../config/curated_mcp_servers';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import {
+  parseScopeMutation,
+  prepareScopeMutation,
+  type ScopeProposalKind,
+  type ScopeRemovalKind,
+} from './scope_mutation_contract';
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
 import { resolveKnownMcpServerName } from './mcp_scope_name';
+import { AgentOrgExperimentsRepository } from '../repositories/agent_org_experiments_repository';
+import { validateSystemPromptV1Spec } from '../models/experiment_treatment_adapter';
 
 /** Minimal registry shape every generator's `register*Applier` needs. */
 export interface AppliersRegistry {
@@ -180,7 +191,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
             const nextJson = JSON.stringify([...list, serverName]);
             configsRepo.update(agentConfigId, { allowedMcpsJson: nextJson });
             const updated = configsRepo.getById(agentConfigId);
-            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+            if (updated) projectAgentProfileAfterWrite(updated, 'config-update'); // resync through the boundary
           }
           beforeSnapshotJson = JSON.stringify({
             externalAdoption: true,
@@ -235,7 +246,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
             const nextJson = JSON.stringify(list);
             configsRepo.update(agentConfigId, { allowedSkillsJson: nextJson });
             const updated = configsRepo.getById(agentConfigId);
-            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+            if (updated) projectAgentProfileAfterWrite(updated, 'config-update'); // resync through the boundary
           }
         }
       }
@@ -484,7 +495,7 @@ function validateCreateRecipeShape(proposal: AgentOrgProposal): ProposalValidati
 //   - workflow-prompt-fix / refine-skill → {skillId, priorBody, priorStatus}
 
 /** Parse a proposal's change_json into a plain object, or null. */
-function parseChange(changeJson: string | null): Record<string, unknown> | null {
+export function parseChange(changeJson: string | null): Record<string, unknown> | null {
   if (!changeJson) return null;
   try {
     const parsed: unknown = JSON.parse(changeJson);
@@ -497,10 +508,11 @@ function parseChange(changeJson: string | null): Record<string, unknown> | null 
 }
 
 /** Extract a well-formed ConfigPatch (nested under `configPatch`), or null. */
-function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch | null {
+export function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch | null {
   const p = change?.configPatch;
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const o = p as Record<string, unknown>;
+  if (Object.keys(o).sort().join(',') !== 'agentConfigId,field,value') return null;
   if (typeof o.agentConfigId !== 'string' || !o.agentConfigId.trim()) return null;
   if (typeof o.field !== 'string' || !(CONFIG_PATCH_FIELDS as readonly string[]).includes(o.field)) {
     return null;
@@ -509,103 +521,61 @@ function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch
   return { agentConfigId: o.agentConfigId, field: o.field as ConfigPatch['field'], value: o.value };
 }
 
-const CORE_PERMISSION_NAME_SET = new Set<string>(CORE_PERMISSION_NAMES);
-const CORE_PERMISSION_ACTION_SET = new Set<string>(CORE_PERMISSION_ACTIONS);
+const PROTECTED_GENERIC_CONFIG_FIELDS = new Set([
+  'allowedMcpsJson',
+  'allowedSkillsJson',
+  'corePermissionsJson',
+]);
+
+function protectedGenericConfigField(change: Record<string, unknown> | null): string | null {
+  const patch = change?.configPatch;
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return null;
+  const field = (patch as Record<string, unknown>).field;
+  return PROTECTED_GENERIC_CONFIG_FIELDS.has(String(field)) ? String(field) : null;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isCorePermissionValue(value: unknown): boolean {
-  if (typeof value === 'string') return CORE_PERMISSION_ACTION_SET.has(value);
-  return isRecord(value) && Object.entries(value).every(
-    ([pattern, action]) => pattern.trim().length > 0 && typeof action === 'string' && CORE_PERMISSION_ACTION_SET.has(action),
-  );
-}
+type HumanScopeSnapshot = ScopeDeltaV2Snapshot | ScopeStateV2Snapshot;
 
-/** Return a user-facing validation error for an untrusted scope patch, or null when valid. */
-function scopePatchValidationError(raw: unknown): string | null {
-  if (!isRecord(raw)) return 'refine-scope requires a machine-applyable scopePatch object';
-  if (typeof raw.agentConfigId !== 'string' || !raw.agentConfigId.trim()) return 'refine-scope scopePatch requires an agentConfigId';
-  if (typeof raw.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(raw.field)) {
-    return 'refine-scope scopePatch field must be allowedMcpsJson, allowedSkillsJson, or corePermissionsJson';
+/** Prepare one human-gated scope mutation without touching DB or disk. */
+function prepareDeferredHumanScopeMutation(input: {
+  proposal: AgentOrgProposal;
+  agentConfigId: string;
+  field: ScopeStateFieldName;
+  priorValue: string | null;
+  nextValue: string;
+  measurable: boolean;
+  snapshot: HumanScopeSnapshot;
+}): ProposalApplyResult {
+  const exactChangeJson = input.proposal.changeJson;
+  if (!exactChangeJson || !exactChangeJson.trim()) {
+    throw AppError.badRequest(`${input.proposal.kind} requires exact nonempty change_json at apply time`);
   }
-
-  if ((SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(raw.field)) {
-    if (raw.set !== undefined || raw.unset !== undefined) {
-      return 'core permission set/unset fields are only valid for corePermissionsJson';
-    }
-    const add = raw.add;
-    const remove = raw.remove;
-    if (add !== undefined && (!Array.isArray(add) || !add.every((v) => typeof v === 'string' && v.trim().length > 0))) {
-      return 'refine-scope add must be a non-empty-name string array';
-    }
-    if (remove !== undefined && (!Array.isArray(remove) || !remove.every((v) => typeof v === 'string' && v.trim().length > 0))) {
-      return 'refine-scope remove must be a non-empty-name string array';
-    }
-    const names = [...(Array.isArray(add) ? add : []), ...(Array.isArray(remove) ? remove : [])] as string[];
-    const corePermission = raw.field === 'allowedMcpsJson'
-      ? names.find((name) => CORE_PERMISSION_NAME_SET.has(name))
-      : undefined;
-    if (corePermission) return `core permission '${corePermission}' cannot be used as an MCP or skill allowlist name`;
-    if (names.length === 0) return 'refine-scope scopePatch requires at least one add or remove name';
-    return null;
+  if (input.nextValue === input.priorValue) {
+    throw AppError.conflict(`${input.proposal.kind} is stale or would make no exact scope change`);
   }
-
-  if (raw.add !== undefined || raw.remove !== undefined) {
-    return 'corePermissionsJson uses set/unset, not array add/remove';
+  if (
+    input.snapshot.target.id !== input.agentConfigId ||
+    input.snapshot.field !== input.field ||
+    input.snapshot.expectedAppliedValue !== input.nextValue
+  ) {
+    throw AppError.conflict(`${input.proposal.kind} prepared scope snapshot does not match its target bytes`);
   }
-  if (raw.set !== undefined && !isRecord(raw.set)) return 'corePermissionsJson set must be an object';
-  if (raw.unset !== undefined && (!Array.isArray(raw.unset) || !raw.unset.every((v) => typeof v === 'string' && v.trim().length > 0))) {
-    return 'corePermissionsJson unset must be a non-empty-name string array';
-  }
-  const set = isRecord(raw.set) ? raw.set : {};
-  const unset = Array.isArray(raw.unset) ? raw.unset as string[] : [];
-  for (const [name, value] of Object.entries(set)) {
-    if (!CORE_PERMISSION_NAME_SET.has(name)) return `MCP server or unknown name '${name}' cannot be used as a core permission`;
-    if (!isCorePermissionValue(value)) return `core permission '${name}' must be allow, ask, deny, or a pattern map of those actions`;
-  }
-  for (const name of unset) {
-    if (!CORE_PERMISSION_NAME_SET.has(name)) return `MCP server or unknown name '${name}' cannot be used as a core permission`;
-  }
-  if (Object.keys(set).length === 0 && unset.length === 0) return 'refine-scope corePermissionsJson requires at least one set or unset entry';
-  return null;
-}
-
-/** Extract a well-formed ScopePatch (nested under `scopePatch`), or null. */
-function extractScopePatch(change: Record<string, unknown> | null): ScopePatch | null {
-  const p = change?.scopePatch;
-  if (scopePatchValidationError(p)) return null;
-  const o = p as Record<string, unknown>;
   return {
-    agentConfigId: o.agentConfigId as string,
-    field: o.field as ScopePatch['field'],
-    ...(Array.isArray(o.add) ? { add: o.add as string[] } : {}),
-    ...(Array.isArray(o.remove) ? { remove: o.remove as string[] } : {}),
-    ...(isRecord(o.set) ? { set: o.set } : {}),
-    ...(Array.isArray(o.unset) ? { unset: o.unset as string[] } : {}),
+    measurable: input.measurable,
+    beforeSnapshotJson: JSON.stringify(input.snapshot),
+    changeJson: exactChangeJson,
+    scopePair: {
+      targetId: input.agentConfigId,
+      field: input.field,
+      priorValue: input.priorValue,
+      nextValue: input.nextValue,
+    },
+    postApplyTarget: { profileId: input.agentConfigId, changeType: 'scope' },
   };
-}
-
-function mergeCorePermissions(
-  priorJson: string | null,
-  patch: Pick<ScopePatch, 'set' | 'unset'>,
-): string {
-  let current: Record<string, unknown> = {};
-  try {
-    const parsed = priorJson ? JSON.parse(priorJson) : {};
-    if (isRecord(parsed)) current = parsed;
-  } catch {
-    // A malformed existing value is treated as absent; the validated patch is still safe to apply.
-  }
-  const next: Record<string, unknown> = { ...current };
-  for (const [name, value] of Object.entries(patch.set ?? {})) {
-    next[name] = isRecord(next[name]) && isRecord(value)
-      ? { ...next[name], ...value }
-      : value;
-  }
-  for (const name of patch.unset ?? []) delete next[name];
-  return JSON.stringify(next);
 }
 
 /** Extract a well-formed TaskPatch (nested under `taskPatch`), or null. */
@@ -836,8 +806,105 @@ function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): Proposa
 }
 
 // ── refine-config ──
-function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationResult {
-  const patch = extractConfigPatch(parseChange(proposal.changeJson));
+
+/**
+ * C4 (docs/ai/contracts/issue-causal-runtime-v2.json, phase C4, requirement
+ * 5) — before a human-approved refine-config apply runs, revalidate against
+ * ANY experiment that already reached a causal verdict for this EXACT
+ * proposal: "durable apply after verified must revalidate evidence,
+ * proposal bytes, tested baseline revision/hash, and tested candidate hash.
+ * Target drift returns conflict and requires a new experiment; it never
+ * applies a stale winner."
+ *
+ * A refine-config proposal with NO experiment (an untested human edit —
+ * this treatment family also supports those) is unaffected: this check is a
+ * no-op when nothing has ever been tested. When an experiment DID reach a
+ * terminal 'promote' decision, the CURRENT durable value must still equal
+ * the exact baseline it was tested against (`candidateSpec.priorValue`),
+ * and the proposal's OWN `change_json` candidate value must still equal the
+ * exact candidate that was tested (`candidateSpec.candidateValue`) — either
+ * drifting since the experiment ran means this would durably apply a
+ * different change than the one that was verified.
+ */
+/**
+ * Exported (C6-3) so the read-only experiment summary builder
+ * (proposal_experiment_summary_service.ts) can reuse this EXACT real
+ * apply-time check to report "stale-before-apply conflict" in API/UI
+ * summaries — rather than a second, potentially-drifting reimplementation of
+ * the same drift detection.
+ */
+export async function verifyTestedTargetStillMatches(
+  proposal: AgentOrgProposal,
+  patch: ConfigPatch,
+  currentValue: string | null,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  let experiments;
+  try {
+    experiments = await new AgentOrgExperimentsRepository().listByProposalAsync(proposal.id);
+  } catch {
+    // A transient read failure never blocks an UNTESTED proposal's own
+    // apply — it only means this revalidation could not run this time.
+    return { ok: true };
+  }
+  const verifiedExperiment = experiments.find((e) => e.decision === 'promote');
+  if (!verifiedExperiment) return { ok: true };
+
+  let candidateSpec: ReturnType<typeof validateSystemPromptV1Spec>;
+  try {
+    candidateSpec = validateSystemPromptV1Spec(JSON.parse(verifiedExperiment.candidateSpecJson));
+  } catch {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' has a verified experiment whose tested spec can no longer ` +
+        'be read — a new experiment is required',
+    };
+  }
+  if (!candidateSpec.valid) {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' has a verified experiment whose tested spec is no longer ` +
+        'valid — a new experiment is required',
+    };
+  }
+  if (patch.field !== 'system_prompt' || candidateSpec.spec.field !== 'system_prompt') {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' targets a different field than its verified experiment ` +
+        'tested — a new experiment is required',
+    };
+  }
+  if (currentValue !== candidateSpec.spec.priorValue) {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' target has drifted since its experiment was tested — a ` +
+        'new experiment is required',
+    };
+  }
+  if (patch.value !== candidateSpec.spec.candidateValue) {
+    return {
+      ok: false,
+      reason:
+        `refine-config '${proposal.id}' change_json no longer matches the exact candidate its ` +
+        'experiment tested — a new experiment is required',
+    };
+  }
+  return { ok: true };
+}
+
+async function validateRefineConfig(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
+  const change = parseChange(proposal.changeJson);
+  const protectedField = protectedGenericConfigField(change);
+  if (protectedField) {
+    return {
+      valid: false,
+      reason: `refine-config cannot mutate protected scope field '${protectedField}'`,
+    };
+  }
+  const patch = extractConfigPatch(change);
   if (!patch) {
     return {
       valid: false,
@@ -845,72 +912,122 @@ function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationRes
         'refine-config requires a machine-applyable configPatch {agentConfigId, field, value}; a prose-only diagnosis cannot be auto-applied',
     };
   }
-  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
+  const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+  if (!config) {
     return { valid: false, reason: `refine-config target agent_config '${patch.agentConfigId}' no longer exists` };
   }
+  const testedTargetCheck = await verifyTestedTargetStillMatches(
+    proposal,
+    patch,
+    readAgentConfigField(config, patch.field),
+  );
+  if (!testedTargetCheck.ok) return { valid: false, reason: testedTargetCheck.reason };
   return { valid: true };
 }
 
+/**
+ * Deliberately kept SYNCHRONOUS, unlike {@link validateRefineConfig}: every
+ * real caller (`org_proposal_apply_service.applyProposal`) already runs
+ * `validateProposalChange` — which awaits `validateRefineConfig`, including
+ * its {@link verifyTestedTargetStillMatches} check — and throws BEFORE ever
+ * invoking this applier, in the SAME request with no re-entrant write in
+ * between. Re-deriving the same async check here would be a redundant
+ * second query for no additional safety, and would turn every direct-applier
+ * test in this codebase (which calls appliers synchronously) into a promise
+ * — matching this module's existing pattern of appliers trusting the
+ * validator that already ran, not re-checking business rules themselves.
+ */
 const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractConfigPatch(parseChange(proposal.changeJson));
+  const change = parseChange(proposal.changeJson);
+  const protectedField = protectedGenericConfigField(change);
+  if (protectedField) {
+    throw AppError.badRequest(`refine-config cannot mutate protected scope field '${protectedField}'`);
+  }
+  const patch = extractConfigPatch(change);
   if (!patch) throw AppError.badRequest('refine-config change_json is missing its configPatch at apply time');
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`refine-config target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
+  // #1434-c2: record the exact post-apply value alongside priorValue so a
+  // later revert (human /revert or auto-revert) can CAS against it —
+  // restoring priorValue only if the live field still equals THIS value,
+  // never blindly overwriting a later operator edit to the same field.
   const beforeSnapshotJson = JSON.stringify({
     agentConfigId: patch.agentConfigId,
     field: patch.field,
     priorValue,
+    expectedAppliedValue: patch.value,
   });
 
   configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, patch.value));
   const updated = configsRepo.getById(patch.agentConfigId);
-  if (updated) writeAgentProfileFile(updated);
+  if (updated) projectAgentProfileAfterWrite(updated, 'config-update');
 
-  return { measurable: true, beforeSnapshotJson };
+  return {
+    measurable: true,
+    beforeSnapshotJson,
+    postApplyTarget: {
+      profileId: patch.agentConfigId,
+      changeType: patch.field === 'allowedDelegatesJson' ? 'tool' : 'prompt',
+    },
+  };
 };
 
 // ── refine-scope ──
 function validateRefineScope(proposal: AgentOrgProposal): ProposalValidationResult {
-  const change = parseChange(proposal.changeJson);
-  const error = scopePatchValidationError(change?.scopePatch);
-  const patch = extractScopePatch(change);
-  if (!patch || error) {
-    return {
-      valid: false,
-      reason: error ?? 'refine-scope requires a machine-applyable scopePatch with at least one change; a prose-only diagnosis cannot be auto-applied',
-    };
+  try {
+    const exactChangeJson = proposal.changeJson ?? '';
+    const parsed = parseScopeMutation('refine-scope', exactChangeJson);
+    const config = new AgentConfigsRepository().getById(parsed.agentConfigId);
+    if (!config) return { valid: false, reason: `refine-scope target agent_config '${parsed.agentConfigId}' no longer exists` };
+    prepareScopeMutation('refine-scope', exactChangeJson, readAgentConfigField(config, parsed.field));
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: String(error instanceof Error ? error.message : error) };
   }
-  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
-    return { valid: false, reason: `refine-scope target agent_config '${patch.agentConfigId}' no longer exists` };
-  }
-  return { valid: true };
 }
 
 const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractScopePatch(parseChange(proposal.changeJson));
-  if (!patch) throw AppError.badRequest('refine-scope change_json is missing its scopePatch at apply time');
+  const exactChangeJson = proposal.changeJson;
+  if (!exactChangeJson || !exactChangeJson.trim()) {
+    throw AppError.badRequest('refine-scope change_json is missing at apply time');
+  }
+  let patch;
+  try {
+    patch = parseScopeMutation('refine-scope', exactChangeJson);
+  } catch (error) {
+    throw AppError.badRequest(String(error instanceof Error ? error.message : error));
+  }
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`refine-scope target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  const beforeSnapshotJson = JSON.stringify({
+  let prepared;
+  try {
+    prepared = prepareScopeMutation('refine-scope', exactChangeJson, priorValue);
+  } catch (error) {
+    throw AppError.conflict(String(error instanceof Error ? error.message : error));
+  }
+  const snapshot = createScopeStateV2Snapshot(
+    patch.agentConfigId,
+    patch.field,
+    priorValue,
+    prepared.expectedAppliedValue,
+    exactChangeJson,
+    'refine-scope',
+  );
+  return prepareDeferredHumanScopeMutation({
+    proposal,
     agentConfigId: patch.agentConfigId,
     field: patch.field,
     priorValue,
+    nextValue: prepared.expectedAppliedValue,
+    measurable: true,
+    snapshot,
   });
-
-  const nextJson = patch.field === 'corePermissionsJson'
-    ? mergeCorePermissions(priorValue, patch)
-    : computeScopeList(priorValue, { add: patch.add, remove: patch.remove });
-  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
-  const updated = configsRepo.getById(patch.agentConfigId);
-  if (updated) writeAgentProfileFile(updated);
-
-  return { measurable: true, beforeSnapshotJson };
 };
 
 // ── broaden-scope (#1139) ──
@@ -919,28 +1036,9 @@ const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
 // — NOT the nested {scopePatch:{...}} shape refine-scope uses — so it cannot be
 // aliased to refineScopeApplier verbatim (extractScopePatch reads change.scopePatch
 // and would find nothing). This validator/applier reads that flat shape and reuses
-// the exact same apply mechanics (computeScopeList add + agentConfigFieldPatch +
-// writeAgentProfileFile) and the same {agentConfigId, field, priorValue} snapshot,
-// so the refine-scope revert branch (isConfigFieldSnapshot in org_proposal_apply.ts)
-// and the scope measure path (isAgentConfigScopeChange in org_proposal_measure.ts)
-// both cover it for free. Fail-closed: refuses a payload missing agentConfigId /
+// the same deferred claim-first CAS/projection mechanics as every human scope
+// mutation, with a scope-state-v2 exact-state snapshot. Fail-closed: refuses a payload missing agentConfigId /
 // a valid scope field / a non-empty add, and drift-guards the target at apply time.
-
-/** Extract a well-formed broaden-scope FLAT patch ({agentConfigId, field, add}), or null. */
-function extractBroadenScopePatch(
-  change: Record<string, unknown> | null,
-): { agentConfigId: string; field: ScopePatch['field']; add: string[] } | null {
-  if (!change) return null;
-  if (typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) return null;
-  if (typeof change.field !== 'string' || !(SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(change.field)) {
-    return null;
-  }
-  const add = Array.isArray(change.add)
-    ? change.add.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-    : [];
-  if (add.length === 0) return null;
-  return { agentConfigId: change.agentConfigId, field: change.field as ScopePatch['field'], add };
-}
 
 async function validateMcpScopeNames(names: string[]): Promise<ProposalValidationResult> {
   for (const name of names) {
@@ -962,63 +1060,143 @@ async function validateMcpScopeNames(names: string[]): Promise<ProposalValidatio
 }
 
 async function validateBroadenScope(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
-  const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
-  if (!patch) {
-    return {
-      valid: false,
-      reason:
-        "broaden-scope requires a change_json {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', add: [<name>, ...]} with at least one name to add",
-    };
+  try {
+    const exactChangeJson = proposal.changeJson ?? '';
+    const patch = parseScopeMutation('broaden-scope', exactChangeJson);
+    const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+    if (!config) return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
+    prepareScopeMutation('broaden-scope', exactChangeJson, readAgentConfigField(config, patch.field));
+    if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.add!);
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: String(error instanceof Error ? error.message : error) };
   }
-  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
-    return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
-  }
-  if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.add);
-  return { valid: true };
 }
 
 const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
-  const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
-  if (!patch) throw AppError.badRequest('broaden-scope change_json is missing its {agentConfigId, field, add} at apply time');
+  const exactChangeJson = proposal.changeJson;
+  if (!exactChangeJson || !exactChangeJson.trim()) {
+    throw AppError.badRequest('broaden-scope change_json is missing at apply time');
+  }
+  let patch;
+  try {
+    patch = parseScopeMutation('broaden-scope', exactChangeJson);
+  } catch (error) {
+    throw AppError.badRequest(String(error instanceof Error ? error.message : error));
+  }
   const configsRepo = new AgentConfigsRepository();
   const config = configsRepo.getById(patch.agentConfigId);
   if (!config) throw AppError.badRequest(`broaden-scope target '${patch.agentConfigId}' no longer exists`);
 
   const priorValue = readAgentConfigField(config, patch.field);
-  const beforeSnapshotJson = JSON.stringify({
-    agentConfigId: patch.agentConfigId,
-    field: patch.field,
+  let prepared;
+  try {
+    prepared = prepareScopeMutation('broaden-scope', exactChangeJson, priorValue);
+  } catch (error) {
+    throw AppError.conflict(String(error instanceof Error ? error.message : error));
+  }
+  const snapshot = createScopeStateV2Snapshot(
+    patch.agentConfigId,
+    patch.field,
     priorValue,
-  });
-
-  const nextJson = computeScopeList(priorValue, { add: patch.add });
-  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
-  const updated = configsRepo.getById(patch.agentConfigId);
-  if (updated) writeAgentProfileFile(updated);
+    prepared.expectedAppliedValue,
+    exactChangeJson,
+    'broaden-scope',
+  );
 
   // The observable grant is the projected allowlist itself. Broadening has no
   // meaningful failure replay in measureProposal, so sending it to measuring
   // strands the row indefinitely as "unsupported kind".
-  return { measurable: false, beforeSnapshotJson };
+  return prepareDeferredHumanScopeMutation({
+    proposal,
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+    nextValue: prepared.expectedAppliedValue,
+    measurable: false,
+    snapshot,
+  });
 };
 
+/**
+ * The scope-removal shape `tighten-scope`/`prune-scope` proposals carry:
+ * {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', remove: [<name>, ...]}.
+ * Deliberately narrower than the refine-scope patch contract — a scope
+ * REMOVAL proposal must never smuggle an `add` (broadening content has no
+ * business on a human-gated removal kind; see W1 review), so its presence at
+ * all (even `add: []`) is refused rather than silently ignored. Duplicate
+ * `remove` entries are refused too — a legitimate audit gap never names the
+ * same entry twice.
+ */
 async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
-  const change = parseChange(proposal.changeJson);
-  if (
-    !change ||
-    typeof change.agentConfigId !== 'string' ||
-    change.field !== 'allowedMcpsJson' ||
-    !Array.isArray(change.remove) ||
-    change.remove.length === 0 ||
-    !change.remove.every((name) => typeof name === 'string' && name.trim())
-  ) {
-    return { valid: false, reason: `${proposal.kind} requires {agentConfigId, field: 'allowedMcpsJson', remove: [<server>, ...]}` };
+  try {
+    const kind = proposal.kind as ScopeProposalKind;
+    const exactChangeJson = proposal.changeJson ?? '';
+    const patch = parseScopeMutation(kind, exactChangeJson);
+    const config = new AgentConfigsRepository().getById(patch.agentConfigId);
+    if (!config) return { valid: false, reason: `${proposal.kind} target agent_config '${patch.agentConfigId}' no longer exists` };
+    prepareScopeMutation(kind, exactChangeJson, readAgentConfigField(config, patch.field));
+    if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.remove!);
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, reason: String(error instanceof Error ? error.message : error) };
   }
-  if (!new AgentConfigsRepository().getById(change.agentConfigId)) {
-    return { valid: false, reason: `${proposal.kind} target agent_config '${change.agentConfigId}' no longer exists` };
-  }
-  return validateMcpScopeNames(change.remove as string[]);
 }
+
+/**
+ * Human-approved apply for `tighten-scope`/`prune-scope` (W1 review finding
+ * #2 — these two kinds are HIGH-risk and refused by the unattended
+ * `org_proposal_apply.applyProposal` entry point; this is their ONLY
+ * apply path, reachable solely through `OrgProposalsController.approve`'s
+ * explicit human-consent gate). Prepares a V2 scope delta without mutating
+ * (reused verbatim from org_proposal_apply.ts so this and any future
+ * auto-lane snapshot can never drift), removes exactly the validated names,
+ * re-projects the opencode agent file, and advances to `measuring` so the
+ * same functional-guard measure step scope proposals have always used still
+ * governs keep/revert.
+ */
+const scopeRemovalApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const exactChangeJson = proposal.changeJson;
+  if (!exactChangeJson) {
+    throw AppError.badRequest(`${proposal.kind} change_json is missing at apply time`);
+  }
+  const kind = proposal.kind as ScopeRemovalKind;
+  let patch;
+  try {
+    patch = parseScopeMutation(kind, exactChangeJson);
+  } catch (error) {
+    throw AppError.badRequest(String(error instanceof Error ? error.message : error));
+  }
+  const configsRepo = new AgentConfigsRepository();
+  const config = configsRepo.getById(patch.agentConfigId);
+  if (!config) throw AppError.badRequest(`${proposal.kind} target '${patch.agentConfigId}' no longer exists`);
+
+  const priorValue = readAgentConfigField(config, patch.field);
+  let prepared;
+  try {
+    prepared = prepareScopeMutation(kind, exactChangeJson, priorValue);
+  } catch (error) {
+    throw AppError.conflict(String(error instanceof Error ? error.message : error));
+  }
+  const scopeDelta = createScopeDeltaV2Snapshot(
+    patch.agentConfigId,
+    patch.field as (typeof SCOPE_ALLOWLIST_FIELDS)[number],
+    priorValue,
+    patch.remove!,
+    kind,
+    exactChangeJson,
+  );
+
+  return prepareDeferredHumanScopeMutation({
+    proposal,
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+    nextValue: prepared.expectedAppliedValue,
+    measurable: true,
+    snapshot: scopeDelta,
+  });
+};
 
 // ── workflow-prompt-fix: skill-create branch (#1152) ──
 //
@@ -1098,7 +1276,7 @@ function applySkillCreate(proposal: AgentOrgProposal, title: string, concreteFix
     if (!list.includes(title)) {
       configsRepo.update(title, { allowedSkillsJson: JSON.stringify([...list, title]) });
       const updated = configsRepo.getById(title);
-      if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+      if (updated) projectAgentProfileAfterWrite(updated, 'config-update'); // resync through the boundary
     }
   }
 
@@ -1456,8 +1634,15 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     // shape, so revert/measure are already covered.
     registry.registerProposalValidator('broaden-scope', validateBroadenScope);
     registry.registerProposalApplier('broaden-scope', broadenScopeApplier);
+    // W1 (self-improvement-engine-foundation review) — tighten-scope/prune-scope
+    // are now HIGH-risk (org_risk_classifier.ts) and refused outright by the
+    // unattended org_proposal_apply.applyProposal entry point. This is their
+    // ONLY apply path: reachable exclusively through OrgProposalsController
+    // .approve()'s explicit human-consent gate, never the auto lane.
     registry.registerProposalValidator('tighten-scope', validateScopeRemoval);
+    registry.registerProposalApplier('tighten-scope', scopeRemovalApplier);
     registry.registerProposalValidator('prune-scope', validateScopeRemoval);
+    registry.registerProposalApplier('prune-scope', scopeRemovalApplier);
     registry.registerProposalValidator('workflow-prompt-fix', validateWorkflowPromptFix);
     registry.registerProposalApplier('workflow-prompt-fix', workflowPromptFixApplier);
     registry.registerProposalValidator('refine-skill', validateRefineSkill);
@@ -1480,6 +1665,6 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
   }
 
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, broaden-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, broaden-scope, tighten-scope, prune-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
   );
 }

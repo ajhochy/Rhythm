@@ -7,7 +7,10 @@ describe('mobile gateway Postgres schema parity', () => {
   it('adds both verifier-only pairing tables with idempotent CREATE statements', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
 
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
 
     const sql = query.mock.calls.map(([statement]) => String(statement)).join('\n');
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS mobile_pairing_codes/i);
@@ -19,7 +22,10 @@ describe('mobile gateway Postgres schema parity', () => {
   it('keeps project_id as a logical reference because projects is SQLite-only', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
 
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
 
     const sql = query.mock.calls.map(([statement]) => String(statement)).join('\n');
     expect(sql).toMatch(

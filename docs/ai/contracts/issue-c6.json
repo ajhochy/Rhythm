@@ -1,0 +1,70 @@
+{
+  "contract_id": "causal-runtime-v2-C6",
+  "phase": "C6",
+  "parent_contract": "docs/ai/contracts/issue-causal-runtime-v2.json",
+  "date": "2026-08-20",
+  "waiver": {
+    "approved_by": "AJ",
+    "visual_smoke": "Packaged screenshot smoke waived because the normal shipping client owns hardcoded ports 4001/4096/4002; stopping it was not authorized.",
+    "copied_real_data": "AJ approved a synthetic sanitized read-only fixture as the substitute for literal copied-real-data. The substitution is recorded explicitly and is not described as production-data coverage."
+  },
+  "criteria": [
+    {
+      "criterion_id": "c6-1",
+      "text": "Persist owner-scoped immutable calibration observations with durable provenance and production decision/regression writers.",
+      "mode": "unit+integration+postgres",
+      "test": "c6_calibration_observation.test.ts; c6r_2_calibration_owner_scope.test.ts; org_proposal_experiment_service.test.ts; org_proposal_measure.test.ts; live_postgres_bootstrap.test.ts",
+      "status": "pass",
+      "reason": "SQLite/Postgres schemas are additive, column-identical, owner-scoped, idempotent, and reject observation update/delete. owner_id is historical provenance rather than a live FK, so deleting a user succeeds without mutating the immutable observation; this is directly asserted in SQLite and disposable Postgres. Production decision and post-deploy regression paths append deterministic observations without inventing confidence."
+    },
+    {
+      "criterion_id": "c6-2",
+      "text": "Build homogeneous versioned snapshots; insufficient evidence remains uncalibrated; consume calibration for human review ranking only.",
+      "mode": "unit+integration",
+      "test": "c6_calibration_snapshot.test.ts; c6_calibration_boundaries.test.ts; c6_api_summary.test.ts; org_proposals_routes.test.ts",
+      "status": "pass",
+      "reason": "Snapshots count terminal decision observations only, remain uncalibrated below the floor, are owner-scoped, and only affect stable proposed-queue ordering. A whole-production-tree tripwire with an explicit three-file read-only allowlist asserts that calibration outputs are absent from auto-apply/risk/promotion/CAS/authorization paths."
+    },
+    {
+      "criterion_id": "c6-3",
+      "text": "Expose deployment and causal outcome separately with progress, counts, integrity, guardrails, terminal reason, safe tested hashes, and pre-apply conflicts without content bytes.",
+      "mode": "api+ui",
+      "test": "c6_api_summary.test.ts; c6_3_summary_view_test.dart",
+      "status": "pass",
+      "reason": "API exposes separate fields and SHA-256 fingerprints only. Flutter renders validated lowercase 12-hex hashes, never full hashes or raw content; stale conflict remains on the reachable pre-apply card."
+    },
+    {
+      "criterion_id": "c6-4",
+      "text": "Reconcile the independently reviewed Revert tab and report-card summary into this branch.",
+      "mode": "ancestry+ui",
+      "test": "git ancestry for 5447a7b2 and dbef0413; optimizer Flutter suites",
+      "status": "pass",
+      "reason": "Both reviewed commits are ancestors of the branch. Full Flutter suite passes 1234/1234."
+    },
+    {
+      "criterion_id": "c6-5",
+      "text": "Treatment-v2 and calibration ship disabled by default and the treatment flag is load-bearing at every reservation/dispatch/receipt/outcome boundary; optimizer remains shadow.",
+      "mode": "unit+integration+live",
+      "test": "c6_feature_flags.test.ts; c6r_1_treatment_v2_gate.test.ts; C1/C2 AgentRunner and WS treatment suites; c2_d_s6_live_ws_treatment_e2e.test.ts",
+      "status": "pass",
+      "reason": "Disabled treatment creates no enrollment, override, receipt, or experimental association, including a flag switched off after reservation. Enabled baseline/candidate WS behavior passes live. Calibration flag gates writes/snapshots."
+    },
+    {
+      "criterion_id": "c6-6",
+      "text": "Run the parent ship-gate battery: Node 22 API/static/full tests, SQLite/Postgres, Flutter tests/build, security review, isolated baseline/candidate behavior, and zero-mutation shadow evidence.",
+      "mode": "full+live",
+      "test": "npm test; live_postgres_bootstrap.test.ts; flutter test/build; c2_d_s6_live_ws_treatment_e2e.test.ts; W7-2 shadow live test; sandbox_guard_test.sh",
+      "status": "pass",
+      "reason": "API 5532/5532; Flutter 1234/1234 plus 73 MB release app; Postgres 10/10; WS baseline/candidate 1/1; shadow 1/1 after real cold-start window; synthetic source DB/config hashes unchanged; sandbox guard 15/15. Added-line scan had no high-confidence finding. Literal copied-real-data was replaced by AJ-approved synthetic fixture; packaged visual smoke explicitly waived by AJ."
+    },
+    {
+      "criterion_id": "c6-7",
+      "text": "Record exact observed results and avoid false merge/release claims.",
+      "mode": "documentation",
+      "test": "docs/ai/runs/2026-08-19-c6-calibration-and-surface.md; docs/ai/project-state.md",
+      "status": "pass",
+      "reason": "Run note records exact commands/results, fixture substitution, visual waiver, and UNKNOWN GitNexus risk. No merge, CI, or production-release claim is made."
+    }
+  ],
+  "not_tested": []
+}

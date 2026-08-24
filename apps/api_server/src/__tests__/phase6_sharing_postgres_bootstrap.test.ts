@@ -13,7 +13,10 @@ describe('phase 6 sharing Postgres bootstrap', () => {
   it('installs production share tables and guards with agent execution disabled', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
 
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
 
     const sql = query.mock.calls.map(([statement]) => String(statement)).join('\n');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS shared_transcripts');

@@ -15,7 +15,8 @@ import { MessagesPage } from './pages/messages';
 import { FacilitiesPage } from './pages/facilities';
 import { AutomationsPage } from './pages/automations';
 import { IntegrationsPage } from './pages/integrations';
-import { EnvironmentReceipt } from './gateway/context';
+import { EnvironmentReceipt, useGateway } from './gateway/context';
+import { useAuthUser } from './gateway/auth';
 
 function useHashRoute() {
   const read = () => (window.location.hash.replace(/^#/, '').split('?')[0] || '/agents');
@@ -41,12 +42,17 @@ function RouteNotFound({ path }: { path: string }) {
 
 export function App() {
   const route = useHashRoute();
+  const gateway = useGateway();
+  const authUser = useAuthUser();
+  const isDashboard = route === '/dashboard' || route.startsWith('/dashboard/');
+  const hasLiveArtifactsWorkspace = gateway.mode === 'live' && !!authUser &&
+    !!gateway.domains.liveArtifacts && !!gateway.domains.userPreferences && !!gateway.domains.messages;
   let content: React.ReactNode;
   if (route === '/agents' || route === '/') content = <AgentsWorkspace />;
   // LiveArtifactsShell falls back to the plain fixture DashboardPage internally whenever gateway
   // mode isn't live or the artifact/preferences domains are absent, so this is the single route
   // for both modes — not a live-only replacement of the fixture page.
-  else if (route === '/dashboard' || route.startsWith('/dashboard/')) content = <LiveArtifactsShell route={route} />;
+  else if (isDashboard) content = hasLiveArtifactsWorkspace ? null : <LiveArtifactsShell route={route} />;
   else if (route === '/planner' || route.startsWith('/planner/')) content = <PlannerPage route={route} />;
   else if (route === '/tasks' || route.startsWith('/tasks/')) content = <TasksPage route={route} />;
   else if (route === '/rhythms' || route.startsWith('/rhythms/')) content = <RhythmsPage route={route} />;
@@ -60,5 +66,12 @@ export function App() {
   else if (route === '/mobile-access') content = <MobileAccessPage />;
   else if (route.startsWith('/tools/')) content = <ToolWorkspace slug={route.split('/')[2]} />;
   else content = <RouteNotFound path={route} />;
-  return <><EnvironmentReceipt /><Shell route={route}>{content}</Shell></>;
+  return <><EnvironmentReceipt /><Shell route={route}>
+    {content}
+    {hasLiveArtifactsWorkspace && (
+      <div hidden={!isDashboard} className="live-artifact-route-pane">
+        <LiveArtifactsShell route="/dashboard" />
+      </div>
+    )}
+  </Shell></>;
 }

@@ -62,7 +62,13 @@ describe('issue-817-c1: agent_org_proposals table exists in SQLite with the spec
       'post_score',
       'measure_reason',
       'decided_by_user_id',
+      'revision',
+      'reconciliation_reason',
       'owner_user_id',
+      'diagnosis_confidence',
+      'diagnosis_confidence_version',
+      // W6-c8 — additive outcome authority, distinct from `status`.
+      'outcome_status',
       'created_at',
       'updated_at',
     ].sort();
@@ -143,7 +149,13 @@ describe('issue-817-c4: AgentOrgProposal model has fromJson/toJson matching all 
       baselineScore: null,
       postScore: null,
       measureReason: null,
+      reconciliationReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
+      outcomeStatus: 'unproven' as const,
+      revision: 0,
       createdAt: '2026-07-02T00:00:00.000Z',
       updatedAt: '2026-07-02T00:00:00.000Z',
     };
@@ -259,6 +271,74 @@ describe('issue-817-c5: repository CRUD + status listing', () => {
 
     expect(await repo.existsByDedupKeyAsync('seen-key')).toBe(true);
   });
+
+  it('claimScopeApprovedWithSnapshotAsync is a revision-bound, one-winner SQLite claim', async () => {
+    // W1 package C: a scope proposal is claimed `approved` — never `applied` —
+    // so the loser sees a plain conflict with the target still untouched.
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    const exactChangeJson = ' { "agentConfigId": "config-1", "remove": ["x"] } ';
+    const proposal = await repo.createAsync({
+      kind: 'prune-scope',
+      risk: 'high',
+      title: 'Atomic claim',
+      changeJson: exactChangeJson,
+      dedupKey: 'w1:atomic-claim',
+    });
+
+    const snapshot = JSON.stringify({ version: 'scope-delta-v2', requestedRemove: ['x'] });
+    const claim = (actor: number) => repo.claimScopeApprovedWithSnapshotAsync({
+      id: proposal.id,
+      decidedByUserId: actor,
+      expectedRevision: proposal.revision,
+      expectedKind: 'prune-scope',
+      expectedChangeJson: exactChangeJson,
+      beforeSnapshotJson: snapshot,
+      validateSnapshot: () => true,
+    });
+    const [first, second] = await Promise.all([claim(7), claim(8)]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect([first, second].filter((row) => row === null)).toHaveLength(1);
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored).toMatchObject({
+      status: 'approved',
+      beforeSnapshotJson: snapshot,
+      changeJson: exactChangeJson,
+    });
+    expect([7, 8]).toContain(stored?.decidedByUserId);
+  });
+
+  it('claimAppliedWithSnapshotAsync remains a one-winner claim for non-scope kinds', async () => {
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const repo = new AgentOrgProposalsRepository();
+    const exactChangeJson = ' { "configPatch": { "agentConfigId": "config-1", "field": "modelId", "value": "m" } } ';
+    const proposal = await repo.createAsync({
+      kind: 'refine-config',
+      risk: 'low',
+      title: 'Non-scope atomic claim',
+      changeJson: exactChangeJson,
+      dedupKey: 'w1:atomic-claim-non-scope',
+    });
+
+    const snapshot = JSON.stringify({ agentConfigId: 'config-1', field: 'modelId', priorValue: null });
+    const [first, second] = await Promise.all([
+      repo.claimAppliedWithSnapshotAsync(proposal.id, 7, snapshot, exactChangeJson),
+      repo.claimAppliedWithSnapshotAsync(proposal.id, 8, snapshot, exactChangeJson),
+    ]);
+
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect([first, second].filter((row) => row === null)).toHaveLength(1);
+    expect(await repo.findByIdAsync(proposal.id)).toMatchObject({
+      status: 'applied',
+      beforeSnapshotJson: snapshot,
+      changeJson: exactChangeJson,
+    });
+  });
 });
 
 describe('issue-817-c6: status transitions are enforced (legal allowed, illegal rejected)', () => {
@@ -305,7 +385,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-auto-apply',
@@ -336,7 +416,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-lifecycle-active',
@@ -353,7 +433,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-lifecycle-reverted',
@@ -362,6 +442,50 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     await repo.updateStatusAsync(p.id, 'measuring');
     const updated = await repo.updateStatusAsync(p.id, 'reverted');
     expect(updated?.status).toBe('reverted');
+  });
+
+  it('uses the validated source status as a CAS so one stale measuring writer cannot overwrite the winner', async () => {
+    // Regression caught: measuring -> active paused after its validation read,
+    // measuring -> reverted committed, then the stale active write won by id.
+    const { AgentOrgProposalsRepository } = await import(
+      '../repositories/agent_org_proposals_repository'
+    );
+    const setup = new AgentOrgProposalsRepository();
+    const p = await setup.createAsync({
+      kind: 'refine-config',
+      risk: 'high',
+      title: 'Status CAS race',
+      dedupKey: `status-cas-race:${crypto.randomUUID()}`,
+    });
+    await setup.updateStatusAsync(p.id, 'applied');
+    await setup.updateStatusAsync(p.id, 'measuring');
+    expect((await setup.findByIdAsync(p.id))?.status).toBe('measuring');
+
+    const stale = new AgentOrgProposalsRepository();
+    const originalFind = stale.findByIdAsync.bind(stale);
+    let release!: () => void;
+    let captured!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const read = new Promise<void>((resolve) => { captured = resolve; });
+    let firstRead = true;
+    stale.findByIdAsync = async (id: string) => {
+      const row = await originalFind(id);
+      if (firstRead) {
+        firstRead = false;
+        captured();
+        await gate;
+      }
+      return row;
+    };
+
+    const staleActive = stale.updateStatusAsync(p.id, 'active');
+    await read;
+    const winner = await setup.updateStatusAsync(p.id, 'reverted');
+    release();
+
+    expect(winner?.status).toBe('reverted');
+    await expect(staleActive).rejects.toThrow(/concurrent|conflict/i);
+    expect((await setup.findByIdAsync(p.id))?.status).toBe('reverted');
   });
 
   it('rejects proposed -> active (skipping the whole apply/measure lifecycle)', async () => {
@@ -407,7 +531,7 @@ describe('issue-817-c6: status transitions are enforced (legal allowed, illegal 
     );
     const repo = new AgentOrgProposalsRepository();
     const p = await repo.createAsync({
-      kind: 'tighten-scope',
+      kind: 'refine-config',
       risk: 'low',
       title: 'A',
       dedupKey: 'k-illegal-3',

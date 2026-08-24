@@ -48,4 +48,7 @@ services:
 
 volumes:
   rhythm_api_data:
+    # Required explicit identity: set this to the EXISTING volume name before
+    # deploying this Compose revision. Never guess or create a replacement.
+    name: ${RHYTHM_API_DATA_VOLUME:?Set RHYTHM_API_DATA_VOLUME to the existing API data volume name}
   rhythm_relay_data:

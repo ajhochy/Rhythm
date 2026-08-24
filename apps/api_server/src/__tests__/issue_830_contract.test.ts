@@ -334,18 +334,54 @@ describe('issue-830-c7: the real exercisedTools resolver derives usage from sess
     const messagesRepo = new AgentSessionMessagesRepository();
     messagesRepo.upsertStructured(
       session.id,
-      'msg-1',
+      'msg_issue_830',
       'output',
       JSON.stringify([
-        { type: 'tool', id: 'part-1', tool: 'rhythm_list_tasks', state: { status: 'completed' } },
-        { type: 'tool', id: 'part-2', tool: 'rhythm_create_task', state: { status: 'completed' } },
-        { type: 'text', text: 'done' },
+        {
+          type: 'tool',
+          id: 'prt_issue_830_1',
+          sessionID: 'ses_issue_830',
+          messageID: 'msg_issue_830',
+          callID: 'call_issue_830_1',
+          tool: 'rhythm_list_tasks',
+          state: {
+            status: 'completed',
+            input: {},
+            output: 'ok',
+            title: 'rhythm_list_tasks',
+            metadata: {},
+            time: { start: 0, end: 1 },
+          },
+        },
+        {
+          type: 'tool',
+          id: 'prt_issue_830_2',
+          sessionID: 'ses_issue_830',
+          messageID: 'msg_issue_830',
+          callID: 'call_issue_830_2',
+          tool: 'rhythm_create_task',
+          state: {
+            status: 'completed',
+            input: {},
+            output: 'ok',
+            title: 'rhythm_create_task',
+            metadata: {},
+            time: { start: 0, end: 1 },
+          },
+        },
+        {
+          type: 'text',
+          text: 'done',
+          id: 'prt_issue_830_text',
+          sessionID: 'ses_issue_830',
+          messageID: 'msg_issue_830',
+        },
       ]),
       null,
       null,
     );
 
-    const exercised = await resolveExercisedTools(config.id);
+    const exercised = await resolveExercisedTools(config.id, undefined, ['rhythm']);
     expect(exercised.has('rhythm_list_tasks')).toBe(true);
     expect(exercised.has('rhythm_create_task')).toBe(true);
     // A tool never seen in any session's parts must not be reported exercised.
