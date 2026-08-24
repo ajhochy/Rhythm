@@ -1,0 +1,106 @@
+{
+  "issue": 1437,
+  "date": "2026-08-20",
+  "test_command": "export PATH=\"/Users/ajhochhalter/development/flutter/bin:$PATH\" && cd apps/desktop_flutter && flutter test test/features/agents/d3_2_run_feedback_test.dart",
+  "waiver": null,
+  "superseded_note": "The GitHub issue's 'Files (estimated)' list points at apps/mobile/ — an incomplete prototype excluded by this track's OWNERSHIP note. This issue's real surface is the desktop client's session-detail Context tab (apps/desktop_flutter/lib/features/agents/views/_session_side_panel.dart), consistent with the sibling D3.1 issue. The route is the real existing one — POST /agent-run-outcomes/:sessionId/feedback (apps/api_server/src/routes/run_outcome_routes.ts) — mounted at app.use('/agent-run-outcomes', runOutcomeRouter) in apps/api_server/src/app.ts; the issue body's shorthand 'POST /run-outcomes/:rootSessionId/feedback' names the same route, minus the mount prefix and using the outcome's canonical field name for what the route itself just calls :sessionId (it internally resolves to the root session via AgentRunOutcomesRepository.resolveRootSessionIdAsync). This pass also adds an optional free-text reason field (sent only when non-blank) alongside the three verdict buttons, since the server route already accepts { verdict, reason?, actor? } and a prior interrupted attempt on this branch had wired the verdict path but not reason.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1437-c1",
+      "text": "Thumbs up/down/partial (success/partial/failure) visible in run detail.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "'shows success/partial/failure controls once an outcome is recorded' asserts all three IconButton keys (run-feedback-success/partial/failure) render once GET /agent-run-outcomes/:id resolves to a recorded outcome; 'hides the feedback controls when the run has no recorded outcome yet' asserts they stay absent otherwise (never a control that could 404 on tap)."
+    },
+    {
+      "criterion_id": "issue-1437-c2",
+      "text": "Clicking a verdict calls POST /agent-run-outcomes/:sessionId/feedback with source=explicit_user and shows a confirmation toast.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "AgentsDataSource.postRunFeedback posts { verdict, reason? } to /agent-run-outcomes/:id/feedback; the server route always records source: 'explicit_user' server-side (run_outcome_routes.ts), never client-supplied. 'shows a confirmation snackbar ... while a submission is in flight' asserts the 'Feedback saved' SnackBar after a gated postRunFeedback resolves."
+    },
+    {
+      "criterion_id": "issue-1437-c3",
+      "text": "Current verdict is displayed, read from the latest explicit_user feedback event.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "'displays the latest explicit verdict and lets it be changed' asserts the 'Marked: Success' Text (key run-feedback-current-verdict) renders from RunOutcomeFeedback.explicitUserVerdict, sourced from GET /agent-run-outcomes/:id's explicitUserVerdict field (the view's latest explicit_user event, per agent_run_outcome.ts)."
+    },
+    {
+      "criterion_id": "issue-1437-c4",
+      "text": "Changing the verdict works: a new append-only event is added, never an overwrite.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "Same test taps run-feedback-partial after the fixture starts at 'success', asserts repo.postedVerdicts == [partial] (a new POST, not a mutation of the old one) and the displayed label updates to 'Marked: Partial'. The server route (run_outcome_service.ts recordFeedback) only ever inserts a new agent_run_feedback_events row."
+    },
+    {
+      "criterion_id": "issue-1437-c5",
+      "text": "Feedback is linked to the real session/run id, and posts through the existing authenticated feedback route (no fabricated id, no bypassing auth).",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "_RunFeedbackSection(sessionId: session.id) in _session_side_panel.dart:279 uses the real AgentSession.id (the same id GET /agent-sessions/:id and every other session-scoped call already uses); AgentsDataSource.postRunFeedback sends AuthSessionStore.localHeaders(json: true) — the same header helper every other authenticated desktop request uses, hitting runOutcomeRouter which applies authenticateIfPresent/requireAuth and its own per-run ownership check (isVisible) before recording anything."
+    },
+    {
+      "criterion_id": "issue-1437-c6",
+      "text": "An optional reason can be attached to the feedback; omitted (not sent as an empty string) when left blank.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "'a reason typed before tapping a verdict is sent along with it' types into the run-feedback-reason TextField then taps a verdict, asserts repo.postedReasons == ['Fixed it but had to retry twice']; 'leaving the reason blank sends no reason' asserts postedReasons == [null] for an untouched field. AgentsDataSource.postRunFeedback only includes the 'reason' JSON key when the trimmed value is non-empty."
+    },
+    {
+      "criterion_id": "issue-1437-c7",
+      "text": "The feedback surface refreshes safely (no stale/duplicate fetches across session switches) and never shows an optimistic lie — no verdict/confirmation is shown before the server actually accepts it.",
+      "mode": "manual",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "AgentsController.fetchRunOutcomeFeedback gates on _runOutcomeFeedbackLoading so a concurrent call for the same session is a no-op; _RunFeedbackSection re-fetches via a post-frame callback on didUpdateWidget only when session id actually changes. submitRunFeedback updates local state and the UI only inside the try block AFTER await _repository.postRunFeedback succeeds — a rejected POST (see c8) leaves the previously displayed verdict untouched, asserted by 'a server refusal surfaces its own message ... verdict display stays absent'."
+    },
+    {
+      "criterion_id": "issue-1437-c8",
+      "text": "Success and error UI: buttons disable while a submission is in flight; a server refusal surfaces its own message, not a generic failure.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "'shows a confirmation snackbar and disables buttons while a submission is in flight' asserts IconButton.onPressed is null mid-flight. 'a server refusal surfaces its own message, not a generic failure' asserts the exact AppError message ('This run has no recorded outcome yet...') renders in the SnackBar, sourced from AgentsDataSource.postRunFeedback's 404 special-case and AgentsController.runFeedbackErrorFor."
+    },
+    {
+      "criterion_id": "issue-1437-c9",
+      "text": "flutter analyze clean.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "flutter analyze --no-fatal-infos across the whole desktop_flutter package: 0 errors/warnings (317 pre-existing infos, none touching the changed files' new code paths). Two other repository fakes (integration_test/follow_up_smoke_test.dart, test/features/agents/opc_713_create_loading_test.dart) needed matching override updates after the postRunFeedback signature gained the optional reason parameter; both fixed as part of this pass."
+    },
+    {
+      "criterion_id": "issue-1437-c10",
+      "text": "flutter test passes.",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "7/7 in the dedicated D3.2 file. Full apps/desktop_flutter/test/features/agents/ directory (713 tests) also passes with these changes in place."
+    },
+    {
+      "criterion_id": "issue-1437-c11",
+      "text": "No raw prompts/secrets in the UI.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "The feedback section renders only the verdict label, an optional user-authored reason string the user themself typed, and a fixed 'HOW DID THIS GO?' heading — no session transcript, prompt, or credential text. Added-line secret/security scan (grep for key/token/password/connection-string shapes) on the diff found nothing."
+    },
+    {
+      "criterion_id": "issue-1437-c12",
+      "text": "No stale cross-session leak: a reason typed for one session must never be attached to a different session's feedback submission after a session switch (part of c7's 'no stale ... across session switches', called out separately because it is a distinct bug class from the fetch-gating c7 already covered).",
+      "mode": "ui",
+      "test": "apps/desktop_flutter/test/features/agents/d3_2_run_feedback_test.dart",
+      "status": "pass",
+      "reason": "2026-08-21 focused repair: _RunFeedbackSectionState owned a single _reasonController across session switches; didUpdateWidget re-fetched the new session's outcome but never cleared the text field, so a reason typed for session A survived (uncleared) into session B and would be posted alongside B's verdict. Fixed by calling _reasonController.clear() synchronously in didUpdateWidget when old.sessionId != widget.sessionId (session_side_panel.dart), before the deferred post-frame fetch. New test 'a reason typed for one session is cleared on session switch and never posted against a different session' types a reason on session s1, switches the mounted SessionSidePanel to session s2 via AgentsController.setActiveSessionForTest, asserts the reason field is already empty before any submission, then taps a verdict on s2 and asserts postedSessionIds == ['s2'] and postedReasons == [null] (never the leaked s1 text). RED confirmed by temporarily reverting the one-line fix and re-running: the test failed with \"Expected: empty Actual: 'leaked reason meant for session A'\"; GREEN confirmed after restoring the fix. All 8 tests in the file passed, plus the full apps/desktop_flutter/test/features/agents/ directory (714/714) with the fix in place."
+    }
+  ],
+  "not_tested": []
+}

@@ -34,9 +34,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
+import { env } from '../config/env';
 import { setDb, getDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository, type RevisionedAgentConfig } from '../repositories/agent_configs_repository';
@@ -190,6 +191,8 @@ function insertSession(name: string) {
   } as never);
 }
 
+let originalTreatmentV2Enabled: boolean;
+
 beforeEach(() => {
   vi.clearAllMocks();
   promptAsyncSpy.mockClear();
@@ -199,6 +202,14 @@ beforeEach(() => {
   runMigrations(db);
   setDb(db);
   delete process.env.RHYTHM_OPTIMIZER_MODE;
+  // C6 item 1 — this suite exercises the real reserve/prepare/commit chain
+  // through the WS boundary, which now requires treatment-v2 to be enabled.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
+});
+
+afterEach(() => {
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 describe('C2-D (S4) — WS interactive dispatch reserves and finalizes a treatment receipt', () => {
@@ -427,5 +438,76 @@ describe('C2-D (S5) — redispatch reuse: the same runEpisodeId re-entering the 
       .get(runEpisodeId) as { n: number };
     expect(enrollmentCount.n).toBe(1);
     expect(receiptCount.n).toBe(1);
+  });
+});
+
+describe('C6 item 1 — WS dispatch is untreated when treatment-v2 is disabled', () => {
+  it('dispatches the profile system prompt normally, reserves no enrollment, and writes no receipt when the flag is off', async () => {
+    // The shared beforeEach turns the flag on for every other describe block
+    // in this file; this is the one place it is turned back off — proving
+    // the WS boundary is untreated through the SAME shared-service gate
+    // (org_proposal_experiment_service.ts), not a WS-local check.
+    env.treatmentV2Enabled = false;
+
+    await seedProfileAndExperiment();
+    const session = insertSession('c6-item1-ws-disabled');
+    sessionMap.set(session.id, 'sdk-c6-item1-ws-disabled');
+
+    const runEpisodeId = 'episode-c6-item1-ws-disabled';
+    await handleInputFrame(makeFakeWs(), {
+      v: 1,
+      type: 'session.input',
+      id: session.id,
+      data: 'hello',
+      runEpisodeId,
+    });
+
+    expect(promptAsyncSpy).toHaveBeenCalledOnce();
+    const opts = promptAsyncSpy.mock.calls[0][4] as Record<string, unknown>;
+    // Bug this catches: a disabled flag that still dispatched under the
+    // eligible experiment's bound cohort override instead of the profile's
+    // own untreated system prompt.
+    expect(opts.system).toBe(BASELINE_PROMPT);
+
+    const enrollment = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      runEpisodeId,
+    );
+    expect(enrollment).toBeNull();
+
+    const receipt = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(runEpisodeId);
+    expect(receipt).toBeNull();
+  });
+
+  it('an existing reservation made while enabled cannot commit a receipt once the flag is turned off', async () => {
+    await seedProfileAndExperiment();
+    const runEpisodeId = 'episode-c6-item1-existing-reservation';
+    const reservation = await reserveRunEnrollment(runEpisodeId, PROFILE_ID);
+    expect(reservation).not.toBeNull();
+
+    env.treatmentV2Enabled = false;
+
+    const session = insertSession('c6-item1-existing-reservation');
+    sessionMap.set(session.id, 'sdk-c6-item1-existing-reservation');
+    await handleInputFrame(makeFakeWs(), {
+      v: 1,
+      type: 'session.input',
+      id: session.id,
+      data: 'hello',
+      runEpisodeId,
+    });
+
+    // resolveRunEnrollment/prepareReservedTreatment both refuse while
+    // disabled, so the reservation is treated as ineligible — the run
+    // dispatches untreated rather than committing the stale reservation.
+    expect(promptAsyncSpy).toHaveBeenCalledOnce();
+    const opts = promptAsyncSpy.mock.calls[0][4] as Record<string, unknown>;
+    expect(opts.system).toBe(BASELINE_PROMPT);
+
+    const receipt = await new AgentOrgTreatmentReceiptsRepository().findByRunEpisodeIdAsync(runEpisodeId);
+    expect(receipt).toBeNull();
+    const enrollment = await new AgentOrgExperimentEnrollmentsRepository().findByRunEpisodeIdAsync(
+      runEpisodeId,
+    );
+    expect(enrollment?.state).toBe('reserved');
   });
 });

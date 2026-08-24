@@ -19,7 +19,9 @@
  *
  * Status state machine (enforced by AgentOrgProposalsRepository.updateStatusAsync):
  *
- *   proposed  -> approved | rejected | applied | failed
+ *   proposed  -> approved | rejected | applied | failed | sandbox-running
+ *   sandbox-running -> sandbox-vetted | rejected | pending  (D1.4 tool-install only)
+ *   sandbox-vetted -> approved | rejected                     (D1.4 tool-install only)
  *   approved  -> applied
  *   applied   -> measuring
  *   measuring -> active | reverted
@@ -56,7 +58,7 @@ export interface AgentOrgProposal {
   /** 1 for external-adoption (extra vetting gate); 0 otherwise. */
   external: number;
   /**
-   * proposed|approved|rejected|applied|measuring|active|reverted|failed.
+   * proposed|sandbox-running|sandbox-vetted|pending|approved|rejected|applied|measuring|active|reverted|failed.
    * See the state machine documented above.
    */
   status: string;
@@ -88,6 +90,29 @@ export interface AgentOrgProposal {
    */
   reconciliationReason?: string | null;
   decidedByUserId: number | null;
+  /**
+   * #1175 — nullable per-user ownership (Mobile Activity projection). NULL
+   * means organization/system-global. The column has existed on
+   * `agent_org_proposals` since #1175 (`migrations.ts`/`postgres_bootstrap.ts`)
+   * but was never exposed on this model until C6 (repair item 2), which
+   * reads it as the durable source of a calibration observation's owner
+   * scope — never inferred from request input.
+   */
+  ownerUserId: number | null;
+  /**
+   * C6 (repair item 3) — a truthful [0,1] confidence, converted ONCE at
+   * proposal creation from the generator's own high/medium/low diagnosis
+   * verdict through a named, versioned mapping (see
+   * DIAGNOSIS_CONFIDENCE_MAPPING_VERSION in org_diagnosis_types.ts). Null
+   * when the generator recorded no diagnosis confidence (e.g. a manually
+   * created proposal, or a diagnosis shape that predates this field) —
+   * NEVER inferred or backfilled. This is the ONLY durable source
+   * proposal_evidence_builder.ts may read `initialConfidence` from; when
+   * null, the builder fails closed rather than inventing a number.
+   */
+  diagnosisConfidence: number | null;
+  /** The named/versioned mapping that produced {@link diagnosisConfidence}, or null alongside it. */
+  diagnosisConfidenceVersion: string | null;
   /**
    * W6-c8 — OUTCOME authority, deliberately separate from `status`, which
    * remains the DEPLOYMENT field. A proposal can be simultaneously
@@ -127,6 +152,12 @@ export interface AgentOrgProposalInput {
   measureReason?: string | null;
   reconciliationReason?: string | null;
   decidedByUserId?: number | null;
+  /** #1175 nullable ownership — see {@link AgentOrgProposal.ownerUserId}. */
+  ownerUserId?: number | null;
+  /** See {@link AgentOrgProposal.diagnosisConfidence}. */
+  diagnosisConfidence?: number | null;
+  /** See {@link AgentOrgProposal.diagnosisConfidenceVersion}. */
+  diagnosisConfidenceVersion?: string | null;
 }
 
 /** Repository-backed proposal row with the migration-guaranteed CAS token. */
@@ -157,6 +188,9 @@ export function agentOrgProposalFromJson(json: Record<string, unknown>): Revisio
     measureReason: (json.measureReason as string | null) ?? null,
     reconciliationReason: (json.reconciliationReason as string | null) ?? null,
     decidedByUserId: (json.decidedByUserId as number | null) ?? null,
+    ownerUserId: (json.ownerUserId as number | null) ?? null,
+    diagnosisConfidence: (json.diagnosisConfidence as number | null) ?? null,
+    diagnosisConfidenceVersion: (json.diagnosisConfidenceVersion as string | null) ?? null,
     outcomeStatus: (json.outcomeStatus as ProposalOutcomeStatus) ?? 'unproven',
     revision: (json.revision as number) ?? 0,
     createdAt: json.createdAt as string,
@@ -186,6 +220,9 @@ export function agentOrgProposalToJson(proposal: AgentOrgProposal): Record<strin
     measureReason: proposal.measureReason,
     reconciliationReason: proposal.reconciliationReason,
     decidedByUserId: proposal.decidedByUserId,
+    ownerUserId: proposal.ownerUserId,
+    diagnosisConfidence: proposal.diagnosisConfidence,
+    diagnosisConfidenceVersion: proposal.diagnosisConfidenceVersion,
     outcomeStatus: proposal.outcomeStatus,
     revision: proposal.revision,
     createdAt: proposal.createdAt,

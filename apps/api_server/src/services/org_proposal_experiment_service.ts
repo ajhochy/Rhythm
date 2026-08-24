@@ -44,6 +44,7 @@
 
 import { createHash } from 'node:crypto';
 
+import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { parseOptimizerPolicy, type OptimizerPolicy } from './org_optimizer_policy';
 import {
@@ -129,6 +130,10 @@ export interface ExperimentDeps {
   experimentsRepo?: AgentOrgExperimentsRepository;
   outcomesRepo?: AgentRunOutcomesRepository;
   proposalsRepo?: AgentOrgProposalsRepository;
+  /** D4.3 test seam; absent production wiring defaults the auto gate closed. */
+  autoPromotion?: import('./auto_promotion_gate').AutoPromotionGateDeps;
+  /** D4 trust-refresh failure seam; production persists the shared counters. */
+  recordTrustCountersAsync?: typeof import('./trust_counter_service').recordTrustCountersAsync;
 }
 
 function canonicalizeForHash(input: unknown): string {
@@ -152,13 +157,28 @@ interface EligibleExperimentMatch {
   targetRevisionFingerprint: string;
 }
 
-function toProfileTargetRef(profileId: string): string {
+/**
+ * C5 — exported (was module-private) so proposal_evidence_builder.ts can
+ * compute the EXACT SAME target ref this module's own eligibility check
+ * (findEligibleExperiment, below) requires. A second, hand-copied
+ * implementation of "the target ref" is a landmine the day one drifts from
+ * the other; there is exactly one, here.
+ */
+export function toProfileTargetRef(profileId: string): string {
   return `agent_config:${profileId}`;
 }
 
 const SYSTEM_PROMPT_DURABLE_FINGERPRINT_NULL_SENTINEL = '__system-prompt-null__';
 
-function buildProfileRevisionFingerprint(profile: { id: string; revision: number; systemPrompt: string | null }): string {
+/**
+ * C5 — exported for the same reason as {@link toProfileTargetRef}: the
+ * evidence builder must fill `target.hash` with the EXACT fingerprint this
+ * module's eligibility check (`findEligibleExperiment`) will later recompute
+ * and compare against — reusing this function is what makes that equality
+ * possible at all, rather than hoping two independent hash implementations
+ * never diverge.
+ */
+export function buildProfileRevisionFingerprint(profile: { id: string; revision: number; systemPrompt: string | null }): string {
   return `sha256:${createHash('sha256')
     .update(
       canonicalizeForHash({
@@ -455,6 +475,13 @@ export async function reserveRunEnrollment(
   profileId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
 ): Promise<ExperimentEnrollment | null> {
+  // C6 item 1 — treatment-v2 ships disabled by default
+  // (RHYTHM_TREATMENT_V2_ENABLED). Checked BEFORE the existing-enrollment
+  // idempotency lookup below: disabled means "never reserve a new cohort",
+  // full stop — not "look up what may already exist". A run dispatched while
+  // the flag is off is an ordinary untreated dispatch, never an experiment.
+  if (!env.treatmentV2Enabled) return null;
+
   // Idempotency comes FIRST: `run_episode_id` is UNIQUE and a committed
   // reservation's binding must never be re-derived from whatever the
   // eligibility inputs (policy, target fingerprint, undecided experiments)
@@ -560,6 +587,9 @@ export async function resolveRunEnrollment(
   runEpisodeId: string,
   deps: ExperimentDeps & { policy?: OptimizerPolicy } = {},
 ): Promise<RunEnrollment | null> {
+  // C6 item 1 — disabled runs cannot attach experimental outcomes, even if a
+  // reservation exists from before the flag was turned off.
+  if (!env.treatmentV2Enabled) return null;
   try {
     const policy =
       deps.policy ??
@@ -667,6 +697,12 @@ export async function prepareReservedTreatment(
   enrollment: ExperimentEnrollment,
   deps: ExperimentDeps = {},
 ): Promise<ReservedTreatmentPreparation> {
+  // C6 item 1 — a reservation made while the flag was on cannot be prepared
+  // (or, downstream in commitReservedTreatmentDispatch, committed) once the
+  // flag is off. This is the fail-closed path that keeps
+  // commitReservedTreatmentDispatch from ever reaching a receipt write for a
+  // now-disabled reservation.
+  if (!env.treatmentV2Enabled) return { status: 'invalid_binding' };
   try {
     const profile = new AgentConfigsRepository().getById(enrollment.profileId);
     if (!profile) return { status: 'invalid_binding' };
@@ -1456,6 +1492,25 @@ export async function computeDecisionAsync(
 }
 
 /**
+ * D4 — a newly verified experiment must update the durable eligibility
+ * singleton before the promotion gate reads it. Failure is deliberately
+ * fail-closed: the settled experiment outcome and calibration observation
+ * remain durable, and a later re-judge of the terminal promote retries this
+ * refresh before it can retry automation.
+ */
+async function refreshTrustCountersBeforeAutoPromotionAsync(deps: ExperimentDeps): Promise<boolean> {
+  try {
+    const record = deps.recordTrustCountersAsync ??
+      (await import('./trust_counter_service')).recordTrustCountersAsync;
+    await record();
+    return true;
+  } catch {
+    logger.warn('[org-proposal-experiment] trust counter refresh failed; auto-promotion deferred');
+    return false;
+  }
+}
+
+/**
  * Read the cohorts from W4's ledger, decide, and record durably: the results
  * and the decision on the experiment row, and the resulting outcome_status on
  * the proposal through the revision-fenced write.
@@ -1476,6 +1531,12 @@ export async function judgeExperimentAsync(
   // ledger that has moved on, and every re-run bumped the proposal's CAS
   // revision for a fact that did not change.
   if (experiment.decision) {
+    if (experiment.decision === 'promote' && await refreshTrustCountersBeforeAutoPromotionAsync(deps)) {
+      const { attemptAutoPromotionAsync } = await import('./auto_promotion_gate');
+      await attemptAutoPromotionAsync(experiment.proposalId, deps.autoPromotion);
+    }
+    const { recordExperimentDecisionObservationAsync } = await import('./calibration_observation_service');
+    await recordExperimentDecisionObservationAsync(experiment);
     return decided(experiment.decision, experiment.decisionReason ?? 'already decided', experiment.results);
   }
 
@@ -1493,13 +1554,25 @@ export async function judgeExperimentAsync(
   if (evaluation.results && !experiment.results) {
     await experimentsRepo.recordResultsAsync(experiment.id, evaluation.results);
   }
-  await experimentsRepo.recordDecisionAsync(experiment.id, evaluation.decision, evaluation.reason);
+  const decidedExperiment = await experimentsRepo.recordDecisionAsync(experiment.id, evaluation.decision, evaluation.reason);
+  const { recordExperimentDecisionObservationAsync } = await import('./calibration_observation_service');
+  await recordExperimentDecisionObservationAsync(decidedExperiment);
 
-  await writeOutcomeStatus(
+  const outcomeWritten = await writeOutcomeStatus(
     experiment.proposalId,
     OUTCOME_BY_DECISION[evaluation.decision],
     deps.proposalsRepo,
   );
+  // Only a durable verified transition may cross into D4.3. A failed outcome
+  // CAS leaves the proposal in human review rather than applying an inference.
+  if (
+    evaluation.decision === 'promote' &&
+    outcomeWritten &&
+    await refreshTrustCountersBeforeAutoPromotionAsync(deps)
+  ) {
+    const { attemptAutoPromotionAsync } = await import('./auto_promotion_gate');
+    await attemptAutoPromotionAsync(experiment.proposalId, deps.autoPromotion);
+  }
 
   return evaluation;
 }

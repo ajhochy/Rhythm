@@ -120,7 +120,10 @@ describe('task-search schema contract', () => {
 
   it('declares additive weighted Postgres search vector and GIN index before role-gated returns', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
     const sql = query.mock.calls.map(([statement]) => String(statement)).join('\n');
 
     expect(sql).toMatch(/search_vector TSVECTOR GENERATED ALWAYS AS\s*\([\s\S]*setweight\(to_tsvector\('english', title\), 'A'\)[\s\S]*setweight\(to_tsvector\('english', COALESCE\(notes, ''\)\), 'B'\)[\s\S]*\) STORED/i);

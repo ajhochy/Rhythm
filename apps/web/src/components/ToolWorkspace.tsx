@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { FIXED_NOW } from '../fixtures';
 import { useGateway } from '../gateway/context';
 import type { AgentMemory } from '../gateway/memory';
-import type { PendingApproval } from '../gateway/approvals';
+import type { OrgProposal } from '../gateway/org-proposals';
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRun } from '../gateway/schedules';
 import type { AgentRunQuality } from '../gateway/run-quality';
 import type { CommandEntry, ManagedCommandContent } from '../gateway/commands';
@@ -826,31 +826,37 @@ type Proposal = { id: string; title: string; kind: string; risk: string; rationa
 // post-m1-phase-5 c2b: the pending human-approval boundary (apps/api_server/src/controllers/agent_approvals_controller.ts:118-186)
 // is a single shared list — Review Queue must read it live, the same GET /agent-approvals the
 // originating transcript reads, never the seeded org-optimizer proposal fixtures below.
+const reviewStatuses = ['proposed', 'sandbox-running', 'sandbox-vetted', 'pending', 'approved', 'rejected', 'applied', 'measuring', 'active', 'reverted', 'failed'];
+const appliedStatuses = new Set(['applied', 'measuring', 'active', 'reverted']);
+
+function ToolSafetyDetails({ proposal }: { proposal: OrgProposal }) {
+  const safety = proposal.toolSafety;
+  if (!safety || safety.state !== 'ready') return <p className="tool-notice" role="status">Approval unavailable: tool safety projection is {safety?.state ?? 'missing'}.</p>;
+  return <section className="tool-safety-summary" aria-label="Tool safety summary"><h3>Tool safety review</h3><dl><div><dt>Verdict</dt><dd>{safety.verdict}</dd></div><div><dt>Tool</dt><dd>{safety.tool?.name} · {safety.tool?.packageSource}</dd></div><div><dt>Forbidden paths</dt><dd>{safety.forbiddenPathViolations?.map((entry) => `${entry.label} (${entry.count})`).join(', ') || 'None'}</dd></div><div><dt>Network hosts</dt><dd>{safety.networkCalls?.map((entry) => `${entry.host} (${entry.count})`).join(', ') || 'None'}</dd></div><div><dt>Workspace writes</dt><dd>{safety.workspaceWriteCount}</dd></div><div><dt>Credential attempts</dt><dd>{safety.credentialAccessAttemptsCount}</dd></div><div><dt>Scenarios</dt><dd>{safety.scenarioAttemptsCount}</dd></div><div><dt>Duration</dt><dd>{safety.sandboxDurationMs} ms</dd></div><div><dt>Reason</dt><dd>{safety.reason ?? 'None'}</dd></div></dl></section>;
+}
+
 function LiveReviewTool() {
   const gateway = useGateway();
-  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-approvals?status=pending', detail: 'Loading pending approvals' });
-
-  const load = async () => {
-    setError(null);
-    try {
-      const next = await gateway.domains.approvals!.listPending();
-      setApprovals(next);
-      setTrace({ method: 'GET', route: '/agent-approvals?status=pending', detail: `${next.length} approvals loaded` });
-    } catch (err) { setError(err instanceof Error ? err.message : 'Approval list failed'); }
-  };
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return <ToolFrame slug="review" title="Review Queue" description="Pending human-gated approvals, shared with the originating session transcript." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+  const [items, setItems] = useState<OrgProposal[]>([]); const [status, setStatus] = useState('proposed');
+  const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<{ proposal: OrgProposal; action: 'approve' | 'conditional' | 'reject' | 'revert' } | null>(null);
+  const [trace, setTrace] = useState<Trace>({ method: 'GET', route: '/agent-org-proposals?status=proposed', detail: 'Loading organization proposals' });
+  const load = async (nextStatus = status, clearError = true) => { setLoading(true); if (clearError) setError(null); try { const next = await gateway.domains.orgProposals!.list(nextStatus); setItems(next); setTrace({ method: 'GET', route: `/agent-org-proposals?status=${encodeURIComponent(nextStatus)}`, detail: `${next.length} proposals loaded` }); } catch (err) { setError(err instanceof Error ? err.message : 'Proposal list failed'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const approveable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' : proposal.status === 'proposed' || proposal.status === 'failed';
+  const rejectable = (proposal: OrgProposal) => proposal.kind === 'tool-install' ? proposal.status === 'sandbox-vetted' || proposal.status === 'pending' : proposal.status === 'proposed';
+  const canApprove = (proposal: OrgProposal) => proposal.kind !== 'tool-install' || proposal.toolSafety?.state === 'ready' && ['safe', 'conditional'].includes(proposal.toolSafety.verdict);
+  const mutate = async () => { if (!confirmation) return; const { proposal, action } = confirmation; setConfirmation(null); let failed = false; try { if (action === 'approve' || action === 'conditional') await gateway.domains.orgProposals!.approve(proposal.id, action === 'conditional'); if (action === 'reject') await gateway.domains.orgProposals!.reject(proposal.id); if (action === 'revert') await gateway.domains.orgProposals!.revert(proposal.id); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Proposal update failed'); } await load(status, !failed); };
+  const title = confirmation?.action === 'conditional' ? 'Approve conditional tool install?' : confirmation?.action === 'approve' ? 'Approve proposal?' : confirmation?.action === 'reject' ? 'Reject proposal?' : 'Revert applied change?';
+  const description = confirmation?.action === 'conditional' ? 'This tool install is conditional. Confirm that you explicitly approve the closed safety review above.' : 'The server remains authoritative. The queue will refresh after this decision.';
+  return <ToolFrame slug="review" title="Review Queue" description="Review organization proposals and their applied-change history." trace={trace} actions={<button className="secondary-button compact" type="button" onClick={() => void load()} data-testid="review-refresh"><Icon name="refresh" size={14} />Refresh</button>}>
+    <div className="tool-filterbar"><label>Status<select value={status} onChange={(event) => setStatus(event.target.value)} data-testid="review-filter">{reviewStatuses.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><span>{items.length} {items.length === 1 ? 'proposal' : 'proposals'}</span></div>
+    {appliedStatuses.has(status) && <p className="tool-notice"><strong>Applied Changes</strong> · deployment history remains separate from measured outcome.</p>}
+    {loading && <p role="status">Loading proposals…</p>}
     {error && <section className="tool-state-panel error" role="alert" data-testid="review-error"><span className="tool-state-code">Error</span><p>{error}</p></section>}
-    <div className="proposal-grid" data-testid="review-list">{approvals.map((approval) => <article className="proposal-card" key={approval.id} data-testid={`approval-${approval.id}`}>
-      <header><span className="kind-badge">{approval.status}</span></header>
-      <h2>{approval.action}</h2>
-      {approval.preview && <p>{approval.preview}</p>}
-      {approval.consequence && <p className="tool-notice"><Icon name="background" size={14} /><span>{approval.consequence}</span></p>}
-    </article>)}</div>
-    {approvals.length === 0 && !error && <EmptyState title="Nothing waiting for review">Approvals raised by a live session will appear here.</EmptyState>}
+    <div className="proposal-grid" data-testid="review-list">{items.map((proposal) => <article className="proposal-card" key={proposal.id} data-testid={`proposal-${proposal.id}`}><header><span className="kind-badge">{proposal.kind}</span><span className={`risk-badge ${proposal.risk}`}>{proposal.risk} risk</span></header><h2>{proposal.title}</h2><p>{proposal.rationale ?? 'No rationale provided.'}</p><dl className="proposal-statuses"><div><dt>Deployment</dt><dd>{`Deployment: ${proposal.status}`}</dd></div><div><dt>Outcome</dt><dd>{`Outcome: ${proposal.outcomeStatus}`}</dd></div><div><dt>Created</dt><dd>{proposal.createdAt ?? 'Unknown'}</dd></div><div><dt>Updated</dt><dd>{proposal.updatedAt ?? 'Unknown'}</dd></div></dl>{proposal.experimentSummary && <div className="tool-notice experiment-summary"><strong>{proposal.experimentSummary.collectingProgress === 'no_experiment' ? 'No experiment' : proposal.experimentSummary.collectingProgress[0].toUpperCase() + proposal.experimentSummary.collectingProgress.slice(1)} · {proposal.experimentSummary.eligibleCount} eligible · {proposal.experimentSummary.missingCount} missing</strong><span>Integrity: {proposal.experimentSummary.treatmentIntegrity} · Guardrails: {proposal.experimentSummary.guardrailStatus}</span>{proposal.experimentSummary.terminalReason && <span>Decision: {proposal.experimentSummary.terminalReason}</span>}{proposal.experimentSummary.staleBeforeApplyConflict && <span role="alert">Candidate is stale before apply.</span>}</div>}{proposal.kind === 'tool-install' && <ToolSafetyDetails proposal={proposal} />}<footer>{rejectable(proposal) && <button className="secondary-button" type="button" onClick={() => setConfirmation({ proposal, action: 'reject' })} data-testid={`proposal-reject-${proposal.id}`}>Reject</button>}{approveable(proposal) && <button className="primary-button" type="button" disabled={!canApprove(proposal)} title={!canApprove(proposal) ? 'A safe or conditionally safe closed tool-safety projection is required.' : undefined} onClick={() => setConfirmation({ proposal, action: proposal.kind === 'tool-install' && proposal.toolSafety?.verdict === 'conditional' ? 'conditional' : 'approve' })} data-testid={`proposal-approve-${proposal.id}`}>Approve</button>}{proposal.status === 'active' && <button className="danger-button" type="button" onClick={() => setConfirmation({ proposal, action: 'revert' })} data-testid={`proposal-revert-${proposal.id}`}>Revert</button>}</footer></article>)}</div>
+    {!loading && items.length === 0 && !error && <EmptyState title="Nothing waiting for review">Choose a proposal status to inspect its review or applied-change history.</EmptyState>}
+    <FocusDialog open={Boolean(confirmation)} onClose={() => setConfirmation(null)} title={title} description={description} testId={confirmation?.action === 'conditional' ? 'proposal-conditional-dialog' : confirmation?.action === 'revert' ? 'proposal-revert-dialog' : 'proposal-confirm-dialog'}><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirmation(null)}>Cancel</button><button className={confirmation?.action === 'revert' ? 'danger-button' : 'primary-button'} type="button" onClick={() => void mutate()} data-testid={confirmation?.action === 'conditional' ? 'proposal-conditional-confirm' : confirmation?.action === 'revert' ? 'proposal-revert-confirm' : 'proposal-confirm'}>Confirm</button></div></FocusDialog>
   </ToolFrame>;
 }
 
@@ -1015,6 +1021,16 @@ function SettingsTool() {
   return <ToolFrame slug="agent-settings" title="Agent settings" description="Execution defaults for local Agents sessions." trace={trace}><div className="tool-list"><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/connection', detail: 'Desktop endpoint is local' })}><span><strong>Desktop endpoint</strong><small>Fixture preview · not connected</small></span><Icon name="chevronRight" size={14} /></button><button className="tool-row-main settings-row" type="button" onClick={() => setTrace({ method: 'LOCAL', route: 'fixture://agent-settings/offline-buffer', detail: 'Offline buffering is local UI state until reconnect' })}><span><strong>Offline buffering</strong><small>Local only · no remote queue</small></span><Icon name="chevronRight" size={14} /></button></div></ToolFrame>;
 }
 
+function AutoPromotionSettings() {
+  const gateway = useGateway(); const [state, setState] = useState<Awaited<ReturnType<NonNullable<typeof gateway.domains.autoPromotion>['get']>> | null>(null);
+  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [confirm, setConfirm] = useState(false); const [submitting, setSubmitting] = useState(false);
+  const load = async (clearError = true) => { setLoading(true); if (clearError) setError(''); try { setState(await gateway.domains.autoPromotion!.get()); } catch (err) { setError(err instanceof Error ? err.message : 'Auto-promotion state could not be loaded'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const enabled = state?.state.autoPromotionEnabled ?? false; const canEnable = Boolean(state?.availability && state.state.autoPromotionEligible && state.state.totalRegressions === 0);
+  const submit = async () => { setConfirm(false); setSubmitting(true); setError(''); let failed = false; try { await gateway.domains.autoPromotion!.setEnabled(!enabled); } catch (err) { failed = true; setError(err instanceof Error ? err.message : 'Auto-promotion update failed'); } await load(!failed); setSubmitting(false); };
+  return <section className="auto-promotion-card" aria-label="Auto-promotion" data-testid="auto-promotion"><header><div><h2>Auto-promotion</h2><p>Verified changes may be promoted automatically only when the organization is eligible.</p></div><span className={`kind-badge ${enabled ? 'active' : ''}`}>{enabled ? 'Enabled' : 'Disabled'}</span></header>{loading && <p role="status">Loading auto-promotion state…</p>}{error && <p role="alert">{error} <button className="text-button" type="button" onClick={() => void load()}>Retry</button></p>}{state && <dl className="property-list"><div><dt>Availability</dt><dd>{state.availability ? 'Available' : 'Unavailable'}</dd></div><div><dt>Eligibility</dt><dd>{state.state.autoPromotionEligible ? 'Eligible' : 'Not eligible'}</dd></div><div><dt>Verified changes</dt><dd>{state.state.totalVerified} / {state.state.trustThreshold}</dd></div><div><dt>Regressions</dt><dd>{state.state.totalRegressions}</dd></div>{state.state.enabledAt && <div><dt>Enabled</dt><dd>{state.state.enabledAt}</dd></div>}</dl>}<footer><button className={enabled ? 'danger-button' : 'primary-button'} type="button" disabled={submitting || loading || !enabled && !canEnable} title={!enabled && !canEnable ? 'Requires availability, eligibility, and zero regressions.' : undefined} onClick={() => setConfirm(true)} data-testid="auto-promotion-toggle">{enabled ? 'Disable' : 'Enable'}</button></footer><FocusDialog open={confirm} onClose={() => setConfirm(false)} title={enabled ? 'Disable auto-promotion?' : 'Enable auto-promotion?'} description={enabled ? 'Disable is an emergency stop. The server requires your explicit acknowledgement.' : 'Verified changes may be promoted automatically when eligibility is maintained.'} testId="auto-promotion-dialog"><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setConfirm(false)} data-testid="auto-promotion-cancel">Cancel</button><button className={enabled ? 'danger-button' : 'primary-button'} type="button" onClick={() => void submit()} data-testid="auto-promotion-confirm">Confirm</button></div></FocusDialog></section>;
+}
+
 function LiveSettingsTool() {
   const gateway = useGateway();
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -1039,6 +1055,7 @@ function LiveSettingsTool() {
     {loading && <p role="status">Loading agent settings…</p>}
     {!loading && !error && profiles.length === 0 && <EmptyState title="No agent profiles configured">Create an agent profile before starting a configured session.</EmptyState>}
     <div className="tool-list">{profiles.map((profile) => <article className="tool-row settings-row" key={profile.id} data-testid={`agent-setting-${profile.id}`}><span className="profile-avatar" aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span><span><strong>{profile.label}</strong><small>{profile.enabled ? 'Enabled' : 'Disabled'} · {profile.provider} · {profile.model}</small></span>{profile.isDefault && <span className="kind-badge">Default</span>}</article>)}</div>
+    <AutoPromotionSettings />
   </ToolFrame>;
 }
 

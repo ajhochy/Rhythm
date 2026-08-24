@@ -255,6 +255,22 @@ describe('W4-c12 root-run resolution', () => {
 
 });
 
+describe('C5 listByProfileAsync — the evidence builder\'s fact source', () => {
+  it('returns only outcomes for the requested profile, ordered by finalization', async () => {
+    await repo.finalizeAsync(finalizeInput({ rootSessionId: 'r-a', sessionId: 'r-a', profileId: 'profile-x' }));
+    await repo.finalizeAsync(finalizeInput({ rootSessionId: 'r-b', sessionId: 'r-b', profileId: 'profile-y' }));
+    await repo.finalizeAsync(finalizeInput({ rootSessionId: 'r-c', sessionId: 'r-c', profileId: 'profile-x' }));
+
+    const facts = await repo.listByProfileAsync('profile-x');
+    expect(new Set(facts.map((f) => f.rootSessionId))).toEqual(new Set(['r-a', 'r-c']));
+    expect(facts.every((f) => f.profileId === 'profile-x')).toBe(true);
+  });
+
+  it('returns an empty array for a profile with no ledger rows', async () => {
+    expect(await repo.listByProfileAsync('never-run-profile')).toEqual([]);
+  });
+});
+
 describe('D2.2 (#1432) profile-scoped since query', () => {
   function insertOutcome(over: {
     id: string;

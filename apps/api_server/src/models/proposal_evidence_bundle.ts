@@ -20,6 +20,17 @@ import { EXPLICIT_USER_VERDICT_METRIC_NAME } from './feedback_metric_adapter';
 export const PROPOSAL_EVIDENCE_BUNDLE_VERSION = 'proposal-evidence-v1';
 
 /**
+ * C5 — the deterministic-evidence-builder version (contract
+ * docs/ai/contracts/issue-causal-runtime-v2.json, phase C5, requirement 3).
+ * An ADDITION to `proposal-evidence-v1`, not a replacement: an operator may
+ * still hand-declare a v1 bundle (proposal_evidence_validator.ts validates
+ * both), but only a v2 bundle may carry `counterEvidenceSearch.method` +
+ * `.coverage` — the typed, coverage-recorded counter-evidence search a
+ * builder (never a human) can actually perform deterministically.
+ */
+export const PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION = 'proposal-evidence-v2';
+
+/**
  * C3 — a stored `success` verdict that DIRECTLY contradicts its own recorded
  * evidence (an error/aborted terminal status, an explicit "no artifact
  * produced", or a nonzero recorded error count) is internally inconsistent
@@ -130,10 +141,39 @@ export interface EvidenceSourceRefs {
   eventIds: string[];
 }
 
+/**
+ * C5 — the closed set of counter-evidence search methods a
+ * `proposal-evidence-v2` bundle's search may declare. "Typed" means this,
+ * not a free-text query a human could type: an unrecognised method is a
+ * validation failure, same posture as EXPERIMENT_ADAPTERS/GUARDRAIL_NAMES.
+ */
+export type CounterEvidenceSearchMethod = 'same-profile-ledger-scan';
+
+export const COUNTER_EVIDENCE_SEARCH_METHODS: readonly CounterEvidenceSearchMethod[] = [
+  'same-profile-ledger-scan',
+] as const;
+
+export function isKnownCounterEvidenceSearchMethod(v: unknown): v is CounterEvidenceSearchMethod {
+  return (COUNTER_EVIDENCE_SEARCH_METHODS as readonly unknown[]).includes(v);
+}
+
 export interface CounterEvidenceSearch {
   query: string;
   searchedAt: string;
   contradictingCount: number;
+  /**
+   * REQUIRED only on `proposal-evidence-v2` bundles — see
+   * {@link CounterEvidenceSearchMethod}. Absent on v1 (operator hand-typed
+   * free-text query, no typed method to name).
+   */
+  method?: CounterEvidenceSearchMethod;
+  /**
+   * REQUIRED only on `proposal-evidence-v2` bundles — the fraction [0,1] of
+   * the qualifying fact population the search actually scanned. Records
+   * INCOMPLETE coverage rather than hiding it: a builder that could not scan
+   * the whole population must say so, not report a search that looks total.
+   */
+  coverage?: number;
 }
 
 export interface EvidenceTargetRef {
@@ -165,4 +205,22 @@ export interface ProposalEvidenceBundle {
   rollbackRule: string;
   generatorVersion: string;
   confidenceCalibrationVersion: string;
+  /**
+   * C6 (repair item 3) — REQUIRED on `proposal-evidence-v2` bundles only
+   * (validated by proposal_evidence_validator.ts); absent on v1. A truthful,
+   * never-fabricated [0,1] confidence: the deterministic evidence builder
+   * (proposal_evidence_builder.ts) populates it ONLY from a proposal's
+   * durable `diagnosisConfidence` (mapped once, at proposal creation, from
+   * the generator's own high/medium/low verdict — see
+   * DIAGNOSIS_CONFIDENCE_MAPPING_VERSION). When that durable field is
+   * absent, the builder fails closed (the proposal stays human-only) rather
+   * than inventing a number.
+   */
+  initialConfidence?: number;
+  /** C6 (repair item 3) — REQUIRED on v2 bundles: the versioned qualifying-failure detector that selected the evidence. */
+  detectorVersion?: string;
+  /** C6 (repair item 3) — REQUIRED on v2 bundles: the versioned treatment adapter (e.g. `system-prompt-v1`). */
+  treatmentVersion?: string;
+  /** C6 (repair item 3) — REQUIRED on v2 bundles: the versioned primary metric (e.g. `objective-success-rate-v1`). */
+  metricVersion?: string;
 }

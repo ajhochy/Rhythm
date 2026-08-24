@@ -5,6 +5,25 @@ import { isIP } from 'node:net';
 export type DbClient = 'sqlite' | 'postgres';
 
 /**
+ * D4.4 (#1442) — instance availability is a kill switch, never a user's
+ * consent. The durable consent remains in promotion_trust_state.
+ *
+ * This is exported separately from `env` so the future promotion execution
+ * gate (#1441) imports one production source instead of reparsing the env.
+ */
+export function isAutoPromotionFeatureAvailable(
+  value = process.env.AUTO_PROMOTION_FEATURE_AVAILABLE,
+  dbClient: DbClient = parseDbClient(
+    (process.env.DB_CLIENT ?? 'sqlite').trim().toLowerCase(),
+  ),
+): boolean {
+  // D2's post-apply lifecycle deliberately skips on Postgres, so strict
+  // auto-promotion cannot be available there even when the deployment flag is
+  // set. The flag is an availability prerequisite, never durable consent.
+  return value?.trim().toLowerCase() === 'true' && dbClient === 'sqlite';
+}
+
+/**
  * Deployment role (#755). Gates the agent-EXECUTION surfaces (agent routes,
  * AgentScheduler, opencode/managed-Chrome init, WS gateway, agent
  * session/config table DDL) so a hosted production API can run without the
@@ -89,6 +108,19 @@ export function resolveMemoryDirPath(): string {
 /** App-managed root for immutable live-artifact bundle and state bytes. */
 export function resolveLiveArtifactStorageDir(): string {
   return expandHome(process.env.LIVE_ARTIFACT_STORAGE_DIR ?? path.join(process.cwd(), 'live-artifacts'));
+}
+
+/** D1.4: managed executable tools never use cwd, PATH, or a user package prefix. */
+function rhythmApplicationDataDir(): string {
+  return path.dirname(expandHome(process.env.DB_PATH ?? path.join(os.homedir(), 'Library', 'Application Support', 'Rhythm', 'rhythm.db')));
+}
+
+export function resolveManagedToolRoot(): string {
+  return expandHome(process.env.RHYTHM_MANAGED_TOOL_ROOT ?? path.join(rhythmApplicationDataDir(), 'managed-tools'));
+}
+
+export function resolveManagedToolArtifactRoot(): string {
+  return expandHome(process.env.RHYTHM_TOOL_ARTIFACT_ROOT ?? path.join(rhythmApplicationDataDir(), 'tool-artifacts'));
 }
 
 /** Partition relay file artifacts from live-artifact directories (#1397). */
@@ -365,6 +397,18 @@ export const env = {
     (process.env.RHYTHM_RESEARCH_PROJECTS_ENABLED ?? '')
       .trim()
       .toLowerCase() === 'true',
+  /** C6 (#1448) — treatment-v2 ships disabled; when off it is never considered for promotion. */
+  treatmentV2Enabled:
+    (process.env.RHYTHM_TREATMENT_V2_ENABLED ?? '')
+      .trim()
+      .toLowerCase() === 'true',
+  /** C6 (#1448) — calibration ships disabled; when off no calibration observations are persisted. */
+  calibrationEnabled:
+    (process.env.RHYTHM_CALIBRATION_ENABLED ?? '')
+      .trim()
+      .toLowerCase() === 'true',
+  /** D4.4: deployment availability only; never enables durable user consent. */
+  autoPromotionFeatureAvailable: isAutoPromotionFeatureAvailable(),
   /**
    * #1422 — containment root for mobile sessions that carry no project.
    *

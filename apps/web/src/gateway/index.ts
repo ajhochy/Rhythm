@@ -28,6 +28,9 @@ export interface GatewayDomainContracts {
   cookbook?: CookbookGateway;
   research?: ResearchGateway;
   designs?: DesignsGateway;
+  orgProposals?: OrgProposalsGateway;
+  runOutcomes?: RunOutcomesGateway;
+  autoPromotion?: AutoPromotionGateway;
 }
 
 export interface GatewayHealth {
@@ -168,6 +171,9 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
       cookbook: createLiveCookbookGateway(apiBase, config.taskToken, localFetcher),
       research: createLiveResearchGateway(apiBase, config.taskToken, localFetcher),
       designs: createLiveDesignsGateway(apiBase, config.taskToken, localFetcher),
+      orgProposals: createLiveOrgProposalsGateway(apiBase, config.taskToken, localFetcher),
+      runOutcomes: createLiveRunOutcomesGateway(apiBase, config.taskToken, localFetcher),
+      autoPromotion: createLiveAutoPromotionGateway(productionApiBase, config.taskToken, fetcher),
     },
     health: {
       api: () => check('api', `${apiBase}/health`),
@@ -218,3 +224,6 @@ import { createLiveRunQualityGateway, type RunQualityGateway } from './run-quali
 import { createLiveCookbookGateway, type CookbookGateway } from './cookbook';
 import { createLiveResearchGateway, type ResearchGateway } from './research';
 import { createLiveDesignsGateway, type DesignsGateway } from './designs';
+import { createLiveOrgProposalsGateway, type OrgProposalsGateway } from './org-proposals';
+import { createLiveRunOutcomesGateway, type RunOutcomesGateway } from './run-outcomes';
+import { createLiveAutoPromotionGateway, type AutoPromotionGateway } from './auto-promotion';

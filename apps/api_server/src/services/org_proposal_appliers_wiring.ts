@@ -495,7 +495,7 @@ function validateCreateRecipeShape(proposal: AgentOrgProposal): ProposalValidati
 //   - workflow-prompt-fix / refine-skill → {skillId, priorBody, priorStatus}
 
 /** Parse a proposal's change_json into a plain object, or null. */
-function parseChange(changeJson: string | null): Record<string, unknown> | null {
+export function parseChange(changeJson: string | null): Record<string, unknown> | null {
   if (!changeJson) return null;
   try {
     const parsed: unknown = JSON.parse(changeJson);
@@ -508,7 +508,7 @@ function parseChange(changeJson: string | null): Record<string, unknown> | null 
 }
 
 /** Extract a well-formed ConfigPatch (nested under `configPatch`), or null. */
-function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch | null {
+export function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch | null {
   const p = change?.configPatch;
   if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
   const o = p as Record<string, unknown>;
@@ -826,7 +826,14 @@ function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): Proposa
  * drifting since the experiment ran means this would durably apply a
  * different change than the one that was verified.
  */
-async function verifyTestedTargetStillMatches(
+/**
+ * Exported (C6-3) so the read-only experiment summary builder
+ * (proposal_experiment_summary_service.ts) can reuse this EXACT real
+ * apply-time check to report "stale-before-apply conflict" in API/UI
+ * summaries — rather than a second, potentially-drifting reimplementation of
+ * the same drift detection.
+ */
+export async function verifyTestedTargetStillMatches(
   proposal: AgentOrgProposal,
   patch: ConfigPatch,
   currentValue: string | null,

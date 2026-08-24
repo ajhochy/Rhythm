@@ -29,6 +29,11 @@ jobs:
           cache-dependency-path: apps/api_server/package.json
       - run: npm install --workspaces=false
       - run: npm run lint
+      # D1 vetting deliberately uses `docker run --pull never`: candidate
+      # execution must not gain an ambient network dependency. Fresh GitHub
+      # runners therefore prepare the exact sandbox image before the tests.
+      - name: Prepare D1 sandbox image
+        run: docker pull node:22-alpine
       - run: npm test
       - name: Supply-chain advisory scan (#877 — fail CI on known-compromised package version)
         run: npx vitest run src/security/security_advisories.test.ts

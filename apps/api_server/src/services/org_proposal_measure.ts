@@ -705,9 +705,14 @@ async function measureBehavioralRerun(
   }
 
   if (outcome.status === 'failed') {
-    return await doRevert(proposal, deps, {
+    const reverted = await doRevert(proposal, deps, {
       measureReason: `behavioral re-run reproduced the original failure: ${outcome.reason}`,
     });
+    if (reverted === 'reverted' && proposal.outcomeStatus === 'verified') {
+      const { recordPostDeployRegressionObservationAsync } = await import('./calibration_observation_service');
+      await recordPostDeployRegressionObservationAsync(proposal.id);
+    }
+    return reverted;
   }
 
   await proposalsRepo.updateStatusAsync(proposal.id, 'active', {

@@ -3,6 +3,7 @@ import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
+import '../models/run_outcome_feedback.dart';
 
 class AgentsRepository {
   AgentsRepository(this._dataSource);
@@ -170,6 +171,20 @@ class AgentsRepository {
   /// OPC-M3-1 — GET /agent-sessions/:id/diff — fetch working-tree diff.
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) =>
       _dataSource.fetchSessionDiff(id);
+
+  /// D3.2 — GET /agent-run-outcomes/:id — latest explicit-user verdict, or
+  /// null when the run has no outcome recorded yet.
+  Future<RunOutcomeFeedback?> fetchRunOutcomeFeedback(String id) =>
+      _dataSource.fetchRunOutcomeFeedback(id);
+
+  /// D3.2 — POST /agent-run-outcomes/:id/feedback — append an explicit-user
+  /// feedback event, with an optional free-text [reason].
+  Future<void> postRunFeedback(
+    String id,
+    RunFeedbackVerdict verdict, {
+    String? reason,
+  }) =>
+      _dataSource.postRunFeedback(id, verdict, reason: reason);
 
   /// OPC-M3-2 — POST /agent-sessions/:id/revert — revert to a prior message.
   Future<void> revertSession(String sessionId, String messageId) =>

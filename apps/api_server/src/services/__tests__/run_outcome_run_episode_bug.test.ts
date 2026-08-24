@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../database/migrations';
+import { env } from '../../config/env';
 import { setDb } from '../../database/db';
 import { AgentConfigsRepository, type RevisionedAgentConfig } from '../../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
@@ -78,6 +79,7 @@ function bundle(hash: string): Record<string, unknown> {
 }
 
 let db: Database.Database;
+let originalTreatmentV2Enabled: boolean;
 
 describe('C2-D (S1) — recordTerminalOutcome uses runEpisodeId (not rootSessionId) for enrollment resolution', () => {
   beforeEach(() => {
@@ -87,12 +89,17 @@ describe('C2-D (S1) — recordTerminalOutcome uses runEpisodeId (not rootSession
     runMigrations(db);
     setDb(db);
     process.env.RHYTHM_OPTIMIZER_MODE = 'shadow';
+    // C6 item 1 — this suite exercises the real reserve/resolve chain, which
+    // now requires treatment-v2 to be enabled.
+    originalTreatmentV2Enabled = env.treatmentV2Enabled;
+    env.treatmentV2Enabled = true;
   });
 
   afterEach(() => {
     try { db.close(); } catch { /* ignore */ }
     vi.restoreAllMocks();
     delete process.env.RHYTHM_OPTIMIZER_MODE;
+    env.treatmentV2Enabled = originalTreatmentV2Enabled;
   });
 
   it('resolves the enrollment bound to the explicit runEpisodeId, not rootSessionId', async () => {

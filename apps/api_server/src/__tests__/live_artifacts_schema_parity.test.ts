@@ -146,8 +146,14 @@ describe('live-artifact schema parity (AV-01)', () => {
     expect(() => runMigrations(sqlite)).not.toThrow();
 
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
-    await runPostgresBootstrap({ query } as unknown as Pool);
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
     const postgresSql = stripComments(
       query.mock.calls.map(([statement]) => String(statement)).join('\n'),
     );

@@ -124,6 +124,14 @@ export async function sweepPostApplyLifecycleAsync(input: {
     const events = await new PostApplyEventsRepository().listActionableAsync(input.limit ?? 50);
     for (const event of events) {
       try {
+        if (event.revertStatus === 'reverted') {
+          // Reconcile only the post-commit feedback, never the already
+          // terminal target mutation. listActionableAsync admits this row
+          // only while its trust or notification ledger remains incomplete.
+          await runAutoRevertAsync(event);
+          processed += 1;
+          continue;
+        }
         if (event.guardrailStatus === 'tripped') {
           // Called every tick, not just the first: runAutoRepairAsync is
           // itself a durable, resumable one-decision-per-call state machine

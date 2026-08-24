@@ -17,6 +17,9 @@ import { runMigrations } from '../../database/migrations';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import { PostApplyEventsRepository } from '../../repositories/post_apply_events_repository';
+import { AgentOrgExperimentsRepository } from '../../repositories/agent_org_experiments_repository';
+import { CalibrationObservationsRepository } from '../../repositories/calibration_observations_repository';
+import { env } from '../../config/env';
 import { createScopeDeltaV2Snapshot } from '../scope_mutation_contract';
 import { measureProposal } from '../org_proposal_measure';
 
@@ -37,6 +40,8 @@ async function seedMeasuring(input: {
   kind: string;
   changeJson: string;
   beforeSnapshotJson?: string;
+  diagnosisConfidence?: number;
+  diagnosisConfidenceVersion?: string;
 }): Promise<void> {
   const r = repo();
   await r.createAsync({
@@ -48,6 +53,8 @@ async function seedMeasuring(input: {
     dedupKey: `dedup-${input.id}`,
     changeJson: input.changeJson,
     beforeSnapshotJson: input.beforeSnapshotJson ?? null,
+    diagnosisConfidence: input.diagnosisConfidence ?? null,
+    diagnosisConfidenceVersion: input.diagnosisConfidenceVersion ?? null,
   });
   await r.updateStatusAsync(input.id, 'applied');
   await r.updateStatusAsync(input.id, 'measuring');
@@ -281,6 +288,8 @@ describe('W6-c7 the behavioral re-run is diagnostic only', () => {
           field: 'model',
           priorValue: 'old-model',
         }),
+        diagnosisConfidence: 0.8,
+        diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
       });
       new AgentConfigsRepository().insert({ id: 'cfg-1', label: 'cfg-1', icon: 'x' });
       const before = (await repo().findByIdAsync('p-rerun-verified'))!;
@@ -290,6 +299,25 @@ describe('W6-c7 the behavioral re-run is diagnostic only', () => {
         outcomeStatus: 'verified',
       });
       expect(verified?.outcomeStatus).toBe('verified');
+      const originalCalibrationEnabled = env.calibrationEnabled;
+      env.calibrationEnabled = true;
+      const experimentRepo = new AgentOrgExperimentsRepository();
+      const regressionExperiment = await experimentRepo.declareAsync({
+        proposalId: verified!.id,
+        adapter: 'single-replay',
+        evidenceBundleJson: JSON.stringify({
+          version: 'proposal-evidence-v2', sourceEvidence: { sessionIds: ['ses-1'], eventIds: [] },
+          counterEvidenceSearch: { query: 'q', searchedAt: '2026-08-20T00:00:00.000Z', contradictingCount: 0, method: 'same-profile-ledger-scan', coverage: 1 },
+          target: { ref: 'agent_config:cfg-1', hash: 'sha256:abc' }, expectedOutcome: 'better',
+          primaryMetric: { name: 'objective-success-rate', direction: 'increase' }, guardrails: ['terminal-error-rate'],
+          experimentAdapter: 'single-replay', rollbackRule: 'restore', generatorVersion: 'gen-regression',
+          confidenceCalibrationVersion: 'confidence-v1', initialConfidence: 0.8,
+          detectorVersion: 'det-regression', treatmentVersion: 'system-prompt-v1', metricVersion: 'metric-regression',
+        }),
+        baselineSpecJson: '{}', candidateSpecJson: '{}', assignmentKey: 'regression',
+        stoppingRule: { minSamplesPerCohort: 1, minEffect: 0.1 }, maxExposure: 2,
+      });
+      await experimentRepo.recordDecisionAsync(regressionExperiment.id, 'promote', 'candidate verified before deployment');
 
       const outcome = await measureProposal(verified!, {
         rerunScenario: async () => ({ status: 'failed', reason: 'a later regression reproduced' }),
@@ -303,6 +331,18 @@ describe('W6-c7 the behavioral re-run is diagnostic only', () => {
       // The causal verdict is a SEPARATE axis this diagnostic pass has no
       // authority over — it is never silently downgraded.
       expect(after.outcomeStatus).toBe('verified');
+      const observations = await new CalibrationObservationsRepository().listAllForLocalAdminAsync();
+      expect(observations).toHaveLength(1);
+      expect(observations[0]).toMatchObject({
+        sourceEventId: `post-deploy-regression:${regressionExperiment.id}`,
+        observationType: 'post-deploy-regression',
+        postDeployRegression: 1,
+        experimentDecision: null,
+      });
+      const { recordPostDeployRegressionObservationAsync } = await import('../calibration_observation_service');
+      await recordPostDeployRegressionObservationAsync(verified!.id);
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toHaveLength(1);
+      env.calibrationEnabled = originalCalibrationEnabled;
     },
   );
 

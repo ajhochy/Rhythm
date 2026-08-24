@@ -4322,4 +4322,200 @@ If someone asks for creative work that needs a local capability:
   if (!postApplyEventCols.includes('repair_recheck_after')) {
     db.exec(`ALTER TABLE agent_org_post_apply_events ADD COLUMN repair_recheck_after TEXT`);
   }
+
+  // ── C6 — versioned calibration observations ───────────────────────────────
+  //
+  // Append-only ledger: one row per real observation (an experiment/human
+  // decision, plus any later post-deploy regression measurement) for a
+  // generator/detector/kind/treatment/metric version family. Deliberately
+  // NOT unique on the family tuple — many observations legitimately share the
+  // same family over time, and it is exactly that accumulation the
+  // calibration snapshot (calibration_snapshot_service.ts) reads to decide
+  // whether the family has enough evidence to be calibrated at all. No
+  // update/delete path: an observation is written once and never mutated,
+  // enforced below the same way agent_org_experiments' spec columns are.
+  //
+  // C6 (repair item 2) — owner_id is historical ledger provenance, not a live
+  // user reference. A foreign key with ON DELETE SET NULL would internally
+  // UPDATE this immutable row and make user deletion impossible.
+  // source_event_id + observation_type (+ owner) are UNIQUE via the
+  // COALESCE expression index below, so a caller may safely re-attempt
+  // recording the SAME deterministic event without ever duplicating it.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS calibration_observations (
+      id TEXT PRIMARY KEY,
+      owner_id INTEGER,
+      source_event_id TEXT NOT NULL,
+      observation_type TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      experiment_id TEXT,
+      generator_version TEXT NOT NULL,
+      detector_version TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      treatment_version TEXT NOT NULL,
+      metric_version TEXT NOT NULL,
+      initial_confidence REAL NOT NULL,
+      human_decision TEXT,
+      experiment_decision TEXT,
+      experiment_effect REAL,
+      post_deploy_regression REAL,
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+
+  // Additive backfill for a DB that already created the table in its
+  // pre-repair shape (no owner_id/source_event_id/observation_type/
+  // proposal_id/experiment_id columns). Never inferred: owner stays NULL,
+  // source_event_id becomes the row's own immutable id, observation_type
+  // becomes 'legacy'. The immutable no-update trigger (created below) is
+  // dropped for the duration of this ONE backfill UPDATE and recreated
+  // immediately after — this block runs at most once per database, gated
+  // on the column check, exactly like every other guarded ALTER in this file.
+  const calibrationObservationCols = (
+    db.pragma('table_info(calibration_observations)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!calibrationObservationCols.includes('owner_id')) {
+    db.exec(`
+      ALTER TABLE calibration_observations ADD COLUMN owner_id INTEGER;
+      ALTER TABLE calibration_observations ADD COLUMN source_event_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE calibration_observations ADD COLUMN observation_type TEXT NOT NULL DEFAULT 'legacy';
+      ALTER TABLE calibration_observations ADD COLUMN proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
+      ALTER TABLE calibration_observations ADD COLUMN experiment_id TEXT;
+      DROP TRIGGER IF EXISTS calibration_observations_no_update;
+      UPDATE calibration_observations SET source_event_id = id WHERE source_event_id = '';
+      CREATE TRIGGER calibration_observations_no_update
+      BEFORE UPDATE ON calibration_observations
+      BEGIN
+        SELECT RAISE(ABORT, 'calibration observations are immutable once recorded');
+      END;
+    `);
+  }
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
+       ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
+  );
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
+       ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
+  );
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS calibration_observations_no_update
+    BEFORE UPDATE ON calibration_observations
+    BEGIN
+      SELECT RAISE(ABORT, 'calibration observations are immutable once recorded');
+    END;
+    CREATE TRIGGER IF NOT EXISTS calibration_observations_no_delete
+    BEFORE DELETE ON calibration_observations
+    BEGIN
+      SELECT RAISE(ABORT, 'calibration observations are immutable once recorded');
+    END;
+  `);
+
+  // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
+  // proposal creation from the generator's own high/medium/low diagnosis
+  // verdict. Never inferred/backfilled for pre-existing rows — both stay
+  // NULL, matching the additive-nullable-column convention used throughout
+  // this file (e.g. owner_user_id above).
+  const proposalDiagnosisConfidenceCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!proposalDiagnosisConfidenceCols.includes('diagnosis_confidence')) {
+    db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN diagnosis_confidence REAL`);
+  }
+  if (!proposalDiagnosisConfidenceCols.includes('diagnosis_confidence_version')) {
+    db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN diagnosis_confidence_version TEXT`);
+  }
+
+  // D4.1 (#1439) — promotion_trust_state: singleton row tracking the trust
+  // counters D4 gates automatic promotion on (total verified experiments,
+  // total regressions, whether the gate is enabled, and at what threshold).
+  // Fixed id ('promotion_trust_state') is the singleton key, same pattern as
+  // org_settings above — see promotion_trust_state_repository.ts. Starts
+  // disabled; nothing in D4.1/D4.2 ever flips auto_promotion_enabled true.
+  // The id CHECK enforces the singleton at the schema boundary itself — a
+  // raw INSERT with any other id fails, not just repository-only access.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS promotion_trust_state (
+      id                     TEXT PRIMARY KEY CHECK (id = 'promotion_trust_state'),
+      total_verified         INTEGER NOT NULL DEFAULT 0,
+      total_regressions      INTEGER NOT NULL DEFAULT 0,
+      auto_promotion_enabled INTEGER NOT NULL DEFAULT 0,
+      enabled_at             TEXT,
+      trust_threshold        INTEGER NOT NULL DEFAULT 10,
+      updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    )
+  `);
+  runOnce('issue_1439_promotion_trust_state', () => {
+    // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
+  });
+
+  // D4.2 (#1440) — additive eligibility column, recorded by
+  // trust_counter_service.ts. Default false; never inferred/backfilled for
+  // pre-existing rows, matching the additive-nullable-column convention used
+  // throughout this file.
+  const promotionTrustStateCols = (
+    db.pragma('table_info(promotion_trust_state)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!promotionTrustStateCols.includes('auto_promotion_eligible')) {
+    db.exec(
+      `ALTER TABLE promotion_trust_state ADD COLUMN auto_promotion_eligible INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+
+  // D4.6 (#1444) — one user-visible regression-disable alert per recipient
+  // and D2 proposal. This is narrow rather than a general notification
+  // dedupe policy: existing notification types retain their historical fanout.
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_auto_promotion_regression_once
+      ON notifications(recipient_user_id, type, entity_type, entity_id)
+      WHERE type = 'auto_promotion_disabled_regression'
+  `);
+
+  // ── D1.1 (#1426) — tool safety reports (sandbox vetting record) ──────────
+  //
+  // One row per sandbox vetting run for a `tool-install` agent_org_proposals
+  // row (see tool_sandbox_vetter.ts, D1.2). Every observational column is an
+  // aggregate (a count, a JSON array of {path/host, count} descriptors, a
+  // closed enum) — never raw prompt text, raw tool output, or raw credential
+  // bytes. The repository layer (tool_safety_reports_repository.ts)
+  // additionally redacts secret shapes out of the JSON blob columns before
+  // every write, the same way post_apply_events_repository.ts does for its
+  // own snapshot columns. Postgres twin in postgres_bootstrap.ts — enforced
+  // by skill_schema_parity.test.ts. Not UNIQUE on proposal_id: a proposal may
+  // legitimately be re-vetted (e.g. after a sandbox-unavailable result), and
+  // the repository's find-by-proposal-id reads the most recent row.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tool_safety_reports (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
+      tool_name TEXT NOT NULL,
+      tool_version TEXT,
+      package_source TEXT NOT NULL,
+      install_method TEXT NOT NULL,
+      sandbox_duration_ms INTEGER NOT NULL,
+      test_prompts_run_count INTEGER NOT NULL DEFAULT 0,
+      forbidden_path_violations_json TEXT NOT NULL DEFAULT '[]',
+      network_calls_observed_json TEXT NOT NULL DEFAULT '[]',
+      file_system_writes_observed_json TEXT NOT NULL DEFAULT '[]',
+      credential_access_attempts_count INTEGER NOT NULL DEFAULT 0,
+      verdict TEXT NOT NULL CHECK (verdict IN ('safe', 'conditional', 'unsafe', 'unknown')),
+      reason TEXT,
+      evidence_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
+       ON tool_safety_reports(proposal_id)`,
+  );
+  const toolSafetyReportCols = (db.pragma('table_info(tool_safety_reports)') as { name: string }[])
+    .map((column) => column.name);
+  if (!toolSafetyReportCols.includes('proposal_fingerprint')) {
+    db.exec(`ALTER TABLE tool_safety_reports ADD COLUMN proposal_fingerprint TEXT`);
+  }
 }

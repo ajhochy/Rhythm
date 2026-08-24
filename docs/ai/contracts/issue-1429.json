@@ -1,0 +1,62 @@
+{
+  "contract_id": "D1.4",
+  "issue": 1429,
+  "phase": "D1.4",
+  "parent_contract": "D1.3",
+  "date": "2026-08-21",
+  "status": "pass",
+  "criteria": [
+    {
+      "id": "automatic-vetting-on-creation",
+      "status": "pass",
+      "evidence": "tool_install_proposal_lifecycle.test.ts creates through createAndVetToolInstallProposalAsync, observes sandbox-running before its injected vetter executes, and only then observes sandbox-vetted. POST /agent-org-proposals/tool-install is the authenticated production entry point."
+    },
+    {
+      "id": "durable-vetting-lifecycle",
+      "status": "pass",
+      "evidence": "safe/conditional reports are persisted then re-read before sandbox-vetted; unsafe persists then auto-rejects; a thrown vetter persists unknown/sandbox_error and leaves pending. Client report/verdict fields remain non-authoritative."
+    },
+    {
+      "id": "human-decision-and-concurrency",
+      "status": "pass",
+      "evidence": "denial rejects without installer invocation; approval checks the durable central policy, CAS-claims sandbox-vetted -> approved before the apply boundary, and concurrent approvals invoke an injected installer exactly once."
+    },
+    {
+      "id": "persisted-proposal-scalar-redaction",
+      "status": "pass",
+      "evidence": "The production lifecycle seam sanitizes title and dedupKey once before both preflight and persistence. Its deterministic synthetic-secret regression reads the SQLite proposal row, finds only [redacted] values, and proves the same sanitized dedupKey returns the existing proposal without a second vet. The raw fixture is neither persisted nor emitted here."
+    },
+    {
+      "id": "real-api-and-docker",
+      "status": "pass",
+      "evidence": "RHYTHM_LIVE_E2E=1 D1.4 test passed 1/1 against tools/dev/sandbox.sh: real Docker safe vet -> sandbox-vetted -> approval -> fixed apply-unavailable failure; real broken Docker candidate -> unknown report -> pending -> denial. No reports/proposals were inserted by the live core path."
+    },
+    {
+      "id": "actual-production-install",
+      "status": "pass",
+      "evidence": "The production boundary installs only local-tarball:sha256:<digest> artifacts from a code-owned root. It re-reads durable safety, verifies the exact digest and self-contained script-free package metadata, uses fixed offline Node/npm argv with scripts disabled, stages beneath the managed root, and reaches applied only after receipt/artifact readback. Mutable npm/pip sources fail closed."
+    }
+  ],
+  "verification": {
+    "red": "Before implementation, npx vitest run src/services/__tests__/tool_install_proposal_lifecycle.test.ts failed because ../tool_install_proposal_lifecycle did not exist.",
+    "focused_matrix": "103 passed, 2 expected env-gated live skips across managed apply and D1 lifecycle/policy/validator/vetter; real-Docker managed artifact vet passed 1/1.",
+    "live": "1/1 passed in 11.46s on isolated API 4098, engine 4097, gateway 4099; sandbox removed and all three ports released; no rhythm-d1-vet containers remained.",
+    "static": "Node 22 api_server tsc --noEmit, npm run build, and git diff --check passed. ai-workflow issue/pr gates reached an inherited environment blocker: apps/mcp_server has no installed TypeScript compiler (the tsc shim reports its missing dependency).",
+    "gitnexus": "UNKNOWN: this worktree is not indexed. No analyze/index was run because it can rewrite AGENTS.md/CLAUDE.md."
+  },
+  "security_repair_2026_08_21": {
+    "status": "pass",
+    "findings": [
+      "Managed tools/.staging/.locks and an exact destination are now lstat+realpath-validated direct children; verification reads only ordinary non-symlink files/directories below that destination.",
+      "The staging archive is re-hashed and fully re-parsed after the exact-owned copy and before npm; the deterministic post-inspection source mutation never invokes the runner or activates a destination.",
+      "Tar validation consumes the entire archive, rejects duplicate/ambiguous/non-regular entries, packaged node_modules, every dependency family including bundleDependencies, and requires exactly one ordinary package/package.json."
+    ],
+    "red": "The pre-repair adversarial suite reached the runner through each child symlink and after the source-swap hook, accepted a matching outside destination receipt, and accepted duplicate package.json, package/node_modules, and bundleDependencies archives.",
+    "green": "Focused managed apply suite: 15 passed / 1 expected Docker gate skip; full D1.1-D1.4 matrix with RHYTHM_DOCKER_E2E=1: 12 files, 279 passed; live isolated HTTP/Docker local-tarball activation: 1 passed.",
+    "live": "A sanitized 206-byte self-contained local tarball was copied to the isolated sandbox's code-owned artifact root; real Docker vetting reached sandbox-vetted, approval reached applied, and an on-disk receipt was observed. The missing immutable digest stayed pending/unknown and was denied. Sandbox, staging, Docker containers, and ports 4097/4098/4099 were released after the run."
+  },
+  "risks": [
+    "Only self-contained local tarballs with a SHA-256 identity are supported. Legacy npm/pip proposal methods remain fail-closed because their registry bytes/dependency closure are not bound to the vet report.",
+    "The in-process vetter dedupe remains process-local; the creation service's proposal lifecycle and approval CAS prevent duplicate apply invocation within the current architecture."
+  ]
+}

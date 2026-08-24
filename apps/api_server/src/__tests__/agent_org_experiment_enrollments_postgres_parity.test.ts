@@ -59,7 +59,10 @@ function postgresColumns(sql: string): string[] {
 
 async function emittedPostgresSql(): Promise<string> {
   const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
-  const pool = { query } as unknown as Pool;
+  const pool = {
+    query,
+    connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+  } as unknown as Pool;
   await runPostgresBootstrap(pool);
   await runPostgresBootstrap(pool);
   return query.mock.calls.map(([statement]) => String(statement)).join('\n');

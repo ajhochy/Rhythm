@@ -12,13 +12,15 @@
 
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { env } from '../../config/env';
 import { setDb } from '../../database/db';
 import { runMigrations } from '../../database/migrations';
 import { logger } from '../../utils/logger';
 import {
   PROPOSAL_EVIDENCE_BUNDLE_VERSION,
+  PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
   type ProposalEvidenceBundle,
 } from '../../models/proposal_evidence_bundle';
 import type { AgentRunOutcome } from '../../models/agent_run_outcome';
@@ -44,14 +46,29 @@ import {
 } from '../org_proposal_experiment_service';
 import type { ExperimentEnrollment } from '../../models/agent_org_experiment_enrollment';
 import { AgentOrgTreatmentReceiptsRepository } from '../../repositories/agent_org_treatment_receipts_repository';
+import { CalibrationObservationsRepository } from '../../repositories/calibration_observations_repository';
+import { UsersRepository } from '../../repositories/users_repository';
+import { ToolSafetyReportsRepository } from '../../repositories/tool_safety_reports_repository';
+import { PromotionTrustStateRepository } from '../../repositories/promotion_trust_state_repository';
+import { recordTrustCountersAsync } from '../trust_counter_service';
 
 let db: Database.Database;
+let originalTreatmentV2Enabled: boolean;
 
 beforeEach(() => {
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   setDb(db);
+  // C6 item 1 — this file's reserve/prepare/commit describes exercise the
+  // real chain, which now requires treatment-v2 to be enabled. judge/decide
+  // describes are unaffected either way.
+  originalTreatmentV2Enabled = env.treatmentV2Enabled;
+  env.treatmentV2Enabled = true;
+});
+
+afterEach(() => {
+  env.treatmentV2Enabled = originalTreatmentV2Enabled;
 });
 
 /** An otherwise-complete, current-version bundle. Every case mutates a copy. */
@@ -2028,6 +2045,70 @@ describe('C3-1 promote is re-enabled once treatment-v2 receipts prove the effect
   });
 });
 
+describe('D3.3 feedback is never required for promotion', () => {
+  it('promotes to verified from objective evidence alone, with zero explicit feedback events on either cohort', async () => {
+    // Regression guard: the D3.2 desktop feedback UI (#1437) must not become
+    // a hidden promotion requirement. This proposal uses the default
+    // objective-success-rate metric, which never reads the feedback ledger
+    // at all (see decideExperiment's isFeedbackMetric branch) — promotion
+    // must succeed exactly as it does without the feedback UI existing.
+    const proposalId = 'prop-d3-3-no-feedback';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'a candidate worth measuring',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const exp = await declare(experiments, makeValidBundle(), { proposalId });
+
+    const baselineIds: string[] = [];
+    const candidateIds: string[] = [];
+    for (let i = 0; i < 20; i += 1) {
+      const baselineId = `d3-3-b-${i}`;
+      const candidateId = `d3-3-c-${i}`;
+      baselineIds.push(baselineId);
+      candidateIds.push(candidateId);
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-d3-3',
+        cohort: 'baseline',
+        runEpisodeId: baselineId,
+        success: i < 10, // 50%
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: exp.id,
+        proposalId,
+        profileId: 'profile-d3-3',
+        cohort: 'candidate',
+        runEpisodeId: candidateId,
+        success: i < 18, // 90%
+      });
+    }
+
+    // Confirm the premise directly against the ledger, not just by omission:
+    // not one of these runs has an explicit-user (or inferred) feedback event.
+    const outcomesRepo = new AgentRunOutcomesRepository();
+    for (const rootSessionId of [...baselineIds, ...candidateIds]) {
+      const feedback = await outcomesRepo.listFeedbackAsync(rootSessionId);
+      expect(feedback).toHaveLength(0);
+    }
+    const verdicts = await outcomesRepo.listLatestExplicitUserVerdictsAsync([
+      ...baselineIds,
+      ...candidateIds,
+    ]);
+    expect(verdicts.size).toBe(0);
+
+    const judged = await judgeExperimentAsync(exp.id);
+    if (judged.status !== 'decided') throw new Error('expected a terminal decision');
+    expect(judged.decision).toBe('promote');
+
+    const proposal = await new AgentOrgProposalsRepository().findByIdAsync(proposalId);
+    expect(proposal!.outcomeStatus).toBe('verified');
+  });
+});
+
 describe('C3-4 explicit-user-verdict-rate: a separate typed metric adapter over append-only feedback', () => {
   function feedbackBundle(minResponseCoverage: number): ProposalEvidenceBundle {
     return {
@@ -2151,6 +2232,35 @@ describe('C3-4 explicit-user-verdict-rate: a separate typed metric adapter over 
     const judged = await computeDecisionAsync(exp);
     expect(judged.status).toBe('collecting');
     expect(judged.reason).toMatch(/response rate/i);
+  });
+
+  it('D3.3: treats zero feedback events on both cohorts as unavailable (no signal) — never a fabricated zero, never a block or regress', async () => {
+    const proposalId = 'prop-d3-3-feedback-zero';
+    await new AgentOrgProposalsRepository().createAsync({
+      id: proposalId,
+      kind: 'refine-skill',
+      risk: 'low',
+      title: 'x',
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    // minResponseCoverage: 0 isolates the "literally no responses" case from
+    // the separate below-minimum-coverage case covered above.
+    const exp = await declare(experiments, feedbackBundle(0), { proposalId, maxExposure: 1000 });
+
+    // 10 runs per cohort, objective evidence only — no verdict, ever.
+    for (let i = 0; i < 10; i += 1) {
+      await seedRun({ proposalId, cohort: 'baseline', rootSessionId: `d3-3-fbzero-b-${i}` });
+      await seedRun({ proposalId, cohort: 'candidate', rootSessionId: `d3-3-fbzero-c-${i}` });
+    }
+
+    const judged = await computeDecisionAsync(exp);
+    // Non-terminal: the metric is unavailable, so the experiment keeps
+    // collecting rather than being decided at all — not promoted, not
+    // regressed, not silently scored as a failure.
+    expect(judged.status).toBe('collecting');
+    expect(judged.reason).toMatch(/unavailable/i);
+    expect(judged.results?.baseline.responseRate).toBe(0);
+    expect(judged.results?.candidate.responseRate).toBe(0);
   });
 
   it('refuses promotion on a material response-rate imbalance between arms, never regress', async () => {
@@ -2590,5 +2700,296 @@ describe('C4-4 promote sets outcome_status=verified without touching deployment 
 
     const reloadedProfile = new AgentConfigsRepository().getById(profile.id);
     expect(reloadedProfile!.systemPrompt).toBe('before');
+  });
+});
+
+describe('D4 trust refresh precedes auto-promotion', () => {
+  async function seedVerifiedHistory(count: number): Promise<void> {
+    const proposals = new AgentOrgProposalsRepository();
+    const experiments = new AgentOrgExperimentsRepository();
+    for (let index = 0; index < count; index += 1) {
+      const proposal = await proposals.createAsync({
+        id: `prop-d4-history-${index}`,
+        kind: 'create-agent',
+        risk: 'low',
+        title: `D4 history ${index}`,
+        changeJson: JSON.stringify({ agentSlug: `d4-history-${index}` }),
+      });
+      const experiment = await declare(experiments, makeValidBundle(), { proposalId: proposal.id });
+      await experiments.recordDecisionAsync(experiment.id, 'promote', 'historical verified experiment');
+      await proposals.setOutcomeStatusAtRevisionAsync({
+        proposalId: proposal.id,
+        expectedRevision: proposal.revision,
+        outcomeStatus: 'verified',
+      });
+    }
+  }
+
+  async function declareReceiptBackedPromotion(proposalId: string) {
+    const proposals = new AgentOrgProposalsRepository();
+    await proposals.createAsync({
+      id: proposalId,
+      kind: 'create-agent',
+      risk: 'low',
+      title: 'D4 trust-refresh candidate',
+      changeJson: JSON.stringify({ agentSlug: `${proposalId}-agent` }),
+    });
+    const experiments = new AgentOrgExperimentsRepository();
+    const experiment = await declare(experiments, makeValidBundle(), { proposalId });
+    for (let index = 0; index < 20; index += 1) {
+      await seedReceiptBackedOutcome({
+        experimentId: experiment.id,
+        proposalId,
+        profileId: `${proposalId}-profile`,
+        cohort: 'baseline',
+        runEpisodeId: `${proposalId}-baseline-${index}`,
+        success: index < 10,
+      });
+      await seedReceiptBackedOutcome({
+        experimentId: experiment.id,
+        proposalId,
+        profileId: `${proposalId}-profile`,
+        cohort: 'candidate',
+        runEpisodeId: `${proposalId}-candidate-${index}`,
+        success: index < 18,
+      });
+    }
+    return experiment;
+  }
+
+  it('persists the tenth verified counter before the real gate reads durable eligibility, without enabling opt-in', async () => {
+    await seedVerifiedHistory(9);
+    await recordTrustCountersAsync();
+    const trust = new PromotionTrustStateRepository();
+    expect(await trust.getSingletonAsync()).toMatchObject({
+      totalVerified: 9,
+      autoPromotionEligible: false,
+      autoPromotionEnabled: false,
+    });
+    const experiment = await declareReceiptBackedPromotion('prop-d4-tenth-verified');
+    const originalRead = trust.getSingletonAsync.bind(trust);
+    let stateObservedByGate: Awaited<ReturnType<typeof trust.getSingletonAsync>> | undefined;
+    trust.getSingletonAsync = async () => {
+      const state = await originalRead();
+      stateObservedByGate = state;
+      return state;
+    };
+
+    const judged = await judgeExperimentAsync(experiment.id, {
+      autoPromotion: {
+        availability: { isAvailable: () => true },
+        trustStateRepo: trust,
+      },
+    });
+
+    expect(judged).toMatchObject({ status: 'decided', decision: 'promote' });
+    expect(stateObservedByGate).toMatchObject({
+      totalVerified: 10,
+      autoPromotionEligible: true,
+      autoPromotionEnabled: false,
+    });
+    expect(await trust.getSingletonAsync()).toMatchObject({
+      totalVerified: 10,
+      autoPromotionEligible: true,
+      autoPromotionEnabled: false,
+    });
+    expect(await new AgentOrgProposalsRepository().findByIdAsync('prop-d4-tenth-verified')).toMatchObject({
+      status: 'proposed',
+      outcomeStatus: 'verified',
+    });
+  });
+
+  it('re-judges an already-decided promote to retry a failed trust refresh before auto-promotion', async () => {
+    await seedVerifiedHistory(1);
+    const trust = new PromotionTrustStateRepository();
+    await trust.updateAsync({ trustThreshold: 1 });
+    await recordTrustCountersAsync();
+    await trust.enableAutoPromotionAsync('2026-08-21T00:00:00.000Z');
+    const proposalId = 'prop-d4-refresh-retry';
+    const experiment = await declareReceiptBackedPromotion(proposalId);
+    let refreshAttempts = 0;
+    const refresh = async () => {
+      refreshAttempts += 1;
+      if (refreshAttempts === 1) throw new Error('trust state unavailable');
+      return recordTrustCountersAsync();
+    };
+
+    const first = await judgeExperimentAsync(experiment.id, {
+      autoPromotion: { availability: { isAvailable: () => true } },
+      recordTrustCountersAsync: refresh,
+    });
+
+    expect(first).toMatchObject({ status: 'decided', decision: 'promote' });
+    expect(refreshAttempts).toBe(1);
+    expect(await new AgentOrgProposalsRepository().findByIdAsync(proposalId)).toMatchObject({
+      status: 'proposed',
+      outcomeStatus: 'verified',
+    });
+
+    const rejudged = await judgeExperimentAsync(experiment.id, {
+      autoPromotion: { availability: { isAvailable: () => true } },
+      recordTrustCountersAsync: refresh,
+    });
+
+    expect(rejudged).toMatchObject({ status: 'decided', decision: 'promote' });
+    expect(refreshAttempts).toBe(2);
+    expect(await trust.getSingletonAsync()).toMatchObject({
+      totalVerified: 2,
+      autoPromotionEligible: true,
+      autoPromotionEnabled: true,
+    });
+    expect(await new AgentOrgProposalsRepository().findByIdAsync(proposalId)).toMatchObject({
+      status: 'applied',
+      outcomeStatus: 'verified',
+    });
+    expect(await new AgentOrgExperimentsRepository().findByIdAsync(experiment.id)).toMatchObject({
+      decision: 'promote',
+      decisionReason: expect.any(String),
+    });
+  });
+});
+
+describe('C6 production decision calibration recording', () => {
+  const calibrationBundle = (initialConfidence = 0.8): ProposalEvidenceBundle => ({
+    ...makeValidBundle(),
+    version: PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
+    counterEvidenceSearch: {
+      ...makeValidBundle().counterEvidenceSearch,
+      method: 'same-profile-ledger-scan',
+      coverage: 1,
+    },
+    experimentAdapter: 'single-replay',
+    initialConfidence,
+    detectorVersion: 'qualifying-failure-v1',
+    treatmentVersion: 'system-prompt-v1',
+    metricVersion: 'objective-success-rate-v1',
+  });
+
+  it('task-c6-calibration-c1: records one immutable owner-scoped decision observation and retry reuses it', async () => {
+    const original = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    try {
+      const owner = new UsersRepository().create({ name: 'Calibration Owner', email: 'calibration-owner-1@example.com' });
+      const proposal = await new AgentOrgProposalsRepository().createAsync({
+        id: 'prop-c6-observation',
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'calibration source',
+        ownerUserId: owner.id,
+        diagnosisConfidence: 0.8,
+        diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
+      });
+      const experiment = await declare(new AgentOrgExperimentsRepository(), calibrationBundle(), {
+        proposalId: proposal.id,
+      });
+
+      await judgeExperimentAsync(experiment.id);
+      await judgeExperimentAsync(experiment.id);
+
+      const rows = await new CalibrationObservationsRepository().listAllForLocalAdminAsync();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        ownerId: owner.id,
+        sourceEventId: `experiment-decision:${experiment.id}`,
+        observationType: 'experiment-decision',
+        proposalId: proposal.id,
+        experimentId: experiment.id,
+        generatorVersion: 'scope-hygiene-generator@3',
+        detectorVersion: 'qualifying-failure-v1',
+        kind: 'refine-config',
+        treatmentVersion: 'system-prompt-v1',
+        metricVersion: 'objective-success-rate-v1',
+        initialConfidence: 0.8,
+        experimentDecision: 'inconclusive',
+        postDeployRegression: null,
+      });
+    } finally {
+      env.calibrationEnabled = original;
+    }
+  });
+
+  it('D4.3: a throwing tool-report read cannot interrupt a settled promote, outcome, or calibration observation', async () => {
+    const original = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    try {
+      const owner = new UsersRepository().create({ name: 'Tool report owner', email: 'tool-report-owner@example.com' });
+      const config = new AgentConfigsRepository().insert({ id: 'tool-report-profile', label: 'tool report', icon: 'x' });
+      const proposals = new AgentOrgProposalsRepository();
+      const proposal = await proposals.createAsync({
+        id: 'prop-tool-report-throw', kind: 'tool-install', risk: 'high', status: 'sandbox-vetted', title: 'tool report failure',
+        ownerUserId: owner.id, diagnosisConfidence: 0.8, diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
+        changeJson: JSON.stringify({
+          toolName: 'fixture-tool', packageSource: 'npm:fixture-tool', installMethod: 'npm install', agentConfigId: config.id,
+          testPrompts: ['version-check', 'help-check'],
+          evidenceBundle: {
+            version: PROPOSAL_EVIDENCE_BUNDLE_VERSION, sourceEvidence: { sessionIds: ['fixture'], eventIds: [] },
+            counterEvidenceSearch: { query: 'fixture', searchedAt: '2026-08-21T00:00:00.000Z', contradictingCount: 0 },
+            target: { ref: toProfileTargetRef(config.id), hash: durableTargetFingerprint(config) },
+            expectedOutcome: 'fixture', primaryMetric: { name: 'objective-success-rate', direction: 'increase' },
+            guardrails: ['terminal-error-rate'], experimentAdapter: 'paired-cohort-outcome', rollbackRule: 'restore',
+            generatorVersion: 'fixture', confidenceCalibrationVersion: 'fixture',
+          },
+        }),
+      });
+      await proposals.setOutcomeStatusAtRevisionAsync({ proposalId: proposal.id, expectedRevision: proposal.revision, outcomeStatus: 'verified' });
+      const experiments = new AgentOrgExperimentsRepository();
+      const experiment = await declare(experiments, calibrationBundle(), { proposalId: proposal.id });
+      await experiments.recordDecisionAsync(experiment.id, 'promote', 'pre-set terminal promotion');
+      const reports = new ToolSafetyReportsRepository(db);
+      reports.findByProposalIdAsync = async () => { throw new Error('tool report repository unavailable'); };
+
+      const judged = await judgeExperimentAsync(experiment.id, {
+        autoPromotion: { availability: { isAvailable: () => true }, reports },
+      });
+
+      expect(judged).toMatchObject({ status: 'decided', decision: 'promote' });
+      expect((await proposals.findByIdAsync(proposal.id))?.outcomeStatus).toBe('verified');
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toEqual([
+        expect.objectContaining({ proposalId: proposal.id, experimentId: experiment.id, experimentDecision: 'promote' }),
+      ]);
+    } finally {
+      env.calibrationEnabled = original;
+    }
+  });
+
+  it('task-c6-calibration-c2: skips recording when durable proposal confidence is unavailable', async () => {
+    const original = env.calibrationEnabled;
+    env.calibrationEnabled = true;
+    try {
+      const owner = new UsersRepository().create({ name: 'Calibration Owner', email: 'calibration-owner-2@example.com' });
+      const proposal = await new AgentOrgProposalsRepository().createAsync({
+        id: 'prop-c6-no-confidence',
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'missing durable confidence',
+        ownerUserId: owner.id,
+      });
+      const experiment = await declare(new AgentOrgExperimentsRepository(), calibrationBundle(), {
+        proposalId: proposal.id,
+      });
+
+      await judgeExperimentAsync(experiment.id);
+
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toEqual([]);
+
+      const versionedProposal = await new AgentOrgProposalsRepository().createAsync({
+        id: 'prop-c6-no-version',
+        kind: 'refine-config',
+        risk: 'low',
+        title: 'missing durable evidence version',
+        ownerUserId: owner.id,
+        diagnosisConfidence: 0.8,
+        diagnosisConfidenceVersion: 'diagnosis-confidence-v1',
+      });
+      const missingVersionBundle = calibrationBundle() as ProposalEvidenceBundle & { detectorVersion?: string };
+      delete missingVersionBundle.detectorVersion;
+      const missingVersionExperiment = await declare(new AgentOrgExperimentsRepository(), missingVersionBundle, {
+        proposalId: versionedProposal.id,
+      });
+      await judgeExperimentAsync(missingVersionExperiment.id);
+      expect(await new CalibrationObservationsRepository().listAllForLocalAdminAsync()).toEqual([]);
+    } finally {
+      env.calibrationEnabled = original;
+    }
   });
 });

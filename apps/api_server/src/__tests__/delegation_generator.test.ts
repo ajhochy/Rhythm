@@ -334,6 +334,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
         postScore: null,
         measureReason: null,
         decidedByUserId: null,
+        ownerUserId: null,
+        diagnosisConfidence: null,
+        diagnosisConfidenceVersion: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -400,6 +403,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -450,6 +456,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -499,6 +508,9 @@ describe('issue-825-c4: apply-time re-validation of auth + depth (not just propo
       postScore: null,
       measureReason: null,
       decidedByUserId: null,
+      ownerUserId: null,
+      diagnosisConfidence: null,
+      diagnosisConfidenceVersion: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

@@ -14,6 +14,8 @@
 ///    own message rather than a generic failure.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -39,6 +41,10 @@ class _FakeOrgProposalsDataSource extends OrgProposalsDataSource {
   /// If set, revert() throws the server's legacy-snapshot 409 for this id.
   String? legacyConflictId;
 
+  /// If set, revert() awaits this instead of resolving immediately, so a
+  /// test can inspect the in-flight (pending) UI state before completing it.
+  Completer<OrgProposal>? pendingRevertCompleter;
+
   @override
   Future<List<OrgProposal>> listProposed({String status = 'proposed'}) async {
     listedStatuses.add(status);
@@ -54,6 +60,9 @@ class _FakeOrgProposalsDataSource extends OrgProposalsDataSource {
         code: 'CONFLICT',
         statusCode: 409,
       );
+    }
+    if (pendingRevertCompleter != null) {
+      await pendingRevertCompleter!.future;
     }
     lastRevertedId = id;
     final proposal = byStatus['active']!.firstWhere((p) => p.id == id);
@@ -284,6 +293,60 @@ void main() {
       expect(find.textContaining('Revert failed'), findsNothing);
       // The row stays: nothing was undone.
       expect(find.text('Looks fine'), findsOneWidget);
+
+      controller.dispose();
+    });
+
+    testWidgets('shows a confirmation snackbar when revert succeeds',
+        (tester) async {
+      final dataSource = _FakeOrgProposalsDataSource({
+        'active': [_applied(id: 'ok1', title: 'Undo me')],
+      });
+      final controller =
+          OrgProposalsController(OrgProposalsRepository(dataSource));
+
+      await _pumpAppliedTab(tester, controller);
+
+      await tester.tap(find.byKey(const ValueKey('revert-proposal-ok1')));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Undo change'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.widgetWithText(SnackBar, 'Change undone'), findsOneWidget);
+
+      controller.dispose();
+    });
+
+    testWidgets(
+        'disables the revert button and shows a spinner while the request '
+        'is in flight', (tester) async {
+      final completer = Completer<OrgProposal>();
+      final dataSource = _FakeOrgProposalsDataSource({
+        'active': [_applied(id: 'ok1', title: 'Undo me')],
+      })
+        ..pendingRevertCompleter = completer;
+      final controller =
+          OrgProposalsController(OrgProposalsRepository(dataSource));
+
+      await _pumpAppliedTab(tester, controller);
+
+      await tester.tap(find.byKey(const ValueKey('revert-proposal-ok1')));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Undo change'));
+      await tester.pump();
+
+      final button = tester.widget<OutlinedButton>(
+        find.byKey(const ValueKey('revert-proposal-ok1')),
+      );
+      expect(button.onPressed, isNull,
+          reason: 'the button must disable itself while the request is '
+              'mid-flight');
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
+
+      completer.complete(_applied(id: 'ok1', status: 'active'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       controller.dispose();
     });

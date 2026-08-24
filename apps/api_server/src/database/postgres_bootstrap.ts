@@ -2186,4 +2186,202 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_org_post_apply_events ADD COLUMN IF NOT EXISTS repair_recheck_after TEXT;
   `);
+
+  // C6 — versioned calibration observations (Postgres twin). Column set MUST
+  // stay identical to the SQLite migration in migrations.ts — enforced by
+  // skill_schema_parity.test.ts. Reuses the existing rhythm_reject_ledger_write
+  // trigger function (already defined above) for the same no-update/no-delete
+  // guarantee as agent_run_outcomes / treatment receipts.
+  //
+  // C6 (repair item 2) — owner_id is historical ledger provenance, not a live
+  // user reference. A foreign key with ON DELETE SET NULL would internally
+  // UPDATE this immutable row and make user deletion impossible.
+  //
+  // The trigger is dropped only for the one-time legacy-column backfill, and
+  // that drop/backfill/recreate sequence is transactional: a failed ALTER,
+  // UPDATE, or index build can never leave the ledger unprotected.
+  const calibrationClient = await pool.connect();
+  try {
+    await calibrationClient.query('BEGIN');
+    const calibrationShape = await calibrationClient.query<{
+      table_exists: boolean;
+      owner_exists: boolean;
+      owner_fk_exists: boolean;
+    }>(`
+      SELECT
+        to_regclass('public.calibration_observations') IS NOT NULL AS table_exists,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'calibration_observations'
+            AND column_name = 'owner_id'
+        ) AS owner_exists,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = 'public'
+            AND t.relname = 'calibration_observations'
+            AND c.contype = 'f'
+            AND pg_get_constraintdef(c.oid) LIKE '%(owner_id)%'
+        ) AS owner_fk_exists
+    `);
+    const shape = calibrationShape.rows[0];
+    const needsCalibrationBackfill =
+      shape?.table_exists === true &&
+      (shape.owner_exists !== true || shape.owner_fk_exists === true);
+    if (needsCalibrationBackfill) {
+      await calibrationClient.query(
+        `DROP TRIGGER IF EXISTS trg_calibration_observations_immutable ON calibration_observations`,
+      );
+    }
+    await calibrationClient.query(`
+      CREATE TABLE IF NOT EXISTS calibration_observations (
+        id TEXT PRIMARY KEY,
+        owner_id INTEGER,
+        source_event_id TEXT NOT NULL,
+        observation_type TEXT NOT NULL,
+        proposal_id TEXT NOT NULL,
+        experiment_id TEXT,
+        generator_version TEXT NOT NULL,
+        detector_version TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        treatment_version TEXT NOT NULL,
+        metric_version TEXT NOT NULL,
+        initial_confidence DOUBLE PRECISION NOT NULL,
+        human_decision TEXT,
+        experiment_decision TEXT,
+        experiment_effect DOUBLE PRECISION,
+        post_deploy_regression DOUBLE PRECISION,
+        revision INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+        updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+      )
+    `);
+    // Additive backfill for a database that already created the table in its
+    // pre-repair shape. Never inferred: owner stays NULL, source_event_id
+    // becomes the row's own immutable id, observation_type becomes 'legacy'.
+    await calibrationClient.query(`
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS owner_id INTEGER;
+      DO $$
+      DECLARE owner_fk_name TEXT;
+      BEGIN
+        FOR owner_fk_name IN
+          SELECT c.conname
+          FROM pg_constraint c
+          JOIN pg_class t ON t.oid = c.conrelid
+          JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = 'public'
+            AND t.relname = 'calibration_observations'
+            AND c.contype = 'f'
+            AND pg_get_constraintdef(c.oid) LIKE '%(owner_id)%'
+        LOOP
+          EXECUTE format('ALTER TABLE calibration_observations DROP CONSTRAINT %I', owner_fk_name);
+        END LOOP;
+      END $$;
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS source_event_id TEXT;
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS observation_type TEXT NOT NULL DEFAULT 'legacy';
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS proposal_id TEXT NOT NULL DEFAULT 'legacy-unknown';
+      ALTER TABLE calibration_observations ADD COLUMN IF NOT EXISTS experiment_id TEXT;
+      UPDATE calibration_observations SET source_event_id = id WHERE source_event_id IS NULL;
+      ALTER TABLE calibration_observations ALTER COLUMN source_event_id SET NOT NULL;
+    `);
+    await calibrationClient.query(
+      `CREATE INDEX IF NOT EXISTS idx_calibration_observations_family
+         ON calibration_observations(generator_version, detector_version, kind, treatment_version, metric_version)`,
+    );
+    await calibrationClient.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_calibration_observations_event_identity
+         ON calibration_observations(COALESCE(owner_id, -1), source_event_id, observation_type)`,
+    );
+    await calibrationClient.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_trigger
+          WHERE tgname = 'trg_calibration_observations_immutable'
+            AND tgrelid = 'calibration_observations'::regclass
+        ) THEN
+          CREATE TRIGGER trg_calibration_observations_immutable
+            BEFORE UPDATE OR DELETE ON calibration_observations
+            FOR EACH ROW EXECUTE FUNCTION rhythm_reject_ledger_write('calibration observations are immutable once recorded');
+        END IF;
+      END $$;
+    `);
+    await calibrationClient.query('COMMIT');
+  } catch (error) {
+    await calibrationClient.query('ROLLBACK');
+    throw error;
+  } finally {
+    calibrationClient.release();
+  }
+
+  // C6 (repair item 3) — a truthful, versioned confidence mapped ONCE at
+  // proposal creation from the generator's own high/medium/low diagnosis
+  // verdict. Column set MUST stay identical to migrations.ts — enforced by
+  // skill_schema_parity.test.ts.
+  await pool.query(`
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence DOUBLE PRECISION;
+    ALTER TABLE agent_org_proposals ADD COLUMN IF NOT EXISTS diagnosis_confidence_version TEXT;
+  `);
+
+  // D4.1 (#1439) — promotion_trust_state: matching singleton table for the
+  // trust counters D4 gates automatic promotion on (see migrations.ts for
+  // the full rationale). Purely additive — a brand-new table, no ALTER on an
+  // existing one. Column set MUST stay identical to the SQLite migration.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS promotion_trust_state (
+      id                     TEXT PRIMARY KEY CHECK (id = 'promotion_trust_state'),
+      total_verified         INTEGER NOT NULL DEFAULT 0,
+      total_regressions      INTEGER NOT NULL DEFAULT 0,
+      auto_promotion_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      enabled_at             TIMESTAMPTZ,
+      trust_threshold        INTEGER NOT NULL DEFAULT 10,
+      updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  // D4.2 (#1440) — additive eligibility column; see migrations.ts for the
+  // matching SQLite ALTER TABLE and the full rationale. Column set MUST stay
+  // identical to the SQLite migration.
+  await pool.query(`
+    ALTER TABLE promotion_trust_state ADD COLUMN IF NOT EXISTS auto_promotion_eligible BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+  // D4.6 (#1444) — Postgres twin of the narrow user-visible regression alert
+  // idempotency key in migrations.ts.
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_auto_promotion_regression_once
+      ON notifications(recipient_user_id, type, entity_type, entity_id)
+      WHERE type = 'auto_promotion_disabled_regression'
+  `);
+
+  // D1.1 (#1426) — tool safety reports. Column set MUST stay identical to
+  // migrations.ts — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tool_safety_reports (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL REFERENCES agent_org_proposals(id),
+      proposal_fingerprint TEXT,
+      tool_name TEXT NOT NULL,
+      tool_version TEXT,
+      package_source TEXT NOT NULL,
+      install_method TEXT NOT NULL,
+      sandbox_duration_ms INTEGER NOT NULL,
+      test_prompts_run_count INTEGER NOT NULL DEFAULT 0,
+      forbidden_path_violations_json TEXT NOT NULL DEFAULT '[]',
+      network_calls_observed_json TEXT NOT NULL DEFAULT '[]',
+      file_system_writes_observed_json TEXT NOT NULL DEFAULT '[]',
+      credential_access_attempts_count INTEGER NOT NULL DEFAULT 0,
+      verdict TEXT NOT NULL CHECK (verdict IN ('safe', 'conditional', 'unsafe', 'unknown')),
+      reason TEXT,
+      evidence_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    )
+  `);
+  await pool.query(`ALTER TABLE tool_safety_reports ADD COLUMN IF NOT EXISTS proposal_fingerprint TEXT`);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_tool_safety_reports_proposal
+       ON tool_safety_reports(proposal_id)`,
+  );
 }

@@ -60,6 +60,9 @@ interface AgentOrgProposalRow {
   measure_reason: string | null;
   reconciliation_reason?: string | null;
   decided_by_user_id: number | null;
+  owner_user_id: number | null;
+  diagnosis_confidence: number | null;
+  diagnosis_confidence_version: string | null;
   outcome_status?: string | null;
   revision: number;
   // created_at/updated_at come back as a plain string from SQLite (TEXT) but
@@ -91,7 +94,10 @@ interface AgentOrgProposalRow {
  * `active`'s only outgoing transition is the new revert path.
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  proposed: ['approved', 'rejected', 'applied', 'failed'],
+  proposed: ['approved', 'rejected', 'applied', 'failed', 'sandbox-running'],
+  /** D1.4 tool-install lifecycle. These states are only entered by the dedicated lifecycle service. */
+  'sandbox-running': ['sandbox-vetted', 'rejected', 'pending'],
+  'sandbox-vetted': ['approved', 'rejected'],
   /**
    * `approved` is a durable human claim with the target still untouched. It
    * must have an exit that is not the atomic pair: if the target moves between
@@ -121,6 +127,8 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
    * step; 'failed' -> 'failed' lets a repeat failure re-mark the same status.
    */
   failed: ['applied', 'failed'],
+  /** D1.4 sandbox unavailable/error: durable report exists but no safe decision was made. */
+  pending: ['rejected'],
 };
 
 const SCOPE_PROPOSAL_KINDS = new Set<string>([
@@ -286,6 +294,9 @@ function rowToModel(row: AgentOrgProposalRow): RevisionedAgentOrgProposal {
     measureReason: row.measure_reason ?? null,
     reconciliationReason: row.reconciliation_reason ?? null,
     decidedByUserId: row.decided_by_user_id ?? null,
+    ownerUserId: row.owner_user_id ?? null,
+    diagnosisConfidence: row.diagnosis_confidence ?? null,
+    diagnosisConfidenceVersion: row.diagnosis_confidence_version ?? null,
     outcomeStatus: (row.outcome_status as ProposalOutcomeStatus | null) ?? 'unproven',
     revision: readPersistedRevision(
       row.revision,
@@ -459,8 +470,9 @@ export class AgentOrgProposalsRepository {
              (id, audit_run_id, kind, risk, external, status, title, rationale,
               signal_ref, target_ref, change_json, before_snapshot_json,
               provenance_json, dedup_key, baseline_score, post_score,
-              measure_reason, decided_by_user_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
+              measure_reason, decided_by_user_id, owner_user_id,
+              diagnosis_confidence, diagnosis_confidence_version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $22)
            ON CONFLICT (dedup_key) DO NOTHING
            RETURNING *`,
           [
@@ -482,6 +494,9 @@ export class AgentOrgProposalsRepository {
             input.postScore ?? null,
             input.measureReason ?? null,
             input.decidedByUserId ?? null,
+            input.ownerUserId ?? null,
+            input.diagnosisConfidence ?? null,
+            input.diagnosisConfidenceVersion ?? null,
             now,
           ],
         );
@@ -512,8 +527,9 @@ export class AgentOrgProposalsRepository {
             (id, audit_run_id, kind, risk, external, status, title, rationale,
              signal_ref, target_ref, change_json, before_snapshot_json,
              provenance_json, dedup_key, baseline_score, post_score,
-             measure_reason, decided_by_user_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             measure_reason, decided_by_user_id, owner_user_id,
+             diagnosis_confidence, diagnosis_confidence_version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -534,6 +550,9 @@ export class AgentOrgProposalsRepository {
           input.postScore ?? null,
           input.measureReason ?? null,
           input.decidedByUserId ?? null,
+          input.ownerUserId ?? null,
+          input.diagnosisConfidence ?? null,
+          input.diagnosisConfidenceVersion ?? null,
           now,
           now,
         );

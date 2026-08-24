@@ -565,6 +565,15 @@ export async function applyProposal(
   deps: ApplyDeps = {},
 ): Promise<ApplyResult> {
   try {
+    // D1.4: executable adoption is never eligible for the unattended
+    // optimizer lane. Its only authorizing path is the central durable
+    // sandbox-safety policy in org_proposal_apply_service.ts.
+    if (proposal.kind === 'tool-install') {
+      logger.info(
+        `[org-proposal-apply] refused tool-install '${proposal.id}' — sandbox safety approval required`,
+      );
+      return { status: 'refused-high-risk' };
+    }
     const risk = classifyProposalRisk({
       kind: proposal.kind,
       changeJson: proposal.changeJson,

@@ -19,8 +19,20 @@ function Trace({ trace }: { trace: InspectorTrace | null }) {
   return <output className="inspector-trace" data-testid="inspector-trace"><strong>{trace.method}</strong> {trace.route}</output>;
 }
 
+function RunFeedback({ sessionId, hidden }: { sessionId: string; hidden: boolean }) {
+  const gateway = useGateway();
+  const requestSequence = useRef(0); const sessionIdRef = useRef(sessionId); sessionIdRef.current = sessionId;
+  const [verdict, setVerdict] = useState<'success' | 'partial' | 'failure' | null>(null); const [exists, setExists] = useState(false);
+  const [loading, setLoading] = useState(true); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState('');
+  const load = async (targetSessionId: string, preserveError = false) => { const sequence = ++requestSequence.current; setLoading(true); if (!preserveError) setError(''); try { const outcome = await gateway.domains.runOutcomes!.get(targetSessionId); if (sequence !== requestSequence.current || targetSessionId !== sessionIdRef.current) return; setExists(Boolean(outcome)); setVerdict(outcome?.explicitUserVerdict ?? null); } catch (err) { if (sequence !== requestSequence.current || targetSessionId !== sessionIdRef.current) return; setExists(false); setVerdict(null); setError(err instanceof Error ? err.message : 'Run feedback could not be loaded'); } finally { if (sequence === requestSequence.current && targetSessionId === sessionIdRef.current) setLoading(false); } };
+  useEffect(() => { requestSequence.current += 1; setSubmitting(false); setExists(false); setVerdict(null); if (hidden || gateway.mode !== 'live' || !gateway.domains.runOutcomes) { setLoading(false); setError(''); return; } void load(sessionId); return () => { requestSequence.current += 1; }; }, [sessionId, hidden]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (hidden || gateway.mode !== 'live' || loading && !error || !exists && !error) return null;
+  const submit = async (next: 'success' | 'partial' | 'failure') => { const targetSessionId = sessionId; setSubmitting(true); setError(''); try { await gateway.domains.runOutcomes!.feedback(targetSessionId, next); if (targetSessionId === sessionIdRef.current) await load(targetSessionId); } catch (err) { if (targetSessionId === sessionIdRef.current) { setError(err instanceof Error ? err.message : 'Run feedback could not be saved'); await load(targetSessionId, true); } } finally { if (targetSessionId === sessionIdRef.current) setSubmitting(false); } };
+  return <section className="run-feedback" aria-label="Run feedback" data-testid="run-feedback"><header><h3>Run feedback</h3><button className="icon-button small" type="button" aria-label="Refresh run feedback" onClick={() => void load(sessionId)} data-testid="run-feedback-refresh"><Icon name="refresh" size={13} /></button></header>{error && <p role="alert">{error} <button className="text-button" type="button" onClick={() => void load(sessionId)}>Retry</button></p>}{exists && <div role="group" aria-label="How did this run go?">{(['success', 'partial', 'failure'] as const).map((item) => <button className={verdict === item ? 'selected' : ''} type="button" disabled={submitting} aria-pressed={verdict === item} onClick={() => void submit(item)} data-testid={`run-feedback-${item}`} key={item}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>}</section>;
+}
+
 function ContextPanel() {
-  const { selected, profiles } = useFixtures();
+  const { selected, profiles, sessionGatewayMode } = useFixtures();
   const profile = profiles.find((item) => item.id === selected.profileId);
   const total = selected.inputTokens + selected.outputTokens + selected.cachedTokens;
   const pct = Math.min(100, Math.round((total / selected.totalBudget) * 100));
@@ -32,6 +44,7 @@ function ContextPanel() {
       {selected.worktreeBranch && <div><dt>Worktree branch</dt><dd>{selected.worktreeBranch}</dd></div>}
     </dl>
     <div className="memory-provenance"><h3>Memory provenance</h3><p>Project memory · services/run-sheet.md</p><p>Session summary · fixed fixture clock</p><p>Profile prompt · {selected.profileId}</p></div>
+    <RunFeedback sessionId={selected.id} hidden={sessionGatewayMode !== 'live' || Boolean(selected.parentSessionId)} />
   </section>;
 }
 

@@ -691,6 +691,22 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .proposal-card p { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .proposal-card pre { max-height: 100px; overflow: auto; padding: 8px; color: var(--fg-2); background: var(--bg); font-size: 9px; white-space: pre-wrap; }
 .proposal-card footer { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: auto; padding-top: 12px; }
+.proposal-statuses, .tool-safety-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; margin: 8px 0; }
+.proposal-statuses div, .tool-safety-summary dl div { min-width: 0; }
+.proposal-statuses dt, .tool-safety-summary dt { color: var(--muted); font-family: var(--font-mono); font-size: 8px; text-transform: uppercase; }
+.proposal-statuses dd, .tool-safety-summary dd { margin: 2px 0 0; overflow-wrap: anywhere; color: var(--fg-2); font-size: 10px; }
+.tool-safety-summary { margin: 4px 0 0; padding-top: 8px; border-top: 1px solid var(--border-soft); }
+.tool-safety-summary h3, .run-feedback h3 { margin: 0; font-size: 11px; }
+.experiment-summary { display: grid; gap: 3px; }
+.experiment-summary span { display: block; }
+.run-feedback { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.run-feedback > header, .auto-promotion-card > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.run-feedback [role="group"] { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.run-feedback [role="group"] button.selected { border-color: var(--accent); color: var(--accent); background: var(--surface-warm); }
+.auto-promotion-card { display: grid; gap: 10px; margin-top: 16px; padding: 14px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--surface); }
+.auto-promotion-card h2 { margin: 0; font-size: 14px; }
+.auto-promotion-card header p { max-width: 520px; margin: 3px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.auto-promotion-card footer { display: flex; justify-content: flex-end; }
 .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-top: 14px; background: var(--border-soft); }
 .metric-grid article { padding: 14px; background: var(--surface); }
 .metric-grid small { color: var(--muted); font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; }
@@ -794,6 +810,7 @@ code, pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .tool-rail > button { flex: 0 0 190px; }
   .detail-header { flex-direction: column; }
   .metric-grid, .proposal-grid, .design-grid { grid-template-columns: minmax(0, 1fr); }
+  .proposal-statuses, .tool-safety-summary dl { grid-template-columns: minmax(0, 1fr); }
   .tool-filterbar { align-items: stretch; flex-direction: column; }
   .tool-filterbar > .search-field { width: 100%; }
   .tool-trace { grid-template-columns: auto minmax(0, 1fr); }

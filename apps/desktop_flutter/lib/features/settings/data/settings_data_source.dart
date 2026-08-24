@@ -6,6 +6,10 @@ import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
+import '../models/auto_promotion_settings_state.dart';
+
+const _autoPromotionConfirmationHeader = 'X-Rhythm-Auto-Promotion-Confirmation';
+const _autoPromotionConfirmationValue = 'enable-auto-promotion';
 
 class SettingsDataSource {
   SettingsDataSource({String? baseUrl})
@@ -41,5 +45,32 @@ class SettingsDataSource {
     );
     assertOk(response);
     return AuthUser.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<AutoPromotionSettingsState> fetchAutoPromotionState() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/optimizer/auto-promotion'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return AutoPromotionSettingsState.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<AutoPromotionSettingsState> setAutoPromotionEnabled(
+      bool enabled) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/optimizer/auto-promotion'),
+      headers: {
+        ...AuthSessionStore.headers(json: true),
+        _autoPromotionConfirmationHeader: _autoPromotionConfirmationValue,
+      },
+      body: jsonEncode({'enabled': enabled}),
+    );
+    assertOk(response);
+    return AutoPromotionSettingsState.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 }

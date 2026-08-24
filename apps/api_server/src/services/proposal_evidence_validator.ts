@@ -12,6 +12,8 @@ import {
   EXPERIMENT_ADAPTERS,
   KNOWN_METRIC_NAMES,
   PROPOSAL_EVIDENCE_BUNDLE_VERSION,
+  PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION,
+  isKnownCounterEvidenceSearchMethod,
   type ProposalEvidenceBundle,
 } from '../models/proposal_evidence_bundle';
 import { EXPLICIT_USER_VERDICT_METRIC_NAME } from '../models/feedback_metric_adapter';
@@ -40,14 +42,15 @@ export function validateEvidenceBundle(input: unknown): EvidenceValidation {
 
   const reasons: string[] = [];
 
-  if (input.version !== PROPOSAL_EVIDENCE_BUNDLE_VERSION) {
+  const isV2 = input.version === PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION;
+  if (input.version !== PROPOSAL_EVIDENCE_BUNDLE_VERSION && !isV2) {
     // Fail closed and stop: every element check below reads today's shape, and
     // applying it to an unrecognised version IS best-effort parsing.
     return {
       valid: false,
       reasons: [
         `unrecognised evidence bundle version '${String(input.version)}' ` +
-          `(expected '${PROPOSAL_EVIDENCE_BUNDLE_VERSION}')`,
+          `(expected '${PROPOSAL_EVIDENCE_BUNDLE_VERSION}' or '${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION}')`,
       ],
     };
   }
@@ -71,6 +74,28 @@ export function validateEvidenceBundle(input: unknown): EvidenceValidation {
     !Number.isFinite(counter.contradictingCount)
   ) {
     reasons.push('counterEvidenceSearch must record the query, when it ran, and what it found');
+  } else if (isV2) {
+    // C5 — proposal-evidence-v2 ONLY: a typed, coverage-recorded search.
+    // Absent on v1 (an operator's free-text query has no typed method/
+    // recorded coverage to check).
+    if (!isKnownCounterEvidenceSearchMethod(counter.method)) {
+      reasons.push(
+        `counterEvidenceSearch.method must be a typed method from the closed registry for ` +
+          `${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles (known: same-profile-ledger-scan); ` +
+          `got '${String(counter.method)}'`,
+      );
+    }
+    if (
+      typeof counter.coverage !== 'number' ||
+      !Number.isFinite(counter.coverage) ||
+      counter.coverage < 0 ||
+      counter.coverage > 1
+    ) {
+      reasons.push(
+        `counterEvidenceSearch.coverage must be a finite number in [0,1] for ` +
+          `${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`,
+      );
+    }
   }
 
   const target = input.target;
@@ -138,6 +163,32 @@ export function validateEvidenceBundle(input: unknown): EvidenceValidation {
   }
   if (!nonEmptyString(input.confidenceCalibrationVersion)) {
     reasons.push('confidenceCalibrationVersion must record the calibration in force');
+  }
+
+  if (isV2) {
+    // C6 (repair item 3) — proposal-evidence-v2 ONLY: a truthful, versioned
+    // calibration identity. Never required on v1 (a v1 bundle has no
+    // initialConfidence/detectorVersion/treatmentVersion/metricVersion
+    // concept at all).
+    if (
+      typeof input.initialConfidence !== 'number' ||
+      !Number.isFinite(input.initialConfidence) ||
+      input.initialConfidence < 0 ||
+      input.initialConfidence > 1
+    ) {
+      reasons.push(
+        `initialConfidence must be a finite number in [0,1] for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`,
+      );
+    }
+    if (!nonEmptyString(input.detectorVersion)) {
+      reasons.push(`detectorVersion must record the detector version for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`);
+    }
+    if (!nonEmptyString(input.treatmentVersion)) {
+      reasons.push(`treatmentVersion must record the treatment version for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`);
+    }
+    if (!nonEmptyString(input.metricVersion)) {
+      reasons.push(`metricVersion must record the metric version for ${PROPOSAL_EVIDENCE_BUNDLE_V2_VERSION} bundles`);
+    }
   }
 
   if (reasons.length > 0) return { valid: false, reasons };

@@ -322,7 +322,10 @@ describe('delegated-session isolation', () => {
     // Regression caught: shipping only SQLite SQL leaves production Postgres
     // children classified as Chats or crashes bootstrap on the missing table.
     const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 0 });
-    await runPostgresBootstrap({ query } as unknown as Pool);
+    await runPostgresBootstrap({
+      query,
+      connect: vi.fn().mockResolvedValue({ query, release: vi.fn() }),
+    } as unknown as Pool);
     const sql = query.mock.calls.map(([statement]) => String(statement)).join('\n');
 
     expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS agent_pending_child_sessions/i);

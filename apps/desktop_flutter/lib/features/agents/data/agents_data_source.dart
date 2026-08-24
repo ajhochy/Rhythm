@@ -8,11 +8,13 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
+import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/utils/http_utils.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
+import '../models/run_outcome_feedback.dart';
 
 // Sentinel used by updateSession to distinguish "not provided" from "null".
 // Must use a named object rather than a bare const Object() so comparisons work.
@@ -727,6 +729,58 @@ class AgentsDataSource {
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<Map<String, dynamic>>();
+  }
+
+  /// D3.2 — GET /agent-run-outcomes/:id
+  ///
+  /// Returns this run's latest explicit-user feedback verdict, or null when
+  /// the server has no outcome recorded yet for this run (404) — a run that
+  /// hasn't finalized has no signal to report, which is not an error.
+  Future<RunOutcomeFeedback?> fetchRunOutcomeFeedback(String id) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-run-outcomes/$id'),
+      headers: AuthSessionStore.localHeaders(),
+    );
+    if (response.statusCode == 404) return null;
+    assertOk(response);
+    return RunOutcomeFeedback.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// D3.2 — POST /agent-run-outcomes/:id/feedback { verdict, reason? }
+  ///
+  /// Appends a new explicit_user feedback event; the server never overwrites
+  /// a prior one, so calling this again with a different [verdict] is how a
+  /// verdict is "changed". [reason] is optional free text; omitted entirely
+  /// (not sent as an empty string) when null or blank. Throws [AppError] on
+  /// failure. The route's 404 body (`{ error: 'run outcome not found' }`)
+  /// isn't in the `{ error: { message, code } }` shape [assertOk] expects,
+  /// so it is special-cased here into a plain-language [AppError] instead of
+  /// letting assertOk's cast throw a raw TypeError.
+  Future<void> postRunFeedback(
+    String id,
+    RunFeedbackVerdict verdict, {
+    String? reason,
+  }) async {
+    final trimmedReason = reason?.trim();
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-run-outcomes/$id/feedback'),
+      headers: AuthSessionStore.localHeaders(json: true),
+      body: jsonEncode({
+        'verdict': verdict.wireValue,
+        if (trimmedReason != null && trimmedReason.isNotEmpty)
+          'reason': trimmedReason,
+      }),
+    );
+    if (response.statusCode == 404) {
+      throw AppError(
+        'This run has no recorded outcome yet, so feedback cannot be saved.',
+        code: 'NOT_FOUND',
+        statusCode: 404,
+      );
+    }
+    assertOk(response);
   }
 
   /// OPC-M3-2 — POST /agent-sessions/:id/revert { messageId }

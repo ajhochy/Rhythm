@@ -127,10 +127,8 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
   // ── A. AGENT_LOCAL=true → use AgentRunner, not insertScheduledTrigger ──────
 
   it('with AGENT_LOCAL=true: calls AgentRunner.run for a due task', async () => {
-    // Patch env.agentLocal for this test
     const envSpy = vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
-
-    mockFindDueAsync.mockResolvedValue([makeDueTask()]);
+    mockFindDueAsync.mockResolvedValueOnce([makeDueTask()]).mockResolvedValue([]);
 
     const task = startAgentSchedulerJob();
     expect(task?.boot).toBeInstanceOf(Promise);

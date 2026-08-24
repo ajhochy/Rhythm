@@ -58,8 +58,10 @@ import {
   CONFIG_PATCH_FIELDS,
   CORE_PERMISSION_ACTIONS,
   CORE_PERMISSION_NAMES,
+  DIAGNOSIS_CONFIDENCE_MAPPING_VERSION,
   SCOPE_PATCH_FIELDS,
   TASK_PATCH_FIELDS,
+  mapDiagnosisConfidence,
   type ConfigPatch,
   type ScopePatch,
   type TaskPatch,
@@ -1295,6 +1297,11 @@ async function proposeFixFromSignals(
               : `profile:${agentConfigId}`,
         changeJson,
         dedupKey,
+        // C6 (repair item 3) — converted ONCE here, at creation, through the
+        // fixed named/versioned mapping. Never re-derived or re-parsed later
+        // (proposal_evidence_builder.ts reads this durable field verbatim).
+        diagnosisConfidence: mapDiagnosisConfidence(result.confidence),
+        diagnosisConfidenceVersion: DIAGNOSIS_CONFIDENCE_MAPPING_VERSION,
       });
       logger.info(
         `[workflow-signal-generator] proposed ${kind} '${proposal.id}' for ${agentConfigId} (${result.rootCause}/${result.fixType})`,
