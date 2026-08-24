@@ -92,7 +92,7 @@ export class NotificationsRepository {
   markRead(id: number, userId: number): void {
     getDb()
       .prepare(
-        `UPDATE notifications SET read_at = datetime('now')
+        `UPDATE notifications SET read_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE id = ? AND recipient_user_id = ?`,
       )
       .run(id, userId);
@@ -113,7 +113,7 @@ export class NotificationsRepository {
   markAllRead(userId: number): void {
     getDb()
       .prepare(
-        `UPDATE notifications SET read_at = datetime('now')
+        `UPDATE notifications SET read_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
          WHERE recipient_user_id = ? AND read_at IS NULL`,
       )
       .run(userId);

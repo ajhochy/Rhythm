@@ -213,6 +213,9 @@ describe('issue-824-c3: apply creates agent_configs with is_manager=0 and writes
 
     const result = await queueApplyProposal(proposal);
     expect(result.measurable).toBe(false);
+    // D2.5 exclusion: creation has no reversible existing-row snapshot/type;
+    // do not enroll it or invent destructive delete-on-revert behavior.
+    expect(result.postApplyTarget).toBeUndefined();
 
     const configsRepo = new AgentConfigsRepository();
     const created = configsRepo.getById('worship-tech');
@@ -328,6 +331,8 @@ describe('issue-824-c6: registerNewAgentApplier wires validator+applier into the
 
     const applyResult = await queueApplyProposal(proposal);
     expect(applyResult.measurable).toBe(false);
+    // D2.5 exclusion: create-agent is not an existing-row mutation.
+    expect(applyResult.postApplyTarget).toBeUndefined();
 
     const configsRepo = new AgentConfigsRepository();
     expect(configsRepo.getById('wiring-check-agent')).not.toBeNull();

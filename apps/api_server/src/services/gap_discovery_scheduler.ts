@@ -33,6 +33,8 @@
  * through runOrgOptimizer).
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { isEngineColdStart } from './skill_extractor';
@@ -152,7 +154,15 @@ export async function runGapDrivenDiscoveryPass(
       return { ...EMPTY_RESULT, skipped: false };
     }
 
+    // This lane runs on its own cron and has no org-audit snapshot, so it mints
+    // an id for THIS pass. Every proposal it emits is then attributable to the
+    // pass that created it, the same as an optimizer run — an unattributed row
+    // is invisible to per-run reporting and to deleteRunProposals cleanup.
+    const passRunId = randomUUID();
+    logger.info(`[gap-discovery-scheduler] pass run id ${passRunId}`);
+
     const result = await runExternalDiscoveryGenerator({
+      auditRunId: passRunId,
       gaps: slice.map(toAuditGap),
       discoverCandidates: deps.discoverCandidates ?? discoverCandidatesFromEcosystem,
       maxResults: maxProposalsPerPass(),

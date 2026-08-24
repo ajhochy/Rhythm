@@ -768,6 +768,28 @@ export function writeAgentProfileFile(config: AgentConfig): AgentProfileWriteRes
   }
 }
 
+/**
+ * Whether a projected agent file is currently on disk. Unlike
+ * `isAgentProfileFileMissing`, this asks about the FILE, not about whether the
+ * profile ought to have one — a caller that just deleted a stale file for a
+ * disabled profile has to be able to prove the delete stuck.
+ */
+export function agentProfileFileExists(id: string): boolean {
+  if (env.dbClient === 'postgres') return false;
+  if (isTestEnv()) return false;
+  // Same exclusion `deleteAgentProfileFile` applies: a CLI preset or engine
+  // builtin owns its file, and we neither write nor remove it. Without this the
+  // two disagree — the delete no-ops, the existence check says the file is
+  // still there, and the caller reports `failed` forever for a file that was
+  // never ours to touch.
+  if (CLI_MODEL_PRESETS.has(id) || BUILTIN_OPENCODE.has(id)) return false;
+  try {
+    return existsSync(agentFilePath(id));
+  } catch {
+    return false;
+  }
+}
+
 /** Remove the opencode agent file for a deleted profile. Never throws. */
 export function deleteAgentProfileFile(id: string): void {
   if (env.dbClient === 'postgres') return;

@@ -87,9 +87,15 @@ export class SessionsRepository {
   findByToken(token: string): Session | null {
     const row = getDb()
       .prepare(
+        // `expires_at` is always written from JS as ISO-8601-with-Z, but
+        // `datetime('now')` is zone-less. Compared as raw TEXT, 'T' (0x54) >
+        // ' ' (0x20), so an expired ISO timestamp still sorted "after now" once
+        // the date halves matched — a session that expired earlier the same UTC
+        // day kept authenticating. `datetime()` parses BOTH shapes to one
+        // normal form, so this stays correct for legacy naive rows too.
         `SELECT * FROM sessions
          WHERE token = ?
-           AND (expires_at IS NULL OR expires_at > datetime('now'))`,
+           AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))`,
       )
       .get(token) as SessionRow | undefined;
     return row ? rowToSession(row) : null;

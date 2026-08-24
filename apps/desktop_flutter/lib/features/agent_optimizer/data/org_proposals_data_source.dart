@@ -41,6 +41,21 @@ class OrgProposalsDataSource {
     );
   }
 
+  /// #857 — undo an already-applied proposal, restoring its before-snapshot.
+  /// The server refuses anything that is not `status == 'active'`, and refuses
+  /// legacy whole-field scope snapshots, with a 409; both surface here as an
+  /// [AppError] carrying the server's own message.
+  Future<OrgProposal> revert(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-org-proposals/$id/revert'),
+      headers: {'Content-Type': 'application/json'},
+    );
+    assertOk(response);
+    return OrgProposal.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   Future<OrgProposal> reject(String id, {int? decidedByUserId}) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/agent-org-proposals/$id/reject'),

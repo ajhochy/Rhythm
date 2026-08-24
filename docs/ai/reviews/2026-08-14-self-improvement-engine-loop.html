@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A concise architecture visualization of Rhythm's target end-state self-improvement loop and its deterministic safety boundaries.">
+  <meta name="theme-color" content="#fbfbfa">
+  <title>Rhythm Self-Improvement Engine Loop</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #fbfbfa;
+      --surface: #ffffff;
+      --ink: #111111;
+      --muted: #625f5c;
+      --hairline: #dfddd9;
+      --hairline-strong: #c9c5bf;
+      --accent: #55304f;
+      --accent-soft: #f3eaf1;
+      --accent-quiet: #76546f;
+      --observed: #e1f3fe;
+      --observed-ink: #155e87;
+      --human: #fbf3db;
+      --human-ink: #6d4d00;
+      --verified: #edf3ec;
+      --verified-ink: #2d6234;
+      --regressed: #fdebec;
+      --regressed-ink: #842b31;
+      --neutral-soft: #f4f3f1;
+      --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --font-body: "Avenir Next", Avenir, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --page: 1280px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: break-word;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 17px;
+      line-height: 1.58;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    ::selection { background: var(--accent); color: #ffffff; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+    a { color: inherit; text-underline-offset: 0.2em; }
+    .wrap { width: min(calc(100% - 48px), var(--page)); margin-inline: auto; }
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      top: 10px;
+      left: 10px;
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 0 16px;
+      transform: translateY(-160%);
+      background: var(--ink);
+      color: var(--surface);
+      border-radius: 8px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .masthead { padding: clamp(44px, 6vw, 76px) 0 30px; }
+    .masthead-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.16fr) minmax(330px, 0.84fr);
+      gap: clamp(44px, 7vw, 100px);
+      align-items: end;
+    }
+    h1, h2, h3 { margin: 0; text-wrap: balance; }
+    h1, h2 { font-family: var(--font-display); font-weight: 400; }
+    h1 {
+      max-width: 15ch;
+      font-size: clamp(3rem, 5.7vw, 4.6rem);
+      line-height: 0.99;
+      letter-spacing: -0.03em;
+    }
+    h2 {
+      font-size: clamp(2rem, 3.7vw, 3.35rem);
+      line-height: 1.08;
+      letter-spacing: -0.024em;
+    }
+    h3 { font-size: 1.15rem; line-height: 1.3; }
+    .lede {
+      max-width: 61ch;
+      margin: 22px 0 0;
+      color: var(--muted);
+      font-size: 1.04rem;
+    }
+    .architecture-context {
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.055em;
+      text-transform: uppercase;
+    }
+    .invariant {
+      margin: 0;
+      padding: 20px 0 2px;
+      border-top: 1px solid var(--ink);
+      font-family: var(--font-display);
+      font-size: clamp(1.26rem, 2vw, 1.7rem);
+      line-height: 1.36;
+      letter-spacing: -0.012em;
+    }
+    .invariant strong { color: var(--accent); font-weight: 600; }
+    .north-star {
+      display: grid;
+      grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+      gap: 28px;
+      align-items: center;
+      margin-top: clamp(34px, 4vw, 54px);
+      padding: 18px 0 20px;
+      border-top: 1px solid var(--hairline-strong);
+      border-bottom: 1px solid var(--hairline-strong);
+    }
+    .north-star-label {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .north-star-value {
+      margin: 0;
+      color: var(--accent);
+      font-family: var(--font-display);
+      font-size: clamp(1.4rem, 2.4vw, 2.1rem);
+      line-height: 1.2;
+      letter-spacing: -0.018em;
+    }
+
+    .flow-section { padding: clamp(48px, 6vw, 78px) 0 68px; }
+    .flow-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 0.86fr) minmax(360px, 0.74fr);
+      gap: clamp(40px, 8vw, 108px);
+      align-items: end;
+      margin-bottom: 28px;
+    }
+    .flow-heading p {
+      max-width: 54ch;
+      margin: 0 0 4px;
+      color: var(--muted);
+    }
+    figure { margin: 0; }
+    .diagram-frame {
+      width: min(100%, 1200px);
+      margin-inline: auto;
+      background: var(--surface);
+      border: 1px solid var(--hairline-strong);
+    }
+    .diagram-svg { display: block; width: 100%; height: auto; }
+
+    .semantic-flow {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+
+    figcaption {
+      width: min(100%, 1200px);
+      margin: 14px auto 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .legend {
+      width: min(100%, 1200px);
+      margin: 22px auto 0;
+      padding: 20px 0 0;
+      border-top: 1px solid var(--hairline);
+    }
+    .legend-row {
+      display: grid;
+      grid-template-columns: 118px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .legend-row + .legend-row { margin-top: 14px; }
+    .legend-label {
+      padding-top: 2px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.075em;
+      text-transform: uppercase;
+    }
+    .legend-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 22px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .legend-items li { display: inline-flex; align-items: center; gap: 9px; font-size: 0.89rem; }
+    .swatch {
+      position: relative;
+      width: 15px;
+      height: 15px;
+      overflow: hidden;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 3px;
+      background: var(--surface);
+    }
+    .swatch.observed { background: var(--observed); border-color: #a4cede; }
+    .swatch.llm { background: var(--accent-soft); border-color: var(--accent); }
+    .swatch.kernel { border-color: var(--ink); }
+    .swatch.human { background: var(--human); border-color: #d8bd69; }
+    .swatch.outcome { background: var(--verified); border-color: var(--hairline-strong); }
+    .swatch.outcome::after { content: ""; position: absolute; inset: 0 0 0 50%; background: var(--regressed); }
+    .line-sample { position: relative; width: 30px; height: 12px; }
+    .line-sample::before {
+      content: "";
+      position: absolute;
+      top: 5px;
+      left: 0;
+      right: 0;
+      border-top: 1.5px solid var(--ink);
+    }
+    .line-sample::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      top: 2px;
+      width: 6px;
+      height: 6px;
+      border-top: 1.5px solid currentColor;
+      border-right: 1.5px solid currentColor;
+      transform: rotate(45deg);
+    }
+    .line-sample.fail::before { border-top-style: dashed; border-color: #807a73; }
+    .line-sample.feedback { color: var(--accent); }
+    .line-sample.feedback::before { border-color: var(--accent); border-top-width: 2px; }
+    .line-sample.rollback { color: var(--regressed-ink); }
+    .line-sample.rollback::before { border-color: var(--regressed-ink); border-top-width: 2px; }
+
+    footer {
+      border-top: 1px solid var(--hairline);
+      padding: 28px 0 32px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+      line-height: 1.6;
+      letter-spacing: 0.025em;
+    }
+
+    @media (max-width: 900px) {
+      .masthead-grid { grid-template-columns: minmax(0, 1fr) minmax(300px, 0.84fr); gap: 38px; }
+      .flow-heading { grid-template-columns: 1fr; gap: 16px; }
+    }
+
+    @media (max-width: 720px) {
+      .wrap { width: min(calc(100% - 32px), var(--page)); }
+      .masthead { padding-top: 38px; }
+      .masthead-grid { grid-template-columns: 1fr; gap: 34px; }
+      h1 { max-width: 12ch; font-size: clamp(2.85rem, 14vw, 4.1rem); }
+      .lede { font-size: 1rem; }
+      .invariant { padding-top: 17px; font-size: 1.26rem; }
+      .north-star { grid-template-columns: 1fr; gap: 7px; margin-top: 34px; }
+      .north-star-value { font-size: 1.52rem; }
+      .flow-section { padding-top: 52px; padding-bottom: 54px; }
+      .flow-heading { margin-bottom: 28px; }
+      .flow-heading p { font-size: 1rem; }
+      .diagram-frame { border: 0; background: transparent; }
+      .diagram-svg { display: none; }
+      .semantic-flow {
+        position: static !important;
+        width: auto !important;
+        height: auto !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        clip: auto !important;
+        white-space: normal !important;
+        border: 0 !important;
+        list-style: none;
+      }
+      .mobile-lane { margin: 0; padding: 0; list-style: none; }
+      .mobile-lane + .mobile-lane { margin-top: 44px; }
+      .mobile-lane-title {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--ink);
+        font-family: var(--font-display);
+        font-size: 1.48rem;
+        font-weight: 400;
+      }
+      .mobile-lane-title span {
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .mobile-stages { margin: 0; padding: 0 0 0 28px; list-style: none; }
+      .mobile-stage {
+        position: relative;
+        padding: 22px 0 22px 18px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      .mobile-stage::before {
+        content: "";
+        position: absolute;
+        left: -18px;
+        top: 0;
+        bottom: 0;
+        border-left: 1px solid var(--hairline-strong);
+      }
+      .mobile-stage::after {
+        content: "";
+        position: absolute;
+        left: -23px;
+        top: 31px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--surface);
+        border: 1.5px solid var(--ink);
+      }
+      .mobile-stage:last-child::before { bottom: calc(100% - 36px); }
+      .mobile-stage h3 { margin-top: 8px; font-size: 1.12rem; }
+      .mobile-stage p { margin: 7px 0 0; color: var(--muted); font-size: 1rem; }
+      .responsibility-key {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 3px 8px;
+        border: 1px solid var(--hairline-strong);
+        border-radius: 999px;
+        font-family: var(--font-mono);
+        font-size: 0.69rem;
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+      }
+      .responsibility-key.observed { background: var(--observed); color: var(--observed-ink); border-color: #a4cede; }
+      .responsibility-key.llm { background: var(--accent-soft); color: var(--accent); border-color: #c4a6bc; }
+      .responsibility-key.human { background: var(--human); color: var(--human-ink); border-color: #d8bd69; }
+      .responsibility-key.outcome { background: var(--verified); color: var(--verified-ink); border-color: #b7cfb6; }
+      .safe-exit {
+        margin-top: 15px !important;
+        padding: 11px 0 0;
+        border-top: 1px dashed #9a948d;
+        color: #5d5751 !important;
+      }
+      .safe-exit strong { color: var(--ink); }
+      .policy-return {
+        margin: 0 0 16px;
+        padding: 14px 16px;
+        color: var(--accent);
+        background: var(--accent-soft);
+        border: 1px solid #c4a6bc;
+        font-size: 1rem;
+      }
+      .feedback-return {
+        margin-top: 16px !important;
+        padding-top: 12px;
+        border-top: 1px solid #c4a6bc;
+        color: var(--accent) !important;
+        font-weight: 650;
+      }
+      .verdicts { display: grid; gap: 7px; margin: 14px 0 0; padding: 0; list-style: none; }
+      .verdicts li { padding: 8px 10px; border-radius: 5px; font-size: 1rem; }
+      .verdicts .verified { background: var(--verified); color: var(--verified-ink); }
+      .verdicts .inconclusive { background: var(--neutral-soft); color: #514d49; }
+      .verdicts .regressed { background: var(--regressed); color: var(--regressed-ink); }
+      .legend { margin-top: 28px; }
+      .legend-row { grid-template-columns: 1fr; gap: 8px; }
+      .legend-items { display: grid; grid-template-columns: 1fr; gap: 10px; }
+      figcaption { font-size: 0.94rem; margin-top: 18px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+    }
+
+    @media print {
+      body { background: #ffffff; font-size: 12pt; }
+      .skip-link { display: none; }
+      .wrap { width: 100%; max-width: none; }
+      .flow-section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <!--
+  THESIS: Show that learning is a governed causal loop, not an LLM-to-mutation pipeline; refuse a generic linear chain or dashboard.
+  OWN-WORLD: Taste Editorial paper, white working surface, near-black ink, aubergine signals, muted semantic tints, serif display, humanist body, and hairline geometry.
+  STORY: Observe eligible work, let the LLM form a hypothesis, let deterministic and human gates govern an experiment, measure a real outcome, then calibrate the next policy.
+  FIRST VIEWPORT: Editorial title and invariant lead directly into a landscape, three-lane serpentine diagram with quiet fail-closed exits.
+  FORM: Folded three-lane causal map, directly shaped from the specified composition; seed key: not applicable for this precisely specified extension.
+  FINISH: complete only after responsive browser, accessibility, overflow, and external-request verification.
+  -->
+  <a class="skip-link" href="#main">Skip to the engine loop</a>
+
+  <main id="main">
+    <header class="masthead wrap">
+      <div class="masthead-grid">
+        <div>
+          <h1>Rhythm’s end-state self-improvement engine</h1>
+          <p class="lede">The target closed loop separates observation, hypothesis, permission, and proof—so Rhythm learns from real work without letting a model grade or mutate itself.</p>
+          <p class="architecture-context">Target operating model</p>
+        </div>
+        <blockquote class="invariant">
+          “The LLM may diagnose and propose. <strong>Deterministic code decides</strong> whether evidence exists, the target is current, a mutation is allowed, and an experiment succeeded.”
+        </blockquote>
+      </div>
+      <div class="north-star" aria-label="North-star metric">
+        <span class="north-star-label">North-star metric</span>
+        <p class="north-star-value">Verified user-outcome improvement per promoted change.</p>
+      </div>
+    </header>
+
+    <section class="flow-section wrap" aria-labelledby="flow-title">
+      <div class="flow-heading">
+        <h2 id="flow-title">One loop, folded by responsibility</h2>
+        <p>Read left to right, then follow each fold. The initiating prompt, full agent transcript, structured tool trace, and terminal outcome remain inspectable before normalization. Dashed exits show the system refusing to guess; the aubergine return arc makes every verdict useful to the next policy.</p>
+      </div>
+
+      <figure aria-labelledby="flow-title" aria-describedby="flow-caption">
+        <div class="diagram-frame">
+          <svg class="diagram-svg" viewBox="0 0 1200 640" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+            <title id="diagram-title">Rhythm self-improvement engine, folded three-lane flow</title>
+            <desc id="diagram-desc">Three lanes show an eligible task and initiating prompt producing an inspectable agent transcript and structured run trace before normalization, evidence gating, and an LLM hypothesis; deterministic validation, shadow experiments, human review, compare-and-set apply and inverse rollback; then real outcome measurement, a verified, inconclusive, or regressed verdict, calibration evidence, and feedback to evidence and proposal policy. Dashed branches show fail-closed safety behavior.</desc>
+            <defs>
+              <marker id="arrow-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#111111"/>
+              </marker>
+              <marker id="arrow-muted" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#807a73"/>
+              </marker>
+              <marker id="arrow-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#55304f"/>
+              </marker>
+              <marker id="arrow-regress" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#842b31"/>
+              </marker>
+              <style>
+                .svg-bg { fill: #ffffff; }
+                .lane-alt { fill: #fcfbfa; }
+                .rule { stroke: #dfddd9; stroke-width: 1; }
+                .lane-label { fill: #625f5c; font: 600 14px "SFMono-Regular", Consolas, monospace; letter-spacing: 1.25px; }
+                .lane-name { fill: #111111; font: 600 18px "Avenir Next", Avenir, sans-serif; letter-spacing: .25px; }
+                .primary, .policy-link, .feedback, .fail, .rollback { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+                .primary { stroke: #111111; stroke-width: 1.7; marker-end: url(#arrow-ink); }
+                .policy-link { stroke: #55304f; stroke-width: 1.55; marker-end: url(#arrow-accent); }
+                .feedback { stroke: #55304f; stroke-width: 2.1; marker-end: url(#arrow-accent); }
+                .fail { stroke: #807a73; stroke-width: 1.45; stroke-dasharray: 5 5; marker-end: url(#arrow-muted); }
+                .rollback { stroke: #842b31; stroke-width: 1.9; marker-end: url(#arrow-regress); }
+                .node rect { fill: #ffffff; stroke: #111111; stroke-width: 1.25; rx: 7; }
+                .node.observed rect { fill: #e1f3fe; stroke: #77b4cf; }
+                .node.llm rect { fill: #f3eaf1; stroke: #55304f; stroke-width: 1.5; }
+                .node.human rect { fill: #fbf3db; stroke: #c8a843; }
+                .node.outcome rect { fill: #edf3ec; stroke: #8eaf8b; }
+                .node-role { fill: #625f5c; font: 600 12.5px "SFMono-Regular", Consolas, monospace; letter-spacing: .75px; }
+                .observed .node-role { fill: #155e87; }
+                .llm .node-role { fill: #55304f; }
+                .human .node-role { fill: #6d4d00; }
+                .outcome .node-role { fill: #2d6234; }
+                .node-title { fill: #111111; font: 650 18.5px "Avenir Next", Avenir, sans-serif; }
+                .node-sub { fill: #625f5c; font: 500 14px "Avenir Next", Avenir, sans-serif; }
+                .policy-rail { fill: #f3eaf1; stroke: #55304f; stroke-width: 1.25; rx: 17; }
+                .policy-text { fill: #55304f; font: 650 14px "Avenir Next", Avenir, sans-serif; letter-spacing: .25px; }
+                .exit-pill { fill: #fbfbfa; stroke: #aaa49d; stroke-width: 1; stroke-dasharray: 4 3; rx: 14; }
+                .exit-text { fill: #5d5751; font: 600 14px "Avenir Next", Avenir, sans-serif; }
+                .verdict-box { fill: #ffffff; stroke: #111111; stroke-width: 1.25; rx: 7; }
+                .verdict-title { fill: #111111; font: 650 18.5px "Avenir Next", Avenir, sans-serif; }
+                .verdict-chip { stroke-width: 0; rx: 4; }
+                .chip-label { font: 650 13.5px "Avenir Next", Avenir, sans-serif; }
+                .verdict-note { fill: #842b31; font: 600 12.5px "Avenir Next", Avenir, sans-serif; }
+                .loop-label-bg { fill: #ffffff; }
+                .loop-label { fill: #55304f; font: 600 13px "Avenir Next", Avenir, sans-serif; }
+                .rollback-label { fill: #842b31; font: 600 12.5px "SFMono-Regular", Consolas, monospace; letter-spacing: .4px; }
+              </style>
+            </defs>
+
+            <rect class="svg-bg" x="0" y="0" width="1200" height="640"/>
+            <rect class="lane-alt" x="0" y="212" width="1200" height="208"/>
+            <line class="rule" x1="0" y1="212" x2="1200" y2="212"/>
+            <line class="rule" x1="0" y1="420" x2="1200" y2="420"/>
+
+            <!-- Connectors render before every node, so arrows never cross labels. -->
+            <g aria-hidden="true">
+              <path class="primary" d="M255 131 H275"/>
+              <path class="primary" d="M475 131 H495"/>
+              <path class="primary" d="M670 131 H690"/>
+              <path class="primary" d="M870 131 H890"/>
+              <path class="primary" d="M1110 131 H1135 V314 H1080"/>
+              <path class="primary" d="M895 314 H870"/>
+              <path class="primary" d="M700 314 H675"/>
+              <path class="primary" d="M485 314 H460"/>
+              <path class="primary" d="M285 314 H260"/>
+              <path class="primary" d="M80 314 H48 V516 H80"/>
+              <path class="primary" d="M300 516 H335"/>
+              <path class="primary" d="M650 516 H690"/>
+
+              <path class="policy-link" d="M780 52 V93"/>
+              <path class="policy-link" d="M1000 52 V83"/>
+              <path class="feedback" d="M935 516 H1150 V35 H1110"/>
+
+              <path class="fail" d="M173 93 V81"/>
+              <path class="fail" d="M780 169 V181"/>
+              <path class="fail" d="M987 353 V375"/>
+              <path class="fail" d="M372 353 V375"/>
+
+              <path class="rollback" d="M594 544 V610 H530 V412 H170 V353"/>
+            </g>
+
+            <g aria-hidden="true">
+              <text class="lane-label" x="80" y="29">LANE 1</text>
+              <text class="lane-name" x="149" y="29">OBSERVE</text>
+              <text class="lane-label" x="80" y="246">LANE 2</text>
+              <text class="lane-name" x="149" y="246">EXPERIMENT + GOVERN</text>
+              <text class="lane-label" x="80" y="454">LANE 3</text>
+              <text class="lane-name" x="149" y="454">MEASURE + LEARN</text>
+
+              <rect class="policy-rail" x="620" y="18" width="490" height="34"/>
+              <text class="policy-text" x="865" y="40" text-anchor="middle">EVIDENCE + PROPOSAL POLICY · CALIBRATED</text>
+
+              <rect class="exit-pill" x="80" y="55" width="230" height="26"/>
+              <text class="exit-text" x="195" y="73" text-anchor="middle">Internal / ineligible → excluded</text>
+
+              <rect class="exit-pill" x="625" y="181" width="310" height="25"/>
+              <text class="exit-text" x="780" y="198" text-anchor="middle">Malformed / unknown telemetry → no proposal</text>
+
+              <rect class="exit-pill" x="870" y="375" width="230" height="27"/>
+              <text class="exit-text" x="985" y="393" text-anchor="middle">Stale target / conflict → no write</text>
+
+              <rect class="exit-pill" x="240" y="375" width="280" height="27"/>
+              <text class="exit-text" x="380" y="393" text-anchor="middle">Risky, not approved → stays shadow</text>
+
+              <rect class="loop-label-bg" x="1000" y="218" width="150" height="24" rx="4"/>
+              <text class="loop-label" x="1075" y="235" text-anchor="middle">feedback to policy</text>
+              <text class="rollback-label" x="453" y="603" text-anchor="middle">REGRESSION → INVERSE ROLLBACK + NEGATIVE CALIBRATION</text>
+            </g>
+
+            <g class="node observed" data-node="eligible-task">
+              <rect x="90" y="93" width="165" height="76"/>
+              <text class="node-role" x="106" y="115">OBSERVED USER WORK</text>
+              <text class="node-title" x="106" y="140">Task + initiating</text>
+              <text class="node-title" x="106" y="161">prompt</text>
+            </g>
+
+            <g class="node observed" data-node="agent-run-record">
+              <rect x="275" y="83" width="200" height="96"/>
+              <text class="node-role" x="292" y="107">INSPECTABLE SOURCE</text>
+              <text class="node-title" x="292" y="137">Agent transcript</text>
+              <text class="node-title" x="292" y="159">+ structured run trace</text>
+            </g>
+
+            <g class="node observed" data-node="normalized-facts">
+              <rect x="495" y="93" width="175" height="76"/>
+              <text class="node-role" x="512" y="115">DETERMINISTIC</text>
+              <text class="node-title" x="512" y="140">Normalized</text>
+              <text class="node-title" x="512" y="161">behavioral facts</text>
+            </g>
+
+            <g class="node" data-node="evidence-gate">
+              <rect x="690" y="93" width="180" height="76"/>
+              <text class="node-role" x="707" y="115">SAFETY KERNEL</text>
+              <text class="node-title" x="707" y="140">Evidence-quality</text>
+              <text class="node-title" x="707" y="161">gate</text>
+            </g>
+
+            <g class="node llm" data-node="llm-hypothesis">
+              <rect x="890" y="83" width="220" height="96"/>
+              <text class="node-role" x="908" y="107">LLM · DIAGNOSE / PROPOSE</text>
+              <text class="node-title" x="908" y="137">Diagnosis + proposal</text>
+              <text class="node-title" x="908" y="159">hypothesis</text>
+            </g>
+
+            <g class="node" data-node="target-validation">
+              <rect x="895" y="275" width="185" height="78"/>
+              <text class="node-role" x="912" y="297">SAFETY KERNEL</text>
+              <text class="node-title" x="912" y="322">Target + evidence</text>
+              <text class="node-title" x="912" y="343">validation</text>
+            </g>
+
+            <g class="node" data-node="shadow-candidates">
+              <rect x="700" y="275" width="170" height="78"/>
+              <text class="node-role" x="717" y="297">DETERMINISTIC</text>
+              <text class="node-title" x="717" y="322">Shadow baseline</text>
+              <text class="node-title" x="717" y="343">+ candidate</text>
+            </g>
+
+            <g class="node" data-node="controlled-experiment">
+              <rect x="485" y="275" width="190" height="78"/>
+              <text class="node-role" x="502" y="297">SAFETY KERNEL</text>
+              <text class="node-title" x="502" y="322">Controlled replay</text>
+              <text class="node-title" x="502" y="343">or A/B</text>
+            </g>
+
+            <g class="node human" data-node="human-review">
+              <rect x="285" y="275" width="175" height="78"/>
+              <text class="node-role" x="302" y="297">HUMAN GOVERNANCE</text>
+              <text class="node-title" x="302" y="322">Risky-family</text>
+              <text class="node-title" x="302" y="343">review</text>
+            </g>
+
+            <g class="node" data-node="apply-rollback">
+              <rect x="80" y="275" width="180" height="78"/>
+              <text class="node-role" x="97" y="297">SAFETY KERNEL</text>
+              <text class="node-title" x="97" y="322">CAS apply</text>
+              <text class="node-title" x="97" y="343">+ inverse rollback</text>
+            </g>
+
+            <g class="node outcome" data-node="outcome-measurement">
+              <rect x="80" y="475" width="220" height="82"/>
+              <text class="node-role" x="98" y="499">REAL USER WORK</text>
+              <text class="node-title" x="98" y="526">Task-outcome</text>
+              <text class="node-title" x="98" y="548">measurement</text>
+            </g>
+
+            <g data-node="verdict-split">
+              <rect class="verdict-box" x="335" y="458" width="315" height="115"/>
+              <text class="node-role" x="352" y="481">DETERMINISTIC VERDICT</text>
+              <text class="verdict-title" x="352" y="505">Did the user outcome improve?</text>
+              <rect class="verdict-chip" x="352" y="517" width="78" height="27" fill="#edf3ec"/>
+              <text class="chip-label" x="391" y="535" text-anchor="middle" fill="#2d6234">Verified</text>
+              <rect class="verdict-chip" x="438" y="517" width="103" height="27" fill="#f4f3f1"/>
+              <text class="chip-label" x="489.5" y="535" text-anchor="middle" fill="#514d49">Inconclusive</text>
+              <rect class="verdict-chip" x="549" y="517" width="84" height="27" fill="#fdebec"/>
+              <text class="chip-label" x="591" y="535" text-anchor="middle" fill="#842b31">Regressed</text>
+              <text class="verdict-note" x="352" y="562">Regression rolls back; every verdict calibrates.</text>
+            </g>
+
+            <g class="node outcome" data-node="calibration-evidence">
+              <rect x="690" y="475" width="245" height="82"/>
+              <text class="node-role" x="708" y="499">OUTCOME + CALIBRATION</text>
+              <text class="node-title" x="708" y="526">Calibration evidence</text>
+              <text class="node-sub" x="708" y="548">Confidence, gates + reasons</text>
+            </g>
+          </svg>
+
+          <ol class="semantic-flow" aria-label="Rhythm self-improvement loop stages">
+            <li class="mobile-lane">
+              <h3 class="mobile-lane-title"><span>Lane 1</span> Observe</h3>
+              <p class="policy-return"><strong>Calibrated evidence + proposal policy</strong> guides both the deterministic evidence gate and the LLM’s next hypothesis.</p>
+              <ol class="mobile-stages">
+                <li class="mobile-stage">
+                  <span class="responsibility-key observed">Observed user work</span>
+                  <h3>Eligible task + initiating prompt</h3>
+                  <p>The user’s actual request remains linked to the run it initiated; only user-relevant sessions enter the learning loop.</p>
+                  <p class="safe-exit"><strong>Fail closed:</strong> ineligible, scheduled, internal, or self-improvement sessions are excluded.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key observed">Inspectable source record</span>
+                  <h3>Agent transcript + structured run trace</h3>
+                  <p>The full message transcript remains viewable alongside tool attempts, terminal states, task outcome, and append-only user or system feedback.</p>
+                  <p>The transcript is source evidence—not the final learning judgement—and every derived fact remains traceable back to it.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key observed">Deterministic normalization</span>
+                  <h3>Normalized behavioral facts</h3>
+                  <p>Canonical capabilities, attempt traces, terminal state, and attributable outcome evidence are derived from the inspectable run record instead of lexical guesses.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key">Deterministic safety kernel</span>
+                  <h3>Evidence-quality gate</h3>
+                  <p>The kernel requires available telemetry, source evidence, counter-evidence, and a defined outcome metric.</p>
+                  <p class="safe-exit"><strong>Fail closed:</strong> malformed, unavailable, or unknown telemetry means no proposal.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key llm">LLM · diagnose / propose</span>
+                  <h3>Diagnosis + proposal hypothesis</h3>
+                  <p>The model explains a pattern and drafts a candidate. It does not authorize evidence, mutation, or success.</p>
+                </li>
+              </ol>
+            </li>
+
+            <li class="mobile-lane">
+              <h3 class="mobile-lane-title"><span>Lane 2</span> Experiment + govern</h3>
+              <ol class="mobile-stages">
+                <li class="mobile-stage">
+                  <span class="responsibility-key">Deterministic safety kernel</span>
+                  <h3>Target + evidence validation</h3>
+                  <p>Versioned evidence, a current target hash, allowed mutation shape, and an experiment adapter are mandatory.</p>
+                  <p class="safe-exit"><strong>Fail closed:</strong> a stale target or conflict means no write.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key">Deterministic experiment</span>
+                  <h3>Shadow baseline + candidate</h3>
+                  <p>The candidate first exists without changing production state.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key">Deterministic experiment</span>
+                  <h3>Controlled replay or A/B</h3>
+                  <p>Baseline and candidate use a predeclared assignment, metric, stopping rule, guardrails, and maximum exposure.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key human">Human governance</span>
+                  <h3>Risky-family review</h3>
+                  <p>Risky, destructive, broad-scope, secret-bearing, and external-code changes require explicit human approval.</p>
+                  <p class="safe-exit"><strong>Fail closed:</strong> a risky change not approved stays in shadow.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key">Deterministic safety kernel</span>
+                  <h3>Compare-and-set apply + inverse rollback</h3>
+                  <p>A write occurs only against the expected target state. Rollback reverses the specific mutation without replaying stale whole-field state.</p>
+                </li>
+              </ol>
+            </li>
+
+            <li class="mobile-lane">
+              <h3 class="mobile-lane-title"><span>Lane 3</span> Measure + learn</h3>
+              <ol class="mobile-stages">
+                <li class="mobile-stage">
+                  <span class="responsibility-key outcome">Real user work</span>
+                  <h3>Task-outcome measurement</h3>
+                  <p>Immutable outcomes connect the promoted change to success, correction, failure, cost, latency, acceptance, and guardrails where attributable.</p>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key">Deterministic verdict</span>
+                  <h3>Did the user outcome improve?</h3>
+                  <ul class="verdicts">
+                    <li class="verified"><strong>Verified:</strong> promotion earned measurable benefit.</li>
+                    <li class="inconclusive"><strong>Inconclusive:</strong> keep learning; do not call it success.</li>
+                    <li class="regressed"><strong>Regressed:</strong> trigger inverse rollback and negative calibration.</li>
+                  </ul>
+                </li>
+                <li class="mobile-stage">
+                  <span class="responsibility-key outcome">Outcome + calibration</span>
+                  <h3>Calibration evidence</h3>
+                  <p>Verified, inconclusive, regressed, reverted, approved, and rejected outcomes update confidence, evidence gates, and proposal policy.</p>
+                  <p class="feedback-return">Returns to calibrated evidence + proposal policy at the top of Lane 1.</p>
+                </li>
+              </ol>
+            </li>
+          </ol>
+        </div>
+
+        <figcaption id="flow-caption">This diagram defines the target operating model. The initiating prompt and agent transcript remain inspectable source evidence; normalization never replaces the underlying run record. “CAS” means compare-and-set: write only if the target still matches the validated state.</figcaption>
+
+        <aside class="legend" aria-label="Diagram legend">
+          <div class="legend-row">
+            <span class="legend-label">Responsibility</span>
+            <ul class="legend-items">
+              <li><span class="swatch observed" aria-hidden="true"></span>Observed work + inspectable run record</li>
+              <li><span class="swatch llm" aria-hidden="true"></span>LLM hypothesis</li>
+              <li><span class="swatch kernel" aria-hidden="true"></span>Deterministic safety kernel</li>
+              <li><span class="swatch human" aria-hidden="true"></span>Human governance</li>
+              <li><span class="swatch outcome" aria-hidden="true"></span>Outcome + calibration</li>
+            </ul>
+          </div>
+          <div class="legend-row">
+            <span class="legend-label">Line meaning</span>
+            <ul class="legend-items">
+              <li><span class="line-sample" aria-hidden="true"></span>Primary flow</li>
+              <li><span class="line-sample fail" aria-hidden="true"></span>Fail-closed exit</li>
+              <li><span class="line-sample feedback" aria-hidden="true"></span>Calibration feedback</li>
+              <li><span class="line-sample rollback" aria-hidden="true"></span>Regression rollback</li>
+            </ul>
+          </div>
+        </aside>
+      </figure>
+    </section>
+  </main>
+
+  <footer><div class="wrap">Rhythm self-improvement engine · Target operating model · Governed causal learning loop.</div></footer>
+</body>
+</html>

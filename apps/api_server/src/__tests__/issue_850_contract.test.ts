@@ -98,23 +98,76 @@ function seedDeadScopeProfile(id = 'secretary'): void {
 }
 
 describe('issue-850-c1: runOrgOptimizer executes audit->generate->persist->auto-apply; high-risk kinds never auto-apply', () => {
-  it('a low-risk prune-scope gap is persisted and advanced past proposed (auto-apply lane)', async () => {
+  it('W1: the auto-apply lane is still wired, and only ever sees low-risk work', async () => {
+    // Coverage hole this closes: every other test in this describe asserts what
+    // must NOT auto-apply. Once scope kinds became human-gated, no test drove a
+    // proposal THROUGH the lane — deleting the autoApplyProposal call left the
+    // suite green.
+    //
+    // Be honest about what this proves: the run below cannot drive anything
+    // THROUGH the lane, because every kind this fixture generates is high-risk.
+    // So the coverage is structural — it fails if the call is deleted, and
+    // nothing more. A behavioural test needs a generator that emits a low-risk
+    // kind, which this fixture has no way to produce.
+    const apply = await import('../services/org_proposal_apply');
+    const seen: Array<{ kind: string; risk: string }> = [];
+    const spy = vi
+      .spyOn(apply, 'applyProposal')
+      .mockImplementation(async (proposal) => {
+        seen.push({ kind: proposal.kind, risk: proposal.risk });
+        return { status: 'applied-ok' as const };
+      });
+    seedDeadScopeProfile();
+
+    try {
+      const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+      await runOrgOptimizer();
+    } finally {
+      spy.mockRestore();
+    }
+
+    // Every kind this fixture can generate is high-risk, so `seen` is empty and
+    // any assertion over it would be vacuous. Assert that fact directly instead
+    // of dressing it up as behavioural coverage.
+    expect(seen).toEqual([]);
+
+    const runService = readFileSync(
+      path.join(__dirname, '..', 'services', 'org_optimizer_run_service.ts'),
+      'utf8',
+    );
+    expect(runService).toMatch(
+      /const applyResult = await autoApplyProposal\(proposal, \{ proposalsRepo: realProposalsRepo \}\);/,
+    );
+    expect(runService).toMatch(/result\.byOutcome\.autoApplied \+= 1;/);
+  });
+
+  it('a prune-scope gap is persisted but stays proposed — scope removal is human-gated, never auto-applied (W1)', async () => {
     // Bug this catches: the run loop only builds the snapshot/generates but
-    // never persists or auto-applies, leaving every low-risk gap sitting
-    // unactioned as if the loop were a no-op read.
+    // never persists gaps, leaving every gap unactioned as if the loop were a
+    // no-op read. Prior to the W1 self-improvement-engine-foundation review
+    // this gap auto-applied past 'proposed' (risk='low'); tighten-scope/
+    // prune-scope are now HIGH-risk, so the correct outcome is that the run
+    // loop persists the gap and leaves it sitting in the human-gate queue.
     seedDeadScopeProfile();
 
     const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
     const result = await runOrgOptimizer();
 
     const proposalsRepo = new AgentOrgProposalsRepository();
-    const pruneProposal = (await proposalsRepo.listByStatusAsync('measuring')).find(
+    const pruneProposal = (await proposalsRepo.listByStatusAsync('proposed')).find(
       (p) => p.kind === 'prune-scope',
-    ) ?? (await proposalsRepo.listByStatusAsync('active')).find((p) => p.kind === 'prune-scope');
+    );
 
     expect(pruneProposal).toBeDefined();
-    expect(pruneProposal?.status).not.toBe('proposed');
+    expect(pruneProposal?.risk).toBe('high');
     expect(result.auditRunId).toBeTruthy();
+
+    // Never auto-applied: no scope-kind row exists in any auto-apply-lane status.
+    const nonProposedStatuses = ['applied', 'measuring', 'active', 'reverted'];
+    for (const status of nonProposedStatuses) {
+      const rows = await proposalsRepo.listByStatusAsync(status);
+      expect(rows.some((p) => p.kind === 'prune-scope')).toBe(false);
+    }
   });
 
   it('a high-risk kind proposal generated THIS run (webhook-wiring) is NEVER auto-applied — it stays proposed', async () => {
@@ -307,5 +360,330 @@ describe('issue-850-c7: idempotent re-runs dedup unchanged gaps', () => {
     ];
     const pruneRows = all.filter((p) => p.kind === 'prune-scope' && p.targetRef?.includes('secretary'));
     expect(pruneRows.length).toBe(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// W5 — shadow policy and lifecycle reconciliation.
+// Contract: docs/ai/contracts/issue-W5-shadow-reconciler.json
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Every durable fact a run could plausibly mutate, as comparable bytes. */
+async function stateSnapshot(): Promise<string> {
+  const { getDb } = await import('../database/db');
+  const db = getDb();
+  return JSON.stringify({
+    configs: db.prepare('SELECT * FROM agent_configs ORDER BY id').all(),
+    proposals: db
+      .prepare('SELECT id, status, revision, change_json, before_snapshot_json, measure_reason, reconciliation_reason, decided_by_user_id FROM agent_org_proposals ORDER BY id')
+      .all(),
+    projections: db.prepare('SELECT * FROM agent_profile_projections ORDER BY profile_id').all(),
+  });
+}
+
+/**
+ * A `measuring` row whose stored change_json is not strictly parseable — the
+ * measure step turns it into `reconciliation-required` deterministically, with
+ * no engine and no LLM. That makes it a clean probe for "did the measure sweep
+ * actually run this pass?".
+ */
+async function seedUnmeasurableMeasuringRow(id = 'stuck-measuring'): Promise<void> {
+  const repo = new AgentOrgProposalsRepository();
+  const created = await repo.createAsync({
+    id,
+    kind: 'refine-skill',
+    risk: 'high',
+    status: 'proposed',
+    title: 'stuck row',
+    dedupKey: `dedup-${id}`,
+    changeJson: '{',
+  });
+  await repo.updateStatusAsync(created.id, 'applied');
+  await repo.updateStatusAsync(created.id, 'measuring');
+}
+
+/**
+ * An `applied` scope claim whose snapshot cannot verify — exactly the shape the
+ * W1 recovery sweep classifies as incoherent and durably marks.
+ */
+async function seedIncoherentAppliedScopeRow(id = 'incoherent-applied'): Promise<void> {
+  const repo = new AgentOrgProposalsRepository();
+  const created = await repo.createAsync({
+    id,
+    kind: 'prune-scope',
+    risk: 'high',
+    status: 'proposed',
+    title: 'incoherent applied scope claim',
+    dedupKey: `dedup-${id}`,
+    targetRef: 'secretary',
+    changeJson: JSON.stringify({ agentConfigId: 'secretary', field: 'allowedMcpsJson', remove: ['dead-server'] }),
+    beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm', 'dead-server']) }),
+  });
+  // A scope kind cannot reach `applied` through the generic status updater (it
+  // requires the atomic target-pair primitive), so this row is planted directly
+  // — it is exactly the stranded shape the recovery sweep exists to find.
+  const { getDb } = await import('../database/db');
+  getDb().prepare('UPDATE agent_org_proposals SET status = ? WHERE id = ?').run('applied', created.id);
+}
+
+describe('W5-c3: a shadow run generates but leaves every observable durable fact unchanged', () => {
+  it('shadow is the DEFAULT mode', async () => {
+    const { DEFAULT_OPTIMIZER_MODE } = await import('../services/org_optimizer_policy');
+    expect(DEFAULT_OPTIMIZER_MODE).toBe('shadow');
+
+    seedDeadScopeProfile();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer();
+    expect(result.mode).toBe('shadow');
+  });
+
+  it('pre-existing configs, proposal statuses/revisions and projections are byte-identical after a shadow run', async () => {
+    // Bug this catches: the shadow gate is cosmetic (a flag on the result, or a
+    // gate inside applyProposal) and the run still measures, reverts, or
+    // repairs — silently mutating state under the default mode.
+    seedDeadScopeProfile();
+    await seedUnmeasurableMeasuringRow();
+    await seedIncoherentAppliedScopeRow();
+
+    const before = await stateSnapshot();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    // Generation still happened...
+    expect(result.proposalsCreated).toBeGreaterThan(0);
+
+    // ...but nothing that existed before the run moved.
+    const { getDb } = await import('../database/db');
+    const db = getDb();
+    const beforeParsed = JSON.parse(before) as Record<string, Array<Record<string, unknown>>>;
+    const afterConfigs = db.prepare('SELECT * FROM agent_configs ORDER BY id').all();
+    const afterProjections = db.prepare('SELECT * FROM agent_profile_projections ORDER BY profile_id').all();
+    expect(afterConfigs).toEqual(beforeParsed.configs);
+    expect(afterProjections).toEqual(beforeParsed.projections);
+
+    const priorIds = new Set(beforeParsed.proposals.map((row) => row.id as string));
+    const afterPrior = (db
+      .prepare('SELECT id, status, revision, change_json, before_snapshot_json, measure_reason, reconciliation_reason, decided_by_user_id FROM agent_org_proposals ORDER BY id')
+      .all() as Array<Record<string, unknown>>)
+      .filter((row) => priorIds.has(row.id as string));
+    expect(afterPrior).toEqual(beforeParsed.proposals);
+  });
+
+  it('the same fixture under mode=auto DOES move the measuring row — proving the shadow test is not vacuous', async () => {
+    seedDeadScopeProfile();
+    await seedUnmeasurableMeasuringRow();
+
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    await runOrgOptimizer({ mode: 'auto' });
+
+    const repo = new AgentOrgProposalsRepository();
+    expect((await repo.findByIdAsync('stuck-measuring'))?.status).toBe('reconciliation-required');
+  });
+
+  it('mode=off does not even generate', async () => {
+    seedDeadScopeProfile();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'off' });
+
+    expect(result.skipped).toBe(true);
+    expect(result.proposalsCreated).toBe(0);
+    const repo = new AgentOrgProposalsRepository();
+    expect((await repo.listByStatusAsync('proposed')).length).toBe(0);
+  });
+});
+
+describe('W5-c4: shadow counters distinguish a candidate from an absence of candidates', () => {
+  it('a shadow run with a real gap reports what it WOULD have done', async () => {
+    seedDeadScopeProfile();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    expect(result.shadow).toBeDefined();
+    expect(result.shadow!.candidates).toBeGreaterThan(0);
+    expect(result.shadow!.candidates).toBe(result.proposalsCreated);
+    expect(result.shadow!.wouldQueue + result.shadow!.wouldAutoApply).toBe(result.shadow!.candidates);
+    // Nothing was actually applied or measured.
+    expect(result.byOutcome.autoApplied).toBe(0);
+    expect(result.byOutcome.kept).toBe(0);
+    expect(result.byOutcome.reverted).toBe(0);
+  });
+
+  it('a shadow run that finds nothing reports zero candidates — distinguishable from the case above', async () => {
+    // The migration seeds built-in preset profiles, so "no candidates" is
+    // produced by leaving the loop nothing it is allowed to propose rather than
+    // by an empty database. The point of the pair is the counter itself: it
+    // reads 0 here and >0 above, so an operator can tell "held one back" from
+    // "found none" — which a bare `mode: 'shadow'` flag never could.
+    const { CHANGE_FAMILIES } = await import('../services/org_optimizer_policy');
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({
+      mode: 'shadow',
+      disabledFamilies: CHANGE_FAMILIES.join(','),
+    });
+
+    expect(result.shadow).toBeDefined();
+    expect(result.shadow!.candidates).toBe(0);
+    expect(result.proposalsCreated).toBe(0);
+  });
+});
+
+describe('W5-c2: a disabled change family is refused at generation time under every mode', () => {
+  it('mode=auto with the scope family disabled generates no scope proposal at all', async () => {
+    seedDeadScopeProfile();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    await runOrgOptimizer({ mode: 'auto', disabledFamilies: 'scope' });
+
+    const repo = new AgentOrgProposalsRepository();
+    const all = [
+      ...(await repo.listByStatusAsync('proposed')),
+      ...(await repo.listByStatusAsync('applied')),
+      ...(await repo.listByStatusAsync('measuring')),
+      ...(await repo.listByStatusAsync('active')),
+    ];
+    expect(all.some((p) => p.kind === 'prune-scope')).toBe(false);
+  });
+
+  it('the same fixture with the family ENABLED does generate it — the switch is what suppressed it', async () => {
+    seedDeadScopeProfile();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    await runOrgOptimizer({ mode: 'auto' });
+
+    const repo = new AgentOrgProposalsRepository();
+    const proposed = await repo.listByStatusAsync('proposed');
+    expect(proposed.some((p) => p.kind === 'prune-scope')).toBe(true);
+  });
+});
+
+describe('W5-c11: the W1 recovery sweep still REPORTS under shadow, and still ACTS under auto', () => {
+  it('shadow reports non-zero drift while writing nothing', async () => {
+    // Bug this catches: gating the whole sweep behind the mutation phases makes
+    // W1 corrective-6's repair path dead code the moment shadow becomes the
+    // default — lagging projections never heal and incoherent claims are never
+    // even counted.
+    seedDeadScopeProfile();
+    await seedIncoherentAppliedScopeRow();
+
+    const before = await stateSnapshot();
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    expect(result.recovery).toBeDefined();
+    expect(result.recoveryReportOnly).toBe(true);
+    // The acting counters are ZERO under shadow — nothing was repaired and
+    // nothing was reconciled — and the would-have work is reported under its
+    // own name, so a reader who misses `recoveryReportOnly` cannot mistake one
+    // for the other.
+    expect(result.recovery!.projectionsRepaired).toBe(0);
+    expect(result.recovery!.proposalsReconciled).toBe(0);
+    expect(result.recoveryLagging ?? 0).toBeGreaterThan(0);
+    // ...and the PROPOSAL half is reported too. This fixture seeds an
+    // incoherent `applied` claim, and the sweep counted it all along — the
+    // caller just threw the number away, so in the default mode no surface
+    // anywhere reported it. The dry-run CLI does not cover these rows either:
+    // it filters `status='active'` while this one is `applied`.
+    expect(result.recoveryIncoherent ?? 0).toBeGreaterThan(0);
+
+    const { getDb } = await import('../database/db');
+    const db = getDb();
+    const beforeParsed = JSON.parse(before) as Record<string, Array<Record<string, unknown>>>;
+    expect(db.prepare('SELECT * FROM agent_profile_projections ORDER BY profile_id').all())
+      .toEqual(beforeParsed.projections);
+    const repo = new AgentOrgProposalsRepository();
+    const row = await repo.findByIdAsync('incoherent-applied');
+    expect(row?.status).toBe('applied');
+    expect(row?.revision).toBe(
+      (beforeParsed.proposals.find((p) => p.id === 'incoherent-applied')!.revision as number),
+    );
+  });
+
+  it('auto acts: the same incoherent claim is durably marked reconciliation-required', async () => {
+    seedDeadScopeProfile();
+    await seedIncoherentAppliedScopeRow();
+
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'auto' });
+
+    expect(result.recoveryReportOnly).toBeFalsy();
+    const repo = new AgentOrgProposalsRepository();
+    expect((await repo.findByIdAsync('incoherent-applied'))?.status).toBe('reconciliation-required');
+  });
+});
+
+describe('W5-c9: a retryable measuring row past its budget stops being retried in silence', () => {
+  it('the sweep classifies it inconclusive, reports it, and does not measure it again', async () => {
+    // Bug this catches: a row that is legitimately retryable (telemetry
+    // unavailable, engine down) is picked up by every sweep forever while an
+    // operator sees a row that still looks healthy. The budget makes the
+    // condition inspectable instead of eternal.
+    await seedUnmeasurableMeasuringRow('budget-blown');
+    const { getDb } = await import('../database/db');
+    const { MEASURING_BUDGET_MS } = await import('../services/org_proposal_reconciler');
+    getDb()
+      .prepare('UPDATE agent_org_proposals SET updated_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - MEASURING_BUDGET_MS - 60_000).toISOString(), 'budget-blown');
+
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'auto' });
+
+    expect(result.byOutcome.measuringInconclusive).toBe(1);
+    // It was NOT measured this pass — the sweep left it exactly where it was.
+    const repo = new AgentOrgProposalsRepository();
+    expect((await repo.findByIdAsync('budget-blown'))?.status).toBe('measuring');
+  });
+
+  it('shadow classifies a stuck row too, and still measures nothing', async () => {
+    // The shadow twin of the case above, which had no coverage at all: both
+    // stuck-measurement tests ran under `auto`. Gating the CLASSIFICATION on
+    // mayMutateLifecycle made measuringInconclusive structurally always 0 in
+    // the mode W5 made the default, so a human-approved row whose single
+    // measure attempt hit unavailable telemetry sat in `measuring` forever —
+    // never retried, never classified, never in a run summary.
+    await seedUnmeasurableMeasuringRow('budget-blown-shadow');
+    const { getDb } = await import('../database/db');
+    const { MEASURING_BUDGET_MS } = await import('../services/org_proposal_reconciler');
+    getDb()
+      .prepare('UPDATE agent_org_proposals SET updated_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - MEASURING_BUDGET_MS - 60_000).toISOString(), 'budget-blown-shadow');
+
+    const repo = new AgentOrgProposalsRepository();
+    const before = await repo.findByIdAsync('budget-blown-shadow');
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    // Reported...
+    expect(result.byOutcome.measuringInconclusive).toBe(1);
+    // ...and still untouched: same status AND same revision, so the
+    // classification did not advance the lifecycle CAS token.
+    const after = await repo.findByIdAsync('budget-blown-shadow');
+    expect(after?.status).toBe('measuring');
+    expect(after?.revision).toBe(before?.revision);
+  });
+
+  it('shadow does not MEASURE a row that is inside its budget', async () => {
+    // The other half: hoisting classification out of the gate must not have
+    // dragged measureProposal out with it. Under `auto` this row ends
+    // `reconciliation-required`; under shadow it must stay put.
+    await seedUnmeasurableMeasuringRow('fresh-measuring-shadow');
+
+    const repo = new AgentOrgProposalsRepository();
+    const before = await repo.findByIdAsync('fresh-measuring-shadow');
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'shadow' });
+
+    expect(result.byOutcome.measuringInconclusive).toBe(0);
+    const after = await repo.findByIdAsync('fresh-measuring-shadow');
+    expect(after?.status).toBe('measuring');
+    expect(after?.revision).toBe(before?.revision);
+  });
+
+  it('a row still inside its budget is measured normally — the budget is what suppressed it', async () => {
+    await seedUnmeasurableMeasuringRow('fresh-measuring');
+
+    const { runOrgOptimizer } = await import('../services/org_optimizer_run_service');
+    const result = await runOrgOptimizer({ mode: 'auto' });
+
+    expect(result.byOutcome.measuringInconclusive).toBe(0);
+    const repo = new AgentOrgProposalsRepository();
+    expect((await repo.findByIdAsync('fresh-measuring'))?.status).toBe('reconciliation-required');
   });
 });

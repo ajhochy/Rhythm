@@ -385,13 +385,8 @@ describe('CONTROL — a genuine scope gap still produces a proposal', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe('the corrected read does not widen the AUTO-APPLYING tighten lane', () => {
-  it('judges "never invoked" only for the grant shape it already judged', async () => {
-    // Deliberate boundary, not an oversight: tighten-scope is risk='low' (it
-    // auto-applies) and its only usage evidence is denial telemetry, which cannot
-    // tell "used successfully" from "never used". Newly feeding it the tools-map
-    // profiles would have auto-stripped live grants. Widening it needs real
-    // exercised-tool evidence — see the comment in detectTightenGaps.
+describe('the tighten lane requires available canonical usage telemetry', () => {
+  it('blocks used servers, judges available-empty evidence, and skips unavailable evidence', async () => {
     const { detectTightenGaps } = await import('../services/org_audit_service');
     const live = new Set(['gitnexus']);
     const sessions = new Map([['p', 50]]);
@@ -408,19 +403,44 @@ describe('the corrected read does not widen the AUTO-APPLYING tighten lane', () 
     };
 
     expect(
-      detectTightenGaps([{ ...base, mcpScopeShape: 'tools-map' }], live, new Set(), sessions, days),
+      detectTightenGaps(
+        [{ ...base, mcpScopeShape: 'tools-map' }],
+        live,
+        new Set(),
+        sessions,
+        days,
+        { availability: 'available', canonicalPairs: new Set(['p::gitnexus']), unavailableProfileIds: new Set() },
+      ),
     ).toEqual([]);
-    // …and the lane still fires for the server-name-array shape it always covered.
     expect(
-      detectTightenGaps([{ ...base, mcpScopeShape: 'servers' }], live, new Set(), sessions, days),
+      detectTightenGaps(
+        [{ ...base, mcpScopeShape: 'tools-map' }],
+        live,
+        new Set(),
+        sessions,
+        days,
+        { availability: 'available', canonicalPairs: new Set(), unavailableProfileIds: new Set() },
+      ),
     ).toHaveLength(1);
-    // A caller that predates `mcpScopeShape` (tools/release/org_optimizer_guard_check.ts
-    // builds these literals outside this package's tsc scope) must keep the
-    // behavior it had. Suppressing the feature for an absent field is the exact
-    // regression that guard fails on — it caught it once already.
     expect(
-      detectTightenGaps([base as never], live, new Set(), sessions, days),
-    ).toHaveLength(1);
+      detectTightenGaps(
+        [{ ...base, mcpScopeShape: 'tools-map' }],
+        live,
+        new Set(),
+        sessions,
+        days,
+        { availability: 'unavailable' },
+      ),
+    ).toEqual([]);
+    expect(
+      detectTightenGaps(
+        [{ ...base, mcpScopeShape: 'tools-map' }],
+        live,
+        new Set(),
+        sessions,
+        days,
+      ),
+    ).toEqual([]);
   });
 });
 

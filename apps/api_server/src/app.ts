@@ -33,6 +33,7 @@ import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { usageBudgetRouter } from './routes/usage_budget_routes';
 import { runQualityRouter } from './routes/run_quality_routes';
+import { runOutcomeRouter } from './routes/run_outcome_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
@@ -205,6 +206,10 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
+    // W4 — the immutable run-outcome ledger + its append-only feedback API.
+    // Same agent-execution gate as its sibling agent routes: the hosted 'cloud'
+    // role never runs agents, so it has no run outcomes to serve.
+    app.use('/agent-run-outcomes', runOutcomeRouter);
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     app.use('/agent-delegation', agentDelegationRouter);

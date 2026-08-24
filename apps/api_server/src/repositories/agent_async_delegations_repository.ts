@@ -100,7 +100,7 @@ export class AgentAsyncDelegationsRepository {
     const db = getDb();
     db.prepare(
       `UPDATE agent_async_delegations
-          SET status = 'cancelled', updated_at = datetime('now')
+          SET status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE id = ? AND status IN ('dispatched', 'waking')`,
     ).run(id);
     const row = db

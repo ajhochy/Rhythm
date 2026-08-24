@@ -18,6 +18,7 @@ class OrgProposal {
     required this.risk,
     required this.external,
     required this.status,
+    this.outcomeStatus = 'unproven',
     required this.title,
     this.rationale,
     this.signalRef,
@@ -42,6 +43,7 @@ class OrgProposal {
       risk: asString(json['risk']) ?? 'high',
       external: asInt(json['external']) ?? 0,
       status: asString(json['status']) ?? 'proposed',
+      outcomeStatus: asString(json['outcomeStatus']) ?? 'unproven',
       title: asString(json['title']) ?? '',
       rationale: asString(json['rationale']),
       signalRef: asString(json['signalRef']),
@@ -65,6 +67,15 @@ class OrgProposal {
   final String risk;
   final int external;
   final String status;
+
+  /// OUTCOME authority, deliberately separate from [status], which is the
+  /// DEPLOYMENT field (server: `agent_org_proposals.outcome_status`, W6-c8).
+  /// A proposal can be simultaneously `status == 'active'` (live) and
+  /// `outcomeStatus == 'unproven'` (nothing measured about it yet) — the UI
+  /// must never collapse the two into one label.
+  ///
+  /// `unproven` | `inconclusive` | `verified` | `regressed`.
+  final String outcomeStatus;
   final String title;
   final String? rationale;
   final String? signalRef;
@@ -119,6 +130,50 @@ class OrgProposal {
     } catch (_) {
       return null;
     }
+  }
+
+  /// The three whole-field scope columns whose legacy snapshots the server
+  /// refuses to replay (`org_proposal_apply.ts` — a whole-field restore cannot
+  /// tell a safe rollback from clobbering a later operator edit).
+  static const _scopeFields = {
+    'allowedMcpsJson',
+    'allowedSkillsJson',
+    'corePermissionsJson',
+  };
+
+  static const _scopeKinds = {
+    'tighten-scope',
+    'prune-scope',
+    'refine-scope',
+    'broaden-scope',
+  };
+
+  /// True when this row's rollback record cannot be replayed automatically and
+  /// a person has to reverse the change by hand.
+  ///
+  /// Mirrors the server's fail-closed refusal in `revertProposal`
+  /// (`unsafe-legacy-scope`): a scope-bearing change whose
+  /// `before_snapshot_json` is not a versioned `scope-delta-v2`/`scope-state-v2`
+  /// record — plus the no-snapshot case, which has nothing to restore at all.
+  /// On real data this is the overwhelming majority of applied rows, so
+  /// offering them a Revert button would mean a guaranteed 409 on nearly every
+  /// press.
+  ///
+  /// It is a UX aid ONLY. The server remains the authority: a revert that is
+  /// attempted anyway and refused must surface the server's own message.
+  bool get revertNeedsOperator {
+    final snapshot = beforeSnapshot;
+    if (snapshot == null) return true;
+    final version = snapshot['version'];
+    if (version == 'scope-delta-v2' || version == 'scope-state-v2') {
+      return false;
+    }
+    if (_scopeKinds.contains(kind)) return true;
+    if (_scopeFields.contains(snapshot['field'])) return true;
+    final payload = change;
+    if (payload == null) return false;
+    return payload.containsKey('scopePatch') ||
+        _scopeFields.contains(payload['field']);
   }
 
   /// Parses [changeJson] into a map, or null if absent/invalid.

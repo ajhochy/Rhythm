@@ -46,7 +46,7 @@ beforeAll(async () => {
     'utf8',
   );
 
-  const server = createApp().listen(0);
+  const server = createApp().listen(0, '127.0.0.1');
   server.maxRequestsPerSocket = 1;
   await new Promise<void>((r) => server.once('listening', () => r()));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

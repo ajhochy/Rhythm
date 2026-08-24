@@ -32,6 +32,7 @@ import {
   classifyAgentRunFailure,
   formatAgentRunFailure,
 } from './agent_run_failure_classification';
+import { sweepPostApplyLifecycleAsync } from './post_apply_lifecycle';
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
@@ -875,9 +876,12 @@ export function startAgentSchedulerJob(): AgentSchedulerJob | null {
     if (env.agentLocal) {
       const engineReady = await waitForScheduledEngineReady();
       await checkDueTasks(engineReady);
-      return;
+    } else {
+      await checkDueTasks();
     }
-    await checkDueTasks();
+    await sweepPostApplyLifecycleAsync().catch(() => {
+      logger.warn('[AgentScheduler] post-apply sweep outcome=failed-nonfatal');
+    });
   })();
 
   // 1-minute tick — same granularity as Odysseus's asyncio loop
@@ -898,6 +902,9 @@ export function startAgentSchedulerJob(): AgentSchedulerJob | null {
       }
     }
     void checkDueTasks();
+    void sweepPostApplyLifecycleAsync().catch(() => {
+      logger.warn('[AgentScheduler] post-apply sweep outcome=failed-nonfatal');
+    });
   });
 
   logger.info('[AgentScheduler] Scheduler started (1-min tick)');

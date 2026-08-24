@@ -239,14 +239,17 @@ describe('issue-822-c5: a prune-scope gap flagged user-authored via deps is neve
   });
 });
 
-describe('issue-822-c6: every emitted proposal input classifies as low risk via the real classifyProposalRisk', () => {
-  it('every non-gated proposal created by the generator is low-risk by the actual predicate', async () => {
+describe('issue-822-c6: every emitted proposal risk matches the real classifyProposalRisk (never hardcoded)', () => {
+  it('the generator never stamps a risk the actual predicate disagrees with', async () => {
     // Bug this catches: the generator hardcodes risk: 'low' on the row
     // without the payload actually satisfying classifyProposalRisk (e.g. it
-    // accidentally includes an `add` key), producing a proposal that CLAIMS
-    // low-risk but would be refused by org_proposal_apply's own re-check —
-    // or worse, a future change to the predicate silently disagrees with
-    // this generator's assumptions.
+    // accidentally includes an `add` key, or the predicate's classification
+    // for this kind changes), producing a proposal whose stored `risk`
+    // column disagrees with what org_proposal_apply's own re-check would
+    // decide — the row would then CLAIM one risk level while the load-bearing
+    // guard enforces another. As of the W1 self-improvement-engine-foundation
+    // review, tighten-scope/prune-scope classify 'high' (scope removal is
+    // human-gated); consolidate-skill still classifies 'low'.
     const { generateScopeHygieneProposals } = await import('../services/generators/scope_hygiene_generator');
 
     const pruneGap: OrgAuditGap = {
@@ -278,9 +281,14 @@ describe('issue-822-c6: every emitted proposal input classifies as low risk via 
         changeJson: proposal.changeJson,
         external: proposal.external,
       });
-      expect(risk).toBe('low');
-      expect(proposal.risk).toBe('low');
+      expect(proposal.risk).toBe(risk);
     }
+    const pruneProposal = repo.created.find((p) => p.kind === 'prune-scope');
+    const tightenProposal = repo.created.find((p) => p.kind === 'tighten-scope');
+    const consolidateProposal = repo.created.find((p) => p.kind === 'consolidate-skill');
+    expect(pruneProposal?.risk).toBe('high');
+    expect(tightenProposal?.risk).toBe('high');
+    expect(consolidateProposal?.risk).toBe('low');
   });
 });
 

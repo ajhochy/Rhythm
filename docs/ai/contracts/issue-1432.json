@@ -1,0 +1,69 @@
+{
+  "contract_id": "D2.2",
+  "issue": 1432,
+  "phase": "D2.2",
+  "parent_contract": "docs/ai/contracts/issue-1431.json",
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/post_apply_monitor.test.ts src/repositories/__tests__/agent_run_outcomes_repository.test.ts src/models/__tests__/post_apply_event.test.ts src/repositories/__tests__/post_apply_events_repository.test.ts src/__tests__/skill_schema_parity.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1432-c1",
+      "text": "Build post_apply_monitor.ts: starts watching an affected profile's runs after any proposal is applied.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/post_apply_monitor.test.ts (describe: 'D2.2 startPostApplyMonitoringAsync')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1432-c2",
+      "text": "Checks guardrails from C3's closed registry (guardrail_registry.ts — terminal-error-rate, treatment-integrity-failure-rate); reuse evaluateGuardrails, don't reimplement.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/post_apply_monitor.ts imports GUARDRAIL_NAMES/evaluateGuardrails from models/guardrail_registry.ts (no reimplementation); proven by 'trips on a real guardrail breach and triggers auto-repair'",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1432-c3",
+      "text": "Watches the profile's run outcomes (C3/C4 ledger — AgentRunOutcomesRepository).",
+      "mode": "unit",
+      "test": "apps/api_server/src/repositories/__tests__/agent_run_outcomes_repository.test.ts (describe: 'D2.2 (#1432) profile-scoped since query')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1432-c4",
+      "text": "On trip: records tripped, triggers auto-repair (D2.3 stub call site since D2.3 does not exist yet).",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/post_apply_monitor.test.ts ('trips on a real guardrail breach and triggers auto-repair'; 'falls back to the globally registered auto-repair trigger when no per-call trigger is given')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1432-c5",
+      "text": "On clear (monitoring window expires with no trips): records clear, stops.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/post_apply_monitor.test.ts ('clears with no repair when the window expires with no breach')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1432-c6",
+      "text": "Monitoring window has a defined start/end.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/post_apply_monitor.test.ts ('creates a monitoring PostApplyEvent with a window offset from now')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1432-c7",
+      "text": "The monitor stops (permanent no-op) once it has left the monitoring state — it does not keep re-deciding on later data.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/post_apply_monitor.test.ts ('is a permanent no-op once the monitor has left the monitoring state'; 'stays in monitoring (no action) when the window has not expired and there is no breach')",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [],
+  "judgment_calls": [
+    "The monitor is POLL-driven (evaluatePostApplyGuardrailsAsync is meant to be called on a recurring sweep for every event still in 'monitoring'), not push-driven/event-subscribed — matching the org-optimizer's existing cron-sweep architecture (org_optimizer_run_service.ts) rather than introducing a new real-time hook/event-bus mechanism into this codebase. Wiring an actual recurring sweep caller is D2.5's scope (the issue's own text: 'starts watching' — D2.2 defines the watch/evaluate primitive; D2.5 'wires it all together').",
+      "The monitor evaluates ALL guardrails in the closed registry (GUARDRAIL_NAMES) unconditionally for every PostApplyEvent, unlike C3's experiment evidence-bundle mechanism which only evaluates a per-experiment DECLARED subset. This is a deliberate blanket safety net for every applied proposal (most proposal kinds have no evidence bundle/declared guardrails at all), not a narrowing of C3's existing declared-subset behavior for experiments (which is untouched).",
+    "`treatment-integrity-failure-rate` folds in enrollment rows from any causal-runtime-v2 experiment associated with the proposal (via AgentOrgExperimentsRepository.listByProposalAsync); a plain (non-experiment) applied proposal has an empty enrollment set, so that specific guardrail can structurally never fire for it — proven acceptable because `checkTreatmentIntegrityFailureRate` already returns `breached:false` below its `minSampleCount` floor for an empty array, not a new special case added here.",
+    "DEFAULT_MONITORING_WINDOW_MS (1 hour) and DEFAULT_MIN_GUARDRAIL_SAMPLE_COUNT (5) are fixed ponytail-commented constants, matching C3/C4's established closed-constant style for guardrail thresholds — not yet configurable per proposal kind.",
+    "The auto-repair trigger seam mirrors org_proposal_apply_service.ts's existing registerProposalApplier/registerProposalValidator + resetProposalPluginsForTests pattern (register/reset functions on a module-level mutable binding) rather than inventing a new plugin mechanism. A per-call `deps.triggerAutoRepair` override additionally exists for injecting a spy without mutating global registration state across parallel tests.",
+    "Added AgentRunOutcomesRepository.listByProfileSinceAsync (a new profile-scoped, proposal-agnostic read) plus a supporting idx_agent_run_outcomes_profile index on both engines — the existing listByExperimentAsync/listReceiptBackedByExperimentAsync methods are experiment-scoped only and cannot serve this monitor's 'any run on this profile' read."
+  ]
+}

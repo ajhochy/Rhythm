@@ -1,0 +1,161 @@
+{
+  "contract_id": "D2.4",
+  "issue": 1434,
+  "phase": "D2.4",
+  "parent_contract": "docs/ai/contracts/issue-1433.json",
+  "date": "2026-08-20",
+  "test_command": "cd apps/api_server && npx vitest run src/services/__tests__/auto_revert_service.test.ts src/services/__tests__/auto_repair_service.test.ts src/__tests__/org_proposal_apply.test.ts src/__tests__/issue_857_contract.test.ts src/__tests__/w1_corrective_4_contract.test.ts src/__tests__/w1_corrective_5_contract.test.ts src/__tests__/w1_corrective_6_boundaries.test.ts src/__tests__/w1_corrective_6_revisions.test.ts src/__tests__/agent_org_proposals.test.ts",
+  "waiver": null,
+  "superseded_note": "SECOND PASS (independent review, 2026-08-20): the 2026-08-19 revert path had proposal-status CAS but NO target-value/revision CAS at the agent_configs field boundary — a concurrent human edit during monitoring/repair could be silently overwritten by revert, contradicting the 'safely reversible' claim. revertProposal's isConfigFieldSnapshot branch now does value+revision CAS (compareAndSetConfigField) whenever the snapshot carries expectedAppliedValue (every snapshot auto_repair_service.ts and org_proposal_appliers_wiring.ts's refineConfigApplier now write). auto_revert_service.ts additionally resolves an 'effective applied value' override that walks the D2.3 repair chain for the LAST attempt touching the same field, so unwinding a whole 3-repair chain is not mistaken for drift against the ORIGINAL apply's own now-stale value. Legacy snapshots without expectedAppliedValue fall back to the original unconditional restore (unchanged, backward-compatible).",
+  "criteria": [
+    {
+      "criterion_id": "issue-1434-c1",
+      "text": "All 3 repairs fail -> auto-revert -> profile restored to pre-change state -> `reverted` recorded.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('all 3 repairs fail: reverts the original proposal and restores the profile to its pre-change state')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c2",
+      "text": "CAS revert fails (target drifted) -> `revert_failed` recorded with conflict details.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('proposal CAS race: records proposal-cas-conflict, leaves the live profile byte-exact, and persists the alert'); the persisted alert directly asserts revert.outcome=revert_failed and revert.conflict.reason=proposal-cas-conflict",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c3",
+      "text": "Alert is generated with full trail (original change, repairs, revert).",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('generates an alert with the full trail: original change, all 3 repair attempts, and the revert outcome')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c4",
+      "text": "No raw secrets in the alert or auto-revert failure logs.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts (secret-redaction test plus exact safe logger assertion)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c5",
+      "text": "Focused tests pass (RED -> GREEN).",
+      "mode": "unit",
+      "test": "The maintained 9-file D2.4 regression command passes 359 tests.",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c6",
+      "text": "Build + typecheck pass.",
+      "mode": "unit",
+      "test": "cd apps/api_server && node_modules/.bin/tsc --noEmit && npm run build",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c7",
+      "text": "Auto-revert routes through revertProposal and therefore inherits UNSAFE_WHOLE_FIELD_SCOPE_FIELDS: a whole-field allowedSkillsJson revert is refused, the live value remains unchanged, revert_failed is persisted, and the alert is persisted.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('security fix (#1434): refuses a whole-field revert of allowedSkillsJson even after all 3 repairs are exhausted, and leaves the live config byte-for-byte unchanged')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c8",
+      "text": "revertProposal handles a refine-config proposal with a validated {agentConfigId,field,value} configPatch: benign fields restore, legacy-scope fields are refused, and malformed or unrecognized fields fail closed without a write.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/org_proposal_apply.test.ts ('#1434 root-cause fix: revertProposal narrows a validated refine-config configPatch')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c9",
+      "text": "extractValidatedConfigPatch is shared by apply and revert paths and requires field to be a member of CONFIG_PATCH_FIELDS.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/w1_corrective_6_boundaries.test.ts plus apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c10",
+      "text": "auto_revert_service routes restoration and scope enforcement through the single revertProposal path.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts, including the CAS-race and allowedSkillsJson security regressions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c11",
+      "text": "Second pass: value+revision CAS at the agent_configs field boundary — revert restores priorValue ONLY if the live field still equals the exact value the apply/repair chain expects to be live; a whole D2.3 repair chain on top of the original apply reverts successfully (CAS anchored on the LAST repair's own applied value, not the original's now-stale value).",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts (\"CAS override (second pass): reverts past a whole repair chain, anchoring on the LAST repair's own applied value\")",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c12",
+      "text": "Second pass: a genuine concurrent edit (human or another automation) to the SAME field, landing AFTER the repair chain, is detected via CAS and refused (revert_failed/conflict) — never silently overwritten.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('CAS override (second pass): a genuine concurrent edit AFTER the repair chain is detected and refused, never overwritten')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c13",
+      "text": "The human refine-config apply path (org_proposal_appliers_wiring.ts's refineConfigApplier) now ALSO records expectedAppliedValue in its snapshot, so a later human /revert of a plain (non-repaired) refine-config gets the same CAS protection, not just the auto-revert lane.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/org_proposal_appliers_wiring.test.ts (regression-covered by the unchanged full suite: adding the field is additive and does not alter any existing assertion)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c14",
+      "text": "THIRD PASS (this repair): a config-field revert whose value CAS lands in agent_configs but whose live-served opencode profile-file projection is blocked/failed/missing must NOT transition the proposal to 'reverted' — it stays at its current non-terminal status (retryable), and the caller (auto_revert_service.ts) records revert_status='revert_failed' with a safe reason, NEVER 'reverted' (proposal) + 'revert_failed' (event) at the same time. A retry that resumes the SAME transition (field already at its target value) retries projection only — never a second write — and completes once projection settles. The prior separate, AFTER-the-fact 'independent post-write verification' in auto_revert_service.ts (which ran after revertProposal's own terminal transition, leaving a window for exactly this contradiction) is removed — verification now happens INSIDE revertProposal, before its own terminal transition, for both the human #857 path and the unattended auto-revert path.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/org_proposal_apply.test.ts ('finding #1/#3 (D2 post-apply lifecycle repair): does not mark the proposal reverted while the profile-file projection is blocked...'); apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('finding #3: a config-field revert that lands in the DB but whose profile-file projection is blocked never marks the proposal reverted...')",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1434-c15",
+      "text": "THIRD PASS (this repair, issue #1434 full-trail requirement): the auto-revert alert payload carries deterministic SHA-256 fingerprints — a target-identity fingerprint and a change fingerprint for the original proposal's ConfigFieldSnapshot, and a plain field name + a value fingerprint for each repair attempt's own landed value — never a raw config/field value, diagnosis prose, secret, or snapshot. Fingerprints are omitted (never fabricated) for a snapshot shape the fingerprint helper doesn't recognize (e.g. a repair proposal with no snapshot at all, as in legacy fixtures).",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/auto_revert_service.test.ts ('issue-1434 full-trail fingerprints: alert carries exact SHA-256 target/change fingerprints for the original and a field + value fingerprint for each repair, with no raw values'; the pre-existing 'generates an alert with the full trail' test updated to assert the exact new fingerprint values)",
+      "status": "pass"
+    }
+  ],
+  "not_tested": [],
+  "current_evidence": {
+    "files": [
+      "apps/api_server/src/database/migrations.ts",
+      "apps/api_server/src/database/postgres_bootstrap.ts",
+      "apps/api_server/src/models/post_apply_event.ts",
+      "apps/api_server/src/repositories/agent_configs_repository.ts",
+      "apps/api_server/src/repositories/agent_org_proposals_repository.ts",
+      "apps/api_server/src/repositories/post_apply_events_repository.ts",
+      "apps/api_server/src/services/auto_repair_service.ts",
+      "apps/api_server/src/services/auto_revert_service.ts",
+      "apps/api_server/src/services/org_proposal_apply.ts",
+      "apps/api_server/src/services/org_proposal_apply_service.ts",
+      "apps/api_server/src/services/org_proposal_appliers_wiring.ts",
+      "apps/api_server/src/services/post_apply_lifecycle.ts",
+      "apps/api_server/src/services/post_apply_monitor.ts",
+      "apps/api_server/src/services/__tests__/auto_repair_service.test.ts",
+      "apps/api_server/src/services/__tests__/auto_revert_service.test.ts",
+      "apps/api_server/src/services/__tests__/post_apply_lifecycle.integration.test.ts",
+      "apps/api_server/src/services/__tests__/post_apply_monitor.test.ts",
+      "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "apps/api_server/src/__tests__/post_apply_lifecycle_repair_live_e2e.test.ts",
+      "docs/ai/contracts/issue-1433.json",
+      "docs/ai/contracts/issue-1434.json",
+      "docs/ai/contracts/issue-1435.json",
+      "docs/ai/runs/2026-08-19-d2-lifecycle-independent-review.md",
+      "docs/ai/project-state.md"
+    ],
+    "focused_second_pass": "auto_repair_service.test.ts (15 tests), auto_revert_service.test.ts (9 tests), post_apply_lifecycle.integration.test.ts (8 tests), post_apply_monitor.test.ts, org_proposal_apply.test.ts, org_proposal_appliers_wiring.test.ts, w1_corrective_6_boundaries/revisions.test.ts, org_proposal_measure.test.ts, post_apply_events_repository.test.ts, post_apply_event.test.ts, skill_schema_parity.test.ts, org_settings_schema_parity.test.ts, delegation_generator.test.ts, config_doctor_core_permissions_contract.test.ts, w1_corrective_4/5/6_*.test.ts, issue_981/857/831/1082_*.test.ts — all pass (see run note for literal counts)",
+    "independent_full_suite_second_pass": "696 files / 5711 tests: 5523 pass, 7 known unrelated fail (same 7 as the pre-existing baseline, verified identical with these changes stashed), 181 skipped",
+    "typecheck": "pass",
+    "build": "pass",
+    "gitnexus_risk": "UNKNOWN — not re-run this pass; see prior note",
+    "sandbox": "PASS: isolated sandbox stood up on ports 4297/4298/4299 (4097/4098 were occupied by a concurrently running, unrelated worktree sandbox — never touched). Live E2E for the critical repair-evidence fix (issue-1433-c11) passed against the real fork engine + real 1-minute scheduler cron tick; sandbox torn down cleanly afterward.",
+    "third_pass_files_added": [
+      "apps/api_server/src/services/agent_profile_projection_service.ts (isProjectionSettled export)"
+    ],
+    "focused_third_pass": "auto_repair_service.test.ts 17/17, auto_revert_service.test.ts 11/11, org_proposal_apply.test.ts 111/111, post_apply_lifecycle.integration.test.ts / post_apply_monitor.test.ts unchanged-green — 155/155 together (see docs/ai/runs/2026-08-20-d2-lifecycle-third-pass-repair.md). Adjacent regression (14 files incl. org_proposal_appliers_wiring/w1_corrective_4-6/org_proposal_measure/post_apply_events_repository/post_apply_event/skill_schema_parity/org_settings_schema_parity/delegation_generator/config_doctor_core_permissions/issue_981/857/831/1082): 311/312 (1 pre-existing skip).",
+    "independent_full_suite_third_pass": "697 files / 5717 tests: 5528 pass, 7 known unrelated fail (byte-identical to the documented baseline — memory provenance x2, memory_index_rebuild x1, memory_injection x2, delegation_caller_identity x1, issue_1135_audit_lock x1), 182 skipped.",
+    "typecheck_third_pass": "pass",
+    "build_third_pass": "pass",
+    "gitnexus_risk_third_pass": "UNKNOWN — detect_changes() reported 0 changed symbols against 23 changed files (stale index, same as every prior pass); impact traced manually via exhaustive grep for every caller of revertProposal/runAutoRepairAsync/runAutoRevertAsync.",
+    "sandbox_third_pass": "Final isolated sandbox pass used ports 4297/4298/4299, a synthetic SQLite fixture, and a disposable OpenAI MRU model because copied Claude credentials were expired. Real post-apply guardrail evidence produced a real diagnosis and repair proposal; no evidence remained pending across cron; clean evidence settled clear/not_needed with the original proposal active and no alert. 1/1 live test passed in 160.53s. Sandbox teardown closed all three ports."
+  }
+}

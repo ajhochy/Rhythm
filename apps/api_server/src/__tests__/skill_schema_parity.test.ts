@@ -39,6 +39,28 @@ const TABLES = [
   'agent_org_proposals',
   'org_skills',
   'agent_config_security_events',
+  // W4 — the run-outcome ledger. Both tables are dual-engine; this guard is the
+  // only thing standing between an added column and a production-only 500.
+  'agent_run_outcomes',
+  'agent_run_feedback_events',
+  // W6 — the controlled experiment record.
+  'agent_org_experiments',
+  // C1-C-B3 — durable pre-dispatch enrollment lifecycle.
+  'agent_org_experiment_enrollments',
+  // C2-B — the durable, immutable, sanitized treatment receipt.
+  'agent_org_experiment_treatment_receipts',
+  // W5 — the retirement sidecar. Was created lazily at runtime by
+  // org_proposal_reconciler.ts, SQLite-only and invisible to this guard, which
+  // is exactly the drift this list exists to prevent. Now migrated in both
+  // engines and covered here.
+  'agent_org_proposal_retirements',
+  // The two tables that carried 13 columns of shipped SQLite-only drift
+  // (agent_sessions x7, agent_configs x6) precisely because neither was on this
+  // list. They are the hottest dual-engine tables in the app; keep them here.
+  'agent_sessions',
+  'agent_configs',
+  // D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record.
+  'agent_org_post_apply_events',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */
@@ -63,7 +85,11 @@ function postgresColumns(source: string, table: string): string[] {
 
   // 1) CREATE TABLE body.
   const createRe = new RegExp(
-    `CREATE TABLE IF NOT EXISTS ${table}\\s*\\(([\\s\\S]*?)\\)\\s*\``,
+    // Terminate on the statement's `);`, not on `)` + backtick: several
+    // template literals hold more than one statement, so the backtick form
+    // ran past the closing paren and swallowed following JS (`await`, `ALTER`)
+    // as if they were columns.
+    `CREATE TABLE IF NOT EXISTS ${table}\\s*\\(([\\s\\S]*?)\\)\\s*;`,
     'i',
   );
   const createMatch = source.match(createRe);
@@ -79,9 +105,12 @@ function postgresColumns(source: string, table: string): string[] {
     }
   }
 
-  // 2) ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>.
+  // 2) ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>. `\s+` rather than
+  // a literal space: prettier wraps long ALTERs onto a second line, and the
+  // single-space form silently missed every wrapped one (e.g. agent_configs
+  // `revision`).
   const alterRe = new RegExp(
-    `ALTER TABLE ${table} ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*)`,
+    `ALTER TABLE ${table}\\s+ADD COLUMN\\s+(?:IF NOT EXISTS\\s+)?([a-z_][a-z0-9_]*)`,
     'gi',
   );
   let m: RegExpExecArray | null;
@@ -103,9 +132,14 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       const sqlite = sqliteColumns(table);
       const pg = postgresColumns(pgSource, table);
 
-      // Sanity: the parser actually found a non-trivial column set.
-      expect(sqlite.length).toBeGreaterThan(5);
-      expect(pg.length).toBeGreaterThan(5);
+      // Sanity: both readers actually found the table, so a blind DDL parser
+      // reports as "parser found nothing" rather than as a column mismatch.
+      // (Floor is 1, not an arbitrary width: agent_org_proposal_retirements is
+      // legitimately 5 columns wide, and two engines agreeing on a narrow table
+      // is not a defect. Every real drift is still caught by the equality
+      // below — proven by the mutation run that deletes the Postgres DDL.)
+      expect(sqlite.length).toBeGreaterThan(0);
+      expect(pg.length).toBeGreaterThan(0);
 
       expect(pg).toEqual(sqlite);
     });
@@ -133,6 +167,39 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       expect(sqlite).toContain(col);
       expect(postgres).toContain(col);
     }
+  });
+
+  it('W6-c10: outcome_status is additive in BOTH engines', () => {
+    expect(sqliteColumns('agent_org_proposals')).toContain('outcome_status');
+    expect(postgresColumns(pgSource, 'agent_org_proposals')).toContain('outcome_status');
+  });
+
+  it('W6-c10: the experiment spec-immutability trigger has a behavioural Postgres twin', () => {
+    // The parity guard above compares COLUMNS only, so the behaviour gets its
+    // own assertion. Postgres cannot be executed here, so the twin is checked
+    // statically: same guarded columns, same message text, plus the DELETE
+    // block. (Stated limitation: this pins the DDL, not a live Postgres run.)
+    for (const guarded of [
+      'NEW.baseline_spec_json IS DISTINCT FROM OLD.baseline_spec_json',
+      'NEW.candidate_spec_json IS DISTINCT FROM OLD.candidate_spec_json',
+      'NEW.assignment_key IS DISTINCT FROM OLD.assignment_key',
+      'NEW.stopping_rule_json IS DISTINCT FROM OLD.stopping_rule_json',
+      'NEW.max_exposure IS DISTINCT FROM OLD.max_exposure',
+    ]) {
+      expect(pgSource).toContain(guarded);
+    }
+    expect(pgSource).toContain('trg_agent_org_experiments_no_delete');
+    expect(pgSource).toContain(
+      "rhythm_reject_ledger_write('agent org experiment specs are immutable once declared')",
+    );
+    // Identical wording on both engines.
+    const sqliteSource = readFileSync(
+      join(__dirname, '..', 'database', 'migrations.ts'),
+      'utf8',
+    );
+    expect(sqliteSource).toContain(
+      "RAISE(ABORT, 'agent org experiment specs are immutable once declared')",
+    );
   });
 
   it('issue-798-c7: release CI runs the schema parity guard explicitly', () => {

@@ -51,6 +51,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { isToolAllowed } from './mcp_dispatch_guard';
+import { parsePersistedToolEvidence, type ToolAttempt } from './persisted_tool_evidence';
 import type { AgentSession, AgentSessionMessage, AgentSessionStatus } from '../models/agent_session';
 
 // ── Public shapes ────────────────────────────────────────────────────────
@@ -64,13 +65,26 @@ export type WorkflowFailureCategory =
   | 'missing-scope'
   | 'tool-unavailable-attempted'
   | 'repeated-correction'
-  | 'external-abort';
+  | 'external-abort'
+  | 'post-apply-regression';
 
 /**
  * Only present when category='delegate-result'. See {@link classifyDelegateOutcome}
  * for what each value means and why 'unknown' must never be treated as a failure.
  */
 export type DelegateOutcome = 'failed' | 'transport-empty' | 'incomplete' | 'unknown';
+
+/**
+ * Only present when category='retry-loop'. Only assigned once a failed/
+ * timed-out attempt has been followed by a LATER attempt of the same
+ * (tool, equivalent-input) pair AND the latest such attempt is terminal
+ * (completed, or failed/timed-out) — a failure with no later attempt is not
+ * a retry, and a latest attempt still in-flight (not stale) is inconclusive,
+ * not evidence either way. 'recovered' means that latest attempt completed;
+ * 'unresolved' means it was also failed/timed-out. See
+ * {@link detectRetryLoopSignals}.
+ */
+export type RetryOutcome = 'recovered' | 'unresolved';
 
 export type SignalConfidence = 'low' | 'medium' | 'high';
 
@@ -86,6 +100,7 @@ export interface WorkflowFailureSignal {
   /** Concise, human-readable evidence string (doubles as a proposal rationale/signal_ref). */
   evidence: string;
   delegateOutcome?: DelegateOutcome;
+  retryOutcome?: RetryOutcome;
   /**
    * #936 — STABLE identity of the specific pattern this signal represents:
    * the detector's own grouping key (issue number for stale-redo, profile for
@@ -125,13 +140,16 @@ export const WORKFLOW_SIGNAL_MAX_PER_RUN = Number(process.env.WORKFLOW_SIGNAL_MA
 const STALE_IN_FLIGHT_MS = 30 * 60 * 1000;
 /** Minimum stripped-text length to count as "real" delegated output (vs. a stray whitespace row). */
 const MIN_OUTPUT_CHARS = 20;
-/** A single session this loopy is severe enough to signal on its own. */
-const SINGLE_SESSION_RETRY_SEVERE = 4;
+/**
+ * W3 (self-improvement-engine-foundation) — a tool call still `state.status
+ * === 'running'` this long past its recorded `state.time.start` looks stuck/
+ * timed-out, not merely slow. Mirrors STALE_IN_FLIGHT_MS's approach but scoped
+ * to a single tool call rather than a whole delegated session.
+ */
+export const STUCK_TOOL_RUNNING_MS = 10 * 60 * 1000;
 
 // ── Shared regexes ──────────────────────────────────────────────────────
 
-const RETRY_PHRASE_RE =
-  /\b(?:let me try (?:again|a different|another)|trying again|retry(?:ing)?|one more (?:attempt|try)|different approach)\b/gi;
 const CLAIM_RE =
   /\b(?:commit [0-9a-f]{7,40}|(?:pull request|pr) #\d+|pushed (?:it |this |that )?to (?:branch|main|origin))\b/i;
 const CORRECTION_RE =
@@ -234,53 +252,171 @@ function detectDelegateResultSignals(
   return signals;
 }
 
-// ── Detector 2: retry-loop ───────────────────────────────────────────────
+// ── Detector 2: retry-loop (W3 — structured tool attempts ONLY) ──────────
+//
+// Evidence comes exclusively from persisted `type: 'tool'` message parts
+// (tool name + callID + state.status + state.input) — the SAME structured
+// records org_exercised_tools_resolver.ts and async_delegation_status_service.ts
+// read. Lexical "retry"/"try again" prose is NEVER scanned: a session can
+// discuss retry policy, resume behavior, or narrate a successful retry in
+// prose without that ever being mistaken for evidence — only an actual
+// repeated, failed/timed-out tool invocation with MATERIALLY EQUIVALENT input
+// counts. A read-only audit of live sessions found grouping by tool name
+// alone flagged 700 same-session/tool groups, of which only 36 had a later
+// exact-input retry — the other 664 were the same tool called with a
+// different input, i.e. a different operation, not a retry.
+
+/**
+ * Narrow compatibility export for adjacent callers/tests — delegates entirely
+ * to the shared `persisted_tool_evidence.ts` parser (the SAME parser
+ * `classifyRerunFailure` in org_proposal_measure.ts consumes) so this module
+ * and the rerun-measurement path can never drift into two incomplete,
+ * hand-rolled validators again. Malformed/ambiguous evidence
+ * (`integrity: 'invalid'`) is returned as an EMPTY attempt list here — never
+ * silently certified clean — matching this function's pre-existing "no
+ * evidence" contract for callers that only care about attempts, not integrity.
+ */
+function extractToolAttempts(messages: AgentSessionMessage[]): ToolAttempt[] {
+  return parsePersistedToolEvidence(messages).attempts;
+}
+
+type ToolAttemptResult = 'failed' | 'timeout' | 'ok' | 'in-flight';
+
+/**
+ * Classify one attempt. A stale 'running' attempt settles AT (>=), not only
+ * strictly past, STUCK_TOOL_RUNNING_MS — the boundary instant itself is
+ * already a timeout, not one tick shy of it. A 'completed' state whose
+ * `mcpResult.isError===true` is FAILED, not a recovered success.
+ */
+function classifyToolAttempt(attempt: ToolAttempt, now: number): ToolAttemptResult {
+  if (attempt.status === 'error') return 'failed';
+  if (attempt.status === 'completed') return attempt.mcpIsError ? 'failed' : 'ok';
+  if (attempt.status === 'running' && attempt.startedAt !== null && now - attempt.startedAt >= STUCK_TOOL_RUNNING_MS) {
+    return 'timeout';
+  }
+  return 'in-flight'; // pending, or running but not yet stale — not evidence either way
+}
+
+/**
+ * The instant a TERMINAL attempt SETTLES — the earliest a subsequent attempt
+ * could genuinely be "after" it. A completed/errored attempt settles at its
+ * own `state.time.end`; a stale-running timeout settles no earlier than
+ * `start + STUCK_TOOL_RUNNING_MS` (the instant it actually crossed the
+ * staleness threshold, not "now"). `null` for a still in-flight attempt —
+ * it never settles and can never anchor a later attempt's chronology.
+ */
+function settlementOf(attempt: ToolAttempt, result: ToolAttemptResult): number | null {
+  if (result === 'failed' || result === 'ok') return attempt.endedAt;
+  if (result === 'timeout') return (attempt.startedAt as number) + STUCK_TOOL_RUNNING_MS;
+  return null;
+}
+
+export interface RetryTimelineResult {
+  retryOutcome: RetryOutcome;
+  badCount: number;
+}
+
+/**
+ * The ONE deterministic terminal-timeline reducer for a single (tool,
+ * equivalent-input) group of attempts within a session. Consumed exclusively
+ * by {@link detectRetryLoopSignals} (rerun measurement reaches the SAME
+ * strict evidence through `detectRetryLoopSignals` itself for its
+ * "reproduced" check — see org_proposal_measure.ts's classifyRerunFailure).
+ *
+ * Fails closed (`null`, no signal) whenever the timeline is not FULLY
+ * strict and terminal:
+ *   - fewer than WORKFLOW_SIGNAL_MIN_REPEAT_COUNT attempts;
+ *   - any attempt lacks a finite `startedAt` (a 'pending' attempt never has
+ *     one — sorting a missing timestamp against real ones can manufacture an
+ *     ordering that was never observed);
+ *   - ANY attempt (not merely the last) is still in-flight (pending, or
+ *     running but not yet stale) — an unsettled attempt anywhere makes the
+ *     whole timeline provisional;
+ *   - the sorted-by-start sequence is not STRICTLY non-overlapping: each
+ *     attempt's start must be strictly greater than the PRIOR attempt's own
+ *     settlement (not "any prior failure's" — this closes the prior bug
+ *     where a later attempt could chain past an intermediate attempt that
+ *     itself overlapped an earlier unsettled failure, manufacturing
+ *     causality that was never actually sequential). Equal starts and
+ *     overlaps suppress the whole group.
+ *
+ * Only once every attempt is finite, terminal, and strictly sequential does
+ * this derive recovered/unresolved — from the FINAL attempt in that strict
+ * chronology, requiring at least one earlier failed/timeout attempt.
+ */
+export function reduceRetryTimeline(group: ToolAttempt[], now: number): RetryTimelineResult | null {
+  if (group.length < WORKFLOW_SIGNAL_MIN_REPEAT_COUNT) return null;
+  if (!group.every((a) => typeof a.startedAt === 'number' && Number.isFinite(a.startedAt))) return null;
+
+  const sorted = [...group].sort((a, b) => (a.startedAt as number) - (b.startedAt as number));
+  const results = sorted.map((a) => classifyToolAttempt(a, now));
+
+  if (results.some((r) => r === 'in-flight')) return null;
+
+  for (let i = 1; i < sorted.length; i++) {
+    const priorSettlement = settlementOf(sorted[i - 1], results[i - 1]);
+    if (priorSettlement === null || (sorted[i].startedAt as number) <= priorSettlement) return null;
+  }
+
+  const hasQualifyingRetry = results.slice(0, -1).some((r) => r === 'failed' || r === 'timeout');
+  if (!hasQualifyingRetry) return null;
+
+  const lastResult = results[results.length - 1];
+  const badCount = results.filter((r) => r === 'failed' || r === 'timeout').length;
+  const retryOutcome: RetryOutcome = lastResult === 'ok' ? 'recovered' : 'unresolved';
+  return { retryOutcome, badCount };
+}
 
 function detectRetryLoopSignals(
   sessions: AgentSession[],
   getMessages: (sessionId: string) => AgentSessionMessage[],
 ): WorkflowFailureSignal[] {
   const signals: WorkflowFailureSignal[] = [];
-  const groupsByProfile = new Map<string, string[]>();
+  const now = Date.now();
 
   for (const session of sessions) {
-    let count = 0;
-    for (const m of getMessages(session.id)) {
-      if (m.role !== 'output') continue;
-      count += (m.strippedText.match(RETRY_PHRASE_RE) ?? []).length;
-    }
-    if (count === 0) continue;
+    const attempts = parsePersistedToolEvidence(getMessages(session.id)).attempts;
+    if (attempts.length === 0) continue; // no structured tool evidence — suppressed, no prose fallback
 
-    const agentConfigId = profileOf(session);
-    if (count >= SINGLE_SESSION_RETRY_SEVERE) {
+    // Grouped by tool + normalized input identity — NOT tool alone. The same
+    // tool called with a materially different input is a different
+    // operation, not a retry of the same one (see the module doc comment).
+    const byToolAndInput = new Map<string, ToolAttempt[]>();
+    for (const attempt of attempts) {
+      const key = `${attempt.tool}::${attempt.inputHash}`;
+      const list = byToolAndInput.get(key) ?? [];
+      list.push(attempt);
+      byToolAndInput.set(key, list);
+    }
+
+    for (const group of byToolAndInput.values()) {
+      const timeline = reduceRetryTimeline(group, now);
+      if (!timeline) continue;
+      const { retryOutcome, badCount } = timeline;
+
+      const agentConfigId = profileOf(session);
+      const tool = group[0].tool;
+      const inputHash = group[0].inputHash;
+      const inputHashPrefix = inputHash.slice(0, 12);
+
       signals.push({
         category: 'retry-loop',
         agentConfigId,
-        count,
-        confidence: 'high',
+        count: badCount,
+        confidence: retryOutcome === 'unresolved' ? 'high' : 'medium',
         sessionIds: [session.id],
-        evidence: `retryPhraseCount=${count} in a single session agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
-        dedupToken: session.id, // a single-session severe incident — keyed on the session itself
+        retryOutcome,
+        evidence: `tool='${tool}' inputHash=${inputHashPrefix} attempts=${group.length} failedOrTimeout=${badCount} outcome=${retryOutcome} agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
+        // Keyed on session+tool+FULL inputHash — a single materially-repeated
+        // (tool, equivalent-input) pair within one session is itself
+        // unambiguous, structured evidence (unlike the old lexical count,
+        // which needed a cross-session repeat to be trustworthy). The full
+        // hash (not the human-readable evidence's short prefix) is used here
+        // so two genuinely different inputs can never collide onto one
+        // dedup key.
+        dedupToken: `${session.id}:${tool}:${inputHash}`,
       });
-    } else {
-      const key = agentConfigId ?? '(unattributed)';
-      const list = groupsByProfile.get(key) ?? [];
-      list.push(session.id);
-      groupsByProfile.set(key, list);
     }
-  }
-
-  for (const [key, sessionIds] of groupsByProfile) {
-    if (sessionIds.length < WORKFLOW_SIGNAL_MIN_REPEAT_COUNT) continue;
-    signals.push({
-      category: 'retry-loop',
-      agentConfigId: key === '(unattributed)' ? null : key,
-      count: sessionIds.length,
-      confidence: 'medium',
-      sessionIds: sessionIds.slice(0, 5),
-      evidence: `retry-loop phrases across ${sessionIds.length} sessions agentConfigId=${key} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
-      dedupToken: key, // grouped by profile
-    });
   }
   return signals;
 }
@@ -628,6 +764,8 @@ export {
   classifyDelegateOutcome,
   detectDelegateResultSignals,
   detectRetryLoopSignals,
+  extractToolAttempts,
+  classifyToolAttempt,
   detectHallucinatedClaimSignals,
   detectUnverifiedClaimSignals,
   detectStaleRedoSignals,

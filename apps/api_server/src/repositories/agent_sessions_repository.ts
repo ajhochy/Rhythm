@@ -18,6 +18,18 @@ import {
   appendRelayUpsert,
 } from './relay_outbox_repository';
 
+/**
+ * The subset of a session that decides which agent profile owns it — see
+ * `listOwnershipFacets`. Deliberately narrower than `AgentSession` so an
+ * uncapped read stays cheap.
+ */
+export interface SessionOwnershipFacet {
+  status: AgentSessionStatus;
+  scheduledTaskId: string | null;
+  mcpRole: string | null;
+  agentKind: AgentSession['agentKind'];
+}
+
 interface AgentSessionRow {
   id: string;
   task_id: string | null;
@@ -462,6 +474,45 @@ export class AgentSessionsRepository {
       .prepare(`SELECT * FROM agent_sessions WHERE ${scopeClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
     return rows.map(rowToModel);
+  }
+
+  /**
+   * Every chat session's ownership-relevant fields, UNCAPPED and unordered.
+   *
+   * `listAll` is `ORDER BY created_at DESC LIMIT ?`, which is right for a UI
+   * list and wrong for a total. The org audit used it to build per-profile
+   * session COUNTS that gate the tighten-scope observation floor
+   * (sessionCount >= 10): past the limit the read is newest-first truncated, so
+   * an older-but-qualifying profile's runs fall outside it, its count reads
+   * low, the floor is never met, and the audit reports zero proposals — "we
+   * didn't look" indistinguishable from "nothing to improve". A count must be
+   * taken over the whole population, so this read has no cap.
+   *
+   * Only the four columns the ownership resolver actually reads are selected,
+   * so the uncapped row set stays small even on a database with hundreds of
+   * thousands of sessions. Callers needing full session rows should keep using
+   * the bounded `listAll`.
+   */
+  listOwnershipFacets(): SessionOwnershipFacet[] {
+    return getDb()
+      .prepare(
+        `SELECT status, scheduled_task_id, mcp_role, agent_kind
+           FROM agent_sessions
+          WHERE category = 'chat' AND is_system = 0`,
+      )
+      .all()
+      .map((row) => {
+        const r = row as Pick<
+          AgentSessionRow,
+          'status' | 'scheduled_task_id' | 'mcp_role' | 'agent_kind'
+        >;
+        return {
+          status: r.status as AgentSessionStatus,
+          scheduledTaskId: r.scheduled_task_id ?? null,
+          mcpRole: r.mcp_role ?? null,
+          agentKind: r.agent_kind as AgentSession['agentKind'],
+        };
+      });
   }
 
   listActive(): AgentSession[] {

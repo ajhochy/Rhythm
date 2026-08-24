@@ -27,6 +27,10 @@
  *   failed    -> applied | failed   (#1056 — retryable: a re-approve re-runs
  *                                    the same apply step)
  *
+ * Scope projection compensation additionally permits `applied -> approved`
+ * only through the revision-bound atomic target+proposal primitive. The
+ * generic status updater deliberately does not expose that transition.
+ *
  * `proposed -> applied` (skipping `approved`) is the auto-apply lane for
  * low-risk, reversible proposals per the maintainer's full-autonomy-with-
  * rollback policy (2026-07-02) — only new-agent and external-adoption kinds
@@ -34,6 +38,8 @@
  * decision made before calling updateStatusAsync, not something the state
  * machine itself enforces.
  */
+import type { ProposalOutcomeStatus } from './agent_org_experiment';
+
 export interface AgentOrgProposal {
   id: string;
   /** Groups proposals from one optimizer run. Null for ad hoc/manual proposals. */
@@ -75,7 +81,27 @@ export interface AgentOrgProposal {
   baselineScore: number | null;
   postScore: number | null;
   measureReason: string | null;
+  /**
+   * Why proposal/target/projection coherence could not be proved. Kept
+   * separate from `measureReason` on purpose: measurement prose and an
+   * unresolved-operation record must never be mistaken for one another.
+   */
+  reconciliationReason?: string | null;
   decidedByUserId: number | null;
+  /**
+   * W6-c8 — OUTCOME authority, deliberately separate from `status`, which
+   * remains the DEPLOYMENT field. A proposal can be simultaneously
+   * status='active' (deployed) and outcome_status='inconclusive' (nothing was
+   * proven about it). `inconclusive` is NOT a proposal status and the status
+   * state machine is not extended by W6.
+   *
+   * `unproven` (default) | `inconclusive` | `verified` | `regressed`. Only the
+   * experiment service may write `verified` or `regressed`; the body/rerun
+   * measure path may write `inconclusive` and nothing stronger.
+   */
+  outcomeStatus?: ProposalOutcomeStatus;
+  /** Monotonic lifecycle CAS token. Incremented exactly once per mutation. */
+  revision?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,14 +125,18 @@ export interface AgentOrgProposalInput {
   baselineScore?: number | null;
   postScore?: number | null;
   measureReason?: string | null;
+  reconciliationReason?: string | null;
   decidedByUserId?: number | null;
 }
+
+/** Repository-backed proposal row with the migration-guaranteed CAS token. */
+export type RevisionedAgentOrgProposal = AgentOrgProposal & { revision: number };
 
 /**
  * Build an {@link AgentOrgProposal} from a plain JSON object (camelCase keys).
  * Round-trips losslessly with {@link agentOrgProposalToJson}.
  */
-export function agentOrgProposalFromJson(json: Record<string, unknown>): AgentOrgProposal {
+export function agentOrgProposalFromJson(json: Record<string, unknown>): RevisionedAgentOrgProposal {
   return {
     id: json.id as string,
     auditRunId: (json.auditRunId as string | null) ?? null,
@@ -125,7 +155,10 @@ export function agentOrgProposalFromJson(json: Record<string, unknown>): AgentOr
     baselineScore: (json.baselineScore as number | null) ?? null,
     postScore: (json.postScore as number | null) ?? null,
     measureReason: (json.measureReason as string | null) ?? null,
+    reconciliationReason: (json.reconciliationReason as string | null) ?? null,
     decidedByUserId: (json.decidedByUserId as number | null) ?? null,
+    outcomeStatus: (json.outcomeStatus as ProposalOutcomeStatus) ?? 'unproven',
+    revision: (json.revision as number) ?? 0,
     createdAt: json.createdAt as string,
     updatedAt: json.updatedAt as string,
   };
@@ -151,7 +184,10 @@ export function agentOrgProposalToJson(proposal: AgentOrgProposal): Record<strin
     baselineScore: proposal.baselineScore,
     postScore: proposal.postScore,
     measureReason: proposal.measureReason,
+    reconciliationReason: proposal.reconciliationReason,
     decidedByUserId: proposal.decidedByUserId,
+    outcomeStatus: proposal.outcomeStatus,
+    revision: proposal.revision,
     createdAt: proposal.createdAt,
     updatedAt: proposal.updatedAt,
   };

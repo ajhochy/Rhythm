@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 
 import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
+import { ENROLLMENT_FAILURE_CODES, ENROLLMENT_FAILURE_CODE_REASONS } from '../models/agent_org_experiment_enrollment';
 import {
   LEGACY_MEMORY_CONSOLIDATION_PROMPT_V1,
   MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
@@ -9,6 +10,83 @@ import {
   MEMORY_CONSOLIDATION_REPAIR_KEY,
   MEMORY_CONSOLIDATION_SEED_NAME,
 } from '../services/memory_consolidation_seed';
+
+/**
+ * W1 corrective-6 package B — monotonic persistence revisions.
+ *
+ * `revision` is the CAS token the scope lifecycle fences every approved →
+ * applied → measuring transition on. A raw writer (a migration repair, a
+ * bootstrap backfill, an ad-hoc UPDATE) that changes a row without touching
+ * `revision` would leave a stale token valid, so a lifecycle caller could
+ * commit against bytes it never read. Enforce the invariant in the schema
+ * rather than at each of the ~10 call sites:
+ *
+ *   - BEFORE INSERT / BEFORE UPDATE OF revision guards pin the stored domain
+ *     to a safe non-negative integer (SQLite's INTEGER affinity happily keeps
+ *     -1, 1.5, Infinity and 2^53 in an `INTEGER NOT NULL` column).
+ *   - AFTER UPDATE auto-bumps only when the writer left `revision` unchanged,
+ *     so repository writes that already do `revision = revision + 1` are not
+ *     double-incremented.
+ *   - an explicit revision write must move FORWARD. Without that, raw SQL
+ *     could roll a revision back and revive a stale CAS token: bytes go
+ *     A -> B -> A while the revision returns to its old value, and a caller
+ *     holding that token wins a compare-and-set over history it never saw.
+ *
+ * Known limitation: `INSERT OR REPLACE` / `DELETE`+`INSERT` destroy and
+ * recreate the row rather than updating it, so no UPDATE trigger can observe
+ * the old revision. SQLite cannot express that guard. No writer in this
+ * repository replaces these rows; a future one must bump the revision itself.
+ *
+ * Pre-existing unsafe material fails the migration CLOSED. Silently
+ * normalizing a corrupt revision would hand a lifecycle caller a token that
+ * looks fresh but describes bytes nobody verified.
+ */
+const MAX_SAFE_SQL_REVISION = '9007199254740991';
+
+function installRevisionInvariants(db: Database.Database, table: string): void {
+  const columns = (db.pragma(`table_info(${table})`) as { name: string }[])
+    .map((column) => column.name);
+  if (!columns.includes('revision')) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN revision INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const unsafeDomain =
+    `typeof(revision) <> 'integer' OR revision < 0 OR revision > ${MAX_SAFE_SQL_REVISION}`;
+  const corrupt = db
+    .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${unsafeDomain}`)
+    .get() as { n: number };
+  if (corrupt.n > 0) {
+    throw new Error(
+      `${table}.revision holds ${corrupt.n} row(s) outside the safe non-negative integer ` +
+      'domain; refusing to migrate. Reconcile the corrupt revisions before restarting.',
+    );
+  }
+
+  const rowDomain =
+    `typeof(NEW.revision) <> 'integer' OR NEW.revision < 0 ` +
+    `OR NEW.revision > ${MAX_SAFE_SQL_REVISION}`;
+  const abort = `SELECT RAISE(ABORT, '${table}.revision must be a safe non-negative integer');`;
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_insert_domain
+    BEFORE INSERT ON ${table}
+    FOR EACH ROW WHEN ${rowDomain}
+    BEGIN ${abort} END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_update_domain
+    BEFORE UPDATE OF revision ON ${table}
+    FOR EACH ROW WHEN ${rowDomain} OR NEW.revision <= OLD.revision
+    BEGIN ${abort} END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_${table}_revision_autobump
+    AFTER UPDATE ON ${table}
+    FOR EACH ROW WHEN NEW.revision = OLD.revision
+    BEGIN
+      UPDATE ${table}
+         SET revision = OLD.revision + 1
+       WHERE id = NEW.id AND revision = OLD.revision;
+    END;
+  `);
+}
 
 export function runMigrations(db: Database.Database): void {
   // ── Write-discipline contract ─────────────────────────────────────────
@@ -56,7 +134,7 @@ export function runMigrations(db: Database.Database): void {
       op TEXT NOT NULL,
       pk TEXT NOT NULL,
       row_json TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS relay_sync_state (
@@ -85,8 +163,8 @@ export function runMigrations(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'open',
       source_type TEXT,
       source_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS recurring_task_rules (
@@ -97,7 +175,7 @@ export function runMigrations(db: Database.Database): void {
       day_of_month INTEGER,
       month INTEGER,
       steps_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS project_templates (
@@ -106,7 +184,7 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       anchor_type TEXT NOT NULL DEFAULT 'date',
       owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS project_template_steps (
@@ -125,7 +203,7 @@ export function runMigrations(db: Database.Database): void {
       anchor_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS project_milestones (
@@ -135,8 +213,8 @@ export function runMigrations(db: Database.Database): void {
       due_date TEXT,
       color TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(instance_id, id)
     );
 
@@ -156,7 +234,7 @@ export function runMigrations(db: Database.Database): void {
       week_label TEXT NOT NULL UNIQUE,
       week_start_date TEXT NOT NULL,
       locked INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS integration_accounts (
@@ -174,8 +252,8 @@ export function runMigrations(db: Database.Database): void {
       expires_at TEXT,
       last_synced_at TEXT,
       error_message TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(owner_id, provider)
     );
 
@@ -192,8 +270,8 @@ export function runMigrations(db: Database.Database): void {
       start_at TEXT NOT NULL,
       end_at TEXT,
       is_all_day INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(owner_id, external_id)
     );
 
@@ -208,8 +286,8 @@ export function runMigrations(db: Database.Database): void {
       snippet TEXT,
       received_at TEXT,
       is_unread INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(owner_id, external_id)
     );
 
@@ -229,8 +307,8 @@ export function runMigrations(db: Database.Database): void {
       action_type TEXT NOT NULL,
       action_config TEXT,
       enabled INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS automation_signals (
@@ -244,8 +322,8 @@ export function runMigrations(db: Database.Database): void {
       source_account_id TEXT,
       source_label TEXT,
       payload_json TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -258,14 +336,14 @@ export function runMigrations(db: Database.Database): void {
       is_facilities_manager INTEGER NOT NULL DEFAULT 0,
       email_notifications_enabled INTEGER NOT NULL DEFAULT 1,
       password_hash TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       expires_at TEXT
     );
 
@@ -273,8 +351,8 @@ export function runMigrations(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
       created_by INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -283,7 +361,7 @@ export function runMigrations(db: Database.Database): void {
       sender_id INTEGER REFERENCES users(id),
       sender_name TEXT NOT NULL,
       body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS facilities (
@@ -293,8 +371,8 @@ export function runMigrations(db: Database.Database): void {
       capacity INTEGER,
       location TEXT,
       building TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS reservation_groups (
@@ -308,8 +386,8 @@ export function runMigrations(db: Database.Database): void {
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       occurrence_date TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS reservations (
@@ -329,8 +407,8 @@ export function runMigrations(db: Database.Database): void {
       created_by_rhythm INTEGER NOT NULL DEFAULT 1,
       is_conflicted INTEGER NOT NULL DEFAULT 0,
       conflict_reason TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS reservation_series (
@@ -347,8 +425,8 @@ export function runMigrations(db: Database.Database): void {
       custom_dates_json TEXT NOT NULL DEFAULT '[]',
       start_date TEXT NOT NULL,
       end_date TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS thread_participants (
@@ -502,7 +580,7 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!reservationCols.includes('updated_at')) {
     db.exec(
-      `ALTER TABLE reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+      `ALTER TABLE reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
     );
   }
 
@@ -530,7 +608,7 @@ export function runMigrations(db: Database.Database): void {
     }
     if (!reservationSeriesCols.includes('updated_at')) {
       db.exec(
-        `ALTER TABLE reservation_series ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+        `ALTER TABLE reservation_series ADD COLUMN updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
       );
     }
   }
@@ -554,8 +632,8 @@ export function runMigrations(db: Database.Database): void {
         expires_at TEXT,
         last_synced_at TEXT,
         error_message TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(owner_id, provider)
       );
     `);
@@ -591,8 +669,8 @@ export function runMigrations(db: Database.Database): void {
         start_at TEXT NOT NULL,
         end_at TEXT,
         is_all_day INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(owner_id, external_id)
       );
     `);
@@ -644,8 +722,8 @@ export function runMigrations(db: Database.Database): void {
         snippet TEXT,
         received_at TEXT,
         is_unread INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         UNIQUE(owner_id, external_id)
       );
     `);
@@ -709,8 +787,8 @@ export function runMigrations(db: Database.Database): void {
         action_type TEXT NOT NULL,
         action_config TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         owner_id INTEGER REFERENCES users(id),
         source TEXT,
         trigger_key TEXT,
@@ -765,28 +843,28 @@ export function runMigrations(db: Database.Database): void {
       name TEXT NOT NULL,
       join_code TEXT NOT NULL UNIQUE,
       created_by INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     CREATE TABLE IF NOT EXISTS workspace_members (
       workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       role TEXT NOT NULL DEFAULT 'staff',
-      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      joined_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (workspace_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS task_collaborators (
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (task_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS project_collaborators (
       project_instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (project_instance_id, user_id)
     );
 
@@ -805,8 +883,8 @@ export function runMigrations(db: Database.Database): void {
       current_state_revision INTEGER NOT NULL CHECK (current_state_revision > 0),
       current_state_hash TEXT NOT NULL CHECK (length(current_state_hash) = 64),
       declared_capabilities_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       updated_by_user_id INTEGER NOT NULL REFERENCES users(id),
       deleted_at TEXT,
       deleted_by_user_id INTEGER REFERENCES users(id)
@@ -819,7 +897,7 @@ export function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS live_artifact_collaborators (
       artifact_id TEXT NOT NULL REFERENCES live_artifacts(id),
       user_id INTEGER NOT NULL REFERENCES users(id),
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       added_by_user_id INTEGER NOT NULL REFERENCES users(id),
       PRIMARY KEY (artifact_id, user_id)
     );
@@ -831,7 +909,7 @@ export function runMigrations(db: Database.Database): void {
       revision INTEGER NOT NULL CHECK (revision > 0),
       hash TEXT NOT NULL CHECK (length(hash) = 64),
       actor_user_id INTEGER NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (artifact_id, revision)
     );
 
@@ -840,7 +918,7 @@ export function runMigrations(db: Database.Database): void {
       revision INTEGER NOT NULL CHECK (revision > 0),
       hash TEXT NOT NULL CHECK (length(hash) = 64),
       actor_user_id INTEGER NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (artifact_id, revision)
     );
 
@@ -859,7 +937,7 @@ export function runMigrations(db: Database.Database): void {
       kind TEXT NOT NULL CHECK (kind IN ('bundle', 'state')),
       hash TEXT NOT NULL CHECK (length(hash) = 64),
       body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       PRIMARY KEY (artifact_id, kind, hash)
     );
   `);
@@ -903,7 +981,7 @@ export function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS rhythm_collaborators (
       rhythm_id TEXT NOT NULL REFERENCES recurring_task_rules(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (rhythm_id, user_id)
     );
   `);
@@ -918,7 +996,7 @@ export function runMigrations(db: Database.Database): void {
       entity_id TEXT NOT NULL,
       message TEXT NOT NULL,
       read_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_notifications_recipient
       ON notifications(recipient_user_id, read_at);
@@ -933,7 +1011,7 @@ export function runMigrations(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
       triggered_by_user_id INTEGER REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(task_id)
     )
   `);
@@ -955,8 +1033,8 @@ export function runMigrations(db: Database.Database): void {
       name TEXT NOT NULL,
       last_preview TEXT,
       last_activity_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_task_id ON agent_sessions(task_id);
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_status ON agent_sessions(status);
@@ -967,7 +1045,7 @@ export function runMigrations(db: Database.Database): void {
       role TEXT NOT NULL,
       raw_text TEXT NOT NULL,
       stripped_text TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_session_messages_session_id
       ON agent_session_messages(session_id, created_at);
@@ -1006,11 +1084,17 @@ export function runMigrations(db: Database.Database): void {
       output_marker TEXT,
       preset_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      revision INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled);
   `);
+
+  // Installed HERE, immediately after the table exists and BEFORE any seed or
+  // content repair below can write a row — a repair that runs while the column
+  // is missing would leave the lifecycle CAS token behind the actual bytes.
+  installRevisionInvariants(db, 'agent_configs');
 
   // Seed built-in preset rows (INSERT OR IGNORE keeps migration idempotent)
   db.exec(`
@@ -1134,7 +1218,7 @@ export function runMigrations(db: Database.Database): void {
         resume_command = NULL,
         session_id_pattern = NULL,
         output_marker  = '✦',
-        updated_at     = datetime('now')
+        updated_at     = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id = 'gemini-cli';
     `);
   });
@@ -1169,7 +1253,7 @@ export function runMigrations(db: Database.Database): void {
         resume_command     = 'opencode --session {{sessionId}}',
         session_id_pattern = '(ses_[a-zA-Z0-9]{10,})',
         output_marker      = '│',
-        updated_at         = datetime('now')
+        updated_at         = strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id = 'opencode';
     `);
   });
@@ -1184,7 +1268,7 @@ export function runMigrations(db: Database.Database): void {
     UPDATE agent_configs
     SET
       label      = 'OpenRouter',
-      updated_at = datetime('now')
+      updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
     WHERE id = 'opencode' AND label = 'OpenCode';
   `);
 
@@ -1195,7 +1279,7 @@ export function runMigrations(db: Database.Database): void {
       title TEXT NOT NULL,
       body TEXT NOT NULL,
       read_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     )
   `);
 
@@ -1465,8 +1549,8 @@ export function runMigrations(db: Database.Database): void {
       last_run_status TEXT,       -- 'success' | 'error' | 'running' | NULL
       last_error TEXT,
       created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_next_run
       ON agent_scheduled_tasks(next_run_at)
@@ -1483,7 +1567,7 @@ export function runMigrations(db: Database.Database): void {
          SET prompt = ?,
              allowed_mcps_json = ?,
              allowed_skills_json = ?,
-             updated_at = datetime('now')
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE name = ?
          AND prompt = ?
          AND allowed_mcps_json = ?
@@ -1527,8 +1611,8 @@ export function runMigrations(db: Database.Database): void {
       trust_tier TEXT NOT NULL DEFAULT 'unverified',
       auto_injectable INTEGER NOT NULL DEFAULT 0,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_kind ON agent_memory(kind);
@@ -1653,8 +1737,8 @@ export function runMigrations(db: Database.Database): void {
       status TEXT DEFAULT 'draft',
       source TEXT,
       uses INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skills_title ON agent_skills(title);
   `);
@@ -1737,7 +1821,7 @@ export function runMigrations(db: Database.Database): void {
       body TEXT,
       confidence REAL DEFAULT 0,
       source TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id
       ON agent_skill_versions(skill_id);
@@ -1761,8 +1845,8 @@ export function runMigrations(db: Database.Database): void {
       sample_session_id TEXT,
       agent_config_id   TEXT,
       status            TEXT NOT NULL DEFAULT 'open',
-      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_capability_gaps_status ON agent_capability_gaps(status);
   `);
@@ -1784,8 +1868,8 @@ export function runMigrations(db: Database.Database): void {
       last_triggered_at TEXT,
       trigger_count INTEGER NOT NULL DEFAULT 0,
       created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_enabled
       ON agent_webhook_endpoints(enabled);
@@ -1809,8 +1893,8 @@ export function runMigrations(db: Database.Database): void {
       schedule_ref TEXT,
       budget_json TEXT NOT NULL DEFAULT '{}',
       archived_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_projects_owner_activity
       ON agent_research_projects(owner_user_id, archived_at, updated_at);
@@ -1826,7 +1910,7 @@ export function runMigrations(db: Database.Database): void {
       diagnostics_json TEXT NOT NULL DEFAULT '{}',
       started_at TEXT,
       completed_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_project_runs_project_activity
       ON agent_research_project_runs(project_id, created_at);
@@ -1856,8 +1940,8 @@ export function runMigrations(db: Database.Database): void {
       run_config_json TEXT,
       progress_json TEXT,
       classification_json TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status
       ON agent_research_jobs(status);
@@ -1892,7 +1976,7 @@ export function runMigrations(db: Database.Database): void {
       vault_path TEXT NOT NULL,
       content_hash TEXT,
       metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_artifacts_run_role
       ON agent_research_artifacts(project_run_id, artifact_role);
@@ -1911,7 +1995,7 @@ export function runMigrations(db: Database.Database): void {
       full_text_vault_path TEXT,
       content_hash TEXT,
       metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_curated_sources_project_url
       ON agent_research_curated_sources(project_id, canonical_url);
@@ -1925,7 +2009,7 @@ export function runMigrations(db: Database.Database): void {
       answer TEXT,
       artifact_id TEXT REFERENCES agent_research_artifacts(id) ON DELETE SET NULL,
       source_ids_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_qa_links_project_activity
       ON agent_research_qa_links(project_id, created_at);
@@ -1935,7 +2019,7 @@ export function runMigrations(db: Database.Database): void {
       parent_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
       child_job_id TEXT NOT NULL REFERENCES agent_research_jobs(id) ON DELETE CASCADE,
       relationship_type TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(parent_job_id, child_job_id, relationship_type)
     );
     CREATE INDEX IF NOT EXISTS idx_agent_research_pass_relationships_child
@@ -2002,7 +2086,7 @@ export function runMigrations(db: Database.Database): void {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
           triggered_by_user_id INTEGER REFERENCES users(id),
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
           scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
           prompt TEXT,
           allowed_mcps_json TEXT,
@@ -2034,8 +2118,8 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       steps_json TEXT NOT NULL DEFAULT '[]',
       bound_config_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at);
   `);
@@ -2054,7 +2138,7 @@ export function runMigrations(db: Database.Database): void {
       file_path TEXT,
       thumbnail_url TEXT,
       session_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at);
   `);
@@ -2256,12 +2340,48 @@ export function runMigrations(db: Database.Database): void {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      revision      INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_org_proposals_status ON agent_org_proposals(status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
   `);
+
+  installRevisionInvariants(db, 'agent_org_proposals');
+
+  // W1 package C — the durable projection ledger.
+  //
+  // Deliberately its OWN table rather than columns on agent_configs: that table
+  // carries the raw-writer auto-bump trigger, so recording projection progress
+  // there would increment the lifecycle CAS token on every projection and
+  // invalidate live tokens for a fact that is not a domain change at all.
+  //
+  // `file_projected_revision` lagging `agent_configs.revision` is exactly what
+  // makes a crash between the database commit and the file write sweepable.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_profile_projections (
+      profile_id             TEXT PRIMARY KEY,
+      file_projected_revision INTEGER,
+      projection_state       TEXT NOT NULL DEFAULT 'pending',
+      last_error_code        TEXT,
+      last_attempt_at        TEXT,
+      attempt_count          INTEGER NOT NULL DEFAULT 0,
+      updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_profile_projections_state
+      ON agent_profile_projections(projection_state);
+  `);
+
+  // W1 package C — durable evidence for `status = 'reconciliation-required'`.
+  // Kept out of `measure_reason` so measurement prose and an unresolved
+  // operation can never be mistaken for one another.
+  const orgProposalReconciliationCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!orgProposalReconciliationCols.includes('reconciliation_reason')) {
+    db.exec(`ALTER TABLE agent_org_proposals ADD COLUMN reconciliation_reason TEXT`);
+  }
 
   // #1053 (OCU-12) — org_skills: the org's shared skill library, hosted on
   // the production API in the engine-compatible skills.urls format
@@ -2285,8 +2405,8 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       content     TEXT NOT NULL,
       published   INTEGER NOT NULL DEFAULT 1,
-      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_org_skills_published ON org_skills(published);
   `);
@@ -2312,7 +2432,7 @@ export function runMigrations(db: Database.Database): void {
       session_id TEXT,
       agent_config_id TEXT,
       tool_name TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_denied_tool_events_created_at ON denied_tool_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_denied_tool_events_agent_config_id ON denied_tool_events(agent_config_id);
@@ -2366,7 +2486,7 @@ export function runMigrations(db: Database.Database): void {
       memory_ids_json TEXT NOT NULL DEFAULT '[]',
       note_paths_json TEXT NOT NULL DEFAULT '[]',
       items_json TEXT NOT NULL DEFAULT '[]',
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
   `);
   const memoryProvenanceCols = (
@@ -2741,7 +2861,7 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
       status TEXT NOT NULL DEFAULT 'pending',
       actor TEXT,
       decided_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, created_at);
   `);
@@ -3333,7 +3453,7 @@ If someone asks for creative work that needs a local capability:
     CREATE TABLE IF NOT EXISTS org_settings (
       id         TEXT PRIMARY KEY,
       content    TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     )
   `);
   runOnce('issue_1072_org_settings', () => {
@@ -3391,6 +3511,11 @@ If someone asks for creative work that needs a local capability:
       ).run(repaired, row.id, row.value);
     }
   });
+
+  // W1 corrective-6 package B — the revision column, its stored domain and the
+  // raw-writer auto-bump are installed by installRevisionInvariants() at each
+  // table's CREATE site above, so no content repair can run against a table
+  // that still lacks the lifecycle CAS token.
 
   // #1175 — Mobile Activity is an authenticated, per-user projection. Recipes
   // and optimizer proposals predate user ownership, so add nullable ownership
@@ -3575,7 +3700,7 @@ If someone asks for creative work that needs a local capability:
       status TEXT NOT NULL,       -- 'success' | 'error' | 'blocked_on_approval' | 'completed_no_op'
       error TEXT,
       root_session_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_scheduled_task_runs_task
       ON agent_scheduled_task_runs(task_id, started_at DESC);
@@ -3635,8 +3760,8 @@ If someone asks for creative work that needs a local capability:
       due_date TEXT,
       color TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       UNIQUE(instance_id, id)
     );
     CREATE INDEX IF NOT EXISTS idx_project_milestones_instance_order
@@ -3670,4 +3795,531 @@ If someone asks for creative work that needs a local capability:
       SELECT RAISE(ABORT, 'milestone must belong to the project instance');
     END;
   `);
+
+  // ── W4 — immutable run-outcome ledger ─────────────────────────────────────
+  //
+  // Its OWN table, deliberately, for the same reason agent_profile_projections
+  // is: agent_configs and agent_org_proposals carry installRevisionInvariants'
+  // AFTER UPDATE auto-bump, so recording run outcomes there would advance a
+  // lifecycle CAS token for something that is not a domain change at all.
+  //
+  // `root_session_id` is UNIQUE at the TABLE level (not merely a unique index)
+  // so the parity guard's CREATE-TABLE parser can see it and so a second,
+  // concurrent finalizer is refused by the database rather than by whichever
+  // service branch happened to run first.
+  //
+  // Privacy (W4-c10): every column here is an identifier, an enum, a count or
+  // a timestamp. No prompt text, tool argument, tool output or credential is
+  // ever copied in — see run_outcome_service.ts, which builds the only rows
+  // this table receives.
+  //
+  // Dual-engine — see postgres_bootstrap.ts for the matching tables; guarded
+  // by skill_schema_parity.test.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_run_outcomes (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL UNIQUE,
+      session_id TEXT,
+      scheduled_occurrence_id TEXT,
+      experiment_variant TEXT,
+      proposal_id TEXT,
+      profile_id TEXT,
+      config_revision INTEGER,
+      terminal_status TEXT NOT NULL,
+      objective_verdict TEXT NOT NULL,
+      objective_evidence_json TEXT NOT NULL DEFAULT '{}',
+      attribution_json TEXT NOT NULL DEFAULT '{}',
+      finalized_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_finalized
+       ON agent_run_outcomes(finalized_at DESC)`,
+  );
+
+  // The outcome row is written once, complete, at finalization — so "mutable
+  // until finalized, immutable after" collapses to immutable-on-arrival. Later
+  // human/inferred verdicts do NOT edit this row; they are appended to
+  // agent_run_feedback_events below, which is what keeps the objective record
+  // and the subjective record from being mistaken for one another.
+  //
+  // KNOWN GAP, stated precisely rather than overclaimed: these triggers block
+  // UPDATE and DELETE. They do NOT block `INSERT OR REPLACE`, because SQLite
+  // fires BEFORE DELETE for REPLACE conflict resolution only when
+  // `PRAGMA recursive_triggers` is ON, and it is OFF (the default) throughout
+  // this codebase. No writer in this repository uses REPLACE on these tables,
+  // and turning the pragma on would change REPLACE semantics for every other
+  // table, so the guarantee is scoped honestly instead: no UPDATE or DELETE
+  // path can rewrite history. A REPLACE-shaped writer would have to be added
+  // deliberately, and the test below pins that boundary so it cannot be added
+  // silently.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_run_outcomes_immutable
+    BEFORE UPDATE ON agent_run_outcomes
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run outcomes are immutable once finalized');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_run_outcomes_no_delete
+    BEFORE DELETE ON agent_run_outcomes
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run outcomes are immutable once finalized');
+    END;
+  `);
+
+  // Append-only feedback. `source` and `confidence` are NOT NULL because W6
+  // weights evidence by exactly those two fields — a row missing either is
+  // unusable downstream, so it must never be storable in the first place.
+  // `reason` is the only free-text column in the ledger and holds ONLY the
+  // operator's own words supplied to the feedback API; run content never
+  // reaches it (run_outcome_service.ts redacts secret-shaped input).
+  //
+  // `seq` orders events within one root run. An ISO `created_at` alone is not
+  // enough — two verdicts recorded in the same millisecond would then be
+  // ordered by a random UUID, and "which verdict came last" is exactly the
+  // question this table exists to answer.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_run_feedback_events (
+      id TEXT PRIMARY KEY,
+      root_session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      actor TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_feedback_events_root
+       ON agent_run_feedback_events(root_session_id, seq)`,
+  );
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_run_feedback_events_no_update
+    BEFORE UPDATE ON agent_run_feedback_events
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run feedback is append-only');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_run_feedback_events_no_delete
+    BEFORE DELETE ON agent_run_feedback_events
+    BEGIN
+      SELECT RAISE(ABORT, 'agent run feedback is append-only');
+    END;
+  `);
+
+  // W6-c5 — the experiment service's ONLY read into W4's ledger: the cohort
+  // rows for one proposal. No column is added to agent_run_outcomes and no
+  // update path exists; this is an index for a read that already type-checks.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_experiment
+       ON agent_run_outcomes(proposal_id, experiment_variant)`,
+  );
+
+  // ── W6-c8 — outcome status, separate from deployment status ───────────────
+  //
+  // agent_org_proposals.status stays the DEPLOYMENT field and its state machine
+  // is NOT extended (`inconclusive` is not, and must never become, a proposal
+  // status). Outcome authority lives here instead, so a row can be
+  // simultaneously status='active' and outcome_status='inconclusive'.
+  //
+  // Written ONLY through AgentOrgProposalsRepository.setOutcomeStatusAtRevisionAsync,
+  // which is revision-fenced: the AFTER UPDATE auto-bump above would otherwise
+  // advance the lifecycle CAS token invisibly on any raw UPDATE.
+  const proposalColsW6 = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!proposalColsW6.includes('outcome_status')) {
+    db.exec(
+      `ALTER TABLE agent_org_proposals ADD COLUMN outcome_status TEXT NOT NULL DEFAULT 'unproven'`,
+    );
+  }
+
+  // ── W6-c3 — the controlled experiment record ──────────────────────────────
+  //
+  // Its own additive table. Seven declared elements: immutable baseline and
+  // candidate specs, a deterministic assignment key, a predeclared stopping
+  // rule, a maximum exposure, results, and the promote|inconclusive|regress
+  // decision. The first five are written once at declaration; only `results`
+  // and the decision columns are ever updated, which is what the immutability
+  // trigger below distinguishes.
+  //
+  // Dual-engine — see postgres_bootstrap.ts for the twin; guarded by
+  // skill_schema_parity.test.ts. The CREATE TABLE body's closing paren must
+  // stay immediately before the closing backtick or that parser goes blind.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiments (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      evidence_bundle_json TEXT NOT NULL,
+      baseline_spec_json TEXT NOT NULL,
+      candidate_spec_json TEXT NOT NULL,
+      assignment_key TEXT NOT NULL,
+      stopping_rule_json TEXT NOT NULL,
+      max_exposure INTEGER NOT NULL,
+      results_json TEXT,
+      decision TEXT,
+      decision_reason TEXT,
+      declared_at TEXT NOT NULL,
+      results_recorded_at TEXT,
+      decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+  `);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiments_proposal
+       ON agent_org_experiments(proposal_id, declared_at)`,
+  );
+  // At most ONE undecided experiment per proposal. Two would read the same
+  // ledger cohort pool through different stopping rules and both stamp
+  // outcome_status — last writer wins. A decided experiment is history and does
+  // not block the next one.
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_org_experiments_one_undecided
+       ON agent_org_experiments(proposal_id) WHERE decision IS NULL`,
+  );
+
+  // The SPEC is immutable; the results and the decision are not — an experiment
+  // that could never record a result would be a museum piece. The trigger fires
+  // only when a spec column actually changes, so the two result/decision writes
+  // pass through untouched.
+  //
+  // KNOWN GAP, stated the way W4 was forced to state it rather than
+  // overclaimed: this blocks UPDATE and DELETE. It does NOT block
+  // `INSERT OR REPLACE`, because SQLite fires BEFORE DELETE for REPLACE
+  // conflict resolution only when `PRAGMA recursive_triggers` is ON, and it is
+  // OFF throughout this codebase. No writer here uses REPLACE on this table,
+  // and the repository test pins that boundary in both directions.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiments_spec_immutable
+    BEFORE UPDATE ON agent_org_experiments
+    FOR EACH ROW WHEN
+      NEW.proposal_id IS NOT OLD.proposal_id
+      OR NEW.adapter IS NOT OLD.adapter
+      OR NEW.evidence_bundle_json IS NOT OLD.evidence_bundle_json
+      OR NEW.baseline_spec_json IS NOT OLD.baseline_spec_json
+      OR NEW.candidate_spec_json IS NOT OLD.candidate_spec_json
+      OR NEW.assignment_key IS NOT OLD.assignment_key
+      OR NEW.stopping_rule_json IS NOT OLD.stopping_rule_json
+      OR NEW.max_exposure IS NOT OLD.max_exposure
+      OR NEW.declared_at IS NOT OLD.declared_at
+    BEGIN
+      SELECT RAISE(ABORT, 'agent org experiment specs are immutable once declared');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiments_no_delete
+    BEFORE DELETE ON agent_org_experiments
+    BEGIN
+      SELECT RAISE(ABORT, 'agent org experiment specs are immutable once declared');
+    END;
+  `);
+
+  // ── W5-c12 — the proposal retirement sidecar ──────────────────────────────
+  //
+  // Records that an operator has been handed a stale proposal. It is a sidecar
+  // rather than a column on agent_org_proposals because that table's AFTER
+  // UPDATE trigger advances `revision`, the lifecycle CAS token held in flight
+  // by approve/apply/revert/measure — so writing "an operator saw this" onto
+  // the row would silently invalidate a concurrent operation's token.
+  //
+  // Previously created lazily at runtime by org_proposal_reconciler.ts, which
+  // put it outside this file and therefore outside skill_schema_parity.test.ts:
+  // the guard cannot see a table it cannot parse, so the two engines diverged
+  // unobserved. Dual-engine now — see postgres_bootstrap.ts for the twin. The
+  // CREATE TABLE body's closing paren must stay immediately before the closing
+  // backtick or that parser goes blind.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposal_retirements (
+      proposal_id TEXT PRIMARY KEY,
+      classification TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      proposal_revision INTEGER NOT NULL,
+      retired_at TEXT NOT NULL
+    );
+  `);
+
+  // ── C1 — pre-run episode enrollment reservation ───────────────────────────
+  //
+  // Distinct from agent_run_outcomes: this is written BEFORE dispatch, not at
+  // finalization. `run_episode_id` is UNIQUE so a retried/duplicate dispatch
+  // for the same episode can never mint a second reservation or flip the
+  // cohort — the repository reads the existing row back instead of inserting.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_enrollments (
+      id TEXT PRIMARY KEY,
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline','candidate')),
+      assignment_digest TEXT NOT NULL,
+      baseline_target_revision_hash TEXT NOT NULL,
+      treatment_spec_hash TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'reserved'
+        CHECK (state IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')),
+      failure_code TEXT,
+      failure_reason TEXT,
+      reserved_at TEXT NOT NULL
+    );
+  `);
+
+  const enrollmentCols = (db.pragma('table_info(agent_org_experiment_enrollments)') as {
+    name: string;
+  }[]).map((c) => c.name);
+  if (!enrollmentCols.includes('failure_code')) {
+    db.exec(`ALTER TABLE agent_org_experiment_enrollments ADD COLUMN failure_code TEXT`);
+  }
+  if (!enrollmentCols.includes('failure_reason')) {
+    db.exec(`ALTER TABLE agent_org_experiment_enrollments ADD COLUMN failure_reason TEXT`);
+  }
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_enrollments_experiment
+       ON agent_org_experiment_enrollments(experiment_id)`,
+  );
+
+  const canonicalFailureReasonCases = ENROLLMENT_FAILURE_CODES.map((code) => {
+    const reason = ENROLLMENT_FAILURE_CODE_REASONS[code];
+    const escapedReason = reason.replace(/'/g, "''");
+    return ` WHEN '${code}' THEN '${escapedReason}'`;
+  }).join('\n');
+  const canonicalFailureReasonExpr = `(CASE NEW.failure_code ${canonicalFailureReasonCases} ELSE NULL END)`;
+
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_insert_domain;
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_enrollments_state_update_domain;
+
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_insert_domain
+    BEFORE INSERT ON agent_org_experiment_enrollments
+    FOR EACH ROW
+    WHEN NEW.state NOT IN ('reserved', 'dispatched', 'treatment_failed', 'terminalized')
+      OR (NEW.failure_code IS NOT NULL AND NEW.failure_code NOT IN (
+        'pre_dispatch_failed',
+        'prompt_dispatch_failed',
+        'provider_unavailable',
+        'invalid_model',
+        'prompt_timeout',
+        'target_drifted'
+      ))
+      OR (NEW.state = 'treatment_failed'
+          AND (NEW.failure_code IS NULL OR NEW.failure_reason IS NOT ${canonicalFailureReasonExpr}))
+      OR (NEW.state IN ('reserved', 'dispatched', 'terminalized')
+          AND (NEW.failure_code IS NOT NULL OR NEW.failure_reason IS NOT NULL))
+    BEGIN
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
+    END;
+
+    CREATE TRIGGER trg_agent_org_experiment_enrollments_state_update_domain
+    BEFORE UPDATE OF state, failure_code, failure_reason
+    ON agent_org_experiment_enrollments
+    FOR EACH ROW
+    WHEN NOT (
+      -- unchanged state + unchanged metadata is a legal idempotent write
+      (NEW.state = OLD.state
+       AND NEW.failure_code IS OLD.failure_code
+       AND NEW.failure_reason IS OLD.failure_reason)
+      OR (
+        OLD.state = 'reserved'
+        AND NEW.state = 'dispatched'
+        AND NEW.failure_code IS NULL
+        AND NEW.failure_reason IS NULL
+      )
+      OR (
+        OLD.state = 'reserved'
+        AND NEW.state = 'treatment_failed'
+        AND NEW.failure_code IN (
+          'pre_dispatch_failed',
+          'prompt_dispatch_failed',
+          'provider_unavailable',
+          'invalid_model',
+          'prompt_timeout',
+          'target_drifted'
+        )
+        AND NEW.failure_reason IS ${canonicalFailureReasonExpr}
+      )
+      OR (
+        OLD.state = 'dispatched'
+        AND NEW.state = 'terminalized'
+        AND NEW.failure_code IS NULL
+        AND NEW.failure_reason IS NULL
+      )
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'agent_org_experiment_enrollments state transition is invalid');
+    END;
+  `);
+
+  // ── C2-B — the durable, immutable, sanitized treatment receipt ───────────
+  //
+  // Bound to exactly one enrollment/run episode (both UNIQUE). Carries only
+  // safe identity/revision/hash evidence — never raw prompt/system-prompt
+  // bytes. `target_ref` and the hash columns are closed-domain CHECKs so a
+  // malformed row can never be inserted in the first place, not merely
+  // rejected by application code. Fully immutable once inserted (see the
+  // no-update/no-delete triggers below) — unlike the enrollment lifecycle
+  // table, a receipt has no legal post-insert transition at all.
+  const HEX64_GLOB = Array(64).fill('[0-9a-f]').join('');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_experiment_treatment_receipts (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      enrollment_id TEXT NOT NULL UNIQUE REFERENCES agent_org_experiment_enrollments(id),
+      run_episode_id TEXT NOT NULL UNIQUE,
+      experiment_id TEXT NOT NULL,
+      proposal_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      cohort TEXT NOT NULL CHECK (cohort IN ('baseline','candidate')),
+      assignment_digest TEXT NOT NULL,
+      adapter TEXT NOT NULL CHECK (adapter = 'system-prompt-v1'),
+      target_ref TEXT NOT NULL CHECK (target_ref = 'agent_config:' || profile_id),
+      baseline_target_revision_hash TEXT NOT NULL CHECK (baseline_target_revision_hash GLOB 'sha256:${HEX64_GLOB}'),
+      profile_revision INTEGER NOT NULL CHECK (profile_revision >= 0),
+      treatment_spec_hash TEXT NOT NULL CHECK (treatment_spec_hash GLOB '${HEX64_GLOB}'),
+      effective_prompt_hash TEXT NOT NULL CHECK (effective_prompt_hash GLOB '${HEX64_GLOB}'),
+      finalized_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_experiment_treatment_receipts_experiment
+       ON agent_org_experiment_treatment_receipts(experiment_id)`,
+  );
+
+  // INSERT-time binding guard: a receipt can only be inserted for an
+  // enrollment that (a) exists, (b) is ALREADY `dispatched` at insert time,
+  // and (c) matches the receipt's copied binding fields exactly. This is a
+  // real DB-level enforcement — a raw SQL INSERT that relabels any bound
+  // field, or that fires before the enrollment's own reserved -> dispatched
+  // transition has committed, is rejected here, not merely by the
+  // repository copying fields correctly. DROP+CREATE (not CREATE TRIGGER IF
+  // NOT EXISTS) so a future logic fix redeploys on every boot, mirroring the
+  // enrollment lifecycle triggers above.
+  db.exec(`
+    DROP TRIGGER IF EXISTS trg_agent_org_experiment_treatment_receipts_binding;
+    CREATE TRIGGER trg_agent_org_experiment_treatment_receipts_binding
+    BEFORE INSERT ON agent_org_experiment_treatment_receipts
+    FOR EACH ROW
+    WHEN NOT EXISTS (
+      SELECT 1 FROM agent_org_experiment_enrollments e
+       WHERE e.id = NEW.enrollment_id
+         AND e.state = 'dispatched'
+         AND e.run_episode_id = NEW.run_episode_id
+         AND e.experiment_id = NEW.experiment_id
+         AND e.proposal_id = NEW.proposal_id
+         AND e.profile_id = NEW.profile_id
+         AND e.cohort = NEW.cohort
+         AND e.assignment_digest = NEW.assignment_digest
+         AND e.baseline_target_revision_hash = NEW.baseline_target_revision_hash
+         AND e.treatment_spec_hash = NEW.treatment_spec_hash
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipt does not match its bound dispatched enrollment');
+    END;
+  `);
+
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiment_treatment_receipts_no_update
+    BEFORE UPDATE ON agent_org_experiment_treatment_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
+    END;
+    CREATE TRIGGER IF NOT EXISTS agent_org_experiment_treatment_receipts_no_delete
+    BEFORE DELETE ON agent_org_experiment_treatment_receipts
+    BEGIN
+      SELECT RAISE(ABORT, 'treatment receipts are immutable once finalized');
+    END;
+  `);
+
+  // ── C2-D (S2) — bind outcomes to their run episode ────────────────────────
+  //
+  // Additive: NULL for every outcome finalized before this column existed.
+  // `run_episode_id` is what `agent_org_experiment_treatment_receipts` is
+  // ALSO keyed on (UNIQUE there), so a caller can join the two tables to read
+  // only outcomes whose run received a real, receipt-proved treatment — see
+  // AgentRunOutcomesRepository.listReceiptBackedByExperimentAsync. Not made
+  // UNIQUE here: unlike the receipt/enrollment tables, this ledger's own
+  // identity is `root_session_id`, and a pre-existing row backfilled later is
+  // not this migration's concern.
+  const outcomeColsRunEpisode = (
+    db.pragma('table_info(agent_run_outcomes)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!outcomeColsRunEpisode.includes('run_episode_id')) {
+    db.exec(`ALTER TABLE agent_run_outcomes ADD COLUMN run_episode_id TEXT`);
+  }
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_run_episode
+       ON agent_run_outcomes(run_episode_id)`,
+  );
+
+  // ── D2.1 (#1431) — the post-apply monitor/repair/revert lifecycle record ──
+  //
+  // One row per APPLIED proposal (`proposal_id` UNIQUE): the durable trail of
+  // guardrail monitoring (D2.2), up to 3 corrective repair attempts (D2.3),
+  // and an eventual revert or "clear" (D2.4). `pre_change_snapshot_json` is
+  // an opaque CAS pointer — callers are expected to store a revision/
+  // fingerprint, never a raw prior field value — and the repository layer
+  // (post_apply_events_repository.ts) additionally redacts secret shapes out
+  // of both JSON blob columns before every write. Postgres twin in
+  // postgres_bootstrap.ts — enforced by skill_schema_parity.test.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_post_apply_events (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL UNIQUE REFERENCES agent_org_proposals(id),
+      profile_id TEXT NOT NULL,
+      change_type TEXT NOT NULL CHECK (change_type IN ('prompt','tool','scope')),
+      pre_change_snapshot_json TEXT NOT NULL,
+      monitoring_window_start TEXT NOT NULL,
+      monitoring_window_end TEXT NOT NULL,
+      guardrail_status TEXT NOT NULL DEFAULT 'monitoring'
+        CHECK (guardrail_status IN ('monitoring','clear','tripped')),
+      repair_proposal_ids_json TEXT NOT NULL DEFAULT '[]',
+      revert_status TEXT NOT NULL DEFAULT 'none'
+        CHECK (revert_status IN ('none','reverted','not_needed','revert_failed')),
+      alert_payload_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_org_post_apply_events_profile
+       ON agent_org_post_apply_events(profile_id)`,
+  );
+
+  // D2.2 (#1432) — the post-apply guardrail monitor's profile-scoped read
+  // (AgentRunOutcomesRepository.listByProfileSinceAsync) is a new query
+  // shape against an existing column; index it rather than scanning.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_agent_run_outcomes_profile
+       ON agent_run_outcomes(profile_id)`,
+  );
+
+  // ── D2.3 (#1433, second pass) — durable repair-attempt state machine ──────
+  //
+  // The original design declared a repair "successful" the instant it found
+  // NO run outcomes at/after `now + 1ms` — which is always true immediately
+  // after a repair (no agent turn has run yet), so it was a guaranteed pass
+  // regardless of whether the fix actually helped. These two additive
+  // columns replace that with real evidence-gating:
+  //   - repair_attempt_count: the TRUTHFUL number of repair attempts
+  //     consumed so far (0..MAX_REPAIR_ATTEMPTS), including a genuine
+  //     diagnosis that produced no actionable fix — never silently
+  //     under-counted the way the old in-memory-only loop could.
+  //   - repair_recheck_after: set the instant the latest attempt's config
+  //     mutation lands; NULL once that attempt's outcome (repaired/failed)
+  //     resolves. A sweep only evaluates the guardrail against outcomes
+  //     finalized at/after this floor, and only ACTS once enough of them
+  //     exist (same D2.2 registry + minSampleCount) — no evidence yet always
+  //     leaves the event exactly where it was. See auto_repair_service.ts.
+  // Postgres twin in postgres_bootstrap.ts — enforced by
+  // skill_schema_parity.test.ts.
+  const postApplyEventCols = (
+    db.pragma('table_info(agent_org_post_apply_events)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!postApplyEventCols.includes('repair_attempt_count')) {
+    db.exec(`ALTER TABLE agent_org_post_apply_events ADD COLUMN repair_attempt_count INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!postApplyEventCols.includes('repair_recheck_after')) {
+    db.exec(`ALTER TABLE agent_org_post_apply_events ADD COLUMN repair_recheck_after TEXT`);
+  }
 }

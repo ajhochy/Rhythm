@@ -13,6 +13,29 @@ function isPlausibleMcpServerName(name: string): boolean {
 }
 
 /**
+ * Resolve a server id or model-facing `<server>_<tool>` callable against a
+ * known server catalog. Exact ids take precedence; callable names use the
+ * unique longest `<server>_` prefix. Unknown and ambiguous names are never
+ * guessed.
+ */
+export function resolveMcpServerIdentity(
+  name: string,
+  knownServerNames: Iterable<string>,
+): string | null {
+  const catalog = [...knownServerNames].filter((candidate) => candidate.length > 0);
+  if (catalog.includes(name)) return name;
+
+  const matches = catalog
+    .filter((candidate) => name.startsWith(`${candidate}_`))
+    .sort((a, b) => b.length - a.length);
+  if (matches.length === 0) return null;
+
+  const longestLength = matches[0].length;
+  const longest = matches.filter((candidate) => candidate.length === longestLength);
+  return longest.length === 1 ? longest[0] : null;
+}
+
+/**
  * Resolve either a server id or a model-facing `<server>_<tool>` id to the
  * live MCP server id. Longest-prefix matching preserves server ids that
  * themselves contain underscores. Catalog access is best-effort: a plausible
@@ -32,9 +55,15 @@ export async function resolveKnownMcpServerName(name: string): Promise<McpScopeN
     };
   }
 
+  if (knownServerNames.length === 0) {
+    return {
+      serverName: isPlausibleMcpServerName(name) ? name : null,
+      knownServerNames,
+    };
+  }
+
   const serverName =
-    knownServerNames.find((candidate) => name === candidate) ??
-    knownServerNames.find((candidate) => name.startsWith(`${candidate}_`)) ??
+    resolveMcpServerIdentity(name, knownServerNames) ??
     (isPlausibleMcpServerName(name) ? name : null);
   return { serverName, knownServerNames };
 }
