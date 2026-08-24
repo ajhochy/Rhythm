@@ -1,7 +1,9 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { env } from '../config/env';
@@ -12,6 +14,9 @@ import { UsersRepository } from '../repositories/users_repository';
 import { LiveArtifactsRepository } from '../repositories/live_artifacts_repository';
 
 const bundle = { html: '<h1>Dashboard</h1>', css: 'h1{color:red}', js: 'window.ok = true;' };
+const storageRoot = path.join(tmpdir(), `live-artifact-content-${randomUUID()}`);
+const defaultStorageRoot = env.liveArtifactStorageDir;
+env.liveArtifactStorageDir = storageRoot;
 
 describe('live artifact content storage (durability)', () => {
   let db: Database.Database;
@@ -48,7 +53,12 @@ describe('live artifact content storage (durability)', () => {
 
   afterEach(async () => {
     db.close();
-    await rm(env.liveArtifactStorageDir, { recursive: true, force: true });
+    await rm(storageRoot, { recursive: true, force: true });
+  });
+
+  afterAll(async () => {
+    env.liveArtifactStorageDir = defaultStorageRoot;
+    await rm(storageRoot, { recursive: true, force: true });
   });
 
   it('round-trips bundle and state through the database, not the filesystem', async () => {

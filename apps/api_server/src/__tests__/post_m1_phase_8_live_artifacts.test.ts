@@ -1,6 +1,9 @@
 import { rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../app';
 import { env } from '../config/env';
@@ -16,6 +19,9 @@ const bundle = {
   js: 'window.phase8 = true;',
 };
 const forbiddenDisclosure = /(liveArtifactStorageDir|content hash path|temporary path|ENOENT|EACCES|bearer\s+[a-z0-9._-]+|\/Users\/|\/private\/|\/tmp\/|[A-Z]:\\|\bat\s+\S+\([^)]*:\d+:\d+\))/i;
+const storageRoot = path.join(tmpdir(), `post-m1-p8-live-artifacts-${randomUUID()}`);
+const defaultStorageRoot = env.liveArtifactStorageDir;
+env.liveArtifactStorageDir = storageRoot;
 
 async function body(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -43,7 +49,12 @@ describe('post-M1 Phase 8 live-artifact API contract', () => {
   afterEach(async () => {
     await close();
     db.close();
-    await rm(env.liveArtifactStorageDir, { recursive: true, force: true });
+    await rm(storageRoot, { recursive: true, force: true });
+  });
+
+  afterAll(async () => {
+    env.liveArtifactStorageDir = defaultStorageRoot;
+    await rm(storageRoot, { recursive: true, force: true });
   });
 
   async function auth(userId: number): Promise<Record<string, string>> {

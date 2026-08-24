@@ -937,7 +937,7 @@ export function runMigrations(db: Database.Database): void {
       kind TEXT NOT NULL CHECK (kind IN ('bundle', 'state')),
       hash TEXT NOT NULL CHECK (length(hash) = 64),
       body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       PRIMARY KEY (artifact_id, kind, hash)
     );
   `);
