@@ -19,28 +19,28 @@ async function json(route: Route, status: number, value: unknown) {
   await route.fulfill({ status, headers: cors, json: value });
 }
 
-async function installAuthenticatedHost(page: Page) {
-  await page.addInitScript(() => {
+async function installAuthenticatedHost(page: Page, artifactTabIds: string[] = []) {
+  await page.addInitScript((restoredTabIds) => {
     Object.defineProperty(window, 'rhythmShell', {
       configurable: true,
       value: Object.freeze({
         version: 8,
-        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'http://127.0.0.1:4198' }),
+        gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com' }),
         auth: Object.freeze({
           signInWithGoogle: async () => ({
             sessionToken: 'phase-8-owner-token',
-            user: { id: 81, name: 'Avery Owner', email: 'avery@example.test', role: 'admin', artifactTabIds: [] },
+            user: { id: 81, name: 'Avery Owner', email: 'avery@example.test', role: 'admin', artifactTabIds: restoredTabIds },
           }),
         }),
       }),
     });
-  });
+  }, artifactTabIds);
 }
 
-async function openDashboard(page: Page, onApi?: (route: Route) => Promise<boolean> | boolean) {
-  await installAuthenticatedHost(page);
+async function openDashboard(page: Page, onApi?: (route: Route) => Promise<boolean> | boolean, artifactTabIds: string[] = []) {
+  await installAuthenticatedHost(page, artifactTabIds);
   await page.route('http://127.0.0.1:4097/**', (route) => json(route, 200, { healthy: true }));
-  await page.route(/^http:\/\/127\.0\.0\.1:(?:4098|4198)\//, async (route) => {
+  const handleApi = async (route: Route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     if (onApi && await onApi(route)) return;
     const url = new URL(route.request().url());
@@ -48,10 +48,15 @@ async function openDashboard(page: Page, onApi?: (route: Route) => Promise<boole
     if (url.pathname === '/live-artifacts' && route.request().method() === 'GET') return json(route, 200, artifacts);
     const artifact = artifacts.find(({ id }) => url.pathname === `/live-artifacts/${id}`);
     if (artifact && route.request().method() === 'GET') return json(route, 200, { ...artifact, state: { ready: true } });
-    if (url.pathname.endsWith('/render')) return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: '<!doctype html><main>Rendered artifact</main>' });
-    if (url.pathname === '/users/me/preferences' && route.request().method() === 'PATCH') return json(route, 200, { id: 81, artifactTabIds: [] });
+    if (url.pathname.endsWith('/render')) {
+      const rendered = artifacts.find(({ id }) => url.pathname === `/live-artifacts/${id}/render`);
+      return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: `<!doctype html><main data-artifact-id="${rendered?.id}">Rendered ${rendered?.title}</main>` });
+    }
+    if (url.pathname === '/users/me/preferences' && route.request().method() === 'PATCH') return json(route, 200, { id: 81, artifactTabIds: route.request().postDataJSON().artifactTabIds });
     return json(route, 404, { error: { code: 'NOT_FOUND' } });
-  });
+  };
+  await page.route('http://127.0.0.1:4098/**', handleApi);
+  await page.route('https://api.vcrcapps.com/**', handleApi);
   await page.goto('/#/dashboard');
   await page.getByRole('button', { name: 'Continue with Google' }).click();
   await expect(page.getByTestId('page-dashboard')).toBeVisible();
@@ -78,6 +83,74 @@ test('post-m1-p8-c1b: Dashboard is fixed while stable artifact tabs open, select
   await expect(page.getByRole('tab', { name: artifacts[0].title })).toHaveAttribute('aria-selected', 'true');
   expect(requests).not.toContain(`DELETE /live-artifacts/${secondId}`);
   await expect(page.getByTestId('page-dashboard')).toBeAttached();
+});
+
+test('restored already-open artifacts load real content instead of a ready empty frame', async ({ page }) => {
+  // Regression caught: restore records ready+empty and the picker short-circuit never calls render;
+  // the artifact-specific frame-content assertion fails.
+  await openDashboard(page, undefined, [firstId]);
+  await expect(page.getByRole('tab', { name: artifacts[0].title, exact: true })).toBeVisible();
+  await openArtifact(page, artifacts[0].title);
+  const surface = page.locator('[data-testid="live-artifact-surface"]:visible');
+  await expect(surface).toHaveAttribute('data-artifact-id', firstId);
+  const frame = surface.getByTestId('live-artifact-frame');
+  await expect(frame).toHaveAttribute('srcdoc', /Rendered Sunday Service Dashboard/);
+  await expect(frame.contentFrame().locator(`[data-artifact-id="${firstId}"]`)).toContainText('Rendered Sunday Service Dashboard');
+});
+
+test('artifact UUID panes keep metadata and local toolbar state isolated while switching', async ({ page }) => {
+  // Regression caught: a single unkeyed surface carries A's visibility into B and replaces A's
+  // iframe; the B metadata and two stable pane assertions fail.
+  await openDashboard(page);
+  await openArtifact(page, artifacts[0].title);
+  await page.getByRole('button', { name: 'Sharing' }).click();
+  await page.getByRole('dialog', { name: 'Sharing' }).getByLabel('Visibility').selectOption('organization');
+  await page.keyboard.press('Escape');
+  await openArtifact(page, artifacts[1].title);
+
+  const visible = page.locator('[data-testid="live-artifact-surface"]:visible');
+  await expect(visible).toHaveAttribute('data-artifact-id', secondId);
+  await expect(visible).toContainText(artifacts[1].title);
+  await expect(visible).toContainText('shared');
+  await expect(visible).not.toContainText('organization');
+  await expect(page.getByTestId('live-artifact-surface')).toHaveCount(2);
+  await expect(page.locator(`[data-testid="live-artifact-surface"][data-artifact-id="${firstId}"]`)).toBeAttached();
+});
+
+test('navigation preserves open artifact tabs and their mounted panes', async ({ page }) => {
+  // Regression caught: leaving Dashboard unmounts the workspace and its iframe; the attached pane
+  // assertion while Planner is visible or the restored content assertion fails.
+  await openDashboard(page);
+  await openArtifact(page, artifacts[0].title);
+  const pane = page.locator(`[data-testid="live-artifact-surface"][data-artifact-id="${firstId}"]`);
+  await expect(pane.getByTestId('live-artifact-frame').contentFrame().locator(`[data-artifact-id="${firstId}"]`)).toBeVisible();
+  await page.evaluate(() => { window.location.hash = '/planner'; });
+  await expect(page.getByTestId('page-planner')).toBeVisible();
+  await expect(pane).toBeAttached();
+  await page.evaluate(() => { window.location.hash = '/dashboard'; });
+  await expect(page.getByRole('tab', { name: artifacts[0].title, exact: true })).toBeVisible();
+  await expect(pane.getByTestId('live-artifact-frame').contentFrame().locator(`[data-artifact-id="${firstId}"]`)).toBeVisible();
+});
+
+test('a newly persisted tab survives navigation through route-persistent auth state', async ({ page }) => {
+  // Regression caught: PATCH succeeds but AuthUserContext keeps stale artifactTabIds and route
+  // remount loses the new tab; the exact PATCH and post-navigation tab assertions fail.
+  const patches: string[][] = [];
+  await openDashboard(page, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/users/me/preferences' || route.request().method() !== 'PATCH') return false;
+    const ids = route.request().postDataJSON().artifactTabIds as string[];
+    patches.push(ids);
+    await json(route, 200, { id: 81, artifactTabIds: ids });
+    return true;
+  });
+  await openArtifact(page, artifacts[1].title);
+  await expect.poll(() => patches.at(-1)).toEqual([secondId]);
+  await page.evaluate(() => { window.location.hash = '/planner'; });
+  await expect(page.getByTestId('page-planner')).toBeVisible();
+  await page.evaluate(() => { window.location.hash = '/dashboard'; });
+  await expect(page.getByRole('tab', { name: artifacts[1].title, exact: true })).toBeVisible();
+  await expect(page.locator(`[data-testid="live-artifact-surface"][data-artifact-id="${secondId}"]`)).toBeAttached();
 });
 
 test('post-m1-p8-c1c: the HTML picker exposes canonical search and the complete bounded state matrix', async ({ page }) => {
@@ -145,4 +218,96 @@ test('post-m1-p8-c1e: artifact tabs preserve overflow reachability and complete 
   await tabs.getByRole('tab', { name: artifacts[1].title }).focus();
   await page.keyboard.press('Backspace');
   await expect(tabs.getByRole('tab', { name: artifacts[0].title })).toBeFocused();
+});
+
+test('artifact bridge invalidates an in-flight capability response when the frame reloads', async ({ page }) => {
+  let capabilityCalls = 0;
+  let firstRequestStarted = false;
+  let releaseOld!: () => void;
+  const oldRequestGate = new Promise<void>((resolve) => { releaseOld = resolve; });
+  const rendered = `<!doctype html><html><head><script>
+    window.bridgeReceipts = [];
+    window.addEventListener('load', function() {
+      window.rhythm.request('pco.services.read', { operation: 'list_service_types' }).then(function(result) {
+        window.bridgeReceipts.push(result.data.marker);
+        document.body.dataset.receipts = window.bridgeReceipts.join(',');
+      });
+    });
+  </script></head><body>Bridge generation probe</body></html>`;
+
+  await openDashboard(page, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === `/live-artifacts/${firstId}` && request.method() === 'GET') {
+      await json(route, 200, { ...artifacts[0], declaredCapabilities: ['pco.services.read'], state: {} });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/render`) {
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: rendered });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/capabilities/pco.services.read`) {
+      capabilityCalls += 1;
+      if (capabilityCalls === 1) {
+        firstRequestStarted = true;
+        await oldRequestGate;
+        await json(route, 200, { operation: 'list_service_types', data: { marker: 'old' } });
+      } else {
+        await json(route, 200, { operation: 'list_service_types', data: { marker: 'new' } });
+      }
+      return true;
+    }
+    return false;
+  });
+
+  await openArtifact(page, artifacts[0].title);
+  await expect.poll(() => firstRequestStarted).toBe(true);
+  await page.getByRole('button', { name: 'Reload' }).click();
+  await expect.poll(() => capabilityCalls).toBe(2);
+  const artifactFrame = page.getByTestId('live-artifact-frame').contentFrame();
+  await expect(artifactFrame.locator('body')).toHaveAttribute('data-receipts', 'new');
+  releaseOld();
+  await page.waitForTimeout(100);
+  await expect(artifactFrame.locator('body')).toHaveAttribute('data-receipts', 'new');
+});
+
+test('artifact bridge rejects a replacement document handshake after self-navigation', async ({ page }) => {
+  let capabilityCalls = 0;
+  const rendered = `<!doctype html><html><head><script>
+    window.addEventListener('load', function() {
+      window.rhythm.request('pco.services.read', { operation: 'list_service_types' });
+    });
+  </script></head><body>Authorized artifact A</body></html>`;
+  await openDashboard(page, async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname === `/live-artifacts/${firstId}` && request.method() === 'GET') {
+      await json(route, 200, { ...artifacts[0], declaredCapabilities: ['pco.services.read'], state: {} });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/render`) {
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/html' }, body: rendered });
+      return true;
+    }
+    if (url.pathname === `/live-artifacts/${firstId}/capabilities/pco.services.read`) {
+      capabilityCalls += 1;
+      await json(route, 200, { operation: 'list_service_types', data: {} });
+      return true;
+    }
+    return false;
+  });
+  await openArtifact(page, artifacts[0].title);
+  await expect.poll(() => capabilityCalls).toBe(1);
+  const frame = page.getByTestId('live-artifact-frame').contentFrame();
+  const replacement = `<!doctype html><body>Replacement B<script>
+    const token = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const channel = new MessageChannel();
+    parent.postMessage({ __rhythmBridgeDocument: true, documentToken: token }, '*', [channel.port2]);
+    channel.port1.start();
+    channel.port1.postMessage({ __rhythmBridge: true, documentToken: token, id: 'replacement', method: 'pco.services.read', params: { operation: 'list_service_types' } });
+  </script></body>`;
+  await frame.locator('body').evaluate((_body, value) => { window.location.href = `data:text/html,${encodeURIComponent(value)}`; }, replacement);
+  await expect(frame.locator('body')).toContainText('Replacement B');
+  await page.waitForTimeout(200);
+  expect(capabilityCalls).toBe(1);
 });

@@ -6,12 +6,15 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packageNodeMajor = Number.parseInt(process.versions.node.split('.')[0], 10);
+if (packageNodeMajor !== 22) throw new Error(`Electron release packaging requires Node 22; received ${process.versions.node}`);
 const sourceApp = resolve(electronRoot, 'node_modules/electron/dist/Electron.app');
 const distRoot = resolve(electronRoot, 'dist');
 const artifact = resolve(distRoot, 'Rhythm.app');
 const stagingArtifact = resolve(distRoot, '.Rhythm.app.tmp');
 const resources = resolve(stagingArtifact, 'Contents/Resources');
 const packagedApp = resolve(resources, 'app');
+const packagedShared = resolve(resources, 'shared');
 const apiServerSource = resolve(electronRoot, '../api_server');
 const packagedApiServer = resolve(resources, 'api_server');
 const packagedNode = resolve(resources, 'node/bin/node');
@@ -28,6 +31,9 @@ for (const key of [
   'VITE_RHYTHM_GATEWAY_MODE',
   'VITE_RHYTHM_API_BASE',
   'VITE_RHYTHM_ENGINE_BASE',
+  'VITE_RHYTHM_PRODUCTION_API_BASE',
+  'VITE_RHYTHM_EXPECTED_API_BASE',
+  'VITE_RHYTHM_EXPECTED_ENGINE_BASE',
   'VITE_RHYTHM_LIVE_TOKEN',
 ]) delete rendererBuildEnvironment[key];
 rendererBuildEnvironment.VITE_RHYTHM_GATEWAY_MODE = 'live';
@@ -44,12 +50,14 @@ await Promise.all([
 ]);
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
+await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
 await Promise.all([
   cp(resolve(electronRoot, 'src/main.mjs'), resolve(packagedApp, 'src/main.mjs')),
   cp(resolve(electronRoot, 'src/policy.mjs'), resolve(packagedApp, 'src/policy.mjs')),
   cp(resolve(electronRoot, 'src/production-api-config.mjs'), resolve(packagedApp, 'src/production-api-config.mjs')),
   cp(resolve(electronRoot, 'src/runtime-config.mjs'), resolve(packagedApp, 'src/runtime-config.mjs')),
+  cp(resolve(electronRoot, 'src/artifact-frame-protocol.mjs'), resolve(packagedApp, 'src/artifact-frame-protocol.mjs')),
   cp(resolve(electronRoot, 'src/security-smoke-receipt.mjs'), resolve(packagedApp, 'src/security-smoke-receipt.mjs')),
   cp(resolve(electronRoot, 'src/preload.cjs'), resolve(packagedApp, 'src/preload.cjs')),
   cp(resolve(electronRoot, 'src/google-oauth-core.mjs'), resolve(packagedApp, 'src/google-oauth-core.mjs')),
@@ -57,6 +65,7 @@ await Promise.all([
   cp(resolve(electronRoot, 'src/agent-server.mjs'), resolve(packagedApp, 'src/agent-server.mjs')),
   cp(resolve(electronRoot, 'src/human-approval-main-signer.mjs'), resolve(packagedApp, 'src/human-approval-main-signer.mjs')),
   cp(resolve(electronRoot, 'package.json'), resolve(packagedApp, 'package.json')),
+  cp(resolve(electronRoot, '../shared/production-api-base.mjs'), resolve(packagedShared, 'production-api-base.mjs')),
   cp(resolve(electronRoot, '../web/dist'), resolve(packagedApp, 'web/dist'), { recursive: true }),
   ...['dist', 'scripts', 'opencode_plugins', 'config_seeds', 'vendor', 'resources'].map((entry) =>
     cp(resolve(apiServerSource, entry), resolve(packagedApiServer, entry), { recursive: true })),
@@ -93,6 +102,13 @@ await run(packagedNode, ['-e', [
   `const root=${JSON.stringify(packagedApiServer)};`,
   "require(root+'/node_modules/node-pty');",
 ].join('')]);
+// node-gyp emits rebuild metadata with nondeterministic dependency ordering. The runtime needs the
+// compiled Release addon, not these regeneration inputs; remove them before signing so identical
+// source and Node 22 inputs produce identical bundle bytes.
+await Promise.all([
+  rm(resolve(packagedApiServer, 'node_modules/better-sqlite3/build/Makefile'), { force: true }),
+  rm(resolve(packagedApiServer, 'node_modules/better-sqlite3/build/config.gypi'), { force: true }),
+]);
 
 await rename(
   resolve(stagingArtifact, 'Contents/MacOS/Electron'),

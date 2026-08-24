@@ -1,3 +1,8 @@
+/* main's other route children get their own height:100% root; this wrapper exists only to keep the
+   artifact workspace mounted across route switches (hidden toggling, see App.tsx) — without an
+   explicit height it collapses to content size and the whole chain below it does too. */
+.live-artifact-route-pane { height: 100%; min-height: 0; }
+
 .live-artifact-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
 .artifact-tablist-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--border); background: var(--surface-raised); flex-shrink: 0; }
@@ -16,6 +21,11 @@
 .artifact-tab-add { flex-shrink: 0; border: none; border-left: 1px solid var(--border); background: transparent; color: var(--fg); width: 40px; cursor: pointer; font-size: 16px; }
 
 .artifact-tab-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* .artifact-tab-content isn't itself a flex container, so each pane (the fixed dashboard tab and
+   every dynamic artifact tab) needs its own explicit height to fill it — otherwise the pane
+   collapses to its content's intrinsic height and .live-artifact-surface's height:100% has nothing
+   definite to resolve against. */
+.artifact-dashboard-pane, .artifact-tab-pane { height: 100%; min-height: 0; }
 
 .live-artifact-surface { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 16px; gap: 12px; }
 .live-artifact-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

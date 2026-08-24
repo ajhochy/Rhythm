@@ -2,7 +2,7 @@
 // api_server runtime, so a standalone launch silently depends on a monorepo checkout.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,10 +34,21 @@ test('issue-1402-c1: package:mac includes the complete api_server runtime shape'
     'api_server/node_modules/node-pty/package.json',
     'api_server/.mcp-roles/secretary.mcp.json',
     'node/bin/node',
+    'shared/production-api-base.mjs',
   ]) {
     await assert.doesNotReject(
       () => import('node:fs/promises').then(({ stat }) => stat(resolve(resources, relativePath))),
       `packaged resource is missing: Contents/Resources/${relativePath}`,
+    );
+  }
+  for (const rebuildOnlyPath of [
+    'api_server/node_modules/better-sqlite3/build/Makefile',
+    'api_server/node_modules/better-sqlite3/build/config.gypi',
+  ]) {
+    await assert.rejects(
+      access(resolve(resources, rebuildOnlyPath)),
+      undefined,
+      `${rebuildOnlyPath} is rebuild-only metadata and makes signed package bytes nondeterministic`,
     );
   }
 

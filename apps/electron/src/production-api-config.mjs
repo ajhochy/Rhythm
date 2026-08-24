@@ -1,16 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { normalizeRemoteProductionApiBase } from '../../shared/production-api-base.mjs';
 
 /** @param {unknown} value */
 export function normalizeProductionApiBase(value) {
-  try {
-    const url = new URL(typeof value === 'string' ? value.trim() : '');
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    throw new Error('Production API URL must be HTTP(S) without credentials, query, or fragment');
-  }
+  return normalizeRemoteProductionApiBase(value);
 }
 
 /** @param {{ configPath: string, defaultBase: string, env: Record<string, string | undefined> }} options */

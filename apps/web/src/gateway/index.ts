@@ -40,6 +40,7 @@ export interface GatewayHealth {
 
 export interface RendererGateway {
   readonly mode: GatewayMode;
+  readonly environment: { apiPort: string; enginePort: string } | null;
   readonly domains: GatewayDomainContracts;
   readonly health: {
     api(): Promise<GatewayHealth>;
@@ -69,7 +70,10 @@ export interface GatewayEnvironment {
 
 type Fetcher = typeof fetch;
 
-const ports: Record<GatewayService, string> = { api: '4098', engine: '4097' };
+// Shipping Electron and Flutter share the same local Rhythm runtime. Alternate loopback ports are
+// allowed only when the trusted host supplies matching expectedApiBase/expectedEngineBase values
+// (the hermetic test path); they must never become production defaults again.
+const ports: Record<GatewayService, string> = { api: '4001', engine: '4096' };
 
 export function validateLiveBase(value: string | undefined, service: GatewayService, expectedValue?: string): string {
   const fallback = `http://127.0.0.1:${ports[service]}`;
@@ -90,11 +94,9 @@ export function validateLiveBase(value: string | undefined, service: GatewayServ
 
 export function validateProductionApiBase(value: string | undefined): string {
   try {
-    const url = new URL(value ?? '');
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
-    return url.toString().replace(/\/$/, '');
+    return normalizeRemoteProductionApiBase(value);
   } catch {
-    throw new Error('Live configuration error: production API base must be an HTTP(S) URL without credentials, query, or fragment');
+    throw new Error('Live configuration error: production API base must be a remote HTTPS URL without credentials, query, or fragment');
   }
 }
 
@@ -104,6 +106,7 @@ const unsupported = (mode: GatewayMode, operation: string) =>
 export function createFixtureGateway(_fetcher?: Fetcher): RendererGateway {
   return {
     mode: 'fixture',
+    environment: null,
     domains: {},
     health: {
       api: async () => ({ service: 'api', state: 'fixture' }),
@@ -137,6 +140,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
 
   return {
     mode: 'live',
+    environment: { apiPort: new URL(apiBase).port, enginePort: new URL(engineBase).port },
     // The signed-in cloud bearer belongs only on production requests. The local API mirrors
     // Flutter's localHeaders() trust boundary: a present cloud bearer must be omitted because
     // AGENT_LOCAL fails closed on invalid Authorization instead of using the local bypass.
@@ -203,7 +207,8 @@ import { createLiveMessagesGateway } from './messages';
 import { createLiveFacilitiesGateway } from './facilities';
 import { createLiveAutomationsGateway } from './automations';
 import { createLiveIntegrationsGateway } from './integrations';
-import { createLiveArtifactsGateway } from './live-artifacts';
+import { createLiveArtifactsGateway, type LiveArtifactsGateway } from './live-artifacts';
+import { normalizeRemoteProductionApiBase } from '../../../shared/production-api-base.mjs';
 import { createLiveUserPreferencesGateway } from './user-preferences';
 import { createLiveNotificationsGateway } from './notifications';
 import { createLiveMemoryGateway } from './memory';

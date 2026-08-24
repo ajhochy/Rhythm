@@ -4,19 +4,10 @@
 // every renderer live-mode call previously assumed some OTHER process (usually
 // `tools/dev/sandbox.sh`) was already running api_server.
 //
-// Deliberately deviates from Flutter in exactly two places, both to avoid touching the REAL
-// production Flutter app's live state, never for convenience:
-//   - Ports: PORT=4098 / RHYTHM_OPENCODE_ENGINE_PORT=4097, not Flutter's 4001/4096 (default). This
-//     repo's own React/Electron gateway (apps/web/src/gateway/index.ts's validateLiveBase) hardcodes
-//     exactly 4098/4097 for every phase of this parity program — those are the ports THIS renderer
-//     is actually built to expect, not a throwaway sandbox convention. Using Flutter's 4001 would
-//     make this renderer refuse to treat its own spawned server as live at all.
-//   - DB_PATH: a dedicated `Rhythm-electron` Application Support directory, not Flutter's
-//     `~/Library/Application Support/Rhythm/rhythm.db`. Two independently-spawned processes writing
-//     to the SAME live SQLite file is a real corruption/data-loss risk to the user's actual
-//     production data — not a hypothetical, given tonight already had two unrelated data-loss
-//     incidents. Everything else (env var shape, health-check timings, orphan handling, graceful
-//     shutdown sequence, stderr capture) mirrors Flutter's Dart implementation field-for-field.
+// Production Electron is another client for the same local Rhythm runtime, not a permanent test
+// sandbox. It therefore discovers/reuses Flutter's canonical API/engine ports and local database.
+// Hermetic smoke runs remain isolated by their explicit RHYTHM_LIVE_* URLs plus isolated HOME and
+// RHYTHM_SHELL_USER_DATA; main.mjs never starts this service for --smoke runs.
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -35,8 +26,8 @@ const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * @typedef {{ executable: string, args: string[], workingDir: string, mcpRolesDir: string | undefined }} ServerEntry
  */
 
-export const AGENT_SERVER_PORT = 4098;
-export const AGENT_SERVER_ENGINE_PORT = 4097;
+export const AGENT_SERVER_PORT = 4001;
+export const AGENT_SERVER_ENGINE_PORT = 4096;
 export const AGENT_SERVER_BASE_URL = `http://127.0.0.1:${AGENT_SERVER_PORT}`;
 const SANDBOX_MARKER = '--rhythm-sandbox=';
 
@@ -88,7 +79,7 @@ export function findServerEntry(nodePath, executablePath = process.execPath) {
 }
 
 function dbPath() {
-  const supportDir = join(homedir(), 'Library/Application Support/Rhythm-electron');
+  const supportDir = join(homedir(), 'Library/Application Support/Rhythm');
   return join(supportDir, 'rhythm.db');
 }
 

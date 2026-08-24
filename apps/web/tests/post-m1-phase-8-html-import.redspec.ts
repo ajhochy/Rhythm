@@ -20,12 +20,12 @@ async function openDashboard(page: Page) {
   await page.addInitScript(() => {
     Object.defineProperty(window, 'rhythmShell', { configurable: true, value: Object.freeze({
       version: 8,
-      gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'http://127.0.0.1:4198' }),
+      gateway: Object.freeze({ apiBase: 'http://127.0.0.1:4098', engineBase: 'http://127.0.0.1:4097', productionApiBase: 'https://api.vcrcapps.com' }),
       auth: Object.freeze({ signInWithGoogle: async () => ({ sessionToken: 'phase-8-import-token', user: { id: 81, name: 'Avery Owner', email: 'avery@example.test', role: 'admin', artifactTabIds: [] } }) }),
     }) });
   });
   await page.route('http://127.0.0.1:4097/**', (route) => json(route, 200, { healthy: true }));
-  await page.route(/^http:\/\/127\.0\.0\.1:(?:4098|4198)\//, async (route) => {
+  await page.route(/^(?:http:\/\/127\.0\.0\.1:(?:4098|4198)|https:\/\/api\.vcrcapps\.com)\//, async (route) => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     const url = new URL(route.request().url());
     if (url.pathname === '/health') return json(route, 200, { healthy: true });

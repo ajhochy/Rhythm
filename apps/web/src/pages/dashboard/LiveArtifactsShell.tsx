@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { FocusDialog } from '../../components/FocusDialog';
 import { useGateway } from '../../gateway/context';
 import { useAuthUser } from '../../gateway/auth';
@@ -16,6 +16,7 @@ interface ArtifactTab {
   status: TabStatus;
   detail: LiveArtifactDetail | null;
   html: string | null;
+  frameUrl: string | null;
   errorMessage: string | null;
 }
 
@@ -36,19 +37,24 @@ function formatDate(iso: string): string {
 // regenerate the hash: node -e "console.log('sha256-'+require('crypto').createHash('sha256').update(<the text between <script> and <\/script>>,'utf8').digest('base64'))"
 const ARTIFACT_BRIDGE_SCRIPT = `<script>(function(){
   var pending = {}; var n = 0;
+  var tokenBytes = new Uint32Array(4); crypto.getRandomValues(tokenBytes);
+  var documentToken = Array.from(tokenBytes, function(value) { return value.toString(16).padStart(8, '0'); }).join('');
+  var documentChannel = new MessageChannel();
+  documentChannel.port1.onmessage = function(event) {
+    var data = event.data;
+    if (!data || data.__rhythmBridgeResponse !== true || data.documentToken !== documentToken || !pending[data.id]) return;
+    var entry = pending[data.id]; delete pending[data.id];
+    if (data.error) entry.reject(new Error(data.error)); else entry.resolve(data.result);
+  };
+  documentChannel.port1.start();
+  window.parent.postMessage({ __rhythmBridgeDocument: true, documentToken: documentToken }, '*', [documentChannel.port2]);
   window.rhythm = { request: function(method, params) {
     return new Promise(function(resolve, reject) {
       var id = 'r' + (++n) + '-' + Date.now();
       pending[id] = { resolve: resolve, reject: reject };
-      window.parent.postMessage({ __rhythmBridge: true, id: id, method: method, params: params }, '*');
+      documentChannel.port1.postMessage({ __rhythmBridge: true, documentToken: documentToken, id: id, method: method, params: params });
     });
   } };
-  window.addEventListener('message', function(event) {
-    var data = event.data;
-    if (!data || data.__rhythmBridgeResponse !== true || !pending[data.id]) return;
-    var entry = pending[data.id]; delete pending[data.id];
-    if (data.error) entry.reject(new Error(data.error)); else entry.resolve(data.result);
-  });
 })();<\/script>`;
 
 // Exact request-union validation (post-m1-p8-c4g) — matches the server's own contract at
@@ -69,6 +75,19 @@ function isValidPcoRequest(params: unknown): params is PcoServicesReadRequest {
     return keys.length === 3 && typeof serviceTypeId === 'string' && typeof planId === 'string';
   }
   return false;
+}
+
+function nativeArtifactFrameUrl(id: string): string | null {
+  return window.location.protocol === 'rhythm:' ? `rhythm-artifact://app/${encodeURIComponent(id)}` : null;
+}
+
+function injectBrowserArtifactBridge(document: string): string {
+  const firstScript = document.search(/<script\b/i);
+  if (firstScript >= 0) return `${document.slice(0, firstScript)}${ARTIFACT_BRIDGE_SCRIPT}${document.slice(firstScript)}`;
+  const headEnd = document.search(/<\/head\s*>/i);
+  if (headEnd >= 0) return `${document.slice(0, headEnd)}${ARTIFACT_BRIDGE_SCRIPT}${document.slice(headEnd)}`;
+  const doctypeEnd = document.match(/^<!doctype[^>]*>/i)?.[0].length ?? 0;
+  return `${document.slice(0, doctypeEnd)}${ARTIFACT_BRIDGE_SCRIPT}${document.slice(doctypeEnd)}`;
 }
 
 function mapError(error: unknown): { status: TabStatus; message: string } {
@@ -165,41 +184,108 @@ function SharingDialog({
 }
 
 function LiveArtifactSurface({
-  tab, onReload, isOwner, liveArtifacts, listWorkspaceUsers,
+  tab, onReload, setTabs, isOwner, liveArtifacts, listWorkspaceUsers,
 }: {
   tab: ArtifactTab;
   onReload(): void;
+  setTabs: React.Dispatch<React.SetStateAction<ArtifactTab[]>>;
   isOwner: boolean;
   liveArtifacts: LiveArtifactsGateway;
   listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
 }) {
   const [sharingOpen, setSharingOpen] = useState(false);
+  // Referentially stable across renders (tab.id is fixed for this component's lifetime, setTabs
+  // never changes identity) so it belongs in the bridge effect's deps without causing it to
+  // re-run on every render — re-running would tear down the in-flight MessagePort handshake.
+  const onStateRevisionChange = useCallback((revision: number) => {
+    setTabs((current) => current.map((candidate) => (
+      candidate.id === tab.id && candidate.detail
+        ? { ...candidate, detail: { ...candidate.detail, currentStateRevision: revision } }
+        : candidate
+    )));
+  }, [tab.id, setTabs]);
   const [visibility, setVisibility] = useState<LiveArtifactVisibility | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const frameGenerationRef = useRef(0);
 
   // Host side of the artifact bridge (post-m1-p8-c4g). Bound to exactly this tab's id and current
   // declaredCapabilities — a stale/removed tab's listener is torn down by the cleanup below, so a
   // response can never be delivered against a since-closed or switched artifact.
   useEffect(() => {
+    const generation = ++frameGenerationRef.current;
     const detail = tab.detail;
-    if (!detail) return;
+    const sourceWindow = iframeRef.current?.contentWindow;
+    let activePort: MessagePort | null = null;
+    let handshakeAccepted = false;
+    // Mirrors the mutable `artifact` field on Flutter's LiveArtifactBridge (live_artifact_bridge.dart)
+    // so a state.update within this mount is reflected by a later state.get without waiting for a
+    // tab.detail prop refresh.
+    let currentState: { state: unknown; stateRevision: number } | null =
+      detail ? { state: detail.state, stateRevision: detail.currentStateRevision } : null;
+    if (tab.status !== 'ready' || !detail || !sourceWindow) {
+      return () => { if (frameGenerationRef.current === generation) frameGenerationRef.current += 1; };
+    }
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data as { __rhythmBridge?: boolean; id?: string; method?: string; params?: unknown } | null;
-      if (!data || data.__rhythmBridge !== true || typeof data.id !== 'string') return;
-      const respond = (payload: { result?: unknown; error?: string }) => {
-        iframeRef.current?.contentWindow?.postMessage({ __rhythmBridgeResponse: true, id: data.id, ...payload }, '*');
+      if (event.source !== sourceWindow) return;
+      const document = event.data as { __rhythmBridgeDocument?: boolean; documentToken?: string } | null;
+      const port = event.ports[0];
+      if (!document || document.__rhythmBridgeDocument !== true || typeof document.documentToken !== 'string' || !/^[0-9a-f]{32}$/.test(document.documentToken) || !port) return;
+      // The injected bridge runs before artifact code, so the first handshake belongs to the
+      // exact host-mounted document. WindowProxy survives self-navigation; accepting a second
+      // handshake would authorize a replacement document under this tab's capability closure.
+      if (handshakeAccepted) {
+        port.close();
+        activePort?.close();
+        activePort = null;
+        return;
+      }
+      handshakeAccepted = true;
+      activePort = port;
+      port.onmessage = (portEvent: MessageEvent) => {
+        const data = portEvent.data as { __rhythmBridge?: boolean; documentToken?: string; id?: string; method?: string; params?: unknown } | null;
+        if (!data || data.__rhythmBridge !== true || data.documentToken !== document.documentToken || typeof data.id !== 'string') return;
+        const respond = (payload: { result?: unknown; error?: string }) => {
+          if (frameGenerationRef.current !== generation || iframeRef.current?.contentWindow !== sourceWindow || activePort !== port) return;
+          port.postMessage({ __rhythmBridgeResponse: true, documentToken: document.documentToken, id: data.id, ...payload });
+        };
+        if (data.method === 'state.get') {
+          if (data.params != null) { respond({ error: 'invalid_request' }); return; }
+          respond({ result: currentState });
+          return;
+        }
+        if (data.method === 'state.update') {
+          const params = data.params as { expectedStateRevision?: unknown; state?: unknown } | null;
+          const keys = params && typeof params === 'object' && !Array.isArray(params) ? Object.keys(params).sort() : null;
+          if (!keys || keys.length !== 2 || keys[0] !== 'expectedStateRevision' || keys[1] !== 'state' || typeof params!.expectedStateRevision !== 'number') {
+            respond({ error: 'invalid_request' });
+            return;
+          }
+          liveArtifacts.updateState(tab.id, params!.expectedStateRevision as number, params!.state)
+            .then((updated) => {
+              currentState = { state: params!.state, stateRevision: updated.currentStateRevision };
+              if (frameGenerationRef.current === generation) onStateRevisionChange(updated.currentStateRevision);
+              respond({ result: { stateRevision: updated.currentStateRevision } });
+            })
+            .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
+          return;
+        }
+        if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
+        if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
+        if (!isValidPcoRequest(data.params)) { respond({ error: 'invalid_request' }); return; }
+        liveArtifacts.pcoServicesRead(tab.id, data.params)
+          .then((result) => respond({ result }))
+          .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
       };
-      if (data.method !== 'pco.services.read') { respond({ error: 'unsupported_method' }); return; }
-      if (!detail.declaredCapabilities.includes('pco.services.read')) { respond({ error: 'capability_not_declared' }); return; }
-      if (!isValidPcoRequest(data.params)) { respond({ error: 'invalid_request' }); return; }
-      liveArtifacts.pcoServicesRead(tab.id, data.params)
-        .then((result) => respond({ result }))
-        .catch((error) => respond({ error: error instanceof Error ? error.message : 'request_failed' }));
+      port.start();
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [tab.id, tab.detail, liveArtifacts]);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      activePort?.close();
+      activePort = null;
+      if (frameGenerationRef.current === generation) frameGenerationRef.current += 1;
+    };
+  }, [tab.id, tab.status, tab.detail, liveArtifacts, onStateRevisionChange]);
 
   if (tab.status === 'loading') {
     return (
@@ -236,7 +322,13 @@ function LiveArtifactSurface({
           artifact bundle is untrusted content and must never reach network, file, popup,
           navigation, or download primitives — apps/api_server/src/controllers/live_artifacts_controller.ts:64-69
           already denies connect-src/forms/frames/objects in the served document's own CSP. */}
-      <iframe ref={iframeRef} data-testid="live-artifact-frame" title={detail.title} sandbox="allow-scripts" srcDoc={`${tab.html ?? ''}${ARTIFACT_BRIDGE_SCRIPT}`} />
+      <iframe
+        ref={iframeRef}
+        data-testid="live-artifact-frame"
+        title={detail.title}
+        sandbox="allow-scripts"
+        {...(tab.frameUrl ? { src: tab.frameUrl } : { srcDoc: injectBrowserArtifactBridge(tab.html ?? '') })}
+      />
       {isOwner && (
         <SharingDialog
           open={sharingOpen}
@@ -393,12 +485,13 @@ function HtmlImportDialog({ open, onClose, onConfirm }: {
 }
 
 function LiveArtifactsWorkspace({
-  route, artifactTabIds, liveArtifacts, userPreferences, currentUserId, listWorkspaceUsers,
+  route, artifactTabIds, liveArtifacts, userPreferences, setArtifactTabIds, currentUserId, listWorkspaceUsers,
 }: {
   route: string;
   artifactTabIds: string[];
   liveArtifacts: LiveArtifactsGateway;
   userPreferences: UserPreferencesGateway;
+  setArtifactTabIds(ids: string[]): void;
   currentUserId: number;
   listWorkspaceUsers(): Promise<MessageThreadParticipant[]>;
 }) {
@@ -419,12 +512,15 @@ function LiveArtifactsWorkspace({
       for (const id of artifactTabIds) {
         try {
           const detail = await liveArtifacts.get(id);
-          loaded.push({ id, title: detail.title, status: 'ready', detail, html: null, errorMessage: null });
+          loaded.push({ id, title: detail.title, status: 'loading', detail, html: null, frameUrl: null, errorMessage: null });
         } catch {
           // A restored tab whose artifact no longer loads is dropped rather than shown broken.
         }
       }
-      if (active) setTabs(loaded);
+      if (active) {
+        setTabs(loaded);
+        for (const tab of loaded) void loadTab(tab.id);
+      }
     })();
     return () => { active = false; };
     // Seed exactly once per mounted identity — a real identity change always remounts this
@@ -454,15 +550,20 @@ function LiveArtifactsWorkspace({
   }
 
   async function persistTabIds(ids: string[]) {
-    try { await userPreferences.updateArtifactTabIds(ids); } catch { /* best-effort; UI stays the source of truth for this session */ }
+    try {
+      await userPreferences.updateArtifactTabIds(ids);
+      setArtifactTabIds(ids);
+    } catch { /* best-effort; UI stays the source of truth for this session */ }
   }
 
   async function loadTab(id: string) {
     setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status: 'loading' } : tab)));
     try {
       const detail = await liveArtifacts.get(id);
-      const html = await liveArtifacts.render(id);
-      setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status: 'ready', detail, html, title: detail.title, errorMessage: null } : tab)));
+      const rendered = await liveArtifacts.render(id);
+      const frameUrl = nativeArtifactFrameUrl(id);
+      const html = frameUrl ? null : rendered;
+      setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status: 'ready', detail, html, frameUrl, title: detail.title, errorMessage: null } : tab)));
     } catch (error) {
       const { status, message } = mapError(error);
       setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, status, errorMessage: message } : tab)));
@@ -472,13 +573,13 @@ function LiveArtifactsWorkspace({
   function selectTab(id: string) {
     setSelected(id);
     const tab = tabs.find((candidate) => candidate.id === id);
-    if (tab && tab.html === null) void loadTab(id);
+    if (tab && tab.html === null && tab.frameUrl === null) void loadTab(id);
   }
 
   async function openArtifact(id: string, title: string) {
     setPickerOpen(false);
-    if (tabs.some((tab) => tab.id === id)) { setSelected(id); return; }
-    const nextTabs = [...tabs, { id, title, status: 'loading' as TabStatus, detail: null, html: null, errorMessage: null }];
+    if (tabs.some((tab) => tab.id === id)) { selectTab(id); return; }
+    const nextTabs = [...tabs, { id, title, status: 'loading' as TabStatus, detail: null, html: null, frameUrl: null, errorMessage: null }];
     setTabs(nextTabs);
     setSelected(id);
     await persistTabIds(nextTabs.map((tab) => tab.id));
@@ -516,8 +617,6 @@ function LiveArtifactsWorkspace({
     else if (event.key === 'ArrowLeft') { event.preventDefault(); focusNeighbor(id, -1); }
     else if ((event.key === 'Delete' || event.key === 'Backspace') && id !== 'dashboard') { event.preventDefault(); closeTab(id); }
   }
-
-  const activeTab = tabs.find((tab) => tab.id === selected);
 
   return (
     <div className="live-artifact-shell">
@@ -563,15 +662,18 @@ function LiveArtifactsWorkspace({
         <div hidden={selected !== 'dashboard'} className="artifact-dashboard-pane">
           <DashboardPage route={route} />
         </div>
-        {activeTab && selected !== 'dashboard' && (
-          <LiveArtifactSurface
-            tab={activeTab}
-            onReload={() => void loadTab(activeTab.id)}
-            isOwner={activeTab.detail?.ownerUserId === currentUserId}
-            liveArtifacts={liveArtifacts}
-            listWorkspaceUsers={listWorkspaceUsers}
-          />
-        )}
+        {tabs.map((tab) => (
+          <div key={tab.id} hidden={selected !== tab.id} className="artifact-tab-pane">
+            <LiveArtifactSurface
+              tab={tab}
+              onReload={() => void loadTab(tab.id)}
+              setTabs={setTabs}
+              isOwner={tab.detail?.ownerUserId === currentUserId}
+              liveArtifacts={liveArtifacts}
+              listWorkspaceUsers={listWorkspaceUsers}
+            />
+          </div>
+        ))}
       </div>
 
       <ArtifactPicker open={pickerOpen} onClose={() => setPickerOpen(false)} gateway={liveArtifacts} onSelect={(id, title) => void openArtifact(id, title)} />
@@ -601,6 +703,7 @@ export function LiveArtifactsShell({ route }: { route: string }) {
       artifactTabIds={authUser.user.artifactTabIds ?? []}
       liveArtifacts={liveArtifacts}
       userPreferences={userPreferences}
+      setArtifactTabIds={authUser.setArtifactTabIds}
       currentUserId={authUser.user.id}
       listWorkspaceUsers={() => messages.users()}
     />

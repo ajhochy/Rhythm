@@ -18,9 +18,11 @@ test('packaged builds retain their generated Google desktop client ID', () => {
   );
 });
 
-test('packaging copies the runtime config module imported by main', async () => {
+test('packaging copies every support module imported by main', async () => {
   const packageScript = await readFile(new URL('../scripts/package-mac.mjs', import.meta.url), 'utf8');
-  assert.match(packageScript, /src\/runtime-config\.mjs/);
+  for (const module of ['runtime-config', 'artifact-frame-protocol']) {
+    assert.match(packageScript, new RegExp(`src\\/${module}\\.mjs`), `${module}.mjs is missing from the packaged app`);
+  }
 });
 
 test('ordinary Electron tests exclude package-shaped contracts', async () => {
@@ -42,6 +44,8 @@ test('web build declares Node types as a required root dependency', async () => 
 
 test('Electron release installs every package dependency and builds assets before shell smoke', async () => {
   const workflow = await readFile(new URL('../../../.github/workflows/electron_release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /node-version:\s*['"]22\.x['"]/);
+  assert.doesNotMatch(workflow, /node-version:\s*['"](?:24|26)\.x['"]/);
   for (const workspace of ['apps/web', 'apps/api_server', 'apps/electron']) {
     assert.match(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} ci`));
     assert.doesNotMatch(workflow, new RegExp(`npm --prefix ${workspace.replace('/', '\\/')} install`));
