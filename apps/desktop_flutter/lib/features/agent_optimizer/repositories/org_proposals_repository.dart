@@ -22,8 +22,6 @@ class OrgProposalsRepository {
 
   Future<OrgProposal> revert(String id) => _dataSource.revert(id);
 
-  Future<OrgProposal> revert(String id) => _dataSource.revert(id);
-
   Future<OrgProposal> reject(String id, {int? decidedByUserId}) =>
       _dataSource.reject(id, decidedByUserId: decidedByUserId);
 }
