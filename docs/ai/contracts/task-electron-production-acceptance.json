@@ -1,0 +1,65 @@
+{
+  "issue": "task-electron-production-acceptance",
+  "date": "2026-08-22",
+  "test_command": "cd apps/desktop_flutter && flutter test test/app/core/server/api_server_environment_test.dart && cd ../api_server && npx vitest run src/middleware/local_agent_surface_guard.test.ts src/services/opencode_client_service.test.ts && cd ../web && npx playwright test --config tests/post-m1-phase-8-fixture-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-electron-production-acceptance-c1",
+      "text": "Flutter-spawned shared services preserve configured renderer origins and add the exact rhythm://app origin once.",
+      "mode": "unit",
+      "test": "apps/desktop_flutter/test/app/core/server/api_server_environment_test.dart",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-electron-production-acceptance-c2",
+      "text": "The local API guard and CORS path allow rhythm://app on loopback while rejecting untrusted origins.",
+      "mode": "integration",
+      "test": "apps/api_server/src/middleware/local_agent_surface_guard.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-electron-production-acceptance-c3",
+      "text": "The engine receives rhythm://app in its CORS options without dropping explicit development origins.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-electron-production-acceptance-c4",
+      "text": "Restored and already-open artifact tabs load actual artifact content and never render as ready with an empty frame.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-electron-production-acceptance-c5",
+      "text": "Artifact panes have stable UUID identity and do not bleed toolbar state or content when switching tabs.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-electron-production-acceptance-c6",
+      "text": "Every open artifact pane remains mounted across tab switches and navigation away from Dashboard.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "task-electron-production-acceptance-c7",
+      "text": "A newly opened tab updates route-persistent auth state after preference persistence succeeds.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

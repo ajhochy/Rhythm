@@ -1,0 +1,203 @@
+{
+  "issue": "post-m1-phase-8",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-8-fixture-playwright.config.ts; cd ../api_server && npx vitest run src/__tests__/post_m1_phase_8_live_artifacts.test.ts --no-file-parallelism; cd ../electron && node --test test/post-m1-phase-8-artifact-policy.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p8-c1a",
+      "text": "The React live gateway exposes a typed live-artifacts domain that authenticates and performs GET /live-artifacts?type=html, GET /live-artifacts/:id, and GET /live-artifacts/:id/render without exposing the session token to artifact content.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-live-artifacts.live.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this executable gateway-boundary test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required before it can be called red."
+    },
+    {
+      "criterion_id": "post-m1-p8-c1b",
+      "text": "Electron Dashboard keeps the existing Dashboard content as a fixed tab, opens and selects stable artifact IDs in dynamic tabs, closes a tab without DELETE /live-artifacts/:id, and deterministically selects the prior neighbor or Dashboard.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this executable page.route-driven test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c1c",
+      "text": "The fixed add control opens an HTML-only artifact picker that searches canonical title values and renders distinct loading, empty inventory, no-match with clear-search, bounded error, retry, and success states.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this executable picker state-matrix test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c1d",
+      "text": "The ordered open artifact IDs persist only as artifactTabIds through PATCH /users/me/preferences, restore separately for each authenticated user, survive Dashboard navigation and renderer reload, always initially select Dashboard, and clear synchronously on identity change.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-live-artifacts.live.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this two-identity preload-boundary and page.route persistence test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c1e",
+      "text": "Dashboard and artifact tabs expose selected tab semantics, preserve a fixed reachable add control under overflow, ellipsize long titles without losing the full accessible name, wrap Left/Right focus, close on Delete/Backspace, and restore focus after close or picker Escape.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-live-artifacts.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this keyboard, overflow, and focus test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c1f",
+      "text": "A selected artifact displays canonical title, updatedAt, updatedByDisplayName, currentBundleRevision, currentStateRevision, and visibility, reloads the same stable id, and renders distinct bounded loading, 404 unavailable, 410 artifact_deleted, 409 CONFLICT, and retryable error recovery without stale cross-tab content.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-live-artifacts.live.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this canonical metadata and bounded recovery test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c2a",
+      "text": "Artifact reads preserve the existing authorization contract: private is owner-only, shared requires workspace membership plus collaborator membership, organization requires workspace membership, and missing, malformed, forged, or unauthorized IDs fail with the same non-disclosing 404.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_8_live_artifacts.test.ts",
+      "status": "pass",
+      "reason": "Targeted Vitest execution on 2026-08-15 passed the owner/private/shared/organization two-actor matrix and identical non-disclosing 404 responses for missing, malformed, forged, and unauthorized IDs."
+    },
+    {
+      "criterion_id": "post-m1-p8-c2b",
+      "text": "Only ownerUserId matching the authenticated user can mutate title, visibility, declaredCapabilities, collaborators, or deletion; the React owner can select private, shared, or organization and search/add/remove workspace users, while a non-owner receives no sharing mutation control.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-live-artifacts.live.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this owner/non-owner sharing-control test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c2c",
+      "text": "PUT /live-artifacts/:id/state accepts JSON state no larger than 512 KiB only with the readable actor's positive expectedStateRevision, increments currentStateRevision independently, and returns 409 with error.code CONFLICT and currentStateRevision for a stale write.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_8_live_artifacts.test.ts",
+      "status": "pass",
+      "reason": "Targeted Vitest execution on 2026-08-15 passed canonical expectedStateRevision validation, the 512 KiB boundary, independent revision advancement, and stale CONFLICT response assertions."
+    },
+    {
+      "criterion_id": "post-m1-p8-c2d",
+      "text": "PUT /live-artifacts/:id/bundle accepts exactly string html, css, and js fields only with the readable actor's positive expectedBundleRevision, increments currentBundleRevision independently, and returns 409 with error.code CONFLICT and currentBundleRevision for a stale write.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_8_live_artifacts.test.ts",
+      "status": "pass",
+      "reason": "Targeted Vitest execution on 2026-08-15 passed exact html/css/js bundle validation, independent revision advancement, and stale CONFLICT response assertions."
+    },
+    {
+      "criterion_id": "post-m1-p8-c2e",
+      "text": "Successful and failed list, detail, render, state, bundle, sharing, and tombstone responses disclose no liveArtifactStorageDir, content hash path, temporary path, raw filesystem error, stack, bearer token, or absolute local path.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_8_live_artifacts.test.ts",
+      "status": "pass",
+      "reason": "Targeted Vitest execution on 2026-08-15 passed aggregate disclosure checks over successful and failed list, detail, render, state, bundle, sharing, deletion, and tombstone responses."
+    },
+    {
+      "criterion_id": "post-m1-p8-c3a",
+      "text": "A real scoped agent creates one nonce HTML artifact through rhythm_create_live_artifact and the authenticated Electron user observes the exact returned stable id, type html, title, currentBundleRevision 1, and currentStateRevision 1 after a live reload.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "No honest executable test was written: this requires a real engine/MCP mutation plus authenticated Electron observation, and this unit was forbidden to launch Electron. An API-only assertion would weaken the criterion."
+    },
+    {
+      "criterion_id": "post-m1-p8-c3b",
+      "text": "The same real scoped agent updates the nonce artifact through rhythm_update_live_artifact_state using expected_state_revision, and Electron reload observes the same id, the new state value, and exactly incremented currentStateRevision without changing currentBundleRevision.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "No honest executable test was written: this requires the same real scoped-agent state mutation to be observed by authenticated Electron. API-only evidence would weaken the criterion."
+    },
+    {
+      "criterion_id": "post-m1-p8-c3c",
+      "text": "The same real scoped agent updates html, css, and js through rhythm_update_live_artifact_bundle using expected_bundle_revision, and Electron reload renders the nonce bundle under the same id with exactly incremented currentBundleRevision and unchanged currentStateRevision.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "No honest executable test was written: this requires a real scoped-agent bundle mutation and Electron render observation under one stable ID. API-only evidence would weaken the criterion."
+    },
+    {
+      "criterion_id": "post-m1-p8-c3d",
+      "text": "Real MCP list/get results remain external-content classified and every create, state update, bundle update, or sharing update remains subject to the existing outbound-action authorization gate; denied actions produce no API mutation.",
+      "mode": "live",
+      "test": null,
+      "status": "pending",
+      "reason": "No new executable test was written for the combined external-content classification and all-mutation outbound gate criterion; the existing MCP suite is narrower than this exact criterion, so it was not claimed."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4a",
+      "text": "The artifact bridge accepts only envelopes with id, method, params, and nonce and only the operations state.get, state.update, pco.services.read when declared, and the host-internal host.blocked report; it exposes no generic URL, fetch, path, filesystem, shell, clipboard, popup, navigation, or download primitive.",
+      "mode": "unit",
+      "test": "apps/electron/test/post-m1-phase-8-artifact-policy.test.mjs",
+      "status": "red",
+      "reason": "node --test ran on 2026-08-15 and failed an assertion: Electron has no artifact-specific policy module. The file imported safely, both tests ran, and there was no harness/import crash."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4b",
+      "text": "The bridge binds every request to the selected authenticated artifact and unguessable document nonce, accepts only request IDs matching ^[A-Za-z0-9_-]{1,64}$, rejects duplicate IDs, rejects payloads over 64 KiB, caps in-flight requests at 8, and discards responses after artifact, user, or renderer-generation change.",
+      "mode": "unit",
+      "test": "apps/electron/test/post-m1-phase-8-artifact-policy.test.mjs",
+      "status": "red",
+      "reason": "node --test ran on 2026-08-15 and failed an assertion: Electron has no artifact-specific policy module. The test then specifies nonce, ID, duplicate, 64 KiB, eight-in-flight, artifact, user, and generation behavior."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4c",
+      "text": "A packaged hostile artifact cannot complete remote or local network traffic by fetch, XMLHttpRequest, WebSocket, EventSource, beacon, form, navigation, CSS, font, image, media, script, module, worker, service worker, iframe, object, or DNS-triggering URL, including localhost, loopback aliases, file URLs, and the public CDN origins allowed by Flutter's current CSP.",
+      "mode": "integration",
+      "test": null,
+      "status": "pending",
+      "reason": "No honest packaged driver was written. The unit was forbidden to launch Electron, and adding a product-only smoke receipt/window hook would violate the no-test-hooks rule. Requires orchestrator-owned packaged hostile-content automation."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4d",
+      "text": "A packaged hostile artifact cannot open a file chooser, read or write a local file, navigate to file:, resolve a local absolute path, request device/media permission, or retain cookies, cache, localStorage, sessionStorage, IndexedDB, or service-worker state across artifact reload or tab identity change.",
+      "mode": "integration",
+      "test": null,
+      "status": "pending",
+      "reason": "No honest packaged driver was written. File/device/storage persistence must be observed at the real packaged renderer boundary without a product-only test hook."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4e",
+      "text": "A packaged hostile artifact cannot create a popup, replace or navigate its containing page, escape by target or opener, submit a form, trigger a download, invoke an external protocol, or frame another document; every attempted escape is denied without changing the Dashboard route or selected artifact id.",
+      "mode": "integration",
+      "test": null,
+      "status": "pending",
+      "reason": "No honest packaged driver was written. Popup/navigation/protocol/frame/form/download denial must be observed at the real packaged renderer boundary without a product-only test hook."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4f",
+      "text": "The packaged main renderer retains nodeIntegration false, contextIsolation true, sandbox true, and webSecurity true; the frozen preload allowlist contains no generic artifact request or network primitive, and artifact operations cannot forge a different id or reach lifecycle, gateway-token, Google-auth, Node, Electron, or IPC objects.",
+      "mode": "integration",
+      "test": null,
+      "status": "pending",
+      "reason": "Existing packaged tests prove the main renderer flags and frozen preload baseline, but no artifact renderer exists to prove ID-forgery and cross-surface isolation. The combined criterion therefore remains pending."
+    },
+    {
+      "criterion_id": "post-m1-p8-c4g",
+      "text": "pco.services.read is rejected unless declaredCapabilities contains exactly that capability, accepts only list_service_types, list_plans with serviceTypeId and future or past filter, or list_plan_items with serviceTypeId and planId, binds to the authenticated viewer's refreshed PCO account, rate-limits the actor/artifact pair, and returns bounded canonical error codes.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-live-artifacts.live.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this declared-capability and exact canonical request-union test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c5a",
+      "text": "The Electron Dashboard import journey accepts only .html or .htm files no larger than 900 KiB with valid UTF-8, derives the editable preview title from the document title or filename, preserves the complete source as bundle.html with string css and js, and warns about blocked external resources, network requests, frames, or media before import.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-8-html-import.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this format, 900 KiB, UTF-8, preview-title, complete-source, and warning test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    },
+    {
+      "criterion_id": "post-m1-p8-c5b",
+      "text": "Confirming an HTML import creates one stable artifact with type html, visibility private, bundle fields html, css, and js, and state {}, then opens and persists the returned id; cancel, invalid input, or failed create produces no artifact or tab mutation.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-8-html-import.live.redspec.ts",
+      "status": "pending",
+      "reason": "Playwright collected this exact canonical create/open/persist and cancel/invalid no-mutation test on 2026-08-15, but the unit was forbidden to execute Chromium; orchestrator execution is required."
+    }
+  ],
+  "not_tested": [],
+  "note": "Acceptance-contract execution produced 16 criterion tests: 10 Playwright tests collected but not run, 4 API tests run and passing, and 2 Electron non-GUI policy tests run and red by assertion. Eight combined real-engine/Electron or packaged-hostile criteria remain pending because weakening them to API/source assertions or requiring product-only hooks was prohibited. The .redspec.ts suffix keeps deliberately failing UI contracts outside the normal tests/**/*.spec.ts regression glob."
+}

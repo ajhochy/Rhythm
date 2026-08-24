@@ -1,0 +1,65 @@
+{
+  "issue": "1396,1397,1394",
+  "date": "2026-08-20",
+  "test_command": "npx vitest run src/__tests__/issue_1396_storage_startup_abort.test.ts src/__tests__/relay_artifacts_contract.test.ts src/services/__tests__/live_artifact_storage_safety.test.ts src/__tests__/live_artifact_content_storage.test.ts src/__tests__/live_artifacts.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1396-c1",
+      "text": "On boot, the configured artifact storage target is verified readable AND writable; failure aborts startup with an actionable message naming the resolved path and the variable that set it.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1396_storage_startup_abort.test.ts",
+      "status": "pass",
+      "reason": "The built dist/server.js exits 1 for both a missing child under a mode-0500 parent and an existing mode-0500 directory; each error names LIVE_ARTIFACT_STORAGE_DIR and the resolved path, and neither process logs a listening banner."
+    },
+    {
+      "criterion_id": "issue-1397-c1",
+      "text": "Partition the relay and live-artifact namespaces; new relay writes are partitioned and old reads still resolve from the storage root.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts; apps/api_server/src/__tests__/relay_artifacts_contract.test.ts",
+      "status": "pass",
+      "reason": "apps/api_server/src/__tests__/relay_artifacts_contract.test.ts boots real primary and relay-role Express servers, pairs over real HTTP/WebSocket surfaces, and writes through the real LIVE_ARTIFACT_STORAGE_DIR contract."
+    },
+    {
+      "criterion_id": "issue-1394-c1",
+      "text": "Record old/new Compose project names, actual volume names, mount source, and whether the prior volume still exists; unknown facts are labeled unknown rather than inferred.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "not_tested — requires Synology host access; the diagnosis document supplies operator commands and labels all facts UNKNOWN."
+    },
+    {
+      "criterion_id": "issue-1394-c2",
+      "text": "Make the production artifact storage identity explicit and stable across image pulls, Watchtower recreation, Compose working-directory changes, and supported manual deploy commands.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts",
+      "status": "pass",
+      "reason": "docker-compose.synology.yml declares rhythm_api_data with the explicit external identity name: ${RHYTHM_API_DATA_VOLUME:?Set RHYTHM_API_DATA_VOLUME to the existing API data volume name}; the focused test asserts this required identity, so Compose project and working-directory-derived names cannot silently replace it during image pulls, Watchtower recreation, or supported deploy commands."
+    },
+    {
+      "criterion_id": "issue-1394-c3",
+      "text": "Add a non-destructive PRE-update check and POST-update verification confirming the expected volume is mounted and known artifact bytes remain readable.",
+      "mode": "unit",
+      "test": "apps/api_server/src/services/__tests__/live_artifact_storage_safety.test.ts",
+      "status": "pass",
+      "reason": "Runtime execution requires Synology host access; the test verifies the maintained operator script contract."
+    },
+    {
+      "criterion_id": "issue-1394-c4",
+      "text": "Detect Postgres rows whose current bundle/state hashes point to missing content, and surface an actionable operator diagnostic without exposing internal paths or credentials to clients.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1394_postgres_startup_diagnostic.test.ts; apps/api_server/src/__tests__/live_artifacts.test.ts",
+      "status": "pass",
+      "reason": "A real built server against disposable postgres:16 started from seeded current bundle/state hashes with absent bytes, emitted LIVE_ARTIFACT_CONTENT_MISSING count=2 with artifact:bundle and artifact:state, returned health 200, and exposed neither the disposable credential nor storage path; real Express detail and render requests returned the exact generic INTERNAL_ERROR payload without filesystem, ENOENT, stack, or storage-variable disclosure."
+    },
+    {
+      "criterion_id": "issue-1394-c5",
+      "text": "Document a safe backup and recovery procedure for artifact bundle/state bytes alongside the existing Postgres backup procedure.",
+      "mode": "manual",
+      "test": null,
+      "status": "not_tested",
+      "reason": "not_tested — documentation accuracy and operator execution require manual review."
+    }
+  ],
+  "not_tested": ["issue-1394-c1", "issue-1394-c5"]
+}

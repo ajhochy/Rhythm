@@ -7,7 +7,101 @@ const _approvalDigest =
 const _approvalPublicKey = 'test-public-key';
 
 void main() {
+  test('dev launch pins npx to the ABI-selected Node executable', () {
+    final launch = buildDevApiServerLaunch(
+      nodePath: '/runtime/node',
+      npxPath: '/runtime/npx',
+    );
+
+    expect(launch.executable, '/runtime/node');
+    expect(
+      launch.args,
+      ['/runtime/npx', 'tsx', 'src/server.ts'],
+    );
+  });
+
+  test(
+      'npx fallback accepts only an absolute script resolved by the login shell',
+      () {
+    expect(
+      selectNpxScriptPath(
+        adjacentPath: '/runtime/npx',
+        adjacentExists: false,
+        shellPath: '/opt/homebrew/bin/npx',
+      ),
+      '/opt/homebrew/bin/npx',
+    );
+    expect(
+      () => selectNpxScriptPath(
+        adjacentPath: '/runtime/npx',
+        adjacentExists: false,
+        shellPath: 'npx',
+      ),
+      throwsStateError,
+    );
+  });
+
   group('buildApiServerEnvironment', () {
+    test('adds the Electron renderer origin when no origins are configured',
+        () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['RHYTHM_LOCAL_RENDERER_ORIGINS'], 'rhythm://app');
+    });
+
+    test('preserves explicit renderer origins before the Electron origin', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'RHYTHM_LOCAL_RENDERER_ORIGINS': 'http://127.0.0.1:4175',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_LOCAL_RENDERER_ORIGINS'],
+        'http://127.0.0.1:4175,rhythm://app',
+      );
+    });
+
+    test('does not duplicate an existing Electron renderer origin', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {'RHYTHM_LOCAL_RENDERER_ORIGINS': 'rhythm://app'},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['RHYTHM_LOCAL_RENDERER_ORIGINS'], 'rhythm://app');
+    });
+
+    test('normalizes renderer origin whitespace and empty segments', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'RHYTHM_LOCAL_RENDERER_ORIGINS':
+              ' a , , rhythm://app ,  http://127.0.0.1:4175  , ',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_LOCAL_RENDERER_ORIGINS'],
+        'a,rhythm://app,http://127.0.0.1:4175',
+      );
+    });
+
     test(
       'injects MEMORY_VAULT_PATH and MEMORY_VAULT_SUBDIR from the setting',
       () {
@@ -204,6 +298,41 @@ void main() {
       );
 
       expect(env.containsKey('RHYTHM_RELAY_BEARER'), isFalse);
+    });
+
+    test('#1445 seeds the documented cloud RHYTHM_RELAY_URLS candidate', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {},
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        relaySessionToken: 'persisted-token',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_RELAY_URLS'],
+        'wss://api.vcrcapps.com/relay/uplink',
+      );
+    });
+
+    test('#1445 preserves an explicit LAN-first relay candidate list', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'RHYTHM_RELAY_URLS':
+              'ws://rhythm-nas:4010/relay/uplink,wss://api.vcrcapps.com/relay/uplink',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        relaySessionToken: 'persisted-token',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(
+        env['RHYTHM_RELAY_URLS'],
+        'ws://rhythm-nas:4010/relay/uplink,wss://api.vcrcapps.com/relay/uplink',
+      );
     });
   });
 }

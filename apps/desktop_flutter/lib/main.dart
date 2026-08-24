@@ -416,18 +416,12 @@ class _RhythmAppContent extends StatelessWidget {
               NotificationsRepository(
                 NotificationsDataSource(baseUrl: baseUrl),
               ),
+              nativeNotifications: localNotificationService,
             );
-            // #815: route a native ask-notification tap into pending navigation
-            // so AppShell focuses the window and opens the asking session.
-            localNotificationService.onTap = (payload) {
-              const prefix = 'agentSession:';
-              if (payload.startsWith(prefix)) {
-                final sessionId = payload.substring(prefix.length);
-                if (sessionId.isNotEmpty) {
-                  controller.navigateTo('agentSession', sessionId);
-                }
-              }
-            };
+            // Route every native notification tap through the same pending
+            // navigation path used by bell items and approval cards.
+            localNotificationService.onTap = controller.navigateFromPayload;
+            unawaited(localNotificationService.replayLaunchNotification());
             return controller;
           },
         ),
@@ -496,14 +490,24 @@ class _RhythmAppContent extends StatelessWidget {
               // not `managerAgent` — the catalog carries more than one manager
               // (e.g. the dev workflow-orchestrator / "Coding Workflow"), and
               // managerAgent returns the first, which is the wrong default.
-              managerAgentNameResolver: () =>
-                  cfgCtrl.secretaryAgent?.ocAgent ??
-                  cfgCtrl.managerAgent?.ocAgent,
+              managerAgentNameResolver: () {
+                final profiles = cfgCtrl.sessionSelectableAgents;
+                for (final profile in profiles) {
+                  if (profile.ocAgent == 'secretary') return profile.ocAgent;
+                }
+                return profiles.firstOrNull?.ocAgent;
+              },
               // #890: app-level "Default profile" override, read lazily so a
               // later change from the Agent Profile sheet takes effect on the
               // next createSession call without reconstructing the controller.
-              configuredDefaultAgentResolver: () =>
-                  defaultAgentProfileService.defaultOcAgent,
+              configuredDefaultAgentResolver: () {
+                final configured = defaultAgentProfileService.defaultOcAgent;
+                if (configured == null) return null;
+                return cfgCtrl.sessionSelectableAgents
+                        .any((profile) => profile.ocAgent == configured)
+                    ? configured
+                    : null;
+              },
             )..initialize();
             _maybeSeedDebugTrigger(controller);
             return controller;
@@ -613,6 +617,7 @@ class _RhythmAppContent extends StatelessWidget {
           create: (ctx) {
             final controller = AgentApprovalsController(
               AgentApprovalsDataSource(),
+              notifications: localNotificationService,
             );
             void onAgentServerChanged() {
               if (agentServerController.isReady) {

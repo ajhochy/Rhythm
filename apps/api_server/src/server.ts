@@ -110,7 +110,30 @@ async function main() {
     logger.warn(`[server] advisory check failed (non-fatal): ${String(err)}`);
   }
 
+  const {
+    diagnoseLiveArtifactContent,
+    verifyLiveArtifactStorageDir,
+  } = await import('./services/live_artifact_storage');
+  // #1396: abort rather than advertise healthy when the configured mount is unusable.
+  await verifyLiveArtifactStorageDir();
   await initDb();
+
+  const missingArtifactContent = await diagnoseLiveArtifactContent();
+  if (missingArtifactContent.length > 0) {
+    const sample = missingArtifactContent
+      .slice(0, 20)
+      .map(({ artifactId, kind }) => `${artifactId}:${kind}`)
+      .join(',');
+    logger.error(
+      `[server] LIVE_ARTIFACT_CONTENT_MISSING count=${missingArtifactContent.length} artifacts=${sample}; restore artifact bytes from backup or rebuild affected revisions`,
+    );
+  }
+
+  // #1375 — destructive snapshot purge is opt-in and production-Postgres only.
+  const { startTranscriptSharePurgeJobIfEnabled } = await import(
+    './jobs/transcript_share_purge_job'
+  );
+  startTranscriptSharePurgeJobIfEnabled({ env: process.env, dbClient: env.dbClient });
 
   // #1309 — sweep expired unpinned media at boot and daily. This runs in both
   // local and cloud roles because either can own the configured durable root.
@@ -157,6 +180,7 @@ async function main() {
   // here so the shutdown handler's `memoryVaultSyncJob?.stop()` stays valid in
   // the 'cloud' role where the job is never started.
   let memoryVaultSyncJob: { stop: () => void } | null = null;
+  let shuttingDown = false;
   // #1096 WP1 — reference to the Engraph manager singleton so the (sync)
   // shutdown handler can stop its managed child process. Nullable for the
   // 'cloud' role, where the agent runtime (and this manager) never starts.
@@ -188,6 +212,7 @@ async function main() {
     try {
       const { seedResearchProfile } = await import('./services/research_profile_seed');
       seedResearchProfile();
+      logger.info('[server] research profile seed complete');
     } catch (err) {
       logger.warn(`[server] research profile seed failed (non-fatal): ${String(err)}`);
     }
@@ -199,18 +224,37 @@ async function main() {
     // No-op when the vault is absent. Non-fatal — a rebuild failure must never
     // block startup. (SQLite-only; rebuildIndexFromVault is a no-op on Postgres.)
     try {
-      const { MemoryIndexService } = await import('./services/memory_index_service');
-      const summary = await new MemoryIndexService().rebuildIndexFromVault();
-      logger.info(`[server] memory index rebuilt on startup: indexed=${summary.indexed}`);
+      const {
+        startMemoryIndexRebuildBestEffort,
+        startMemoryVaultSyncAfterRebuild,
+      } = await import(
+        './services/memory_index_service'
+      );
+      const startupRebuild = startMemoryIndexRebuildBestEffort();
+      void startMemoryVaultSyncAfterRebuild(
+        startupRebuild,
+        () => { memoryVaultSyncJob = startMemoryVaultSyncJob(); },
+        () => shuttingDown,
+      ).catch((err) => {
+        logger.warn(`[server] memory vault sync startup failed (non-fatal): ${String(err)}`);
+      });
     } catch (err) {
       logger.warn(`[server] memory index startup rebuild failed (non-fatal): ${String(err)}`);
+      if (!shuttingDown) {
+        try {
+          memoryVaultSyncJob = startMemoryVaultSyncJob();
+        } catch (syncErr) {
+          logger.warn(`[server] memory vault sync fallback failed (non-fatal): ${String(syncErr)}`);
+        }
+      }
     }
 
     // Issue #770 WI6: mirror the dedicated Memory-Vault into agent_memory so the
     // Rhythm Brain panel displays vault contents. No-op when the vault is absent.
     // The */10min cron also keeps the derived index fresh as users edit notes in
     // Obsidian (vault→index re-index pass — #805 AC3/AC4).
-    memoryVaultSyncJob = startMemoryVaultSyncJob();
+    // The mirror-sync job is started by the serialized continuation above so
+    // two full-vault snapshots can never race writes into the derived index.
 
     // #1096 WP1 — if the user previously enabled the device-local Engraph
     // manager, resume it now. Fire-and-forget: indexing/spawn/health-gating
@@ -653,6 +697,21 @@ async function main() {
         );
       }
 
+      // #1392 — recover signed approval decisions committed before a crash
+      // could enqueue their machine-authored continuation. Runs only after
+      // engine readiness and stream/session reconciliation.
+      try {
+        const { agentApprovalContinuationService } = await import(
+          './services/agent_approval_continuation_service'
+        );
+        await agentApprovalContinuationService.recoverAfterRestart();
+        logger.info('[server] approval continuation recovery complete');
+      } catch (e) {
+        logger.warn(
+          `[server] approval continuation recovery failed (non-fatal): ${String(e)}`,
+        );
+      }
+
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration
@@ -785,7 +844,14 @@ async function main() {
   // Synology relay uplink (docs/ai/plan-synology-relay.md). Only the Mac
   // dials out, and only when a relay is configured; the relay/cloud roles
   // never run this (no mobile gateway to dispatch against).
+  if (env.relayUrls.length > 0 && !env.relayBearer) {
+    logger.warn('[relay] uplink disabled: bearer is not configured');
+  }
+  if (process.env.RHYTHM_LOCAL_SMOKE === '1' && env.relayUrls.length > 0) {
+    logger.info('[relay] RHYTHM_LOCAL_SMOKE=1 — uplink disabled');
+  }
   if (
+    process.env.RHYTHM_LOCAL_SMOKE !== '1' &&
     env.agentExecutionEnabled &&
     mobileGatewayServer &&
     env.relayUrls.length > 0 &&
@@ -841,7 +907,6 @@ async function main() {
   // Registered once here so it applies to both SIGTERM (Flutter kill) and
   // SIGINT (Ctrl-C in dev). The handler is idempotent via the `shuttingDown`
   // guard so double-signals don't race.
-  let shuttingDown = false;
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;

@@ -22,12 +22,14 @@ import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../live_artifacts/controllers/live_artifacts_controller.dart';
+import '../../notifications/controllers/agent_approvals_controller.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_at_mention_popover.dart';
 import '_attachment_mime.dart';
 import '_chat_cost_footer.dart';
 import '_compaction_divider.dart';
 import '_context_usage_hint.dart';
+import '_inline_agent_approval_card.dart';
 import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_reasoning_block.dart';
@@ -239,6 +241,13 @@ class _AgentsViewState extends State<AgentsView> {
     final session = await ctrl.createSession(cwd: cwd);
     if (session != null) {
       ctrl.selectSession(session.id);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ctrl.error ?? 'Failed to create session.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -781,6 +790,11 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     // deleted. All messages arrive via chatMessagesFor() / chatPartsFor()
     // (rehydrated from REST on selectSession, then updated by WS events).
     final chatMessages = controller.chatMessagesFor(session.id);
+    final approvalsController = context.watch<AgentApprovalsController?>();
+    final inlineApprovals = approvalsController?.pending
+            .where((approval) => approval.sessionId == session.id)
+            .toList() ??
+        const [];
     final loadError = controller.transcriptLoadErrorFor(session.id);
 
     if (loadError != null) {
@@ -826,7 +840,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
-    if (chatMessages.isEmpty) {
+    if (chatMessages.isEmpty && inlineApprovals.isEmpty) {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
@@ -850,7 +864,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-              itemCount: chatMessages.length + (hasOlder ? 1 : 0),
+              itemCount: chatMessages.length +
+                  inlineApprovals.length +
+                  (hasOlder ? 1 : 0),
               itemBuilder: (context, index) {
                 if (hasOlder && index == 0) {
                   return Center(
@@ -882,6 +898,19 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                   );
                 }
                 final messageIndex = hasOlder ? index - 1 : index;
+                if (messageIndex >= chatMessages.length) {
+                  final approval =
+                      inlineApprovals[messageIndex - chatMessages.length];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: InlineAgentApprovalCard(
+                      key: ValueKey('inline-agent-approval-${approval.id}'),
+                      approval: approval,
+                      focused:
+                          approvalsController?.focusedApprovalId == approval.id,
+                    ),
+                  );
+                }
                 final m = chatMessages[messageIndex];
                 final parts = controller.chatPartsFor(m.id);
                 // Collect full text for copy action.
@@ -952,6 +981,7 @@ class _TranscriptHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
+          _VcsIdleRefresh(sessionId: session.id, isWorking: isWorking),
           AgentKindBadge(
             agentId: session.agentId,
             providerId: session.providerId,
@@ -1274,6 +1304,47 @@ class _AnthropicAccountBadge extends StatelessWidget {
       child: badge,
     );
   }
+}
+
+/// OCU-22 (#1063): the transcript header already rebuilds for turn status.
+/// Refresh VCS once when that status transitions from working to idle.
+class _VcsIdleRefresh extends StatefulWidget {
+  const _VcsIdleRefresh({required this.sessionId, required this.isWorking});
+
+  final String sessionId;
+  final bool isWorking;
+
+  @override
+  State<_VcsIdleRefresh> createState() => _VcsIdleRefreshState();
+}
+
+class _VcsIdleRefreshState extends State<_VcsIdleRefresh> {
+  @override
+  void didUpdateWidget(covariant _VcsIdleRefresh oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isWorking && !widget.isWorking) {
+      context.read<AgentsController>().fetchVcsInfo(widget.sessionId);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+@visibleForTesting
+class VcsIdleRefreshTestHarness extends StatelessWidget {
+  const VcsIdleRefreshTestHarness({
+    super.key,
+    required this.sessionId,
+    required this.isWorking,
+  });
+
+  final String sessionId;
+  final bool isWorking;
+
+  @override
+  Widget build(BuildContext context) =>
+      _VcsIdleRefresh(sessionId: sessionId, isWorking: isWorking);
 }
 
 class _StatusChip extends StatelessWidget {

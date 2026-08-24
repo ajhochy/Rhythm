@@ -1,0 +1,138 @@
+{
+  "issue": 2007,
+  "generated": "2026-08-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-2007-c1",
+      "text": "The Facilities destination renders one page-facilities shell and Facilities h1; /facilities, rooms, room-detail, and reservation-detail deep links select the matching Flutter surface and expose exact facilities, per-room reservation/series, and cross-facility overview load receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c1: facilities routes deep links and initial loads render the real surface",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c2",
+      "text": "Overview defaults to Week around the fixed now, Day/Week/Month and Back/Forward update the range, building and room filters narrow deterministic results, and booking/setup/conflict/external indicators plus availability details match the loaded reservations without fake filter receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c2: overview range filters indicators and availability match Flutter",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c3",
+      "text": "Single-room reservation create rejects missing room, blank title, missing date/time, end not after start, and a strict overlap without a mutation receipt; a valid slot creates once, updates the visible schedule, and records the exact POST 201 receipt and success state.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c3: single reservation create validates conflicts and receipts once",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c4",
+      "text": "Multi-room create and edit preserve linked room selection, allow partial success when only some rooms conflict, and show Created in, Updated in, Removed from, and conflict messages from one POST or PATCH group mutation with facility_ids.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c4: linked room groups expose partial success and edit summaries",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c5",
+      "text": "An owned ordinary reservation can be opened, edited with supported fields, and deleted only after confirmation with exact PATCH 200 and DELETE 204 receipts, while another user's reservation remains inspectable and exposes no edit or delete action to a non-manager owner context.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c5: reservation edit delete and ownership gates stay truthful",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c6",
+      "text": "Recurring create supports weekly, bi-weekly, monthly, and de-duplicated custom dates, requires a non-custom series end date, records the exact series POST 201 payload, and reports created occurrence count plus per-date or per-room conflicts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c6: recurring create validates patterns and reports materialization results",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c7",
+      "text": "Recurring occurrence details identify their series and offer only whole-series edit and delete; edit records PATCH 200 and regenerates the visible series, confirmed delete records DELETE 204 and removes all occurrences, and no occurrence-only mutation control or receipt is invented.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c7: recurring actions mutate the entire series and never invent occurrence controls",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c8",
+      "text": "Facilities-manager Add Space and room Edit validate the room name and preserve only Flutter-supported name, building, and description fields; create, edit, and confirmed delete update the sorted deterministic inventory with exact POST 201, PATCH 200, and DELETE 204 receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c8: manager facility CRUD validates fields and updates room inventory",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c9",
+      "text": "Rooms mode groups and sorts rooms by building with Unassigned last, shows availability or upcoming counts, opens room detail with at most five future reservations, and Reserve from a row or detail opens the same booking flow preselected to that room; management controls are manager-gated.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c9: room inventory detail booking and manager controls match Flutter",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c10",
+      "text": "Manager automation cleanup loads and refreshes preview counts by facility and optional UTC date bounds, exposes a zero-result state, uses the current count as confirmation, then records DELETE 200, displays the returned deleted count, reloads inventory, and appends truthful receipts.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c10: automation preview cleanup counts confirmation results and receipts are truthful",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c11",
+      "text": "Loading, empty, no-reservations, server-error, forbidden, unavailable, readonly, and invalid-deep-link states expose their correct escape hatch or named prerequisite; Retry recovers without reload and readonly natively disables every mutation while preserving overview, room, reservation, and availability inspection.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c11: facilities state matrix exposes recovery permission and empty boundaries",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c12",
+      "text": "Every enabled Facilities control has a stable kebab-case data-testid and an observable outcome; client-only mode, filters, selection, availability, dialog, recurrence, and confirmation-cancel controls never append fake endpoint receipts, while every API-backed action appends its exact method route payload keys and status.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c12: enabled controls are live identifiable and receipt honest",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c13",
+      "text": "Representative ready, readonly, reservation, facility, series, and automation-dialog states have zero serious or critical axe violations; labels and live status semantics are present, and dialogs and menus close on Escape, trap focus, and restore their trigger.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c13: facilities and its dialogs are accessible with focus recovery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c14",
+      "text": "Facilities has no page-level horizontal overflow and keeps Overview/Rooms, filters, Reserve Space, room inspection, and manager actions usable at 1440, 1024, 768, and 390 CSS pixels, at 200 percent text scale, under RTL, forced colors, reduced motion, and long CJK or emoji content with 44px touch targets.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c14: facilities remains responsive across required presentation modes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2007-c15",
+      "text": "Facilities is fixture-only: no non-loopback request is attempted, ids, times, permissions, conflicts, series, and automation counts are deterministic, and reload restores the identical seeded inventory and reservations instead of persisting prior mutations.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-2007-facilities.spec.ts",
+      "test_id": "issue-2007-c15: fixture isolation blocks external I O and reload resets deterministically",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    {
+      "criterion_id": "issue-2007-visual",
+      "reason": "Manual plus screenshot: lead compares Facilities against ../rhythm-dashboard-redesign.html for mineral dark blue-green hierarchy, compact density, reservation/conflict legibility, and dark/light theme parity."
+    },
+    {
+      "criterion_id": "issue-2007-global-gates",
+      "reason": "Lead-run global gates: complete regression suite and Electron audit are outside this page-owner recon contract."
+    }
+  ],
+  "verified": "2026-08-13 final full-suite run: 230/230 passed (installed Chrome, all nine contracts + 58-test Agents baseline); build + dist smoke + Electron audit green"
+}

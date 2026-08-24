@@ -85,6 +85,16 @@ export function resolveOpencodeEnginePort(): number {
   return port;
 }
 
+/** Exact renderer origins inherited by the engine's CORS configuration. */
+export function resolveOpencodeCorsOrigins(raw = process.env.RHYTHM_LOCAL_RENDERER_ORIGINS): string[] {
+  if (!raw?.trim()) return [];
+  return [...new Set(raw.split(',').map((value) => value.trim()).filter(Boolean))];
+}
+
+export function buildOpencodeServerOptions(port: number, cors: string[]): { port: number; cors?: string[] } {
+  return cors.length > 0 ? { port, cors } : { port };
+}
+
 /** TCP port used by this api_server process's bundled opencode engine. */
 export const OPENCODE_ENGINE_PORT = resolveOpencodeEnginePort();
 
@@ -872,7 +882,9 @@ export class OpencodeClientService {
 
       const t5 = Date.now();
       clearTrustedMcpVerifier();
-      const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });
+      const corsOrigins = resolveOpencodeCorsOrigins();
+      const engineOptions = buildOpencodeServerOptions(OPENCODE_ENGINE_PORT, corsOrigins);
+      const { client, server } = await mod.createOpencode(engineOptions);
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 
       this.client = client;

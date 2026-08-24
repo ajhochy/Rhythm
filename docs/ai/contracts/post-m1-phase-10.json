@@ -1,0 +1,243 @@
+{
+  "issue": "post-m1-phase-10",
+  "date": "2026-08-15",
+  "provenance_root": "361ccc2895a8effd31b51222ec4d7ecf5611ecd9a6e76f0463b41573659a870d",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-10-fixture-playwright.config.ts; RHYTHM_LIVE_E2E=1 npx playwright test --config tests/gateway/post-m1-phase-10-live-playwright.config.ts --workers=1; cd ../api_server && npx vitest run src/__tests__/post_m1_phase_10_error_redaction.test.ts --no-file-parallelism; cd ../electron && node --test test/post-m1-phase-10-packaged-resilience.test.mjs; cd ../.. && node --test tools/validation/post-m1-phase-10-review-matrix.test.mjs",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "post-m1-p10-c1a",
+      "text": "Every completed top-level, nested, Profile, and Tool route derives its surface state exclusively from ready, loading, empty, server-error, forbidden, unavailable, or readonly; no other route-state literal is accepted or persisted.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-10-route-states.redspec.ts",
+      "status": "pending",
+      "reason": "Pending exhaustive route-state vocabulary proof in apps/web/tests/post-m1-phase-10-route-states.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c1b",
+      "text": "Each route renders loading during its initial request and every retry, ready for a non-empty successful result, and empty only for a successful empty result, without mounting seeded rows or fixture identity in live mode.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-10-route-states.redspec.ts",
+      "status": "pending",
+      "reason": "Pending initial-load, retry, successful-result, and no-fixture-fallback proof in apps/web/tests/post-m1-phase-10-route-states.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c1c",
+      "text": "A 5xx response or bounded terminal timeout renders server-error with a working retry; an offline or unavailable dependency renders unavailable with a working check-again action; neither path replaces retained authorized data with fixtures.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-10-route-states.redspec.ts",
+      "status": "pending",
+      "reason": "Pending deterministic error/unavailable recovery proof across all routes in apps/web/tests/post-m1-phase-10-route-states.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c1d",
+      "text": "A 401 and a 403 both use forbidden while remaining behaviorally distinct: 401 offers session refresh or sign-in, 403 offers no mutation; a protected 404 uses unavailable and discloses no resource existence or restricted data.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-10-route-states.redspec.ts",
+      "status": "pending",
+      "reason": "Pending unauthorized, forbidden, and non-disclosing not-found mapping proof in apps/web/tests/post-m1-phase-10-route-states.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c1e",
+      "text": "Readonly preserves authorized inspection while disabling every mutating control, and a failed mutation preserves the last acknowledged server value plus any unsent draft until an explicit retry succeeds or the user discards it.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-10-mutation-recovery.redspec.ts",
+      "status": "pending",
+      "reason": "Pending cross-route readonly and mutation rollback/draft-retention proof in apps/web/tests/post-m1-phase-10-mutation-recovery.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c1f",
+      "text": "Unknown hash routes and missing detail resources fail boundedly through unavailable and expose recovery navigation without accepting an invented route-state literal or leaking the requested identifier into telemetry.",
+      "mode": "ui",
+      "test": "apps/web/tests/post-m1-phase-10-route-states.redspec.ts",
+      "status": "pending",
+      "reason": "Pending unknown-route and missing-detail recovery proof in apps/web/tests/post-m1-phase-10-route-states.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c2a",
+      "text": "Real API and engine disconnect, refusal, slow response, and restart reach loading, unavailable, or server-error within measured bounds and recover to ready or empty without a duplicate request, duplicate mutation, or fixture fallback.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-faults.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending serial live disconnect/slow/restart timing and duplicate-side-effect proof in apps/web/tests/gateway/post-m1-phase-10-faults.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c2b",
+      "text": "After a live agent WebSocket closes, React opens at most one replacement socket with bounded backoff, retains a bounded ordered outbound queue, reports any overflow, resubscribes once, refetches authoritative session state, and delivers each accepted input at most once.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-websocket-recovery.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending Flutter-parity WebSocket reconnect, bounded queue, resubscribe, rehydrate, and at-most-once proof in apps/web/tests/gateway/post-m1-phase-10-websocket-recovery.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c2c",
+      "text": "A malformed HTTP body or WebSocket event is isolated to the affected request or event, renders server-error when user action is required, leaves the transport and other routes usable, and never commits partial state.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-faults.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending malformed HTTP/WebSocket isolation proof in apps/web/tests/gateway/post-m1-phase-10-faults.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c2d",
+      "text": "Every API failure used by React follows error:{code,message,correlationId?}; raw Git stderr, provider exception detail, OAuth errors, request bodies, headers, bearer/session tokens, OAuth codes, API keys, stack traces, and absolute paths appear in no response, renderer text, receipt, or serialized test artifact.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/post_m1_phase_10_error_redaction.test.ts; apps/web/tests/gateway/post-m1-phase-10-redaction.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending API envelope and end-renderer disclosure audit in apps/api_server/src/__tests__/post_m1_phase_10_error_redaction.test.ts and apps/web/tests/gateway/post-m1-phase-10-redaction.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c2e",
+      "text": "A live 401 invalidates only the rejected authenticated session and returns to forbidden with sign-in recovery; a 403 and protected 404 preserve the session, do not trigger sign-in, and remain non-disclosing across retries.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-authorization.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending multi-status session and non-disclosure proof in apps/web/tests/gateway/post-m1-phase-10-authorization.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c3a",
+      "text": "The unsigned packaged app loads its bundled renderer with the network offline, renders unavailable rather than fixtures for live data, preserves navigation and sign-in recovery, and contacts no protected or fixture test port before an explicit reconnect.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs",
+      "status": "pending",
+      "reason": "Pending packaged cold-offline launch, no-fixture, and protected-port proof in apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c3b",
+      "text": "After Google sign-in, Electron stores the live session only in an OS-protected host-owned store, restores and validates it on relaunch, retains it across offline validation failure, deletes it after a definitive 401 or logout, and never exposes it through preload globals, DOM, localStorage, logs, or fixture configuration.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs",
+      "status": "pending",
+      "reason": "Pending Flutter-parity secure authenticated relaunch and disclosure proof in apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c3c",
+      "text": "The packaged Electron host owns or explicitly resolves the live API and engine lifecycle, reaches a bounded unavailable/server-error state when either cannot start, retries or reconnects without touching protected ports, and terminates every host-owned child on quit.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs",
+      "status": "pending",
+      "reason": "Pending Flutter-parity packaged API/engine supervision, retry, isolation, and shutdown proof in apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c3d",
+      "text": "Offline, reconnect, and relaunch preserve the rhythm://app origin/path policy, frozen preload allowlist, context isolation, sandboxing, and navigation, popup, permission, and download denials without widening the renderer network or native boundary.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs",
+      "status": "pending",
+      "reason": "Pending packaged policy-invariance proof across every recovery transition in apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c3e",
+      "text": "Relaunch restores only persisted state authorized to the restored user, drops stale user/profile/session selection when identity changes, and never restores fixture rows, fixture identity, pending mutations, or data belonging to another user or workspace.",
+      "mode": "integration",
+      "test": "apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs",
+      "status": "pending",
+      "reason": "Pending two-identity packaged relaunch and stale-state isolation proof in apps/electron/test/post-m1-phase-10-packaged-resilience.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c4a",
+      "text": "Every one of the 689 baseline review rows has a reviewed retained, manual, or still-planned disposition with an explicit evidence owner, and each of the 246 Phase 10 rows resolves to evidence that exercises the named behavior rather than a line or fixture-state declaration.",
+      "mode": "unit",
+      "test": "tools/validation/post-m1-phase-10-review-matrix.test.mjs",
+      "status": "pending",
+      "reason": "Pending full baseline and Phase 10 disposition audit in tools/validation/post-m1-phase-10-review-matrix.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c4b",
+      "text": "Terminal alone remains deferred; every other behavior family has retained executable evidence or a still-planned owner whose phase contract is pending, and no review row is silently dropped, self-certified, or assigned to an unrelated fixture test.",
+      "mode": "unit",
+      "test": "tools/validation/post-m1-phase-10-review-matrix.test.mjs",
+      "status": "pending",
+      "reason": "Pending deferred-family and ownership exclusivity audit in tools/validation/post-m1-phase-10-review-matrix.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c4c",
+      "text": "The matrix validator rejects stale Flutter source SHA, stale React source hashes, duplicate review-row ownership, unsupported surface-state literals, missing evidence files, and any pass disposition whose test does not collect the row.",
+      "mode": "unit",
+      "test": "tools/validation/post-m1-phase-10-review-matrix.test.mjs",
+      "status": "pending",
+      "reason": "Pending provenance, vocabulary, ownership, collection, and freshness proof in tools/validation/post-m1-phase-10-review-matrix.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c4d",
+      "text": "A hermetic Phase 10 scan produces byte-identical review dispositions and provenance when unrelated tracked and untracked files contaminate the working tree, without deleting, staging, or reading those contaminating files as parity input.",
+      "mode": "unit",
+      "test": "tools/validation/post-m1-phase-10-review-matrix.test.mjs",
+      "status": "pending",
+      "reason": "Pending contamination-order and byte-identity proof in tools/validation/post-m1-phase-10-review-matrix.test.mjs."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5a",
+      "text": "Dashboard derives ready, loading, empty, server-error, forbidden, unavailable, and readonly from real authenticated summary responses, and its retry reissues the live request without loading dashboard fixtures.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Dashboard live load/recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5b",
+      "text": "Planner derives the seven canonical surface states from the real weekly-plan boundary, preserves unsaved schedule/editor state through a failed refresh, and retries without seeded week data or synthesized receipts.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Planner live load/recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5c",
+      "text": "Rhythms derives the seven canonical surface states from live recurring-rule list and mutation responses, preserves the last acknowledged rule on mutation failure, and retries without cloning seeded rhythms.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Rhythms live load/recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5d",
+      "text": "Projects derives the seven canonical surface states from live template, instance, step, and milestone responses, isolates a failing subresource, and retries without cloning seeded templates or instances.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Projects live load/recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5e",
+      "text": "Messages derives the seven canonical surface states from live thread/message responses, continues bounded polling after a transient failure, and preserves the selected thread plus unsent draft without cloning seeded conversations.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Messages live load/poll/recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5f",
+      "text": "Facilities derives the seven canonical surface states from live facilities, reservations, series, and overview responses, retries an affected subresource independently, and never replaces authorized facility data with seeded reservations.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Facilities live subresource recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5g",
+      "text": "Automations derives only the seven canonical surface states from live rule, trigger, action, provider, and integration-account responses; missing catalogs, invalid rules, and provider failures remain bounded detail within those states and retry the real boundary.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Automations live dependency/recovery capability and vocabulary proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c5h",
+      "text": "Integrations derives the seven canonical surface states from live account, settings, and sync responses, distinguishes connected, needs_reauth, error, and disconnected as domain data, and recovers a partial sync without seeded accounts or duplicate provider mutations.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing Integrations live reconnect/partial-sync recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-route-capabilities.live.redspec.ts."
+    },
+    {
+      "criterion_id": "post-m1-p10-c6a",
+      "text": "Memory, Deep Research, Schedules, Webhooks, Skills, Playbooks, Cookbook, Organization Review, Run Quality, Gmail Signals, Gallery, Agent Settings, and Profiles derive the seven canonical surface states from their real live boundaries; retry and check-again reissue the failed request rather than changing a local counter or timer.",
+      "mode": "live",
+      "test": "apps/web/tests/gateway/post-m1-phase-10-tools.live.redspec.ts",
+      "status": "pending",
+      "reason": "Pending missing live Tool/Profile failure and recovery capability proof in apps/web/tests/gateway/post-m1-phase-10-tools.live.redspec.ts."
+    }
+  ],
+  "not_tested": [],
+  "note": "Phase 10 is contract-only in this unit. All criteria remain pending; the named RED/live/package/validator files are future proof owners and were not created or executed here. Route surface-state criteria deliberately use only ready, loading, empty, server-error, forbidden, unavailable, and readonly. Domain wire values such as session.status='retrying' or integration status='needs_reauth' are not route-state literals."
+}

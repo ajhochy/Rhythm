@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import Database from 'better-sqlite3';
 
 import { createApp } from '../app';
+import { LiveArtifactStorage } from '../services/live_artifact_storage';
 import { env } from '../config/env';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -130,21 +131,28 @@ describe('live artifacts (AV-02)', () => {
     });
     expect(response.status).toBe(200);
     const stateHash = createHash('sha256').update(JSON.stringify(state)).digest('hex');
-    expect(await readFile(path.join(env.liveArtifactStorageDir, artifact.id, 'state', `${stateHash}.json`), 'utf8')).toBe(JSON.stringify(state));
+    // Content is addressed by (artifact, kind, hash) in the database; attacker
+    // supplied path/id/filename fields cannot steer where it lands.
+    expect(db.prepare('SELECT body FROM live_artifact_contents WHERE artifact_id = ? AND kind = ? AND hash = ?')
+      .get(artifact.id, 'state', stateHash)).toEqual({ body: JSON.stringify(state) });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifact_contents WHERE artifact_id != ?').get(artifact.id)).toEqual({ count: 0 });
     expect(existsSync(path.join(env.liveArtifactStorageDir, 'other'))).toBe(false);
   });
 
   it('stores canonical hashes under fixed paths and keeps deleted content', async () => {
     const owner = users.create({ name: 'Owner', email: 'av02-fixed-storage@example.com' });
     const artifact = await create(owner.id, workspace(owner.id));
-    const root = path.join(env.liveArtifactStorageDir, artifact.id);
     const state = JSON.stringify({ scripture: 'John 3:16' });
     const stateHash = createHash('sha256').update(state).digest('hex');
     const bundleHash = createHash('sha256').update(JSON.stringify(bundle)).digest('hex');
-    expect(await readFile(path.join(root, 'bundles', bundleHash, 'index.html'), 'utf8')).toBe(bundle.html);
-    expect(await readFile(path.join(root, 'state', `${stateHash}.json`), 'utf8')).toBe(state);
+    const stored = (kind: string, hash: string) => db
+      .prepare('SELECT body FROM live_artifact_contents WHERE artifact_id = ? AND kind = ? AND hash = ?')
+      .get(artifact.id, kind, hash) as { body: string } | undefined;
+    expect(JSON.parse(stored('bundle', bundleHash)!.body).html).toBe(bundle.html);
+    expect(stored('state', stateHash)!.body).toBe(state);
     expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { method: 'DELETE', headers: await header(owner.id) })).status).toBe(204);
-    expect(existsSync(root)).toBe(true);
+    // A soft delete keeps content addressable for prior-access tombstone reads.
+    expect(stored('bundle', bundleHash)).toBeTruthy();
   });
 
   it('rejects traversal-shaped route input without disclosure', async () => {
@@ -273,40 +281,45 @@ describe('live artifacts (AV-02)', () => {
     expect(rendered.status).toBe(200);
     expect(await rendered.text()).toContain(updatedBundle.js);
     const bundleHash = createHash('sha256').update(JSON.stringify(updatedBundle)).digest('hex');
-    expect((await readdir(path.join(env.liveArtifactStorageDir, artifact.id, 'bundles', bundleHash))).sort()).toEqual(['app.js', 'index.html', 'styles.css']);
+    expect(db.prepare('SELECT body FROM live_artifact_contents WHERE artifact_id = ? AND kind = ? AND hash = ?')
+      .get(artifact.id, 'bundle', bundleHash)).toEqual({ body: JSON.stringify(updatedBundle) });
   });
 
   it('keeps the current bundle pointer unchanged when storage publication fails', async () => {
     const owner = users.create({ name: 'Owner', email: 'av02-publish-failure@example.com' });
     const artifact = await create(owner.id, workspace(owner.id));
-    const bundles = path.join(env.liveArtifactStorageDir, artifact.id, 'bundles');
     const before = db.prepare('SELECT current_bundle_revision, current_bundle_hash FROM live_artifacts WHERE id = ?').get(artifact.id);
     const rows = db.prepare('SELECT COUNT(*) AS count FROM live_artifact_bundle_revisions WHERE artifact_id = ?').get(artifact.id) as { count: number };
-    await rm(bundles, { recursive: true, force: true });
-    await writeFile(bundles, 'not a directory');
+    // Content persistence fails; the revision pointer must not advance.
+    const publish = vi.spyOn(LiveArtifactStorage.prototype, 'publishBundle')
+      .mockRejectedValue(new Error('storage unavailable'));
     const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 1, bundle: { ...bundle, js: 'window.neverPublished = true;' } }) });
     expect(response.status).toBe(500);
     expect(db.prepare('SELECT current_bundle_revision, current_bundle_hash FROM live_artifacts WHERE id = ?').get(artifact.id)).toEqual(before);
     expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifact_bundle_revisions WHERE artifact_id = ?').get(artifact.id)).toEqual(rows);
+    publish.mockRestore();
   });
 
-  it('self-heals an old empty destination and leaves no bundle temp directories', async () => {
-    // Regression: a legacy empty hash directory is not valid idempotent content.
+  it('republishing identical bundle content stays consistent and renderable', async () => {
+    // Replaces a filesystem-era test about empty hash directories and .tmp- dirs:
+    // database content storage has no partial directories or temp files to heal.
     const owner = users.create({ name: 'Owner', email: 'av02-empty-destination@example.com' });
     const artifact = await create(owner.id, workspace(owner.id));
     const updatedBundle = { ...bundle, js: 'window.selfHealed = true;' };
     const bundleHash = createHash('sha256').update(JSON.stringify(updatedBundle)).digest('hex');
-    const bundles = path.join(env.liveArtifactStorageDir, artifact.id, 'bundles');
-    await mkdir(path.join(bundles, bundleHash));
-    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 1, bundle: updatedBundle }) });
-    expect(response.status).toBe(200);
-    expect((await readdir(path.join(bundles, bundleHash))).sort()).toEqual(['app.js', 'index.html', 'styles.css']);
-    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, { method: 'PUT', headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedBundleRevision: 2, bundle: updatedBundle }) })).status).toBe(200);
-    expect((await readdir(bundles)).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    const put = async (expectedBundleRevision: number) => fetch(`${baseUrl}/live-artifacts/${artifact.id}/bundle`, {
+      method: 'PUT',
+      headers: { ...(await header(owner.id)), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedBundleRevision, bundle: updatedBundle }),
+    });
+    expect((await put(1)).status).toBe(200);
+    expect((await put(2)).status).toBe(200);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM live_artifact_contents WHERE artifact_id = ? AND kind = ? AND hash = ?')
+      .get(artifact.id, 'bundle', bundleHash)).toEqual({ count: 1 });
     expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(200);
   });
 
-  const parityPolicy = "default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com data:; img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'";
+  const parityPolicy = "default-src 'none'; script-src 'unsafe-inline' blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com data:; img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; media-src data: blob:; connect-src blob:; form-action 'none'; base-uri 'none'; frame-src 'none'; object-src 'none'";
 
   it('renders fragment bundles with the exact Claude-parity CSP while preserving sandbox boundaries', async () => {
     // Regression: a nonce CSP or an omitted CDN host makes otherwise valid Claude artifacts fail to render.
@@ -323,6 +336,27 @@ describe('live artifacts (AV-02)', () => {
     expect(document).not.toMatch(/nonce=/i);
     expect(headerPolicy).not.toContain("'unsafe-eval'");
     expect(document.indexOf('<meta http-equiv="Content-Security-Policy"')).toBeLessThan(document.indexOf('<meta charset'));
+  });
+
+  it('allows self-contained bundle scripts to hydrate from blobs without enabling network fetches', async () => {
+    // Standalone artifact exporters unpack embedded dependencies into blob URLs,
+    // then load them as scripts or read them back before Babel transforms JSX.
+    const owner = users.create({ name: 'Owner', email: 'rt-blob-bundle-csp@example.com' });
+    const artifact = await create(owner.id, workspace(owner.id), 'private', {
+      ...bundle,
+      html: '<script>const u=URL.createObjectURL(new Blob(["window.hydrated=true"],{type:"application/javascript"}));fetch(u).then(r=>r.text());const s=document.createElement("script");s.src=u;document.head.appendChild(s);</script>',
+    });
+    const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    const document = await response.text();
+    const headerPolicy = response.headers.get('content-security-policy') ?? '';
+    const metaPolicy = document.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)">/)?.[1] ?? '';
+    for (const policy of [headerPolicy, metaPolicy]) {
+      expect(policy).toMatch(/script-src [^;]*\bblob:/);
+      expect(policy).toContain('connect-src blob:');
+      expect(policy).not.toMatch(/connect-src [^;]*https?:/);
+    }
+    expect(headerPolicy).toContain('sandbox allow-scripts');
+    expect(headerPolicy).toContain("frame-ancestors 'none'");
   });
 
   it('injects full documents without double wrapping and preserves inline artifact blocks', async () => {
@@ -372,15 +406,24 @@ describe('live artifacts (AV-02)', () => {
     // Regression: raw node fs errors include the storage layout and stack frames in the shared error log.
     const owner = users.create({ name: 'Owner', email: 'av02-storage-leak@example.com' });
     const artifact = await create(owner.id, workspace(owner.id));
+    db.prepare('DELETE FROM live_artifact_contents WHERE artifact_id = ?').run(artifact.id);
     await rm(path.join(env.liveArtifactStorageDir, artifact.id), { recursive: true, force: true });
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const response = await fetch(`${baseUrl}/live-artifacts/${artifact.id}`, { headers: await header(owner.id) });
+    const responseBody = await json(response);
     const logged = JSON.stringify(error.mock.calls);
     expect(response.status).toBe(500);
-    expect(JSON.stringify(await json(response))).not.toMatch(/state|bundles|ENOENT|\n\s+at\s/);
+    expect(responseBody).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Live artifact content unavailable' },
+    });
+    expect(JSON.stringify(responseBody)).not.toMatch(/\/state\/|\/bundles\/|ENOENT|\n\s+at\s|LIVE_ARTIFACT_STORAGE_DIR/);
     expect(logged).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
     expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'state', op: 'read', code: 'ENOENT' });
-    expect((await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) })).status).toBe(500);
+    const renderResponse = await fetch(`${baseUrl}/live-artifacts/${artifact.id}/render`, { headers: await header(owner.id) });
+    expect(renderResponse.status).toBe(500);
+    expect(await json(renderResponse)).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Live artifact content unavailable' },
+    });
     expect(JSON.stringify(error.mock.calls)).not.toMatch(/\/state\/|\/bundles\/|\n\s+at\s/);
     expect(error).toHaveBeenCalledWith('[ERROR] live-artifact storage operation failed', { artifactId: artifact.id, kind: 'bundle', op: 'read', code: 'ENOENT' });
     error.mockRestore();

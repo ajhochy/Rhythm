@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 
 const RUN = process.env.RHYTHM_LIVE_E2E === '1';
 // Drive Rhythm's OWN worktree wrapper routes (the #1057 deliverable) on the
@@ -75,5 +75,53 @@ const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4098';
     });
     expect(removeRes.ok).toBe(true);
     expect(existsSync(created.directory)).toBe(false);
+  });
+
+  it('#1058/#1063 creates an isolated session and exposes its real VCS state', async () => {
+    const createRes = await fetch(`${BASE}/agent-sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: repo,
+        name: 'isolated live session',
+        isolateWorktree: true,
+        worktreeName: 'session-e2e-wt',
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const session = (await createRes.json()) as {
+      id: string;
+      cwd: string;
+      worktreeName: string;
+      worktreePath: string;
+      worktreeBranch: string;
+    };
+    expect(session.cwd).toBe(session.worktreePath);
+    expect(session.worktreeName).toBe('session-e2e-wt');
+    expect(existsSync(session.worktreePath)).toBe(true);
+
+    writeFileSync(join(session.worktreePath, 'changed.txt'), 'dirty\n');
+    const vcsRes = await fetch(`${BASE}/agent-sessions/${session.id}/vcs`);
+    expect(vcsRes.status).toBe(200);
+    expect((await vcsRes.json()) as { branch?: string }).toMatchObject({
+      branch: session.worktreeBranch,
+    });
+    const statusRes = await fetch(`${BASE}/agent-sessions/${session.id}/vcs/status`);
+    expect(statusRes.status).toBe(200);
+    expect((await statusRes.json()) as unknown[]).not.toHaveLength(0);
+
+    const deleteRes = await fetch(
+      `${BASE}/agent-sessions/${session.id}/hard?removeWorktree=true`,
+      { method: 'DELETE' },
+    );
+    expect(deleteRes.status).toBe(204);
+    expect(existsSync(session.worktreePath)).toBe(false);
+    expect(
+      spawnSync(
+        'git',
+        ['-C', repo, 'show-ref', '--verify', '--quiet', `refs/heads/${session.worktreeBranch}`],
+      ).status,
+    ).not.toBe(0);
   });
 });

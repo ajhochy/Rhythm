@@ -188,6 +188,9 @@ export class RelayUplinkClient {
         backoffMs = this.reconnectBaseMs;
         await this.waitForRedial(backoffMs);
       } else {
+        logger.warn(
+          `[RelayUplinkClient] uplink pass failed; retrying in ${backoffMs}ms`,
+        );
         await this.waitForRedial(backoffMs);
         backoffMs = Math.min(
           this.reconnectMaxMs,
@@ -467,7 +470,7 @@ export class RelayUplinkClient {
       ch: 'rpc',
       t: 'res',
       id,
-      status: 502,
+      status: 504,
       headers: { 'content-type': 'application/json' },
       bodyB64: Buffer.from(
         JSON.stringify({ error: 'uplink_dispatch_failed' }),

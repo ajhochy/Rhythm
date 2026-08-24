@@ -91,6 +91,13 @@ if (
 if (!easConfig.submit?.production?.ios) {
   fail('eas.json must define the repository-owned production iOS submit profile.');
 }
+// An empty `ios: {}` satisfied the check above but makes `eas submit
+// --non-interactive` prompt for the App Store app, which fails in CI (#1175).
+if (!easConfig.submit.production.ios.ascAppId?.toString().trim()) {
+  fail(
+    'eas.json submit.production.ios must set ascAppId, or non-interactive TestFlight submit prompts and fails.',
+  );
+}
 
 runEas(['whoami']);
 const projectInfo = runEas(['project:info']);

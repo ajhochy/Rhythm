@@ -1939,6 +1939,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     final overrideCount =
         _corePermissions.keys.where((k) => k != 'bash').length +
             (_corePermissions.containsKey('bash') ? 1 : 0);
+    final allKnownDenied = _kKnownPermissionKeys.every((key) {
+      final value = _corePermissions[key];
+      if (key != 'bash') return value == 'deny';
+      if (value == 'deny') return true;
+      return value is Map && value['*'] == 'deny';
+    });
 
     return RhythmDisclosure(
       title: 'Tool Permissions',
@@ -1952,6 +1958,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             'Unset rows use the engine default for this tool.',
             style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
           ),
+          if (allKnownDenied) ...[
+            const SizedBox(height: 8),
+            _denyAllBanner(
+              'No native tool access (deny-all) — agent cannot use built-in tools',
+            ),
+          ],
           const SizedBox(height: 12),
           for (final key in _kKnownPermissionKeys.where((k) => k != 'bash'))
             _buildPermissionRow(key),
@@ -1989,6 +2001,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           ),
           _PermissionActionSelector(
             key: ValueKey('permission-selector-$key'),
+            permissionName: _titleCase(key),
             value: value,
             onChanged: (v) => setState(() {
               if (v == null) {
@@ -2054,6 +2067,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               ),
               _PermissionActionSelector(
                 key: const ValueKey('permission-selector-bash'),
+                permissionName: 'Bash',
                 value: patterns['*'],
                 onChanged: (v) {
                   final next = Map<String, String>.from(patterns);
@@ -2084,6 +2098,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                   ),
                   _PermissionActionSelector(
                     key: ValueKey('bash-pattern-selector-$pattern'),
+                    permissionName: 'Bash pattern $pattern',
                     value: patterns[pattern],
                     onChanged: (v) {
                       final next = Map<String, String>.from(patterns);
@@ -2095,24 +2110,28 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                       _setBashPatterns(next);
                     },
                   ),
-                  IconButton(
-                    key: ValueKey('bash-pattern-remove-$pattern'),
-                    icon: Icon(
-                      Icons.close,
-                      size: 16,
-                      color: context.rhythm.textMuted,
+                  Semantics(
+                    container: true,
+                    label: 'Remove Bash pattern $pattern',
+                    button: true,
+                    child: IconButton(
+                      key: ValueKey('bash-pattern-remove-$pattern'),
+                      tooltip: 'Remove Bash pattern $pattern',
+                      icon: Icon(
+                        Icons.close,
+                        size: 16,
+                        color: context.rhythm.textMuted,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                      ),
+                      onPressed: () {
+                        final next = Map<String, String>.from(patterns)
+                          ..remove(pattern);
+                        _setBashPatterns(next);
+                      },
                     ),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 28,
-                      minHeight: 28,
-                    ),
-                    onPressed: () {
-                      final next = Map<String, String>.from(patterns)
-                        ..remove(pattern);
-                      _setBashPatterns(next);
-                    },
                   ),
                 ],
               ),
@@ -2400,10 +2419,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
 class _PermissionActionSelector extends StatelessWidget {
   const _PermissionActionSelector({
     super.key,
+    required this.permissionName,
     required this.value,
     required this.onChanged,
   });
 
+  final String permissionName;
   final String? value;
   final ValueChanged<String?> onChanged;
 
@@ -2411,25 +2432,30 @@ class _PermissionActionSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SegmentedButton<String>(
-      segments: const [
-        ButtonSegment(value: 'ask', label: Text('Ask')),
-        ButtonSegment(value: 'allow', label: Text('Allow')),
-        ButtonSegment(value: 'deny', label: Text('Deny')),
-      ],
-      selected: {if (value != null && _actions.contains(value)) value!},
-      emptySelectionAllowed: true,
-      showSelectedIcon: false,
-      style: const ButtonStyle(
-        visualDensity: VisualDensity.compact,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: '$permissionName permission actions',
+      child: SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(value: 'ask', label: Text('Ask')),
+          ButtonSegment(value: 'allow', label: Text('Allow')),
+          ButtonSegment(value: 'deny', label: Text('Deny')),
+        ],
+        selected: {if (value != null && _actions.contains(value)) value!},
+        emptySelectionAllowed: true,
+        showSelectedIcon: false,
+        style: const ButtonStyle(
+          minimumSize: WidgetStatePropertyAll(Size(44, 44)),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
+        onSelectionChanged: (selection) {
+          // Tapping the currently-selected segment toggles it back to unset;
+          // SegmentedButton with emptySelectionAllowed already reports an
+          // empty set in that case.
+          onChanged(selection.isEmpty ? null : selection.first);
+        },
       ),
-      onSelectionChanged: (selection) {
-        // Tapping the currently-selected segment toggles it back to unset;
-        // SegmentedButton with emptySelectionAllowed already reports an
-        // empty set in that case.
-        onChanged(selection.isEmpty ? null : selection.first);
-      },
     );
   }
 }

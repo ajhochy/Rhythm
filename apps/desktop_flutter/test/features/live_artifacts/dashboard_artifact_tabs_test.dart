@@ -10,6 +10,7 @@ import 'package:rhythm_desktop/features/live_artifacts/controllers/live_artifact
 import 'package:rhythm_desktop/features/live_artifacts/data/live_artifacts_data_source.dart';
 import 'package:rhythm_desktop/features/live_artifacts/models/live_artifact.dart';
 import 'package:rhythm_desktop/features/live_artifacts/widgets/dashboard_artifact_tabs.dart';
+import 'package:rhythm_desktop/features/live_artifacts/widgets/live_artifact_view.dart';
 import 'package:rhythm_desktop/features/settings/data/user_preferences_data_source.dart';
 import 'package:rhythm_desktop/app/theme/app_theme.dart';
 
@@ -223,6 +224,42 @@ void main() {
     await tester.pumpWidget(workspaceSubject(generic));
     expect(find.text('Could not load this artifact.'), findsOneWidget);
     expect(find.text('Refresh artifact'), findsOneWidget);
+  });
+
+  testWidgets('switching artifact tabs replaces the keyed viewer state',
+      (tester) async {
+    // Regression: Flutter reused one LiveArtifactView State across tab IDs,
+    // allowing the prior WKWebView page to remain visible under the new tab.
+    final value = controller();
+    value.debugSetForTest(tabs: [
+      LiveArtifactTab(
+          id: 'ffb',
+          status: LiveArtifactTabStatus.ready,
+          artifact: LiveArtifact(
+              id: 'ffb', title: 'FFB Dashboard', updatedAt: DateTime(2026))),
+      LiveArtifactTab(
+          id: 'dev',
+          status: LiveArtifactTabStatus.ready,
+          artifact: LiveArtifact(
+              id: 'dev', title: 'Dev Dashboard', updatedAt: DateTime(2026))),
+    ]);
+    value.select('ffb');
+    await tester.pumpWidget(workspaceSubject(value));
+    await tester.pump();
+    final ffbViewer = tester.state(find.byType(LiveArtifactView));
+
+    value.select('dev');
+    await tester.pump();
+    final devViewer = tester.state(find.byType(LiveArtifactView));
+
+    expect(identical(ffbViewer, devViewer), isFalse);
+    expect(ffbViewer.mounted, isFalse);
+    expect(
+        tester
+            .widget<LiveArtifactView>(find.byType(LiveArtifactView))
+            .artifact
+            .id,
+        'dev');
   });
 
   testWidgets('narrow long-title focused toolbar golden', (tester) async {

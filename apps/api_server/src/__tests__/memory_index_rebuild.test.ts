@@ -34,7 +34,12 @@ import path from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
-import { MemoryIndexService } from '../services/memory_index_service';
+import {
+  MemoryIndexService,
+  startMemoryIndexRebuildBestEffort,
+  startMemoryVaultSyncAfterRebuild,
+  withMemoryIndexScanTimeout,
+} from '../services/memory_index_service';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -66,6 +71,68 @@ afterEach(() => {
   } catch {
     /* ignore */
   }
+});
+
+describe('startup memory-index rebuild', () => {
+  it('returns the detached completion promise without awaiting it at startup', () => {
+    let invoked = false;
+    const neverSettles = new Promise<{ indexed: number }>(() => {});
+
+    const result = startMemoryIndexRebuildBestEffort({
+      rebuildIndexFromVault: () => {
+        invoked = true;
+        return neverSettles;
+      },
+    });
+
+    expect(invoked).toBe(true);
+    expect(result).toBeInstanceOf(Promise);
+  });
+
+  it('starts the mirror sync only after the detached rebuild settles', async () => {
+    let resolveRebuild!: () => void;
+    const rebuild = new Promise<void>((resolve) => {
+      resolveRebuild = resolve;
+    });
+    let starts = 0;
+
+    const coordination = startMemoryVaultSyncAfterRebuild(
+      rebuild,
+      () => { starts += 1; },
+    );
+
+    await Promise.resolve();
+    expect(starts).toBe(0);
+    resolveRebuild();
+    await coordination;
+    expect(starts).toBe(1);
+  });
+
+  it('does not start the mirror sync after shutdown begins', async () => {
+    let starts = 0;
+    await startMemoryVaultSyncAfterRebuild(
+      Promise.resolve(),
+      () => { starts += 1; },
+      () => true,
+    );
+    expect(starts).toBe(0);
+  });
+
+  it('times out a non-settling startup scan and still registers mirror sync', async () => {
+    const neverSettles = new Promise<never>(() => {});
+    const completion = startMemoryIndexRebuildBestEffort({
+      rebuildIndexFromVault: (_vaultPath, options) =>
+        withMemoryIndexScanTimeout(neverSettles, options?.scanTimeoutMs ?? 0),
+    }, 5);
+    let starts = 0;
+
+    await startMemoryVaultSyncAfterRebuild(
+      completion,
+      () => { starts += 1; },
+    );
+
+    expect(starts).toBe(1);
+  });
 });
 
 describe('MemoryIndexService.rebuildIndexFromVault (#802)', () => {

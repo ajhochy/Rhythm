@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { Platform } from 'react-native';
 
+import { MOBILE_ATTACHMENT_LIMIT_BYTES } from '@/lib/attachments/limits';
 import { MacOfflineError } from '@/lib/transport/api-error';
 import {
   connectionStatusForPresence,
@@ -94,6 +95,7 @@ import {
   getInitialProviderId,
   getModelIdForProvider,
   getNewSessionPreferences,
+  NO_SELECTABLE_PROFILE_MESSAGE,
   getProjectLabel,
   getSelectedModelParts,
   getSessionExecutionState,
@@ -116,6 +118,7 @@ import {
 } from '@/providers/open-project-session';
 import {
   canCommitBootstrappedSession,
+  cancelSessionRefreshTimers,
   getConfiguredProviders,
   getConversationStatusLabel,
   getCurrentPendingRequests,
@@ -124,6 +127,7 @@ import {
   getTranscriptActivityLabelForEntries,
   preserveReadySessionDuringRefresh,
   reconcileSessionSelectionAfterRefresh,
+  shouldKeepSessionSafetyPoll,
 } from '@/providers/opencode-provider-selectors';
 import {
   CONVERSATION_FINAL_RESULT_SETTLE_MS,
@@ -159,6 +163,7 @@ import {
   archiveSession as svcArchiveSession,
   listArchivedSessions as svcListArchivedSessions,
   listSessions as svcListSessions,
+  resolveExactSession,
   getSessionMessages as svcGetSessionMessages,
   getSessionDiff as svcGetSessionDiff,
   getSessionTodos as svcGetSessionTodos,
@@ -293,6 +298,10 @@ type OpenProjectSessionRuntime = {
     projectId: string,
     sessionId: string,
   ): Promise<MobileSession | undefined>;
+  discoverSessions(
+    projectId: string,
+    pinnedSessionId: string,
+  ): Promise<void>;
   loadSessionState(
     projectId: string,
     sessionId: string,
@@ -344,6 +353,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
     },
     [pairedHostClient],
+  );
+  const settleBackgroundRead = useCallback(
+    (operation: () => Promise<unknown>) => {
+      void trackMacOffline(operation).catch(() => undefined);
+    },
+    [trackMacOffline],
   );
   const [activeProjectPath, setActiveProjectPath] = useState<string>();
   const [sessions, setSessions] = useState<MobileSession[]>([]);
@@ -573,6 +588,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const clearProjectState = useCallback(() => {
+    cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
+    sessionRefreshTimeoutsRef.current = {};
+    sessionRefreshOptionsRef.current = {};
     bootstrapPromiseRef.current = null;
     bootstrapTokenRef.current = undefined;
     pendingNotificationSessionIdsRef.current.clear();
@@ -1016,16 +1034,35 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       };
     },
     async resolveSession(projectId, sessionId) {
-      const response = await buildSessionReadClient(
-        projectId,
-      ).experimental.session.list({
-        archived: false,
-        limit: 1,
-        search: sessionId,
-      });
-      return (response.data as MobileSession[] | undefined)?.find(
-        (session) => session.id === sessionId,
+      return resolveExactSession(
+        buildScopedClient(projectId),
+        sessionId,
+      ) as Promise<MobileSession | undefined>;
+    },
+    async discoverSessions(projectId) {
+      const discoveryGeneration = scopeGenerationRef.current;
+      const fetchSequence = ++sessionsFetchSequenceRef.current;
+      const result = await svcListSessions(buildScopedClient(projectId));
+      if (
+        activeProjectPathRef.current !== projectId ||
+        scopeGenerationRef.current !== discoveryGeneration ||
+        fetchSequence !== sessionsFetchSequenceRef.current
+      ) {
+        return;
+      }
+      setSessions((current) =>
+        preserveReadySessionDuringRefresh({
+          activeProjectId: projectId,
+          currentSessionId: currentSessionIdRef.current,
+          currentSessions: current,
+          openState:
+            openProjectSessionControllerRef.current?.getState() ?? {
+              kind: 'idle',
+            },
+          refreshedSessions: result.sessions as MobileSession[],
+        }),
       );
+      setSessionStatuses(result.statuses);
     },
     async loadSessionState(
       projectId,
@@ -1179,6 +1216,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             if (!runtime) throw new Error('Session opener is unavailable.');
             return runtime.resolveSession(projectId, sessionId);
           },
+          discoverSessions(projectId, pinnedSessionId) {
+            const runtime = openProjectSessionRuntimeRef.current;
+            if (!runtime) throw new Error('Session opener is unavailable.');
+            return runtime.discoverSessions(projectId, pinnedSessionId);
+          },
           loadSessionState(projectId, sessionId, session, catalog) {
             const runtime = openProjectSessionRuntimeRef.current;
             if (!runtime) throw new Error('Session opener is unavailable.');
@@ -1263,21 +1305,21 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           currentSessionIdRef.current === sessionId ||
           sessionsRef.current.some((session) => session.id === sessionId);
         if (mergedOptions.sessions) {
-          void refreshSessions(true).catch(() => undefined);
+          settleBackgroundRead(() => refreshSessions(true));
         }
         if (!sessionInScope) return;
         if (mergedOptions.messages) {
-          void refreshMessages(sessionId, true).catch(() => undefined);
+          settleBackgroundRead(() => refreshMessages(sessionId, true));
         }
         if (mergedOptions.diff) {
-          void refreshSessionDiff(sessionId, true).catch(() => undefined);
+          settleBackgroundRead(() => refreshSessionDiff(sessionId, true));
         }
         if (mergedOptions.todos) {
-          void refreshSessionTodos(sessionId).catch(() => undefined);
+          settleBackgroundRead(() => refreshSessionTodos(sessionId));
         }
       }, options?.delayMs ?? 150);
     },
-    [refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions],
+    [refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, settleBackgroundRead],
   );
 
   const refreshChatCapabilities = useCallback(async () => {
@@ -1396,8 +1438,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   // correctly bound profile (#1286). Capabilities must follow the scope.
   useEffect(() => {
     if (connection.status !== 'connected' || !activeProjectPath) return;
-    void refreshChatCapabilities().catch(() => undefined);
-  }, [activeProjectPath, connection.status, refreshChatCapabilities]);
+    settleBackgroundRead(refreshChatCapabilities);
+  }, [activeProjectPath, connection.status, refreshChatCapabilities, settleBackgroundRead]);
 
   const openSession = useCallback(
     async (sessionId: string) => {
@@ -1486,9 +1528,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           : availableAgents;
         preferences = getNewSessionPreferences(profiles, chatPreferences);
         if (!preferences) {
-          throw new Error(
-            'The Secretary profile is unavailable for new chats.',
-          );
+          throw new Error(NO_SELECTABLE_PROFILE_MESSAGE);
         }
       }
       preferences ??= chatPreferences;
@@ -1601,9 +1641,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const coalescedRefreshArchivedSessions = useMemo(
     () => createTrailingCoalescer(
       750,
-      () => void refreshArchivedSessions().catch(() => undefined),
+      () => settleBackgroundRead(refreshArchivedSessions),
     ),
-    [refreshArchivedSessions],
+    [refreshArchivedSessions, settleBackgroundRead],
   );
 
   const archiveSession = useCallback(async (sessionId: string) => {
@@ -2220,8 +2260,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     }
 
     const request = pairedHostClient
-      .request<unknown>('/mobile-gateway/health', { method: 'GET' })
-      .then(deriveMacPresence)
+      .healthResponse()
+      .then(async (response) =>
+        response.status === 503
+          ? 'offline' as const
+          : deriveMacPresence(await response.json()),
+      )
       .finally(() => {
         if (relayPresenceRequestRef.current?.promise === request) {
           relayPresenceRequestRef.current = null;
@@ -2428,18 +2472,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const coalescedRefreshSessions = useMemo(
     () => createTrailingCoalescer(
       750,
-      () => void refreshSessions(true).catch(() => undefined),
+      () => settleBackgroundRead(() => refreshSessions(true)),
     ),
-    [refreshSessions],
+    [refreshSessions, settleBackgroundRead],
   );
   const coalescedIdleRefresh = useMemo(
     () => createTrailingCoalescer(1000, () => {
-      void Promise.all([
+      settleBackgroundRead(() => Promise.all([
         refreshPendingInteractions(),
         refreshServerFeatures(),
-      ]).catch(() => undefined);
+      ]));
     }),
-    [refreshPendingInteractions, refreshServerFeatures],
+    [refreshPendingInteractions, refreshServerFeatures, settleBackgroundRead],
   );
 
   useEffect(
@@ -2506,13 +2550,13 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (connection.status !== 'connected' || !activeProjectPath) return;
-    void Promise.all([
+    settleBackgroundRead(() => Promise.all([
       refreshWorktrees(),
       refreshMcpServers(),
       refreshTerminals(),
       refreshArchivedSessions(),
-    ]).catch(() => undefined);
-  }, [activeProjectPath, connection.status, refreshArchivedSessions, refreshMcpServers, refreshTerminals, refreshWorktrees]);
+    ]));
+  }, [activeProjectPath, connection.status, refreshArchivedSessions, refreshMcpServers, refreshTerminals, refreshWorktrees, settleBackgroundRead]);
 
   useEffect(() => {
     if (connection.status !== 'connected' || !activeProjectPath) {
@@ -2929,7 +2973,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             try {
               const FileSystem = await import('expo-file-system/legacy');
               const info = await FileSystem.getInfoAsync(att.uri);
-              if (info.exists && typeof info.size === 'number' && info.size > 10 * 1024 * 1024) {
+              if (
+                info.exists &&
+                typeof info.size === 'number' &&
+                info.size > MOBILE_ATTACHMENT_LIMIT_BYTES
+              ) {
                 throw new Error('File exceeds the 10 MB attachment limit.');
               }
               const base64 = await FileSystem.readAsStringAsync(att.uri, { encoding: 'base64' });
@@ -2956,16 +3004,20 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           parts,
         });
         promptAccepted = true;
-        void pollForNewAssistantTurn({
-          baselineAssistantMessageIds,
-          isActive: () => isCurrentClient(client),
-          refreshMessages: () => refreshMessages(sessionId, true),
-        });
+        settleBackgroundRead(() =>
+          pollForNewAssistantTurn({
+            baselineAssistantMessageIds,
+            isActive: () => isCurrentClient(client),
+            refreshMessages: () => refreshMessages(sessionId, true),
+          }));
         promptSubmissionRef.current = { active: false, sessionId: undefined };
         if (!isCurrentClient(client)) {
           return true;
         }
-        setTimeout(() => void refreshSessions(true).catch(() => undefined), 5000);
+        setTimeout(
+          () => settleBackgroundRead(() => refreshSessions(true)),
+          5000,
+        );
 
         setCurrentSessionId(sessionId);
         await fetchSessions(true);
@@ -2997,7 +3049,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setSendingState({ active: false, sessionId: undefined });
       }
     },
-    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions],
+    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, messagesBySession, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, settleBackgroundRead],
   );
 
   const abortSession = useCallback(
@@ -3536,33 +3588,34 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
         case 'session.compacted': {
           scheduleSessionRefresh(event.properties.sessionID, { sessions: true, diff: true, todos: true });
-          void replaceSessionMessages(event.properties.sessionID, true);
+          settleBackgroundRead(() =>
+            replaceSessionMessages(event.properties.sessionID, true));
           return;
         }
         case 'project.updated':
-          void refreshWorkspaceCatalog(true);
+          settleBackgroundRead(() => refreshWorkspaceCatalog(true));
           return;
         case 'file.edited':
         case 'vcs.branch.updated':
-          void refreshServerFeatures();
+          settleBackgroundRead(refreshServerFeatures);
           return;
         case 'pty.created':
         case 'pty.updated':
         case 'pty.exited':
         case 'pty.deleted':
-          void refreshTerminals();
+          settleBackgroundRead(refreshTerminals);
           return;
         case 'worktree.ready':
         case 'worktree.failed':
-          void refreshWorktrees();
-          void refreshWorkspaceCatalog(true);
+          settleBackgroundRead(refreshWorktrees);
+          settleBackgroundRead(() => refreshWorkspaceCatalog(true));
           return;
         case 'mcp.tools.changed':
         case 'mcp.browser.open.failed':
-          void refreshMcpServers();
+          settleBackgroundRead(refreshMcpServers);
           return;
         case 'lsp.updated':
-          void refreshDiagnostics();
+          settleBackgroundRead(refreshDiagnostics);
           return;
         case 'session.diff': {
           const sessionId = event.properties.sessionID;
@@ -3654,13 +3707,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             const subscription = await eventClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
             envelopeStream = subscription.stream;
           }
-          await Promise.all([
+          // Start consuming the stream immediately. Waiting for the initial
+          // read fan-out delayed the phone's own prompt echo behind cold relay
+          // reads even though the desktop had already received it.
+          settleBackgroundRead(() => Promise.all([
             refreshSessions(true),
             refreshArchivedSessions(),
             refreshPendingInteractions(),
             refreshServerFeatures(),
             refreshCurrentSession(true),
-          ]);
+          ]));
           for await (const envelope of envelopeStream) {
             if (!mounted || abortController.signal.aborted) {
               break;
@@ -3706,11 +3762,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings]);
+  }, [activeProjectPath, catalogClient, client, coalescedIdleRefresh, coalescedRefreshArchivedSessions, coalescedRefreshSessions, connection.status, pairedHostClient, pairedHostRecord?.relayUrl, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, replaceSessionMessages, scheduleSessionRefresh, settings, settleBackgroundRead]);
 
   useEffect(
     () => () => {
-      Object.values(sessionRefreshTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
+      cancelSessionRefreshTimers(sessionRefreshTimeoutsRef.current);
       sessionRefreshTimeoutsRef.current = {};
       sessionRefreshOptionsRef.current = {};
       if (conversationResumeTimeoutRef.current) {
@@ -3736,7 +3792,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     const hasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
     const hasConversationActivity = conversationPhase !== 'off';
     const useSafetyPolling = eventStreamStatus !== 'connected';
-    const shouldKeepSafetyPoll = useSafetyPolling || hasBusySession || sendingState.active || hasConversationActivity;
+    const shouldKeepSafetyPoll = shouldKeepSessionSafetyPoll({
+      eventStreamStatus,
+      hasBusySession,
+      hasConversationActivity,
+      sending: sendingState.active,
+    });
 
     if (!shouldKeepSafetyPoll) {
       return;
@@ -3747,29 +3808,29 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       const currentHasConversationActivity = conversationPhase !== 'off';
 
       if (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling) {
-        void refreshSessions(true);
-        void refreshPendingInteractions();
+        settleBackgroundRead(() => refreshSessions(true));
+        settleBackgroundRead(refreshPendingInteractions);
       }
 
       if (currentSessionId && (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling)) {
-        void Promise.all([
+        settleBackgroundRead(() => Promise.all([
           refreshMessages(currentSessionId, true),
           refreshSessionDiff(currentSessionId, true),
           refreshSessionTodos(currentSessionId),
-        ]);
+        ]));
       }
 
       if (conversationSessionId && conversationSessionId !== currentSessionId && (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling)) {
-        void Promise.all([
+        settleBackgroundRead(() => Promise.all([
           refreshMessages(conversationSessionId, true),
           refreshSessionDiff(conversationSessionId, true),
           refreshSessionTodos(conversationSessionId),
-        ]);
+        ]));
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [activeProjectPath, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses]);
+  }, [activeProjectPath, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses, settleBackgroundRead]);
 
   useEffect(() => {
     const busy = sendingState.active || Object.values(sessionStatuses).some((status) => status.type !== 'idle');

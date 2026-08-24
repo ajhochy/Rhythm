@@ -154,6 +154,7 @@ const config: ExpoConfig = {
   },
   ios: {
     bundleIdentifier: iosBundleIdentifier,
+    config: { usesNonExemptEncryption: false },
     // Prebuild writes this into the generated Xcode project's
     // DEVELOPMENT_TEAM build setting. Without it a local `xcodebuild
     // archive` fails with "Signing for RhythmAgents requires a development
