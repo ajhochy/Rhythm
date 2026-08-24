@@ -215,6 +215,21 @@ export const GEMINI_CODE_ASSIST_PROJECT_ID =
   process.env.OPENCODE_GEMINI_PROJECT_ID ||
   'rhythm-491406';
 
+/**
+ * #1452 — flags read directly by `services/numbat_observability_service.ts`
+ * (no exported resolver here, matching the `RHYTHM_TOOL_TELEMETRY_DISABLED`
+ * precedent in `opencode_plugin_config.ts`'s `rhythmTelemetryPluginPath()`):
+ *
+ * - `RHYTHM_NUMBAT_MONITORING_DISABLED` — set to `1` to skip installing
+ *   perplexityai/numbat's observe-only OpenCode monitoring hook entirely
+ *   (checked before any binary resolution or subprocess spawn).
+ * - `RHYTHM_NUMBAT_BIN_PATH` — override path to the `numbat` binary. Default
+ *   resolution order: this override -> /opt/homebrew/bin/numbat ->
+ *   /usr/local/bin/numbat -> bare `numbat` on inherited PATH. numbat is never
+ *   bundled/auto-downloaded by Rhythm — see
+ *   docs/ai/decisions/2026-08-18-numbat-observability-integration.md.
+ */
+
 const dbClientValue = (process.env.DB_CLIENT ?? 'sqlite').trim().toLowerCase();
 const agentLocal = process.env.AGENT_LOCAL === 'true';
 

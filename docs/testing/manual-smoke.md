@@ -494,6 +494,29 @@ must not already exist.
 
 ---
 
+## 15. Numbat OpenCode observability hook (#1452)
+
+Requires a machine with the `numbat` binary installed
+(`https://github.com/perplexityai/numbat`); the feature is inert (not
+broken) and this check is a no-op if it is absent.
+
+- [ ] Start api_server normally (via `tools/dev/sandbox.sh up` for a dev
+  check, never by hand) and confirm
+  `${XDG_CONFIG_HOME:-~/.config}/opencode/plugins/numbat.ts` exists.
+- [ ] Open that file and confirm its `EXTRA_ARGS` array contains no
+  `--enforce`, no `--output`/`http`, and no `--content full`.
+- [ ] Run a real agent session (a prompt that triggers at least one tool
+  call). Confirm `$HOME/.numbat/records.ndjson` gained new lines for that
+  session, each with a `content_preview` bounded to <=200 characters — never
+  the full prompt/response text.
+- [ ] Confirm no `NUMBAT_HTTP_TOKEN` or `NUMBAT_HTTP_HMAC_KEY` environment
+  variable is set anywhere in Rhythm's process environment (numbat is
+  local-only; these only matter for an HTTP sink Rhythm never configures).
+- [ ] Confirm the tool call/session completed normally — the numbat hook is
+  fire-and-forget and must never block, delay, or alter it.
+
+---
+
 ## Research Projects rollout gate (#1300)
 
 Run only against the disposable sandbox described in

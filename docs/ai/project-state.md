@@ -1,160 +1,92 @@
-# Project State
+# Rhythm — Project State
 
-## Focus
+Two active, unrelated threads on this repo right now (no file overlap):
 
-D2.1-D2.5 post-apply monitor -> repair -> revert lifecycle (#1431-#1435),
-including the independent-review repairs for evidence gating, target CAS,
-crash recovery, projection settlement, truthful alert trails, and real
-diagnosis evidence.
+1. **Mobile smart-client rebuild** — PR #1383, awaiting manual smoke + merge.
+2. **Numbat OpenCode observability (#1452)** — draft PR pending, awaiting AJ's manual smoke + merge decision.
 
-## Branch / PR
+---
 
-- Branch: `agent-stack/si-d2-post-apply-lifecycle`
-- Base committed head: `c825bf9e`
-- Draft PR: #1454 (open, unmerged)
-- Current repair changes remain uncommitted pending final commit.
+## Thread 1 — Mobile smart-client rebuild
 
-## Current state
+**Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
+**Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
 
-- Repair decisions are durable and sweep-driven. No post-repair evidence means
-  pending, never success.
-- The repair gate reuses D2.2's full guardrail registry and minimum sample
-  threshold.
-- New diagnosis attempts receive bounded, safe
-  `post-apply-regression` signals derived from actual breached guardrails.
-  Empty/insufficient evidence does not invoke diagnosis or consume a strike.
-- Provider failure, null response, parse failure, and timeout defer without a
-  strike.
-- Attempts are idempotency-keyed and resume before diagnosis across proposal,
-  mutation, claim, projection, and event-update crash points.
-- Repair and revert use target value/revision CAS. Concurrent operator drift is
-  refused; a valid multi-repair chain uses the last same-field applied value as
-  its revert anchor.
-- Projection `blocked` / `failed` / `missing` cannot settle repair or revert
-  success.
-- Revert verification/projection completes before the proposal becomes
-  terminal `reverted`, preventing proposal/event status contradiction.
-- Revert alerts contain deterministic SHA-256 target/change/value fingerprints
-  and safe field identity, never raw config/prompt/secret bytes.
-- Protected whole-field scope refusal, no recursive repair enrollment, and
-  post-commit approval error isolation remain enforced.
+## What shipped
+MEGA PR #1368 **merged** (all 59 issues; new surfaces off by default:
+`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`, `RHYTHM_MCP_APPS_MODE=off`).
 
-## Verification
+#1368 lifted the **React Native** halves of the mobile workstream off its branch
+(`f4c7c352`) while the server halves landed. PR #1383 restores that RN transport:
+#1270 profile fallback · #1308/#1311 attachment-limit constant · #1364/#1366
+session-lifecycle fencing · #1247 SSE permission replay. Five commits, one per issue.
 
-- Focused post-apply-regression signal suite: 34/34 pass.
-- Lifecycle integration suite after evidence-aware fixture repair: 8/8 pass.
-- TypeScript: pass.
-- API build: pass.
-- Full API suite: 5,530 pass / 182 skipped / 8 failed before the fixture
-  correction. Seven failures are the established inherited-environment
-  baseline; the sole D2 failure was the stale no-evidence integration fixture
-  and now passes 8/8 in isolation.
-- Real live repair E2E: 1/1 pass in 160.53s against isolated API 4298, engine
-  4297, gateway 4299, synthetic SQLite data, real scheduler, and real
-  `openai/gpt-5.6-sol` diagnosis. Actual guardrail evidence created one repair;
-  no evidence stayed pending across cron; five clean outcomes settled
-  `clear` / `not_needed`, original proposal `active`, no alert.
-- Sandbox removed; ports 4297/4298/4299 closed.
-- GitNexus worktree index remains stale; impact is UNKNOWN, not low.
+#1363 (binding-repair CLI) was never reverted — server-side, already on main, verified intact.
 
-## Risks / boundaries
+## Test status (PR #1383)
+- mobile: tsc clean, eslint 0 errors, **Jest 61/61**, **Playwright 71/71**, `test:ci:static` exit 0,
+  contract green (**136 ops**) — matches mega-HEAD parity exactly.
+- api_server: mobile gateway + proxy 17/17; `session_binding_cleanup` 3/3.
+- **Contract anchors untouched → no fingerprint bump, no re-pair.**
 
-- Eligible lifecycle enrollment remains limited to existing-profile mutations
-  with snapshots that `revertProposal` can safely restore. Create-agent,
-  external adoption, and missing-skill creation remain excluded until all side
-  effects have versioned, race-safe rollback.
-- `org_proposal_reconciler.ts` remains read-only.
-- The seven unrelated full-suite failures are inherited environment-test
-  contamination and are being addressed in the separate C6 worktree; they are
-  not D2 regressions.
+## Two regressions found during the rebuild
+1. `eas.json` lost `ascAppId` (revert reset it pre-#1175) — non-interactive TestFlight submit would
+   prompt and fail. Restored + the iOS preflight now requires a non-empty `ascAppId` (it previously
+   accepted an empty `ios: {}`).
+2. `issue-1247.test.mjs` was orphaned (no npm script ever ran it). Wired into `test:ci:static`.
 
-## Next
+## NOT started — #1378 / #1379 smart-client plan
+`docs/ai/plan-mobile-smart-client.md` is a **proposed** plan to make the phone a client of the
+api_server mirror instead of a raw-engine proxy (Phases 0–4). It is unrelated to PR #1383's six
+issues and is **unimplemented**. Its four open decisions still need a call before Phase 1/2 —
+chiefly mirror authority vs. live backfill, and whether new mobile-native DTOs get a contract
+version separate from the engine fingerprint.
 
-Stage the full D2 repair, run staged change detection, commit/push, update draft
-PR #1454 with final evidence, then return to C6.
+## Flaky note (pre-existing, out of scope)
+api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
+DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
+(Both full mobile suites ran clean on #1383.)
 
-## Recent coding-agent runs
+## Next step (Thread 1)
+AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
+and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
+```bash
+cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
+```
 
-### 2026-08-21 — D1.5 tool-safety review correctness repair (#1430)
+---
 
-- Files modified: review queue controller and mounted Flutter regression; API safety projection and full fixed-reason route matrix; #1430 contract/run evidence.
-- Checks run: focused Flutter 11/11; full agent optimizer 35/35; Node 22 D1 API matrix 144 passed / 1 env-gated skip; Node 22 typecheck/build passed; Flutter analyze exit 0 with 318 existing infos.
-- Decisions made: one private proposed/sandbox-vetted/pending deduplicated loader is reused by refresh and failed-approval reconciliation; `Record<ToolVettingFailureReason | lifecycle reason, true>` makes vetter coverage compile-time exhaustive.
-- Deviations from spec: live behavioral gate remains pending for parent rerun; no sandbox/live process was started.
-- Concerns: GitNexus impact/detect is UNKNOWN because the integration is unavailable in this worktree; the inherited D1.4/D1.5 live fixture is still pending/sandbox_candidate_failed.
+## Thread 2 — Numbat OpenCode observability (#1452)
 
-### 2026-08-21 — D1 managed installer artifact-boundary repair (#1429)
+**Focus:** Wire observe-only Numbat OpenCode monitoring into api_server startup — **verification-gate PASSED, draft PR open, awaiting AJ's manual smoke + merge decision.**
+**Branch:** `numbat-opencode-observability` → **PR #1453** (https://github.com/ajhochy/Rhythm/pull/1453). **Do NOT merge** — AJ merges after manual testing.
 
-- Files modified: immutable tar validator, managed apply boundary, adversarial managed-apply tests, live D1.4 activation contract, contract/run evidence.
-- Checks run: RED reproduced child-path symlink, outside receipt, source-swap, and tar ambiguity flaws; focused GREEN 15/15; D1.1–D1.4 Docker matrix 279/279; isolated live HTTP/Docker activation 1/1; Node 22 typecheck/build; diff and changed-line secret scans clean. Workflow issue/pr gates are blocked only by the missing apps/mcp_server TypeScript dependency after Flutter/API checks pass.
-- Decisions made: validate each direct managed child and verification file with `lstat` + canonical containment; validate the copied staging archive with the same full-byte validator used at source inspection.
-- Deviations from spec: none.
-- Concerns: GitNexus impact/detect is UNKNOWN for this unindexed worktree; remaining filesystem checks are path-based Node APIs rather than descriptor-relative openat operations.
+### What it does
+New `apps/api_server/src/services/numbat_observability_service.ts` spawns
+`numbat hook install --agent opencode --emit all --content preview` at
+api_server startup, wired into the existing `agentExecutionEnabled` block in
+`server.ts` (own try/catch, no change to existing calls). Gated by
+`RHYTHM_NUMBAT_MONITORING_DISABLED=1` (checked first) and best-effort binary
+resolution (`RHYTHM_NUMBAT_BIN_PATH` → `/opt/homebrew/bin/numbat` →
+`/usr/local/bin/numbat` → bare `numbat` on PATH). **Observe-only, local-only,
+no enforcement, no HTTP sink** — numbat's own upstream constraint for the
+`opencode` agent (no `--enforce` flag accepted). Captured data lands in
+numbat's own `$HOME/.numbat/records.ndjson`, wholly separate from Rhythm's
+`run_quality` telemetry (#1069) — no schema/write-path collision.
 
-### 2026-08-21 — D1.4 managed immutable tool installer (#1429)
+### Test status
+All 6 automatable acceptance criteria (AC1-AC6) pass with live-sandbox
+evidence: real `numbat` v0.2.0 binary installed and independently
+reproduced by verification-gate (real WS session + tool call → bounded
+`content_preview` NDJSON records, no `enforcement` records, turn completes
+without error). 13/13 unit tests, `tsc --noEmit` clean. AC7/AC8 are
+structural/doc-inspection criteria, recorded `not_tested` with reasoning in
+the contract — not silently marked green.
 
-- Files modified: managed apply/artifact contract, validator/safety/vetter, sandbox root wiring, focused tests, D1 contract/run evidence.
-- Checks run: RED one unavailable apply; GREEN 7 managed tests; Docker GREEN 8/8; D1 focused matrix 103 passed / 2 env-gated skips; Node 22 typecheck/build and diff check passed.
-- Decisions made: only `local-tarball:sha256:<digest>` is installed; mutable npm/pip sources fail closed; installs use offline fixed Node/npm argv with scripts disabled and a receipt-verified staged activation.
-- Deviations from spec: isolated HTTP sandbox live route has not been rerun against the new local-artifact lane.
-- Concerns: GitNexus impact/detect is UNKNOWN because no index tool is available; broader registry/dependency installation is intentionally unsupported.
+### Next step (Thread 2)
+AJ: manual-smoke PR #1453 per `docs/testing/manual-smoke.md` §15 ("Numbat
+OpenCode observability hook"), then merge decision.
 
-### 2026-08-21 — D1.4 tool-install lifecycle repair (#1429)
-
-- Files modified: dedicated tool-install creation/vetting/decision/apply
-  boundaries; authenticated proposal route/controller; lifecycle/live tests;
-  D1.4 contract and run record.
-- Checks run: RED confirmed; focused D1.1-D1.4 plus adjacent suite 344 passed
-  / 1 env-gated live skip; real-Docker vetter 59/59; isolated live HTTP 1/1;
-  Node 22 typecheck/build; SQLite replay/parity; diff check.
-- Decisions made: no managed arbitrary npm/pip installer exists, so production
-  returns fixed `tool_install_apply_unavailable` and never claims installation;
-  injected tests prove the ordering/CAS boundary.
-- Deviations from spec: actual production tool installation is blocked pending
-  a separately approved managed installer; recorded honestly in
-  `docs/ai/contracts/issue-1429.json`.
-- Concerns: GitNexus is UNKNOWN for this unindexed worktree; no reindex was
-  run because it can rewrite repository instruction files.
-
-### 2026-08-21 — D1 observer capability proof
-
-- Files modified: `tool_sandbox_vetter.ts` (same-mount capability probe, aged
-  atime baselines, fail-closed proof); vetter tests (RED/GREEN observer cases);
-  #1427 contract and D1 run note.
-- Checks run: GPT-5.6 Terra's restricted sandbox passed the non-Docker matrix;
-  the parent then reran the explicit seven-file D1 matrix with real Docker:
-  7/7 files and 218/218 tests passed. Node 22 typecheck/build, diff check, and
-  added-line secret scan passed; exact owned-container count returned to zero.
-- Decisions made: a code-owned probe is never a credential sentinel; named
-  sentinel silence is trusted only after post-run host proof of probe advance.
-- Parent challenge evidence: a no-read candidate remained safe; broken
-  install/invocations returned unknown; quiet shell and programmatic sentinel
-  reads returned unsafe with access count 1; injected access evidence returned
-  unsafe. No server was started.
-- Concerns: GitNexus has no index for this worktree (impact/detect are
-  UNKNOWN). The observer intentionally covers only the three named synthetic
-  sentinels; it is not a generic syscall auditor.
-
-### 2026-08-21 — D1.4 tool vetting approval gate (#1429)
-
-- Files modified: central policy, proposal apply/controller boundaries, D1.1 report binding, additive schema parity, focused policy/route/live tests, D1.4 contract/run note.
-- Checks run: D1.1–D1.4 plus adjacent matrix 298 passed / 1 env-gated skip, then final affected subset 149/149; Node 22 typecheck/build; real-Docker safe + blocked vetter evidence; isolated live API 1/1; diff/secret scans.
-- Decisions made: reports bind a SHA-256 fingerprint of proposal id and closed candidate inputs; old/unbound, malformed, stale/mismatched rows never authorize. Conditional reports require an exact authenticated boundary token; reusable/optimizer paths cannot bypass the policy.
-- Deviations from spec: none.
-- Concerns: GitNexus detection remains UNKNOWN because this exact worktree is unindexed; an in-process per-proposal vet dedupe avoids local duplicate runs while cross-process races remain fail-closed under proposal CAS.
-
-### 2026-08-21 — D4.3 trust-gated auto-promotion (#1441)
-
-- Accepted at `3995d25b`: verified proposals use the existing CAS/apply path, require D1-safe evidence for tool installation, and recover D2 enrollment without replaying mutations. Parent gate: 177 passed / 1 Docker-gated skip; Node 22 typecheck/build passed.
-
-### 2026-08-21 — D4.6 regression feedback (#1444)
-
-- Accepted at `8ef88032`: durable D2 reverts feed the canonical regression count, disable auto-promotion, and retry sanitized administrator notification without replaying the revert. Parent gates: 99 SQLite and 11 disposable-Postgres tests passed; container removed.
-
-### 2026-08-21 — D4.5 all change types eligible for auto-promotion (#1443)
-
-- Files modified: D4.5 contract, one production-default SQLite all-kinds integration suite, and its run note.
-- Checks run: Node 22 D1/D2/D4 matrix 93 passed / 1 expected Docker-gated skip; API `tsc --noEmit` and build passed. `ai-workflow checks --level issue` is blocked by the inherited `apps/mcp_server` missing TypeScript compiler after Flutter/API checks pass.
-- Decisions made: test the real production availability gate with the feature flag and SQLite runtime instead of injecting availability; prove state, D2 monitor identity, and idempotence for all four accepted mutation paths.
-- Deviations from spec: none; no production correction was needed.
-- Concerns: GitNexus impact/detect remains UNKNOWN because the one permitted local detect attempt could not select this worktree from duplicate Rhythm indexes. See [[2026-08-21-issue-1443-auto-promotion-all-kinds]].
+Full detail: contract `docs/ai/contracts/issue-1452.json`, run note
+`docs/ai/runs/2026-08-18-numbat-opencode-observability.md`, decision record
+`docs/ai/decisions/2026-08-18-numbat-observability-integration.md`.

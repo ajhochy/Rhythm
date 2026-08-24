@@ -1,0 +1,73 @@
+{
+  "issue": 1452,
+  "date": "2026-08-18",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/numbat_observability_service.test.ts src/__tests__/numbat_observability_live_e2e.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1452-c1",
+      "text": "On a machine with numbat installed and RHYTHM_NUMBAT_MONITORING_DISABLED unset, starting api_server (via tools/dev/sandbox.sh up, never by hand) results in ${XDG_CONFIG_HOME:-~/.config}/opencode/plugins/numbat.ts existing, with an EXTRA_ARGS array containing no --enforce, no --output/http, no --content full.",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/numbat_observability_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Verified for real 2026-08-19 with numbat v0.2.0 installed at /opt/homebrew/bin/numbat. `tools/dev/sandbox.sh up` log: `[INFO] [NumbatObservability] invoked: /opt/homebrew/bin/numbat hook install --agent opencode --emit all --content preview` (not the absent-binary message). The generated file $TMPDIR/rhythm-dev-sandbox/home/.config/opencode/plugins/numbat.ts exists (6813 bytes) with literal `const EXTRA_ARGS = [\"--installed-by=numbat\", \"--emit\", \"all\", \"--output=file\", \"--output-file\", \".../home/.numbat/records.ndjson\"];` — no --enforce, no --output http (only --output=file), no --content full. `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/numbat_observability_live_e2e.test.ts --no-file-parallelism`: AC1's assertion body ran for real (not skipped) and passed."
+    },
+    {
+      "criterion_id": "issue-1452-c2",
+      "text": "A real OpenCode session driven through the sandbox (tool call + prompt) produces new lines in the configured NDJSON output file, each with content_preview bounded to <=200 code points (never full prompt/response text) and no record with record_type: \"enforcement\".",
+      "mode": "live",
+      "test": "apps/api_server/src/__tests__/numbat_observability_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Verified for real 2026-08-19: drove a real agent-session + WS prompt (\"Use your shell tool to run `pwd`, then reply with the single word: done.\") through the sandbox. New lines appeared live in $TMPDIR/rhythm-dev-sandbox/home/.numbat/records.ndjson, e.g. `{\"actor\":\"user\",...,\"content_preview\":\"Use your shell tool to run \\`pwd\\`, then reply with the single word: done.\",\"event_type\":\"prompt.user\",\"record_type\":\"event\",...}` and `{\"actor\":\"assistant\",...,\"content_preview\":\"done\",\"event_type\":\"message.assistant\",\"record_type\":\"event\",\"model_provider\":\"openrouter\",...}`. Every new record has record_type \"event\" (never \"enforcement\"); every content_preview present is well under 200 code points. Test note: had to switch the test's throwaway agent from modelProvider 'anthropic' to 'openrouter' (the repo's own established live-e2e convention, e.g. live_e2e_929.test.ts's `MODEL = { provider: 'openrouter', id: '' }`) after discovering 'anthropic' on this machine routes through rhythm-anthropic-accounts' Claude Code Keychain OAuth bridge, which had an unrelated, pre-existing credential failure (\"Claude Code credentials are unavailable or expired\") having nothing to do with numbat — confirmed by the engine log attributing the error entirely to that plugin/credentials_bridge_service.ts, with zero numbat involvement."
+    },
+    {
+      "criterion_id": "issue-1452-c3",
+      "text": "Confirmed local-only/no-telemetry: no --http-url/--output http ever passed; NUMBAT_HTTP_TOKEN/NUMBAT_HTTP_HMAC_KEY not set by Rhythm anywhere; asserted by both a unit test (exact argv) and the manual smoke step.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1452-c4",
+      "text": "Confirmed enforcement is NOT enabled: generated plugin's EXTRA_ARGS has no --enforce; a hostile/attempted tool call is never blocked, delayed, or altered by the numbat hook (only rhythm_request_approval gates actions).",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": "The static claim (argv never contains --enforce) is unit-tested here and will pass. The deeper behavioral claim (a hostile tool call is never blocked by numbat) is structurally guaranteed (this PR adds zero code paths connecting numbat's plugin to Rhythm's tool-execution/approval flow — verified via GitNexus impact on server.ts before wiring — and numbat's own CLI rejects --enforce for --agent opencode upstream, per the decision record) AND now independently live-verified 2026-08-19: the WS-driven session (tool call `pwd` + reply) settled with status not 'error' — the turn completed normally with the assistant's real reply (\"done\") captured in numbat's own NDJSON (`content_preview\":\"done\"`), proving the numbat hook neither blocked, delayed, nor altered the turn. `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/numbat_observability_live_e2e.test.ts --no-file-parallelism` → 2/2 tests green, assertion bodies executed for real (not skipped)."
+    },
+    {
+      "criterion_id": "issue-1452-c5",
+      "text": "Setting RHYTHM_NUMBAT_MONITORING_DISABLED=1 results in zero subprocess spawn attempt and no plugin file changes — verified by a unit test.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1452-c6",
+      "text": "On a machine/CI runner where numbat cannot be resolved, api_server starts normally with one informational log line and no thrown error — verified by a unit test that stubs binary resolution to fail.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/numbat_observability_service.test.ts",
+      "status": "pass",
+      "reason": null
+    },
+    {
+      "criterion_id": "issue-1452-c7",
+      "text": "No collision with #1069's run_quality telemetry: both hooks (numbat's global plugin, rhythm-telemetry's array-registered plugin) fire independently on the same session with no shared file/table/env var — confirmed by inspecting run_quality_service.ts's schema (tool name/duration/status only, SQLite-backed) against numbat's NDJSON output (separate file, separate format), stated explicitly in the PR description.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Structural non-collision claim confirmed by direct code inspection, not by an automated test: run_quality_service.ts's tool_events SQLite table (session_id, sdk_session_id, call_id, tool, started_at, duration_ms, status, error_class) shares no file, table, or env var with numbat's separate $HOME/.numbat/records.ndjson output. Both plugins load through entirely different OpenCode mechanisms (array-registered vs. global auto-loaded) per docs/ai/decisions/2026-08-18-numbat-observability-integration.md. Stated explicitly in this run's note per AC7; not independently automatable beyond a trivial path-string-inequality check."
+    },
+    {
+      "criterion_id": "issue-1452-c8",
+      "text": "docs/ai/testing-guide.md and docs/testing/manual-smoke.md document the exact install command, disable flag, default output path/format, and the no-rotation gap.",
+      "mode": "manual",
+      "test": null,
+      "status": "UNVERIFIED",
+      "reason": "Doc-content criterion — not unit-testable as a meaningful assertion beyond a trivial substring grep. Verified by direct review of the added sections in this PR's diff to both files (install command, RHYTHM_NUMBAT_MONITORING_DISABLED/RHYTHM_NUMBAT_BIN_PATH, default $HOME/.numbat/records.ndjson path/format, and the explicit no-rotation gap)."
+    }
+  ],
+  "not_tested": ["issue-1452-c7", "issue-1452-c8"]
+}
