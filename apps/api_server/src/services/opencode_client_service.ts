@@ -1254,6 +1254,12 @@ export class OpencodeClientService {
         body.permission = [
           { permission: 'bash', pattern: '*', action: 'deny' },
         ];
+      } else if (permissionMode === 'bypassPermissions') {
+        // Engine-side bypass keeps permission-gated tools independent of SSE;
+        // `*` includes external_directory as well as bash/edit.
+        body.permission = [
+          { permission: '*', pattern: '*', action: 'allow' },
+        ];
       }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
