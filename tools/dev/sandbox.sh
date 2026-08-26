@@ -18,6 +18,28 @@ SHUTDOWN_FILE="$SB/shutdown.requested"
 FOREGROUND_PID_FILE="$SB/foreground_holder.pid"
 SHUTDOWN_ACK_FILE="$SB/shutdown.acknowledged"
 ENGINE_BIN="$ENGINE_DIR/dist/opencode-darwin-arm64/bin/opencode"
+runtime_env=(
+  "HOME=$SB/home"
+  "PORT=$API_PORT"
+  "DB_PATH=$SB/rhythm.db"
+  "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
+  "RHYTHM_MANAGED_TOOL_ROOT=$SB/managed-tools"
+  "RHYTHM_TOOL_ARTIFACT_ROOT=$SB/tool-artifacts"
+  "MEMORY_VAULT_PATH=$SB/vault"
+  "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
+  "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
+  "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
+  "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
+  "OPENCODE_DB=opencode-rhythm-sandbox.db"
+  "OPENCODE_CONFIG_CONTENT={}"
+  "OPENCODE_DISABLE_EXTERNAL_SKILLS=1"
+  "RHYTHM_API_BASE=http://127.0.0.1:$API_PORT"
+  "MAX_CONCURRENT_AGENT_RUNS=2"
+  "AGENT_LOCAL=true"
+  "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
+  "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
+  "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
+)
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
@@ -257,41 +279,6 @@ wait_in_foreground() {
 
 up() {
   local mode="${1:-background}"
-  local -a runtime_env=(
-    "HOME=$SB/home"
-    "PORT=$API_PORT"
-    "DB_PATH=$SB/rhythm.db"
-    "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
-    "RHYTHM_MANAGED_TOOL_ROOT=$SB/managed-tools"
-    "RHYTHM_TOOL_ARTIFACT_ROOT=$SB/tool-artifacts"
-    "MEMORY_VAULT_PATH=$SB/vault"
-    "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
-    "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
-    "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
-    "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
-    # #1332 — name the sandbox's engine session store EXPLICITLY.
-    #
-    # HOME above already redirects the engine's data dir, so this is belt-and-
-    # braces rather than the sole isolation. It is worth stating anyway: the
-    # engine used to get accidental per-branch stores because our build stamps
-    # the channel with the git branch, and api_server now pins the stable
-    # `opencode.db` so real work is never branch-scoped. A sandbox must not
-    # inherit that pin and start writing live-looking session names — declare a
-    # distinct file so the isolation is visible in the filename, not implied.
-    # OPENCODE_DB is checked FIRST in the engine's storage/db.ts Path, so this
-    # wins over the api_server default.
-    "OPENCODE_DB=opencode-rhythm-sandbox.db"
-    "MAX_CONCURRENT_AGENT_RUNS=2"
-    "AGENT_LOCAL=true"
-    # D4.4: forward only the explicit availability kill switch. Durable user
-    # consent stays in the copied sandbox database and is never an env default.
-    "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
-    "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
-    # The gateway port is a THIRD listener and was previously unset, so the
-    # sandbox bound the default 4002 — the port `tailscale serve` publishes to
-    # the tailnet, while serving a fully-credentialed copy of the real DB.
-    "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
-  )
   local api_pid
 
   validate_copied_data_inputs
@@ -335,29 +322,37 @@ up() {
 stop_recorded_engine_if_needed() {
   local current_pid recorded_pid executable
   current_pid="$(listener "$ENGINE_PORT")"
-  [[ -n "$current_pid" ]] || return 0
-  [[ "$current_pid" =~ ^[0-9]+$ ]] ||
-    fail "sandbox engine port :$ENGINE_PORT has multiple listeners; refusing to kill any process"
-  [[ -f "$ENGINE_PID_FILE" ]] ||
-    fail "sandbox engine port :$ENGINE_PORT is occupied without a recorded engine PID; refusing to kill it"
+  if [[ -n "$current_pid" ]]; then
+    [[ "$current_pid" =~ ^[0-9]+$ ]] ||
+      fail "sandbox engine port :$ENGINE_PORT has multiple listeners; refusing to kill any process"
+    [[ -f "$ENGINE_PID_FILE" ]] ||
+      fail "sandbox engine port :$ENGINE_PORT is occupied without a recorded engine PID; refusing to kill it"
+  fi
+  [[ -f "$ENGINE_PID_FILE" ]] || return 0
   recorded_pid="$(<"$ENGINE_PID_FILE")"
-  [[ "$current_pid" == "$recorded_pid" ]] ||
+  [[ "$recorded_pid" =~ ^[0-9]+$ ]] || fail "recorded sandbox engine PID is invalid"
+  if ! kill -0 "$recorded_pid" 2>/dev/null; then
+    [[ -z "$current_pid" ]] ||
+      fail "sandbox engine port :$ENGINE_PORT is now PID $current_pid, not live recorded PID $recorded_pid; refusing to kill it"
+    return 0
+  fi
+  [[ -z "$current_pid" || "$current_pid" == "$recorded_pid" ]] ||
     fail "sandbox engine port :$ENGINE_PORT is now PID $current_pid, not recorded PID $recorded_pid; refusing to kill it"
-  executable="$(process_executable "$current_pid")"
+  executable="$(process_executable "$recorded_pid")"
   [[ "$executable" == "$ENGINE_BIN" ]] ||
-    fail "recorded engine PID $current_pid no longer uses this sandbox's built fork; refusing to kill it"
+    fail "recorded engine PID $recorded_pid no longer uses this sandbox's built fork; refusing to kill it"
 
-  kill "$current_pid" 2>/dev/null || true
+  kill "$recorded_pid" 2>/dev/null || true
   for _ in {1..10}; do
-    [[ -z "$(listener "$ENGINE_PORT")" ]] && return 0
+    ! kill -0 "$recorded_pid" 2>/dev/null && [[ -z "$(listener "$ENGINE_PORT")" ]] && return 0
     sleep 0.2
   done
-  kill -KILL "$current_pid" 2>/dev/null || true
+  kill -KILL "$recorded_pid" 2>/dev/null || true
   for _ in {1..10}; do
-    [[ -z "$(listener "$ENGINE_PORT")" ]] && return 0
+    ! kill -0 "$recorded_pid" 2>/dev/null && [[ -z "$(listener "$ENGINE_PORT")" ]] && return 0
     sleep 0.2
   done
-  fail "recorded sandbox engine PID $current_pid did not release :$ENGINE_PORT"
+  fail "recorded sandbox engine PID $recorded_pid did not exit and release :$ENGINE_PORT"
 }
 
 stop() {
@@ -390,25 +385,6 @@ stop() {
 }
 
 restart() {
-  local -a runtime_env=(
-    "HOME=$SB/home"
-    "PORT=$API_PORT"
-    "DB_PATH=$SB/rhythm.db"
-    "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
-    "RHYTHM_MANAGED_TOOL_ROOT=$SB/managed-tools"
-    "RHYTHM_TOOL_ARTIFACT_ROOT=$SB/tool-artifacts"
-    "MEMORY_VAULT_PATH=$SB/vault"
-    "RHYTHM_MANAGED_SKILLS_DIR=$SB/home/.config/opencode/skills"
-    "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
-    "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
-    "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
-    "OPENCODE_DB=opencode-rhythm-sandbox.db"
-    "MAX_CONCURRENT_AGENT_RUNS=2"
-    "AGENT_LOCAL=true"
-    "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
-    "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
-    "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
-  )
   local api_pid
 
   safe_sandbox_path
@@ -431,6 +407,53 @@ restart() {
   printf 'Sandbox restarted without replacing DB or vault: %s\n' "$SB"
 }
 
+require_owned_api() {
+  [[ -f "$PID_FILE" ]] || fail "sandbox API PID is missing; run '$0 up' first"
+  local pid command
+  pid="$(<"$PID_FILE")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || fail "sandbox API PID file is invalid: $PID_FILE"
+  kill -0 "$pid" 2>/dev/null || fail "recorded sandbox API PID $pid is not alive"
+  command="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+  [[ "$command" == *"--rhythm-sandbox=$SB"* ]] ||
+    fail "PID $pid no longer belongs to this sandbox; refusing engine restart"
+  printf '%s\n' "$pid"
+}
+
+wait_for_engine_ready() {
+  for _ in {1..60}; do
+    if curl -fsS "http://127.0.0.1:$ENGINE_PORT/global/health" >/dev/null; then
+      record_engine_identity
+      return 0
+    fi
+    sleep 0.25
+  done
+  fail "replacement engine did not become healthy on :$ENGINE_PORT"
+}
+
+launch_engine() {
+  (
+    cd "$ROOT"
+    nohup env "${runtime_env[@]}" "$ENGINE_BIN" serve \
+      --hostname 127.0.0.1 --port "$ENGINE_PORT" \
+      --cors http://127.0.0.1:4175 >>"$LOG_FILE" 2>&1 &
+  )
+  wait_for_engine_ready
+}
+
+restart_engine() {
+  safe_sandbox_path
+  local api_pid
+  api_pid="$(require_owned_api)"
+  [[ -d "$SB/home" ]] || fail "sandbox home is missing; run '$0 up' first"
+  [[ -x "$ENGINE_BIN" ]] || fail "sandbox engine binary is missing: $ENGINE_BIN"
+  stop_recorded_engine_if_needed
+  require_free_port "$ENGINE_PORT"
+  rm -f "$ENGINE_PID_FILE"
+  launch_engine
+  [[ "$(<"$PID_FILE")" == "$api_pid" ]] || fail "sandbox API PID changed during engine restart"
+  printf 'Sandbox engine restarted without restarting api_server (PID %s).\n' "$api_pid"
+}
+
 down() {
   stop
   rm -rf "$SB"
@@ -445,7 +468,7 @@ status() {
 }
 
 usage() {
-  printf 'Usage: %s {up [--foreground]|restart|down|status}\n' "$0" >&2
+  printf 'Usage: %s {up [--foreground]|restart|restart-engine|down|status}\n' "$0" >&2
 }
 
 # Only dispatch when EXECUTED directly. A test harness sources this file to
@@ -465,6 +488,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
       ;;
     down) down ;;
     restart) restart ;;
+    restart-engine) restart_engine ;;
     status) status ;;
     *) usage; exit 2 ;;
   esac

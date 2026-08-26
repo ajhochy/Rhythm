@@ -6,13 +6,24 @@
  * RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 \
  *   npx vitest run src/__tests__/issue_1325_live_e2e.test.ts
  */
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { beforeAll, describe, expect, it } from 'vitest';
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const API_BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4098';
 const ENGINE_BASE = process.env.RHYTHM_LIVE_ENGINE_URL ?? 'http://127.0.0.1:4097';
+const SANDBOX = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const ROOT = resolve(__dirname, '../../../..');
+const SANDBOX_SCRIPT = resolve(ROOT, 'tools/dev/sandbox.sh');
 const describeLive = LIVE ? describe : describe.skip;
+
+function recordedPid(name: 'api_server.pid' | 'opencode_engine.pid'): number {
+  return Number(readFileSync(resolve(SANDBOX, name), 'utf8').trim());
+}
 
 async function waitFor<T>(read: () => Promise<T | null>, timeoutMs = 30_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -25,7 +36,10 @@ async function waitFor<T>(read: () => Promise<T | null>, timeoutMs = 30_000): Pr
 }
 
 describeLive('issue #1325 live engine/bridge health', () => {
-  beforeAll(() => assertLiveE2EIsolation());
+  beforeAll(() => {
+    assertLiveE2EIsolation();
+    expect(SANDBOX.startsWith('/')).toBe(true);
+  });
 
   it('reports ready only with a live bridge and exposes stable boot identity', async () => {
     const apiHealthResponse = await fetch(`${API_BASE}/opencode/health`);
@@ -57,12 +71,39 @@ describeLive('issue #1325 live engine/bridge health', () => {
     expect(new URL(ENGINE_BASE).port).toBe('4097');
     const apiBefore = await fetch(`${API_BASE}/health`);
     expect(apiBefore.status).toBe(200);
+    const apiPid = recordedPid('api_server.pid');
     const first = await (await fetch(`${ENGINE_BASE}/global/health`)).json() as {
       pid: number;
       bootId: string;
     };
 
+    expect(recordedPid('opencode_engine.pid')).toBe(first.pid);
     process.kill(first.pid, 'SIGTERM');
+
+    await waitFor(async () => {
+      const available = await fetch(`${ENGINE_BASE}/global/health`)
+        .then((response) => response.ok)
+        .catch(() => false);
+      return available ? null : true;
+    });
+    const degraded = await waitFor(async () => {
+      const response = await fetch(`${API_BASE}/opencode/health`);
+      const health = await response.json() as {
+        status: string;
+        bridgeLive: boolean;
+        message: string;
+      };
+      return !health.bridgeLive ? health : null;
+    });
+    expect(degraded).toMatchObject({ status: 'unavailable', bridgeLive: false });
+
+    execFileSync(SANDBOX_SCRIPT, ['restart-engine'], {
+      cwd: ROOT,
+      env: process.env,
+      stdio: 'inherit',
+      timeout: 30_000,
+    });
+    expect(recordedPid('api_server.pid')).toBe(apiPid);
 
     const second = await waitFor(async () => {
       const response = await fetch(`${ENGINE_BASE}/global/health`);
@@ -73,6 +114,8 @@ describeLive('issue #1325 live engine/bridge health', () => {
         : null;
     });
     expect(second.pid).not.toBe(first.pid);
+    expect(second.bootId).not.toBe(first.bootId);
+    expect(recordedPid('opencode_engine.pid')).toBe(second.pid);
 
     const bridge = await waitFor(async () => {
       const response = await fetch(`${API_BASE}/opencode/health`);
@@ -81,5 +124,5 @@ describeLive('issue #1325 live engine/bridge health', () => {
       return health.status === 'ready' && health.bridgeLive ? health : null;
     });
     expect(bridge).toMatchObject({ status: 'ready', bridgeLive: true });
-  }, 45_000);
+  }, 75_000);
 });
