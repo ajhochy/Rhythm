@@ -111,6 +111,8 @@ export interface AgentSession {
    * via the `task` tool delegation. Null for top-level interactive sessions.
    */
   parentSessionId: string | null;
+  /** Delegated descendants, populated on top-level session-list responses. */
+  children?: AgentSession[];
   /**
    * #747 — When true, this is a background/system session (skill-extract,
    * skill-refine-judge, scheduler background-loop, memory consolidation) and

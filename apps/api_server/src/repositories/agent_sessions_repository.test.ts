@@ -186,12 +186,9 @@ describe('AgentSessionsRepository', () => {
       expect(chats.map((s) => s.id)).toEqual([chat.id]);
     });
 
-    it('issue-1348 (reverted per AJ): chats scope returns roots AND delegated children (grouped under the parent client-side)', () => {
-      // AJ 2026-08-11: #1348 originally filtered delegated children out of the
-      // chats scope, but the desktop already nests children under their parent
-      // as a collapsed "N subagents" group (#910), and that is the wanted UX.
-      // The chats scope therefore RETURNS delegated children (they carry a
-      // parentSessionId so the desktop groups them); it no longer hides them.
+    it('issue-1466-c1: chats scope returns delegated children only beneath root sessions', () => {
+      // Regression caught: delegated children consume top-level list slots and
+      // make their owning root session unreachable.
       const parent = repo.insert({
         agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Real chat',
       });
@@ -204,9 +201,49 @@ describe('AgentSessionsRepository', () => {
       );
 
       expect(child?.parentSessionId).toBe(parent.id);
-      const chatIds = repo.listAll(100, { scope: 'chats' }).map((s) => s.id);
-      expect(chatIds).toContain(parent.id);
-      expect(chatIds).toContain(child!.id);
+      const chats = repo.listAll(100, { scope: 'chats' });
+      expect(chats.map((session) => session.id)).toEqual([parent.id]);
+      expect(chats[0]).toMatchObject({ children: [{ id: child!.id }] });
+    });
+
+    it('issue-1466-c2: the limit counts roots rather than newer delegated children', () => {
+      // Regression caught: LIMIT is applied before children are separated, so
+      // a burst of children pushes the root beyond the visible quota.
+      const parent = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Reachable root',
+      });
+      repo.setSdkSessionId(parent.id, 'sdk-parent-limit');
+      for (let index = 0; index < 5; index += 1) {
+        repo.upsertChildSession(
+          `sdk-child-limit-${index}`,
+          'sdk-parent-limit',
+          `Newer child ${index}`,
+          '/a',
+        );
+      }
+
+      const chats = repo.listAll(1, { scope: 'chats' });
+      expect(chats).toHaveLength(1);
+      expect(chats[0].id).toBe(parent.id);
+      expect(chats[0]).toMatchObject({ children: expect.arrayContaining([
+        expect.objectContaining({ parentSessionId: parent.id }),
+      ]) });
+    });
+
+    it('issue-1466-c3: all children of a returned root remain reachable in its nested collection', () => {
+      // Regression caught: protecting the root quota accidentally drops child
+      // sessions entirely instead of publishing them under their parent.
+      const parent = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Parent with children',
+      });
+      repo.setSdkSessionId(parent.id, 'sdk-parent-nested');
+      const first = repo.upsertChildSession('sdk-child-nested-1', 'sdk-parent-nested', 'First child', '/a');
+      const second = repo.upsertChildSession('sdk-child-nested-2', 'sdk-parent-nested', 'Second child', '/a');
+
+      const [root] = repo.listAll(1, { scope: 'chats' });
+      expect(root.children!.map((childSession) => childSession.id)).toEqual(
+        expect.arrayContaining([first!.id, second!.id]),
+      );
     });
 
     it('the three scopes return disjoint row sets', () => {

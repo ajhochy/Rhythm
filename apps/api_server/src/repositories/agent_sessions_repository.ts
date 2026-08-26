@@ -151,6 +151,31 @@ function rowToModel(row: AgentSessionRow): AgentSession {
 }
 
 export class AgentSessionsRepository {
+  private attachChildren(rootRows: AgentSessionRow[]): AgentSession[] {
+    if (rootRows.length === 0) return [];
+    const placeholders = rootRows.map(() => '?').join(', ');
+    const childRows = getDb()
+      .prepare(
+        `WITH RECURSIVE descendants AS (
+           SELECT * FROM agent_sessions WHERE parent_session_id IN (${placeholders})
+           UNION ALL
+           SELECT child.* FROM agent_sessions child
+           JOIN descendants parent ON child.parent_session_id = parent.id
+         )
+         SELECT * FROM descendants ORDER BY created_at ASC`,
+      )
+      .all(...rootRows.map((row) => row.id)) as AgentSessionRow[];
+    const sessions = [...rootRows, ...childRows].map((row) => ({
+      ...rowToModel(row),
+      children: [] as AgentSession[],
+    }));
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    for (const child of sessions.slice(rootRows.length)) {
+      byId.get(child.parentSessionId ?? '')?.children?.push(child);
+    }
+    return rootRows.map((row) => byId.get(row.id)!);
+  }
+
   private mutateAndReplicate(
     id: string,
     mutation: (db: ReturnType<typeof getDb>) => number,
@@ -394,12 +419,12 @@ export class AgentSessionsRepository {
         : ' AND archived_at IS NULL';
     // #747: exclude background/system sessions from the normal session list.
     const sql = projectId === null
-      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL AND is_system = 0${archiveClause} ORDER BY created_at DESC LIMIT ?`
-      : `SELECT * FROM agent_sessions WHERE project_id = ? AND is_system = 0${archiveClause} ORDER BY created_at DESC LIMIT ?`;
+      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL AND is_system = 0 AND parent_session_id IS NULL${archiveClause} ORDER BY created_at DESC LIMIT ?`
+      : `SELECT * FROM agent_sessions WHERE project_id = ? AND is_system = 0 AND parent_session_id IS NULL${archiveClause} ORDER BY created_at DESC LIMIT ?`;
     const rows = projectId === null
       ? (getDb().prepare(sql).all(limit) as AgentSessionRow[])
       : (getDb().prepare(sql).all(projectId, limit) as AgentSessionRow[]);
-    return rows.map(rowToModel);
+    return this.attachChildren(rows);
   }
 
   /**
@@ -449,8 +474,7 @@ export class AgentSessionsRepository {
     // USO B1 (#1028): the `scope` selects which slice of sessions to return,
     // filtered on the persisted `category` column (upgraded from A1's
     // is_system/scheduled_task_id placeholder).
-    //   - no scope (internal callers) → the legacy non-system Chat set,
-    //     including delegated children needed by persistence/audit consumers.
+    //   - no scope (internal callers) → the legacy non-system Chat roots.
     //   - 'chats' → root category = 'chat' rows only. The is_system guard is
     //     retained so a stray is_system=1 row can never leak into Chats even if
     //     its category were 'chat'.
@@ -471,9 +495,9 @@ export class AgentSessionsRepository {
         ? ''
         : ' AND archived_at IS NULL';
     const rows = getDb()
-      .prepare(`SELECT * FROM agent_sessions WHERE ${scopeClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM agent_sessions WHERE ${scopeClause} AND parent_session_id IS NULL${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
-    return rows.map(rowToModel);
+    return this.attachChildren(rows);
   }
 
   /**
