@@ -87,7 +87,10 @@ describe('issue #1457 global stream retry contract', () => {
     const reconcile = vi.spyOn(bridge, 'reconcileSessionStatuses');
     const questions = vi.spyOn(bridge, 'recoverPendingQuestions');
     const permissions = vi.spyOn(bridge, 'recoverPendingPermissions');
-    vi.spyOn(bridge as never, 'activeDirectories').mockReturnValue(['/repo'] as never);
+    vi.spyOn(
+      bridge as unknown as { activeDirectories(): string[] },
+      'activeDirectories',
+    ).mockReturnValue(['/repo']);
 
     await bridge.ensureGlobalStream();
     await vi.advanceTimersByTimeAsync(1_000);
