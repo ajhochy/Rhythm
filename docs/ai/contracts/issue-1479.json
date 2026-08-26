@@ -1,0 +1,33 @@
+{
+  "issue": 1479,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/__tests__/issue_1479_contract.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1479-c1",
+      "text": "Validate per-tool entries at write time: when a proposal apply or PATCH writes a tools-map, resolve each entry against the live server's tools/list.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1479-c2",
+      "text": "Extend drift detection to tool granularity: emit prune-scope gaps for per-tool entries that match no live tool.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "issue-1479-c3",
+      "text": "One-time repair pass over existing agent_configs rows to report phantom entries.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}

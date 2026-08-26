@@ -31,6 +31,11 @@ import { alignMcpName } from './mcp_name_alignment';
 import { resolveMcpServerIdentity } from './mcp_scope_name';
 import { resolveExercisedTools } from './org_exercised_tools_resolver';
 import { resolveProfileMcpScope, type ProfileMcpScopeShape } from './agent_profile_scope';
+import {
+  findUnknownMcpToolGrants,
+  loadLiveMcpToolCatalog,
+  type McpToolGrantDrift,
+} from './mcp_tool_catalog_validation';
 import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
@@ -110,7 +115,8 @@ export interface DeniedToolAggregate {
 export interface AllowlistDrift {
   profileId: string;
   /** 'mcp' | 'skill' — which allowlist column the name came from. */
-  scopeKind: 'mcp' | 'skill';
+  scopeKind: 'mcp' | 'mcp-tool' | 'skill';
+  serverName?: string;
   name: string;
   matched: boolean;
 }
@@ -360,10 +366,20 @@ function detectPruneGaps(drift: AllowlistDrift[]): OrgAuditGap[] {
   return drift
     .filter((d) => !d.matched)
     .map((d) => ({
-      gapId: stableGapId('prune-scope', d.profileId, d.scopeKind, d.name),
+      gapId: stableGapId('prune-scope', d.profileId, d.scopeKind, d.serverName ?? '', d.name),
       kind: 'prune-scope' as const,
-      evidence: `profile=${d.profileId} scopeKind=${d.scopeKind} deadName=${d.name}`,
+      evidence: d.scopeKind === 'mcp-tool'
+        ? `profile=${d.profileId} scopeKind=mcp-tool serverName=${d.serverName} deadName=${d.name}`
+        : `profile=${d.profileId} scopeKind=${d.scopeKind} deadName=${d.name}`,
     }));
+}
+
+export async function reportMcpToolGrantDrift(): Promise<McpToolGrantDrift[]> {
+  const configs = new AgentConfigsRepository().list();
+  const catalog = await loadLiveMcpToolCatalog();
+  return configs.flatMap((config) =>
+    findUnknownMcpToolGrants(config.allowedMcpsJson, config.id, catalog),
+  );
 }
 
 /**
@@ -638,6 +654,23 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
             drift.push({ profileId: profile.id, scopeKind: 'mcp', name, matched: false });
           }
         }
+      }
+
+      try {
+        const toolCatalog = await loadLiveMcpToolCatalog();
+        for (const config of configs) {
+          for (const entry of findUnknownMcpToolGrants(config.allowedMcpsJson, config.id, toolCatalog)) {
+            drift.push({
+              profileId: entry.profileId,
+              scopeKind: 'mcp-tool',
+              serverName: entry.serverName,
+              name: entry.toolName,
+              matched: false,
+            });
+          }
+        }
+      } catch {
+        // Tool-level drift is unjudgeable when the catalog endpoint is unavailable.
       }
     }
     // Note: liveNames.size === 0 (engine reachable, no servers registered) is
