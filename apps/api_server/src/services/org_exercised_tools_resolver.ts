@@ -360,6 +360,7 @@ export async function resolveExercisedTools(
   agentConfigId: string,
   sinceIso: string = new Date(Date.now() - DEFAULT_TRAILING_WINDOW_MS).toISOString(),
   knownServerNames?: Iterable<string>,
+  attributedSessionIds?: Iterable<string>,
 ): Promise<ExercisedToolsTelemetry> {
   const catalog = knownServerNames ? [...knownServerNames] : [];
   const empty = new Set<string>();
@@ -383,9 +384,15 @@ export async function resolveExercisedTools(
 
     const sessionIdSet = new Set<string>();
 
+    // #1482: the audit passes the exact session population it used for the
+    // activity floor, so usage evidence cannot silently judge a smaller set.
+    if (attributedSessionIds) {
+      for (const sessionId of attributedSessionIds) sessionIdSet.add(sessionId);
+    }
+
     // Join 1 (#830) — scheduled-task attribution: agent_scheduled_tasks.agent_config_id
     // -> agent_sessions.scheduled_task_id.
-    const taskRows = db
+    const taskRows = attributedSessionIds ? [] : db
       .prepare(`SELECT id FROM agent_scheduled_tasks WHERE agent_config_id = ?`)
       .all(agentConfigId) as { id: string }[];
     if (taskRows.length > 0) {
@@ -413,7 +420,7 @@ export async function resolveExercisedTools(
     // its `mcp_role` column (stale, or a legacy write path) happens to name a
     // different profile; without this bound that conflicting session would be
     // double-attributed to the wrong profile via this join alone.
-    if (configRow) {
+    if (configRow && !attributedSessionIds) {
       const mcpRoleSessionRows = db
         .prepare(
           `SELECT id FROM agent_sessions
@@ -423,6 +430,22 @@ export async function resolveExercisedTools(
         )
         .all(agentConfigId, sinceIso) as { id: string }[];
       for (const row of mcpRoleSessionRows) sessionIdSet.add(row.id);
+
+      // #1482 legacy/delegated attribution: mirror the audit floor's final
+      // fallback. A valid scheduled owner or valid mcp_role remains stronger;
+      // agent_kind is used only when neither exists.
+      const agentKindSessionRows = db
+        .prepare(
+          `SELECT s.id FROM agent_sessions s
+            WHERE s.agent_kind = ?
+              AND s.scheduled_task_id IS NULL
+              AND (s.mcp_role IS NULL OR NOT EXISTS (
+                SELECT 1 FROM agent_configs owner WHERE owner.id = s.mcp_role
+              ))
+              AND s.created_at >= ?`,
+        )
+        .all(agentConfigId, sinceIso) as { id: string }[];
+      for (const row of agentKindSessionRows) sessionIdSet.add(row.id);
     }
 
     // No session could be attributed to this profile at all — the

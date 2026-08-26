@@ -548,6 +548,7 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
 
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const sessionCountByProfile = new Map<string, number>();
+  const sessionIdsByProfile = new Map<string, Set<string>>();
   // Counted from the UNCAPPED ownership read, not from `sessions` above.
   // `listAll` is `ORDER BY created_at DESC LIMIT 1000`: past 1000 sessions it
   // silently drops the older ones, so an older-but-qualifying profile's runs
@@ -572,6 +573,9 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     );
     if (!ownerId) continue;
     sessionCountByProfile.set(ownerId, (sessionCountByProfile.get(ownerId) ?? 0) + 1);
+    const ownedIds = sessionIdsByProfile.get(ownerId) ?? new Set<string>();
+    ownedIds.add(session.id);
+    sessionIdsByProfile.set(ownerId, ownedIds);
   }
 
   // #857 — observation window per profile: wall-clock age since the profile
@@ -636,7 +640,12 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
       const canonicalPairs = new Set<string>();
       const unavailableProfileIds = new Set<string>();
       for (const profile of profiles) {
-        const telemetry = await resolveExercisedTools(profile.id, undefined, liveMcpNames);
+        const telemetry = await resolveExercisedTools(
+          profile.id,
+          undefined,
+          liveMcpNames,
+          sessionIdsByProfile.get(profile.id) ?? [],
+        );
         if (telemetry.availability === 'unavailable') {
           unavailableProfileIds.add(profile.id);
           continue;

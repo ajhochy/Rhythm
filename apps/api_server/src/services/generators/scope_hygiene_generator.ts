@@ -75,6 +75,7 @@ import type { OrgAuditSnapshot, OrgAuditGap, SkillOverlapCandidate } from '../or
 import type { AgentOrgProposalInput } from '../../models/agent_org_proposal';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
+import { resolveProfileMcpScope } from '../agent_profile_scope';
 
 export type ScopeKind = 'mcp' | 'skill';
 
@@ -107,12 +108,41 @@ function defaultIsUserAuthoredScopeEntry(): boolean {
   return false;
 }
 
+function mcpRequirementAliases(serverName: string): string[] {
+  const lower = serverName.toLowerCase();
+  const withoutSuffix = lower.replace(/[-_]mcp$/, '');
+  return [...new Set([
+    lower,
+    lower.replaceAll('-', '_'),
+    lower.replaceAll('_', '-'),
+    withoutSuffix,
+    withoutSuffix.replaceAll('-', '_'),
+    withoutSuffix.replaceAll('_', '-'),
+  ].filter(Boolean))];
+}
+
 function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): boolean {
   try {
     const config = new AgentConfigsRepository().getById(profileId);
-    if (config?.systemPrompt?.includes(serverName)) return true;
+    if (!config) return false;
+    const aliases = mcpRequirementAliases(serverName);
+    const mentionsServer = (text: string | null | undefined) => {
+      const lower = text?.toLowerCase() ?? '';
+      return aliases.some((alias) => lower.includes(alias));
+    };
+    if (mentionsServer(config.systemPrompt)) return true;
 
-    const allowedSkills = config?.allowedSkillsJson
+    const scope = resolveProfileMcpScope(config.allowedMcpsJson, config.id, config.label);
+    if (
+      scope.shape === 'tools-map' &&
+      Object.entries(scope.toolsByServer).some(
+        ([storedServer, tools]) =>
+          tools.length > 0 &&
+          mcpRequirementAliases(storedServer).some((alias) => aliases.includes(alias)),
+      )
+    ) return true;
+
+    const allowedSkills = config.allowedSkillsJson
       ? new Set(
           (JSON.parse(config.allowedSkillsJson) as unknown[]).filter(
             (name): name is string => typeof name === 'string',
@@ -123,7 +153,7 @@ function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): b
       .list()
       .some(
         (skill) =>
-          allowedSkills.has(skill.title) && (skill.body?.includes(serverName) ?? false),
+          allowedSkills.has(skill.title) && mentionsServer(skill.body),
       );
   } catch {
     return false;
