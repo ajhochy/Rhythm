@@ -346,8 +346,16 @@ class AgentsDataSource {
     final list = body is Map<String, dynamic>
         ? (body['sessions'] as List<dynamic>? ?? const [])
         : body as List<dynamic>;
+    Iterable<Map<String, dynamic>> flatten(Map<String, dynamic> session) sync* {
+      yield session;
+      for (final child in session['children'] as List<dynamic>? ?? const []) {
+        yield* flatten(child as Map<String, dynamic>);
+      }
+    }
+
     return list
-        .map((j) => AgentSession.fromJson(j as Map<String, dynamic>))
+        .expand((json) => flatten(json as Map<String, dynamic>))
+        .map(AgentSession.fromJson)
         .toList();
   }
 

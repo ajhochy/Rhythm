@@ -229,6 +229,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
   const source = record(value);
   const status = string(source.status, source.working === true ? 'working' : 'idle');
   const page = record(transcriptPage);
+  const parentSessionId = typeof source.parentSessionId === 'string' && source.parentSessionId ? source.parentSessionId : undefined;
   return {
     id: string(source.id), name: string(source.name, 'Untitled session'), scope: source.scope === 'scheduled' || source.scope === 'background' ? source.scope : 'chats',
     group: source.archived === true ? 'archived' : status === 'resumable' || status === 'closed' ? 'resumable' : 'active',
@@ -245,13 +246,21 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     // post-m1-phase-5 c2d: preserve canonical delegation identity instead of dropping it — a
     // child's parentSessionId is what makes its transcript/composer read-only, never a fixture-only
     // `parentId`. apps/api_server/src/models/agent_session.ts:46-145.
-    parentSessionId: typeof source.parentSessionId === 'string' && source.parentSessionId ? source.parentSessionId : undefined,
+    parentId: parentSessionId,
+    parentSessionId,
     opencodeAgentId: string(source.opencodeAgentId) || undefined,
     delegationDepth: typeof source.delegationDepth === 'number' ? source.delegationDepth : undefined,
     childIds: [], messages: messages.map(mapMessage), artifacts: [],
     transcriptCursor: typeof page.nextCursor === 'string' ? page.nextCursor : null,
     transcriptHasMore: page.hasMore === true,
   };
+}
+
+function flattenSessionTree(value: unknown): Session[] {
+  const source = record(value);
+  const session = toSessionViewModel(source);
+  const children = Array.isArray(source.children) ? source.children : [];
+  return [session, ...children.flatMap(flattenSessionTree)];
 }
 
 function mapProfile(value: unknown): Profile {
@@ -306,7 +315,7 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     profiles: async () => (await response<unknown[]>('Load profiles', request('/agent-configs'))).map(mapProfile),
     list: async () => {
       const body = await response<{ sessions?: unknown[] }>('Load sessions', request('/agent-sessions?scope=chats'));
-      return (body.sessions ?? []).map((item) => toSessionViewModel(item));
+      return (body.sessions ?? []).flatMap(flattenSessionTree);
     },
     detail: async (localId) => {
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Load session', request(`/agent-sessions/${encodeURIComponent(localId)}?transcriptLimit=50`));

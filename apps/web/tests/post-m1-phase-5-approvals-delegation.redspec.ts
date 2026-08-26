@@ -64,3 +64,25 @@ test('post-m1-p5-c2d: child identity remains separate and its isolated transcrip
   await expect(page.getByTestId('composer-input')).toBeDisabled();
   await expect(page.getByText('Child-agent transcripts are read only.')).toBeVisible();
 });
+
+test('issue-1476-c1: canonical nested API children render beneath their parent, never as Active roots', async ({ page }) => {
+  // Regression caught: the live mapper/rail ignores nested children and either
+  // drops them or interleaves them into the top-level Active list.
+  const child = {
+    ...canonicalSession,
+    id: 'issue-1476-child',
+    sdkSessionId: 'issue-1476-child-sdk',
+    parentSessionId: localSessionId,
+    name: 'Nested delegated child',
+  };
+  await openInterceptedLiveApp(page, '/#/agents', {
+    sessions: [{ ...canonicalSession, children: [child] }],
+  });
+
+  const active = page.getByTestId('group-active').locator('..');
+  await expect(active.getByTestId(`session-${localSessionId}`)).toBeVisible();
+  const parentTree = page.getByTestId(`session-tree-${localSessionId}`);
+  const nestedChild = parentTree.getByTestId('session-issue-1476-child');
+  await expect(nestedChild).toBeVisible();
+  await expect(nestedChild).toHaveClass(/child-session/);
+});

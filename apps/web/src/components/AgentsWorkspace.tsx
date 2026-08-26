@@ -28,7 +28,8 @@ export function AgentsWorkspace() {
   // (fresh install, all profiles deleted) — fall back to a placeholder instead of crashing on
   // undefined.icon/.label when `profiles` resolves empty.
   const profile = profiles.find((item) => item.id === selected.profileId) ?? profiles[0] ?? emptyLiveProfile();
-  const parent = selected.parentId ? sessions.find((session) => session.id === selected.parentId) : undefined;
+  const parentId = selected.parentId ?? selected.parentSessionId;
+  const parent = parentId ? sessions.find((session) => session.id === parentId) : undefined;
   const readOnlyChild = Boolean(parent) || Boolean(liveChildView);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
   const presentation = sessionPresentation(selected);
