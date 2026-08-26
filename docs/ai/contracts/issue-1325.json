@@ -1,6 +1,8 @@
 {
   "issue": 1325,
-  "generated": "2026-08-10",
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/issue_1325_engine_respawn.test.ts",
+  "waiver": null,
   "criteria": [
     {
       "criterion_id": "issue-1325-c1",
