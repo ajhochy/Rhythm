@@ -1,0 +1,11 @@
+{
+  "issue": 1477,
+  "date": "2026-08-26",
+  "test_command": "cd apps/web && npx playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts -g issue-1477",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"issue-1477-c1","text":"Session header asset/title and branch/connection text do not overlap.","mode":"ui","test":"apps/web/tests/bucket-a-rendered-repair.spec.ts","status":"pass","reason":""},
+    {"criterion_id":"issue-1477-c2","text":"Check whether the equivalent Flutter view reproduces the collision and report the result.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Cross-client reproduction inspection, not a changed behavior contract."}
+  ],
+  "not_tested": ["issue-1477-c2"]
+}

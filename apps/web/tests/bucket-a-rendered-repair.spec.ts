@@ -64,6 +64,30 @@ test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH
   await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-profile-asset-fallback.png') });
 });
 
+test('issue-1477-c1: session header asset, title, branch, and connection text do not collide', async ({ page }) => {
+  // Regression caught: the raw Flutter asset path overflows its fixed avatar
+  // and paints across the session title/header metadata.
+  await installLiveRoutes(page);
+  await page.goto('/#/agents');
+
+  const header = page.locator('.session-header');
+  await expect(header).not.toContainText(assetIcon);
+  await expect(header.locator('.profile-avatar')).toHaveText('AP');
+  const title = header.locator('h1');
+  const branch = header.locator('.session-meta > span').first();
+  const connection = header.getByTestId('connection-status');
+  for (const pair of [[title, branch], [branch, connection]] as const) {
+    const [left, right] = await Promise.all(pair.map((locator) => locator.boundingBox()));
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    const overlaps = left!.x < right!.x + right!.width
+      && left!.x + left!.width > right!.x
+      && left!.y < right!.y + right!.height
+      && left!.y + left!.height > right!.y;
+    expect(overlaps).toBe(false);
+  }
+});
+
 test('bucket-a-rendered-session: cwd edit resets branch and omits it from POST', async ({ page }, testInfo) => {
   // Regression caught: a non-current branch selected for one cwd leaks into a session created in another cwd.
   let createBody: Record<string, unknown> | undefined;
