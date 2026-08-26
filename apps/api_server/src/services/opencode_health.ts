@@ -6,6 +6,7 @@ export interface OpencodeHealthClient {
 
 export interface OpencodeHealthBridge {
   isLive: boolean;
+  isReconnecting?: boolean;
 }
 
 export function buildOpencodeHealthPayload(
@@ -21,7 +22,9 @@ export function buildOpencodeHealthPayload(
   return {
     status: client.isReady && bridgeLive ? 'ready' : 'unavailable',
     message: client.isReady && !bridgeLive
-      ? 'Opencode engine ready, event bridge unavailable'
+      ? bridge.isReconnecting
+        ? 'Opencode engine ready, event bridge reconnecting'
+        : 'Opencode engine ready, event bridge unavailable'
       : client.statusMessage,
     bridgeLive,
     websearchConfigured: client.websearchConfigured,

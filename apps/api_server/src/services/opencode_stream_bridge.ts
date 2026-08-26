@@ -68,6 +68,8 @@ const QUESTION_RECOVERY_POLL_MS = 1500;
  */
 const HEARTBEAT_WATCHDOG_MS = 30_000;
 const ENGINE_HEALTH_POLL_MS = 10_000;
+const GLOBAL_RETRY_INITIAL_MS = 1_000;
+const GLOBAL_RETRY_MAX_MS = 30_000;
 const DEFAULT_PERSISTENCE_STALE_MS = 5 * 60_000;
 
 /** Parse a positive-integer env override, falling back when absent/invalid. */
@@ -258,6 +260,9 @@ export class OpencodeStreamBridge {
   private lastGlobalActivity = 0;
   /** Guards against overlapping resubscribes from the watchdog. */
   private globalResubscribing = false;
+  private globalRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private globalRetryAttempt = 0;
+  private disposed = false;
   private engineHealthCheckInFlight = false;
   private engineIdentityKey: string | null = null;
   private persistenceBaselineAt = Date.now();
@@ -276,6 +281,10 @@ export class OpencodeStreamBridge {
         Date.now() - this.lastGlobalActivity <= HEARTBEAT_WATCHDOG_MS;
     }
     return this.streamsByDirectory.size > 0;
+  }
+
+  get isReconnecting(): boolean {
+    return this.globalRetryTimer !== null || this.globalResubscribing;
   }
 
   // Accumulate assistant text deltas keyed by local session id. The SDK
@@ -766,19 +775,22 @@ export class OpencodeStreamBridge {
    * every session start; a no-op once the stream is live.
    */
   async ensureGlobalStream(): Promise<void> {
-    if (!useGlobalStream()) return;
-    if (this.globalStream) return;
+    if (!useGlobalStream() || this.disposed) return;
+    if (this.globalStream || this.globalRetryTimer) return;
     let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
     try {
       sub = await opencodeClient.subscribeToGlobalEvents();
     } catch (err) {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream subscribe threw:', err);
+      this.scheduleGlobalRetry();
       return;
     }
     if (!sub) {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream: no global stream available');
+      this.scheduleGlobalRetry();
       return;
     }
+    this.globalRetryAttempt = 0;
     this.lastGlobalActivity = Date.now();
     // Watchdog: if no frame (incl. the engine's 10s heartbeat) arrives within
     // the window, the stream is dead — resubscribe. unref so it never keeps the
@@ -808,7 +820,35 @@ export class OpencodeStreamBridge {
     this._listenGlobal(sub.stream).catch((err) =>
       logger.error('[OpencodeStreamBridge] global listener crashed:', err),
     );
+    this.recoverAfterGlobalSubscribe();
     logger.info('[OpencodeStreamBridge] subscribed to consolidated /global/event stream');
+  }
+
+  private scheduleGlobalRetry(): void {
+    opencodeEventHub.setLive(false);
+    if (this.disposed || this.globalRetryTimer) return;
+    const delay = Math.min(
+      GLOBAL_RETRY_INITIAL_MS * (2 ** this.globalRetryAttempt),
+      GLOBAL_RETRY_MAX_MS,
+    );
+    this.globalRetryAttempt += 1;
+    logger.warn(
+      '[OpencodeStreamBridge] global stream unavailable — retrying in %sms',
+      delay,
+    );
+    this.globalRetryTimer = setTimeout(() => {
+      this.globalRetryTimer = null;
+      void this.ensureGlobalStream();
+    }, delay);
+    if (typeof this.globalRetryTimer.unref === 'function') this.globalRetryTimer.unref();
+  }
+
+  private recoverAfterGlobalSubscribe(): void {
+    void this.reconcileSessionStatuses();
+    for (const dir of this.activeDirectories()) {
+      void this.recoverPendingQuestions(dir);
+      void this.recoverPendingPermissions(dir);
+    }
   }
 
   private async _listenGlobal(
@@ -875,13 +915,6 @@ export class OpencodeStreamBridge {
         this.globalStream = null;
       }
       await this.ensureGlobalStream();
-      // Soft dependency on OCU-03/OCU-04 recovery: reconcile stuck statuses and
-      // recover orphaned permission/question asks against every active dir.
-      void this.reconcileSessionStatuses();
-      for (const dir of this.activeDirectories()) {
-        void this.recoverPendingQuestions(dir);
-        void this.recoverPendingPermissions(dir);
-      }
     } finally {
       this.globalResubscribing = false;
     }
@@ -2502,6 +2535,7 @@ export class OpencodeStreamBridge {
 
   /** Clean up all streams. */
   dispose(): void {
+    this.disposed = true;
     for (const [, entry] of this.streamsByDirectory) {
       if (entry.questionPoll) clearInterval(entry.questionPoll);
       entry.abort.abort();
@@ -2516,6 +2550,10 @@ export class OpencodeStreamBridge {
       }
       clearInterval(this.globalStream.watchdog);
       this.globalStream = null;
+    }
+    if (this.globalRetryTimer) {
+      clearTimeout(this.globalRetryTimer);
+      this.globalRetryTimer = null;
     }
     // #1379 Phase 2 — a deliberate shutdown (unlike a watchdog resubscribe)
     // really does end the fan-out, so new mobile streams must go back to their

@@ -1,0 +1,15 @@
+{
+  "issue": 1457,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/issue_1457_global_stream_retry.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1457-c1", "text": "A failed ensureGlobalStream() schedules a retry with bounded exponential backoff (e.g. 1s -> 30s cap) that continues until a subscription succeeds or shutdown is requested.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1457-c2", "text": "The retry survives repeated consecutive failures — N failures in a row must not disarm it.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1457-c3", "text": "On entering the failed state, opencodeEventHub.setLive(false) so mobile falls back correctly; set back to true on recovery.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1457-c4", "text": "Recovery runs the same reconcile path as resubscribeGlobalStream (reconcileSessionStatuses, recoverPendingQuestions, recoverPendingPermissions) so asks orphaned during the gap are picked up.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1457-c5", "text": "The dead-stream state is user-visible — a degraded/reconnecting indicator rather than silent hangs.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1457-c6", "text": "Test: stub subscribeToGlobalEvents to throw once then succeed; assert a live subscription without any streamSession() call. Second test: throw 3x then succeed.", "mode": "unit", "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts", "status": "pass", "reason": "" }
+  ],
+  "not_tested": []
+}
