@@ -1,15 +1,15 @@
 {
   "issue": 1475,
   "date": "2026-08-26",
-  "test_command": "cd apps/api_server && npx vitest run src/__tests__/tasks_permissions.test.ts src/__tests__/tasks_controller.test.ts; cd ../desktop_flutter && flutter test test/features/tasks/issue_1037_kanban_view_test.dart; cd ../web && npx playwright test tests/tasks/task-live-lifecycle.fixture.spec.ts -g issue-1475",
+  "test_command": "cd apps/api_server && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1466_1475_live_e2e.test.ts --no-file-parallelism; cd ../desktop_flutter && flutter test test/features/tasks/issue_1037_kanban_view_test.dart; cd ../web && npx playwright test tests/tasks/task-live-lifecycle.fixture.spec.ts -g issue-1475",
   "waiver": null,
   "criteria": [
-    {"criterion_id":"issue-1475-c1","text":"Deferred persists through the API.","mode":"integration","test":"apps/api_server/src/__tests__/tasks_permissions.test.ts","status":"pass","reason":""},
-    {"criterion_id":"issue-1475-c2","text":"Flutter renders Deferred after Done.","mode":"ui","test":"apps/desktop_flutter/test/features/tasks/issue_1037_kanban_view_test.dart","status":"pass","reason":""},
-    {"criterion_id":"issue-1475-c3","text":"Flutter can move a task into Deferred.","mode":"ui","test":"apps/desktop_flutter/test/features/tasks/issue_1037_kanban_view_test.dart","status":"pass","reason":""},
-    {"criterion_id":"issue-1475-c4","text":"The API accepts Deferred as an exact status filter.","mode":"unit","test":"apps/api_server/src/__tests__/tasks_controller.test.ts","status":"pass","reason":""},
-    {"criterion_id":"issue-1475-c5","text":"Deferred is excluded from Open and included in All without regressing counts.","mode":"integration","test":"apps/api_server/src/__tests__/tasks_controller.test.ts","status":"pass","reason":""},
-    {"criterion_id":"issue-1475-c6","text":"Electron/web renders Deferred after Done, moves tasks into it, excludes them from Open, and includes them in All.","mode":"ui","test":"apps/web/tests/tasks/task-live-lifecycle.fixture.spec.ts","status":"pass","reason":""}
+    {"criterion_id":"issue-1475-c1","text":"Deferred persists through the API.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
+    {"criterion_id":"issue-1475-c2","text":"Flutter renders Deferred after Done.","mode":"ui","test":"apps/desktop_flutter/test/features/tasks/issue_1037_kanban_view_test.dart","status":"UNVERIFIED","reason":"Awaiting verification rerun."},
+    {"criterion_id":"issue-1475-c3","text":"Flutter can move a task into Deferred.","mode":"ui","test":"apps/desktop_flutter/test/features/tasks/issue_1037_kanban_view_test.dart","status":"UNVERIFIED","reason":"Awaiting verification rerun."},
+    {"criterion_id":"issue-1475-c4","text":"The API accepts Deferred as an exact status filter.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
+    {"criterion_id":"issue-1475-c5","text":"Deferred is excluded from Open and included in All without regressing counts.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
+    {"criterion_id":"issue-1475-c6","text":"Electron/web renders Deferred after Done, moves tasks into it, excludes them from Open, and includes them in All.","mode":"ui","test":"apps/web/tests/tasks/task-live-lifecycle.fixture.spec.ts","status":"UNVERIFIED","reason":"Awaiting rendered verification rerun."}
   ],
-  "not_tested": []
+  "not_tested": ["issue-1475-c1", "issue-1475-c2", "issue-1475-c3", "issue-1475-c4", "issue-1475-c5", "issue-1475-c6"]
 }

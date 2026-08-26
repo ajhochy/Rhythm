@@ -1,13 +1,13 @@
 {
   "issue": 1466,
   "date": "2026-08-26",
-  "test_command": "cd apps/api_server && npx vitest run src/repositories/agent_sessions_repository.test.ts",
+  "test_command": "cd apps/api_server && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1466_1475_live_e2e.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
-    {"criterion_id":"issue-1466-c1","text":"The top-level list contains only root sessions (`parent_session_id IS NULL`).","mode":"integration","test":"apps/api_server/src/repositories/agent_sessions_repository.test.ts","status":"pass","reason":""},
-    {"criterion_id":"issue-1466-c2","text":"A root session stays listed regardless of how many children it has spawned; LIMIT applies to roots.","mode":"integration","test":"apps/api_server/src/repositories/agent_sessions_repository.test.ts","status":"pass","reason":""},
-    {"criterion_id":"issue-1466-c3","text":"Each returned root carries its delegated children in a nested field.","mode":"integration","test":"apps/api_server/src/repositories/agent_sessions_repository.test.ts","status":"pass","reason":""},
+    {"criterion_id":"issue-1466-c1","text":"The top-level list contains only root sessions (`parent_session_id IS NULL`).","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
+    {"criterion_id":"issue-1466-c2","text":"A root session stays listed regardless of how many children it has spawned; LIMIT applies to roots.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
+    {"criterion_id":"issue-1466-c3","text":"Each returned root carries its delegated children in a nested field.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
     {"criterion_id":"issue-1466-c4","text":"Consider ordering by last_activity_at rather than created_at.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Issue asks for consideration rather than a required outcome; record the decision in the PR."}
   ],
-  "not_tested": ["issue-1466-c4"]
+  "not_tested": ["issue-1466-c1", "issue-1466-c2", "issue-1466-c3", "issue-1466-c4"]
 }

@@ -43,3 +43,17 @@ tags: [run, rhythm]
 - #1477 is web/Electron-only. Flutter uses a normal `Row`, a typed `AgentKindBadge`, and an `Expanded` title with ellipsis; it never paints the raw asset path into the header.
 - #1475 needs no SQLite migration, Postgres enum change, or backfill: both schemas store task status as unconstrained `TEXT`. Runtime validation/types were widened identically for both database clients.
 - Manual verification remains for visual parity of nested session grouping and cross-client visual confirmation; these criteria are listed in the contract `not_tested` arrays.
+
+## Test-coverage repair handoff
+
+- Intent: add the missing live HTTP and rendered layout evidence only; no product source was changed and no product defect was found.
+- Added env-gated `issue_1466_1475_live_e2e.test.ts`. It seeds only a disposable sandbox user/session token and #1466 rows in SQLite, drives #1466/#1475 through `127.0.0.1:4098`, and cleans up its marked rows. The real live run remains pending because S3 owns the sole sandbox; contract criteria remain `UNVERIFIED`/`not_tested`.
+- Phase 0 fail-closed check: `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/issue_1466_1475_live_e2e.test.ts --no-file-parallelism` rejected the unattested environment with `Issues #1466/#1475 live E2E requires the attested isolated sandbox`.
+- Pre-verification commands run without starting a sandbox:
+  - `npx vitest run src/__tests__/issue_1466_1475_live_e2e.test.ts --no-file-parallelism` — suite skipped cleanly (1 file, 2 tests).
+  - API focused six-file regression command — 136 tests completed; `node_modules/.bin/tsc --noEmit` exited 0.
+  - `npm run build` and the issue #1476/#1477 Playwright config commands — build exited 0; each rendered spec completed once.
+  - `$HOME/development/flutter/bin/dart format . --set-exit-if-changed` and `$HOME/development/flutter/bin/flutter analyze --no-fatal-infos` — exited 0; analyze reported 318 pre-existing infos. Corrected five-file focused Flutter command completed 33 tests. The first test command named a nonexistent `issue_910_session_grouping_test.dart`; the retry used the existing `issue_910_subagent_collapse_test.dart`.
+  - `git diff --check` — exited 0.
+- GitNexus impact and `detect_changes(scope: all)` were retried and remain unavailable because the index is storage v42 while the connected client is v41. Risk is `UNKNOWN`; no HIGH/CRITICAL result was returned.
+- Verification handoff: rerun the new live suite serially in S3's isolated sandbox with the contract command, then update evidence/statuses only from that observed run.

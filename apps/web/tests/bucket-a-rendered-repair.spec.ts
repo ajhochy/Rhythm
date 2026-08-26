@@ -67,16 +67,18 @@ test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH
 test('issue-1477-c1: session header asset, title, branch, and connection text do not collide', async ({ page }) => {
   // Regression caught: the raw Flutter asset path overflows its fixed avatar
   // and paints across the session title/header metadata.
+  await page.setViewportSize({ width: 1024, height: 768 });
   await installLiveRoutes(page);
   await page.goto('/#/agents');
 
   const header = page.locator('.session-header');
   await expect(header).not.toContainText(assetIcon);
-  await expect(header.locator('.profile-avatar')).toHaveText('AP');
+  const avatar = header.locator('.profile-avatar');
+  await expect(avatar).toHaveText('AP');
   const title = header.locator('h1');
   const branch = header.locator('.session-meta > span').first();
-  const connection = header.getByTestId('connection-status');
-  for (const pair of [[title, branch], [branch, connection]] as const) {
+  const status = header.getByTestId('connection-status');
+  for (const pair of [[avatar, title], [title, branch], [branch, status]] as const) {
     const [left, right] = await Promise.all(pair.map((locator) => locator.boundingBox()));
     expect(left).not.toBeNull();
     expect(right).not.toBeNull();

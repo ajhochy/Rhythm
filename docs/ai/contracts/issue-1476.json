@@ -4,8 +4,8 @@
   "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-5-fixture-playwright.config.ts tests/post-m1-phase-5-approvals-delegation.redspec.ts -g issue-1476",
   "waiver": null,
   "criteria": [
-    {"criterion_id":"issue-1476-c1","text":"Child sessions appear nested under their parent in Electron/web, not interleaved into Active.","mode":"ui","test":"apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts","status":"pass","reason":""},
+    {"criterion_id":"issue-1476-c1","text":"Child sessions appear nested under their parent in Electron/web, not interleaved into Active.","mode":"ui","test":"apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts","status":"UNVERIFIED","reason":"Bounding-box evidence added; awaiting rendered verification rerun."},
     {"criterion_id":"issue-1476-c2","text":"Visual grouping is reasonably consistent with Flutter's existing session rail behavior.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Requires visual comparison with the shipping Flutter grouping."}
   ],
-  "not_tested": ["issue-1476-c2"]
+  "not_tested": ["issue-1476-c1", "issue-1476-c2"]
 }
