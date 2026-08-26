@@ -210,6 +210,23 @@ function extractErrorMessage(errorInfo: unknown): string {
   }
 }
 
+function emptyResponseMessage(stopReason: string | undefined): string {
+  switch (stopReason) {
+    case 'content-filter':
+      return 'The provider stopped this turn: content filter. The conversation context is likely tripping a safety classifier — start a new session.';
+    case 'aborted':
+    case 'abort':
+      return 'The provider aborted this turn. Try again; if it repeats, start a new session.';
+    case 'length':
+    case 'max_tokens':
+      return 'The provider stopped because the token limit was reached. Start a new session or shorten the conversation context.';
+    case 'error':
+      return 'The provider stopped this turn with an error. Retry once; if it repeats, check the provider status or start a new session.';
+    default:
+      return 'The model returned an empty response.';
+  }
+}
+
 /** Shape of a pending permission stored in-memory. */
 export interface PendingPermission {
   permissionId: string;
@@ -1692,13 +1709,15 @@ export class OpencodeStreamBridge {
           // message IDs) still use the append path for DB persistence.
           const pendingText = this.pendingText.get(localSessionId) ?? '';
           let structuredText = '';
+          let structuredParts: unknown[] = [];
           const turnMessageIds = this.pendingStructuredMessageIds.get(localSessionId);
           if (turnMessageIds?.size) {
             try {
-              structuredText = this.messagesRepo
+              structuredParts = this.messagesRepo
                 .listBySessionStructured(localSessionId)
                 .filter((message) => message.sdkMessageId && turnMessageIds.has(message.sdkMessageId))
-                .flatMap((message) => message.parts)
+                .flatMap((message) => message.parts);
+              structuredText = structuredParts
                 .filter((part): part is { type: 'text'; text: string } =>
                   typeof part === 'object' && part !== null &&
                   (part as { type?: unknown }).type === 'text' &&
@@ -1819,12 +1838,22 @@ export class OpencodeStreamBridge {
               logger.warn(`[OpencodeStreamBridge] lazy-deps turn scan failed (non-fatal): ${String(err)}`);
             }
           } else {
-            // Zero tokens streamed this turn — surface as user-visible error (#636)
+            const lastStepFinish = [...structuredParts].reverse().find((part) =>
+              typeof part === 'object' && part !== null &&
+              (part as { type?: unknown }).type === 'step-finish') as
+              | { reason?: unknown }
+              | undefined;
+            const stopReason = typeof lastStepFinish?.reason === 'string'
+              ? lastStepFinish.reason
+              : undefined;
+            // Zero assistant text — preserve #636's fallback while surfacing a
+            // provider stop reason when the structured turn supplied one.
             broadcast({
               v: 1,
               type: 'error',
               id: localSessionId,
-              message: 'The model returned an empty response.',
+              message: emptyResponseMessage(stopReason),
+              ...(stopReason ? { stopReason } : {}),
             });
             // W4 — still a terminal turn, just one that produced nothing.
             void recordTerminalOutcome({

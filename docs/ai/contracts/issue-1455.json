@@ -1,0 +1,14 @@
+{
+  "issue": 1455,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/issue_1455_1456_idle_finalization.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1455-c1", "text": "On an empty-text idle, the bridge reads the turn's last step-finish part (from parts_json / the in-memory part accumulator) and surfaces reason in the broadcast error message.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1455-c2", "text": "Distinct, actionable copy for at least: content-filter, aborted/abort, length/max_tokens, error.", "mode": "unit", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1455-c3", "text": "Unknown/absent reason falls back to today's generic string — no regression for the #636 Gemini silent-close case.", "mode": "unit", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1455-c4", "text": "The broadcast payload carries the raw reason as a structured field (e.g. stopReason) so the Flutter client and future telemetry are not parsing prose.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1455-c5", "text": "Test: a session.idle with a persisted content-filter step-finish and empty pendingText broadcasts the content-filter message and reason field, not the generic one.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" }
+  ],
+  "not_tested": []
+}
