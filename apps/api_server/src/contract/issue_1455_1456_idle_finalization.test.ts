@@ -139,7 +139,11 @@ describe('issues #1455/#1456 idle finalization contract', () => {
     }));
   });
 
-  it('issue-1455-c3: absent or unknown stop reason preserves the #636 fallback', () => {
+  it.each([
+    ['absent', undefined],
+    ['literal unknown', 'unknown'],
+  ])('issue-1455-c3: %s stop reason preserves the #636 fallback', (_label, reason) => {
+    if (reason) part({ id: 'part-finish', type: 'step-finish', reason });
     idle();
     expect(frames('error').at(-1)).toEqual(expect.objectContaining({
       message: 'The model returned an empty response.',
