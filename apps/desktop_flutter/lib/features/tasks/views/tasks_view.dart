@@ -190,7 +190,9 @@ class _TasksViewState extends State<TasksView> {
     final tasks = _presentation == TasksPresentation.kanban || _showCompleted
         ? controller.tasks.toList()
         : controller.tasks
-            .where((task) => task.status != TaskStatus.done)
+            .where((task) =>
+                task.status != TaskStatus.done &&
+                task.status != TaskStatus.deferred)
             .toList();
     final query = _searchQuery.trim().toLowerCase();
     final searched = query.isEmpty

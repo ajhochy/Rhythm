@@ -78,7 +78,7 @@
 .pg-tasks .task-menu .menu-item { min-height: 42px; }
 .pg-tasks .task-menu .danger-item { color: color-mix(in oklab, var(--danger), white 24%); }
 .pg-tasks .task-menu .menu-item:disabled { opacity: .52; cursor: not-allowed; }
-.pg-tasks .kanban-board { min-width: 0; max-width: 100%; display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 8px; overflow-x: auto; padding: 14px 0 4px; scroll-snap-type: inline proximity; }
+.pg-tasks .kanban-board { min-width: 0; max-width: 100%; display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 8px; overflow-x: auto; padding: 14px 0 4px; scroll-snap-type: inline proximity; }
 .pg-tasks .kanban-column { min-width: 220px; min-height: 360px; overflow: hidden; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: color-mix(in oklab, var(--surface), var(--bg) 5%); scroll-snap-align: start; }
 .pg-tasks .kanban-column > header { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 11px; border-bottom: 1px solid var(--border-soft); background: var(--surface-warm); }
 .pg-tasks .kanban-column > header h2 { margin: 0; font-family: var(--font-mono); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }

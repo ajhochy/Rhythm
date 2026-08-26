@@ -1,6 +1,6 @@
 import { taskDensitySeeds } from '../../taskDensityFixtures';
 
-export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done';
+export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done' | 'deferred';
 export type TaskBucket = 'past-due' | 'today' | 'week' | 'month' | 'no-due' | 'completed';
 
 export interface TaskCollaborator {
@@ -184,6 +184,7 @@ export const taskStatusLabels: Record<TaskStatus, string> = {
   in_progress: 'In progress',
   waiting_for_reply: 'Waiting for reply',
   done: 'Done',
+  deferred: 'Deferred',
 };
 
 export const taskBucketLabels: Record<TaskBucket, string> = {

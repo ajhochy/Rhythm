@@ -1,7 +1,7 @@
 import '../../../app/core/utils/json_parsing.dart';
 import 'task_collaborator.dart';
 
-enum TaskStatus { open, inProgress, waitingForReply, done }
+enum TaskStatus { open, inProgress, waitingForReply, done, deferred }
 
 extension TaskStatusJson on TaskStatus {
   String toJson() {
@@ -14,6 +14,8 @@ extension TaskStatusJson on TaskStatus {
         return 'waiting_for_reply';
       case TaskStatus.done:
         return 'done';
+      case TaskStatus.deferred:
+        return 'deferred';
     }
   }
 
@@ -25,6 +27,8 @@ extension TaskStatusJson on TaskStatus {
         return TaskStatus.waitingForReply;
       case 'done':
         return TaskStatus.done;
+      case 'deferred':
+        return TaskStatus.deferred;
       default:
         return TaskStatus.open;
     }

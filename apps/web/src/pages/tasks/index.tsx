@@ -28,7 +28,7 @@ type TasksSort = 'due' | 'created' | 'status' | 'title';
 type QuickActionId = QuickActionPresetId;
 
 const supportedStates: TasksSurfaceState[] = ['ready', 'loading', 'empty', 'server-error', 'forbidden', 'unavailable', 'readonly'];
-const boardStatuses: TaskStatus[] = ['open', 'in_progress', 'waiting_for_reply', 'done'];
+const boardStatuses: TaskStatus[] = ['open', 'in_progress', 'waiting_for_reply', 'done', 'deferred'];
 const quickActions = quickActionPresets;
 
 function hashParams() {
@@ -206,11 +206,11 @@ export function TasksPage({ route }: { route: string }) {
       if (needle && ![task.title, task.notes, task.sourceName ?? ''].some((value) => value.toLocaleLowerCase().includes(needle))) return false;
       if (tag !== 'all' && !task.tags.includes(tag)) return false;
       if (task.priority < priority) return false;
-      if (view === 'list' && completion === 'open' && task.status === 'done') return false;
+      if (view === 'list' && completion === 'open' && (task.status === 'done' || task.status === 'deferred')) return false;
       if (dateWindow !== 'all' && task.bucket !== dateWindow) return false;
       return true;
     });
-    const statusOrder: TaskStatus[] = ['open', 'in_progress', 'waiting_for_reply', 'done'];
+    const statusOrder: TaskStatus[] = ['open', 'in_progress', 'waiting_for_reply', 'done', 'deferred'];
     return [...filtered].sort((left, right) => {
       if (sort === 'title') return left.title.localeCompare(right.title, undefined, { sensitivity: 'base' });
       if (sort === 'created') return left.createdAt.localeCompare(right.createdAt);

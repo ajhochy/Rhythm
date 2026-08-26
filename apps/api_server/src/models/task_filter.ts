@@ -1,5 +1,5 @@
 /** Status values accepted by the filter param ('all' means no status filter). */
-export type FilterStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done' | 'all';
+export type FilterStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done' | 'deferred' | 'all';
 
 /**
  * Typed filter object passed to TasksRepository.findByFilterAsync.
@@ -15,7 +15,7 @@ export interface TaskFilter {
   /** Return tasks where due_date IS NOT NULL AND due_date <= dueBefore */
   dueBefore?: string;
   /**
-   * When true: status != 'done' AND COALESCE(scheduled_date, due_date) < today.
+   * When true: active status AND COALESCE(scheduled_date, due_date) < today.
    * When false: exclude those tasks.
    * Caller must provide `today` (YYYY-MM-DD) for the comparison.
    */

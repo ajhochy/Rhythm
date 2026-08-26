@@ -46,6 +46,15 @@ describe('parseTaskFilters', () => {
     expect(result.filter.status).toBe('done');
   });
 
+  it('issue-1475-c4: accepts deferred as an exact task status filter', () => {
+    // Regression caught: the API persists deferred but rejects clients that
+    // request the exact deferred slice.
+    const result = parseTaskFilters({ status: 'deferred' }, userId);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.filter.status).toBe('deferred');
+  });
+
   it('accepts status=all', () => {
     const result = parseTaskFilters({ status: 'all' }, userId);
     expect(result.ok).toBe(true);
@@ -226,6 +235,24 @@ describe('GET /tasks query param filters', () => {
     // Default should only return open tasks
     expect(tasks.every((t) => t.status !== 'done')).toBe(true);
     expect(tasks.some((t) => t.title === 'Open task')).toBe(true);
+  });
+
+  it('issue-1475-c5: Open excludes Deferred while All includes it', async () => {
+    // Regression caught: parked Deferred work inflates the existing Open list
+    // count or disappears from the All list.
+    const user = usersRepo.create({ name: 'Deferred User', email: 'deferred@example.com' });
+    const headers = await authHeaderFor(user.id);
+    const create = await fetch(`${baseUrl}/tasks`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Parked task', status: 'deferred' }),
+    });
+    expect(create.status).toBe(201);
+
+    const open = await readJson(await fetch(`${baseUrl}/tasks`, { headers })) as Array<{ title: string }>;
+    const all = await readJson(await fetch(`${baseUrl}/tasks?status=all`, { headers })) as Array<{ title: string }>;
+    expect(open.map((task) => task.title)).not.toContain('Parked task');
+    expect(all.map((task) => task.title)).toContain('Parked task');
   });
 
   it('GET /tasks?status=done returns only done tasks', async () => {

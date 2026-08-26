@@ -1410,6 +1410,8 @@ String _statusLabel(TaskStatus status) {
       return 'Awaiting reply';
     case TaskStatus.done:
       return 'Done';
+    case TaskStatus.deferred:
+      return 'Deferred';
   }
 }
 
@@ -1423,6 +1425,8 @@ Color _statusColor(TaskStatus status, Color successColor) {
       return const Color(0xFFF59E0B);
     case TaskStatus.done:
       return successColor;
+    case TaskStatus.deferred:
+      return const Color(0xFF7C3AED);
   }
 }
 

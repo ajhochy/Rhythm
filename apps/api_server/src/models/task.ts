@@ -4,7 +4,7 @@ export interface TaskCollaborator {
   photoUrl: string | null;
 }
 
-export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done';
+export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done' | 'deferred';
 
 export interface Task {
   id: string;

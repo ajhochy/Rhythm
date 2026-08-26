@@ -239,7 +239,7 @@ export class TasksRepository {
         return `$${params.length}`;
       };
 
-      if (status === 'open') clauses.push("tasks.status != 'done'");
+      if (status === 'open') clauses.push("tasks.status NOT IN ('done', 'deferred')");
       else if (status !== 'all') clauses.push(`tasks.status = ${bind(status)}`);
       if (scheduledBefore !== undefined) {
         clauses.push(`COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) <= ${bind(scheduledBefore)}`);
@@ -250,8 +250,8 @@ export class TasksRepository {
       if (overdue !== undefined) {
         const todayParam = bind(todayForSort);
         clauses.push(overdue
-          ? `tasks.status != 'done' AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) < ${todayParam}`
-          : `(tasks.status = 'done' OR COALESCE(tasks.scheduled_date, tasks.due_date) IS NULL OR COALESCE(tasks.scheduled_date, tasks.due_date) >= ${todayParam})`);
+          ? `tasks.status NOT IN ('done', 'deferred') AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) < ${todayParam}`
+          : `(tasks.status IN ('done', 'deferred') OR COALESCE(tasks.scheduled_date, tasks.due_date) IS NULL OR COALESCE(tasks.scheduled_date, tasks.due_date) >= ${todayParam})`);
       }
       if (search) {
         clauses.push(`tasks.search_vector @@ plainto_tsquery('english', ${bind(search)})`);
@@ -280,7 +280,7 @@ export class TasksRepository {
           AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
          WHERE ${clauses.join('\n           AND ')}
          ORDER BY
-           CASE WHEN tasks.status != 'done'
+            CASE WHEN tasks.status NOT IN ('done', 'deferred')
              AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL
              AND COALESCE(tasks.scheduled_date, tasks.due_date) < ${todayParam}
              THEN 0 ELSE 1 END ASC,
@@ -323,7 +323,7 @@ export class TasksRepository {
 
     // --- status ---
     if (status === 'open') {
-      clauses.push("tasks.status != 'done'");
+      clauses.push("tasks.status NOT IN ('done', 'deferred')");
     } else if (status !== 'all') {
       clauses.push('tasks.status = ?');
       params.push(status);
@@ -347,13 +347,13 @@ export class TasksRepository {
       if (overdue) {
         // Overdue: not done AND priority date < today
         clauses.push(
-          "tasks.status != 'done' AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) < ?",
+          "tasks.status NOT IN ('done', 'deferred') AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) < ?",
         );
         params.push(today ?? new Date().toISOString().slice(0, 10));
       } else {
         // Not overdue: done OR priority date >= today OR no priority date
         clauses.push(
-          "(tasks.status = 'done' OR COALESCE(tasks.scheduled_date, tasks.due_date) IS NULL OR COALESCE(tasks.scheduled_date, tasks.due_date) >= ?)",
+          "(tasks.status IN ('done', 'deferred') OR COALESCE(tasks.scheduled_date, tasks.due_date) IS NULL OR COALESCE(tasks.scheduled_date, tasks.due_date) >= ?)",
         );
         params.push(today ?? new Date().toISOString().slice(0, 10));
       }
@@ -391,7 +391,7 @@ export class TasksRepository {
       ${where}
       ORDER BY
         CASE
-          WHEN tasks.status != 'done'
+          WHEN tasks.status NOT IN ('done', 'deferred')
            AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL
            AND COALESCE(tasks.scheduled_date, tasks.due_date) < ?
           THEN 0 ELSE 1
