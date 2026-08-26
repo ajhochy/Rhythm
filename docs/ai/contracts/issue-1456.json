@@ -1,13 +1,14 @@
 {
   "issue": 1456,
   "date": "2026-08-26",
-  "test_command": "npx vitest run src/contract/issue_1455_1456_idle_finalization.test.ts src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts -t '#1456|issue-1456'",
+  "test_command": "npx vitest run src/contract/issue_1455_1456_idle_finalization.test.ts src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     { "criterion_id": "issue-1456-c1", "text": "A turn delivered entirely via message.part.updated (zero message.part.delta events) finalizes normally: no error broadcast, transcript.append sent, session preview updated.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "The focused unit contract passes; the synchronized WebSocket, persisted-message, and idle-preview live assertions await S3's serial sandbox rerun." },
     { "criterion_id": "issue-1456-c2", "text": "A turn with genuinely zero assistant text still produces the error branch (see #1455 for what that message should say).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
     { "criterion_id": "issue-1456-c3", "text": "No duplicate DB rows: the structured path must still skip the legacy messagesRepo.append.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "The focused repository contract passes; the strengthened REST assertion for exactly one structured output row awaits S3's serial sandbox rerun." },
-    { "criterion_id": "issue-1456-c4", "text": "Tests covering both: delta-only turn (existing behavior, unchanged) and part.updated-only turn (currently failing).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" }
+    { "criterion_id": "issue-1456-c4", "text": "Tests covering both: delta-only turn (existing behavior, unchanged) and part.updated-only turn (currently failing).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1456-c5", "text": "The #1456 live case independently starts a unique Anthropic-compatible provider, creates a temporary bound agent profile, sends the matching modelOverride, and asserts the real engine user message info.model exactly matches providerID/modelID before append/persistence/preview/no-duplicate assertions.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "The static harness contract passes; live execution remains blocked on S3's sole sandbox and must be rerun serially with the full live file." }
   ],
-  "not_tested": ["issue-1456-c1", "issue-1456-c3"]
+  "not_tested": ["issue-1456-c1", "issue-1456-c3", "issue-1456-c5"]
 }

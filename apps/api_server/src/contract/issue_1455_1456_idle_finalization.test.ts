@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setDb } from '../database/db';
@@ -27,6 +29,10 @@ vi.mock('../services/opencode_engine', () => ({
 import { OpencodeStreamBridge } from '../services/opencode_stream_bridge';
 
 const SDK_ID = 'sdk-idle-contract';
+const liveHarness = readFileSync(resolve(
+  __dirname,
+  '../__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts',
+), 'utf8');
 let localId: string;
 let bridge: OpencodeStreamBridge;
 
@@ -164,5 +170,25 @@ describe('issues #1455/#1456 idle finalization contract', () => {
     idle();
 
     expect(frames('error').at(-1)).toMatchObject({ stopReason: 'content-filter' });
+  });
+
+  it('issue-1455-c6: live refusal harness binds its unique provider through a temporary agent profile', () => {
+    const testCase = liveHarness.slice(liveHarness.indexOf("it('#1455"));
+    expect(testCase).toMatch(/\/agent-configs/);
+    expect(testCase).toMatch(/method:\s*'POST'/);
+    expect(testCase).toMatch(/agentId:\s*profile\.id/);
+    expect(testCase).toMatch(/modelOverride:\s*\{ providerId, modelId \}/);
+    expect(testCase).toMatch(/info\?\.model[\s\S]*providerID[\s\S]*modelID/);
+  });
+
+  it('issue-1456-c5: live append harness independently controls and proves its bound model', () => {
+    const start = liveHarness.indexOf("it('#1456");
+    const testCase = liveHarness.slice(start, liveHarness.indexOf("it('#1455", start));
+    expect(testCase).toMatch(/createServer/);
+    expect(testCase).toMatch(/\/agent-configs/);
+    expect(testCase).toMatch(/method:\s*'POST'/);
+    expect(testCase).toMatch(/agentId:\s*profile\.id/);
+    expect(testCase).toMatch(/modelOverride:\s*\{ providerId, modelId \}/);
+    expect(testCase).toMatch(/info\?\.model[\s\S]*providerID[\s\S]*modelID/);
   });
 });
