@@ -1,11 +1,11 @@
 {
   "issue": 1458,
   "date": "2026-08-26",
-  "test_command": "npx vitest run src/contract/issue_1458_bypass_engine_permission.test.ts",
+  "test_command": "npx vitest run src/contract/issue_1458_bypass_engine_permission.test.ts src/__tests__/agent_sessions.test.ts",
   "waiver": null,
   "criteria": [
-    { "criterion_id": "issue-1458-c1", "text": "A bypassPermissions session completes permission-gated tool calls (bash, external_directory, edit tools) with the /global/event stream down.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1458_bypass_engine_permission_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "Written but not run because the shared sandbox is reserved for serial verification." },
-    { "criterion_id": "issue-1458-c2", "text": "Engine-side GET /permission shows no pending asks accumulating for a bypass session.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1458_bypass_engine_permission_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "Written but not run because the shared sandbox is reserved for serial verification." },
+    { "criterion_id": "issue-1458-c1", "text": "A bypassPermissions session completes permission-gated tool calls (bash, external_directory, edit tools) with the /global/event stream down.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1458_bypass_engine_permission_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "Controller forwarding is repaired and focused tests pass; S3 owns the sole sandbox, so the strengthened real-engine tool execution awaits the serial live rerun." },
+    { "criterion_id": "issue-1458-c2", "text": "Engine-side GET /permission shows no pending asks accumulating for a bypass session.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1458_bypass_engine_permission_live_e2e.test.ts", "status": "UNVERIFIED", "reason": "Controller forwarding is repaired and focused tests pass; the real engine permission queue assertion awaits the S3-owned sandbox rerun." },
     { "criterion_id": "issue-1458-c3", "text": "external_directory is explicitly covered and tested, not just bash/edit tools.", "mode": "unit", "test": "apps/api_server/src/contract/issue_1458_bypass_engine_permission.test.ts", "status": "pass", "reason": "" },
     { "criterion_id": "issue-1458-c4", "text": "Regression test asserting bypass does not depend on _listenGlobal being reachable — the existing #1392 contract tests all assume a live stream and would not have caught this.", "mode": "unit", "test": "apps/api_server/src/contract/issue_1458_bypass_engine_permission.test.ts", "status": "pass", "reason": "" }
   ],

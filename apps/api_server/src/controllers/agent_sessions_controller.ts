@@ -651,11 +651,8 @@ export class AgentSessionsController {
 
       const permissionMode = body.permissionMode === undefined
         ? 'default'
-        : body.permissionMode;
-      if (
-        typeof permissionMode !== 'string' ||
-        !PERMISSION_MODES.includes(permissionMode as PermissionMode)
-      ) {
+        : PERMISSION_MODES.find((mode) => mode === body.permissionMode);
+      if (!permissionMode) {
         throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
       }
 
@@ -940,7 +937,7 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
-        permissionMode: permissionMode as PermissionMode,
+        permissionMode,
         // This controller is the interactive, user-selected session surface.
         // Internal runners that stamp operational bypassPermissions create
         // rows through the repository and therefore fail closed at false.
@@ -1019,17 +1016,15 @@ export class AgentSessionsController {
       // the SDK itself doesn't have a per-session tool param (documented in service).
       const tSdkCreate = Date.now();
       const sessionTitle = typeof name === 'string' ? name.trim() : '';
-      const opencodeSession = permissionMode === 'plan'
-        ? await opencodeClient.createSession(
-            sessionTitle,
-            dto.cwd,
-            mcpRoleConfig,
-            undefined,
-            undefined,
-            undefined,
-            permissionMode,
-          )
-        : await opencodeClient.createSession(sessionTitle, dto.cwd, mcpRoleConfig);
+      const opencodeSession = await opencodeClient.createSession(
+        sessionTitle,
+        dto.cwd,
+        mcpRoleConfig,
+        undefined,
+        undefined,
+        undefined,
+        permissionMode,
+      );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       // #1222 — check `.id` explicitly: createSession no longer returns a bare
       // `null` on failure, so a truthy `{ error }` object must not pass `!x`.
@@ -1782,17 +1777,15 @@ export class AgentSessionsController {
         logger.info(
           `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
         );
-        const opencodeSession = session.permissionMode === 'plan'
-          ? await opencodeClient.createSession(
-              session.name,
-              session.cwd,
-              undefined,
-              undefined,
-              undefined,
-              undefined,
-              session.permissionMode,
-            )
-          : await opencodeClient.createSession(session.name, session.cwd);
+        const opencodeSession = await opencodeClient.createSession(
+          session.name,
+          session.cwd,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          session.permissionMode,
+        );
         // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
         if (!opencodeSession.id) {
           throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');

@@ -175,6 +175,43 @@ describe('Agent Sessions API', () => {
     expect(session.agentKind).toBe('codex');
   });
 
+  it.each([
+    ['plan', 'plan'],
+    ['bypassPermissions', 'bypassPermissions'],
+    [undefined, 'default'],
+  ] as const)(
+    '#1458 forwards resolved permission mode %s to engine session creation',
+    async (requestedMode, resolvedMode) => {
+      const { opencodeClient } = await import('../services/opencode_engine');
+      const mockClient = opencodeClient as unknown as {
+        createSession: ReturnType<typeof vi.fn>;
+      };
+
+      const res = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          agentId: 'claude-code',
+          cwd: os.homedir(),
+          name: `Permission mode ${resolvedMode}`,
+          ...(requestedMode === undefined ? {} : { permissionMode: requestedMode }),
+        }),
+      });
+
+      expect(res.status).toBe(201);
+      expect(mockClient.createSession).toHaveBeenCalledTimes(1);
+      expect(mockClient.createSession).toHaveBeenCalledWith(
+        `Permission mode ${resolvedMode}`,
+        os.homedir(),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resolvedMode,
+      );
+    },
+  );
+
   // ── #858: UUID-keyed agent_configs must resolve to their engine name ───────
 
   it('#858: session-create for a UUID-keyed agent persists agentKind = ocAgent, not the config id', async () => {
@@ -329,6 +366,43 @@ describe('Agent Sessions API', () => {
     });
     expect(delRes.status).toBe(204);
     expect(opencodeSessionMap.has(inserted.id)).toBe(false);
+  });
+
+  it('#1458 forwards bypassPermissions when legacy resume creates a replacement engine session', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Legacy bypass resume',
+      permissionMode: 'bypassPermissions',
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
+
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockClient = opencodeClient as unknown as {
+      createSession: ReturnType<typeof vi.fn>;
+    };
+    mockClient.createSession.mockResolvedValueOnce({ id: 'sdk-bypass-resumed-session' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockClient.createSession).toHaveBeenCalledTimes(1);
+    expect(mockClient.createSession).toHaveBeenCalledWith(
+      inserted.name,
+      inserted.cwd,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'bypassPermissions',
+    );
   });
 
   it('#858: resume with a UUID-keyed agentId re-resolves the persisted agentKind to the engine name', async () => {
@@ -1073,7 +1147,15 @@ describe('Agent Sessions API', () => {
 
     // C1: createSession now accepts an optional third arg (mcpRoleConfig).
     // When no mcpRole is provided the arg is undefined.
-    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd, undefined);
+    expect(mock.createSession).toHaveBeenCalledWith(
+      sessionName,
+      cwd,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'default',
+    );
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-no-fk');
     // Issue #653: server no longer fabricates an "I need help with: <title>"
     // initial prompt. The client owns first-turn content via composer prefill.
@@ -1122,7 +1204,15 @@ describe('Agent Sessions API', () => {
     expect(session.status).toBe('starting');
     // C1: createSession now accepts an optional third arg (mcpRoleConfig).
     // When no mcpRole is provided the arg is undefined.
-    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd, undefined);
+    expect(mock.createSession).toHaveBeenCalledWith(
+      sessionName,
+      cwd,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'default',
+    );
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-with-fk');
     // Issue #653: no auto-initial-prompt; client owns first-turn content.
     expect(mock.promptAsync).not.toHaveBeenCalled();
