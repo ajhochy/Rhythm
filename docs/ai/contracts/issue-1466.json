@@ -4,10 +4,10 @@
   "test_command": "cd apps/api_server && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1466_1475_live_e2e.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
-    {"criterion_id":"issue-1466-c1","text":"The top-level list contains only root sessions (`parent_session_id IS NULL`).","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
-    {"criterion_id":"issue-1466-c2","text":"A root session stays listed regardless of how many children it has spawned; LIMIT applies to roots.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
-    {"criterion_id":"issue-1466-c3","text":"Each returned root carries its delegated children in a nested field.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"UNVERIFIED","reason":"Live sandbox test added but not run; S3 owns the sandbox."},
-    {"criterion_id":"issue-1466-c4","text":"Consider ordering by last_activity_at rather than created_at.","mode":"manual","test":null,"status":"UNVERIFIED","reason":"Issue asks for consideration rather than a required outcome; record the decision in the PR."}
+    {"criterion_id":"issue-1466-c1","text":"The top-level list contains only root sessions (`parent_session_id IS NULL`).","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"pass","reason":"Real HTTP list returned no seeded child as a top-level session."},
+    {"criterion_id":"issue-1466-c2","text":"A root session stays listed regardless of how many children it has spawned; LIMIT applies to roots.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"pass","reason":"Real HTTP list retained the deliberately old root after 101 newer children were seeded."},
+    {"criterion_id":"issue-1466-c3","text":"Each returned root carries its delegated children in a nested field.","mode":"live","test":"apps/api_server/src/__tests__/issue_1466_1475_live_e2e.test.ts","status":"pass","reason":"Real HTTP response nested exactly all 101 seeded child IDs under the root with matching parentSessionId values."},
+    {"criterion_id":"issue-1466-c4","text":"Consider ordering by last_activity_at rather than created_at.","mode":"manual","test":null,"status":"pass","reason":"Considered and retained created_at because descendant last activity is not reliably propagated to roots; decision recorded in the run log."}
   ],
-  "not_tested": ["issue-1466-c1", "issue-1466-c2", "issue-1466-c3", "issue-1466-c4"]
+  "not_tested": []
 }

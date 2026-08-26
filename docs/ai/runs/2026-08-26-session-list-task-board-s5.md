@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/session-list-and-task-board
 pr: pending
 issues: [1466, 1476, 1477, 1475]
-status: ready-for-verification
+status: verified
 tags: [run, rhythm]
 ---
 
@@ -57,3 +57,17 @@ tags: [run, rhythm]
   - `git diff --check` — exited 0.
 - GitNexus impact and `detect_changes(scope: all)` were retried and remain unavailable because the index is storage v42 while the connected client is v41. Risk is `UNKNOWN`; no HIGH/CRITICAL result was returned.
 - Verification handoff: rerun the new live suite serially in S3's isolated sandbox with the contract command, then update evidence/statuses only from that observed run.
+
+## Repaired verification gate
+
+- Branch/commit before evidence edits: `fix/session-list-and-task-board` at `f1212fc0c2cbbdb305dfbb75e3bef124515234c1`; worktree was clean.
+- Fork build: `cd apps/opencode_fork/packages/opencode && bun run build --single` — host binary smoke test reported `0.0.0-fix/session-list-and-task-board-202608262206`. The first attempt lacked `@opentui/solid/preload`; `bun install --frozen-lockfile` repaired only local dependencies, after which the build passed without a tracked diff.
+- API: `cd apps/api_server && npm run build` — exit 0. Focused six-file Vitest command — 6 files / 136 tests passed; `node_modules/.bin/tsc --noEmit` exited 0.
+- Web: `cd apps/web && npm run build` — exit 0. Rendered Playwright: #1476 plus child-identity control 2/2, #1477 1/1, and #1475 1/1 passed.
+- Flutter: `dart format . --set-exit-if-changed` exited 0; `flutter analyze --no-fatal-infos` exited 0 with 318 infos; six-file grouping/task suite passed 33/33; constrained #1477 header check passed 1/1.
+- Sandbox used only the sanitized S2 fixture with API `:4098`, engine `:4097`, and `/private/tmp/rhythm-s5-rerun`. Native SQLite `.backup` hung before process launch; the partial directory was removed, then a temporary PATH-only Python SQLite online-backup wrapper was used. Sandbox health returned API `status: ok`, Opencode `status: ready`, and engine `healthy: true` running fork version `0.0.0-fix/session-list-and-task-board-202608262231`. The sandbox and wrapper were removed after the run; `:4098`/`:4097` were down and live PIDs `:4001=3458`/`:4096=3496` were unchanged.
+- Live command: `cd apps/api_server && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-s5-rerun/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-s5-rerun npx vitest run src/__tests__/issue_1466_1475_live_e2e.test.ts --no-file-parallelism` — 1 file / 2 tests passed.
+- #1466 observed the old root present, no seeded child at top level, and exactly 101 matching children nested under that root. #1475 observed create deferred → open → deferred → persisted deferred, Open exclusion, All inclusion, and exact-deferred inclusion.
+- Cleanup/nonmutation: sandbox counts returned to `users:1 sessions:1 agent_sessions:0 tasks:0`; all four test marker queries returned zero; `PRAGMA integrity_check` returned `ok`. Sanitized fixture config remained 1 file at SHA-256 `600e88fa2f58de29accb587d1eb489061a4b095bbecb6cee986fd9a0e014d7c0` before and after.
+- Remaining manual smoke: #1476 cross-client visual-parity judgment only; recorded as `not_tested` rather than `UNVERIFIED`.
+- GitNexus remains `UNKNOWN`: this verification session did not expose the manager GitNexus MCP required for worktree-aware `detect_changes(scope: compare, base_ref: main)`, so no CLI substitute was used. The prior connected attempt recorded the exact index mismatch as storage version 42 versus client version 41.
