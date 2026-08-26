@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/optimizer-scope-lane
 pr: pending
 issues: [1479, 1482]
-status: ready-for-verification
+status: awaiting-sandbox-verification
 tags: [run, Rhythm]
 ---
 
@@ -17,6 +17,13 @@ tags: [run, Rhythm]
 - Unified audit activity and successful-use evidence around the same owned session IDs, with legacy `agent_kind` fallback.
 - Made profile requirement matching case-insensitive, alias-aware, skill-aware, and explicit-tools-map-aware.
 - Added acceptance contracts and tests for #1479 and #1482.
+- Added one serial env-gated live suite for real engine catalog, API write/apply
+  rejection, operator drift reporting, optimizer false-positive controls, and
+  exact scope count/SHA-256 non-mutation evidence.
+- Added the read-only `rhythm mcp-tool-grant-drift` operator command. It requires
+  an explicit SQLite `DB_PATH` and loopback fork URL, opens the DB read-only,
+  emits only `{profileId, serverName, toolName}`, and exits nonzero on validation
+  failure.
 
 ## Checks
 
@@ -29,6 +36,18 @@ tags: [run, Rhythm]
 - `cd apps/api_server && npx tsc --noEmit` — exit 0.
 - Fork monorepo `bun run typecheck` could not complete because the existing linked dependency tree lacks `@tsconfig/node22`; package-only typecheck likewise reports broad pre-existing missing workspace dependencies. No sandbox/build was run.
 - GitNexus impact: initial file fallbacks for #1479 were LOW (0 direct/processes). Later symbol calls and both detect-changes gates were unavailable because another process was rebuilding an incompatible LadybugDB index; no HIGH/CRITICAL result was returned.
+
+### Coverage/completeness repair
+
+- RED parser/CLI: `npx vitest run src/__tests__/scope_hygiene_generator.test.ts src/cli/mcp_tool_grant_drift.test.ts` — parser emitted zero proposals for real `scopeKind=mcp-tool ... serverName=...` evidence; CLI was an unknown command. 3 contract assertions failed.
+- GREEN parser/CLI: same command — 10/10 passed. The parser preserves existing mcp/skill behavior and now routes mcp-tool evidence to `allowedMcpsJson`; the CLI report is sanitized/read-only and validation failures are nonzero.
+- Exact prior focused commands rerun: 3/3, 80/80, 73/73 (the prior 72 plus the new mcp-tool parser contract), and 21/21 passed. CLI adds 2/2, for 179 passing invocations total (176 prior baseline + 1 parser + 2 CLI).
+- Live file with flags absent: 2/2 skipped cleanly.
+- Forced live file without isolation: failed closed in `assertLiveE2EIsolation` before either case ran.
+- `npm run build && npx tsc --noEmit` — exit 0.
+- `git diff --check` — exit 0.
+- GitNexus impact and `detect_changes(scope=all)` were attempted again; both remain unavailable with LadybugDB file v42/client storage v41, risk UNKNOWN (not HIGH/CRITICAL).
+- Sandbox live command was deliberately **not run** because S2 owns the sole sandbox. Both issue contracts are `UNVERIFIED`/`not_tested` until that command passes against API `4098`, engine `4097`, and the exact sandbox DB path.
 
 ## Existing-row report
 
@@ -43,6 +62,6 @@ The report was read-only; no live `agent_configs` rows were changed.
 
 ## Notes / handoff
 
-- The shared dev sandbox was deliberately not started. Live fork endpoint and repair/report verification are deferred to the serial sandbox gate.
+- The shared dev sandbox was deliberately not started or touched. Live fork endpoint and repair/report verification are deferred to the serial sandbox gate.
 - GitNexus `detect_changes(scope=all)` was invoked before each commit attempt but unavailable during the concurrent index rebuild.
-- Two commits only: one per issue. Draft PR creation follows after the second commit; do not merge.
+- This repair adds one focused third commit after the two issue commits. No push or PR was performed.

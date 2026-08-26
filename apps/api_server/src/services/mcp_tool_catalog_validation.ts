@@ -13,7 +13,45 @@ export interface McpToolGrantDrift {
   toolName: string;
 }
 
-export async function loadLiveMcpToolCatalog(): Promise<LiveMcpToolCatalog> {
+function validatedEngineUrl(engineUrl: string): string {
+  const url = new URL(engineUrl);
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
+    throw new Error('MCP tool catalog engine URL must be loopback HTTP');
+  }
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) {
+    throw new Error('MCP tool catalog engine URL must be a bare origin');
+  }
+  return url.origin;
+}
+
+async function fetchEngineJson(origin: string, path: string): Promise<unknown> {
+  const response = await fetch(`${origin}${path}`);
+  if (!response.ok) throw new Error(`live MCP tool catalog request failed (${response.status})`);
+  return response.json();
+}
+
+export async function loadLiveMcpToolCatalog(engineUrl?: string): Promise<LiveMcpToolCatalog> {
+  if (engineUrl) {
+    const origin = validatedEngineUrl(engineUrl);
+    const [statuses, toolIds] = await Promise.all([
+      fetchEngineJson(origin, '/mcp'),
+      fetchEngineJson(origin, '/mcp/tools'),
+    ]);
+    if (!statuses || typeof statuses !== 'object' || Array.isArray(statuses)) {
+      throw new Error('live MCP status response is invalid');
+    }
+    if (
+      !Array.isArray(toolIds) ||
+      toolIds.some((toolId) => typeof toolId !== 'string' || toolId.length === 0) ||
+      new Set(toolIds).size !== toolIds.length
+    ) {
+      throw new Error('live MCP tool response is invalid');
+    }
+    return {
+      serverNames: new Set(Object.keys(statuses)),
+      toolIds: new Set(toolIds as string[]),
+    };
+  }
   if (!opencodeClient.isReady) throw new Error('live MCP tool catalog is unavailable');
   const [statuses, toolIds] = await Promise.all([
     opencodeClient.listMcp(),

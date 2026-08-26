@@ -1,33 +1,33 @@
 {
   "issue": 1479,
   "date": "2026-08-26",
-  "test_command": "npx vitest run src/__tests__/issue_1479_contract.test.ts",
+  "test_command": "RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     {
       "criterion_id": "issue-1479-c1",
       "text": "Validate per-tool entries at write time: when a proposal apply or PATCH writes a tools-map, resolve each entry against the live server's tools/list.",
       "mode": "integration",
-      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
-      "status": "pass",
-      "reason": ""
+      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Focused contract is green; required real sandbox API + fork gate has not run because S2 owns the sandbox."
     },
     {
       "criterion_id": "issue-1479-c2",
       "text": "Extend drift detection to tool granularity: emit prune-scope gaps for per-tool entries that match no live tool.",
       "mode": "unit",
-      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
-      "status": "pass",
-      "reason": ""
+      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Parser contract is green; required real optimizer/operator observation has not run because S2 owns the sandbox."
     },
     {
       "criterion_id": "issue-1479-c3",
       "text": "One-time repair pass over existing agent_configs rows to report phantom entries.",
       "mode": "unit",
-      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
-      "status": "pass",
-      "reason": ""
+      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Read-only CLI contract is green; required run against the sandbox DB and real fork URL has not run because S2 owns the sandbox."
     }
   ],
-  "not_tested": []
+  "not_tested": ["issue-1479-c1", "issue-1479-c2", "issue-1479-c3"]
 }

@@ -77,7 +77,7 @@ import { AgentConfigsRepository } from '../../repositories/agent_configs_reposit
 import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
 import { resolveProfileMcpScope } from '../agent_profile_scope';
 
-export type ScopeKind = 'mcp' | 'skill';
+export type ScopeKind = 'mcp' | 'mcp-tool' | 'skill';
 
 /** Shape written to `change_json` for a scope mutation — mirrors org_proposal_apply.ts's AgentConfigScopeChange. */
 interface AgentConfigScopeChangePayload {
@@ -161,16 +161,21 @@ function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): b
 }
 
 function scopeField(scopeKind: ScopeKind): 'allowedMcpsJson' | 'allowedSkillsJson' {
-  return scopeKind === 'mcp' ? 'allowedMcpsJson' : 'allowedSkillsJson';
+  return scopeKind === 'skill' ? 'allowedSkillsJson' : 'allowedMcpsJson';
 }
 
-/** Parses `profile=<id> scopeKind=<mcp|skill> deadName=<name>` (org_audit_service's detectPruneGaps evidence format). */
+/** Parses org_audit_service's server-, tool-, and skill-level prune evidence. */
 function parsePruneEvidence(
   evidence: string,
 ): { profileId: string; scopeKind: ScopeKind; name: string } | null {
   const match = /^profile=(\S+) scopeKind=(mcp|skill) deadName=(\S+)$/.exec(evidence);
-  if (!match) return null;
-  const [, profileId, scopeKind, name] = match;
+  if (match) {
+    const [, profileId, scopeKind, name] = match;
+    return { profileId, scopeKind: scopeKind as ScopeKind, name };
+  }
+  const toolMatch = /^profile=(\S+) scopeKind=(mcp-tool) serverName=\S+ deadName=(\S+)$/.exec(evidence);
+  if (!toolMatch) return null;
+  const [, profileId, scopeKind, name] = toolMatch;
   return { profileId, scopeKind: scopeKind as ScopeKind, name };
 }
 

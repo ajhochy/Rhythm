@@ -62,7 +62,7 @@ export async function initDb(): Promise<void> {
   runMigrations(_db);
 }
 
-/** For tests only — inject a pre-configured in-memory database instance. */
+/** Inject a pre-configured database for tests or narrowly scoped read-only CLI commands. */
 export function setDb(db: Database.Database): void {
   _db = db;
 }

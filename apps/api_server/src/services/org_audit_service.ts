@@ -374,9 +374,9 @@ function detectPruneGaps(drift: AllowlistDrift[]): OrgAuditGap[] {
     }));
 }
 
-export async function reportMcpToolGrantDrift(): Promise<McpToolGrantDrift[]> {
+export async function reportMcpToolGrantDrift(engineUrl?: string): Promise<McpToolGrantDrift[]> {
   const configs = new AgentConfigsRepository().list();
-  const catalog = await loadLiveMcpToolCatalog();
+  const catalog = await loadLiveMcpToolCatalog(engineUrl);
   return configs.flatMap((config) =>
     findUnknownMcpToolGrants(config.allowedMcpsJson, config.id, catalog),
   );
