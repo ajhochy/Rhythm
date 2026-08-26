@@ -1,0 +1,13 @@
+{
+  "issue": 1456,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/issue_1455_1456_idle_finalization.test.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1456-c1", "text": "A turn delivered entirely via message.part.updated (zero message.part.delta events) finalizes normally: no error broadcast, transcript.append sent, session preview updated.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1456-c2", "text": "A turn with genuinely zero assistant text still produces the error branch (see #1455 for what that message should say).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1456-c3", "text": "No duplicate DB rows: the structured path must still skip the legacy messagesRepo.append.", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1456-c4", "text": "Tests covering both: delta-only turn (existing behavior, unchanged) and part.updated-only turn (currently failing).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" }
+  ],
+  "not_tested": []
+}

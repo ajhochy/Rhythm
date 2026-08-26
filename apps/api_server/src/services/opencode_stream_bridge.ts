@@ -292,6 +292,8 @@ export class OpencodeStreamBridge {
   // arrives empty. We append on session.idle (end of turn) to keep the
   // agent_session_messages history populated.
   private pendingText = new Map<string, string>();
+  /** Structured assistant message ids touched during the current turn. */
+  private pendingStructuredMessageIds = new Map<string, Set<string>>();
 
   /**
    * C2-D (S3) — the runEpisodeId a `session.input` WS frame supplied for
@@ -1383,6 +1385,9 @@ export class OpencodeStreamBridge {
             const sdkMessageId = part.messageID as string | undefined;
             if (sdkMessageId) {
               try {
+                const turnMessageIds = this.pendingStructuredMessageIds.get(localSessionId) ?? new Set<string>();
+                turnMessageIds.add(sdkMessageId);
+                this.pendingStructuredMessageIds.set(localSessionId, turnMessageIds);
                 // When part.updated arrives, the authoritative text is in the
                 // part object — discard any in-memory delta accumulator for
                 // this part since the full value supersedes it.
@@ -1685,7 +1690,26 @@ export class OpencodeStreamBridge {
           // create a duplicate row. We still broadcast transcript.append so the
           // Flutter client finalizes the live preview. Legacy sessions (no SDK
           // message IDs) still use the append path for DB persistence.
-          const text = this.pendingText.get(localSessionId);
+          const pendingText = this.pendingText.get(localSessionId) ?? '';
+          let structuredText = '';
+          const turnMessageIds = this.pendingStructuredMessageIds.get(localSessionId);
+          if (turnMessageIds?.size) {
+            try {
+              structuredText = this.messagesRepo
+                .listBySessionStructured(localSessionId)
+                .filter((message) => message.sdkMessageId && turnMessageIds.has(message.sdkMessageId))
+                .flatMap((message) => message.parts)
+                .filter((part): part is { type: 'text'; text: string } =>
+                  typeof part === 'object' && part !== null &&
+                  (part as { type?: unknown }).type === 'text' &&
+                  typeof (part as { text?: unknown }).text === 'string')
+                .map((part) => part.text)
+                .join('\n');
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to read structured turn text:', err);
+            }
+          }
+          const text = structuredText.trim().length > 0 ? structuredText : pendingText;
           if (text && text.length > 0) {
             const hasStructured = this.messagesRepo.hasStructuredMessages(localSessionId);
             if (!hasStructured) {
@@ -1727,6 +1751,7 @@ export class OpencodeStreamBridge {
               text,
             });
             this.pendingText.delete(localSessionId);
+            this.pendingStructuredMessageIds.delete(localSessionId);
             // Clear per-part delta accumulators — turn boundary reached.
             this.pendingPartDeltas.clear();
 
@@ -1809,6 +1834,9 @@ export class OpencodeStreamBridge {
               // C2-D (S3) — see the sibling call above.
               runEpisodeId: this.consumeRunEpisodeId(localSessionId),
             });
+            this.pendingText.delete(localSessionId);
+            this.pendingStructuredMessageIds.delete(localSessionId);
+            this.pendingPartDeltas.clear();
           }
           // #1123 — callback boundary for additive interactive async
           // delegation. Run only AFTER the existing assistant persistence and
@@ -2504,6 +2532,7 @@ export class OpencodeStreamBridge {
     // Also clean up the pending-text accumulator for this session so stale
     // deltas don't linger in memory after the session is closed.
     this.pendingText.delete(localSessionId);
+    this.pendingStructuredMessageIds.delete(localSessionId);
     // C2-D (S3) — a stopped turn never reaches a terminal event, so its
     // pending runEpisodeId must not linger and bind some unrelated later turn.
     this.pendingRunEpisodeId.delete(localSessionId);
@@ -2562,6 +2591,7 @@ export class OpencodeStreamBridge {
     this.engineIdentityKey = null;
     this.stoppedSessions.clear();
     this.pendingText.clear();
+    this.pendingStructuredMessageIds.clear();
     this.pendingPermissions.clear();
     this.repliedPermissions.clear();
     this.pendingQuestions.clear();
