@@ -118,6 +118,7 @@ describe('searchSkillCandidates (skills.sh lane)', () => {
     stargazers_count: 240,
     license: { spdx_id: 'MIT' },
     owner: { login: 'acme' },
+    default_branch: 'main',
   };
 
   /** Routes the three fetches the lane makes: search -> repo meta -> raw body. */
@@ -126,6 +127,9 @@ describe('searchSkillCandidates (skills.sh lane)', () => {
       const u = String(url);
       if (u.startsWith('https://skills.sh/api/search')) {
         return { ok: true, json: async () => ({ skills: [hit] }) };
+      }
+      if (u.includes('/commits/')) {
+        return { ok: true, json: async () => ({ sha: 'a'.repeat(40) }) };
       }
       if (u.startsWith('https://api.github.com/repos/')) {
         return { ok: true, json: async () => REPO_META };

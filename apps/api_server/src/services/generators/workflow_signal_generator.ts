@@ -119,7 +119,11 @@ function buildCreateRecipeChange(title: string, evidence: string): string {
   return JSON.stringify({
     title,
     description: `Recurring workflow friction observed: ${evidence}`,
-    steps_json: JSON.stringify([{ action: 'prompt', text: title }]),
+    steps_json: JSON.stringify([
+      { action: 'prompt', text: `Inspect the repeated failure evidence and identify the failing operation: ${evidence}` },
+      { action: 'prompt', text: 'After one failed retry, stop repeating the same input and diagnose the returned error before choosing a different action.' },
+      { action: 'prompt', text: 'Run the corrected action once and record its observable result before reporting the workflow complete.' },
+    ]),
   });
 }
 
@@ -204,6 +208,10 @@ async function proposeCreateRecipeForCategory(
   proposalsRepo: NonNullable<WorkflowSignalGeneratorDeps['proposalsRepo']>,
   auditRunId: string,
 ): Promise<AgentOrgProposal | null> {
+  if (signal.category === 'retry-loop' && new Set(signal.sessionIds).size < 2) {
+    logger.info('[workflow-signal-generator] skipped retry-loop recipe: fewer than two distinct sessions');
+    return null;
+  }
   const profile = profileLabel(signal.agentConfigId);
   let humanTitle: string;
   let dedupSuffix: string;
@@ -704,7 +712,7 @@ function buildDiagnosisSystemPrompt(): string {
     '  not fixable by skill/config/scope changes. Fix = log only, no proposal.',
     '',
     'Output ONLY a JSON object with these fields:',
-    '{"diagnosis":"<plain language explanation>","rootCause":"skill|config|scope|delegation|task|external","fixType":"skill-edit|config-change|scope-change|delegation-change|task-change|external-noop","concreteFix":"<the actual fix text>","confidence":"high|medium|low"}',
+    '{"diagnosis":"<plain language explanation>","rootCause":"skill|config|scope|delegation|task|external","fixType":"skill-edit|config-change|scope-change|delegation-change|task-change|external-noop","concreteFix":"<the actual fix text>","confidence":"high|medium|low","evidenceQuotes":["<exact supporting excerpt from ERROR EVIDENCE>"]}',
     '',
     'For a config-change you MUST ALSO include a structured patch (REQUIRED — a',
     'config-change WITHOUT this patch cannot be applied and will be rejected):',
@@ -721,6 +729,8 @@ function buildDiagnosisSystemPrompt(): string {
     'The concreteFix must be specific and actionable. Not "add a guard" — paste the actual',
     'guard text. Not "fix the model" — specify the model id. Not "check scope" — name the',
     'exact MCP server or skill to add or remove.',
+    'Every non-external claimed cause must include an exact ERROR EVIDENCE excerpt in evidenceQuotes.',
+    'If no evidence line supports the cause, return external-noop instead of inventing a narrative.',
   ].join('\n');
 }
 
@@ -915,6 +925,9 @@ function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
       parsed.taskPatch && typeof parsed.taskPatch === 'object'
         ? (parsed.taskPatch as TaskPatch)
         : undefined;
+    const evidenceQuotes = Array.isArray(parsed.evidenceQuotes)
+      ? parsed.evidenceQuotes.filter((quote): quote is string => typeof quote === 'string' && quote.trim().length > 0)
+      : undefined;
     return {
       diagnosis: typeof parsed.diagnosis === 'string' ? parsed.diagnosis : '(no diagnosis)',
       rootCause: rootCause as DiagnosisResult['rootCause'],
@@ -923,6 +936,7 @@ function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
       confidence: (typeof parsed.confidence === 'string' && ['high', 'medium', 'low'].includes(parsed.confidence)
         ? parsed.confidence
         : 'medium') as DiagnosisResult['confidence'],
+      ...(evidenceQuotes ? { evidenceQuotes } : {}),
       ...(configPatch ? { configPatch } : {}),
       ...(scopePatch ? { scopePatch } : {}),
       ...(taskPatch ? { taskPatch } : {}),
@@ -993,8 +1007,15 @@ function stableHash(...parts: string[]): string {
   return (hash >>> 0).toString(16);
 }
 
+function isInfraSignal(signal: WorkflowFailureSignal): boolean {
+  return /\$bunfs\/|\bSessionProcessor\b|exceeded the provider'?s size limit|Cannot connect to API|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT)\b/i
+    .test(signal.evidence);
+}
+
 function isDiagnosableSignal(signal: WorkflowFailureSignal): boolean {
-  return !!signal.agentConfigId && DIAGNOSABLE_CATEGORIES.has(signal.category);
+  if (!signal.agentConfigId || !DIAGNOSABLE_CATEGORIES.has(signal.category) || isInfraSignal(signal)) return false;
+  if (signal.category === 'unverified-claim' && /no single recurring error/i.test(signal.evidence)) return false;
+  return true;
 }
 
 /**
@@ -1210,6 +1231,18 @@ async function proposeFixFromSignals(
       continue;
     }
 
+    if (result.fixType === 'skill-edit') {
+      const evidence = skillSignals.map((signal) => signal.evidence);
+      const quotes = result.evidenceQuotes ?? [];
+      if (quotes.length === 0 || quotes.some((quote) => !evidence.some((line) => line.includes(quote)))) {
+        logger.warn(
+          `[workflow-signal-generator] ${agentConfigId}: DROPPED unsupported skill diagnosis — ` +
+            'every claimed cause must quote attached evidence exactly',
+        );
+        continue;
+      }
+    }
+
     const kind = diagnosisToProposalKind(result);
     if (!kind) continue;
 
@@ -1267,6 +1300,7 @@ async function proposeFixFromSignals(
         fixType: result.fixType,
         concreteFix: result.concreteFix,
         confidence: result.confidence,
+        evidenceQuotes: result.evidenceQuotes,
         evidence: skillSignals.map((s) => ({
           sessionIds: s.sessionIds,
           category: s.category,

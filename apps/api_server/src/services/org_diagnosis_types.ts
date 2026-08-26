@@ -96,6 +96,8 @@ export interface DiagnosisResult {
   concreteFix: string;
   /** LLM confidence in the diagnosis. */
   confidence: 'high' | 'medium' | 'low';
+  /** Exact transcript excerpts supporting the claimed cause. */
+  evidenceQuotes?: string[];
   /**
    * Optional structured, machine-applyable patch for a `config-change`
    * diagnosis. UNTRUSTED as emitted by the LLM — the producer re-resolves

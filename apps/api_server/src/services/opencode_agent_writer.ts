@@ -125,7 +125,9 @@ export function buildHubRoutingPreamble(roster: string[], profileId?: string): s
   const codingHandoff =
     profileId === 'workflow-orchestrator'
       ? WORKFLOW_ORCHESTRATOR_CODING_BODY
-      : CODING_HANDOFF_BODY;
+      : buildTaskDelegatePermissions(roster, profileId)['workflow-orchestrator'] === 'allow'
+        ? CODING_HANDOFF_BODY
+        : null;
   return (
     `${HUB_PREAMBLE_MARKER}\n` +
     'Handle the request directly when it fits your own role, system prompt, granted ' +
@@ -147,7 +149,7 @@ export function buildHubRoutingPreamble(roster: string[], profileId?: string): s
     'interactive chat by design, and blocking is fine there because nobody is waiting.\n' +
     '  - Use `task` with `explore` or `general` only for read-only fan-out inside your ' +
     'own scope — never to reach another profile.\n\n' +
-    `**Coding / development work:** ${codingHandoff}\n\n` +
+    (codingHandoff ? `**Coding / development work:** ${codingHandoff}\n\n` : '') +
     'Direct work includes trivial admin, quick summaries, reading back information, and ' +
     'simple lookups, but is not limited to those tasks.'
   );
@@ -179,7 +181,8 @@ export function injectManagerPreamble(
       ? buildHubRoutingPreamble(delegateRoster, profileId)
       : profileId === 'workflow-orchestrator'
         ? `${PREAMBLE_MARKER}\n${WORKFLOW_ORCHESTRATOR_CODING_BODY}`
-        : MANAGER_ROUTING_PREAMBLE;
+        : null;
+  if (!preamble) return body;
   const separator = body.length > 0 && !body.startsWith('\n') ? '\n\n' : '\n';
   return `${preamble}${separator}${body}`;
 }

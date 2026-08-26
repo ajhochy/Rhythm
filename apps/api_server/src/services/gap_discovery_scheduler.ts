@@ -113,6 +113,7 @@ const EMPTY_RESULT: Omit<GapDiscoveryPassResult, 'skipped' | 'skippedReason'> = 
   droppedNoGap: 0,
   droppedMissingProvenance: 0,
   droppedDuplicate: 0,
+  droppedInstalledOverlap: 0,
   errored: false,
   gapsConsidered: 0,
 };

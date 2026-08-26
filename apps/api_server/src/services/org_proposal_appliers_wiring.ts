@@ -64,6 +64,7 @@
  * appliers — never throws, never duplicates state.
  */
 
+import { createHash } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AppError } from '../errors/app_error';
 import {
@@ -205,7 +206,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
       return { changed: result.changed, registered: installed && result.registered, beforeSnapshotJson };
     },
 
-    async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories }) {
+    async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories, contentSha256 }) {
       // 1. DOWNLOAD the real body from the candidate source (no stub).
       if (!downloadUrl) {
         throw new Error(`external-adoption installSkill: no downloadUrl for '${skillName}'`);
@@ -213,6 +214,13 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
       const body = await downloadSkillBody(downloadUrl);
       if (!body) {
         throw new Error(`external-adoption installSkill: body download failed for '${skillName}' (${downloadUrl})`);
+      }
+      if (!/^[0-9a-f]{64}$/i.test(contentSha256 ?? '')) {
+        throw new Error(`external-adoption installSkill: reviewed content hash is required for '${skillName}'`);
+      }
+      const actualHash = createHash('sha256').update(body).digest('hex');
+      if (actualHash !== contentSha256!.toLowerCase()) {
+        throw new Error(`external-adoption installSkill: content hash mismatch for '${skillName}'`);
       }
 
       // 2. HARD #873 gate at write time — a high-confidence injection match blocks the write.

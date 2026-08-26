@@ -85,6 +85,11 @@ const FULL_PROVENANCE = {
   installCommand: 'npx -y @example/mcp-server',
 };
 
+const PINNED_SKILL = {
+  downloadUrl: `https://raw.githubusercontent.com/example-org/skills/${'a'.repeat(40)}/SKILL.md`,
+  contentSha256: 'b'.repeat(64),
+};
+
 describe('issue-828-c1: drops a candidate with no matching audit gap', () => {
   it('never creates a proposal for a candidate whose gapId is not in the audit snapshot', async () => {
     // Bug this catches: the generator emits a "trending/popular" candidate
@@ -178,6 +183,7 @@ describe('issue-828-c2: drops a candidate missing any required provenance field'
           name: 'grounded-skill',
           gapId: gap.gapId,
           provenance: FULL_PROVENANCE,
+          ...PINNED_SKILL,
         },
       ],
     });

@@ -60,7 +60,9 @@
 import { logger } from '../../utils/logger';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import type { AgentOrgProposal } from '../../models/agent_org_proposal';
-import type { OrgAuditGap } from '../org_audit_service';
+import { findSkillOverlapCandidates, type OrgAuditGap } from '../org_audit_service';
+import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
+import type { AgentSkill } from '../../models/agent_skill';
 import type {
   ProposalApplier,
   ProposalApplyResult,
@@ -115,6 +117,8 @@ export interface ExternalCandidate {
   sampleSessionId?: string;
   /** Intent tags → behavioral-measure failure categories. */
   categories?: string[];
+  /** SHA-256 of the exact SKILL.md bytes reviewed by the discovery lane. */
+  contentSha256?: string;
 }
 
 /**
@@ -139,6 +143,8 @@ export interface RunGeneratorInput {
   maxResults?: number;
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
   proposalsRepo?: AgentOrgProposalsRepository;
+  /** Installed library snapshot used to veto equivalent external skills. */
+  installedSkills?: AgentSkill[];
   /**
    * The audit run that produced `gaps`. Stamped on every emitted proposal so
    * the row is findable by the run that created it — without it the row is
@@ -152,6 +158,7 @@ export interface RunGeneratorResult {
   droppedNoGap: number;
   droppedMissingProvenance: number;
   droppedDuplicate: number;
+  droppedInstalledOverlap: number;
   errored: boolean;
 }
 
@@ -186,6 +193,7 @@ function buildChangeJson(candidate: ExternalCandidate): string {
     agentConfigId: candidate.agentConfigId,
     sampleSessionId: candidate.sampleSessionId,
     categories: candidate.categories,
+    contentSha256: candidate.contentSha256,
   });
 }
 
@@ -212,12 +220,14 @@ export async function runExternalDiscoveryGenerator(
     droppedNoGap: 0,
     droppedMissingProvenance: 0,
     droppedDuplicate: 0,
+    droppedInstalledOverlap: 0,
     errored: false,
   };
 
   const maxResults = input.maxResults ?? DEFAULT_MAX_RESULTS;
   const proposalsRepo = input.proposalsRepo ?? new AgentOrgProposalsRepository();
   const gapsById = new Map(input.gaps.map((g) => [g.gapId, g]));
+  const installedSkills = input.installedSkills ?? new AgentSkillsRepository().list();
 
   let candidates: ExternalCandidate[];
   try {
@@ -251,6 +261,26 @@ export async function runExternalDiscoveryGenerator(
           `[external-discovery-generator] dropped '${candidate.name}' — incomplete provenance`,
         );
         continue;
+      }
+
+      if (candidate.kind === 'skill') {
+        const pinned = candidate.downloadUrl?.match(/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/([0-9a-f]{40})\//i);
+        if (!pinned || !/^[0-9a-f]{64}$/i.test(candidate.contentSha256 ?? '')) {
+          result.droppedMissingProvenance++;
+          logger.info(`[external-discovery-generator] dropped '${candidate.name}' — skill body is not commit-pinned and hashed`);
+          continue;
+        }
+        const candidateId = '__external_candidate__';
+        const candidateTitle = `${candidate.name} ${gap.intentTitle ?? ''}`.trim();
+        const overlaps = findSkillOverlapCandidates([
+          ...installedSkills.map(({ id, title }) => ({ id, title })),
+          { id: candidateId, title: candidateTitle },
+        ]);
+        if (overlaps.some((pair) => pair.skillIdA === candidateId || pair.skillIdB === candidateId)) {
+          result.droppedInstalledOverlap++;
+          logger.info(`[external-discovery-generator] dropped '${candidate.name}' — overlaps an installed local skill`);
+          continue;
+        }
       }
 
       // 3. Dedup gate (issue-828-c5) — never re-propose an already-decided
@@ -337,6 +367,7 @@ interface ExternalAdoptionChange {
   agentConfigId?: string;
   sampleSessionId?: string;
   categories?: string[];
+  contentSha256?: string;
 }
 
 function isExternalAdoptionChange(v: unknown): v is ExternalAdoptionChange {
@@ -397,6 +428,7 @@ export interface ExternalAdoptionApplyDeps {
     agentConfigId?: string;
     sampleSessionId?: string;
     categories?: string[];
+    contentSha256?: string;
   }) => Promise<InstallSkillResult>;
   /** Re-run the alignment guard AFTER install, before declaring success. */
   checkAlignment: (input: {
@@ -510,6 +542,7 @@ export function registerExternalAdoptionApplier(
       agentConfigId: change.agentConfigId,
       sampleSessionId: change.sampleSessionId,
       categories: change.categories,
+      contentSha256: change.contentSha256,
     });
     if (!installResult.created) {
       throw new Error(

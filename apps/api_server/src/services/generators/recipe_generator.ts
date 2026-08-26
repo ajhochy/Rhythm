@@ -144,6 +144,22 @@ function compileStepsToBody(stepsJson: string): string {
   }
 }
 
+function isTitleOnlyRecipe(recipe: AgentCookbook): boolean {
+  try {
+    const steps = JSON.parse(recipe.stepsJson) as unknown[];
+    if (!Array.isArray(steps) || steps.length !== 1) return false;
+    const step = steps[0];
+    const text = typeof step === 'string'
+      ? step
+      : step && typeof step === 'object' && typeof (step as Record<string, unknown>).text === 'string'
+        ? (step as Record<string, string>).text
+        : null;
+    return text?.trim().toLowerCase() === recipe.title.trim().toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** Build a minimal `steps_json` proposal from a repeated pattern's title (the pattern IS the prompt to templatize). */
 function proposeStepsForPattern(pattern: string): string {
   return JSON.stringify([{ action: 'prompt', text: pattern }]);
@@ -189,6 +205,12 @@ async function proposeRefineRecipe(
   proposalsRepo: AgentOrgProposalsRepository,
   auditRunId: string,
 ): Promise<AgentOrgProposal | null> {
+  if (isTitleOnlyRecipe(recipe)) {
+    logger.warn(
+      `[recipe-generator] skipped title-only recipe '${recipe.title}' — originating generator defect; do not pad the shell`,
+    );
+    return null;
+  }
   const priorBody = compileStepsToBody(recipe.stepsJson);
   const purpose: SkillPurpose = {
     name: recipe.title,

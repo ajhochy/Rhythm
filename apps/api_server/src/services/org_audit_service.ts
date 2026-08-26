@@ -246,7 +246,7 @@ function daysSince(isoDate: string): number {
   return ms <= 0 ? 0 : ms / (24 * 60 * 60 * 1000);
 }
 
-function findSkillOverlapCandidates(skills: AgentSkill[]): SkillOverlapCandidate[] {
+export function findSkillOverlapCandidates(skills: Pick<AgentSkill, 'id' | 'title'>[]): SkillOverlapCandidate[] {
   const out: SkillOverlapCandidate[] = [];
   for (let i = 0; i < skills.length; i++) {
     for (let j = i + 1; j < skills.length; j++) {
