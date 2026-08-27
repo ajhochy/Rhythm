@@ -85,7 +85,9 @@ function rowDigest(): string {
 }
 
 function tableDigest(...tables: string[]): string {
-  return sha(JSON.stringify(tables.map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY id`).all()])));
+  return sha(JSON.stringify(tables.map((table) => [table, db.prepare(
+    `SELECT * FROM ${table} ORDER BY ${table === 'agent_profile_projections' ? 'profile_id' : 'id'}`,
+  ).all()])));
 }
 
 async function treeDigest(root: string): Promise<string> {
@@ -470,8 +472,6 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
   }, timeout);
 
   it('pr-1489-c16-c20: real install boundary rejects invalid provenance before fetch or mutation', async () => {
-    const beforeRows = rowDigest();
-    const beforeFiles = await fileDigest();
     const profileId = await createConfig('provenance-boundary');
     const skillName = slug('allowed-install');
     const reviewed = 'reviewed bytes';
@@ -482,7 +482,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     const invalidUrl = new URL(`${downloadBase}/owner/approval/HEAD/SKILL.md`);
     invalidUrl.protocol = 'http:';
     invalidUrl.hostname = alternateLoopbackHost;
-    const beforeRejectedRows = tableDigest('agent_configs', 'agent_skills');
+    const beforeRejectedRows = rowDigest();
     const beforeRejectedFiles = await fileDigest();
     const beforeProfile = db.prepare('SELECT * FROM agent_configs WHERE id = ?').get(profileId);
     skillDownloadRequests = 0;
@@ -499,9 +499,15 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     expect(skillDownloadRequests).toBe(0);
     expect(db.prepare('SELECT * FROM agent_configs WHERE id = ?').get(profileId)).toEqual(beforeProfile);
     expect((db.prepare('SELECT COUNT(*) AS n FROM agent_skills WHERE id = ? OR title = ?').get(skillName, skillName) as { n: number }).n).toBe(0);
-    expect(tableDigest('agent_configs', 'agent_skills')).toBe(beforeRejectedRows);
+    expect(rowDigest()).toBe(beforeRejectedRows);
     expect(await fileDigest()).toBe(beforeRejectedFiles);
 
+    expect((await api(`/agent-configs/${profileId}`, { method: 'DELETE' })).status).toBe(204);
+    ids.delete(profileId);
+    expect(db.prepare('SELECT * FROM agent_profile_projections WHERE profile_id = ?').get(profileId))
+      .toBeUndefined();
+    const beforeInstallRows = tableDigest('agent_configs', 'agent_skills', 'agent_profile_projections');
+    const beforeInstallFiles = await fileDigest();
     try {
       const installed = await installSkill({
         skillName,
@@ -513,11 +519,9 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       expect(readManagedSkillBytes(skillName)?.toString('utf8')).toContain(reviewed);
     } finally {
       deleteManagedSkill(skillName);
-      expect((await api(`/agent-configs/${profileId}`, { method: 'DELETE' })).status).toBe(204);
-      ids.delete(profileId);
     }
-    expect(rowDigest()).toBe(beforeRows);
-    expect(await fileDigest()).toBe(beforeFiles);
+    expect(tableDigest('agent_configs', 'agent_skills', 'agent_profile_projections')).toBe(beforeInstallRows);
+    expect(await fileDigest()).toBe(beforeInstallFiles);
   }, timeout);
 
   it('approval fails closed on changed bytes and manager projection follows the effective roster', async () => {
