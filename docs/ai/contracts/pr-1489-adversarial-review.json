@@ -1,7 +1,7 @@
 {
   "issue": "pr-1489-adversarial-review",
   "date": "2026-08-27",
-  "test_command": "npx vitest run src/contract/pr_1489_adversarial_review.test.ts",
+  "test_command": "npx vitest run src/contract/pr_1489_adversarial_review.test.ts && RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     { "criterion_id": "pr-1489-c1", "text": "Config-change diagnoses with evidence quotes absent from attached evidence emit no actionable proposal.", "mode": "unit", "test": "src/contract/pr_1489_adversarial_review.test.ts", "status": "pass", "reason": "" },
@@ -18,7 +18,12 @@
     { "criterion_id": "pr-1489-c12", "text": "Grounding accepts an honest evidence quote containing one ellipsis for omitted words.", "mode": "unit", "test": "src/contract/pr_1489_adversarial_review.test.ts", "status": "pass", "reason": "" },
     { "criterion_id": "pr-1489-c13", "text": "Infrastructure signatures are excluded from deterministic proposal generation.", "mode": "unit", "test": "src/contract/pr_1489_adversarial_review.test.ts", "status": "pass", "reason": "" },
     { "criterion_id": "pr-1489-c14", "text": "Excluded infrastructure signals remain operator-visible through an explicit log line.", "mode": "unit", "test": "src/contract/pr_1489_adversarial_review.test.ts", "status": "pass", "reason": "" },
-    { "criterion_id": "pr-1489-c15", "text": "Unverified-claim evidence cannot authorize a full skill-body replacement regardless of prose wording.", "mode": "unit", "test": "src/contract/pr_1489_adversarial_review.test.ts", "status": "pass", "reason": "" }
+    { "criterion_id": "pr-1489-c15", "text": "Unverified-claim evidence cannot authorize a full skill-body replacement regardless of prose wording.", "mode": "unit", "test": "src/contract/pr_1489_adversarial_review.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "pr-1489-c16", "text": "At the real buildRealExternalAdoptionDeps().installSkill boundary, a matching content hash with an arbitrary-origin, plain-HTTP, unpinned HEAD URL is rejected before download or write.", "mode": "live", "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts", "status": "UNVERIFIED", "reason": "Executable Vitest assertion added; PR #1487 owns the sandbox, so final live rerun is pending." },
+    { "criterion_id": "pr-1489-c17", "text": "The rejected provenance URL makes zero fixture requests.", "mode": "live", "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts", "status": "UNVERIFIED", "reason": "Executable Vitest assertion added; PR #1487 owns the sandbox, so final live rerun is pending." },
+    { "criterion_id": "pr-1489-c18", "text": "Rejected provenance leaves skill rows, managed files, and agent profiles unchanged, with baseline digests preserved.", "mode": "live", "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts", "status": "UNVERIFIED", "reason": "Executable Vitest assertion added; PR #1487 owns the sandbox, so final live rerun is pending." },
+    { "criterion_id": "pr-1489-c19", "text": "A configured allowed HTTPS or loopback origin with an exact 40-hex commit path and 64-hex matching hash reaches the download/hash path and retains successful installation behavior.", "mode": "live", "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts", "status": "UNVERIFIED", "reason": "Executable Vitest positive control added; PR #1487 owns the sandbox, so final live rerun is pending." },
+    { "criterion_id": "pr-1489-c20", "text": "The live assertion fails closed outside an isolated sandbox and removes all rows and files it creates.", "mode": "live", "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts", "status": "UNVERIFIED", "reason": "Isolation guard and digest-restoring cleanup are executable; PR #1487 owns the sandbox, so final live rerun is pending." }
   ],
   "not_tested": []
 }

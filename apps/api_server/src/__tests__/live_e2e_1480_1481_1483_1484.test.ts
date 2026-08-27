@@ -32,6 +32,7 @@ let positiveEvidenceReceived = false;
 let infraMarkerReceived = false;
 let candidateScoreReceived = false;
 let draftScoreReceived = false;
+let skillDownloadRequests = 0;
 const providerId = 'anthropic';
 const modelId = 'claude-haiku-4-5';
 
@@ -208,7 +209,11 @@ async function startFixture(): Promise<Server> {
     }
     if (url.pathname.includes('/owner/overlap/')) { response.end('# Live path repair\nRepair login-shell PATH configuration.'); return; }
     if (url.pathname.includes('/owner/unique/')) { response.end(uniqueBody); return; }
-    if (url.pathname.includes('/owner/approval/')) { response.end(tamperExternalBody ? 'changed bytes' : reviewed); return; }
+    if (url.pathname.includes('/owner/approval/')) {
+      skillDownloadRequests += 1;
+      response.end(tamperExternalBody ? 'changed bytes' : reviewed);
+      return;
+    }
     if (request.method === 'POST' && url.pathname === '/v1/messages') {
       let body = '';
       request.setEncoding('utf8');
@@ -462,6 +467,57 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     const change = JSON.parse(unique[0].change_json!);
     expect(change.downloadUrl).toMatch(new RegExp(`/owner/unique/${'c'.repeat(40)}/`));
     expect(change.contentSha256).toBe(sha('# Unique deployment audit\nInspect deployment provenance and verify immutable release inputs.'));
+  }, timeout);
+
+  it('pr-1489-c16-c20: real install boundary rejects invalid provenance before fetch or mutation', async () => {
+    const beforeRows = rowDigest();
+    const beforeFiles = await fileDigest();
+    const profileId = await createConfig('provenance-boundary');
+    const skillName = slug('allowed-install');
+    const reviewed = 'reviewed bytes';
+    const reviewedHash = sha(reviewed);
+    const downloadBase = process.env.RHYTHM_SKILLS_DOWNLOAD_BASE!.replace(/\/$/, '');
+    const allowedOrigin = fixtureOrigin();
+    const alternateLoopbackHost = allowedOrigin.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+    const invalidUrl = new URL(`${downloadBase}/owner/approval/HEAD/SKILL.md`);
+    invalidUrl.protocol = 'http:';
+    invalidUrl.hostname = alternateLoopbackHost;
+    const beforeRejectedRows = tableDigest('agent_configs', 'agent_skills');
+    const beforeRejectedFiles = await fileDigest();
+    const beforeProfile = db.prepare('SELECT * FROM agent_configs WHERE id = ?').get(profileId);
+    skillDownloadRequests = 0;
+
+    const { buildRealExternalAdoptionDeps } = await import('../services/org_proposal_appliers_wiring');
+    const { deleteManagedSkill, readManagedSkillBytes } = await import('../services/rhythm_managed_skills');
+    const installSkill = buildRealExternalAdoptionDeps().installSkill;
+    await expect(installSkill({
+      skillName,
+      downloadUrl: invalidUrl.toString(),
+      contentSha256: reviewedHash,
+      agentConfigId: profileId,
+    })).rejects.toThrow(/allowed origin|commit-pinned/i);
+    expect(skillDownloadRequests).toBe(0);
+    expect(db.prepare('SELECT * FROM agent_configs WHERE id = ?').get(profileId)).toEqual(beforeProfile);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM agent_skills WHERE id = ? OR title = ?').get(skillName, skillName) as { n: number }).n).toBe(0);
+    expect(tableDigest('agent_configs', 'agent_skills')).toBe(beforeRejectedRows);
+    expect(await fileDigest()).toBe(beforeRejectedFiles);
+
+    try {
+      const installed = await installSkill({
+        skillName,
+        downloadUrl: `${downloadBase}/owner/approval/${'e'.repeat(40)}/SKILL.md`,
+        contentSha256: reviewedHash,
+      });
+      expect(installed.created).toBe(true);
+      expect(skillDownloadRequests).toBe(1);
+      expect(readManagedSkillBytes(skillName)?.toString('utf8')).toContain(reviewed);
+    } finally {
+      deleteManagedSkill(skillName);
+      expect((await api(`/agent-configs/${profileId}`, { method: 'DELETE' })).status).toBe(204);
+      ids.delete(profileId);
+    }
+    expect(rowDigest()).toBe(beforeRows);
+    expect(await fileDigest()).toBe(beforeFiles);
   }, timeout);
 
   it('approval fails closed on changed bytes and manager projection follows the effective roster', async () => {
