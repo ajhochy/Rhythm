@@ -888,7 +888,7 @@ export class OpencodeStreamBridge {
           this._publishHeartbeatToHub(event);
           continue;
         }
-        this._relayEvent(event);
+        await this._relayEvent(event);
         // Relay rows are the durable record and must precede the corresponding
         // lossy envelope on the single uplink socket. Replication is fail-soft:
         // a later reconnect/resync replays anything this live flush misses.
@@ -1023,7 +1023,7 @@ export class OpencodeStreamBridge {
     try {
       for await (const event of entry.eventStream) {
         if (entry.abort.signal.aborted) break;
-        this._relayEvent(event);
+        await this._relayEvent(event);
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -1197,9 +1197,40 @@ export class OpencodeStreamBridge {
     );
   }
 
-  private _relayEvent(
+  private lastStepFinishReason(parts: unknown[]): string | undefined {
+    const finish = [...parts].reverse().find((part) =>
+      typeof part === 'object' && part !== null &&
+      (part as { type?: unknown }).type === 'step-finish') as
+      | { reason?: unknown }
+      | undefined;
+    return typeof finish?.reason === 'string' ? finish.reason : undefined;
+  }
+
+  /** #1455: recover a finish event that engine persistence won before SSE conversion. */
+  private async resolveEmptyTurnStopReason(
+    localSessionId: string,
+    sdkSessionId: string,
+    turnMessageIds: Set<string> | undefined,
+  ): Promise<string | undefined> {
+    try {
+      const cwd = this.sessionsRepo.findById(localSessionId)?.cwd;
+      const messages = await opencodeClient.listMessages(sdkSessionId, cwd);
+      const assistants = messages.filter((message) => message.info.role === 'assistant');
+      const current = turnMessageIds?.size
+        ? [...assistants].reverse().find((message) => turnMessageIds.has(message.info.id))
+        : assistants.at(-1);
+      return current ? this.lastStepFinishReason(current.parts) : undefined;
+    } catch (err) {
+      logger.warn(
+        `[OpencodeStreamBridge] Failed to recover empty-turn stop reason for ${localSessionId}: ${String(err)}`,
+      );
+      return undefined;
+    }
+  }
+
+  private async _relayEvent(
     event: import('@opencode-ai/sdk').RhythmEvent,
-  ): void {
+  ): Promise<void> {
     // Extract the Opencode session ID — different event types nest it
     // differently:
     //   session.*           → properties.sessionID
@@ -1522,6 +1553,9 @@ export class OpencodeStreamBridge {
             const cost = typeof info.cost === 'number' ? info.cost : null;
 
             if (sdkMessageId && role) {
+              if (role === 'user') {
+                this.pendingStructuredMessageIds.delete(localSessionId);
+              }
               const dbRole: 'output' | 'input' | 'system' =
                 role === 'assistant' ? 'output' : role === 'user' ? 'input' : 'system';
               // upsertMessageInfo preserves existing parts_json — does NOT clobber
@@ -1838,14 +1872,17 @@ export class OpencodeStreamBridge {
               logger.warn(`[OpencodeStreamBridge] lazy-deps turn scan failed (non-fatal): ${String(err)}`);
             }
           } else {
-            const lastStepFinish = [...structuredParts].reverse().find((part) =>
-              typeof part === 'object' && part !== null &&
-              (part as { type?: unknown }).type === 'step-finish') as
-              | { reason?: unknown }
-              | undefined;
-            const stopReason = typeof lastStepFinish?.reason === 'string'
-              ? lastStepFinish.reason
-              : undefined;
+            let stopReason = this.lastStepFinishReason(structuredParts);
+            if (
+              !stopReason && opencodeSessionId &&
+              typeof opencodeClient.listMessages === 'function'
+            ) {
+              stopReason = await this.resolveEmptyTurnStopReason(
+                localSessionId,
+                opencodeSessionId,
+                turnMessageIds,
+              );
+            }
             // Zero assistant text — preserve #636's fallback while surfacing a
             // provider stop reason when the structured turn supplied one.
             broadcast({
