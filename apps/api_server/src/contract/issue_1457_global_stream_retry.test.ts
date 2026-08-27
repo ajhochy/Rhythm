@@ -3,10 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { opencodeEventHub } from '../services/opencode_event_hub';
 import { buildOpencodeHealthPayload } from '../services/opencode_health';
 
-const { subscribeSpy } = vi.hoisted(() => ({ subscribeSpy: vi.fn() }));
+const { subscribeSpy, broadcastSpy } = vi.hoisted(() => ({
+  subscribeSpy: vi.fn(),
+  broadcastSpy: vi.fn(),
+}));
 
 vi.mock('../services/ws_gateway', () => ({
-  broadcast: vi.fn(),
+  broadcast: broadcastSpy,
   broadcastSessionUpdated: vi.fn(),
 }));
 
@@ -33,6 +36,7 @@ describe('issue #1457 global stream retry contract', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     subscribeSpy.mockReset();
+    broadcastSpy.mockReset();
     opencodeEventHub.setLive(false);
   });
 
@@ -115,6 +119,32 @@ describe('issue #1457 global stream retry contract', () => {
       bridgeLive: false,
       message: expect.stringContaining('bridge unavailable'),
     });
+    bridge.dispose();
+  });
+
+  it('issue-1457-c5: outage and recovery publish one user-visible bridge status transition each', async () => {
+    subscribeSpy.mockRejectedValueOnce(new Error('ECONNRESET')).mockResolvedValue(subscription());
+    const bridge = new OpencodeStreamBridge();
+
+    await bridge.ensureGlobalStream();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(broadcastSpy.mock.calls.map(([frame]) => frame)).toEqual([
+      {
+        v: 1,
+        type: 'bridge.status',
+        status: 'reconnecting',
+        message: 'Agent updates interrupted — reconnecting…',
+        retryDelayMs: 1_000,
+        attempt: 1,
+      },
+      {
+        v: 1,
+        type: 'bridge.status',
+        status: 'ready',
+        message: 'Agent updates reconnected.',
+      },
+    ]);
     bridge.dispose();
   });
 

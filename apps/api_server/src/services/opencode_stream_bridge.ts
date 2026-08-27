@@ -280,6 +280,7 @@ export class OpencodeStreamBridge {
   private globalSubscribeInFlight = false;
   private globalRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private globalRetryAttempt = 0;
+  private globalBridgeStatus: 'ready' | 'reconnecting' = 'ready';
   private disposed = false;
   private engineHealthCheckInFlight = false;
   private engineIdentityKey: string | null = null;
@@ -798,6 +799,7 @@ export class OpencodeStreamBridge {
       this.scheduleGlobalRetry();
       return;
     }
+    const recovered = this.globalBridgeStatus === 'reconnecting';
     this.globalRetryAttempt = 0;
     this.lastGlobalActivity = Date.now();
     // Watchdog: if no frame (incl. the engine's 10s heartbeat) arrives within
@@ -821,6 +823,15 @@ export class OpencodeStreamBridge {
     // resubscribe so a phone rides out an engine restart on a quiet stream
     // instead of falling back to hammering a dead engine.
     opencodeEventHub.setLive(true);
+    if (recovered) {
+      this.globalBridgeStatus = 'ready';
+      broadcast({
+        v: 1,
+        type: 'bridge.status',
+        status: 'ready',
+        message: 'Agent updates reconnected.',
+      });
+    }
     // Relay uplink (plan S1.1): a (re)established engine stream can mean new
     // health/fingerprint values — push a fresh health frame to the relay so
     // its passthrough never serves a stale contract. Fire-and-forget.
@@ -840,6 +851,17 @@ export class OpencodeStreamBridge {
       GLOBAL_RETRY_MAX_MS,
     );
     this.globalRetryAttempt += 1;
+    if (this.globalBridgeStatus !== 'reconnecting') {
+      this.globalBridgeStatus = 'reconnecting';
+      broadcast({
+        v: 1,
+        type: 'bridge.status',
+        status: 'reconnecting',
+        message: 'Agent updates interrupted — reconnecting…',
+        retryDelayMs: delay,
+        attempt: this.globalRetryAttempt,
+      });
+    }
     logger.warn(
       '[OpencodeStreamBridge] global stream unavailable — retrying in %sms',
       delay,
