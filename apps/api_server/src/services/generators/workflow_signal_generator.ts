@@ -12,23 +12,11 @@
  *     `scope_hygiene_generator.ts`'s `AgentConfigScopeChange` shape exactly
  *     (`{agentConfigId, field, add:[name]}`), just adding instead of removing.
  *
- *   - `create-recipe` — for every other category (retry-loop,
- *     hallucinated-claim, unverified-claim, stale-redo, repeated-correction,
- *     tool-unavailable-attempted, and delegate-result outcomes
- *     failed/transport-empty/incomplete). These are behavioral/workflow
- *     patterns with no existing `agent_cookbook`/`agent_skills` artifact to
- *     REFINE (that is what `recipe_generator.ts`'s own independent sweep
- *     over `snapshot.recipes` already covers, unmodified, every run) — V1 has
- *     no LLM classifier to safely synthesize a NEW artifact's fully-scoped
- *     body/system-prompt (`create-agent`) or to prove an alternate specialist
- *     exists (`grant-delegation`/`expand-delegation`, per the issue's "only
- *     if evidence shows a real delegation gap" — V1's evidence model never
- *     shows that), so the safe, honest, gated fallback is a `create-recipe`
- *     proposal suggesting a documented procedure/checklist a human can
- *     review and materialize. Reuses `recipe_generator.ts`'s registered
- *     `create-recipe` applier unmodified (this generator does not register
- *     its own — same kind, same apply step, regardless of which generator
- *     proposed the row).
+ *   - `create-recipe` — only for retry-loop recurrence across multiple
+ *     sessions, where the observed operation supports a concrete stop,
+ *     diagnose, retry-once procedure. Other behavioral categories are left to
+ *     the diagnosis lane rather than receiving retry-specific boilerplate that
+ *     the recipe critic immediately rejects as self-generated churn.
  *
  * `delegateOutcome='unknown'` NEVER reaches a proposal — low-confidence/
  * unknown delegated-session evidence must never create a failure proposal
@@ -208,22 +196,18 @@ async function proposeCreateRecipeForCategory(
   proposalsRepo: NonNullable<WorkflowSignalGeneratorDeps['proposalsRepo']>,
   auditRunId: string,
 ): Promise<AgentOrgProposal | null> {
+  if (signal.category !== 'retry-loop') {
+    logger.info(
+      `[workflow-signal-generator] skipped ${signal.category} recipe: no category-specific procedure is available`,
+    );
+    return null;
+  }
   if (signal.category === 'retry-loop' && new Set(signal.sessionIds).size < 2) {
     logger.info('[workflow-signal-generator] skipped retry-loop recipe: fewer than two distinct sessions');
     return null;
   }
   const profile = profileLabel(signal.agentConfigId);
-  let humanTitle: string;
-  let dedupSuffix: string;
-
-  if (signal.category === 'delegate-result') {
-    humanTitle = `verify delegated (${signal.delegateOutcome}) results before reporting done`;
-    dedupSuffix = `delegate-result:${signal.delegateOutcome}`;
-  } else {
-    humanTitle = CATEGORY_TITLES[signal.category] ?? signal.category;
-    dedupSuffix = signal.category;
-  }
-
+  const humanTitle = CATEGORY_TITLES[signal.category];
   const title = `Recipe: ${humanTitle} (${profile})`;
   const changeJson = buildCreateRecipeChange(title, signal.evidence);
   const risk = classifyProposalRisk({ kind: 'create-recipe', changeJson });
@@ -233,7 +217,7 @@ async function proposeCreateRecipeForCategory(
   // dedup key and only the first ever surfaced. dedupToken is issue-scoped for
   // stale-redo, session-scoped for single-session incidents, profile-scoped
   // for the profile-grouped categories.
-  const dedupKey = `create-recipe:workflow:${dedupSuffix}:${signal.dedupToken}`;
+  const dedupKey = `create-recipe:workflow:${signal.category}:${signal.dedupToken}`;
 
   return createIfNotDuplicate(proposalsRepo, {
     auditRunId,
@@ -282,6 +266,12 @@ export async function generateWorkflowSignalProposals(
 
   for (const signal of signals) {
     try {
+      if (isInfraSignal(signal)) {
+        logger.info(
+          `[workflow-signal-generator] classified infrastructure signal; no workflow proposal created: ${signal.evidence.slice(0, 160)}`,
+        );
+        continue;
+      }
       // Low-confidence/unknown delegate evidence must NEVER produce a
       // proposal — the ambiguity is real, not just under-evidenced.
       if (signal.category === 'delegate-result' && signal.delegateOutcome === 'unknown') {
@@ -1031,6 +1021,23 @@ function isInfraSignal(signal: WorkflowFailureSignal): boolean {
     .test(signal.evidence);
 }
 
+const MIN_EVIDENCE_QUOTE_LENGTH = 12;
+
+function normalizeEvidenceText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function evidenceQuoteMatches(quote: string, evidence: string): boolean {
+  const normalizedQuote = normalizeEvidenceText(quote);
+  if (normalizedQuote.replace(/(?:…|\.{3})/g, '').trim().length < MIN_EVIDENCE_QUOTE_LENGTH) return false;
+  const normalizedEvidence = normalizeEvidenceText(evidence);
+  const parts = normalizedQuote.split(/\s*(?:…|\.{3})\s*/);
+  if (parts.length === 1) return normalizedEvidence.includes(parts[0]);
+  if (parts.length !== 2 || parts.some((part) => !part)) return false;
+  const first = normalizedEvidence.indexOf(parts[0]);
+  return first >= 0 && normalizedEvidence.indexOf(parts[1], first + parts[0].length) >= 0;
+}
+
 function isDiagnosableSignal(signal: WorkflowFailureSignal): boolean {
   if (!signal.agentConfigId || !DIAGNOSABLE_CATEGORIES.has(signal.category) || isInfraSignal(signal)) return false;
   return true;
@@ -1064,6 +1071,12 @@ interface SignalGroup {
 function groupSignalsBySkillAndSignature(signals: WorkflowFailureSignal[]): SignalGroup[] {
   const groups = new Map<string, SignalGroup>();
   for (const signal of signals) {
+    if (isInfraSignal(signal)) {
+      logger.info(
+        `[workflow-signal-generator] classified infrastructure signal; excluded from diagnosis: ${signal.evidence.slice(0, 160)}`,
+      );
+      continue;
+    }
     if (!isDiagnosableSignal(signal) || !signal.agentConfigId) continue;
     const signature = errorSignature(signal.evidence);
     const key = `${signal.agentConfigId}::${signature}`;
@@ -1249,23 +1262,21 @@ async function proposeFixFromSignals(
       continue;
     }
 
-    if (result.fixType === 'skill-edit') {
-      if (skillSignals.some((signal) =>
-        signal.category === 'unverified-claim' && /no single recurring error/i.test(signal.evidence))) {
+    if (result.fixType === 'skill-edit' && skillSignals.some((signal) => signal.category === 'unverified-claim')) {
         logger.warn(
-          `[workflow-signal-generator] ${agentConfigId}: DROPPED weak-evidence skill diagnosis after diagnosis`,
+          `[workflow-signal-generator] ${agentConfigId}: DROPPED skill rewrite from unverified-claim evidence`,
         );
         continue;
-      }
-      const evidence = skillSignals.map((signal) => signal.evidence);
-      const quotes = result.evidenceQuotes ?? [];
-      if (quotes.length === 0 || quotes.some((quote) => !evidence.some((line) => line.includes(quote)))) {
-        logger.warn(
-          `[workflow-signal-generator] ${agentConfigId}: DROPPED unsupported skill diagnosis — ` +
-            'every claimed cause must quote attached evidence exactly',
-        );
-        continue;
-      }
+    }
+
+    const evidence = skillSignals.map((signal) => signal.evidence);
+    const quotes = result.evidenceQuotes ?? [];
+    if (quotes.length === 0 || quotes.some((quote) => !evidence.some((line) => evidenceQuoteMatches(quote, line)))) {
+      logger.warn(
+        `[workflow-signal-generator] ${agentConfigId}: DROPPED unsupported diagnosis — ` +
+          'every claimed cause must quote attached evidence',
+      );
+      continue;
     }
 
     const kind = diagnosisToProposalKind(result);

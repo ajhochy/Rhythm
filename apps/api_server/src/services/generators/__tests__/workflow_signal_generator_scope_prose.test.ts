@@ -38,6 +38,7 @@ async function patchFromProse(concreteFix: string) {
     proposalsRepo: new AgentOrgProposalsRepository(),
     diagnose: async () => ({
       diagnosis: 'Scope needs adjustment.', rootCause: 'scope', fixType: 'scope-change', concreteFix, confidence: 'high',
+      evidenceQuotes: ['scope prose regression'],
     }),
   });
   return JSON.parse(result.created[0].changeJson!) as { scopePatch?: unknown };

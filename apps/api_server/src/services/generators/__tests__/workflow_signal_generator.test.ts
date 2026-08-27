@@ -167,14 +167,9 @@ describe('issue-935-c1: missing-scope maps to a single broaden-scope proposal', 
   });
 });
 
-describe('issue-935-c2: behavioral categories map to create-recipe', () => {
+describe('issue-935-c2: only retry recurrence with a real procedure maps to create-recipe', () => {
   it.each([
     ['retry-loop', makeSignal({ category: 'retry-loop' })],
-    ['stale-redo', makeSignal({ category: 'stale-redo', confidence: 'high' })],
-    [
-      'delegate-result',
-      makeSignal({ category: 'delegate-result', delegateOutcome: 'transport-empty', confidence: 'medium' }),
-    ],
   ] as const)('%s produces a high-risk create-recipe proposal', async (_label, signal) => {
     const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
     const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
@@ -186,6 +181,19 @@ describe('issue-935-c2: behavioral categories map to create-recipe', () => {
     expect(typeof change.title).toBe('string');
     expect(typeof change.steps_json).toBe('string');
   });
+
+  it.each(['stale-redo', 'delegate-result'] as const)(
+    '%s does not receive retry-loop boilerplate',
+    async (category) => {
+      const signal = makeSignal({
+        category,
+        ...(category === 'delegate-result' ? { delegateOutcome: 'transport-empty' as const } : {}),
+      });
+      const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+      const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
+      expect(created).toHaveLength(0);
+    },
+  );
 
   it('aggregates matching raw retry signals across sessions before applying the recurrence floor', async () => {
     const retryIdentity = { retryTool: 'bash', retryInputHash: 'f'.repeat(64) };
