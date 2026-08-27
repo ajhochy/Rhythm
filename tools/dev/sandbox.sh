@@ -30,14 +30,29 @@ runtime_env=(
   "RHYTHM_CREATIVE_RESOURCES_DIR=$API_DIR/resources"
   "RHYTHM_OPENCODE_ENGINE_PORT=$ENGINE_PORT"
   "RHYTHM_OPENCODE_BIN_DIR=${ENGINE_BIN%/opencode}"
+  # #1332 — name the sandbox's engine session store EXPLICITLY.
+  #
+  # HOME above already redirects the engine's data dir, so this is belt-and-
+  # braces rather than the sole isolation. It is worth stating anyway: the
+  # engine used to get accidental per-branch stores because our build stamps
+  # the channel with the git branch, and api_server now pins the stable
+  # `opencode.db` so real work is never branch-scoped. A sandbox must not
+  # inherit that pin and start writing live-looking session names — declare a
+  # distinct file so the isolation is visible in the filename, not implied.
+  # OPENCODE_DB is checked FIRST in the engine's storage/db.ts Path, so this
+  # wins over the api_server default.
   "OPENCODE_DB=opencode-rhythm-sandbox.db"
-  "OPENCODE_CONFIG_CONTENT={}"
   "OPENCODE_DISABLE_EXTERNAL_SKILLS=1"
   "RHYTHM_API_BASE=http://127.0.0.1:$API_PORT"
   "MAX_CONCURRENT_AGENT_RUNS=2"
   "AGENT_LOCAL=true"
+  # D4.4: forward only the explicit availability kill switch. Durable user
+  # consent stays in the copied sandbox database and is never an env default.
   "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
   "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
+  # The gateway port is a THIRD listener and was previously unset, so the
+  # sandbox bound the default 4002 — the port `tailscale serve` publishes to
+  # the tailnet, while serving a fully-credentialed copy of the real DB.
   "RHYTHM_MOBILE_GATEWAY_PORT=$GATEWAY_PORT"
 )
 
@@ -436,6 +451,7 @@ launch_engine() {
     nohup env "${runtime_env[@]}" "$ENGINE_BIN" serve \
       --hostname 127.0.0.1 --port "$ENGINE_PORT" \
       --cors http://127.0.0.1:4175 >>"$LOG_FILE" 2>&1 &
+    printf '%s\n' "$!" >"$ENGINE_PID_FILE"
   )
   wait_for_engine_ready
 }
@@ -450,7 +466,7 @@ restart_engine() {
   require_free_port "$ENGINE_PORT"
   rm -f "$ENGINE_PID_FILE"
   launch_engine
-  [[ "$(<"$PID_FILE")" == "$api_pid" ]] || fail "sandbox API PID changed during engine restart"
+  kill -0 "$api_pid" 2>/dev/null || fail "sandbox API PID exited during engine restart"
   printf 'Sandbox engine restarted without restarting api_server (PID %s).\n' "$api_pid"
 }
 
