@@ -176,3 +176,27 @@ The report was read-only; no live `agent_configs` rows were changed.
 - `git diff --check` — exit 0; changed scope is the two async producers, one focused contract test, contract JSON, and this run note.
 - GitNexus impact for `AgentSchedulesController.create`, `AgentSchedulesController.update`, and `importAgentConfigBundle`, plus final `detect_changes(scope=all)`, were attempted. All were unavailable with LadybugDB file **v42** / client storage **v41**; risk is UNKNOWN, with no HIGH/CRITICAL result.
 - Sandbox was not started, per dispatch. Re-verification remains the next external gate.
+
+## 2026-08-27 PR-level test-only gate repair
+
+WAIVED: test-only PR-gate repair with no product behavior change; verification is focused RED→GREEN, the clean-env full API suite, build/typecheck, and a product-source diff.
+
+### Triage classification / files
+
+- `apps/api_server/src/__tests__/obsidian_write_grants.test.ts`: stale branch test. The historical ten-tool role-file read/non-write classification is now local to the #834 contract instead of importing the production backfill seed. `OBSIDIAN_READ_TOOLS` remains production-owned and unchanged at only `['obsidian_simple_search']`.
+- `apps/api_server/src/services/opencode_client_service.test.ts`: shell-environment leakage. The "host supplied none" case now passes `''`, so inherited `RHYTHM_LOCAL_RENDERER_ORIGINS` cannot change the test input.
+- No product source, role file, package manifest, or lockfile changed. Existing issue #834 evidence mapping remains valid, so no contract JSON changed.
+
+### Acceptance / checks
+
+- RED Obsidian: `cd apps/api_server && npx vitest run src/__tests__/obsidian_write_grants.test.ts` — **2 failed, 1 passed**. c1 misclassified `obsidian_search_json_logic`, `obsidian_get_periodic`, and `obsidian_open_file` as writes; c2 misclassified the historical read grants as leaked writes.
+- RED CORS leakage: `RHYTHM_LOCAL_RENDERER_ORIGINS='rhythm://shell-leak' npx vitest run src/services/opencode_client_service.test.ts -t 'does not fabricate an engine CORS allowlist when the host supplied none'` — **1 failed, 59 skipped**; inherited shell origin was returned.
+- GREEN Obsidian: the same focused command — **3/3 passed**.
+- GREEN CORS: `RHYTHM_LOCAL_RENDERER_ORIGINS='rhythm://shell-leak' npx vitest run src/services/opencode_client_service.test.ts -t 'RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge'` — **3 passed, 57 skipped**.
+- First clean-env full API run: `env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" CI="${CI:-}" npm test` — **5982 passed, 207 skipped, 2 unrelated Docker lifecycle tests failed** because the worktree was resolving stale linked dependencies.
+- Dependency triage: two `npm ci` attempts could not replace the linked/partial worktree `node_modules` (`ENOTEMPTY`, then `ENOTDIR`). `npm install` repaired only the ignored dependency environment; tracked manifests and lockfiles remained unchanged.
+- Final clean-env full API rerun: the same command — **5984 passed, 207 skipped; 640 files passed, 118 skipped; exit 0**.
+- `env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" CI="${CI:-}" npm run build` — exit 0.
+- `env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" CI="${CI:-}" node_modules/.bin/tsc --noEmit` — exit 0.
+- GitNexus impact attempts for `librarianWriteTools` and `resolveOpencodeCorsOrigins`, plus final `detect_changes(scope=all)`, failed with LadybugDB file **v42** / client storage **v41**; risk is UNKNOWN, with no HIGH/CRITICAL result.
+- No sandbox or server command was run; PR #1489 owns the sandbox/live rerun.

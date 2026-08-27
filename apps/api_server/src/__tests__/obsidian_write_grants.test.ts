@@ -22,11 +22,25 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { OBSIDIAN_READ_TOOLS } from '../services/obsidian_scope_backfill';
-
 // __tests__ is at apps/api_server/src/__tests__/ — repo root is 4 levels up.
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ROLES_DIR = path.join(REPO_ROOT, '.mcp-roles');
+
+// The production backfill seed and historical role-file classification are
+// different contracts: the seed now grants only simple_search, while #834's
+// role files already classified these ten tools as non-write/read tools.
+const ROLE_FILE_READ_TOOLS = [
+  'obsidian_get_file',
+  'obsidian_get_active',
+  'obsidian_get_periodic',
+  'obsidian_open_file',
+  'obsidian_simple_search',
+  'obsidian_search_dataview',
+  'obsidian_search_json_logic',
+  'obsidian_list_vault_directory',
+  'obsidian_list_vault_root',
+  'obsidian_status',
+] as const;
 
 interface McpRoleFile {
   role: string;
@@ -45,7 +59,7 @@ function obsidianTools(role: McpRoleFile): string[] {
 /** Every obsidian tool librarian has beyond the read/search subset. */
 function librarianWriteTools(): string[] {
   const librarian = loadRole('librarian.mcp.json');
-  const readSet = new Set(OBSIDIAN_READ_TOOLS);
+  const readSet = new Set<string>(ROLE_FILE_READ_TOOLS);
   return obsidianTools(librarian).filter((t) => !readSet.has(t));
 }
 
@@ -128,7 +142,7 @@ describe('issue-834: obsidian write grant is opt-in to secretary + worship-plann
     // count so an UNEXPECTED add/remove is still caught.
     expect(files.length).toBe(16);
 
-    const readSet = new Set(OBSIDIAN_READ_TOOLS);
+    const readSet = new Set<string>(ROLE_FILE_READ_TOOLS);
 
     for (const filename of files) {
       const raw = fs.readFileSync(path.join(ROLES_DIR, filename), 'utf-8');
