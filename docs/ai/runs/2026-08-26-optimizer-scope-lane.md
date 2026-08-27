@@ -73,6 +73,20 @@ tags: [run, Rhythm]
 - No sandbox or server command was run; S2 owns the sandbox. Criteria c1-c3 remain `UNVERIFIED` and listed in `not_tested` pending the serial live rerun.
 - GitNexus impact and final `detect_changes(scope=all)` were retried and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN, not HIGH/CRITICAL. Git diff checks independently confirmed the three-file test/docs scope.
 
+### S3 #1482 live harness hardening
+
+- RED acceptance contract: `cd apps/api_server && npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts` — 5/5 failed before the live fixture was changed.
+- Hardened only the env-gated live fixture: it now requires two distinct connected/catalog-visible MCP servers, reserves the secondary server for the unused positive control, and diagnoses exact persisted scope, profile age, ten owned sessions, ten readable output rows, zero completed/denied evidence, dedup absence, and enabled scope policy before the optimizer run.
+- The response audit id is captured before assertions; the run must be non-skipped, non-capped, and nonvacuous. Fixture proposals are bound to that exact audit id and exact `tighten-scope` kind, while protected profiles remain absent and the control remains present. Proposal cleanup remains first and audit-id scoped, followed by messages, sessions, and profiles; scope count/SHA-256 nonmutation remains asserted.
+- GREEN acceptance contract: same command — 5/5 passed.
+- Focused S3/API: `npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts src/__tests__/issue_1482_contract.test.ts src/services/__tests__/org_exercised_tools_resolver.test.ts src/__tests__/scope_hygiene_generator.test.ts src/services/__tests__/org_audit_service.test.ts --no-file-parallelism` — 78 passed, 2 live tests skipped normally.
+- Forced live invocation without isolation failed closed in `assertLiveE2EIsolation`; no server or sandbox command was run because S4 owns the sandbox concurrently.
+- `cd apps/api_server && npm run build && npx tsc --noEmit` — exit 0.
+- Fork checks: `cd apps/opencode_fork/packages/opencode && bun test test/server/httpapi-mcp-oauth.test.ts` — 1/1 passed; `bun run typecheck` — exit 0.
+- `git diff --check` — exit 0. Production-source diff is empty; this slice changes tests plus contract/run evidence only.
+- GitNexus impact/context were attempted before the live-test edit and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN, not HIGH/CRITICAL.
+- Contract status remains `UNVERIFIED`; final live verification must start the sandbox with `RHYTHM_OPTIMIZER_MODE=shadow` and `RHYTHM_OPTIMIZER_DISABLED_FAMILIES` unset.
+
 ## Existing-row report
 
 Read-only comparison against the issue's live Obsidian catalog found 16 phantom grants outside the now-repaired theologian row:

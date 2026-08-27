@@ -8,6 +8,10 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
+import {
+  MIN_TIGHTEN_ACTIVITY_COUNT,
+  MIN_TIGHTEN_OBSERVATION_DAYS,
+} from '../services/org_audit_service';
 
 const live = process.env.RHYTHM_LIVE_E2E === '1';
 const describeLive = live ? describe.sequential : describe.skip;
@@ -47,7 +51,9 @@ function slug(role: string): string {
 describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
   let db: Database.Database;
   let tool: ToolChoice;
-  let secondaryServer: string;
+  let secondaryTool: ToolChoice;
+  let mcpRows: McpRow[];
+  let engineToolIds: string[];
 
   beforeAll(async () => {
     assertLiveE2EIsolation();
@@ -70,32 +76,33 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
     expect(engineToolsResponse.status).toBe(200);
     const engineTools = await engineToolsResponse.json() as unknown;
     expect(Array.isArray(engineTools)).toBe(true);
-    const ids = engineTools as string[];
-    expect(ids.length).toBeGreaterThan(0);
-    expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
-    expect(new Set(ids).size).toBe(ids.length);
+    engineToolIds = engineTools as string[];
+    expect(engineToolIds.length).toBeGreaterThan(0);
+    expect(engineToolIds.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(new Set(engineToolIds).size).toBe(engineToolIds.length);
 
     const mcpResponse = await api('/opencode/mcp');
     expect(mcpResponse.status).toBe(200);
-    const rows = await mcpResponse.json() as McpRow[];
-    const choices = rows
+    mcpRows = await mcpResponse.json() as McpRow[];
+    const choices = mcpRows
       .filter((row) => row.status === 'connected' && Array.isArray(row.tools))
-      .flatMap((row) => ids
+      .flatMap((row) => engineToolIds
         .filter((id) => id.startsWith(`${row.name}_`))
         .map((id) => ({
           serverName: row.name,
           callable: id,
           toolName: id.slice(row.name.length + 1),
         })))
-      .filter((choice) => rows.some(
+      .filter((choice) => mcpRows.some(
         (row) => row.name === choice.serverName && row.tools.includes(choice.toolName),
       ))
       .sort((a, b) => b.serverName.length - a.serverName.length);
-    expect(choices.length, 'no connected API server mapped to the real engine catalog').toBeGreaterThan(0);
+    expect(
+      new Set(choices.map((choice) => choice.serverName)).size,
+      'live scope fixture requires two distinct connected API servers mapped to the real engine catalog',
+    ).toBeGreaterThanOrEqual(2);
     tool = choices[0];
-    const secondary = rows.find((row) => row.status === 'connected' && row.name !== tool.serverName);
-    expect(secondary, 'proposal-apply fixture requires a second connected MCP server').toBeTruthy();
-    secondaryServer = secondary!.name;
+    secondaryTool = choices.find((choice) => choice.serverName !== tool.serverName)!;
     db = new Database(dbPath);
     db.pragma('foreign_keys = ON');
   });
@@ -183,7 +190,7 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
       // those producer states, then drive approval and reporting publicly.
       const historicalScope = JSON.stringify({
         [tool.serverName]: [tool.toolName, phantom],
-        [secondaryServer]: null,
+        [secondaryTool.serverName]: null,
       });
       db.prepare('UPDATE agent_configs SET allowed_mcps_json = ? WHERE id = ?')
         .run(historicalScope, profileId);
@@ -193,9 +200,9 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
          VALUES (?, 'prune-scope', 'high', 'proposed', ?, ?, ?, ?)`,
       ).run(
         proposalId,
-        `Prune ${secondaryServer}`,
-        `agent_config:${profileId}:mcp:${secondaryServer}`,
-        JSON.stringify({ agentConfigId: profileId, field: 'allowedMcpsJson', remove: [secondaryServer] }),
+        `Prune ${secondaryTool.serverName}`,
+        `agent_config:${profileId}:mcp:${secondaryTool.serverName}`,
+        JSON.stringify({ agentConfigId: profileId, field: 'allowedMcpsJson', remove: [secondaryTool.serverName] }),
         `scope-live-${proposalId}`,
       );
       const rejectedApproval = await api(`/agent-org-proposals/${proposalId}/approve`, { method: 'POST' });
@@ -244,7 +251,7 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
         `This charter requires ${tool.serverName.toUpperCase().replaceAll('-', '_')}.`,
       );
       await createProfile(ids.explicit, JSON.stringify({ [tool.serverName]: [tool.toolName] }));
-      await createProfile(ids.control, JSON.stringify([tool.serverName]));
+      await createProfile(ids.control, JSON.stringify([secondaryTool.serverName]));
 
       const aged = new Date(Date.now() - 30 * 86_400_000).toISOString();
       for (const id of profileIds) {
@@ -291,10 +298,64 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
         }
       }
 
+      expect(scopeBytes(ids.control)).toBe(JSON.stringify([secondaryTool.serverName]));
+      expect(mcpRows).toContainEqual(expect.objectContaining({
+        name: secondaryTool.serverName,
+        status: 'connected',
+      }));
+      expect(engineToolIds).toContain(secondaryTool.callable);
+
+      const controlProfile = db.prepare(
+        'SELECT created_at AS createdAt FROM agent_configs WHERE id = ?',
+      ).get(ids.control) as { createdAt: string };
+      const controlAgeDays = (Date.now() - new Date(controlProfile.createdAt).getTime()) / 86_400_000;
+      expect(controlAgeDays).toBeGreaterThan(MIN_TIGHTEN_OBSERVATION_DAYS);
+
+      const qualifyingSessions = db.prepare(
+        `SELECT id FROM agent_sessions
+          WHERE agent_kind = ?
+            AND scheduled_task_id IS NULL
+            AND mcp_role IS NULL
+            AND status NOT IN ('starting', 'error')`,
+      ).all(ids.control) as Array<{ id: string }>;
+      expect(qualifyingSessions).toHaveLength(OBSERVED_SESSIONS);
+      expect(qualifyingSessions.length).toBeGreaterThanOrEqual(MIN_TIGHTEN_ACTIVITY_COUNT);
+
+      const controlSessionIds = qualifyingSessions.map((session) => session.id);
+      const placeholders = controlSessionIds.map(() => '?').join(',');
+      const outputRows = db.prepare(
+        `SELECT parts_json AS partsJson FROM agent_session_messages
+          WHERE role = 'output' AND session_id IN (${placeholders})`,
+      ).all(...controlSessionIds) as Array<{ partsJson: string | null }>;
+      expect(outputRows).toHaveLength(OBSERVED_SESSIONS);
+      const readableParts = outputRows.map((row) => JSON.parse(row.partsJson ?? 'null') as unknown);
+      expect(readableParts.every(Array.isArray)).toBe(true);
+      const completed = readableParts
+        .flatMap((parts) => parts as Array<{ type?: string; state?: { status?: string } }>)
+        .filter((part) => part.type === 'tool' && part.state?.status === 'completed')
+        .length;
+      const denied = (db.prepare(
+        `SELECT COUNT(*) AS count FROM denied_tool_events
+          WHERE agent_config_id = ? OR session_id IN (${placeholders})`,
+      ).get(ids.control, ...controlSessionIds) as { count: number }).count;
+      const controlToolEvidence = { completed, denied };
+      expect(controlToolEvidence).toEqual({ completed: 0, denied: 0 });
+
+      const existingDedup = db.prepare(
+        'SELECT id FROM agent_org_proposals WHERE dedup_key = ?',
+      ).get(`tighten-scope:${ids.control}:mcp:${secondaryTool.serverName}`);
+      expect(existingDedup).toBeUndefined();
+
+      const disabledFamilies = (process.env.RHYTHM_OPTIMIZER_DISABLED_FAMILIES ?? '')
+        .split(',')
+        .map((family) => family.trim())
+        .filter(Boolean);
+      expect(disabledFamilies).not.toContain('scope');
+
       const before = scopeDigest();
       const runResponse = await api('/agent-org-optimizer/run', {
         method: 'POST',
-        body: JSON.stringify({ maxProposalsPerRun: 500, maxLlmCallsPerRun: 0, mode: 'shadow' }),
+        body: JSON.stringify({ maxProposalsPerRun: 500, maxLlmCallsPerRun: 0 }),
       });
       if (runResponse.status !== 200) {
         throw new Error(`optimizer run failed (${runResponse.status}): ${await runResponse.text()}`);
@@ -304,10 +365,14 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
         mode: string;
         skipped?: boolean;
         skippedReason?: string;
+        capped: boolean;
+        proposalsCreated: number;
       };
-      expect(run.skipped ?? false, run.skippedReason).toBe(false);
-      expect(run.mode).toBe('shadow');
       auditRunId = run.auditRunId;
+      expect(run.skipped ?? false, run.skippedReason).toBe(false);
+      expect(run.capped).toBe(false);
+      expect(run.proposalsCreated).toBeGreaterThan(0);
+      expect(run.mode).toBe('shadow');
 
       const proposalsResponse = await api('/agent-org-proposals?status=proposed');
       expect(proposalsResponse.status).toBe(200);
@@ -315,8 +380,12 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
         .filter((proposal) => proposal.auditRunId === auditRunId)
         .filter((proposal) => profileIds.some((id) =>
           proposal.targetRef?.includes(id) || proposal.changeJson?.includes(id)));
+      expect(proposals.length).toBeGreaterThan(0);
+      for (const proposal of proposals) {
+        expect(proposal.auditRunId).toBe(auditRunId);
+        expect(proposal.kind).toBe('tighten-scope');
+      }
       const tightenIds = proposals
-        .filter((proposal) => proposal.kind === 'tighten-scope')
         .flatMap((proposal) => profileIds.filter((id) =>
           proposal.targetRef?.includes(id) || proposal.changeJson?.includes(id)));
       expect(tightenIds).not.toContain(ids.used);
