@@ -1,89 +1,86 @@
 # Epic #1485 Plan — Recipes as Durable, Enforced Multi-Agent Workflows
 
-**Status:** Repaired authoring plan; AJ's retained product decisions are resolved. Docs only; no implementation or PR.
+**Status:** Repaired after PR #1490 adversarial review. AJ's four reserved decisions are settled. Docs only; implementation has not started.
+**Source baseline:** file paths and line citations target branch `plan/recipes-1485` at `f6782882` (2026-08-26).
 
 ## Goal
 
-Turn cookbook recipes from opaque prompt JSON into versioned, validated, durable multi-agent workflows that preserve legacy behavior, use one shared root-agent dispatch seam, and fail closed at every verdict, provider, approval, capability, budget, reconciliation, and side-effect boundary.
+Turn cookbook recipes from opaque prompt JSON into versioned, validated, durable multi-agent workflows that preserve legacy behavior, use one shared root-agent dispatch seam, and fail closed at every verdict, provider, approval, capability, completion-authorization, budget, reconciliation, and side-effect boundary.
 
 ## Constraints
 
 - Flutter is the shipping editor. Web/mobile are not new workflow-authoring surfaces.
-- Existing rows remain explicit `legacy_prompt` recipes; migration never reinterprets or rewrites `steps_json`.
-- Workflow definitions may exist in SQLite and Postgres, but execution is local-agent-server only. A hosted/Postgres process returns `workflow_execution_unavailable` without creating a run.
-- Research keeps its lifecycle loop, persistence/statuses, prompts, cancellation, retry, and restart behavior unchanged.
-- `dispatchAgentStage()` is the only shared orchestration extraction. Recipe-only durable claims, attempts, audit, cancellation fences, approval progression, and reconciliation stay in the recipe runner.
-- Every agent stage is a root `AgentRunner` session, so stage count does not consume delegation depth.
-- Verdict, provider, approval, taint, capability, identity, completion, and budget checks fail closed.
+- Existing rows remain legacy prompt recipes; migration never reinterprets or rewrites `steps_json`.
+- Workflow definitions may exist in SQLite and Postgres, but execution is local-agent-server only. Hosted/Postgres start returns `workflow_execution_unavailable` without creating a run.
+- Research keeps its lifecycle loop, persistence/statuses, prompts, cancellation, retry, budget predicate, and restart behavior unchanged.
+- `dispatchAgentStage()` is the only shared orchestration seam. Recipe claims, attempts, transitions, audit, cancellation fences, approval progression, and reconciliation are net-new and recipe-owned.
+- Every stage dispatch is a root `AgentRunner` session; stage count does not consume delegation depth.
+- V1 has exactly one fan-out level and `join(all)`; nested fan-out is rejected.
 - Workflow execution remains behind `RHYTHM_RECIPE_WORKFLOWS_ENABLED`, default off, through S4.
 - Backend completion requires a live behavioral test through the real API and engine in `tools/dev/sandbox.sh`, with an exact run note. Never start a second API server by hand.
 - S4 side effects are allowed only in private `ajhochy/rhythm-workflow-e2e`, never the production Rhythm repository.
+- `apps/api_server/src/services/generators/recipe_generator.ts` is concurrently owned by another stream; S1a must coordinate or rebase before editing it.
 
-## Existing baseline and targeted code findings
+## Existing baseline and verified source findings
 
-- `agentCookbookController.ts:119-197` compiles one prompt and calls blocking `AgentRunner.run()` once; malformed JSON falls back to raw prompt text.
-- `research_project_orchestrator.ts:19-316` has a research-specific loop, mutable jobs, in-process coalescing, coarse budgets, root dispatch, and restart re-dispatch. It does **not** have durable claims, attempt identity, a transition engine, an audit ledger, persist-first cancellation, or session reattachment.
-- `AgentRunner.run()` is blocking and returns no durable workflow receipt or usage. Usage is persisted in `agent_session_messages`; post-restart session reconciliation only changes stale active sessions to `idle`.
-- `rhythm_complete_research_pass` does not call an API. Research completion is scraped from transcript tool frames on idle by `specialist_research_indexer.ts`; it is not a completion pattern for recipes.
-- Teacher escalation can replace a provider-pinned run, unpinned routing can use most-recently-used defaults, and the process-wide runner has eight slots by default. `capacity` and `profile_unavailable` can occur before model dispatch.
-- `AgentApprovalContinuationService` prompts an existing idle session; it cannot advance a sessionless workflow node. Existing approval records provide signatures/nonces and the tainted redemption path provides TTL, payload binding, and single-use consumption.
-
-## Intent and scope boundary
-
-The delivery sequence is **S0 durability probe → S1a additive migration/default-off + S1b validator after S0 → S2 dispatch seam → S3 runner/completion endpoint/DTO → S4 dedicated-repo E2E → S5 Flutter editor**. S1a has zero dependency on the rest of the epic and is independently shippable. No general graph language, recursive schema system, research migration, or second execution substrate is introduced.
+- Legacy cookbook execution compiles a prompt and calls blocking `AgentRunner.run()` once (`agentCookbookController.ts:120-166`); malformed JSON falls back to raw text.
+- Research owns a research-shaped budget predicate (`research_project_orchestrator.ts:19-27`), in-flight coalescing (`:63-79`), two root dispatch sites (`:128-143`, `:275-298`), and restart re-dispatch (`:313-316`). It lacks durable claims, attempt identity, a transition engine, an append-only workflow ledger, persist-first cancellation, and session reattachment.
+- `AgentRunner.run()` is blocking. Teacher escalation re-enters `run()`, invokes `onSessionCreated` again, and returns the teacher result/session (`agent_runner.ts:657-780`). Its global eight-slot capacity is released in `finally` only after `run()` settles (`:831-844`, `:1657-1659`).
+- `agent_session_messages` has no provider column. The engine-observed source is assistant `info_json.providerID/modelID`; `agent_sessions.provider_id/model_id` is first-write configured/backfill data and is not authoritative observation.
+- Approval redemption currently rejects another session (`external_content_security_service.ts:549-550`) and stale taint (`:570-575`); current TTL is ten minutes (`:250`, `:496`). `decideWithNonce` queues continuation whenever `session_id` is non-null (`agent_approvals_repository.ts:158-176`).
+- MCP trusted calls carry signed tool/arguments/session identity; `authorizeOutboundAction` forwards `currentTrustedSecurityCall()` (`apps/mcp_server/src/security/external_content_boundary.ts:356-402`). A bearer-authenticated route alone does not authorize a completion for a stage.
+- Flutter cookbook requests send no Authorization header (`agent_cookbook_data_source.dart:14-59`); the MCP client sends `Bearer ${RHYTHM_API_TOKEN}` (`apps/mcp_server/src/index.ts:30-40,63-80`).
+- Optimizer recipe generation has its own legacy compiler (`recipe_generator.ts:119-143`) and creates cookbook rows programmatically (`:423` on the reviewed branch); proposal wiring is registered in `org_proposal_appliers_wiring.ts`.
 
 ## Design
 
-### Considered approaches
+### Settled architecture
 
-| Option | Shape | Decision |
-|---|---|---|
-| Add recipes to `ResearchProjectOrchestrator` | Couple recipe graphs to research passes/prompts | Reject: wrong domain boundary. |
-| Migrate research and recipes onto a new durable engine | Generic claims/transitions/reconciliation plus adapters | Reject: most mechanics are net-new and would rewrite proven research behavior. |
-| **Share only `dispatchAgentStage()`** | Extract root dispatch, model parsing, session binding, and budget predicate; recipe runner owns recipe durability | **Approved:** smallest reusable seam and lowest research regression risk. |
+| Option | Result |
+|---|---|
+| Put recipes in `ResearchProjectOrchestrator` | Rejected: wrong domain and research-shaped state. |
+| Extract a generic durable orchestration engine | Rejected: research has none of the durable mechanics to extract. |
+| **Share one minimal dispatch seam** | **Selected:** one root-dispatch option bag plus model override; recipe durability remains net-new. |
 
-### Approved extraction boundary and anti-second-engine invariant
+The epic's “do not build a second orchestration engine” means **one shared dispatch seam and no copied research lifecycle machinery**. It does not mean fictional reuse of mechanics research does not have. This boundary is recorded in `docs/ai/decisions/2026-08-26-recipe-extraction-boundary.md`.
 
-Extract only `dispatchAgentStage()` from the current research path. It owns:
+### Exact `dispatchAgentStage()` seam
 
-1. Root `AgentRunner.run()` dispatch.
-2. Atomic `provider/model` override parsing and forwarding.
-3. The `onSessionCreated` callback that binds the durable local session ID.
-4. The existing four-field budget predicate used by research.
-5. A provider-pinned option that suppresses teacher escalation; recipe stages that declare provider/model overrides always set it.
+The genuinely extractable surface is approximately 20 lines: an option bag that calls root `AgentRunner.run()` and the existing research `modelOverride()` parsing/forwarding. Specifically:
 
-`ResearchProjectOrchestrator` keeps its current lifecycle loop, `inFlight` behavior, persistence/statuses, prompts/evidence, cancellation, retry, and restart behavior. It merely calls the shared dispatch seam. The recipe runner owns all net-new durable claims, append-only attempts/audit, transition selection, fan-out/join, approval polling/subscription, persist-first cancellation, and restart reconciliation.
+1. Root dispatch is achieved by omitting `parentSessionId`; no helper logic is required.
+2. `onSessionCreated` remains a caller-supplied closure. Workflow binding must fail before model dispatch if the durable local session or attempt binding cannot be persisted; research retains its existing nonfatal callback behavior.
+3. Research's `exhausted()` is called twice per **run**, uses `ResearchProjectRun`, and remains in `research_project_orchestrator.ts`. Moving it would provide zero reuse and sharing it would change research behavior, contradicting S2.
+4. Provider/model parsing via `modelOverride()` is reusable.
+5. Public `suppressTeacherEscalation` support is net-new in `agent_runner.ts`; do not repurpose internal `_isEscalation`.
 
-**Anti-second-engine invariant:** there is one shared agent-dispatch seam, and recipe code does not copy research lifecycle machinery: no research `for` loop, research prompts/status model, `inFlight` map, budget predicate, session callback, or interrupted-run scan.
+The seam covers both research dispatch call sites. Research behavior is unchanged. S2 is not a broad architecture gate: S1b and S3a repository/transition work may proceed in parallel; only S3a's dispatch wiring waits for this small seam.
 
-### S0 durability decision gate
+### S0 durability probe
 
-Before schema v1 freezes, an isolated-sandbox probe dispatches one root stage, persists its session and direct completion record, restarts the API process, and asserts whether the terminal outcome can be recovered without a second prompt.
+S0 dispatches one root stage, persists its binding and completion, restarts the sandbox API, and proves whether terminal output is recoverable without a second prompt. It gates S3 only; S1b freezes the same identity under either outcome and proceeds in parallel.
 
-- **Recoverable:** S3 may use synchronous `AgentRunner.run()` with direct durable completion as the authoritative receipt.
-- **Not recoverable:** S3 dispatches with `promptAsync`; durable completion plus terminal session state becomes the authoritative completion condition.
+- **Recoverable:** S3 uses synchronous `AgentRunner.run()` plus direct durable completion.
+- **Not recoverable:** S2/S3 add an `AgentRunner`-owned async start API that returns durable local and SDK identities after binding. The recipe runner must not call low-level `opencodeClient.promptAsync()` or duplicate AgentRunner lifecycle code.
 
-S0 records the observed behavior and selected dispatch mode in a decision note. S0 gates S1b and S3, not S1a. The plan does not pre-select an answer the runtime has not proved.
+The probe gets its own decision note with the observed result. The plan does not pre-select an unproved runtime behavior.
 
 ## V1 contract
 
-### Cookbook persistence and compatibility
+### Persistence and compatibility
 
-Additive cookbook fields:
+Add only `schema_version` and `definition_json`. Format is derived: `definition_json IS NULL` means legacy prompt; non-null means workflow. Existing and future repository callers that omit workflow fields produce `schema_version = NULL, definition_json = NULL`; `steps_json` remains byte-identical and authoritative for legacy execution. Do not infer format from `steps_json` shape.
 
-- `recipe_format`: `legacy_prompt | workflow`.
-- `schema_version`: null for legacy, exactly `1` for workflow.
-- `definition_json`: null for legacy, validated workflow definition for workflow.
+S1a exposes a neutral `legacy` classification only. It withholds `explicit_upgrade_required` until S1b supplies a real upgrade path, avoiding an alarming dead-end state for 10–15 production users. Workflow create/update validates before persistence. Runs snapshot canonical definition and input hashes; no recipe revision-history subsystem is added.
 
-Every existing row is classified `legacy_prompt`; `steps_json` remains byte-identical and authoritative. List/get surfaces `migrationState: explicit_upgrade_required`. Legacy `/run` behavior and response remain unchanged. Workflow creation/update validates before persistence. Run snapshots contain canonical definition/input hashes so later edits affect only later runs; no recipe revision-history subsystem is added.
+### Minimal schema and one-level fan-out
 
-### Minimal schema shape
-
-TypeScript plus its imported test fixtures are the single source of truth. There is no duplicate docs JSON schema artifact and no new validation dependency.
+TypeScript plus imported test fixtures are the single source of truth; no duplicate docs JSON schema and no new validation dependency.
 
 ```ts
 type ScalarType = 'string' | 'number' | 'boolean';
 type ScalarFields = Record<string, ScalarType>;
+type VerdictOutcomeV1 = 'pass' | 'fail' | 'repair';
 type OutputContract = {
   fields: ScalarFields;
   items?: { keyField: string; fields: ScalarFields };
@@ -91,58 +88,57 @@ type OutputContract = {
 type RunInput = Record<string, string>;
 ```
 
-V1 run input is a named scalar string map; the target uses `goal`. An agent output has scalar record fields and, only when needed, one keyed collection shape. V1 does not recursively nest objects/arrays.
+The closed definition contains `schemaVersion: 1`, `entryStageId`, `stages`, run-wide cost/token/wall-time/stage-execution budgets, and named loop budgets. Stages are only `agent`, `gate`, `approval`, and `fanOut`. Bindings are closed references to run input, a declared stage-output scalar/keyed item, or the current fan-out item.
 
-The closed workflow definition contains `schemaVersion: 1`, `entryStageId`, `stages`, run-wide cost/token/wall-time/stage-execution budgets, and named loop budgets. Supported stages are only `agent`, `gate`, `approval`, and `fanOut`. Bindings are closed references to run input, a declared stage-output scalar/keyed item, or the current scope item. Unknown fields, duplicate IDs, unreachable stages, missing targets, type mismatches, unavailable producers, sibling-scope ambiguity, unbounded back edges, invalid provider/model pairs, and uncapped fan-out fail validation with stable `{path, code, message}` diagnostics.
+`itemKey: string | null` is the only scope identity. Root stages use null; fan-out children use a non-empty declared string key. Duplicate keys fail before claims; nested fan-out and sibling references fail validation; empty fan-out joins successfully with zero children. Binding resolution is “current item, else run root”—there is no `scopePath`, ancestor walk, or sibling-scope ambiguity rule. Logical stage identity is `(runId, stageId, itemKey, loopIteration)`; attempt identity adds `attemptId`.
 
-No arbitrary expressions, recursive value contracts, dependency lineage, staleness propagation, or retry invalidation exist in v1. Append-only attempts remain because bounded repair loops require history. A stage binding resolves the nearest committed producer while walking from its scope to ancestors and then the run root; it never reads a sibling scope.
+Unknown fields, duplicate IDs, unreachable stages, missing targets, type mismatches, unavailable producers, unbounded back edges, invalid provider/model pairs, nested fan-out, duplicate/empty item keys, and uncapped loops fail with stable `{path, code, message}` diagnostics. No arbitrary expressions, recursive contracts, lineage/staleness, retry invalidation, or general graph language exists.
 
-### Provider-separated stages
+### Provider observation and session binding
 
-Every provider-separated author and reviewer stage requires explicit atomic `{providerId, modelId}` overrides. `differentProviderFromStageId` is valid only when both stages are explicit and their provider IDs differ. Provider-pinned stages suppress teacher escalation.
+Provider-separated author/reviewer stages require explicit atomic `{providerId, modelId}`. `differentProviderFromStageId` is valid only when both are explicit and provider IDs differ. Pinned stages set `suppressTeacherEscalation`.
 
-After completion, the runner verifies the **observed** provider/model from durable session/message metadata, using the live-engine fallback when the message mirror is incomplete. Missing or mismatched observed routing invalidates the attempt and cannot take success. Pre-dispatch intent and post-hoc observed routing are both audited.
+A stage's durable binding is **only `AgentRunResult.sessionId`**. `onSessionCreated` may provision the row, but an attempt commits the returned result ID after `run()` resolves. If one dispatch invokes session creation more than once, returns a different session, or otherwise produces more than one session, the attempt fails closed. This prevents escalation from silently rebinding usage, completion, or audit evidence.
 
-### Typed data flow, taint, and capability floor
+Observed routing comes solely from `agent_session_messages.info_json → providerID/modelID` for `role='assistant'`, joined through the bound `result.sessionId`. Require at least one assistant message; zero observed values, a mismatch, or mixed provider/model values fail closed. Mixed values are possible because mid-run cross-provider re-dispatch already exists (`opencode_stream_bridge.ts:1542-1544`). `agent_sessions.provider_id/model_id` and configured values are never accepted as observed evidence; there is no live-engine fallback in the product contract.
 
-- Inputs are materialized, hashed, and persisted before dispatch. Downstream prompts receive only declared bindings plus run/stage identity.
-- Completion validates the declared output shape before immutable commit.
-- Every output records the union of taint IDs inherited from declared inputs and external/tool content observed in its session. Taint propagates through later bindings.
-- A consequential stage is subject to a server policy floor. Recipe authors may strengthen but never weaken required approval.
-- Tainted approval evidence uses the existing tainted approval binding (`taintId`, bound agent/profile, action, payload digest), not a plain approval.
-- A stage profile/provider/tool/skill set must be within the recipe creator/run owner's effective server-side grants. Null legacy allowlists are not interpreted as no grants; runtime computes the actual effective grant set and fails closed when it cannot prove containment.
+### Verdict, completion authorization, and typed flow
 
-### Verdicts, loops, fan-out, and capacity
+A verdict contains matching `runId`, `stageExecutionId`, `attemptId`, outcome `pass | fail | repair`, non-empty reasons, and typed evidence references. `blocked` is not a v1 verdict. Unsupported keys/outcomes, missing identity, malformed output, conflicting verdicts, and contract failures produce `invalid_verdict`; `onInvalid` is mandatory and success is impossible.
 
-A verdict is a closed v1 object containing matching `runId`, `stageExecutionId`, `attemptId`, outcome (`pass | fail | repair | blocked`), non-empty reasons, and typed evidence references. Unsupported versions/keys/outcomes, missing identity, malformed output, conflicting verdicts, and contract failures produce `invalid_verdict`; they never choose success. `onInvalid` is mandatory.
+`AgentRunner.status === 'done'` is only dispatch completion, never workflow success. Output shape commit and, for gates, a valid verdict determine transitions.
 
-Each loop instance is keyed by `(loopId, scopePath)` and independently bounded by positive iteration, cost, token, and wall-time caps. Run budgets are the only aggregate ceiling. Usage is aggregated from `agent_session_messages` joined through each attempt's `agentSessionId`, mirroring research `listRunUsageRows`. Workflow wall-time is checked at dispatch boundaries; in-flight stage timeout remains `AgentRunner`'s deadline policy.
+`rhythm_complete_workflow_stage` calls a local API completion endpoint with bearer authentication **and** the engine-signed trusted call. The MCP handler forwards `currentTrustedSecurityCall()` / `TrustedSecurityContext`; the API verifies tool name and exact argument hash, calls server-side `requireKnownSession`, then requires the resolved durable session to equal the active attempt binding for `(runId, stageExecutionId, attemptId)`. No binding, another stage/session, stale/superseded attempt, or cancelled run is rejected before idempotency or commit. Thus a coder cannot post its own review verdict.
 
-Fan-out uses stable item keys and unique `(runId, fanOutStageId, itemKey)` claims. Effective concurrency is bounded by configured `maxConcurrency` and the runner's remaining slots. Because remaining capacity can race, `capacity` and `profile_unavailable` are requeued dispatch failures: they create no model attempt, consume no repair iteration, and do not take `onFail`. Children are root sessions and the target fixture uses deterministic `join(all)`.
+Inputs are materialized and hashed before dispatch. Completion validates output before immutable commit. Taint IDs propagate from declared inputs and observed external/tool content. Consequential stages enforce the server capability/approval floor; recipe authors may strengthen but not weaken it. Effective grants must prove containment; null legacy allowlists do not mean unrestricted.
 
-### Completion, identity, restart, cancellation, and approval
+### Approvals: scoped relaxation and explicit tradeoff
 
-- Logical stage execution identity is `(runId, stageId, scopePath, loopIteration)`; append-only attempt identity adds `attemptId`.
-- The MCP `rhythm_complete_workflow_stage` tool directly calls a real authenticated local-agent HTTP endpoint. It does not depend on transcript scraping, session-idle indexing, or the research indexer.
-- The completion table has unique key `(runId, stageExecutionId, attemptId)`. Byte/canonical-equivalent duplicate completion is idempotent; a conflicting duplicate fails closed and appends an integrity event.
-- Workflow start persists the run and returns `{runId, status: 'pending'}` before dispatch. It never holds the HTTP request for the full workflow.
-- Restart never replays committed work. Known sessions/completions reconcile according to S0's selected mode. Ambiguous consequential side effects become `blocked_reconciliation`; v1 exposes only an authenticated human-unblock action for that state, not a general resume endpoint.
-- Cancellation atomically fences the run and active/pending stages before best-effort SDK abort. Late completion cannot resurrect the run; prior output/audit remains.
-- Approval progression uses signed, expiring, nonce-bound, single-use records. Signature/nonce are verified on decision; TTL, payload/action/taint binding, and `consumedAt` are atomically validated when the workflow consumes the decision. Expired and already-consumed decisions take explicit fail-closed targets.
-- The recipe runner polls or subscribes to the durable approval transition and advances the stage exactly once. It does not use `AgentApprovalContinuationService` or prompt a session to progress the state machine.
-- Audit is append-only and records snapshots/hashes, claims, configured and observed routing, sessions, taints, outputs/verdicts, transitions, attempts, budgets, fan-out keys, approvals, reconciliation, cancellation, and terminal state.
+AJ accepted relaxation of cross-session and stale-taint redemption guards **only for rows explicitly discriminated as `approval_kind='workflow'` in the existing approval model**. This is a row discriminator, not a new security binding kind or parallel table. Session-kind approvals remain byte-for-byte unchanged because they protect email, messaging, calendar, PCO, PR creation, and every other outbound integration from injected-content replay.
 
-## Named S3 run/stage DTO contract
+Workflow approvals retain signature, nonce, status, exact action/payload digest, bound workflow run/stage/attempt, expiry, and atomic `consumedAt`. They use a configurable workflow TTL (environment/config field, validated positive duration; default 24 hours), not the session constant `APPROVAL_TTL_MS = 10 * 60 * 1000`. The accepted tradeoff is that a workflow approval may be redeemed after the originating session/taint turn changes; explicit workflow identity and payload binding replace those two guards, increasing replay exposure if workflow binding is wrong. Completion authorization and single-use consumption therefore fail closed. See `docs/ai/decisions/2026-08-26-recipe-workflow-approval-guards.md`.
 
-`RecipeWorkflowRunDtoV1` is the Flutter S5 contract:
+To prevent double advancement, workflow approvals are explicitly distinguishable before `decideWithNonce`: they have no session continuation, decision does not set `continuation_state='queued'`, the controller does not call `AgentApprovalContinuationService`, and only the recipe runner atomically claims the approved transition. Session approvals retain existing continuation behavior unchanged.
+
+### Durability, cancellation, flag-off, and audit
+
+- Start persists and returns `{runId, status:'pending'}` before dispatch; it never holds the request for the workflow.
+- Claims, attempts, completions, transitions, and approval consumption are atomic/idempotent. Capacity/profile failures create no attempt and requeue without consuming repair budget.
+- Each loop instance is keyed by `(loopId, itemKey)` and has positive iteration/cost/token/wall-time caps. Usage sums message rows for the bound session. Run budgets are aggregate ceilings.
+- Cancellation fences run and pending/active stages before SDK abort. Abort/cancellation must make blocking `AgentRunner.run()` settle and release its global slot through `_releaseSlot`/`finally` immediately rather than waiting for the normal deadline; tests assert active count returns to baseline and queued interactive work can acquire the slot. Late completion cannot resurrect the run.
+- Turning the feature flag off rejects new starts and, at the next runner heartbeat/dispatch boundary, persistently transitions every in-flight run to terminal `workflow_disabled`, fences stages, aborts active sessions, and releases slots. Rows remain visible for monitoring; the flag never silently orphans work.
+- Restart never replays committed work. Ambiguous consequential side effects become `blocked_reconciliation`; only an authenticated human-unblock action exists.
+- Raw stage inputs/outputs are **sensitive-by-construction** workflow state: owner-scoped local reads only, never included in list DTOs/logs/run notes, retained until the owner deletes the run. The append-only audit ledger stores IDs, hashes, bounded redacted reasons, state transitions, routing/usage totals, and timestamps—never prompts, credentials, auth headers, environment values, tool arguments/results, or raw stage payloads. Deleting a run purges sensitive payload rows while retaining non-content integrity events for 30 days, then purges them. No general audit API ships in v1.
+
+## Named S3 DTO contract
 
 ```ts
 type RecipeWorkflowStageDtoV1 = {
   stageExecutionId: string;
   stageId: string;
-  scopePath: string;
+  itemKey: string | null;
   attemptId: string | null;
-  status: 'pending' | 'dispatching' | 'running' | 'blocked_approval' |
+  status: 'pending' | 'running' | 'blocked_approval' |
     'blocked_reconciliation' | 'succeeded' | 'failed' | 'cancelled';
   profileId: string | null;
   configuredProviderId: string | null;
@@ -151,7 +147,7 @@ type RecipeWorkflowStageDtoV1 = {
   observedModelId: string | null;
   startedAt: string | null;
   completedAt: string | null;
-  outcome: string | null;
+  outcome: VerdictOutcomeV1 | null;
 };
 type RecipeWorkflowRunDtoV1 = {
   version: 1;
@@ -159,171 +155,172 @@ type RecipeWorkflowRunDtoV1 = {
   recipeId: string;
   status: 'pending' | 'running' | 'blocked_approval' |
     'blocked_reconciliation' | 'succeeded' | 'failed' |
-    'budget_exhausted' | 'cancelled';
+    'budget_exhausted' | 'workflow_disabled' | 'cancelled';
   stages: RecipeWorkflowStageDtoV1[];
   pendingApprovalId: string | null;
-  terminalReceipt: { repository: string; prUrl: string; headSha: string; base: string; draft: boolean; requiredCheck: string } | null;
   createdAt: string;
   updatedAt: string;
 };
 ```
 
-Unknown internal diagnostics stay in audit APIs; S5 renders this stable operational projection.
+There is no `dispatching` status or `terminalReceipt` v1 product field. The final `shippable_pr` stage output already contains the PR URL; S4 may assert richer fixture-only receipt details.
 
-## Target workflow and approved roster
-
-The target remains:
+## Target workflow and roster
 
 `planning → contrarian_review → adjust_plan → issue_writer → fanOut(issue) { acceptance_contract → coder → review → review_verdict_gate → [pass | coder_repair → review loop] → smoke → smoke_verdict_gate → [pass | failure_triage → smoke_repair → smoke loop] } → join(all) → approval → shippable_pr`
 
 | Work | Profile | Provider rule |
 |---|---|---|
-| Planning, adjusted plan | `planning-agent` | Explicit OpenAI authoring override |
-| Contrarian review | `planning-agent` | Explicit Anthropic Opus review override; post-hoc provider verified |
-| Issue and acceptance contract | `issue-writer` | Explicit OpenAI authoring override |
-| Code and code/smoke repair | `coding-agent` | Explicit OpenAI authoring override |
-| Code review/verdict | `verification-gate` | Explicit Anthropic review override; post-hoc provider verified |
+| Planning/adjusted plan | `planning-agent` | Explicit OpenAI authoring override |
+| Contrarian review | `planning-agent` | Explicit Anthropic Opus review override; observed values verified |
+| Issue/acceptance contract | `issue-writer` | Explicit OpenAI authoring override |
+| Code/repairs | `coding-agent` | Explicit OpenAI authoring override |
+| Code review/verdict | `verification-gate` | Explicit Anthropic review override; observed values verified |
 | Smoke | `smoke-test-writer` | Explicit OpenAI authoring override |
 | Failure triage | `failure-triage` | Explicit OpenAI authoring override |
 
-The issue collection has stable keys. Each issue scope receives only its issue, acceptance contract, and declared ancestor plan references. Both repair loops have all four caps and explicit exhausted targets. The PR stage requires all scopes to pass, server-required approval to be consumed, and the smoke-tested head SHA to match the final receipt.
+Both repair loops have all four caps and explicit exhausted targets. `shippable_pr` requires all item keys to pass, workflow approval consumption, and the smoke-tested head SHA.
 
-## S4 dedicated-repository contract
+## S4 dedicated-repository security preconditions
 
-- Destination: private `ajhochy/rhythm-workflow-e2e`; base `main`.
-- Success receipt: a **draft** PR whose head SHA matches the tested SHA and whose required check named exactly `workflow-e2e` is green.
-- S4 never targets `ajhochy/Rhythm` or any production repository.
-- Repair branches are exercised deterministically through the real API/engine boundary: a fixture profile/provider keys a first-attempt contract instruction/tool result by `(stageExecutionId, attemptId)`, emits the required repair verdict on the first attempt, and emits pass after repair. No workflow/API/engine mock is permitted.
-- After evidence and the PR receipt are recorded, close the test PR and delete its remote branch. Cleanup failure is recorded and fails the cleanup criterion; it never silently reuses the branch.
+1. Provision a fine-grained PAT scoped **only** to `ajhochy/rhythm-workflow-e2e`, with the minimum contents/pull-request/check permissions required by the fixture. No production Rhythm permission is permitted.
+2. Start the sandbox with `GH_TOKEN` and `GITHUB_TOKEN` explicitly overridden to that PAT; unset/replace ambient `gh` credentials so they are unreachable inside the sandbox. Missing override fails preflight before any Git command.
+3. Verify private repo visibility, base `main`, branch/PR/check/close/delete rights, and required check `workflow-e2e` before dispatch. Never rely on a post-hoc `--repo` receipt check to prevent a wrong-repo push/comment/delete.
+4. Every Git/`gh` command uses explicit `--repo ajhochy/rhythm-workflow-e2e` or a remote URL pinned to it. Audit/logs record no token values.
+5. Success is a draft PR whose head SHA equals the smoke-tested SHA and whose `workflow-e2e` check is green. Then close it and delete its remote branch; cleanup failure fails S4.
 
-## User journeys
+## Authentication by caller
 
-| User job | Shipping entry point | Visible success | Slice |
-|---|---|---|---|
-| Preserve/run an old prompt recipe | Agents → Cookbook → legacy recipe | Legacy badge; byte-compatible run; explicit upgrade | S1a, S5 |
-| Build an enforced workflow without raw JSON | Agents → Cookbook → New/Edit | Validated vertical cards and inline server diagnostics | S1b, S5 |
-| Understand routing | Recipe view/editor | Generated read-only branches, loops, fan-out, approvals | S5 |
-| Start/monitor a run | Cookbook recipe → Run | Stable run ID and S3 DTO survive restart | S3, S5 |
-| Approve a consequential action | Existing approval UI | Signed decision advances the correct stage once | S3, S5 |
-| Obtain delivery result | Target run | Dedicated-repo draft PR receipt or explicit bounded terminal state | S4, S5 |
+- **Flutter start/get/cancel/list:** loopback local-agent routes remain compatible with the shipping data source and require no Authorization header; they reject nonlocal/hosted execution by deployment/DB gate. Do not place blanket bearer middleware ahead of these routes.
+- **MCP completion:** sends `Bearer RHYTHM_API_TOKEN` and the engine-signed trusted call. Bearer authenticates the client; trusted context plus server-side session-attempt binding authorizes the completion.
+- **Hosted callers:** may persist definitions through normal hosted auth, but workflow start/completion returns `workflow_execution_unavailable` and creates nothing.
 
 ## File structure map
 
 | File | Responsibility |
 |---|---|
-| `apps/api_server/src/config/env.ts` | Default-off recipe-workflow flag and local execution gate. |
-| `apps/api_server/src/contracts/recipe_workflow_contract.ts` | Sole v1 TypeScript contract and strict validator. |
-| `apps/api_server/src/__tests__/fixtures/recipe_workflow_fixtures.ts` | Valid/invalid fixtures imported by contract and E2E tests. |
-| `apps/api_server/src/repositories/agent_cookbook_repository.ts` | Additive format/schema/definition persistence. |
-| `apps/api_server/src/database/migrations.ts` | Idempotent SQLite cookbook and workflow tables/indexes. |
-| `apps/api_server/src/database/postgres_bootstrap.ts` | Cookbook-definition parity/backfill only; no hosted workflow execution. |
-| `apps/api_server/src/services/dispatch_agent_stage.ts` | Shared root dispatch, override parse, session callback, budget predicate, pinned-provider escalation suppression. |
-| `apps/api_server/src/services/research_project_orchestrator.ts` | Calls the dispatch seam; otherwise remains behaviorally unchanged. |
-| `apps/api_server/src/repositories/recipe_workflow_repository.ts` | Recipe-only run/stage/attempt/completion/approval linkage/audit state. |
-| `apps/api_server/src/services/recipe_workflow_runner.ts` | Recipe-only transitions, fan-out, budgets, taint, policy floor, cancellation, reconciliation. |
-| `apps/api_server/src/controllers/agentWorkflowController.ts` | Start/get/cancel, blocked-reconciliation unblock, and authenticated completion writes. |
-| `apps/api_server/src/routes/agentWorkflowRoutes.ts` | Local-agent workflow routes with explicit local/cloud authentication middleware. |
-| `apps/api_server/src/controllers/agentCookbookController.ts` | Legacy compatibility and validated workflow CRUD delegation. |
-| `apps/mcp_server/src/tools/agentWorkflow.ts` | Completion tool calling the authenticated HTTP endpoint directly. |
-| `apps/mcp_server/src/index.ts` | Tool registration; PR reports updated approximate tool count. |
-| `apps/api_server/src/__tests__/contract/recipe_workflow_*.test.ts` | S0, schema, lifecycle, security, restart, approval, and DTO contracts. |
-| `apps/api_server/src/__tests__/recipe_workflow_live_e2e.test.ts` | Env-gated dedicated-repo real API/engine proof. |
-| `apps/desktop_flutter/lib/features/agent_cookbook/models/recipe_workflow.dart` | Typed v1 definition and run/stage DTOs. |
-| `apps/desktop_flutter/lib/features/agent_cookbook/models/cookbook_recipe.dart` | Legacy/workflow format and migration state. |
-| `apps/desktop_flutter/lib/features/agent_cookbook/widgets/recipe_steps_editor.dart` | Vertical standard-control cards and move buttons. |
-| `apps/desktop_flutter/lib/features/agent_cookbook/widgets/recipe_flow_visualization.dart` | Read-only generated workflow rendering. |
+| `apps/api_server/src/config/env.ts` | Default-off flag and configurable workflow approval TTL. |
+| `apps/api_server/src/contracts/recipe_workflow_contract.ts` | Sole strict v1 contract/validator. |
+| `apps/api_server/src/repositories/agent_cookbook_repository.ts` | Additive schema/definition persistence and legacy defaults. |
+| `apps/api_server/src/database/migrations.ts` | SQLite cookbook/workflow tables and idempotent defaults. |
+| `apps/api_server/src/database/postgres_bootstrap.ts` | Definition parity only; no hosted execution. |
+| `apps/api_server/src/controllers/agentCookbookController.ts` | Byte-compatible legacy execution and workflow CRUD delegation. |
+| `apps/api_server/src/services/generators/recipe_generator.ts` | Keep generated/refined rows legacy; concurrent-stream collision. |
+| `apps/api_server/src/services/org_proposal_appliers_wiring.ts` | Ensure proposal-applied cookbook rows cannot bypass legacy classification. |
+| `apps/api_server/src/services/dispatch_agent_stage.ts` | Minimal root option bag plus model override. |
+| `apps/api_server/src/services/research_project_orchestrator.ts` | Calls seam at both dispatches; all research lifecycle stays unchanged. |
+| `apps/api_server/src/services/agent_runner.ts` | Public escalation suppression; conditional async start; cancellation settlement/slot release. **Highest-fan-in service: impact analysis required before edit.** |
+| `apps/api_server/src/repositories/recipe_workflow_repository.ts` | Runs, claims, attempts, completion, transitions, workflow approval links, payload retention, audit. |
+| `apps/api_server/src/services/recipe_workflow_runner.ts` | Transitions, one-level fan-out, budgets, cancellation, reconciliation. |
+| `apps/api_server/src/services/external_content_security_service.ts` | Kind-scoped workflow redemption guards/TTL; session path unchanged. |
+| `apps/api_server/src/repositories/agent_approvals_repository.ts` | Workflow-kind decision without session continuation queueing. |
+| `apps/api_server/src/controllers/agentWorkflowController.ts` | Start/get/cancel/unblock and trusted completion authorization. |
+| `apps/api_server/src/routes/agentWorkflowRoutes.ts` | Caller-specific route middleware/locality. |
+| `apps/mcp_server/src/security/external_content_boundary.ts` | Trusted call/context forwarding precedent for completion. |
+| `apps/mcp_server/src/tools/agentWorkflow.ts` | Completion tool. |
+| `apps/mcp_server/src/index.ts` | Tool registration; PR reports approximate tool count. |
+| `apps/api_server/src/__tests__/contract/recipe_workflow_*.test.ts` | S0–S3 contracts. |
+| `apps/api_server/src/__tests__/recipe_workflow_live_e2e.test.ts` | Env-gated dedicated-repo proof. |
+| `apps/desktop_flutter/lib/features/agent_cookbook/models/*.dart` | Definition and run DTOs. |
+| `apps/desktop_flutter/lib/features/agent_cookbook/data/agent_cookbook_data_source.dart` | Local caller contract without bearer. |
+| `apps/desktop_flutter/lib/features/agent_cookbook/widgets/recipe_steps_editor.dart` | Six vertical editor controls. |
+| `apps/desktop_flutter/lib/features/agent_cookbook/widgets/recipe_flow_visualization.dart` | Generated read-only flow. |
 | `apps/desktop_flutter/lib/features/agent_cookbook/views/agent_cookbook_view.dart` | Create/edit/run/monitor/approval UX. |
-| `apps/desktop_flutter/test/features/agent_cookbook/recipe_workflow_editor_test.dart` | Real-view editor, legacy, diagnostics, and DTO monitoring tests. |
+| `apps/desktop_flutter/test/features/agent_cookbook/recipe_workflow_editor_test.dart` | Real-view control, diagnostics, and monitoring tests. |
 
 ## Delivery slices / issue table
 
-| Slice / issue | Likely files | Falsifiable acceptance criteria | Dependencies | Required validation |
+| Slice | Likely files | Falsifiable acceptance criteria | Dependencies | Required validation |
 |---|---|---|---|---|
-| **S0 — Probe restart recovery and choose dispatch mode** | S0 contract/live test; decision note | Root stage is dispatched once; completion is persisted; sandbox API restarts; test proves whether terminal output is recoverable without another prompt. Decision records sync `run()` or async `promptAsync` and resulting attempt/completion state. | None; gates S1b/S3 only. | Build fork/API; `tools/dev/sandbox.sh up/status/down`; run focused env-gated probe serially; record exact output. |
-| **S1a — Add cookbook classification and default-off flag** | env; cookbook repository/controller; SQLite migration; Postgres bootstrap; legacy tests | Every old row is `legacy_prompt`; `steps_json` bytes and legacy run behavior are unchanged; `explicit_upgrade_required` is surfaced; migration self-heals/idempotently matches Postgres fields; workflow flag defaults off. | **None; zero epic dependency and independently shippable.** | API `tsc --noEmit`; cookbook, #740, migration self-heal, and focused Postgres parity tests; malformed/array/object/scalar/empty legacy fixture. |
-| **S1b — Freeze minimal workflow v1 validator** | TS contract; imported test fixtures; schema tests | Goal-string input, scalar outputs plus one keyed collection, four stages, explicit targets, four loop caps, fan-out/all join, provider rules, ancestor binding, and policy metadata validate; every listed invalid shape returns stable path/code; no recursive contracts/lineage/general resume/docs schema. | S0 decision; may follow S1a without coupling to its rollout. | API `tsc --noEmit`; focused contract tests covering every validator rule and S0's selected dispatch-mode schema. |
-| **S2 — Extract only `dispatchAgentStage()`** | dispatch seam; research orchestrator; unchanged #1292–#1295 tests | Research calls the seam for root dispatch/override/session bind/budget predicate; provider-pinned escalation suppression is available; research loop, persistence/statuses/prompts/cancellation/retry/restart remain unchanged; recipe code copies no research lifecycle machinery. | S1b vocabulary stable; no recipe execution. | GitNexus impact before symbol edits; #1292–#1295 contract suite; API `tsc --noEmit`; compare-scope `detect_changes` before commit. |
-| **S3 — Build recipe runner, direct completion endpoint, security policy, and DTO** | recipe repository/runner; workflow controller/routes; MCP tool/index; workflow DB tables; approvals linkage; contract tests | Start returns pending before dispatch; local-only execution; unique claims/attempts/completions; identical duplicate idempotent and conflict closed; explicit/post-hoc provider checks; capacity/profile requeue; loop/run caps; deterministic fan-out/all join; taint propagation and effective-grant containment; signed/TTL/single-use approval advances once without continuation service; cancel fence/reconciliation/audit work; only blocked-reconciliation unblock exists; named DTO matches this plan. | S0 mode + S1b + S2. | Focused serial Vitest contracts for transitions, identity races, completion auth/conflict, provider mismatch/escalation, capacity/profile requeue, all budgets, fan-out restart, taint/grants, approval expiry/replay, cancellation, reconciliation, locality, audit, DTO; `npm test`; `tsc --noEmit`; sandbox live lifecycle test and run note. |
-| **S4 — Prove target workflow in dedicated private repo** | live E2E; fixture profiles/provider; imported workflow fixture; run note | Exact target path traverses real API/engine; OpenAI author and Anthropic reviewers are observed; deterministic first-attempt review and smoke repairs occur; malformed verdict, each cap, restart, cancellation, rejected/expired approval, and ambiguous side effect terminate explicitly without duplicate side effects; draft PR targets `ajhochy/rhythm-workflow-e2e:main`, tested SHA matches, `workflow-e2e` is green; evidence is recorded, PR closed, remote branch deleted. | S3. Repo/provider provisioning probe is the only remaining factual precondition. | Probe repo visibility/permissions/base/protection/check and both providers/models; build fork/API; sandbox only; `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/recipe_workflow_live_e2e.test.ts --no-file-parallelism`; record exact receipt and cleanup. |
-| **S5 — Ship Flutter cards, flow, and monitoring** | Flutter models/data/view/widgets/tests | No raw JSON editor; standard vertical controls and move buttons; no drag/drop/canvas/new dependency; local/server errors inline; legacy explicit and runnable; generated flow only from typed definition; real view starts and monitors S3 DTO, approval and terminal receipt across app restart. | S1b + stable S3 DTO + S4 golden fixture. Editor and visualization widgets may proceed in parallel after model. | `dart format . --set-exit-if-changed`; `flutter analyze --no-fatal-infos`; feature tests; macOS manual smoke of create/edit/view/run/restart/approve/reject/terminal. |
+| **S0 — Restart recovery probe** | Focused live contract; decision note | One root dispatch/completion survives sandbox API restart without a second prompt; note selects sync or AgentRunner-owned async mode. | None; gates S3 only. | Build fork/API; sandbox `up/status/down`; serial env-gated probe; exact run note. |
+| **S1a — Add cookbook columns/default-off classification** | env; cookbook repo/controller; migrations/bootstrap; `recipe_generator.ts`; proposal wiring | Existing/generated/proposal-applied rows have null definition/schema and byte-identical legacy behavior; both legacy compilers remain compatible; no `explicit_upgrade_required` is exposed; structural defaults are idempotent in SQLite/Postgres; flag defaults off. | None. Coordinate `recipe_generator.ts` collision. | `tsc --noEmit`; cookbook/#740/#851/generator/proposal/migration/Postgres parity tests; malformed legacy fixtures. |
+| **S1b — Freeze minimal validator** | contract; fixtures; tests | Closed scalar/keyed contract, `itemKey`, one fan-out, all join, provider rules, targets and four caps validate; nested fan-out, duplicates, bad bindings and every listed invalid shape return stable path/code. | None; runs parallel with S0/S1a. | `tsc --noEmit`; one focused test per validator rule. |
+| **S2 — Extract minimal dispatch seam** | dispatch seam; research orchestrator; `agent_runner.ts` | Both research call sites use ~20-line option/model seam; `exhausted()` stays research-local; pinned dispatch cannot escalate; exactly one session/result binding; all research behavior remains unchanged. | None; S3 dispatch wiring only waits for seam. | GitNexus impact on AgentRunner/orchestrator; #1292–#1295 plus AgentRunner escalation/session-count coverage; `tsc --noEmit`; compare detect-changes. |
+| **S3a — Repository, runner, transitions, budgets, cancellation** | workflow repo/runner, DB, controller/routes, DTO tests | Nonconsequential workflows start pending; unique claims/attempts/completions; one-level fan-out/all join; closed verdict transitions; observed provider requires nonempty uniform assistant metadata; all caps; restart; flag-off terminalization; cancellation settles run and releases global slot; DTO exactly matches plan. | S0 mode + S1b; dispatch portion uses S2. | Serial transition/race/provider/fan-out/budget/restart/flag/cancel/slot/DTO tests; `npm test`; `tsc --noEmit`; sandbox lifecycle run note. |
+| **S3b — Approval, taint, capability, completion authorization** | workflow controller/MCP tool; security service; approval repo; policy tests | Consequential stages cannot run in S3a; completion requires trusted caller session bound to active attempt; no/mismatched binding fails; workflow-kind only bypasses cross-session/stale-taint; session approval behavior is byte-identical; workflow TTL configurable; no continuation double-advance; policy/capability floor and sensitive ledger policy hold. | S3a + S1b. | Forgery/coder-self-verdict/unknown-session/replay/expiry/mixed-kind/session-regression/double-advance/taint/grant/retention tests; live trusted-call behavioral test in sandbox. |
+| **S4 — Dedicated-repo E2E** | live E2E; fixture profiles/workflow; run note | Security preconditions pass before Git; exact workflow traverses real API/engine; deterministic coder/smoke repair; fail-closed caps/restart/cancel/approval; draft PR only in dedicated repo, tested SHA/check match, cleanup succeeds. | S3b. | Preflight fine-grained PAT and provider/model metadata; sandbox only; `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/recipe_workflow_live_e2e.test.ts --no-file-parallelism`; exact receipt/cleanup note. |
+| **S5 — Flutter editor/monitor** | Flutter models/data/view/widgets/tests | Six controls below work; no raw JSON/drag canvas/new dependency; inline diagnostics; neutral legacy state remains runnable; generated flow; real view starts/monitors DTO and approval across restart. | S1b + stable S3 DTO. Visualization demo may use S4 fixture but editor is not gated on S4. | format; analyze; feature tests; macOS manual smoke create/edit/view/run/restart/approve/reject/terminal URL. |
 
-## Dependency and rollout gates
+### S5 per-control acceptance
 
-1. S0 gates S1b's attempt/completion schema and S3 dispatch mode.
-2. S1a can land independently at any time; it enables no workflow execution.
-3. S1b freezes only the minimal contract before S2/S3.
-4. S2 proves the shared dispatch seam without migrating research.
-5. S3 must pass live local lifecycle evidence before S4.
-6. S4 must prove the exact dedicated-repo/provider contract before S5 uses it as the golden example.
-7. Default-on rollout is outside this epic plan and requires later manual smoke/authorization; legacy recipes remain available.
-
-## Requirement coverage matrix
-
-| Requirement | Slice | Falsifiable proof |
-|---|---|---|
-| Restart dispatch premise | S0 | Restart probe chooses sync/async without duplicate prompt. |
-| Additive legacy migration/default-off | S1a | Byte-identical legacy fixture and SQLite/Postgres parity. |
-| Minimal v1 schema/data flow | S1b | Closed fixtures and stable rejection diagnostics. |
-| One shared seam/no research migration | S2 | Unchanged research contracts and structural inspection. |
-| Root/profile/model dispatch | S2/S3 | Root session identity and configured routing audit. |
-| Strict cross-provider execution | S1b/S3/S4 | Both overrides required; escalation suppressed; observed provider mismatch fails. |
-| Fail-closed verdicts/branches | S1b/S3 | Invalid verdict never reaches success. |
-| Per-instance loop/run budgets | S3/S4 | Each cap independently reaches `budget_exhausted`. |
-| Capacity-safe fan-out/all join | S3/S4 | Pre-dispatch failures requeue without attempt/loop count; stable child count after restart. |
-| Direct durable completion | S3 | Authenticated endpoint survives bridge/indexer absence; duplicate/conflict tests. |
-| Durable identity/reconciliation/cancellation/audit | S3/S4 | Restart/cancel races preserve fences, outputs, and ordered events without replay. |
-| Signed approval + taint/policy/capability floor | S3/S4 | Expired/replayed/weakened/escalated cases fail; valid decision advances once. |
-| Named run/stage DTO | S3/S5 | API contract fixture decodes and renders in Flutter. |
-| Exact target workflow and PR receipt | S4 | Real dedicated-repo draft PR has tested SHA and green named check, then cleanup succeeds. |
-| Flutter cards/read-only flow | S5 | Real-view tests and macOS smoke; dependency list unchanged. |
-
-## Resolved AJ decisions
-
-| Decision | Resolution |
+| Control from #1485 | Acceptance criterion |
 |---|---|
-| Extraction boundary | Only `dispatchAgentStage()`; research lifecycle remains unchanged; recipe-only durability stays in recipe runner. |
-| Target roster/providers | Approved profiles listed above. OpenAI authors; Anthropic reviews; both explicit and post-hoc verified. |
-| S4 destination/success/cleanup | Private `ajhochy/rhythm-workflow-e2e`, base `main`, required `workflow-e2e`, draft PR receipt; then close PR/delete remote branch; never production Rhythm. |
-| Legacy/revision/schema/fan-out | Preserve legacy; immutable run snapshot only; minimal scalar/keyed collection; target join is `all`. |
-| Security/reconciliation/rollout | Server approval floor; fail-closed `blocked_reconciliation`; default-off through S4. |
+| Agent dropdown | Lists only effective permitted profiles; required selection serializes `profileId`. |
+| Optional provider/model override | Provider selection filters models; pair is atomic; clearing removes both; server diagnostics render inline. |
+| Inputs selected from prior steps | Only run root or current-item available producers appear; incompatible/unavailable outputs cannot be saved. |
+| Gate/verdict configuration | Offers only `pass/fail/repair`, declared evidence, and required `onInvalid`; no `blocked`. |
+| On-fail target | Lists reachable valid stage IDs and persists the selected target; missing target blocks save. |
+| Maximum iterations and relevant caps | Positive iteration, cost, token, and wall-time controls are all required for loops and preserve server values on edit. |
 
-**Unresolved product blockers: none.** Implementation may proceed through S3 without S4 infrastructure.
+## Dependencies and remaining blockers
 
-## External dependencies and remaining factual preconditions
+1. S0 gates S3 dispatch mode only; S1b runs in parallel.
+2. S1a is independently deployable but exposes only neutral legacy classification and enables no execution.
+3. S2 is a small seam; only S3a dispatch wiring waits for it.
+4. S3a must land before S3b; consequential stages remain disabled until S3b passes.
+5. S4 waits for S3b and its security preconditions. S5 needs S1b plus the stable S3 DTO, not S4.
 
-- No new runtime/library is planned. S0 and all live backend tests use the existing fork/API through the isolated sandbox.
-- Before S4 only, provision and probe the private repository, `main`, branch permissions/protection, the required check named `workflow-e2e`, noninteractive draft-PR rights, and close/delete cleanup rights.
-- Before S4 only, prove the sandbox has authenticated OpenAI and Anthropic access, the selected explicit authoring models and Anthropic Opus model appear in the runtime catalog, and durable message metadata exposes the observed provider/model. These are factual provisioning checks, not product questions.
-- `gh pr create` must use explicit `--repo ajhochy/rhythm-workflow-e2e --base main --head ... --draft`; nonzero exit, missing URL, wrong repo/base, missing check, or SHA mismatch fails closed.
+**Remaining product blockers:** none; AJ settled extraction, approval scope, S4 credentials, and one-level fan-out. **Remaining factual/security preconditions:** S0's observed recovery mode; collision coordination for `recipe_generator.ts`; dedicated-repo fine-grained PAT/check/permissions; selected OpenAI/Anthropic models and assistant `info_json` observability. Default-on rollout remains outside this epic and requires later AJ review/manual smoke.
 
-## Doubt review
+## Requirement coverage
 
-The plan is wrong if S0 cannot recover a terminal completion under either synchronous or asynchronous dispatch, if the message store/live-engine fallback cannot authoritatively identify the observed provider, or if the dedicated repo cannot expose the exact check/cleanup contract. The cheapest probes are S0's restart test, an S3 pinned-provider metadata contract, and S4's preflight-only repo/auth check. Do not compensate with transcript scraping, provider fallback, automatic side-effect replay, or production-repo testing.
+| Requirement | Slice/proof |
+|---|---|
+| Legacy compatibility/default off | S1a byte fixtures, generator/proposal tests, SQLite/Postgres parity. |
+| Minimal schema and one-level fan-out | S1b closed validator fixtures. |
+| One shared seam/no research rewrite | S2 research + AgentRunner contracts. |
+| Durable runner/cancellation/restart/budgets | S3a serial contracts and sandbox lifecycle. |
+| Enforced completion/approvals/capability | S3b signed-context, bound-session, kind-regression, replay tests. |
+| Exact workflow/dedicated repo | S4 real API/engine and security preflight. |
+| Shipping editor and six controls | S5 real-view tests and macOS smoke. |
 
-## Contrarian repairs incorporated
+## Prior contrarian repairs retained
 
 | Finding | Repaired sections |
 |---|---|
-| B1 | Design; approved extraction boundary; S2; dependency gates |
-| B2 | S0 durability gate; slices S0/S1b/S3; doubt review |
-| B3 | Completion/identity; file map; S3 validation |
-| H1–H2 | Provider-separated stages; dispatch seam; S3/S4 |
-| H3 | Fan-out/capacity; S3 acceptance/tests |
-| H4 | Approval semantics; file map; S3 acceptance/tests |
-| H5 | Typed data/taint/capability floor; S3/S4 |
-| H6 | S4 deterministic real-boundary fixture |
-| Y1 | Minimal scalar + optional keyed collection contract |
-| Y2 | TypeScript + imported test fixture as one source of truth |
-| Y3 | No lineage/staleness/retry invalidation; append-only attempts only |
-| Y4 | Named scalar string run-input map |
-| Y5 | Blocked-reconciliation human unblock only; no general resume |
+| B1–B3 | Design; S0; completion/durability; S2/S3 |
+| H1–H3 | Provider observation; one-level fan-out; capacity |
+| H4–H5 | Approval semantics; taint/capability; S3b |
+| H6 | S4 real-boundary fixture |
+| Y1–Y5 | Minimal values, TS source, no lineage, named input, reconciliation-only unblock |
 
-Medium review repairs are also incorporated: ancestor-scope binding, per-loop-instance budgets, message-derived usage, dispatch-boundary wall time, nonblocking start, and local-only execution.
+## Contrarian repairs incorporated (PR #1490 reopened review)
+
+| Finding | Repaired section |
+|---|---|
+| F1 extraction meaning | Settled architecture; extraction decision record |
+| F2 real seam size/budget predicate | Exact `dispatchAgentStage()` seam; S2 |
+| F3 AgentRunner fan-in/escalation | File map; S2 validation |
+| F4 escalation returns teacher session | Provider observation/session binding; S2/S3a |
+| F5 authoritative observed provider | Provider observation/session binding; S3a |
+| F6 scoped approval relaxation/TTL/tradeoff | Approvals; file map; approval decision record; S3b |
+| F7 continuation double-advance | Approvals; S3b |
+| F8 completion authorization | Verdict/completion authorization; caller auth; S3b |
+| F9 remove `blocked` verdict | Minimal schema; verdict; S5 controls |
+| F10 cancellation slot leak | Durability/cancellation; AgentRunner file map; S3a |
+| F11 dedicated-repo credential prevention | S4 security preconditions |
+| F12 generator/applier classification | Baseline; file map; S1a collision/criteria |
+| F13 alarming premature migration state | Persistence/compatibility; S1a |
+| F14 caller-specific authentication | Authentication by caller; file map; S3b/S5 |
+| F15 sensitive ledger/retention | Durability/audit; S3b |
+| F16 flag-off in-flight behavior | Durability/flag-off; S3a |
+| F17a derive format | Persistence/compatibility |
+| F17b remove nested scope | Minimal schema/one-level fan-out; DTO |
+| F17c remove `blocked` | Verdict contract |
+| F17d remove `terminalReceipt` | DTO contract |
+| F17h S0 gates S3 only | S0; dependencies |
+| Split S3 | S3a/S3b issue rows |
+| S5 false S4 dependency | S5 issue row; dependencies |
+| F18 citations/baseline | Header; verified source findings |
+| Six editor controls | S5 per-control acceptance |
+
+## Doubt review
+
+The plan is wrong if S0 cannot recover under either AgentRunner-owned mode, assistant `info_json` is not durable enough to prove one observed provider/model, trusted-call session identity cannot be bound to a stage attempt, cancellation cannot unwind `run()` promptly, or a repository-scoped PAT cannot perform the isolated fixture. The cheapest probes are S0, one pinned-provider message query, one forged/valid completion pair, one active-slot cancellation test, and S4 preflight. Do not compensate with transcript scraping, configured-provider equivalence, global approval relaxation, manual slot counters, side-effect replay, or production-repo testing.
 
 ## Plan self-review
 
-- Every blocker/high/YAGNI finding and every epic requirement maps to a named slice and falsifiable check.
-- No generic lifecycle engine, research adapter/migration, research lifecycle rewrite, fictional dual completion pattern, recursive schema clone, dependency lineage, or general resume endpoint remains.
-- S1a is independently shippable; S0 gates schema-dependent work; S3 names the DTO required by S5.
-- The target workflow, strict fail-closed posture, exact roster/provider separation, and dedicated-repository contract are consistent across design, files, slices, dependencies, criteria, and external preconditions.
-- There are no unresolved AJ product questions. Only S4 repository/provider provisioning facts remain, and they do not block S0–S3.
+- Every reopened finding maps to a repaired section and falsifiable slice criterion.
+- The target workflow and fail-closed posture remain intact.
+- No generic engine, research migration, nested fan-out, `blocked` verdict, raw JSON editor, general resume, or production-repo E2E remains.
+- No AJ product decision remains open; only runtime/provisioning facts and the concurrent-file collision require resolution before their named slices.
