@@ -7,9 +7,10 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import Database from 'better-sqlite3';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { runMigrations } from '../database/migrations';
+import { getDb, setDb } from '../database/db';
 
 const execFileAsync = promisify(execFile);
 
@@ -107,5 +108,30 @@ describe('issue-1479-c3: MCP tool grant drift operator CLI', () => {
     expect(failure?.stdout ?? '').toBe('');
     expect(failure?.stderr ?? '').toMatch(/SQLite|DB_CLIENT/i);
     expect(await sha256()).toBe(before);
+  });
+
+  it('restores the process-global database handle after an in-process run', async () => {
+    // Regression caught: the CLI left getDb() pointing at the readonly database it had closed.
+    const prior = new Database(':memory:');
+    runMigrations(prior);
+    setDb(prior);
+    const originalDbClient = process.env.DB_CLIENT;
+    const originalDbPath = process.env.DB_PATH;
+    process.env.DB_CLIENT = 'sqlite';
+    process.env.DB_PATH = dbPath;
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const { runMcpToolGrantDriftCli } = await import('./mcp_tool_grant_drift');
+      await runMcpToolGrantDriftCli(['--engine-url', engineUrl]);
+      expect(getDb()).toBe(prior);
+      expect(getDb().prepare('SELECT 1 AS ok').get()).toEqual({ ok: 1 });
+    } finally {
+      stdout.mockRestore();
+      if (originalDbClient === undefined) delete process.env.DB_CLIENT;
+      else process.env.DB_CLIENT = originalDbClient;
+      if (originalDbPath === undefined) delete process.env.DB_PATH;
+      else process.env.DB_PATH = originalDbPath;
+      prior.close();
+    }
   });
 });

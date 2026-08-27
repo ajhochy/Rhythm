@@ -108,9 +108,8 @@ describe('issue-822-c1: prune-scope gap produces exactly one prune-scope proposa
 });
 
 describe('issue-1479-c2: tool-granular prune evidence reaches scope hygiene', () => {
-  it('does not silently drop an mcp-tool drift gap', async () => {
-    // Regression caught: parsePruneEvidence accepted only mcp|skill, so the
-    // audit's real mcp-tool evidence never reached the proposal generator.
+  it('keeps mcp-tool drift report-only because the mutation contract removes server keys', async () => {
+    // Regression caught: a tool name was emitted as a server-key removal and could never apply.
     const { generateScopeHygieneProposals } = await import('../services/generators/scope_hygiene_generator');
     const gap: OrgAuditGap = {
       gapId: 'prune-scope:phantom-tool',
@@ -123,17 +122,7 @@ describe('issue-1479-c2: tool-granular prune evidence reaches scope hygiene', ()
       proposalsRepo: repo as any,
     });
 
-    expect(repo.created).toHaveLength(1);
-    expect(repo.created[0]).toMatchObject({
-      kind: 'prune-scope',
-      signalRef: gap.gapId,
-      targetRef: 'agent_config:theologian:mcp-tool:obsidian_get_file',
-    });
-    expect(JSON.parse(repo.created[0].changeJson!)).toEqual({
-      agentConfigId: 'theologian',
-      field: 'allowedMcpsJson',
-      remove: ['obsidian_get_file'],
-    });
+    expect(repo.created).toHaveLength(0);
   });
 });
 

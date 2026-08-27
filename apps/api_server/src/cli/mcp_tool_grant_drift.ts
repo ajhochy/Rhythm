@@ -23,11 +23,12 @@ export async function runMcpToolGrantDriftCli(args: string[]): Promise<void> {
   }
   const engineUrl = parseEngineUrl(args);
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  const priorDb = setDb(db);
   try {
-    setDb(db);
     const report = await reportMcpToolGrantDrift(engineUrl);
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } finally {
+    setDb(priorDb);
     db.close();
   }
 }

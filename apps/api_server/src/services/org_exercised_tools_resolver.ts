@@ -348,7 +348,9 @@ function telemetryResult(
 
 /**
  * Resolve the set of tool names ACTUALLY exercised by sessions run under
- * `agentConfigId` within `sinceIso` (defaults to the trailing 30 days). See
+ * `agentConfigId` within `sinceIso`. Callers that omit `sinceIso` use the
+ * trailing 30 days; audit callers may pass an exact attributed population,
+ * which is still unioned with scheduled-task sessions in that window. See
  * the module header for the exact signal + its documented approximation.
  *
  * Unavailable under Postgres — this reads local-SQLite-only
@@ -392,7 +394,7 @@ export async function resolveExercisedTools(
 
     // Join 1 (#830) — scheduled-task attribution: agent_scheduled_tasks.agent_config_id
     // -> agent_sessions.scheduled_task_id.
-    const taskRows = attributedSessionIds ? [] : db
+    const taskRows = db
       .prepare(`SELECT id FROM agent_scheduled_tasks WHERE agent_config_id = ?`)
       .all(agentConfigId) as { id: string }[];
     if (taskRows.length > 0) {

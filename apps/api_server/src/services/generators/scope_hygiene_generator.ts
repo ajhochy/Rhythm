@@ -167,16 +167,16 @@ function scopeField(scopeKind: ScopeKind): 'allowedMcpsJson' | 'allowedSkillsJso
 /** Parses org_audit_service's server-, tool-, and skill-level prune evidence. */
 function parsePruneEvidence(
   evidence: string,
-): { profileId: string; scopeKind: ScopeKind; name: string } | null {
+): { profileId: string; scopeKind: ScopeKind; name: string; serverName?: string } | null {
   const match = /^profile=(\S+) scopeKind=(mcp|skill) deadName=(\S+)$/.exec(evidence);
   if (match) {
     const [, profileId, scopeKind, name] = match;
     return { profileId, scopeKind: scopeKind as ScopeKind, name };
   }
-  const toolMatch = /^profile=(\S+) scopeKind=(mcp-tool) serverName=\S+ deadName=(\S+)$/.exec(evidence);
+  const toolMatch = /^profile=(\S+) scopeKind=(mcp-tool) serverName=(\S+) deadName=(\S+)$/.exec(evidence);
   if (!toolMatch) return null;
-  const [, profileId, scopeKind, name] = toolMatch;
-  return { profileId, scopeKind: scopeKind as ScopeKind, name };
+  const [, profileId, scopeKind, serverName, name] = toolMatch;
+  return { profileId, scopeKind: scopeKind as ScopeKind, serverName, name };
 }
 
 /**
@@ -285,7 +285,13 @@ export async function generateScopeHygieneProposals(
   for (const gap of snapshot.gaps) {
     try {
       if (gap.kind === 'prune-scope') {
-        await handlePruneGap(gap, snapshot, proposalsRepo, isUserAuthoredScopeEntry);
+        await handlePruneGap(
+          gap,
+          snapshot,
+          proposalsRepo,
+          isUserAuthoredScopeEntry,
+          isMcpRequiredByProfile,
+        );
       } else if (gap.kind === 'tighten-scope') {
         await handleTightenGap(gap, snapshot, proposalsRepo, isMcpRequiredByProfile);
       }
@@ -313,10 +319,25 @@ async function handlePruneGap(
   snapshot: OrgAuditSnapshot,
   proposalsRepo: NonNullable<ScopeHygieneDeps['proposalsRepo']>,
   isUserAuthoredScopeEntry: NonNullable<ScopeHygieneDeps['isUserAuthoredScopeEntry']>,
+  isMcpRequiredByProfile: NonNullable<ScopeHygieneDeps['isMcpRequiredByProfile']>,
 ): Promise<void> {
   const parsed = parsePruneEvidence(gap.evidence);
   if (!parsed) {
     logger.warn(`[scope-hygiene-generator] unparseable prune-scope evidence for gap '${gap.gapId}': '${gap.evidence}'`);
+    return;
+  }
+
+  // Per-tool phantom grants remain visible in drift/gap reports, but the
+  // current mutation contract can only remove whole server keys.
+  if (parsed.scopeKind === 'mcp-tool') return;
+
+  if (
+    parsed.scopeKind === 'mcp' &&
+    isMcpRequiredByProfile(parsed.profileId, parsed.serverName ?? parsed.name)
+  ) {
+    logger.info(
+      `[scope-hygiene-generator] skipped prune-scope for '${parsed.name}' on '${parsed.profileId}' because the profile prompt/skills require it`,
+    );
     return;
   }
 

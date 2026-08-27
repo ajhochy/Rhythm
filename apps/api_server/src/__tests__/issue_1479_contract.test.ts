@@ -90,6 +90,105 @@ describe('issue-1479-c1: writes validate explicit MCP tools against the live cat
     const apply = await import('../services/org_proposal_apply_service');
     await expect(apply.applyProposal(proposal)).rejects.toThrow(/obsidian_get_file|unknown.*tool/i);
   });
+
+  it('does not judge grants for needs_auth servers while allowing connected-server validation', async () => {
+    // Regression caught: a routine OAuth expiry made every saved per-tool grant look phantom.
+    listMcp.mockResolvedValue({
+      obsidian: { status: 'needs_auth' },
+      rhythm: { status: 'connected' },
+    });
+    listMcpToolIds.mockResolvedValue(['rhythm_rhythm_list_tasks']);
+    const repo = new AgentConfigsRepository();
+    const config = repo.insert({ id: 'oauth-expired', label: 'OAuth expired', icon: 'x' });
+    const next = vi.fn();
+    const { AgentConfigsController } = await import('../controllers/agent_configs_controller');
+
+    await new AgentConfigsController().patch(
+      {
+        params: { id: config.id },
+        body: { allowedMcpsJson: JSON.stringify({ obsidian: ['obsidian_simple_search'] }) },
+      } as never,
+      { json: vi.fn(), status: vi.fn().mockReturnThis() } as never,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(repo.getById(config.id)?.allowedMcpsJson).toBe(
+      JSON.stringify({ obsidian: ['obsidian_simple_search'] }),
+    );
+  });
+
+  it('does not block profile editing while the engine catalog is unavailable', async () => {
+    // Regression caught: engine warmup was translated into a misleading 400 and blocked routine saves.
+    listMcp.mockRejectedValue(new Error('engine warming up'));
+    const repo = new AgentConfigsRepository();
+    const config = repo.insert({ id: 'cold-engine', label: 'Cold engine', icon: 'x' });
+    const next = vi.fn();
+    const { AgentConfigsController } = await import('../controllers/agent_configs_controller');
+
+    await new AgentConfigsController().patch(
+      {
+        params: { id: config.id },
+        body: { allowedMcpsJson: JSON.stringify({ obsidian: ['obsidian_simple_search'] }) },
+      } as never,
+      { json: vi.fn(), status: vi.fn().mockReturnThis() } as never,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(repo.getById(config.id)?.allowedMcpsJson).toBe(
+      JSON.stringify({ obsidian: ['obsidian_simple_search'] }),
+    );
+  });
+
+  it('rejects a drifted stored server key that enforcement cannot compose to a live tool id', async () => {
+    // Regression caught: validation used the aligned live name while enforcement used the stored name.
+    listMcp.mockResolvedValue({ nfl_mcp: { status: 'connected' } });
+    listMcpToolIds.mockResolvedValue(['nfl_mcp_lookup']);
+    const repo = new AgentConfigsRepository();
+    const config = repo.insert({ id: 'drifted-key', label: 'Drifted key', icon: 'x' });
+    const next = vi.fn();
+    const { AgentConfigsController } = await import('../controllers/agent_configs_controller');
+
+    await new AgentConfigsController().patch(
+      {
+        params: { id: config.id },
+        body: { allowedMcpsJson: JSON.stringify({ 'nfl-mcp': ['lookup'] }) },
+      } as never,
+      { json: vi.fn(), status: vi.fn().mockReturnThis() } as never,
+      next,
+    );
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+    expect(repo.getById(config.id)?.allowedMcpsJson).toBeNull();
+  });
+
+  it('uses enforcement sanitization for punctuation in stored tool names', async () => {
+    // Regression caught: enforcement sanitized dots while validation rejected the same usable grant.
+    listMcpToolIds.mockResolvedValue([
+      'obsidian_obsidian_simple_search',
+      'obsidian_file_lookup',
+      'rhythm_rhythm_list_tasks',
+    ]);
+    const repo = new AgentConfigsRepository();
+    const config = repo.insert({ id: 'dotted-tool', label: 'Dotted tool', icon: 'x' });
+    const next = vi.fn();
+    const { AgentConfigsController } = await import('../controllers/agent_configs_controller');
+
+    await new AgentConfigsController().patch(
+      {
+        params: { id: config.id },
+        body: { allowedMcpsJson: JSON.stringify({ obsidian: ['file.lookup'] }) },
+      } as never,
+      { json: vi.fn(), status: vi.fn().mockReturnThis() } as never,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(repo.getById(config.id)?.allowedMcpsJson).toBe(
+      JSON.stringify({ obsidian: ['file.lookup'] }),
+    );
+  });
 });
 
 describe('issue-1479-c2: drift detection reaches per-tool granularity', () => {

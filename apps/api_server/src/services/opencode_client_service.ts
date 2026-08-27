@@ -3010,7 +3010,7 @@ export class OpencodeClientService {
 
   /** Lists composed tool IDs from connected MCP servers, not built-in tools. */
   async listMcpToolIds(): Promise<string[]> {
-    this.requireClient();
+    if (!this.isReady) throw new AppError(503, 'ENGINE_UNAVAILABLE', 'OpenCode engine is not ready');
     const response = await fetch(`${this.serverUrl}/mcp/tools`);
     if (!response.ok) {
       throw new AppError(502, 'SDK_ERROR', `listMcpToolIds failed: HTTP ${response.status}`);

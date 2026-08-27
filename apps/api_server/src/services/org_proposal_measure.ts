@@ -134,8 +134,11 @@ function isBodyRefinementChange(v: unknown): v is BodyRefinementChange {
 export interface MeasureDeps extends ApplyDeps {
   /**
    * Resolve the set of tool/server names ACTUALLY exercised by the target
-   * profile in the trailing window — the functional guard for
-   * tighten-scope/prune-scope. Defaults to the REAL resolver
+   * profile in the trailing window — the conservative post-apply functional
+   * guard. Unlike the audit's exact chat-population floor, measurement also
+   * includes scheduled and interactive evidence; extra evidence can only veto
+   * a removal, never approve one. This guards tighten-scope/prune-scope and
+   * defaults to the REAL resolver
    * (#830 — {@link resolveExercisedTools}), which derives usage from
    * tool-call parts persisted on sessions run under the profile's scheduled
    * tasks (see that module's doc for the exact signal and its documented

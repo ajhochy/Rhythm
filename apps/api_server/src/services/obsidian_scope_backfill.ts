@@ -64,16 +64,7 @@ export const OBSIDIAN_SERVER = 'obsidian';
  * obsidian_execute_command). Knowledge access only.
  */
 export const OBSIDIAN_READ_TOOLS: readonly string[] = [
-  'obsidian_get_file',
-  'obsidian_get_active',
-  'obsidian_get_periodic',
-  'obsidian_open_file',
   'obsidian_simple_search',
-  'obsidian_search_dataview',
-  'obsidian_search_json_logic',
-  'obsidian_list_vault_directory',
-  'obsidian_list_vault_root',
-  'obsidian_status',
 ] as const;
 
 export interface ObsidianScopeBackfillDeps {

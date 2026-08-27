@@ -7,6 +7,7 @@ import { getDb, setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import type { OrgAuditSnapshot, ProfileScopeSnapshot } from '../services/org_audit_service';
 
@@ -130,6 +131,41 @@ describe('issue-1482-c1: the floor and usage evidence use the same sessions', ()
     expect(telemetry.availability).toBe('available');
     expect(telemetry.canonicalServerIds).toEqual(new Set(['obsidian']));
   });
+
+  it('unions audit-attributed chat IDs with scheduled-task usage evidence', async () => {
+    // Regression caught: passing chat IDs disabled the scheduled-task join and manufactured a prune.
+    const configs = new AgentConfigsRepository();
+    configs.insert({ id: 'scheduler', label: 'Scheduler', icon: 'clock' });
+    const task = await new AgentScheduledTasksRepository().createAsync({
+      name: 'Daily MCP work',
+      scheduleType: 'daily',
+      prompt: 'run scheduled MCP work',
+      agentConfigId: 'scheduler',
+    });
+    const sessions = new AgentSessionsRepository();
+    const chat = sessions.insert({
+      agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'chat', mcpRole: 'scheduler',
+    });
+    const scheduled = sessions.insert({
+      agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'scheduled', scheduledTaskId: task.id,
+    });
+    getDb().prepare(`UPDATE agent_sessions SET category = 'scheduled' WHERE id = ?`).run(scheduled.id);
+    const messages = new AgentSessionMessagesRepository();
+    messages.upsertStructured(chat.id, 'msg_chat', 'output', '[]', null, null);
+    messages.upsertStructured(
+      scheduled.id,
+      'msg_scheduled',
+      'output',
+      JSON.stringify([completedToolPart('obsidian_simple_search', 'msg_scheduled')]),
+      null,
+      null,
+    );
+
+    const { resolveExercisedTools } = await import('../services/org_exercised_tools_resolver');
+    const telemetry = await resolveExercisedTools('scheduler', undefined, ['obsidian'], [chat.id]);
+    expect(telemetry.availability).toBe('available');
+    expect(telemetry.canonicalServerIds).toEqual(new Set(['obsidian']));
+  });
 });
 
 describe('issue-1482-c2: prompt requirement matching is case-insensitive and alias-aware', () => {
@@ -211,5 +247,44 @@ describe('issue-1482-c3: skills and explicit tool maps establish profile intent'
       },
     );
     expect(mapProtected).toEqual([]);
+  });
+
+  it('applies the profile-charter guard to prune gaps as well as tighten gaps', async () => {
+    // Regression caught: a needs_auth false drift row bypassed the charter guard in the prune lane.
+    new AgentConfigsRepository().insert({
+      id: 'theologian',
+      label: 'Theologian',
+      icon: 'book',
+      systemPrompt: 'Use Obsidian for durable theological notes.',
+      allowedMcpsJson: JSON.stringify({ obsidian: ['obsidian_simple_search'] }),
+    });
+    const created: unknown[] = [];
+    const { generateScopeHygieneProposals } = await import('../services/generators/scope_hygiene_generator');
+    await generateScopeHygieneProposals(
+      snapshot([profile({ mcpScopeShape: 'tools-map' })], []),
+      {
+        proposalsRepo: {
+          existsByDedupKeyAsync: async () => false,
+          createAsync: async (input) => { created.push(input); return input as never; },
+        },
+      },
+    );
+    await generateScopeHygieneProposals(
+      {
+        ...snapshot([profile({ mcpScopeShape: 'tools-map' })], []),
+        gaps: [{
+          gapId: 'prune-charter-tool',
+          kind: 'prune-scope',
+          evidence: 'profile=theologian scopeKind=mcp deadName=obsidian',
+        }],
+      },
+      {
+        proposalsRepo: {
+          existsByDedupKeyAsync: async () => false,
+          createAsync: async (input) => { created.push(input); return input as never; },
+        },
+      },
+    );
+    expect(created).toEqual([]);
   });
 });

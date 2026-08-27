@@ -366,7 +366,13 @@ function detectPruneGaps(drift: AllowlistDrift[]): OrgAuditGap[] {
   return drift
     .filter((d) => !d.matched)
     .map((d) => ({
-      gapId: stableGapId('prune-scope', d.profileId, d.scopeKind, d.serverName ?? '', d.name),
+      gapId: stableGapId(
+        'prune-scope',
+        d.profileId,
+        d.scopeKind,
+        ...(d.serverName ? [d.serverName] : []),
+        d.name,
+      ),
       kind: 'prune-scope' as const,
       evidence: d.scopeKind === 'mcp-tool'
         ? `profile=${d.profileId} scopeKind=mcp-tool serverName=${d.serverName} deadName=${d.name}`
