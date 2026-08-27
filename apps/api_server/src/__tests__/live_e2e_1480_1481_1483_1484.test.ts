@@ -90,16 +90,17 @@ function tableDigest(...tables: string[]): string {
 async function treeDigest(root: string): Promise<string> {
   const entries: string[] = [];
   async function walk(dir: string, prefix = ''): Promise<void> {
-    let names: string[];
-    try { names = (await readdir(dir)).sort(); } catch { return; }
-    for (const name of names) {
+    let dirents;
+    try { dirents = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const dirent of dirents.sort((a, b) => a.name.localeCompare(b.name))) {
+      const name = dirent.name;
       const relative = prefix ? `${prefix}/${name}` : name;
       const path = join(dir, name);
-      try {
+      if (dirent.isDirectory()) {
+        await walk(path, relative);
+      } else {
         const bytes = await readFile(path);
         entries.push(`${relative}:${sha(bytes.toString('base64'))}`);
-      } catch {
-        await walk(path, relative);
       }
     }
   }

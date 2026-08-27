@@ -2,8 +2,7 @@
  * Unit tests for opencode_agent_writer.ts — manager routing preamble injection.
  *
  * Strategy: the preamble-injection logic lives in the exported
- * `injectManagerPreamble` helper and is also exercised via the exported
- * `MANAGER_ROUTING_PREAMBLE` constant. We test these directly rather than
+ * `injectManagerPreamble` helper. We test it directly rather than
  * calling `writeAgentProfileFile`, which is guarded by `shouldWriteAgentFile`
  * (returns false in test env and in postgres mode) and touches the real
  * filesystem. This gives deterministic, side-effect-free coverage of the
@@ -12,7 +11,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  MANAGER_ROUTING_PREAMBLE,
   injectManagerPreamble,
   buildHubRoutingPreamble,
   buildTaskDelegatePermissions,
@@ -20,16 +18,6 @@ import {
 
 const MARKER = '## Routing (mandatory)';
 const HUB_MARKER = '## Routing (mandatory — hub)';
-
-describe('MANAGER_ROUTING_PREAMBLE', () => {
-  it('contains the mandatory routing marker heading', () => {
-    expect(MANAGER_ROUTING_PREAMBLE).toContain(MARKER);
-  });
-
-  it('mentions subagent_type="workflow-orchestrator" explicitly', () => {
-    expect(MANAGER_ROUTING_PREAMBLE).toContain('subagent_type="workflow-orchestrator"');
-  });
-});
 
 describe('injectManagerPreamble — manager profile (isManager: true)', () => {
   it('prepends the preamble before the original system prompt', () => {
@@ -152,11 +140,12 @@ describe('injectManagerPreamble — hub manager with a non-empty roster (#889)',
 });
 
 describe('injectManagerPreamble — manager WITHOUT a roster gets no impossible mandate (#1484)', () => {
-  it('a manager with an empty roster keeps its body unchanged', () => {
+  it('a manager with an empty roster retains its non-development-only constraint', () => {
     const original = 'You are workflow-orchestrator.';
     const result = injectManagerPreamble(original, true, []);
 
-    expect(result).toBe(original);
+    expect(result).toContain('Only handle non-development tasks yourself.');
+    expect(result).toContain(original);
     expect(result).not.toContain('workflow-orchestrator by calling');
   });
 
@@ -164,7 +153,8 @@ describe('injectManagerPreamble — manager WITHOUT a roster gets no impossible 
     const original = 'You are workflow-orchestrator.';
     const result = injectManagerPreamble(original, true);
 
-    expect(result).toBe(original);
+    expect(result).toContain('Only handle non-development tasks yourself.');
+    expect(result).not.toContain('subagent_type="workflow-orchestrator"');
   });
 });
 
