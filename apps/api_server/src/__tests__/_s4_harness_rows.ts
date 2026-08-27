@@ -54,11 +54,12 @@ export function parseScoringPrompt(requestBody: string): ScoringPrompt | undefin
 export function classifyScoringPrompt(
   prompt: ScoringPrompt,
   candidateBody: string,
-  draftPurpose = 'deployment audit',
-): 'candidate' | 'draft' | undefined {
-  if (prompt.body === candidateBody.trim()) return 'candidate';
-  if (prompt.purpose === draftPurpose && prompt.body) return 'draft';
-  return undefined;
+  expectedDraftBody: string,
+  expectedPurpose: string,
+): 'candidate' | 'uniqueDraft' | 'otherScore' {
+  if (prompt.purpose === expectedPurpose && prompt.body === candidateBody.trim()) return 'candidate';
+  if (prompt.purpose === expectedPurpose && prompt.body === expectedDraftBody.trim()) return 'uniqueDraft';
+  return 'otherScore';
 }
 
 export interface BoundedPhaseOptions<T> {

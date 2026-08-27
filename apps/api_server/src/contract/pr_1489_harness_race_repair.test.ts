@@ -87,7 +87,7 @@ describe('PR #1489 final harness race repair', () => {
     expect(source).toMatch(/contentSha256.*candidateBody/s);
   });
 
-  it('pr-1489-final-c2: teardown stops producers before bounded settlement and always aggregates cleanup errors', () => {
+  it('pr-1489-final-c2: teardown stops producers before status cleanup and bounded settlement', () => {
     const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
     const teardown = source.slice(source.indexOf('afterAll(async () =>'));
     const firstSettlement = teardown.indexOf('waitForBroadRowsToSettle');
@@ -95,7 +95,7 @@ describe('PR #1489 final harness race repair', () => {
     const providerRestore = teardown.indexOf("attempt('restore anthropic provider'");
 
     expect(sessionStop).toBeGreaterThan(-1);
-    expect(providerRestore).toBeGreaterThan(sessionStop);
+    expect(providerRestore).toBeLessThan(sessionStop);
     expect(firstSettlement).toBeGreaterThan(sessionStop);
     expect(teardown).toMatch(/Promise\.allSettled/);
     expect(teardown).toMatch(/AggregateError/);
@@ -121,22 +121,29 @@ describe('PR #1489 final harness race repair', () => {
     });
   });
 
-  it('pr-1489-last-c2: classifies candidate by exact UUID body and draft by fixture purpose', async () => {
+  it('pr-1489-last-c2: scorer identity requires the exact purpose/body pair', async () => {
     expect(typeof harnessRows.classifyScoringPrompt).toBe('function');
+    const purpose = 'name: deployment audit\ndescription: Verify immutable deployment provenance\nwhenToUse: deployment';
     const candidate = '# S4 deployment audit 0123456789abcdef\nInspect deployment provenance for run 0123456789abcdef.';
-    expect(harnessRows.classifyScoringPrompt({ purpose: 'deployment audit', body: candidate }, candidate))
+    const exactDraft = '# deployment audit\n\n## Problem\n\nVerify immutable deployment provenance\n\n## Topics\n\n- deployment';
+    expect(harnessRows.classifyScoringPrompt({ purpose, body: candidate }, candidate, exactDraft, purpose))
       .toBe('candidate');
-    expect(harnessRows.classifyScoringPrompt({ purpose: 'deployment audit', body: '# unrelated title\n\nA different body' }, candidate))
-      .toBe('draft');
-    expect(harnessRows.classifyScoringPrompt({ purpose: 'another purpose', body: '# unrelated title\n\nA different body' }, candidate))
-      .toBeUndefined();
+    expect(harnessRows.classifyScoringPrompt({ purpose, body: exactDraft }, candidate, exactDraft, purpose))
+      .toBe('uniqueDraft');
+    expect(harnessRows.classifyScoringPrompt({ purpose, body: `${exactDraft}\nextra overlap` }, candidate, exactDraft, purpose))
+      .toBe('otherScore');
+    expect(harnessRows.classifyScoringPrompt({ purpose: 'wrong purpose', body: candidate }, candidate, exactDraft, purpose))
+      .toBe('otherScore');
 
     const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
     expect(source).toMatch(/candidateScoreRequests[^\n]*toHaveLength\(1\)/s);
-    expect(source).toMatch(/draftScoreRequests[^\n]*toHaveLength\(1\)/s);
+    expect(source).toMatch(/uniqueDraftScoreRequests[^\n]*toHaveLength\(1\)/s);
+    expect(source).toMatch(/otherScoreRequests/);
+    expect(source).toMatch(/candidateScoreRequests[^\n]*toEqual\(\[candidateBody\]\)/s);
+    expect(source).toMatch(/uniqueDraftScoreRequests[^\n]*toEqual\(\[expectedDraftBody\]\)/s);
   });
 
-  it('pr-1489-last-c3: teardown aborts before bounded deletes with four-worker limits and 404 success', async () => {
+  it('pr-1489-last-c3: teardown aborts active owned top-level sessions before top-level-only delete', async () => {
     let active = 0;
     let peak = 0;
     const results = await harnessRows.runBoundedPhase([1, 2, 3, 4, 5, 6, 7, 8], {
@@ -157,20 +164,28 @@ describe('PR #1489 final harness race repair', () => {
     const abort = teardown.indexOf('/abort');
     const remove = teardown.indexOf("method: 'DELETE'");
 
+    expect(teardown).toMatch(/SELECT id, sdk_session_id, parent_session_id, cwd FROM agent_sessions/);
+    expect(teardown).toMatch(/topLevelSessions/);
+    expect(teardown).toMatch(/\/session\/status/);
+    expect(teardown).toMatch(/busy|retry/);
     expect(abort).toBeGreaterThan(-1);
     expect(remove).toBeGreaterThan(abort);
     expect(teardown).toMatch(/maxConcurrency:\s*4/g);
-    expect(teardown).toMatch(/phaseTimeoutMs:\s*6_000/);
-    expect(teardown).toMatch(/requestTimeoutMs:\s*2_000/);
-    expect(teardown).toMatch(/phaseTimeoutMs:\s*12_000/);
-    expect(teardown).toMatch(/requestTimeoutMs:\s*3_000/);
+    expect(teardown).toMatch(/pollOwnedSessionsIdle/);
+    expect(teardown).toMatch(/runBoundedPhase\(topLevelSessions/);
     expect(teardown).toMatch(/response\.status\s*!==\s*404/);
   });
 
-  it('pr-1489-last-c4: provider restoration remains independent and fatal after session cleanup failures', () => {
+  it('pr-1489-last-c4: fixture closure and provider restoration precede status proof and cannot be skipped', () => {
     const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
     const teardown = source.slice(source.indexOf('afterAll(async () =>'));
-    expect(teardown.indexOf("attempt('restore anthropic provider'")).toBeGreaterThan(teardown.indexOf("attempt('delete owned engine sessions'"));
+    const closeFixture = teardown.indexOf("attempt('close fixture server'");
+    const restoreProvider = teardown.indexOf("attempt('restore anthropic provider'");
+    const statusProof = teardown.indexOf("attempt('identify active owned top-level sessions'");
+    expect(closeFixture).toBeGreaterThan(-1);
+    expect(restoreProvider).toBeGreaterThan(-1);
+    expect(statusProof).toBeGreaterThan(closeFixture);
+    expect(statusProof).toBeGreaterThan(restoreProvider);
     expect(teardown).toMatch(/cleanupErrors\.push/);
     expect(teardown).toMatch(/throw new AggregateError\(cleanupErrors/);
   });

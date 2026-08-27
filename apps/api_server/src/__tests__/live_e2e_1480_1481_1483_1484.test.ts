@@ -43,10 +43,9 @@ let originalOtherProviders: Record<string, unknown> = {};
 let mruSessionId: string | undefined;
 let positiveEvidenceReceived = false;
 let infraMarkerReceived = false;
-let candidateScoreReceived = false;
-let draftScoreReceived = false;
 const candidateScoreRequests: string[] = [];
-const draftScoreRequests: string[] = [];
+const uniqueDraftScoreRequests: string[] = [];
+const otherScoreRequests: string[] = [];
 const extractedScoredBodies: string[] = [];
 let skillDownloadRequests = 0;
 const providerId = 'anthropic';
@@ -55,7 +54,28 @@ const candidateSlug = randomUUID().replace(/-/g, '');
 const candidateName = `S4 deployment audit ${candidateSlug}`;
 const candidateBody = `# ${candidateName}\nInspect deployment provenance for run ${candidateSlug} and verify immutable release inputs.`;
 const candidateDedupKey = `external-adoption:skill:${candidateName.toLowerCase()}`;
-const deploymentAuditPurpose = 'name: deployment audit\ndescription: Verify immutable deployment provenance\nwhenToUse: deployment';
+const deploymentGap = {
+  title: 'deployment audit',
+  problem: 'Verify immutable deployment provenance',
+  tags: ['deployment'],
+} as const;
+const deploymentAuditPurpose = [
+  `name: ${deploymentGap.title}`,
+  `description: ${deploymentGap.problem}`,
+  `whenToUse: ${deploymentGap.tags.join(', ')}`,
+].join('\n');
+const expectedDraftBody = [
+  `# ${deploymentGap.title}`,
+  '',
+  '## Problem',
+  '',
+  deploymentGap.problem,
+  '',
+  '## Topics',
+  '',
+  deploymentGap.tags.map((tag) => `- ${tag}`).join('\n'),
+  '',
+].join('\n').trim();
 
 interface OptimizerResult {
   auditRunId: string;
@@ -255,17 +275,21 @@ async function startFixture(): Promise<Server> {
         const scoringPrompt = parseScoringPrompt(body);
         if (scoringPrompt) {
           extractedScoredBodies.push(scoringPrompt.body);
-          const scoringKind = classifyScoringPrompt(scoringPrompt, candidateBody, deploymentAuditPurpose);
-          if (scoringKind === 'draft') {
-            draftScoreReceived = true;
-            draftScoreRequests.push(scoringPrompt.body);
+          const scoringKind = classifyScoringPrompt(
+            scoringPrompt,
+            candidateBody,
+            expectedDraftBody,
+            deploymentAuditPurpose,
+          );
+          if (scoringKind === 'uniqueDraft') {
+            uniqueDraftScoreRequests.push(scoringPrompt.body);
             content = '20 skeletal intent stub without an actionable procedure';
           } else if (scoringKind === 'candidate') {
-            candidateScoreReceived = true;
             candidateScoreRequests.push(scoringPrompt.body);
             content = '95 precise, complete, reusable, and actionable';
           } else {
-            content = '95 relevant, actionable, and complete';
+            otherScoreRequests.push(scoringPrompt.body);
+            content = '50 deterministic non-target score';
           }
         } else if (body.includes('No single recurring error')) {
           content = JSON.stringify({ diagnosis: 'Replace the skill', rootCause: 'skill', fixType: 'skill-edit',
@@ -375,66 +399,46 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         cleanupErrors.push(new Error(`${label}: ${String(error)}`, { cause: error }));
       }
     };
-    let createdSessions: Array<{ id: string; sdk_session_id: string | null; cwd: string }> = [];
+    let createdSessions: Array<{
+      id: string;
+      sdk_session_id: string | null;
+      parent_session_id: string | null;
+      cwd: string;
+    }> = [];
 
     try {
       if (db) {
         await attempt('enumerate owned sessions', () => {
-          createdSessions = (db.prepare('SELECT id, sdk_session_id, cwd FROM agent_sessions').all() as typeof createdSessions)
+          createdSessions = (db.prepare('SELECT id, sdk_session_id, parent_session_id, cwd FROM agent_sessions').all() as typeof createdSessions)
             .filter((row) => !baselineSessionIds.has(row.id));
         });
       }
 
       const sdkSessions = createdSessions.filter((row) => row.sdk_session_id);
-      const successfullyAborted = new Set<string>();
-      await attempt('abort owned engine sessions', async () => {
-        const aborted = await runBoundedPhase(sdkSessions, {
-          maxConcurrency: 4,
-          phaseTimeoutMs: 6_000,
-          requestTimeoutMs: 2_000,
-          operation: async (row, signal) => {
-            const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}/abort`, {
-              method: 'POST',
-              headers: { 'X-OpenCode-Directory': row.cwd },
-              signal,
-            });
-            if (!response.ok) throw new Error(`${row.sdk_session_id}: abort HTTP ${response.status}`);
-            successfullyAborted.add(row.sdk_session_id!);
-          },
-        });
-        const failures = aborted.filter((result) => result.status === 'rejected');
-        if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'engine session aborts failed');
-      });
-
-      await attempt('delete owned engine sessions', async () => {
-        const deleted = await runBoundedPhase(sdkSessions, {
-          maxConcurrency: 4,
-          phaseTimeoutMs: 12_000,
-          requestTimeoutMs: 3_000,
-          operation: async (row, signal) => {
-            const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
-              method: 'DELETE',
-              headers: { 'X-OpenCode-Directory': row.cwd },
-              signal,
-            });
-            if (!response.ok && response.status !== 404) {
-              throw new Error(`${row.sdk_session_id}: HTTP ${response.status}`);
-            }
-          },
-        });
-        const fatal: unknown[] = [];
-        deleted.forEach((result, index) => {
-          if (result.status !== 'rejected') return;
-          const sessionId = sdkSessions[index].sdk_session_id!;
-          const reason = result.reason as { name?: string };
-          const timedOut = reason?.name === 'AbortError' || reason?.name === 'TimeoutError';
-          if (timedOut && successfullyAborted.has(sessionId)) {
-            console.warn(`[S4] engine session delete timed out after abort: ${sessionId}: ${String(result.reason)}`);
-          } else {
-            fatal.push(result.reason);
+      const ownedLocalIds = new Set(createdSessions.map((row) => row.id));
+      const topLevelSessions = sdkSessions.filter((row) =>
+        !row.parent_session_id || !ownedLocalIds.has(row.parent_session_id));
+      const readOwnedSessionStatuses = async (): Promise<Map<string, string>> => {
+        const statuses = new Map<string, string>();
+        for (const cwd of new Set(sdkSessions.map((row) => row.cwd))) {
+          const response = await fetch(`${engineUrl()}/session/status`, {
+            headers: { 'X-OpenCode-Directory': cwd },
+            signal: AbortSignal.timeout(2_000),
+          });
+          if (!response.ok) throw new Error(`${cwd}: status HTTP ${response.status}`);
+          const bySdkId = await response.json() as Record<string, { type?: unknown }>;
+          for (const row of sdkSessions.filter((session) => session.cwd === cwd)) {
+            const type = bySdkId[row.sdk_session_id!]?.type;
+            if (typeof type === 'string') statuses.set(row.sdk_session_id!, type);
           }
-        });
-        if (fatal.length) throw new AggregateError(fatal, 'engine session deletes failed');
+        }
+        return statuses;
+      };
+
+      await attempt('close fixture server', async () => {
+        if (!fixture?.listening) return;
+        fixture.closeAllConnections();
+        await withTimeout(new Promise<void>((done, fail) => fixture.close((error) => error ? fail(error) : done())), 2_000, 'fixture close');
       });
 
       await attempt('restore anthropic provider', async () => {
@@ -457,20 +461,83 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
             await unlink(temporaryPath).catch(() => undefined);
           }
           expect((await api('/system/refresh', { method: 'POST', signal: AbortSignal.timeout(4_000) })).status).toBe(200);
-          const restoredResponse = await fetch(`${engineUrl()}/global/config`, { signal: AbortSignal.timeout(4_000) });
-          expect(restoredResponse.status, await restoredResponse.clone().text()).toBe(200);
-          const restored = await restoredResponse.json() as { provider?: Record<string, unknown> };
-          const restoredProviders = restored.provider ?? {};
-          if (originalAnthropicPresent) expect(restoredProviders.anthropic).toEqual(originalAnthropicProvider);
-          else expect(Object.hasOwn(restoredProviders, 'anthropic')).toBe(false);
-          expect(Object.fromEntries(Object.entries(restoredProviders).filter(([id]) => id !== providerId)))
-            .toEqual(originalOtherProviders);
         })(), 5_000, 'anthropic provider restoration');
       });
 
-      await attempt('close fixture server', async () => {
-        if (!fixture?.listening) return;
-        await withTimeout(new Promise<void>((done, fail) => fixture.close((error) => error ? fail(error) : done())), 2_000, 'fixture close');
+      let statusReadSucceeded = false;
+      let activeTopLevelSessions: typeof topLevelSessions = [];
+      await attempt('identify active owned top-level sessions', async () => {
+        const statuses = await readOwnedSessionStatuses();
+        activeTopLevelSessions = topLevelSessions.filter((row) =>
+          ['busy', 'retry'].includes(statuses.get(row.sdk_session_id!) ?? 'idle'));
+        statusReadSucceeded = true;
+      });
+
+      let abortSucceeded = statusReadSucceeded;
+      await attempt('abort active owned top-level engine sessions', async () => {
+        if (!statusReadSucceeded) return;
+        const aborted = await runBoundedPhase(activeTopLevelSessions, {
+          maxConcurrency: 4,
+          phaseTimeoutMs: 6_000,
+          requestTimeoutMs: 2_000,
+          operation: async (row, signal) => {
+            const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}/abort`, {
+              method: 'POST',
+              headers: { 'X-OpenCode-Directory': row.cwd },
+              signal,
+            });
+            if (!response.ok) throw new Error(`${row.sdk_session_id}: abort HTTP ${response.status}`);
+          },
+        });
+        const failures = aborted.filter((result) => result.status === 'rejected');
+        if (failures.length) {
+          abortSucceeded = false;
+          throw new AggregateError(failures.map((result) => result.reason), 'engine session aborts failed');
+        }
+      });
+
+      let ownedSessionsIdle = false;
+      const pollOwnedSessionsIdle = async (): Promise<void> => {
+        const deadline = Date.now() + 8_000;
+        do {
+          const statuses = await readOwnedSessionStatuses();
+          const activeIds = sdkSessions
+            .filter((row) => ['busy', 'retry'].includes(statuses.get(row.sdk_session_id!) ?? 'idle'))
+            .map((row) => row.sdk_session_id!);
+          if (activeIds.length === 0) {
+            ownedSessionsIdle = true;
+            return;
+          }
+          await new Promise((wait) => setTimeout(wait, 250));
+        } while (Date.now() < deadline);
+        throw new Error(`owned engine sessions remained active: ${sdkSessions.map((row) => row.sdk_session_id).join(',')}`);
+      };
+      await attempt('prove owned engine sessions idle', async () => {
+        if (!statusReadSucceeded || !abortSucceeded) return;
+        await pollOwnedSessionsIdle();
+      });
+
+      if (ownedSessionsIdle) await attempt('delete owned top-level engine sessions', async () => {
+        const deleted = await runBoundedPhase(topLevelSessions, {
+          maxConcurrency: 4,
+          phaseTimeoutMs: 8_000,
+          requestTimeoutMs: 3_000,
+          operation: async (row, signal) => {
+            const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
+              method: 'DELETE',
+              headers: { 'X-OpenCode-Directory': row.cwd },
+              signal,
+            });
+            if (!response.ok && response.status !== 404) {
+              throw new Error(`${row.sdk_session_id}: HTTP ${response.status}`);
+            }
+          },
+        });
+        deleted.forEach((result, index) => {
+          if (result.status !== 'rejected') return;
+          const sessionId = topLevelSessions[index].sdk_session_id!;
+          console.warn(`[S4] idle top-level engine session delete diagnostic: ${sessionId}: ${String(result.reason)}`);
+        });
       });
 
       if (db) await attempt('full producer settlement', () => waitForBroadRowsToSettle(db, { timeoutMs: 10_000 }));
@@ -526,6 +593,18 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
           expect(await fileDigest()).toBe(baselineFiles);
         });
       }
+
+      await attempt('final provider baseline assertion', async () => {
+        if (!sandboxConfigPath) return;
+        const restoredResponse = await fetch(`${engineUrl()}/global/config`, { signal: AbortSignal.timeout(4_000) });
+        expect(restoredResponse.status, await restoredResponse.clone().text()).toBe(200);
+        const restored = await restoredResponse.json() as { provider?: Record<string, unknown> };
+        const restoredProviders = restored.provider ?? {};
+        if (originalAnthropicPresent) expect(restoredProviders.anthropic).toEqual(originalAnthropicProvider);
+        else expect(Object.hasOwn(restoredProviders, 'anthropic')).toBe(false);
+        expect(Object.fromEntries(Object.entries(restoredProviders).filter(([id]) => id !== providerId)))
+          .toEqual(originalOtherProviders);
+      });
     } finally {
       if (db?.open) {
         try { db.close(); } catch (error) { cleanupErrors.push(new Error(`close database: ${String(error)}`, { cause: error })); }
@@ -599,9 +678,9 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     const gapId = slug('gap'); ids.add(gapId);
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO agent_capability_gaps
-      (id, dedup_key, intent_title, intent_problem, intent_tags_json, status, created_at, updated_at)
-      VALUES (?, ?, 'deployment audit', 'Verify immutable deployment provenance', '["deployment"]', 'open', ?, ?)`)
-      .run(gapId, gapId, now, now);
+        (id, dedup_key, intent_title, intent_problem, intent_tags_json, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`)
+      .run(gapId, gapId, deploymentGap.title, deploymentGap.problem, JSON.stringify(deploymentGap.tags), now, now);
     const installedOverlapMatches = (db.prepare('SELECT id, title, body FROM agent_skills').all() as Array<{
       id: string; title: string; body: string | null;
     }>).filter((installed) =>
@@ -629,7 +708,12 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         error: runResult.erroredReason,
         byKind: runResult.byKind,
       },
-      scorer: { candidate: candidateScoreRequests, draft: draftScoreRequests, extractedScoredBodies },
+      scorer: {
+        candidate: candidateScoreRequests,
+        uniqueDraft: uniqueDraftScoreRequests,
+        otherScore: otherScoreRequests,
+        extractedScoredBodies,
+      },
       preProviderSessionErrors: (db.prepare(`SELECT id, name, status, status_message FROM agent_sessions
         WHERE category = 'self_improvement' AND status = 'error' ORDER BY created_at`).all() as Array<Record<string, unknown>>)
         .filter((row) => !baselineSessionIds.has(String(row.id))),
@@ -637,10 +721,10 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       globalMatchingDedupRow,
       installedOverlapMatches,
     });
-    expect(candidateScoreReceived, failureDiagnostics).toBe(true);
-    expect(draftScoreReceived, failureDiagnostics).toBe(true);
     expect(candidateScoreRequests, failureDiagnostics).toHaveLength(1);
-    expect(draftScoreRequests, failureDiagnostics).toHaveLength(1);
+    expect(uniqueDraftScoreRequests, failureDiagnostics).toHaveLength(1);
+    expect(candidateScoreRequests, failureDiagnostics).toEqual([candidateBody]);
+    expect(uniqueDraftScoreRequests, failureDiagnostics).toEqual([expectedDraftBody]);
     expect(unique, failureDiagnostics).toHaveLength(1);
     const change = JSON.parse(unique[0].change_json!);
     expect(change.downloadUrl).toMatch(new RegExp(`/owner/unique/${'c'.repeat(40)}/`));
