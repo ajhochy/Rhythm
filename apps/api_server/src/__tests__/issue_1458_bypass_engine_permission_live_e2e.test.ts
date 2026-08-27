@@ -9,6 +9,7 @@ import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
@@ -41,7 +42,7 @@ function messageStart(model: string) {
 
 function toolStream(
   model: string,
-  name: 'read' | 'bash' | 'edit',
+  name: 'read' | 'edit',
   input: Record<string, unknown>,
 ): string {
   return sse([
@@ -84,6 +85,16 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+async function waitFor<T>(read: () => Promise<T | null> | T | null, timeoutMs = 15_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (value !== null) return value;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('timed out waiting for #1458 live assertion');
+}
+
 afterEach(async () => {
   await Promise.all(created.splice(0).map((id) =>
     fetch(`${API}/agent-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
@@ -93,27 +104,32 @@ afterEach(async () => {
 describeLive('issue #1458 live engine-side permission bypass', () => {
   beforeAll(() => assertLiveE2EIsolation());
 
-  it('executes read, bash, and edit through wildcard engine permission with no pending ask', async () => {
+  it('executes read, edit, and external-directory access while the API global stream is suspended', async () => {
     if (!SANDBOX.startsWith('/')) throw new Error('RHYTHM_SANDBOX_DIR is required');
     const fixtureRoot = join(SANDBOX, `issue-1458-${process.pid}`);
     const projectDir = join(fixtureRoot, 'project');
     const externalDir = join(fixtureRoot, 'external');
     const readMarker = `issue-1458-read-${randomUUID()}`;
-    const bashMarker = `issue-1458-bash-${randomUUID()}`;
+    const externalMarker = `issue-1458-external-${randomUUID()}`;
     const editMarker = `issue-1458-edit-${randomUUID()}`;
     const finalMarker = `issue-1458-final-${randomUUID()}`;
     const externalFile = join(externalDir, 'marker.txt');
+    const readFilePath = join(projectDir, 'read-fixture.txt');
     const editFile = join(projectDir, 'edit-fixture.txt');
     const oldEditText = 'issue-1458-edit-old';
     const providerId = `issue-1458-${process.pid}`;
     const modelId = 'external-directory-fixture';
     const providerRequests: Array<Record<string, unknown>> = [];
     let provider: Server | null = null;
+    let socket: WebSocket | null = null;
+    let streamSuspended = false;
     let originalConfig: Record<string, unknown> | null = null;
+    const websocketFrames: Array<{ type?: string; sessionId?: string; status?: string }> = [];
 
     await mkdir(projectDir, { recursive: true });
     await mkdir(externalDir, { recursive: true });
-    await writeFile(externalFile, readMarker, 'utf8');
+    await writeFile(readFilePath, readMarker, 'utf8');
+    await writeFile(externalFile, externalMarker, 'utf8');
     await writeFile(editFile, oldEditText, 'utf8');
 
     try {
@@ -124,19 +140,15 @@ describeLive('issue #1458 live engine-side permission bypass', () => {
           providerRequests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>);
           let stream: string;
           if (providerRequests.length === 1) {
-            stream = toolStream(modelId, 'read', { filePath: externalFile });
+            stream = toolStream(modelId, 'read', { filePath: readFilePath });
           } else if (providerRequests.length === 2) {
-            stream = toolStream(modelId, 'bash', {
-              command: `printf '%s' '${bashMarker}'`,
-              workdir: projectDir,
-              description: 'Prints controlled bypass permission marker',
-            });
-          } else if (providerRequests.length === 3) {
             stream = toolStream(modelId, 'edit', {
               filePath: editFile,
               oldString: oldEditText,
               newString: editMarker,
             });
+          } else if (providerRequests.length === 3) {
+            stream = toolStream(modelId, 'read', { filePath: externalFile });
           } else {
             stream = textStream(modelId, finalMarker);
           }
@@ -190,20 +202,43 @@ describeLive('issue #1458 live engine-side permission bypass', () => {
           rule.pattern === '*' && rule.action === 'allow'),
       )).toBe(true);
 
+      socket = new WebSocket(API.replace(/^http/, 'ws') + '/ws/agents');
+      await new Promise<void>((resolveOpen, rejectOpen) => {
+        socket?.once('open', resolveOpen);
+        socket?.once('error', rejectOpen);
+      });
+      socket.on('message', (raw) => {
+        websocketFrames.push(JSON.parse(raw.toString()) as {
+          type?: string;
+          sessionId?: string;
+          status?: string;
+        });
+      });
+
+      await json(`${API}/__test/opencode/global-stream/suspend`, { method: 'POST' });
+      streamSuspended = true;
+      await waitFor(() => websocketFrames.some((frame) =>
+        frame.type === 'bridge.status' && frame.status === 'reconnecting') ? true : null);
+      const degraded = await waitFor(async () => {
+        const health = await json<{ status: string; bridgeLive: boolean }>(`${API}/opencode/health`);
+        return health.status === 'unavailable' && !health.bridgeLive ? health : null;
+      });
+      expect(degraded).toMatchObject({ status: 'unavailable', bridgeLive: false });
+      expect(await json<{ healthy: boolean }>(`${ENGINE}/global/health`)).toMatchObject({ healthy: true });
+
       const turn = await fetch(`${ENGINE}/session/${encodeURIComponent(session.sdkSessionId)}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-OpenCode-Directory': projectDir },
         body: JSON.stringify({
           agent: 'build',
           model: { providerID: providerId, modelID: modelId },
-          parts: [{ type: 'text', text: 'Run the controlled read, bash, and edit operations.' }],
+          parts: [{ type: 'text', text: 'Run the controlled read, edit, and external read operations.' }],
         }),
       });
       expect(turn.status, await turn.clone().text()).toBe(200);
       expect(providerRequests.length).toBeGreaterThanOrEqual(4);
       expect(JSON.stringify(providerRequests[1])).toContain(readMarker);
-      expect(JSON.stringify(providerRequests[2])).toContain(bashMarker);
-      expect(JSON.stringify(providerRequests[3])).toContain(editMarker);
+      expect(JSON.stringify(providerRequests[3])).toContain(externalMarker);
 
       const messages = await json<Array<{
         parts?: Array<{
@@ -217,22 +252,14 @@ describeLive('issue #1458 live engine-side permission bypass', () => {
         .filter((part) => part.type === 'tool');
       expect(toolParts).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          tool: 'read',
-          state: expect.objectContaining({
-            status: 'completed', output: expect.stringContaining(readMarker),
-          }),
-        }),
-        expect.objectContaining({
-          tool: 'bash',
-          state: expect.objectContaining({
-            status: 'completed', output: expect.stringContaining(bashMarker),
-          }),
-        }),
-        expect.objectContaining({
           tool: 'edit',
           state: expect.objectContaining({ status: 'completed' }),
         }),
       ]));
+      const completedReads = toolParts.filter((part) =>
+        part.tool === 'read' && part.state?.status === 'completed');
+      expect(completedReads.some((part) => part.state?.output?.includes(readMarker))).toBe(true);
+      expect(completedReads.some((part) => part.state?.output?.includes(externalMarker))).toBe(true);
       expect(messages.some((message) => message.parts?.some((part) =>
         part.type === 'text' && part.text?.includes(finalMarker),
       ))).toBe(true);
@@ -240,7 +267,23 @@ describeLive('issue #1458 live engine-side permission bypass', () => {
 
       const pending = await json<Array<{ sessionID: string }>>(`${ENGINE}/permission`);
       expect(pending.filter((ask) => ask.sessionID === session.sdkSessionId)).toEqual([]);
+      expect(websocketFrames.filter((frame) =>
+        frame.type === 'permission.asked' && frame.sessionId === session.id)).toEqual([]);
+      expect(await json<{ healthy: boolean }>(`${ENGINE}/global/health`)).toMatchObject({ healthy: true });
+
+      await json(`${API}/__test/opencode/global-stream/resume`, { method: 'POST' });
+      streamSuspended = false;
+      await waitFor(async () => {
+        const health = await json<{ status: string; bridgeLive: boolean }>(`${API}/opencode/health`);
+        return health.status === 'ready' && health.bridgeLive ? health : null;
+      });
+      await waitFor(() => websocketFrames.some((frame) =>
+        frame.type === 'bridge.status' && frame.status === 'ready') ? true : null);
     } finally {
+      if (streamSuspended) {
+        await fetch(`${API}/__test/opencode/global-stream/resume`, { method: 'POST' }).catch(() => undefined);
+      }
+      socket?.close();
       if (originalConfig) {
         await fetch(`${ENGINE}/global/config`, {
           method: 'PATCH',

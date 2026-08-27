@@ -281,6 +281,7 @@ export class OpencodeStreamBridge {
   private globalRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private globalRetryAttempt = 0;
   private globalBridgeStatus: 'ready' | 'reconnecting' = 'ready';
+  private globalStreamSuspendedForLiveTest = false;
   private disposed = false;
   private engineHealthCheckInFlight = false;
   private engineIdentityKey: string | null = null;
@@ -296,7 +297,7 @@ export class OpencodeStreamBridge {
   /** True only while the bridge has a current subscription receiving frames. */
   get isLive(): boolean {
     if (useGlobalStream()) {
-      return this.globalStream !== null &&
+      return !this.globalStreamSuspendedForLiveTest && this.globalStream !== null &&
         Date.now() - this.lastGlobalActivity <= HEARTBEAT_WATCHDOG_MS;
     }
     return this.streamsByDirectory.size > 0;
@@ -781,7 +782,7 @@ export class OpencodeStreamBridge {
    * every session start; a no-op once the stream is live.
    */
   async ensureGlobalStream(): Promise<void> {
-    if (!useGlobalStream() || this.disposed) return;
+    if (!useGlobalStream() || this.disposed || this.globalStreamSuspendedForLiveTest) return;
     if (this.globalStream || this.globalRetryTimer || this.globalSubscribeInFlight) return;
     this.globalSubscribeInFlight = true;
     let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
@@ -797,6 +798,10 @@ export class OpencodeStreamBridge {
     if (!sub) {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream: no global stream available');
       this.scheduleGlobalRetry();
+      return;
+    }
+    if (this.globalStreamSuspendedForLiveTest) {
+      sub.abort();
       return;
     }
     const recovered = this.globalBridgeStatus === 'reconnecting';
@@ -845,7 +850,7 @@ export class OpencodeStreamBridge {
 
   private scheduleGlobalRetry(): void {
     opencodeEventHub.setLive(false);
-    if (this.disposed || this.globalRetryTimer) return;
+    if (this.disposed || this.globalStreamSuspendedForLiveTest || this.globalRetryTimer) return;
     const delay = Math.min(
       GLOBAL_RETRY_INITIAL_MS * (2 ** this.globalRetryAttempt),
       GLOBAL_RETRY_MAX_MS,
@@ -948,6 +953,45 @@ export class OpencodeStreamBridge {
     } finally {
       this.globalResubscribing = false;
     }
+  }
+
+  suspendGlobalStreamForLiveTest(): void {
+    if (
+      process.env.RHYTHM_LIVE_E2E !== '1' ||
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1'
+    ) {
+      throw new Error('isolated live E2E bridge control is disabled');
+    }
+    this.globalStreamSuspendedForLiveTest = true;
+    if (this.globalRetryTimer) {
+      clearTimeout(this.globalRetryTimer);
+      this.globalRetryTimer = null;
+    }
+    const active = this.globalStream;
+    this.globalStream = null;
+    if (active) {
+      clearInterval(active.watchdog);
+      active.abort();
+    }
+    opencodeEventHub.setLive(false);
+    this.globalBridgeStatus = 'reconnecting';
+    broadcast({
+      v: 1,
+      type: 'bridge.status',
+      status: 'reconnecting',
+      message: 'Agent updates interrupted — reconnecting…',
+    });
+  }
+
+  async resumeGlobalStreamForLiveTest(): Promise<void> {
+    if (
+      process.env.RHYTHM_LIVE_E2E !== '1' ||
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1'
+    ) {
+      throw new Error('isolated live E2E bridge control is disabled');
+    }
+    this.globalStreamSuspendedForLiveTest = false;
+    await this.ensureGlobalStream();
   }
 
   /**

@@ -77,6 +77,10 @@ import {
   transcriptShareCreationRouter,
 } from './routes/shared_transcripts_routes';
 
+export function isLoopbackAddress(address: string | undefined): boolean {
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
 export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
 
@@ -194,6 +198,21 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   // handlers) so concurrent handler-owning issues (#736/#765/#737) are left
   // untouched.
   if (env.agentExecutionEnabled) {
+    if (
+      process.env.RHYTHM_LIVE_E2E === '1' &&
+      process.env.RHYTHM_LIVE_E2E_ISOLATED === '1'
+    ) {
+      app.post('/__test/opencode/global-stream/suspend', (req, res) => {
+        if (!isLoopbackAddress(req.socket.remoteAddress)) return res.sendStatus(404);
+        streamBridge.suspendGlobalStreamForLiveTest();
+        return res.json({ status: 'suspended' });
+      });
+      app.post('/__test/opencode/global-stream/resume', async (req, res) => {
+        if (!isLoopbackAddress(req.socket.remoteAddress)) return res.sendStatus(404);
+        await streamBridge.resumeGlobalStreamForLiveTest();
+        return res.json({ status: 'resumed' });
+      });
+    }
     app.use('/dev', devLogsRouter);
     app.use(
       '/mobile-gateway',
