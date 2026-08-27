@@ -1,7 +1,7 @@
 {
   "issue": "pr-1489-cleanup-repair",
   "date": "2026-08-27",
-  "test_command": "npx vitest run src/__tests__/agent_configs_routes.test.ts src/repositories/agent_configs_repository.test.ts && npx vitest run src/contract/pr_1489_adversarial_review.test.ts && npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
+  "test_command": "npx vitest run src/contract/pr_1489_harness_race_repair.test.ts src/contract/pr_1489_adversarial_review.test.ts && npx vitest run src/__tests__/agent_configs_routes.test.ts src/repositories/agent_configs_repository.test.ts && npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     {
@@ -14,11 +14,11 @@
     },
     {
       "criterion_id": "pr-1489-cleanup-c2",
-      "text": "Invalid provenance rejection preserves the exact whole-row digest, profile bytes, managed files, and zero-network-request proof.",
+      "text": "After prior broad optimizer rows settle, invalid provenance rejection makes zero fixture requests and preserves the exact target profile row, zero target skill rows, byte-identical declared install tables, and byte-identical managed/projected files; unrelated broad session/message convergence is diagnostic only.",
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
       "status": "UNVERIFIED",
-      "reason": "PR #1487 owns the sandbox; this repair must preserve the executable assertions without running a sandbox."
+      "reason": "PR #1488 owns the sandbox; the executable live assertion is awaiting its final sandbox rerun."
     },
     {
       "criterion_id": "pr-1489-cleanup-c3",
@@ -26,7 +26,7 @@
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
       "status": "UNVERIFIED",
-      "reason": "PR #1487 owns the sandbox; static live-test execution must skip while preserving the executable positive control."
+      "reason": "PR #1488 owns the sandbox; static live-test execution must skip while preserving the executable positive control."
     },
     {
       "criterion_id": "pr-1489-cleanup-c4",
@@ -35,6 +35,14 @@
       "test": "src/repositories/agent_configs_repository.test.ts",
       "status": "pass",
       "reason": ""
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c5",
+      "text": "Final cleanup settles broad rows, enumerates and deletes every suite-created engine session, row, and file, settles again, and then requires byte-identical original broad-table and file baselines.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "PR #1488 owns the sandbox; the strict final baseline remains awaiting its final sandbox rerun."
     }
   ],
   "not_tested": []

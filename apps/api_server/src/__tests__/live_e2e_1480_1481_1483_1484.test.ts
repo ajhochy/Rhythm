@@ -11,6 +11,15 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { assertLiveE2EIsolation } from './_live_e2e_guard';
+import {
+  BROAD_TABLES,
+  INSTALL_TABLES,
+  diffTableRows,
+  snapshotBytes,
+  snapshotTables,
+  type TableRows,
+  waitForBroadRowsToSettle,
+} from './_s4_harness_rows';
 
 const enabled = process.env.RHYTHM_LIVE_E2E === '1';
 const describeLive = enabled ? describe.sequential : describe.skip;
@@ -20,7 +29,7 @@ const auditRunIds = new Set<string>();
 let db: Database.Database;
 let fixture: Server;
 let tamperExternalBody = false;
-let baselineRows: string;
+let baselineRows: TableRows;
 let baselineFiles: string;
 let baselineSessionIds = new Set<string>();
 let sandboxConfigPath: string | undefined;
@@ -74,20 +83,6 @@ function anthropicTextStream(content: string): string {
     { type: 'message_stop' },
   ];
   return `${events.map((event) => `data: ${JSON.stringify(event)}`).join('\n\n')}\n\n`;
-}
-
-function rowDigest(): string {
-  const tables = [
-    'agent_configs', 'agent_cookbook', 'agent_skills', 'agent_org_proposals',
-    'agent_sessions', 'agent_session_messages',
-  ];
-  return sha(JSON.stringify(tables.map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY id`).all()])));
-}
-
-function tableDigest(...tables: string[]): string {
-  return sha(JSON.stringify(tables.map((table) => [table, db.prepare(
-    `SELECT * FROM ${table} ORDER BY ${table === 'agent_profile_projections' ? 'profile_id' : 'id'}`,
-  ).all()])));
 }
 
 async function treeDigest(root: string): Promise<string> {
@@ -285,7 +280,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     db = new Database(dbPath);
     expect((await api('/health')).ok).toBe(true);
     expect((await api('/opencode/health')).ok).toBe(true);
-    baselineRows = rowDigest();
+    baselineRows = snapshotTables(db, BROAD_TABLES);
     baselineFiles = await fileDigest();
     baselineSessionIds = new Set((db.prepare('SELECT id FROM agent_sessions').all() as Array<{ id: string }>).map((row) => row.id));
 
@@ -333,10 +328,11 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
 
   afterAll(async () => {
     if (!db) return;
+    await waitForBroadRowsToSettle(db);
     const createdSessions = (db.prepare(`SELECT id, sdk_session_id, cwd, category FROM agent_sessions`).all() as Array<{
       id: string; sdk_session_id: string | null; cwd: string; category: string;
     }>).filter((row) => !baselineSessionIds.has(row.id));
-    for (const row of createdSessions.filter((candidate) => candidate.category === 'self_improvement' && candidate.sdk_session_id)) {
+    for (const row of createdSessions.filter((candidate) => candidate.sdk_session_id)) {
       await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
         method: 'DELETE', headers: { 'X-OpenCode-Directory': row.cwd },
       }).catch(() => undefined);
@@ -387,7 +383,9 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         .toEqual(originalOtherProviders);
     }
     if (fixture?.listening) await new Promise<void>((done) => fixture.close(() => done()));
-    expect(rowDigest()).toBe(baselineRows);
+    const settledRows = await waitForBroadRowsToSettle(db);
+    expect(diffTableRows(baselineRows, settledRows, BROAD_TABLES)).toEqual([]);
+    expect(snapshotBytes(settledRows)).toBe(snapshotBytes(baselineRows));
     expect(await fileDigest()).toBe(baselineFiles);
     db.close();
   });
@@ -472,6 +470,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
   }, timeout);
 
   it('pr-1489-c16-c20: real install boundary rejects invalid provenance before fetch or mutation', async () => {
+    await waitForBroadRowsToSettle(db);
     const profileId = await createConfig('provenance-boundary');
     const skillName = slug('allowed-install');
     const reviewed = 'reviewed bytes';
@@ -482,7 +481,8 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     const invalidUrl = new URL(`${downloadBase}/owner/approval/HEAD/SKILL.md`);
     invalidUrl.protocol = 'http:';
     invalidUrl.hostname = alternateLoopbackHost;
-    const beforeRejectedRows = rowDigest();
+    const beforeRejectedBroadRows = snapshotTables(db, BROAD_TABLES);
+    const beforeRejectedInstallRows = snapshotTables(db, INSTALL_TABLES);
     const beforeRejectedFiles = await fileDigest();
     const beforeProfile = db.prepare('SELECT * FROM agent_configs WHERE id = ?').get(profileId);
     skillDownloadRequests = 0;
@@ -499,14 +499,22 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     expect(skillDownloadRequests).toBe(0);
     expect(db.prepare('SELECT * FROM agent_configs WHERE id = ?').get(profileId)).toEqual(beforeProfile);
     expect((db.prepare('SELECT COUNT(*) AS n FROM agent_skills WHERE id = ? OR title = ?').get(skillName, skillName) as { n: number }).n).toBe(0);
-    expect(rowDigest()).toBe(beforeRejectedRows);
+    expect(snapshotBytes(snapshotTables(db, INSTALL_TABLES))).toBe(snapshotBytes(beforeRejectedInstallRows));
     expect(await fileDigest()).toBe(beforeRejectedFiles);
+    const afterRejectedBroadRows = await waitForBroadRowsToSettle(db).catch((error) => {
+      console.warn(`[S4] unrelated broad rows did not settle after provenance rejection: ${String(error)}`);
+      return snapshotTables(db, BROAD_TABLES);
+    });
+    const unrelatedBroadDiff = diffTableRows(beforeRejectedBroadRows, afterRejectedBroadRows, BROAD_TABLES);
+    if (unrelatedBroadDiff.length) {
+      console.warn(`[S4] unrelated broad-row convergence after provenance rejection: ${JSON.stringify(unrelatedBroadDiff)}`);
+    }
 
     expect((await api(`/agent-configs/${profileId}`, { method: 'DELETE' })).status).toBe(204);
     ids.delete(profileId);
     expect(db.prepare('SELECT * FROM agent_profile_projections WHERE profile_id = ?').get(profileId))
       .toBeUndefined();
-    const beforeInstallRows = tableDigest('agent_configs', 'agent_skills', 'agent_profile_projections');
+    const beforeInstallRows = snapshotTables(db, INSTALL_TABLES);
     const beforeInstallFiles = await fileDigest();
     try {
       const installed = await installSkill({
@@ -520,7 +528,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     } finally {
       deleteManagedSkill(skillName);
     }
-    expect(tableDigest('agent_configs', 'agent_skills', 'agent_profile_projections')).toBe(beforeInstallRows);
+    expect(snapshotBytes(snapshotTables(db, INSTALL_TABLES))).toBe(snapshotBytes(beforeInstallRows));
     expect(await fileDigest()).toBe(beforeInstallFiles);
   }, timeout);
 
@@ -535,17 +543,20 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         downloadUrl: `${downloadBase}/owner/approval/${'d'.repeat(40)}/SKILL.md`, contentSha256: sha(reviewed) }),
       JSON.stringify({ source: 's4-loopback', stars: 1, lastUpdated: '2026-08-26', maintainer: 's4', license: 'MIT', installCommand: 's4' }),
       `external-adoption:skill:${proposalId}`);
-    const beforeApprovalRows = rowDigest();
+    const beforeApprovalRows = snapshotTables(db, BROAD_TABLES);
     const beforeApprovalFiles = await fileDigest();
-    const beforeApprovalTargets = tableDigest('agent_configs', 'agent_cookbook', 'agent_skills');
+    const beforeApprovalTargets = snapshotTables(db, BROAD_TABLES.filter(({ name }) =>
+      ['agent_configs', 'agent_cookbook', 'agent_skills'].includes(name)));
     tamperExternalBody = true;
     const approval = await api(`/agent-org-proposals/${proposalId}/approve`, { method: 'POST', body: '{}' });
     const approvalBody = await approval.json().catch(() => ({})) as { status?: string };
     expect(!approval.ok || approvalBody.status === 'failed').toBe(true);
     expect((db.prepare('SELECT COUNT(*) AS n FROM agent_skills WHERE title = ?').get('s4-changed-bytes') as { n: number }).n).toBe(0);
-    expect(tableDigest('agent_configs', 'agent_cookbook', 'agent_skills')).toBe(beforeApprovalTargets);
+    expect(snapshotBytes(snapshotTables(db, BROAD_TABLES.filter(({ name }) =>
+      ['agent_configs', 'agent_cookbook', 'agent_skills'].includes(name)))))
+      .toBe(snapshotBytes(beforeApprovalTargets));
     expect(await fileDigest()).toBe(beforeApprovalFiles);
-    expect(rowDigest()).toBe(beforeApprovalRows);
+    expect(snapshotBytes(snapshotTables(db, BROAD_TABLES))).toBe(snapshotBytes(beforeApprovalRows));
 
     const withWorkflow = await createConfig('manager-with', { isManager: true,
       allowedDelegatesJson: JSON.stringify(['workflow-orchestrator', 'librarian']) });

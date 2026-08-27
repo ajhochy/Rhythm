@@ -1,0 +1,8 @@
+{
+  "issue": "pr-1489-final-harness-repair",
+  "date": "2026-08-27",
+  "test_command": "npx vitest run src/contract/pr_1489_harness_race_repair.test.ts src/contract/pr_1489_adversarial_review.test.ts && npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
+  "waiver": "WAIVED: test-harness-only race repair with no production behavior change; verification is static harness/adversarial/focused tests, live normal skip/fail-closed checks, build/tsc/diff gates, and the sandbox owner’s final live rerun.",
+  "criteria": [],
+  "not_tested": []
+}
