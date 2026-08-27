@@ -83,7 +83,7 @@ export class DashboardSummaryService {
     const weekEnd = endOfIsoWeek(today);
 
     // ── Tasks ──────────────────────────────────────────────────────────────────
-    const openTasks = tasks.filter((t) => t.status !== 'done');
+    const openTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'deferred');
 
     const pastDue = openTasks.filter((t) => {
       const d = priorityDate(t);

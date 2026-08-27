@@ -244,8 +244,8 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: 'Medium', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
     createdAt: string(source.createdAt, new Date(0).toISOString()), updatedAt: string(source.updatedAt, string(source.createdAt, new Date(0).toISOString())), cost: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalBudget: 0,
     // post-m1-phase-5 c2d: preserve canonical delegation identity instead of dropping it — a
-    // child's parentSessionId is what makes its transcript/composer read-only, never a fixture-only
-    // `parentId`. apps/api_server/src/models/agent_session.ts:46-145.
+    // child's canonical parentSessionId is normalized into the web model's parentId; both fields
+    // remain aligned for consumers that still read the API-shaped name.
     parentId: parentSessionId,
     parentSessionId,
     opencodeAgentId: string(source.opencodeAgentId) || undefined,

@@ -246,6 +246,72 @@ describe('AgentSessionsRepository', () => {
       );
     });
 
+    it('issue-1466-c4: root quota follows last activity instead of creation time', () => {
+      // Regression caught: an old root waiting for user input falls outside the
+      // newest 100 roots even after its preview activity is refreshed.
+      const oldRoot = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Old active root',
+      });
+      getDb().prepare(`UPDATE agent_sessions SET created_at = ?, updated_at = ?, last_activity_at = ? WHERE id = ?`).run(
+        '2000-01-01T00:00:00.000Z',
+        '2000-01-01T00:00:00.000Z',
+        '2099-01-01T00:00:00.000Z',
+        oldRoot.id,
+      );
+      for (let index = 0; index < 100; index += 1) {
+        const root = repo.insert({
+          agentKind: 'claude-code', taskId: null, cwd: '/a', name: `New root ${index}`,
+        });
+        const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
+        getDb().prepare(`UPDATE agent_sessions SET created_at = ?, updated_at = ? WHERE id = ?`).run(
+          timestamp,
+          timestamp,
+          root.id,
+        );
+      }
+
+      expect(repo.listAll(100, { scope: 'chats' }).map((session) => session.id)).toContain(oldRoot.id);
+    });
+
+    it('issue-1466-c5: nested descendants stay bounded', () => {
+      // Regression caught: one rail refresh returns an unbounded recursive
+      // SELECT * result when a root has accumulated many descendants.
+      const parent = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Bounded parent',
+      });
+      repo.setSdkSessionId(parent.id, 'sdk-parent-bounded');
+      for (let index = 0; index < 501; index += 1) {
+        repo.upsertChildSession(
+          `sdk-child-bounded-${index}`,
+          'sdk-parent-bounded',
+          `Bounded child ${index}`,
+          '/a',
+        );
+      }
+
+      const [root] = repo.listAll(1, { scope: 'chats' });
+      expect(root.children).toHaveLength(500);
+    });
+
+    it('issue-1466-c6: nested descendants retain the root archive, scope, and system filters', () => {
+      // Regression caught: attachChildren reintroduces archived, system, or
+      // cross-category rows after listAll filters the root query.
+      const parent = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Filtered parent',
+      });
+      repo.setSdkSessionId(parent.id, 'sdk-parent-filtered');
+      const visible = repo.upsertChildSession('sdk-child-visible', 'sdk-parent-filtered', 'Visible', '/a')!;
+      const archived = repo.upsertChildSession('sdk-child-archived', 'sdk-parent-filtered', 'Archived', '/a')!;
+      const system = repo.upsertChildSession('sdk-child-system', 'sdk-parent-filtered', 'System', '/a')!;
+      const scheduled = repo.upsertChildSession('sdk-child-scheduled', 'sdk-parent-filtered', 'Scheduled', '/a')!;
+      getDb().prepare(`UPDATE agent_sessions SET archived_at = ? WHERE id = ?`).run('2026-01-01T00:00:00.000Z', archived.id);
+      getDb().prepare(`UPDATE agent_sessions SET is_system = 1 WHERE id = ?`).run(system.id);
+      getDb().prepare(`UPDATE agent_sessions SET category = 'scheduled' WHERE id = ?`).run(scheduled.id);
+
+      const [root] = repo.listAll(1, { scope: 'chats' });
+      expect(root.children?.map((child) => child.id)).toEqual([visible.id]);
+    });
+
     it('the three scopes return disjoint row sets', () => {
       const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
       const scheduled = repo.insert({

@@ -222,7 +222,7 @@ class DashboardController extends ChangeNotifier {
     if (task == null) return;
     try {
       await _repository.toggleTaskDone(id, task.status.toJson());
-      if (task.status != TaskStatus.done) {
+      if (task.status.isActive) {
         _completionAffirmation = 'That moved the week forward. Nicely done.';
       }
       await refresh();
@@ -314,7 +314,7 @@ class DashboardController extends ChangeNotifier {
   }
 
   static bool _hasOpenHandoffContext(Task task) {
-    if (task.status == TaskStatus.done) return false;
+    if (!task.status.isActive) return false;
     return task.isShared || task.collaborators.isNotEmpty;
   }
 

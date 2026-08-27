@@ -81,10 +81,10 @@ test('issue-1476-c1: canonical nested API children render beneath their parent, 
 
   const active = page.getByTestId('group-active').locator('..');
   await expect(active.getByTestId(`session-${localSessionId}`)).toBeVisible();
-  const parentTree = page.getByTestId(`session-tree-${localSessionId}`);
-  const nestedChild = parentTree.getByTestId('session-issue-1476-child');
+  const nestedChild = page.getByTestId('session-issue-1476-child');
   await expect(nestedChild).toBeVisible();
   await expect(nestedChild).toHaveClass(/child-session/);
+  await expect(active.locator('.session-row').filter({ hasText: 'Nested delegated child' })).toHaveCount(0);
   const parent = page.getByTestId(`session-${localSessionId}`);
   const [parentBox, childBox] = await Promise.all([
     parent.boundingBox(),

@@ -75,6 +75,16 @@ test('issue-1477-c1: session header asset, title, branch, and connection text do
   await expect(header).not.toContainText(assetIcon);
   const avatar = header.locator('.profile-avatar');
   await expect(avatar).toHaveText('AP');
+  const avatarContainment = await avatar.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      overflow: style.overflow,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    };
+  });
+  expect(avatarContainment.overflow).toBe('hidden');
+  expect(avatarContainment.scrollWidth).toBeLessThanOrEqual(avatarContainment.clientWidth);
   const title = header.locator('h1');
   const branch = header.locator('.session-meta > span').first();
   const status = header.getByTestId('connection-status');

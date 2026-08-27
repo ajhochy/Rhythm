@@ -55,6 +55,14 @@ function pickSession(s: Record<string, unknown>): AgentSessionLite {
   };
 }
 
+function flattenSessions(sessions: unknown[]): Record<string, unknown>[] {
+  return sessions.flatMap((value) => {
+    const session = value as Record<string, unknown>;
+    const children = Array.isArray(session.children) ? session.children : [];
+    return [session, ...flattenSessions(children)];
+  });
+}
+
 function pickMessage(m: Record<string, unknown>): AgentSessionMessageLite {
   // Prefer the stripped (display) text; fall back to the raw text.
   const body =
@@ -125,7 +133,7 @@ Used by the Memory Consolidation task to review the past day's sessions before c
             "/agent-sessions",
           );
           const sessions = Array.isArray(res?.sessions)
-            ? res.sessions.map((s) => pickSession(s as Record<string, unknown>))
+            ? flattenSessions(res.sessions).map(pickSession)
             : [];
           result = { sessions };
         }

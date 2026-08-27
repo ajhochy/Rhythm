@@ -207,6 +207,7 @@ void main() {
     expect(find.text('No tasks in In progress'), findsOneWidget);
     expect(find.text('No tasks in Waiting for reply'), findsOneWidget);
     expect(find.text('No tasks in Done'), findsOneWidget);
+    expect(find.text('No tasks in Deferred'), findsOneWidget);
   });
 
   testWidgets('issue-1037-c6: no task card appears in more than one column', (

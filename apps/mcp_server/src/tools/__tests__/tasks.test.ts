@@ -306,3 +306,16 @@ describe('registerTaskTools — rhythm_list_tasks', () => {
     expect(result.content[0].text.length).toBeLessThanOrEqual(24_000);
   });
 });
+
+describe('registerTaskTools — rhythm_update_task', () => {
+  it('issue-1475: accepts deferred in the public MCP status schema', () => {
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerTaskTools(server as any, API_URL, API_TOKEN);
+    const status = tools.get('rhythm_update_task')!.shape.status as {
+      safeParse(value: unknown): { success: boolean };
+    };
+
+    expect(status.safeParse('deferred').success).toBe(true);
+  });
+});

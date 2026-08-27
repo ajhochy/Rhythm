@@ -4,6 +4,8 @@ import 'task_collaborator.dart';
 enum TaskStatus { open, inProgress, waitingForReply, done, deferred }
 
 extension TaskStatusJson on TaskStatus {
+  bool get isActive => this != TaskStatus.done && this != TaskStatus.deferred;
+
   String toJson() {
     switch (this) {
       case TaskStatus.open:

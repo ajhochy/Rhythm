@@ -26,7 +26,7 @@ function parseNameList(raw: string | null | undefined): string[] {
 const looksLikeAssetPath = (icon: string) => icon.includes('/') || /\.[a-z0-9]+$/i.test(icon);
 const profileInitials = (label: string) => label.trim().split(/\s+/).slice(0, 2).map((part) => Array.from(part)[0]).join('').toUpperCase() || 'AG';
 export const profileAvatarLabel = (profile: Pick<Profile, 'icon' | 'label'>) => profile.icon && !looksLikeAssetPath(profile.icon) && profile.icon.length <= 3 ? profile.icon : profileInitials(profile.label);
-function ProfileAvatar({ profile, size }: { profile: Profile; size?: 'large' | 'tiny' }) {
+export function ProfileAvatar({ profile, size }: { profile: Profile; size?: 'large' | 'tiny' }) {
   // ponytail: Flutter agent assets are not shipped by the web bundle, so avoid a known-broken img.
   return <span className={`profile-avatar${size ? ` ${size}` : ''}`} aria-label={`${profile.label} icon`}>{profileAvatarLabel(profile)}</span>;
 }

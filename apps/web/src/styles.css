@@ -81,7 +81,7 @@ button:disabled, input:disabled, textarea:disabled, select:disabled { cursor: no
 .icon-button.small { width: 36px; height: 36px; }
 .profile-control { min-height: 44px; max-width: 188px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 14px; align-items: center; gap: 7px; padding: 4px 8px 4px 5px; border: 1px solid var(--border-soft); border-radius: var(--r-sm); color: var(--fg-2); background: var(--surface); cursor: pointer; text-align: left; }
 .profile-control:hover { color: var(--fg); border-color: var(--border); }
-.avatar, .profile-avatar { display: inline-grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; color: var(--fg); background: var(--surface-warm); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.avatar, .profile-avatar { display: inline-grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; overflow: hidden; white-space: nowrap; border-radius: 50%; color: var(--fg); background: var(--surface-warm); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 .account-copy { min-width: 0; display: grid; line-height: 1.25; }
 .account-copy strong, .account-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-copy strong { font-size: 12px; font-weight: 600; }

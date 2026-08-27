@@ -115,6 +115,12 @@ describe("issue-806: rhythm_list_sessions lists sessions from the local agent ba
           // Extra prod-y fields must be projected away.
           cwd: "/secret/path",
           sdkSessionId: "sdk-abc",
+          children: [{
+            id: "ses-child",
+            name: "Delegated child",
+            agentKind: "research",
+            lastActivityAt: "2026-06-28T10:01:00.000Z",
+          }],
         },
       ],
       resumable: [],
@@ -139,7 +145,7 @@ describe("issue-806: rhythm_list_sessions lists sessions from the local agent ba
     const parsed = parseFencedJson(res.content[0].text) as {
       sessions: Array<Record<string, unknown>>;
     };
-    expect(parsed.sessions).toHaveLength(1);
+    expect(parsed.sessions).toHaveLength(2);
     expect(parsed.sessions[0]).toEqual({
       id: "ses-1",
       name: "Refactor tasks",
@@ -149,6 +155,12 @@ describe("issue-806: rhythm_list_sessions lists sessions from the local agent ba
     // Private fields must not leak into the projection.
     expect(parsed.sessions[0]).not.toHaveProperty("cwd");
     expect(parsed.sessions[0]).not.toHaveProperty("sdkSessionId");
+    expect(parsed.sessions[1]).toEqual({
+      id: "ses-child",
+      name: "Delegated child",
+      agentKind: "research",
+      lastActivityAt: "2026-06-28T10:01:00.000Z",
+    });
   });
 
   // Regression caught: given a sessionId the tool must hit the messages

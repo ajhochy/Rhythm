@@ -141,6 +141,17 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   };
   const projects = useMemo(() => [...new Set(sessions.filter((session) => session.scope === 'chats').map((session) => session.projectName))], [sessions]);
   const visible = useMemo(() => sessions.filter((session) => session.scope === scope && !session.parentId && (scope !== 'chats' || project === 'all' || session.projectName === project) && `${session.name} ${session.projectName} ${sessionPresentation(session).label}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => sort === 'oldest' ? a.createdAt.localeCompare(b.createdAt) : sort === 'name' ? a.name.localeCompare(b.name) : sort === 'activity' ? b.updatedAt.localeCompare(a.updatedAt) : sort === 'status' ? sessionPresentation(a).label.localeCompare(sessionPresentation(b).label) : b.createdAt.localeCompare(a.createdAt)), [sessions, scope, project, search, sort]);
+  const sessionsById = useMemo(() => new Map(sessions.map((session) => [session.id, session])), [sessions]);
+  const childrenByParent = useMemo(() => {
+    const result = new Map<string, Session[]>();
+    for (const session of sessions) {
+      if (!session.parentId) continue;
+      const children = result.get(session.parentId) ?? [];
+      children.push(session);
+      result.set(session.parentId, children);
+    }
+    return result;
+  }, [sessions]);
   const toggleRow = (id: string, additive: boolean) => { if (!additive) { setSelectedRows([]); if (sessionGatewayMode === 'live') void selectLiveSession(id); else selectSession(id); return; } setSelectedRows((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); };
   const removeSession = (id: string) => sessionGatewayMode === 'live' ? deleteLiveSession(id) : Promise.resolve(deleteSession(id));
   const openTool = (key: string) => navigate(key === 'profiles' ? '/profiles' : `/tools/${key}`);
@@ -149,12 +160,12 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
 
   const childDepth = (session: Session) => {
     let depth = 0; let current: Session | undefined = session;
-    while (current?.parentId && depth < 4) { depth += 1; current = sessions.find((item) => item.id === current?.parentId); }
+    while (current?.parentId && depth < 4) { depth += 1; current = sessionsById.get(current.parentId); }
     return depth;
   };
   const sessionRow = (session: Session, child = false) => {
     const presentation = sessionPresentation(session);
-    const parentSession = session.parentId ? sessions.find((item) => item.id === session.parentId) : undefined;
+    const parentSession = session.parentId ? sessionsById.get(session.parentId) : undefined;
     return (
     <div className={`session-row-wrap ${child ? 'child-wrap' : ''}`} key={session.id} data-session-menu={session.id} style={child ? { '--child-depth': childDepth(session) } as React.CSSProperties : undefined}>
       <button id={`session-${session.id}`} className={`${child ? 'child-session' : 'session-row'} ${selectedId === session.id ? 'selected' : ''} ${selectedRows.includes(session.id) ? 'multi-selected' : ''}`} type="button" onClick={(event) => toggleRow(session.id, event.shiftKey || event.metaKey)} aria-current={selectedId === session.id ? 'true' : undefined} aria-pressed={selectedRows.includes(session.id)} data-testid={`session-${session.id}`}>
@@ -171,14 +182,13 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
   };
 
   const sessionTree = (session: Session, child = false): React.ReactNode => {
-    const children = sessions.filter((candidate) => candidate.parentId === session.id);
-    return <div className="session-tree-group" key={session.id} data-testid={`session-tree-${session.id}`}>
-      {sessionRow(session, child)}
-      {expanded.children && children.map((nestedChild) => sessionTree(nestedChild, true))}
-    </div>;
+    const children = childrenByParent.get(session.id) ?? [];
+    return [
+      sessionRow(session, child),
+      ...(expanded.children ? children.map((nestedChild) => sessionTree(nestedChild, true)) : []),
+    ];
   };
 
-  const childSessions = sessions.filter((session) => session.parentId && session.scope === scope);
   return <aside className="session-rail" aria-label="Agents" data-od-id="sessions-tools-rail">
     <header className={`rail-header ${searchOpen ? 'searching' : ''}`}>
       {searchOpen ? <label className="rail-title-search"><Icon name="search" size={15} /><span className="sr-only">Search sessions</span><input ref={searchRef} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { setSearch(''); setSearchOpen(false); requestAnimationFrame(() => searchToggleRef.current?.focus()); } }} placeholder="Search agents" data-testid="session-search" /></label> : <h2>Agents</h2>}
@@ -188,7 +198,7 @@ export function SessionRail({ collapsed, onToggle }: { collapsed: boolean; onTog
     <div className="scope-tabs" role="tablist" aria-label="Session scopes" onKeyDown={moveScope}>{(['chats', 'scheduled', 'background'] as SessionScope[]).map((item) => <button role="tab" aria-selected={scope === item} tabIndex={scope === item ? 0 : -1} type="button" key={item} onClick={() => changeScope(item)} data-testid={`scope-${item}`}>{item === 'chats' ? 'Chats' : item === 'scheduled' ? 'Scheduled' : 'Background'}</button>)}</div>
     <div className="rail-filters"><div className="filter-row">{scope === 'chats' && <label><span className="sr-only">Project filter</span><select value={project} onChange={(event) => setProject(event.target.value)} data-testid="project-filter"><option value="all">All projects</option>{projects.map((item) => <option key={item}>{item}</option>)}</select></label>}<label><span className="sr-only">Session sort</span><select value={sort} onChange={(event) => setSort(event.target.value)} data-testid="session-sort"><option value="newest">Date · newest</option><option value="oldest">Date · oldest</option><option value="name">Name</option><option value="activity">Last activity</option><option value="status">Status</option></select></label></div></div>
     {selectedRows.length > 0 && <div className="bulk-bar" role="toolbar" aria-label="Selected session actions"><strong>{selectedRows.length} selected</strong><button type="button" onClick={() => { selectedRows.forEach(cancelSession); setSelectedRows([]); }}>Cancel</button><button type="button" onClick={() => setBulkDeleteOpen(true)}>Delete</button></div>}
-    <div className="session-list" aria-label={`${scope} sessions`}><section className="agent-disclosure"><button className="group-toggle section-disclosure" type="button" aria-expanded={expanded.parents} onClick={() => setExpanded((current) => ({ ...current, parents: !current.parents }))}><Icon name={expanded.parents ? 'chevronDown' : 'chevronRight'} size={14} /><span>Agents</span><small>{visible.length}</small></button>{expanded.parents && (['active', 'resumable', 'archived'] as SessionGroup[]).map((group) => { const grouped = visible.filter((session) => session.group === group); return <section className="session-group" key={group}><button className="group-toggle" type="button" aria-expanded={expanded[group]} onClick={() => setExpanded((current) => ({ ...current, [group]: !current[group] }))} data-testid={`group-${group}`}><Icon name={expanded[group] ? 'chevronDown' : 'chevronRight'} size={13} /><span>{groupLabels[group]}</span><small>{grouped.length}</small></button>{expanded[group] && <div>{grouped.map((session) => sessionTree(session))}{grouped.length === 0 && <p className="rail-empty">No {groupLabels[group].toLowerCase()} sessions match.</p>}</div>}</section>; })}</section><section className="agent-disclosure"><button className="group-toggle section-disclosure" type="button" aria-expanded={expanded.children} onClick={() => setExpanded((current) => ({ ...current, children: !current.children }))}><Icon name={expanded.children ? 'chevronDown' : 'chevronRight'} size={14} /><span>Sub agents</span><small>{childSessions.length}</small></button></section></div>
+    <div className="session-list" aria-label={`${scope} sessions`}><section className="agent-disclosure"><button className="group-toggle section-disclosure" type="button" aria-expanded={expanded.parents} onClick={() => setExpanded((current) => ({ ...current, parents: !current.parents }))}><Icon name={expanded.parents ? 'chevronDown' : 'chevronRight'} size={14} /><span>Agents</span><small>{visible.length}</small></button>{expanded.parents && (['active', 'resumable', 'archived'] as SessionGroup[]).map((group) => { const grouped = visible.filter((session) => session.group === group); return <section className="session-group" key={group}><button className="group-toggle" type="button" aria-expanded={expanded[group]} onClick={() => setExpanded((current) => ({ ...current, [group]: !current[group] }))} data-testid={`group-${group}`}><Icon name={expanded[group] ? 'chevronDown' : 'chevronRight'} size={13} /><span>{groupLabels[group]}</span><small>{grouped.length}</small></button>{expanded[group] && <div>{grouped.map((session) => sessionTree(session))}{grouped.length === 0 && <p className="rail-empty">No {groupLabels[group].toLowerCase()} sessions match.</p>}</div>}</section>; })}</section></div>
     <div className="tools-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize Tools panel" aria-valuemin={120} aria-valuemax={320} aria-valuenow={toolsHeight} aria-valuetext={`${toolsHeight} pixels`} tabIndex={0} onPointerDown={startToolsResize} onKeyDown={(event) => { if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); if (event.key === 'ArrowUp') setToolsHeight((value) => clamp(value + 16, 120, 320)); if (event.key === 'ArrowDown') setToolsHeight((value) => clamp(value - 16, 120, 320)); if (event.key === 'Home') setToolsHeight(120); if (event.key === 'End') setToolsHeight(320); }} data-testid="tools-resizer"><span /></div>
     <nav className="tools-nav" aria-label="Agent tools" style={{ height: `${toolsHeight}px` }}><span className="rail-section-label">Tools</span>{tools.map((tool) => <button type="button" onClick={() => openTool(tool.key)} key={tool.key} data-testid={`tool-${tool.key}`}><Icon name={tool.icon} /><span><strong>{tool.label}</strong><small>{tool.description}</small></span><Icon name="chevronRight" size={14} /></button>)}</nav>
     <footer className="rail-account"><button type="button" onClick={() => navigate('/tools/agent-settings')} data-testid="rail-agent-settings"><span className="avatar">AJ</span><span><strong>AJ Hochhalter</strong><small>Agent settings</small></span><Icon name="settings" size={15} /></button></footer>
