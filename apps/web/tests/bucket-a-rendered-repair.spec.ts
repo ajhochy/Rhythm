@@ -98,6 +98,9 @@ test('issue-1477-c1: session header asset, title, branch, and connection text do
       && left!.y + left!.height > right!.y;
     expect(overlaps).toBe(false);
   }
+  await expect(page).toHaveScreenshot('issue-1477-constrained-session-header.png', {
+    animations: 'disabled',
+  });
 });
 
 test('bucket-a-rendered-session: cwd edit resets branch and omits it from POST', async ({ page }, testInfo) => {

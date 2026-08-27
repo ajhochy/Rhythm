@@ -3,7 +3,7 @@ date: 2026-08-27
 repo: Rhythm
 branch: fix/session-list-and-task-board
 pr: 1486
-issues: [1466, 1475, 1477]
+issues: [1466, 1475, 1476, 1477]
 status: ready_for_verification
 tags: [run, Rhythm]
 ---
@@ -107,3 +107,21 @@ tags: [run, Rhythm]
 - Sandbox intentionally not started: the shared serial sandbox is reserved while sibling worktrees are active.
 - GitNexus query and every planned symbol impact call failed with the requested recorded compatibility error: index storage v42, current runtime storage v41. Risk therefore remained `UNKNOWN`; exact caller/file inspection was used as the fallback. No HIGH or CRITICAL result was returned.
 - This run is included in the single test-only repair commit; no push performed.
+
+## Final PR #1486 evidence gate
+
+WAIVED: evidence-only screenshots/tests/docs with no product behavior change; verification is: existing rendered Playwright fixtures generate stable PNGs, pass their normal comparator, and production-source diff remains empty.
+
+- Live behavior remains green from the isolated S5 gate: `issue_1466_1475_live_e2e.test.ts` passed **2/2** against API `:4098` and engine `:4097`; cleanup restored `users:1 sessions:1 agent_sessions:0 tasks:0`, all marker queries returned zero, and `PRAGMA integrity_check` returned `ok`.
+- API: focused six-file product regression passed **152 tests** after adversarial repair; clean-environment full suite passed **5,970** with **207** existing gated skips; build and `tsc --noEmit` passed.
+- MCP: typecheck passed; focused session/task suites passed **18/18**.
+- Web/Electron: `cd apps/web && npm run build` passed; the exact #1476 and #1477 rendered fixture commands passed **1/1** each under their existing configs with the normal screenshot comparator (no update flag).
+- Flutter desktop: format and analyze passed (318 pre-existing infos); focused task tests passed **10/10**, the earlier six-file grouping/task gate passed **33/33**, and constrained #1477 header passed **1/1**.
+- Mobile Flutter: analyze passed with no issues; Deferred status test passed **1/1**.
+- Standalone artifacts:
+  - `apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts-snapshots/issue-1476-nested-session-darwin.png` — **1440x900**, SHA-256 `9488c0dc55b7d9e5c6b35b13a92bcddd254069f6b50c1162c8fc4fd52b18cfca`.
+  - `apps/web/tests/bucket-a-rendered-repair.spec.ts-snapshots/issue-1477-constrained-session-header-darwin.png` — **1024x768**, SHA-256 `26b935d1a9c4e5d24a579d0a5c6e1f3e86b33a31dc503e7cdebfae6223e2a9f4`.
+- Integrity: sanitized fixture config remained SHA-256 `600e88fa2f58de29accb587d1eb489061a4b095bbecb6cee986fd9a0e014d7c0` before/after the live run. `git diff --check` passed, and `git diff --exit-code HEAD -- ':(glob)apps/**/src/**' ':(glob)apps/desktop_flutter/lib/**' ':(glob)apps/mobile_flutter/lib/**'` proved this evidence run's production-source diff empty.
+- GitNexus remains **UNKNOWN**: query/impact/detect attempts fail because the index is storage v42 while the connected runtime is v41; no HIGH/CRITICAL result was returned.
+- Manual item retained: #1476 cross-client visual parity is subjective and remains `not_tested`; these web/Electron artifacts do not falsely mark it pass.
+- No sandbox or standalone preview was started for this evidence run; only the existing Playwright fixture configs launched their managed Vite servers.

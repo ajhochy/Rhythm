@@ -71,3 +71,9 @@ tags: [run, rhythm]
 - Cleanup/nonmutation: sandbox counts returned to `users:1 sessions:1 agent_sessions:0 tasks:0`; all four test marker queries returned zero; `PRAGMA integrity_check` returned `ok`. Sanitized fixture config remained 1 file at SHA-256 `600e88fa2f58de29accb587d1eb489061a4b095bbecb6cee986fd9a0e014d7c0` before and after.
 - Remaining manual smoke: #1476 cross-client visual-parity judgment only; recorded as `not_tested` rather than `UNVERIFIED`.
 - GitNexus remains `UNKNOWN`: this verification session did not expose the manager GitNexus MCP required for worktree-aware `detect_changes(scope: compare, base_ref: main)`, so no CLI substitute was used. The prior connected attempt recorded the exact index mismatch as storage version 42 versus client version 41.
+
+## Standalone rendered evidence
+
+- Web/Electron nesting artifact: `apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts-snapshots/issue-1476-nested-session-darwin.png` (1440x900, SHA-256 `9488c0dc55b7d9e5c6b35b13a92bcddd254069f6b50c1162c8fc4fd52b18cfca`). It visibly places `Nested delegated child` indented beneath `Phase 5 live session`, outside the top-level Active rows.
+- Constrained header artifact: `apps/web/tests/bucket-a-rendered-repair.spec.ts-snapshots/issue-1477-constrained-session-header-darwin.png` (1024x768, SHA-256 `26b935d1a9c4e5d24a579d0a5c6e1f3e86b33a31dc503e7cdebfae6223e2a9f4`). It shows the initials avatar, title, branch, and connection status without paint overflow.
+- #1476 cross-client visual parity remains subjective/manual and stays `not_tested` in `docs/ai/contracts/issue-1476.json`; the screenshots do not convert that criterion to automated pass.

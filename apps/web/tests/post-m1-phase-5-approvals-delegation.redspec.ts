@@ -94,4 +94,7 @@ test('issue-1476-c1: canonical nested API children render beneath their parent, 
   expect(childBox).not.toBeNull();
   expect(childBox!.x).toBeGreaterThan(parentBox!.x);
   expect(childBox!.y).toBeGreaterThan(parentBox!.y);
+  await expect(page).toHaveScreenshot('issue-1476-nested-session.png', {
+    animations: 'disabled',
+  });
 });
