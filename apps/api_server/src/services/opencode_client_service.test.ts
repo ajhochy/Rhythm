@@ -88,7 +88,7 @@ describe('RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge', () => {
   });
 
   it('does not fabricate an engine CORS allowlist when the host supplied none', () => {
-    expect(resolveOpencodeCorsOrigins(undefined)).toEqual([]);
+    expect(resolveOpencodeCorsOrigins('')).toEqual([]);
     expect(buildOpencodeServerOptions(4096, [])).toEqual({ port: 4096 });
   });
 });
@@ -578,7 +578,7 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
   });
 
   it('issue-1322-c2: non-plan modes do not add a session permission override', async () => {
-    for (const mode of ['default', 'acceptEdits', 'bypassPermissions']) {
+    for (const mode of ['default', 'acceptEdits']) {
       capturedBody = {};
       await Reflect.apply(svc.createSession, svc, [
         `Non-plan ${mode}`,
@@ -591,6 +591,22 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
       ]);
       expect(capturedBody).not.toHaveProperty('permission');
     }
+  });
+
+  it('bypassPermissions adds a wildcard allow permission', async () => {
+    await Reflect.apply(svc.createSession, svc, [
+      'Bypass permissions',
+      '/workspace',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'bypassPermissions',
+    ]);
+
+    expect(capturedBody.permission).toEqual([
+      { permission: '*', pattern: '*', action: 'allow' },
+    ]);
   });
 });
 

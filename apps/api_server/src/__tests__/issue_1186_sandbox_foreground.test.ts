@@ -393,23 +393,28 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
   it("refuses an engine listener whose PID differs from the recorded engine", async () => {
     const { env, sandbox } = fakeSandboxEnv();
     mkdirSync(sandbox, { recursive: true });
-    const unrelated = spawn("/bin/sleep", ["60"], { stdio: "ignore" });
-    liveChildren.add(unrelated);
-    expect(unrelated.pid).toBeDefined();
-    writeFileSync(join(sandbox, "fake_engine.pid"), `${unrelated.pid}\n`);
+    const listener = spawn("/bin/sleep", ["60"], { stdio: "ignore" });
+    const recorded = spawn("/bin/sleep", ["60"], { stdio: "ignore" });
+    liveChildren.add(listener);
+    liveChildren.add(recorded);
+    expect(listener.pid).toBeDefined();
+    expect(recorded.pid).toBeDefined();
+    writeFileSync(join(sandbox, "fake_engine.pid"), `${listener.pid}\n`);
     writeFileSync(
       join(sandbox, "opencode_engine.pid"),
-      `${unrelated.pid! + 1}\n`,
+      `${recorded.pid}\n`,
     );
 
     const down = await run("bash", [sandboxScript, "down"], env);
     expect(down.code).toBe(1);
     expect(down.stderr).toContain(
-      `not recorded PID ${unrelated.pid! + 1}; refusing to kill it`,
+      `sandbox: sandbox engine port :4097 is now PID ${listener.pid}, not recorded PID ${recorded.pid}; refusing to kill it`,
     );
-    expect(isAlive(unrelated.pid!)).toBe(true);
+    expect(isAlive(listener.pid!)).toBe(true);
+    expect(isAlive(recorded.pid!)).toBe(true);
 
-    unrelated.kill("SIGTERM");
+    listener.kill("SIGTERM");
+    recorded.kill("SIGTERM");
   });
 
   it("refuses a recorded engine PID whose executable is not the built fork", async () => {
