@@ -18,7 +18,7 @@
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
       "status": "UNVERIFIED",
-      "reason": "PR #1488 owns the sandbox; the executable live assertion is awaiting its final sandbox rerun."
+      "reason": "Executable zero-request and exact target/install/file preservation assertions are at lines 472-511; the latest full invocation failed during HOME isolation setup before this case, so a corrected final rerun is pending."
     },
     {
       "criterion_id": "pr-1489-cleanup-c3",
@@ -26,7 +26,7 @@
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
       "status": "UNVERIFIED",
-      "reason": "PR #1488 owns the sandbox; static live-test execution must skip while preserving the executable positive control."
+      "reason": "The executable positive install control and scoped row/file restoration are at lines 517-532; the latest full invocation failed during HOME isolation setup before this case, so a corrected final rerun is pending."
     },
     {
       "criterion_id": "pr-1489-cleanup-c4",
@@ -42,7 +42,7 @@
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
       "status": "UNVERIFIED",
-      "reason": "PR #1488 owns the sandbox; the strict final baseline remains awaiting its final sandbox rerun."
+      "reason": "Executable settled cleanup and strict broad-row/file baseline equality are at lines 329-389; the latest full invocation failed because Vitest HOME was incorrectly set to sandbox HOME, so a corrected final rerun is pending."
     }
   ],
   "not_tested": []
