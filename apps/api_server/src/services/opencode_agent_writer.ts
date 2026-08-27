@@ -65,23 +65,7 @@ function reloadEngineConfigAfterWrite(): void {
   void opencodeClient.reloadConfig(process.cwd());
 }
 
-/**
- * Prepended to a manager-profile body WITHOUT a delegate roster so that the
- * orchestrator role is explicit to opencode when it loads the file. Must
- * appear exactly once. workflow-orchestrator gets a profile-aware variant
- * below so it never delegates to itself.
- * The distinctive heading "## Routing (mandatory)" is used as the idempotency
- * marker — see `injectManagerPreamble`.
- */
-export const MANAGER_ROUTING_PREAMBLE =
-  '## Routing (mandatory)\n' +
-  'For any coding, development, implementation, debugging, refactor, or PR/issue task, ' +
-  'you MUST hand off to the workflow-orchestrator by calling the `task` tool with ' +
-  '`subagent_type="workflow-orchestrator"` — name that delegate explicitly; never use ' +
-  '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
-  'phrased. Only handle non-development tasks yourself.';
-
-/** Idempotency marker: substring whose presence means the plain preamble is already there. */
+/** Idempotency marker for the empty-roster manager constraint. */
 const PREAMBLE_MARKER = '## Routing (mandatory)';
 
 /**
@@ -109,10 +93,9 @@ const WORKFLOW_ORCHESTRATOR_CODING_BODY =
   'Never delegate to `workflow-orchestrator` from workflow-orchestrator itself.';
 
 /**
- * Build the combined routing preamble for a manager that has a non-empty
- * `allowedDelegates` roster (a "hub" manager, e.g. Secretary). Unlike the
- * plain `MANAGER_ROUTING_PREAMBLE` (dev-only manager, no roster), this
- * preamble makes direct work the default within the manager's own scope.
+ * Build the combined routing preamble from the manager's effective projected
+ * delegate permissions, not the raw stored roster. Direct work remains the
+ * default within the manager's own scope.
  * Exceptional delegation goes through the engine-native `task` tool (a real
  * subagent that nests under the caller in the UI) — NOT the `rhythm_delegate`
  * MCP tool, which creates an orphaned top-level session with no parent link
@@ -121,11 +104,17 @@ const WORKFLOW_ORCHESTRATOR_CODING_BODY =
  * workflow-orchestrator itself.
  */
 export function buildHubRoutingPreamble(roster: string[], profileId?: string): string {
-  const rosterList = roster.map((id) => `\`${id}\``).join(', ');
+  const permissions = buildTaskDelegatePermissions(roster, profileId);
+  const effectiveRoster = Object.keys(permissions).filter(
+    (id) => !['*', ...TASK_NATIVE_SUBAGENTS].includes(id),
+  );
+  const rosterList = effectiveRoster.map((id) => `\`${id}\``).join(', ');
   const codingHandoff =
-    profileId === 'workflow-orchestrator'
-      ? WORKFLOW_ORCHESTRATOR_CODING_BODY
-      : CODING_HANDOFF_BODY;
+    permissions['workflow-orchestrator'] === 'allow'
+      ? CODING_HANDOFF_BODY
+      : permissions['coding-agent'] === 'allow'
+        ? WORKFLOW_ORCHESTRATOR_CODING_BODY
+        : null;
   return (
     `${HUB_PREAMBLE_MARKER}\n` +
     'Handle the request directly when it fits your own role, system prompt, granted ' +
@@ -147,7 +136,7 @@ export function buildHubRoutingPreamble(roster: string[], profileId?: string): s
     'interactive chat by design, and blocking is fine there because nobody is waiting.\n' +
     '  - Use `task` with `explore` or `general` only for read-only fan-out inside your ' +
     'own scope — never to reach another profile.\n\n' +
-    `**Coding / development work:** ${codingHandoff}\n\n` +
+    (codingHandoff ? `**Coding / development work:** ${codingHandoff}\n\n` : '') +
     'Direct work includes trivial admin, quick summaries, reading back information, and ' +
     'simple lookups, but is not limited to those tasks.'
   );
@@ -155,10 +144,10 @@ export function buildHubRoutingPreamble(roster: string[], profileId?: string): s
 
 /**
  * If `isManager` is true, prepend the appropriate routing preamble:
- *  - a non-empty `delegateRoster` → the combined hub preamble (routes BOTH
- *    domain work via `rhythm_delegate` and coding work via the dev hand-off).
- *  - no roster → the existing plain `MANAGER_ROUTING_PREAMBLE` (coding hand-off
- *    only), except workflow-orchestrator receives its self-safe variant.
+ *  - a non-empty `delegateRoster` → the combined hub preamble, generated from
+ *    the same effective permissions written to opencode.
+ *  - no roster → preserve the manager's non-development-only constraint without
+ *    inventing a delegation target it cannot call.
  * No-op for non-managers. Idempotent: re-injecting either variant does not
  * duplicate it, and injecting one variant when the other is already present
  * is a no-op too (only one routing preamble should ever apply to a profile).
@@ -177,9 +166,7 @@ export function injectManagerPreamble(
   const preamble =
     delegateRoster.length > 0
       ? buildHubRoutingPreamble(delegateRoster, profileId)
-      : profileId === 'workflow-orchestrator'
-        ? `${PREAMBLE_MARKER}\n${WORKFLOW_ORCHESTRATOR_CODING_BODY}`
-        : MANAGER_ROUTING_PREAMBLE;
+      : `${PREAMBLE_MARKER}\nOnly handle non-development tasks yourself.`;
   const separator = body.length > 0 && !body.startsWith('\n') ? '\n\n' : '\n';
   return `${preamble}${separator}${body}`;
 }

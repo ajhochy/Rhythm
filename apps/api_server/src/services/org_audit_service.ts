@@ -216,7 +216,7 @@ function toProfileScopeSnapshot(config: AgentConfig): ProfileScopeSnapshot {
 }
 
 /** Jaccard token overlap over lowercased whitespace-split title tokens. */
-function titleSimilarity(a: string, b: string): number {
+export function titleSimilarity(a: string, b: string): number {
   const ta = new Set(a.trim().toLowerCase().split(/\s+/).filter((t) => t.length > 1));
   const tb = new Set(b.trim().toLowerCase().split(/\s+/).filter((t) => t.length > 1));
   if (ta.size === 0 || tb.size === 0) return 0;
@@ -253,7 +253,7 @@ function daysSince(isoDate: string): number {
   return ms <= 0 ? 0 : ms / (24 * 60 * 60 * 1000);
 }
 
-function findSkillOverlapCandidates(skills: AgentSkill[]): SkillOverlapCandidate[] {
+export function findSkillOverlapCandidates(skills: Pick<AgentSkill, 'id' | 'title'>[]): SkillOverlapCandidate[] {
   const out: SkillOverlapCandidate[] = [];
   for (let i = 0; i < skills.length; i++) {
     for (let j = i + 1; j < skills.length; j++) {

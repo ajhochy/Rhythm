@@ -1,0 +1,49 @@
+{
+  "issue": "pr-1489-cleanup-repair",
+  "date": "2026-08-27",
+  "test_command": "npx vitest run src/contract/pr_1489_harness_race_repair.test.ts src/contract/pr_1489_adversarial_review.test.ts && npx vitest run src/__tests__/agent_configs_routes.test.ts src/repositories/agent_configs_repository.test.ts && npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "pr-1489-cleanup-c1",
+      "text": "Deleting a projected temporary profile removes its agent_configs and agent_profile_projections rows atomically, removes its projected file, and does not modify unrelated profiles.",
+      "mode": "integration",
+      "test": "src/__tests__/agent_configs_routes.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c2",
+      "text": "After prior broad optimizer rows settle, invalid provenance rejection makes zero fixture requests and preserves the exact target profile row, zero target skill rows, byte-identical declared install tables, and byte-identical managed/projected files; unrelated broad session/message convergence is diagnostic only.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with zero requests and exact target/install/file preservation."
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c3",
+      "text": "The positive valid install control snapshots only agent_configs, agent_skills, agent_profile_projections, and managed files; cleanup restores that exact scoped surface.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with the positive install control and exact scoped restoration."
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c4",
+      "text": "SQLite migrations and Postgres bootstrap both retain the structurally equivalent agent_profile_projections ledger.",
+      "mode": "unit",
+      "test": "src/repositories/agent_configs_repository.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c5",
+      "text": "Final cleanup settles broad rows, enumerates and deletes every suite-created engine session, row, and file, settles again, and then requires byte-identical original broad-table and file baselines.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with two-second stable windows, zero residual rows, exact broad/file baselines, integrity ok, and no AggregateError."
+    }
+  ],
+  "not_tested": []
+}

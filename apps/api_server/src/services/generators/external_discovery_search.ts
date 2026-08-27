@@ -19,6 +19,7 @@
  * second backstop).
  */
 
+import { createHash } from 'node:crypto';
 import { logger } from '../../utils/logger';
 import type { OrgAuditGap } from '../org_audit_service';
 import type {
@@ -29,9 +30,12 @@ import type {
 import { scoreSkillBody, KEEP_SCORE_BAR, type SkillPurpose } from '../skill_refiner';
 import { scanContextContent } from '../../security/context_scanner';
 
-const SKILLS_SH_SEARCH = 'https://skills.sh/api/search';
+const SKILLS_SH_SEARCH = process.env.RHYTHM_EXTERNAL_DISCOVERY_SEARCH_URL ?? 'https://skills.sh/api/search';
+const GITHUB_API_ORIGIN = (process.env.RHYTHM_EXTERNAL_DISCOVERY_GITHUB_ORIGIN ?? 'https://api.github.com').replace(/\/$/, '');
 /** skills.sh serves raw skill bodies from GitHub; overridable for a mirror/test double. */
-const DOWNLOAD_BASE_URL = process.env.RHYTHM_SKILLS_DOWNLOAD_BASE ?? 'https://raw.githubusercontent.com';
+export const RHYTHM_SKILLS_DOWNLOAD_BASE = (
+  process.env.RHYTHM_SKILLS_DOWNLOAD_BASE ?? 'https://raw.githubusercontent.com'
+).replace(/\/$/, '');
 const FETCH_TIMEOUT_MS = 8000;
 /** Per-gap cap on candidates pulled from each source before the generator's own cap. */
 const MAX_PER_GAP = 3;
@@ -51,7 +55,10 @@ interface GithubRepoMeta {
   stargazers_count: number;
   license: { spdx_id?: string | null } | null;
   owner: { login: string } | null;
+  default_branch?: string;
 }
+
+interface GithubCommitMeta { sha: string; }
 
 /** fetch JSON with a hard timeout; returns null on any failure. Never throws. */
 async function fetchJson<T>(url: string, headers?: Record<string, string>): Promise<T | null> {
@@ -98,13 +105,13 @@ export async function downloadSkillBody(url: string): Promise<string | null> {
  * default branch. This composes the raw.githubusercontent.com URL used both to
  * pre-vet (Task 5) and to download at apply time.
  */
-function skillDownloadUrlCandidates(hit: SkillsShHit): string[] {
+function skillDownloadUrlCandidates(hit: SkillsShHit, commitSha: string): string[] {
   const src = (hit.source ?? '').trim().replace(/^https?:\/\/github\.com\//, '');
   if (!src || !src.includes('/')) return [];
   const parts = src.split('/');
   const owner = parts[0];
   const repo = parts[1];
-  const base = `${DOWNLOAD_BASE_URL}/${owner}/${repo}/HEAD`;
+  const base = `${RHYTHM_SKILLS_DOWNLOAD_BASE}/${owner}/${repo}/${commitSha}`;
   // The skills.sh `source` is usually just owner/repo; the skill lives in a
   // subdirectory named by the skill (`hit.name`), commonly nested under skills/
   // (e.g. github/awesome-copilot -> skills/<name>/SKILL.md). `source` may also
@@ -124,12 +131,14 @@ function skillDownloadUrlCandidates(hit: SkillsShHit): string[] {
 }
 
 /** Complete provenance for a skills.sh hit via the GitHub repo metadata API. Null if incomplete. */
-async function buildSkillProvenance(hit: SkillsShHit): Promise<ExternalCandidateProvenance | null> {
+async function buildSkillProvenance(
+  hit: SkillsShHit,
+): Promise<{ provenance: ExternalCandidateProvenance; commitSha: string } | null> {
   const src = (hit.source ?? '').trim().replace(/^https?:\/\/github\.com\//, '');
   const parts = src.split('/');
   if (parts.length < 2) return null;
   const repoSlug = `${parts[0]}/${parts[1]}`;
-  const meta = await fetchJson<GithubRepoMeta>(`https://api.github.com/repos/${repoSlug}`, {
+  const meta = await fetchJson<GithubRepoMeta>(`${GITHUB_API_ORIGIN}/repos/${repoSlug}`, {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'rhythm-external-discovery',
   });
@@ -137,7 +146,12 @@ async function buildSkillProvenance(hit: SkillsShHit): Promise<ExternalCandidate
   const license = meta.license?.spdx_id ?? null;
   const maintainer = meta.owner?.login ?? parts[0];
   if (!license || !maintainer || !meta.pushed_at) return null;
-  return {
+  const commit = await fetchJson<GithubCommitMeta>(
+    `${GITHUB_API_ORIGIN}/repos/${repoSlug}/commits/${encodeURIComponent(meta.default_branch ?? 'HEAD')}`,
+    { Accept: 'application/vnd.github+json', 'User-Agent': 'rhythm-external-discovery' },
+  );
+  if (!commit || !/^[0-9a-f]{40}$/i.test(commit.sha)) return null;
+  return { provenance: {
     source: 'skills.sh',
     stars: typeof meta.stargazers_count === 'number' ? meta.stargazers_count : undefined,
     downloads: typeof hit.installs === 'number' ? hit.installs : undefined,
@@ -145,7 +159,7 @@ async function buildSkillProvenance(hit: SkillsShHit): Promise<ExternalCandidate
     maintainer,
     license,
     installCommand: `npx skills add ${hit.id}`,
-  };
+  }, commitSha: commit.sha };
 }
 
 /**
@@ -166,10 +180,11 @@ export async function searchSkillCandidates(
   const hits = res?.skills ?? [];
   const out: ExternalCandidate[] = [];
   for (const hit of hits.slice(0, MAX_PER_GAP)) {
-    const urlCandidates = skillDownloadUrlCandidates(hit);
+    const resolved = await buildSkillProvenance(hit);
+    if (!resolved) continue; // incomplete provenance or unpinnable commit
+    const { provenance, commitSha } = resolved;
+    const urlCandidates = skillDownloadUrlCandidates(hit, commitSha);
     if (urlCandidates.length === 0) continue;
-    const provenance = await buildSkillProvenance(hit);
-    if (!provenance) continue; // incomplete provenance — generator would drop it anyway
 
     // Resolve the real SKILL.md path by trying the common repo layouts; first hit wins.
     let downloadUrl: string | null = null;
@@ -225,6 +240,8 @@ export async function searchSkillCandidates(
       agentConfigId: gap.agentConfigId,
       sampleSessionId: gap.sampleSessionId,
       categories: gap.intentTags,
+      contentSha256: createHash('sha256').update(body).digest('hex'),
+      body,
     });
   }
   return out;

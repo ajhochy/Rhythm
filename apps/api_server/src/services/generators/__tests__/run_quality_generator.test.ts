@@ -89,6 +89,7 @@ const fakeDiagnose: DiagnoseCall = async (ctx) => ({
   fixType: 'config-change',
   concreteFix: 'model: anthropic/claude-sonnet-5',
   confidence: 'high',
+  evidenceQuotes: [ctx.signals[0].evidence],
   configPatch: { agentConfigId: 'ATTACKER-ID', field: 'model', value: 'anthropic/claude-sonnet-5' },
 });
 

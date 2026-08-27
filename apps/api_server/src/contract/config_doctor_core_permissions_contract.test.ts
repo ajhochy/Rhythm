@@ -93,6 +93,7 @@ describe('config-doctor core-permissions acceptance contract', () => {
       diagnose: async () => ({
         diagnosis: 'The profile needs read, glob, and bash.', rootCause: 'scope', fixType: 'scope-change',
         concreteFix: 'Grant read, glob, and bash.', confidence: 'high',
+        evidenceQuotes: ['profile needs local tools'],
         scopePatch: { agentConfigId: 'untrusted', field: 'corePermissionsJson', set: { read: 'allow', glob: 'allow', bash: { '*': 'allow' } } } as never,
       }),
     });

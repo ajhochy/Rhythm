@@ -113,6 +113,7 @@ function scopeChangeDiagnosis(add: string[]): DiagnosisResult {
     fixType: 'scope-change',
     concreteFix: `Add '${add.join("', '")}' to the profile's MCP allowlist.`,
     confidence: 'high',
+    evidenceQuotes: ['retryPhraseCount=17'],
     scopePatch: { agentConfigId: 'ignored-llm-value', field: 'allowedMcpsJson', add },
   };
 }

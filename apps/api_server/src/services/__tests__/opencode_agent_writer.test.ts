@@ -2,8 +2,7 @@
  * Unit tests for opencode_agent_writer.ts — manager routing preamble injection.
  *
  * Strategy: the preamble-injection logic lives in the exported
- * `injectManagerPreamble` helper and is also exercised via the exported
- * `MANAGER_ROUTING_PREAMBLE` constant. We test these directly rather than
+ * `injectManagerPreamble` helper. We test it directly rather than
  * calling `writeAgentProfileFile`, which is guarded by `shouldWriteAgentFile`
  * (returns false in test env and in postgres mode) and touches the real
  * filesystem. This gives deterministic, side-effect-free coverage of the
@@ -12,7 +11,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  MANAGER_ROUTING_PREAMBLE,
   injectManagerPreamble,
   buildHubRoutingPreamble,
   buildTaskDelegatePermissions,
@@ -21,52 +19,42 @@ import {
 const MARKER = '## Routing (mandatory)';
 const HUB_MARKER = '## Routing (mandatory — hub)';
 
-describe('MANAGER_ROUTING_PREAMBLE', () => {
-  it('contains the mandatory routing marker heading', () => {
-    expect(MANAGER_ROUTING_PREAMBLE).toContain(MARKER);
-  });
-
-  it('mentions subagent_type="workflow-orchestrator" explicitly', () => {
-    expect(MANAGER_ROUTING_PREAMBLE).toContain('subagent_type="workflow-orchestrator"');
-  });
-});
-
 describe('injectManagerPreamble — manager profile (isManager: true)', () => {
   it('prepends the preamble before the original system prompt', () => {
     const original = 'You are Secretary.\n\nHelp the user manage their schedule.';
-    const result = injectManagerPreamble(original, true);
+    const result = injectManagerPreamble(original, true, ['workflow-orchestrator'], 'secretary');
 
     // Body must start with the preamble heading.
-    expect(result.startsWith(MARKER)).toBe(true);
+    expect(result.startsWith(HUB_MARKER)).toBe(true);
     // Original system prompt must still be present after the preamble.
     expect(result).toContain(original);
     // Preamble must appear before the original content.
-    expect(result.indexOf(MARKER)).toBeLessThan(result.indexOf('You are Secretary'));
+    expect(result.indexOf(HUB_MARKER)).toBeLessThan(result.indexOf('You are Secretary'));
   });
 
   it('is idempotent — re-writing does NOT duplicate the preamble', () => {
     const original = 'You are Secretary.\n\nHelp the user manage their schedule.';
-    const once = injectManagerPreamble(original, true);
-    const twice = injectManagerPreamble(once, true);
+    const once = injectManagerPreamble(original, true, ['workflow-orchestrator'], 'secretary');
+    const twice = injectManagerPreamble(once, true, ['workflow-orchestrator'], 'secretary');
 
     // Count occurrences of the marker.
-    const count = (twice.match(/## Routing \(mandatory\)/g) ?? []).length;
+    const count = (twice.match(/## Routing \(mandatory — hub\)/g) ?? []).length;
     expect(count).toBe(1);
     // Content should be identical after the second injection.
     expect(twice).toBe(once);
   });
 
   it('works correctly when the body is empty', () => {
-    const result = injectManagerPreamble('', true);
-    expect(result).toContain(MARKER);
-    expect(result.startsWith(MARKER)).toBe(true);
+    const result = injectManagerPreamble('', true, ['workflow-orchestrator'], 'secretary');
+    expect(result).toContain(HUB_MARKER);
+    expect(result.startsWith(HUB_MARKER)).toBe(true);
   });
 
   it('separates preamble and existing body with a blank line', () => {
     const original = 'Some prompt.';
-    const result = injectManagerPreamble(original, true);
+    const result = injectManagerPreamble(original, true, ['workflow-orchestrator'], 'secretary');
     // The preamble ends and then a blank line separates it from the body.
-    expect(result).toContain(MANAGER_ROUTING_PREAMBLE + '\n\n' + original);
+    expect(result).toContain(buildHubRoutingPreamble(['workflow-orchestrator'], 'secretary') + '\n\n' + original);
   });
 });
 
@@ -91,7 +79,7 @@ describe('injectManagerPreamble — non-manager profile (isManager: false)', () 
 });
 
 describe('injectManagerPreamble — hub manager with a non-empty roster (#889)', () => {
-  const roster = ['theologian', 'librarian', 'worship-planning', 'worship-production'];
+  const roster = ['theologian', 'librarian', 'worship-planning', 'worship-production', 'workflow-orchestrator'];
   const original = 'You are Secretary. Delegate to the approved specialist.';
 
   it('routes domain work via the `task` tool + subagent_type (NOT rhythm_delegate), ' +
@@ -151,23 +139,22 @@ describe('injectManagerPreamble — hub manager with a non-empty roster (#889)',
   });
 });
 
-describe('injectManagerPreamble — manager WITHOUT a roster stays on the plain preamble (#889)', () => {
-  it('a manager with an empty roster gets the unchanged MANAGER_ROUTING_PREAMBLE', () => {
+describe('injectManagerPreamble — manager WITHOUT a roster gets no impossible mandate (#1484)', () => {
+  it('a manager with an empty roster retains its non-development-only constraint', () => {
     const original = 'You are workflow-orchestrator.';
     const result = injectManagerPreamble(original, true, []);
 
-    expect(result.startsWith(MARKER)).toBe(true);
-    expect(result).not.toContain(HUB_MARKER);
-    expect(result).toContain(MANAGER_ROUTING_PREAMBLE);
     expect(result).toContain('Only handle non-development tasks yourself.');
+    expect(result).toContain(original);
+    expect(result).not.toContain('workflow-orchestrator by calling');
   });
 
-  it('defaults to the plain preamble when no roster argument is passed at all', () => {
+  it('does not invent workflow-orchestrator permission when no roster argument is passed', () => {
     const original = 'You are workflow-orchestrator.';
     const result = injectManagerPreamble(original, true);
 
-    expect(result).toContain(MANAGER_ROUTING_PREAMBLE);
-    expect(result).not.toContain(HUB_MARKER);
+    expect(result).toContain('Only handle non-development tasks yourself.');
+    expect(result).not.toContain('subagent_type="workflow-orchestrator"');
   });
 });
 

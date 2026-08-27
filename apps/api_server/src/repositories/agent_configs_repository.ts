@@ -754,13 +754,15 @@ export class AgentConfigsRepository {
   }
 
   remove(id: string): boolean {
-    const existing = this.getById(id);
-    if (!existing) return false;
-    if (existing.presetId !== null) return false;
+    const db = getDb();
+    return db.transaction(() => {
+      const existing = this.getById(id);
+      if (!existing || existing.presetId !== null) return false;
 
-    const result = getDb()
-      .prepare(`DELETE FROM agent_configs WHERE id = ? AND preset_id IS NULL`)
-      .run(id);
-    return result.changes > 0;
+      const result = db.prepare(`DELETE FROM agent_configs WHERE id = ? AND preset_id IS NULL`).run(id);
+      if (result.changes === 0) return false;
+      db.prepare(`DELETE FROM agent_profile_projections WHERE profile_id = ?`).run(id);
+      return true;
+    })();
   }
 }

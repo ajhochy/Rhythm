@@ -1,0 +1,49 @@
+{
+  "issue": 1483,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/issue_1483.test.ts src/contract/pr_1489_adversarial_review.test.ts && RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1483-c1",
+      "text": "Dedup external skill candidates against the installed local skill library using existing overlap machinery.",
+      "mode": "unit",
+      "test": "src/contract/issue_1483.test.ts",
+      "status": "pass",
+      "reason": "Eight-contract gate and focused S4 suite passed at 9bb8dc7f."
+    },
+    {
+      "criterion_id": "issue-1483-c2",
+      "text": "Pin a commit SHA in downloadUrl and record a content hash of the reviewed SKILL.md.",
+      "mode": "unit",
+      "test": "src/contract/issue_1483.test.ts",
+      "status": "pass",
+      "reason": "Eight-contract gate and focused S4 suite passed at 9bb8dc7f."
+    },
+    {
+      "criterion_id": "issue-1483-c3",
+      "text": "The applier verifies the reviewed content hash before install and fails closed on mismatch.",
+      "mode": "unit",
+      "test": "src/contract/issue_1483.test.ts",
+      "status": "pass",
+      "reason": "Eight-contract gate and focused S4 suite passed at 9bb8dc7f."
+    },
+    {
+      "criterion_id": "issue-1483-c4",
+      "text": "The real optimizer uses loopback discovery to suppress installed overlap, persist a unique pinned URL/hash, and reject changed approval bytes without mutation.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "pass",
+      "reason": "Historical isolated S4 live suite passed 2/2 at 9bb8dc7f with baseline row/file digest restoration."
+    },
+    {
+      "criterion_id": "issue-1483-c5",
+      "text": "The S4 harness routes cheap-tier scoring and diagnosis through anthropic/claude-haiku-4-5, observes distinct draft/candidate scores, and atomically restores only sandbox provider.anthropic without changing other providers.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with exact candidate/draft/overlap scorer assertions and provider restoration."
+    }
+  ],
+  "not_tested": []
+}

@@ -64,6 +64,7 @@
  * appliers — never throws, never duplicates state.
  */
 
+import { createHash } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AppError } from '../errors/app_error';
 import {
@@ -91,7 +92,10 @@ import {
   slugForSkillName,
   InvalidSkillNameError,
 } from './rhythm_managed_skills';
-import { downloadSkillBody } from './generators/external_discovery_search';
+import {
+  downloadSkillBody,
+  RHYTHM_SKILLS_DOWNLOAD_BASE,
+} from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
 import { stripFrontmatterBlock } from './skill_frontmatter';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
@@ -206,29 +210,62 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
       return { changed: result.changed, registered: installed && result.registered, beforeSnapshotJson };
     },
 
-    async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories }) {
-      // 1. DOWNLOAD the real body from the candidate source (no stub).
+    async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories, contentSha256 }) {
+      // 1. Validate provenance at the install boundary every install traverses.
       if (!downloadUrl) {
         throw new Error(`external-adoption installSkill: no downloadUrl for '${skillName}'`);
       }
+      let source: URL;
+      const allowedBase = new URL(RHYTHM_SKILLS_DOWNLOAD_BASE);
+      try {
+        source = new URL(downloadUrl);
+      } catch {
+        throw new Error(`external-adoption installSkill: invalid download URL for '${skillName}'`);
+      }
+      const basePath = allowedBase.pathname.replace(/\/$/, '');
+      const relativePath = source.pathname.startsWith(`${basePath}/`)
+        ? source.pathname.slice(basePath.length + 1)
+        : '';
+      const pathParts = relativePath.split('/');
+      if (
+        source.origin !== allowedBase.origin ||
+        source.protocol !== allowedBase.protocol ||
+        source.username ||
+        source.password ||
+        pathParts.length < 4 ||
+        !/^[0-9a-f]{40}$/i.test(pathParts[2] ?? '')
+      ) {
+        throw new Error(
+          `external-adoption installSkill: download URL must use the allowed origin and a commit-pinned path for '${skillName}'`,
+        );
+      }
+      if (!/^[0-9a-f]{64}$/i.test(contentSha256 ?? '')) {
+        throw new Error(`external-adoption installSkill: reviewed content hash is required for '${skillName}'`);
+      }
+
+      // 2. DOWNLOAD the real body from the validated candidate source (no stub).
       const body = await downloadSkillBody(downloadUrl);
       if (!body) {
         throw new Error(`external-adoption installSkill: body download failed for '${skillName}' (${downloadUrl})`);
       }
+      const actualHash = createHash('sha256').update(body).digest('hex');
+      if (actualHash !== contentSha256!.toLowerCase()) {
+        throw new Error(`external-adoption installSkill: content hash mismatch for '${skillName}'`);
+      }
 
-      // 2. HARD #873 gate at write time — a high-confidence injection match blocks the write.
+      // 3. HARD #873 gate at write time — a high-confidence injection match blocks the write.
       const scan = scanContextContent(body, `adopted skill "${skillName}"`);
       if (scan.blocked) {
         throw new Error(`external-adoption installSkill: body for '${skillName}' blocked by injection scan`);
       }
 
-      // 3. WRITE-IF-ABSENT — never clobber an engine-owned library skill (invariant 2).
+      // 4. WRITE-IF-ABSENT — never clobber an engine-owned library skill (invariant 2).
       const skillWasAbsent = !managedSkillExists(skillName);
       if (skillWasAbsent) {
         writeManagedSkill({ name: skillName, description: `Adopted from ${downloadUrl}`, body });
       }
 
-      // 4. WIRE the adopted skill to the agent that needed it (reversibly).
+      // 5. WIRE the adopted skill to the agent that needed it (reversibly).
       const configsRepo = new AgentConfigsRepository();
       let priorAllowedSkillsJson: string | null = null;
       if (agentConfigId) {
@@ -252,7 +289,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
         }
       }
 
-      // 5. before_snapshot_json for the external-adoption revert path + reshaped
+      // 6. before_snapshot_json for the external-adoption revert path + reshaped
       //    change_json (DiagnosisChange-compatible) for the behavioral measure.
       const beforeSnapshotJson = JSON.stringify({
         externalAdoption: true,
