@@ -115,7 +115,7 @@ tags: [run, Rhythm]
 
 ## Existing-row report
 
-Read-only comparison against the issue's live Obsidian catalog found 16 phantom grants outside the now-repaired theologian row:
+Read-only comparison against the issue's live Obsidian catalog found 16 phantom grants outside the theologian row. This report did not repair or mutate the theologian row (or any other live row):
 
 - `fantasy-gm`: `obsidian_put_file`, `obsidian_patch_file`
 - `money`: `obsidian_get_file`, `obsidian_search_dataview`, `obsidian_status`
@@ -129,3 +129,30 @@ The report was read-only; no live `agent_configs` rows were changed.
 - The shared dev sandbox was deliberately not started or touched. Live fork endpoint and repair/report verification are deferred to the serial sandbox gate.
 - GitNexus `detect_changes(scope=all)` was invoked before each commit attempt but unavailable during the concurrent index rebuild.
 - This repair adds focused commits after the two issue commits. No push or PR was performed.
+
+## 2026-08-27 adversarial-review repair
+
+### Files / findings
+
+- **F1 fixed:** `loadLiveMcpToolCatalog` now judges only `status === 'connected'`; `needs_auth`, `failed`, `disabled`, and registration-required servers are excluded. Engine warmup/outage no longer blocks profile editing. The prune lane now applies the same profile prompt/skill charter guard as tighten.
+- **F2 fixed:** audit-supplied chat IDs are unioned with scheduled-task sessions, preserving scheduled usage as conservative anti-prune evidence. The resolver and measure comments now document the exact-audit versus broader-measure asymmetry.
+- **F3 fixed:** `mcp-tool` drift remains in the audit/report but no structurally invalid server-key removal proposal is emitted.
+- **F4 fixed:** validation composes IDs from the stored server key and the same exported segment sanitizer used by `expandMcpAllowlist`; contracts cover a drifted `nfl-mcp`/`nfl_mcp` name and dotted tool names.
+- **F5 partially fixed / repository-guard recommendation rejected:** the marker-gated Obsidian producer now seeds only the one live read tool, `obsidian_simple_search`. A live-catalog guard was not put in synchronous `AgentConfigsRepository.insert/update`: making persistence depend on asynchronous engine availability would either require an unsafe cache or convert a broad repository API to async. Existing profile HTTP/proposal boundaries remain guarded; schedule/import hardening is a separate persistence-boundary change, not folded into this repair.
+- **F6 fixed:** `setDb` now returns the prior handle and the in-process drift CLI restores it before closing its temporary readonly DB.
+- **F7/F12 fixed:** the acceptance fixture now exercises the audit's `attributedSessionIds` branch with a `category='scheduled'` session; measure's intentionally broader evidence and the conditional trailing-window behavior are documented.
+- **F9 fixed:** unavailable engine catalogs fail open for profile edits rather than becoming misleading 400 responses; `listMcpToolIds` now reports readiness directly as 503 instead of discarding `requireClient()`.
+- **Ponytail cuts fixed:** deleted the bespoke loopback/bare-origin validator in favor of `new URL(engineUrl).origin`, unified catalog normalization, preserved old non-tool prune gap hashes by appending `serverName` only when present, and removed the source-string-matching live-harness test.
+- **Evidence fixed:** removed invented c4 criteria, repointed issue-derived criteria to binding tests, and corrected the theologian sentence: no live row was repaired or mutated by the report.
+
+### Acceptance / checks
+
+- RED: `npx vitest run src/__tests__/issue_1479_contract.test.ts src/__tests__/issue_1482_contract.test.ts src/__tests__/scope_hygiene_generator.test.ts src/services/__tests__/obsidian_scope_backfill.test.ts src/cli/mcp_tool_grant_drift.test.ts --no-file-parallelism` — **8 failed, 23 passed** for F1–F6 before implementation.
+- Additional RED: `npx vitest run src/__tests__/issue_1479_contract.test.ts --no-file-parallelism` — **4 failed, 3 passed**, including cold-engine editing.
+- GREEN contract: focused five-file command — **32/32 passed**.
+- Focused API/route/CLI: `npx vitest run src/__tests__/issue_1479_contract.test.ts src/__tests__/issue_1482_contract.test.ts src/__tests__/scope_hygiene_generator.test.ts src/services/__tests__/org_exercised_tools_resolver.test.ts src/services/__tests__/org_audit_service.test.ts src/services/__tests__/obsidian_scope_backfill.test.ts src/__tests__/opc_m4_3_mcp_routes.test.ts src/cli/mcp_tool_grant_drift.test.ts --no-file-parallelism` — **114/114 passed**.
+- Fork: `bun test test/server/httpapi-mcp-oauth.test.ts && bun run typecheck` — **1/1 passed**, typecheck exit 0.
+- API: `npm run build` and `npx tsc --noEmit` — exit 0.
+- `git diff --check` and contract JSON parse — exit 0.
+- Sandbox/live gate: **not run**, per dispatch; the shared sandbox remained reserved for later serial verification.
+- GitNexus impact for every edited symbol and final `detect_changes(scope=all)` were attempted. Both failed with: `Database file version: 42, Current build storage version: 41`; risk remained UNKNOWN rather than being skipped or inferred.

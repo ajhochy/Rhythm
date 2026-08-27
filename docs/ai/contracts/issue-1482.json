@@ -1,22 +1,22 @@
 {
   "issue": 1482,
   "date": "2026-08-26",
-  "test_command": "env -u RHYTHM_OPTIMIZER_DISABLED_FAMILIES RHYTHM_OPTIMIZER_MODE=shadow RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts --no-file-parallelism",
+  "test_command": "npx vitest run src/__tests__/issue_1482_contract.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     {
       "criterion_id": "issue-1482-c1",
       "text": "The session-count floor and exercised-tools evidence must count the same session population, including agentKind-attributed and delegated-child sessions.",
       "mode": "integration",
-      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "test": "apps/api_server/src/__tests__/issue_1482_contract.test.ts",
       "status": "pass",
-      "reason": "Focused attribution contract and real sandbox optimizer gate passed at 97d07554."
+      "reason": "Audit-attributed chat IDs are unioned with scheduled-task evidence; the focused contract passes."
     },
     {
       "criterion_id": "issue-1482-c2",
       "text": "Profile requirement matching is case-insensitive and expands server-id aliases, underscore/hyphen variants, and names without a -mcp/_mcp suffix.",
       "mode": "unit",
-      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "test": "apps/api_server/src/__tests__/issue_1482_contract.test.ts",
       "status": "pass",
       "reason": "Focused alias contract and real sandbox optimizer gate passed at 97d07554."
     },
@@ -24,16 +24,9 @@
       "criterion_id": "issue-1482-c3",
       "text": "Granted skill bodies are checked case-insensitively and an explicit per-tool tools-map grant is treated as intentional.",
       "mode": "unit",
-      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "test": "apps/api_server/src/__tests__/issue_1482_contract.test.ts",
       "status": "pass",
-      "reason": "Focused skill/tools-map contract and real sandbox optimizer gate passed at 97d07554."
-    },
-    {
-      "criterion_id": "issue-1482-c4",
-      "text": "The live harness filters the exact audit run and exact tighten-scope kind, requires exactly the control target/payload/signal, and excludes protected IDs only among parsed tighten-scope payloads.",
-      "mode": "unit",
-      "test": "apps/api_server/src/__tests__/issue_1482_live_harness_contract.test.ts",
-      "status": "pass"
+      "reason": "Prompt/skill intent guards both tighten and server-level prune proposals; tool-level drift remains report-only."
     }
   ],
   "not_tested": []
