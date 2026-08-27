@@ -49,7 +49,7 @@ tags: [run, Rhythm]
 - `npm run build && npx tsc --noEmit` — exit 0.
 - `git diff --check` — exit 0.
 - GitNexus impact and `detect_changes(scope=all)` were attempted again; both remain unavailable with LadybugDB file v42/client storage v41, risk UNKNOWN (not HIGH/CRITICAL).
-- Sandbox live command was deliberately **not run** because S2 owns the sole sandbox. Both issue contracts are `UNVERIFIED`/`not_tested` until that command passes against API `4098`, engine `4097`, and the exact sandbox DB path.
+- At this intermediate stage, the sandbox live command was deliberately **not run** because S2 owned the sole sandbox. The then-pending contract state was superseded by the later product-HEAD live gate recorded below.
 
 ### Product wiring repair after live failure
 
@@ -70,7 +70,7 @@ tags: [run, Rhythm]
 - `cd apps/opencode_fork/packages/opencode && bun run typecheck` — exit 0; all three previously triaged errors are gone.
 - `cd apps/api_server && npx vitest run src/__tests__/opc_m4_3_mcp_routes.test.ts src/__tests__/issue_1479_contract.test.ts` — 23/23 passed.
 - `cd apps/api_server && npm run build && npx tsc --noEmit` — exit 0.
-- No sandbox or server command was run; S2 owns the sandbox. Criteria c1-c3 remain `UNVERIFIED` and listed in `not_tested` pending the serial live rerun.
+- No sandbox or server command was run in this intermediate slice; S2 owned the sandbox. Its then-pending criteria were superseded by the later product-HEAD live gate recorded below.
 - GitNexus impact and final `detect_changes(scope=all)` were retried and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN, not HIGH/CRITICAL. Git diff checks independently confirmed the three-file test/docs scope.
 
 ### S3 #1482 live harness hardening
@@ -85,7 +85,7 @@ tags: [run, Rhythm]
 - Fork checks: `cd apps/opencode_fork/packages/opencode && bun test test/server/httpapi-mcp-oauth.test.ts` — 1/1 passed; `bun run typecheck` — exit 0.
 - `git diff --check` — exit 0. Production-source diff is empty; this slice changes tests plus contract/run evidence only.
 - GitNexus impact/context were attempted before the live-test edit and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN, not HIGH/CRITICAL.
-- Contract status remains `UNVERIFIED`; final live verification must start the sandbox with `RHYTHM_OPTIMIZER_MODE=shadow` and `RHYTHM_OPTIMIZER_DISABLED_FAMILIES` unset.
+- At this intermediate stage the contract still awaited the serial live run; that state was superseded by the later product-HEAD live gate recorded below.
 
 ### S3 exact proposal-predicate harness repair
 
@@ -200,3 +200,20 @@ WAIVED: test-only PR-gate repair with no product behavior change; verification i
 - `env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" CI="${CI:-}" node_modules/.bin/tsc --noEmit` — exit 0.
 - GitNexus impact attempts for `librarianWriteTools` and `resolveOpencodeCorsOrigins`, plus final `detect_changes(scope=all)`, failed with LadybugDB file **v42** / client storage **v41**; risk is UNKNOWN, with no HIGH/CRITICAL result.
 - No sandbox or server command was run; PR #1489 owns the sandbox/live rerun.
+
+## 2026-08-27 evidence-only final clearance at 4f64ed90
+
+- Physical worktree: `/private/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/rhythm-s3-optimizer`; branch `fix/optimizer-scope-lane`; HEAD `4f64ed90fc5608fad01e209596389d5285e715c3`; initially clean.
+- `git diff 948c7bfb...HEAD` contains only two API test files and this run note. Explicit product-source and manifest/lockfile path checks returned no diff.
+- The prior product-HEAD gate at `948c7bfb` remains binding: the real sandbox #1479/#1482 live suite passed **2/2**, and no product byte changed afterward. Per dispatch, no sandbox or server E2E was started for this evidence-only clearance.
+- Acceptance command: five files, **32/32 passed**. Focused API/route/CLI command: eight files, **114/114 passed**.
+- Async producer contract: **5/5 passed**; four-file schedule/import regression command: **28/28 passed**.
+- Test-only repair gates: Obsidian **3/3 passed**; inherited-origin CORS **3/3 passed, 57 skipped**.
+- Clean-env full API: `env -i HOME="$HOME" PATH="$PATH" TMPDIR="${TMPDIR:-/tmp}" CI="${CI:-}" npm test` — **5984 passed, 207 skipped; 640 files passed, 118 skipped; exit 0**.
+- Clean-env API `npm run build` and `node_modules/.bin/tsc --noEmit` — exit 0.
+- Fork: OAuth endpoint test **1/1 passed**, typecheck exit 0, standalone build smoke passed with `0.0.0-fix/optimizer-scope-lane-202608271754`.
+- MCP package: typecheck exit 0; **185 passed, 2 env-gated skipped**; build exit 0.
+- Mobile: `test:ci:static`, `contract:check`, and `test:contract` exited 0. Lint reported three warnings and zero errors.
+- Contracts `issue-1479.json`, `issue-1482.json`, and `issue-1488.json` contain respectively 3, 3, and 5 passing criteria with empty `not_tested`; no invented c4 or source-grep criterion remains.
+- Manager GitNexus MCP is unavailable in this verifier session. Earlier required impact/detect attempts remain recorded as LadybugDB file v42/client v41; scope is UNKNOWN rather than inferred green.
+- Package/build gates left no tracked changes. The only final local change is this evidence note; no implementation, test, manifest, lockfile, commit, push, merge, sandbox, or live service action was performed.
