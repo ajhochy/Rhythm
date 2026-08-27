@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/optimizer-scope-lane
 pr: pending
 issues: [1479, 1482]
-status: awaiting-sandbox-verification
+status: verified
 tags: [run, Rhythm]
 ---
 
@@ -98,6 +98,20 @@ tags: [run, Rhythm]
 - Fork checks: `bun test test/server/httpapi-mcp-oauth.test.ts` — 1/1 passed; `bun run typecheck` — exit 0; `bun run build --single` — standalone smoke test passed.
 - No sandbox or server command was run. GitNexus impact was attempted before the harness edit but unavailable due LadybugDB file v42/client v41; risk UNKNOWN, not HIGH/CRITICAL.
 - Final `detect_changes(scope=all)` was attempted before commit and failed for the same index-version mismatch.
+
+### S3 final canonical-path verification at 97d07554
+
+- Canonical preflight passed in physical worktree `/private/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/rhythm-s3-optimizer`; branch `fix/optimizer-scope-lane`, HEAD `97d0755486b8729799d9732341a7e2afd35c59b9`, initially clean. Fork package version was `1.14.49`; the sandbox build smoke reported `0.0.0-fix/optimizer-scope-lane-202608270204`.
+- `tools/dev/sandbox.sh up` with the approved read-only fixture and `RHYTHM_OPTIMIZER_MODE=shadow` — ready on API `:4098`, engine `:4097`. After 95 seconds, `tools/dev/sandbox.sh status`, `/health`, `/opencode/health`, and engine `/mcp/tools` passed; all DB path variables resolved exactly to the sandbox copy.
+- `npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts` — 8/8 passed.
+- Focused API command from the final harness slice — 81 passed, 2 env-gated live tests skipped as designed.
+- `npx vitest run src/__tests__/opc_m4_3_mcp_routes.test.ts src/__tests__/issue_1479_contract.test.ts src/cli/mcp_tool_grant_drift.test.ts` — 25/25 passed.
+- `bun test test/server/httpapi-mcp-oauth.test.ts && bun run typecheck` — 1/1 passed; fork typecheck exited 0.
+- `npm run build && node_modules/.bin/tsc --noEmit` — exited 0.
+- Direct read-only CLI against `http://127.0.0.1:4097` returned `[]` and exited 0.
+- `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 ... npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts --no-file-parallelism --reporter=verbose` — 10/10 passed. This binds proposal assertions to the exact audit run and exact `tighten-scope` kind, requires exactly the control target/payload/signal, checks protected IDs only in parsed tighten payloads, and permits unrelated proposal kinds such as `create-recipe`.
+- Cleanup query returned `{"profiles":0,"sessions":0,"proposals":0}`. Approved fixture SHA-256 remained `132e19c989ff33eda219440ede8a643b15ad28bf5c32c96a097be5ab8e3daa64`; product source remained unchanged.
+- Manager GitNexus MCP was unavailable in this verifier session, so `detect_changes` evidence remains unavailable rather than inferred. Git scope was independently captured with `git diff --name-only main...HEAD`.
 
 ## Existing-row report
 

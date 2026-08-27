@@ -9,24 +9,24 @@
       "text": "The session-count floor and exercised-tools evidence must count the same session population, including agentKind-attributed and delegated-child sessions.",
       "mode": "integration",
       "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Focused attribution contract is green; real sandbox optimizer evidence has not run because S2 owns the sandbox."
+      "status": "pass",
+      "reason": "Focused attribution contract and real sandbox optimizer gate passed at 97d07554."
     },
     {
       "criterion_id": "issue-1482-c2",
       "text": "Profile requirement matching is case-insensitive and expands server-id aliases, underscore/hyphen variants, and names without a -mcp/_mcp suffix.",
       "mode": "unit",
       "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Focused alias contract is green; real sandbox optimizer evidence has not run because S2 owns the sandbox."
+      "status": "pass",
+      "reason": "Focused alias contract and real sandbox optimizer gate passed at 97d07554."
     },
     {
       "criterion_id": "issue-1482-c3",
       "text": "Granted skill bodies are checked case-insensitively and an explicit per-tool tools-map grant is treated as intentional.",
       "mode": "unit",
       "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Focused skill/tools-map contract is green; real sandbox optimizer evidence has not run because S2 owns the sandbox."
+      "status": "pass",
+      "reason": "Focused skill/tools-map contract and real sandbox optimizer gate passed at 97d07554."
     },
     {
       "criterion_id": "issue-1482-c4",
@@ -36,5 +36,5 @@
       "status": "pass"
     }
   ],
-  "not_tested": ["issue-1482-c1", "issue-1482-c2", "issue-1482-c3"]
+  "not_tested": []
 }
