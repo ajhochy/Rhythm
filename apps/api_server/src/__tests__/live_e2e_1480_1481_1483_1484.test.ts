@@ -305,7 +305,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     const diagnoses = proposals(diagnosisRun);
     expect(diagnoses.filter((row) => row.target_ref === `agent_config:${infraId}`)).toHaveLength(0);
     expect(diagnoses.filter((row) => row.kind === 'workflow-prompt-fix' && row.target_ref === `agent_config:${weakId}`)).toHaveLength(0);
-    expect(diagnoses.filter((row) => row.kind === 'refine-config' && row.target_ref === `agent_config:${positiveId}`)).toHaveLength(1);
+    expect(diagnoses.filter((row) => row.kind === 'refine-config' && row.target_ref === `profile:${positiveId}`)).toHaveLength(1);
     expect(diagnoses.filter((row) => row.target_ref === `agent_config:${unsupportedId}`)).toHaveLength(0);
     expect((db.prepare(`SELECT COUNT(*) AS n FROM agent_sessions
       WHERE category = 'self_improvement' AND name LIKE ?`).get(`optimizer-diagnosis: ${weakId}%`) as { n: number }).n).toBeGreaterThan(0);
@@ -351,7 +351,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     expect((db.prepare('SELECT COUNT(*) AS n FROM agent_skills WHERE title = ?').get('s4-changed-bytes') as { n: number }).n).toBe(0);
     expect(tableDigest('agent_configs', 'agent_cookbook', 'agent_skills')).toBe(beforeApprovalTargets);
     expect(await fileDigest()).toBe(beforeApprovalFiles);
-    expect(rowDigest()).not.toBe(beforeApprovalRows); // only the proposal's failed lifecycle record may change
+    expect(rowDigest()).toBe(beforeApprovalRows);
 
     const withWorkflow = await createConfig('manager-with', { isManager: true,
       allowedDelegatesJson: JSON.stringify(['workflow-orchestrator', 'librarian']) });

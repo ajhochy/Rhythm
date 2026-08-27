@@ -44,3 +44,15 @@ tags: [run, Rhythm]
 - Pre-edit GitNexus impacts attempted for `isDiagnosableSignal`, `proposeFixFromSignals`, `detectRetryLoopSignals`, and `generateWorkflowSignalProposals`; all returned risk `UNKNOWN` because the index is v42 while the connected reader supports v41. No HIGH/CRITICAL result was returned.
 - Additional pre-edit impacts for `searchSkillCandidates`, `buildSkillProvenance`, and `runExternalDiscoveryGenerator` hit the same blocker.
 - S3 live prerequisites: sandbox-only `DB_PATH`/`RHYTHM_LIVE_DB_PATH`, `RHYTHM_SANDBOX_DIR`, `RHYTHM_SANDBOX_HOME`, and `RHYTHM_MANAGED_SKILLS_DIR`; loopback `RHYTHM_EXTERNAL_DISCOVERY_SEARCH_URL=<origin>/api/search`, `RHYTHM_EXTERNAL_DISCOVERY_GITHUB_ORIGIN=<origin>`, and `RHYTHM_SKILLS_DOWNLOAD_BASE=<origin>/raw`; configure the sandbox engine's LM Studio-compatible deterministic model at that same origin. Then run `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism` from `apps/api_server`.
+
+## S4 live-harness assertion repair
+
+- RED static acceptance command checked for production `profile:${positiveId}` attribution and byte-identical pre-claim rejection; both assertions failed before the two-line repair.
+- Changed only the #1481 expected target ref and #1483 full-row digest equality assertion. Cleanup and #1484 setup are unchanged; production-source diff is empty.
+- GREEN static acceptance command passed with no output.
+- `npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism` — 1 file / 2 tests skipped normally.
+- `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism` — failed closed at `assertLiveE2EIsolation`; no server or sandbox started.
+- Four focused contracts — 4 files / 18 tests passed. Broader S4 generator suite — 10 files / 98 tests passed.
+- `node_modules/.bin/tsc --noEmit`, `npm run build`, and `git diff --check` passed.
+- GitNexus pre-edit impact and final change detection were attempted but unavailable because the index is storage v42 while the connected reader supports v41; risk remained UNKNOWN, with no HIGH/CRITICAL result.
+- S2 owns the sandbox; no live sandbox command was run in this repair.
