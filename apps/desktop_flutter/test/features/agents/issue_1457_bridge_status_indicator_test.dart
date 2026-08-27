@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
+import 'package:rhythm_desktop/app/theme/app_theme.dart';
 import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
 import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
 import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
@@ -68,6 +70,12 @@ class _TasksDataSource extends TasksLocalDataSource {
 }
 
 void main() {
+  setUpAll(() async {
+    final inter = FontLoader('Inter')
+      ..addFont(rootBundle.load('fonts/inter/Inter-Regular.otf'));
+    await inter.load();
+  });
+
   testWidgets(
       'issue-1457-c5: bridge outage shows reconnecting without failing sessions and recovery clears it',
       (tester) async {
@@ -102,7 +110,11 @@ void main() {
             ),
           ),
         ],
-        child: const MaterialApp(home: AgentsView()),
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          home: const AgentsView(),
+        ),
       ),
     );
 
@@ -121,6 +133,10 @@ void main() {
     expect(
         controller.sessions.where((session) => session.status.name == 'error'),
         isEmpty);
+    await expectLater(
+      find.byType(AgentsView),
+      matchesGoldenFile('goldens/issue_1457_bridge_reconnecting.png'),
+    );
 
     controller.handleWsMessageForTest(AgentWsMessage.parse({
       'v': 1,
