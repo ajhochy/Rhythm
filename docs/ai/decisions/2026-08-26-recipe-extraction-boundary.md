@@ -13,6 +13,8 @@ Epic #1485 requires durable enforced recipe workflows without building a second 
 
 Those missing mechanics cannot be extracted from research. Treating them as shared would either rename net-new recipe code as generic infrastructure or rewrite proven research behavior.
 
+AJ ratified this interpretation in the 2026-08-27 reopened PR #1490 workflow; it is a product-owner decision, not an inference from repository evidence alone.
+
 ## Decision
 
 Read “do not build a second orchestration engine” as **one shared agent-dispatch seam; no copied research lifecycle machinery**.

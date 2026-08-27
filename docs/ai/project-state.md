@@ -2,7 +2,7 @@
 
 ## Current focus
 
-The six-stream open-issue workflow is complete. Four implementation draft PRs await AJ review/manual smoke, and the docs-only #1485 recipe-workflow plan is finalized for a fifth draft PR. No PR from this workflow is merged.
+The six-stream open-issue workflow is complete. Four implementation draft PRs await AJ review/manual smoke, and docs-only PR #1490 carries the finalized #1485 recipe-workflow plan. No PR from this workflow is merged.
 
 ## Active branch / PR
 
@@ -10,12 +10,12 @@ The six-stream open-issue workflow is complete. Four implementation draft PRs aw
 - `fix/bridge-stream-reliability-repair` → draft PR #1487; fixes #1457, #1458, #1455, #1456, and #1325.
 - `fix/optimizer-scope-lane` → draft PR #1488; fixes #1479 and #1482.
 - `fix/optimizer-generator-lanes` → draft PR #1489; fixes #1480, #1481, #1483, and #1484.
-- `plan/recipes-1485` → docs-only #1485 plan/review/state branch; draft PR not yet opened.
+- `plan/recipes-1485` → docs-only draft PR #1490 for #1485 plan/review/state.
 
 ## In progress
 
 - AJ-owned review, manual smoke, and merge decisions for draft PRs #1486–#1489.
-- #1485 implementation has not started. The approved order is S0 durability probe → S1a migration/default-off plus S1b validator → S2 `dispatchAgentStage()` seam → S3 runner/completion/DTO → S4 dedicated-repo E2E → S5 Flutter editor. S0–S3 are unblocked.
+- #1485 implementation has not started. S0, S1a, S1b, and S2 may begin in parallel where file ownership permits; S3a waits for S0's mode and S1b, with dispatch wiring waiting for S2; S3b follows S3a; S4 follows S3b; S5 needs S1b plus the stable S3 DTO and does not wait for S4. No AJ decision blocks dispatch.
 - Verification workflow corrections are recorded in Rhythm-owned `verification-gate` and `workflow-orchestrator` skills: pre-run `UNVERIFIED` triggers execution, and exact worktree, fixture variables, launch ownership, and readiness are mandatory.
 
 ## Risks / known issues
@@ -33,7 +33,7 @@ The six-stream open-issue workflow is complete. Four implementation draft PRs aw
 - PR #1487: 33/33 criteria; full API suite 5,999 passing; all live gates pass.
 - PR #1488: 8/8 criteria and live 10/10. Read-only diagnosis found 16 phantom Obsidian grants across four profiles; no live rows changed.
 - PR #1489: 24/24 criteria, 165 focused tests, live 2/2, and cleanup/integrity checks pass.
-- #1485: OpenAI-authored plan completed Anthropic Opus 5 contrarian review; required repairs are incorporated. This branch is docs-only.
+- #1485: OpenAI-authored plan completed Anthropic Opus 5 contrarian review and second-pass Fable review; the remaining approval-guard and completion-binding specification repairs are incorporated. This branch is docs-only.
 - All sandboxes were cleaned; live ports 4001/4096 were preserved. Synthetic fixture v2 uses DELETE journaling, is read-only, and contains no secrets.
 
 ## Next step
