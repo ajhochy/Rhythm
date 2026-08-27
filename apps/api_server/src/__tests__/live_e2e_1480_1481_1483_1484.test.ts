@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -23,12 +23,17 @@ let tamperExternalBody = false;
 let baselineRows: string;
 let baselineFiles: string;
 let baselineSessionIds = new Set<string>();
-let originalGlobalConfig: Record<string, unknown> | undefined;
+let sandboxConfigPath: string | undefined;
+let originalAnthropicPresent = false;
+let originalAnthropicProvider: unknown;
+let originalOtherProviders: Record<string, unknown> = {};
 let mruSessionId: string | undefined;
 let positiveEvidenceReceived = false;
 let infraMarkerReceived = false;
-const providerId = `s4-diagnosis-${process.pid}-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
-const modelId = `s4-diagnosis-model-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
+let candidateScoreReceived = false;
+let draftScoreReceived = false;
+const providerId = 'anthropic';
+const modelId = 'claude-haiku-4-5';
 
 function baseUrl(): string {
   return (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
@@ -210,18 +215,29 @@ async function startFixture(): Promise<Server> {
       request.on('end', () => {
         positiveEvidenceReceived ||= body.includes('s4-positive-config-error');
         infraMarkerReceived ||= body.includes('Cannot connect to API at http://127.0.0.1:4001');
-        const content = body.includes('No single recurring error')
-          ? JSON.stringify({ diagnosis: 'Replace the skill', rootCause: 'skill', fixType: 'skill-edit',
-            concreteFix: 'replacement', confidence: 'high', evidenceQuotes: ['No single recurring error'] })
-          : body.includes('s4-positive-config-error')
-            ? JSON.stringify({ diagnosis: 'Use the configured model', rootCause: 'config', fixType: 'config-change',
-              concreteFix: 'model: openai/gpt-5.6-sol', confidence: 'high',
-              evidenceQuotes: ['s4-positive-config-error'],
-              configPatch: { agentConfigId: 'untrusted', field: 'model', value: 'openai/gpt-5.6-sol' } })
-            : body.includes('s4-unsupported-cause')
-              ? JSON.stringify({ diagnosis: 'Invented delegation cause', rootCause: 'skill', fixType: 'skill-edit',
-                concreteFix: 'replacement', confidence: 'high', evidenceQuotes: ['quote that is absent'] })
-            : '95 relevant, actionable, and complete';
+        let content: string;
+        if (body.includes('Score (0-100)')) {
+          if (body.includes('## Problem')) {
+            draftScoreReceived = true;
+            content = '20 skeletal intent stub without an actionable procedure';
+          } else {
+            candidateScoreReceived = true;
+            content = '95 precise, complete, reusable, and actionable';
+          }
+        } else if (body.includes('No single recurring error')) {
+          content = JSON.stringify({ diagnosis: 'Replace the skill', rootCause: 'skill', fixType: 'skill-edit',
+            concreteFix: 'replacement', confidence: 'high', evidenceQuotes: ['No single recurring error'] });
+        } else if (body.includes('s4-positive-config-error')) {
+          content = JSON.stringify({ diagnosis: 'Use the configured model', rootCause: 'config', fixType: 'config-change',
+            concreteFix: 'model: openai/gpt-5.6-sol', confidence: 'high',
+            evidenceQuotes: ['s4-positive-config-error'],
+            configPatch: { agentConfigId: 'untrusted', field: 'model', value: 'openai/gpt-5.6-sol' } });
+        } else if (body.includes('s4-unsupported-cause')) {
+          content = JSON.stringify({ diagnosis: 'Invented delegation cause', rootCause: 'skill', fixType: 'skill-edit',
+            concreteFix: 'replacement', confidence: 'high', evidenceQuotes: ['quote that is absent'] });
+        } else {
+          content = '95 relevant, actionable, and complete';
+        }
         response.writeHead(200, { 'content-type': 'text/event-stream' });
         response.end(anthropicTextStream(content));
       });
@@ -265,21 +281,33 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     baselineFiles = await fileDigest();
     baselineSessionIds = new Set((db.prepare('SELECT id FROM agent_sessions').all() as Array<{ id: string }>).map((row) => row.id));
 
-    const globalConfigResponse = await fetch(`${engineUrl()}/global/config`);
-    expect(globalConfigResponse.status, await globalConfigResponse.clone().text()).toBe(200);
-    originalGlobalConfig = await globalConfigResponse.json() as Record<string, unknown>;
-    const configured = structuredClone(originalGlobalConfig) as Record<string, unknown> & {
+    const sandboxRootPath = await realpath(resolve(process.env.RHYTHM_SANDBOX_DIR!));
+    const sandboxHomePath = await realpath(resolve(process.env.RHYTHM_SANDBOX_HOME!));
+    expect(sandboxHomePath).toBe(join(sandboxRootPath, 'home'));
+    sandboxConfigPath = await realpath(join(sandboxHomePath, '.config', 'opencode', 'opencode.json'));
+    expect(sandboxConfigPath.startsWith(`${join(sandboxRootPath, 'home')}${sep}`)).toBe(true);
+    const sandboxConfig = JSON.parse(await readFile(sandboxConfigPath, 'utf8')) as {
       provider?: Record<string, unknown>;
     };
-    configured.provider = configured.provider ?? {};
-    configured.provider[providerId] = {
-      npm: '@ai-sdk/anthropic',
-      name: 'S4 deterministic diagnosis provider',
-      options: { apiKey: 's4-fixture-key', baseURL: `${fixtureOrigin().origin}/v1` },
-      models: { [modelId]: { name: 'S4 deterministic diagnosis model', limit: { context: 200000, output: 4096 } } },
-    };
+    const originalProviders = sandboxConfig.provider ?? {};
+    originalAnthropicPresent = Object.hasOwn(originalProviders, providerId);
+    originalAnthropicProvider = originalAnthropicPresent
+      ? structuredClone(originalProviders[providerId])
+      : undefined;
+    originalOtherProviders = structuredClone(Object.fromEntries(
+      Object.entries(originalProviders).filter(([id]) => id !== providerId),
+    ));
+
     const configUpdate = await fetch(`${engineUrl()}/global/config`, {
-      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(configured),
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ provider: {
+        [providerId]: {
+          npm: '@ai-sdk/anthropic',
+          name: 'S4 deterministic Anthropic Haiku provider',
+          options: { apiKey: 's4-fixture-key', baseURL: `${fixtureOrigin().origin}/v1` },
+          models: { [modelId]: { name: 'S4 deterministic Anthropic Haiku model',
+            limit: { context: 200000, output: 4096 } } },
+        },
+      } }),
     });
     expect(configUpdate.status, await configUpdate.clone().text()).toBe(200);
     expect((await api('/system/refresh', { method: 'POST' })).status).toBe(200);
@@ -321,12 +349,34 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       db.prepare('DELETE FROM agent_session_messages WHERE session_id = ?').run(id);
       db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(id);
     }
-    if (originalGlobalConfig) {
-      const restored = await fetch(`${engineUrl()}/global/config`, {
-        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(originalGlobalConfig),
-      });
-      expect(restored.status, await restored.clone().text()).toBe(200);
+    if (sandboxConfigPath) {
+      const sandboxRootPath = await realpath(resolve(process.env.RHYTHM_SANDBOX_DIR!));
+      const sandboxHomePath = await realpath(resolve(process.env.RHYTHM_SANDBOX_HOME!));
+      expect(sandboxHomePath).toBe(join(sandboxRootPath, 'home'));
+      const verifiedConfigPath = await realpath(sandboxConfigPath);
+      expect(verifiedConfigPath.startsWith(`${join(sandboxRootPath, 'home')}${sep}`)).toBe(true);
+      const config = JSON.parse(await readFile(verifiedConfigPath, 'utf8')) as {
+        provider?: Record<string, unknown>;
+      };
+      config.provider = config.provider ?? {};
+      if (originalAnthropicPresent) config.provider.anthropic = structuredClone(originalAnthropicProvider);
+      else delete config.provider.anthropic;
+      const temporaryPath = `${verifiedConfigPath}.s4-${process.pid}-${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+        await rename(temporaryPath, verifiedConfigPath);
+      } finally {
+        await unlink(temporaryPath).catch(() => undefined);
+      }
       expect((await api('/system/refresh', { method: 'POST' })).status).toBe(200);
+      const restoredResponse = await fetch(`${engineUrl()}/global/config`);
+      expect(restoredResponse.status, await restoredResponse.clone().text()).toBe(200);
+      const restored = await restoredResponse.json() as { provider?: Record<string, unknown> };
+      const restoredProviders = restored.provider ?? {};
+      if (originalAnthropicPresent) expect(restoredProviders.anthropic).toEqual(originalAnthropicProvider);
+      else expect(Object.hasOwn(restoredProviders, 'anthropic')).toBe(false);
+      expect(Object.fromEntries(Object.entries(restoredProviders).filter(([id]) => id !== providerId)))
+        .toEqual(originalOtherProviders);
     }
     if (fixture?.listening) await new Promise<void>((done) => fixture.close(() => done()));
     expect(rowDigest()).toBe(baselineRows);
@@ -403,6 +453,8 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       .run(gapId, gapId, now, now);
     const discoveryRun = await runOptimizer(0);
     const external = proposals(discoveryRun).filter((row) => row.kind === 'external-adoption');
+    expect(candidateScoreReceived).toBe(true);
+    expect(draftScoreReceived).toBe(true);
     expect(external.some((row) => row.change_json?.includes('Live path repair'))).toBe(false);
     const unique = external.filter((row) => row.change_json?.includes('Unique deployment audit'));
     expect(unique).toHaveLength(1);
