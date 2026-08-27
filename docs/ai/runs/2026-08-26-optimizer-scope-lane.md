@@ -24,6 +24,8 @@ tags: [run, Rhythm]
   an explicit SQLite `DB_PATH` and loopback fork URL, opens the DB read-only,
   emits only `{profileId, serverName, toolName}`, and exits nonzero on validation
   failure.
+- Repaired `GET /opencode/mcp` tool grouping to consume the MCP-only `/mcp/tools`
+  catalog instead of the built-in/plugin tool catalog.
 
 ## Checks
 
@@ -49,6 +51,16 @@ tags: [run, Rhythm]
 - GitNexus impact and `detect_changes(scope=all)` were attempted again; both remain unavailable with LadybugDB file v42/client storage v41, risk UNKNOWN (not HIGH/CRITICAL).
 - Sandbox live command was deliberately **not run** because S2 owns the sole sandbox. Both issue contracts are `UNVERIFIED`/`not_tested` until that command passes against API `4098`, engine `4097`, and the exact sandbox DB path.
 
+### Product wiring repair after live failure
+
+- RED route contract: `npx vitest run src/__tests__/opc_m4_3_mcp_routes.test.ts` — 1 failed, 19 passed; the API returned `tools: []` because it called `listToolIds()` rather than the separately populated MCP catalog.
+- GREEN route contract: same command — 20/20 passed; the contract asserts grouped composed IDs and that `listMcpToolIds()` is called while `listToolIds()` is not.
+- Exact S3 focused baseline rerun: 3/3, 80/80, 73/73, 21/21, and CLI 2/2 — 179 passing invocations. With the route suite, 199 passing invocations total.
+- `npm run build && npx tsc --noEmit` — exit 0.
+- Live suite with flags absent — 2/2 skipped cleanly. Forced live suite without isolation — failed closed in `assertLiveE2EIsolation`; no server or sandbox command was run.
+- No deterministic fixture was added: this S3 repair is the one-line product wiring defect found by S4's real sandbox run; S4 retains ownership of the sandbox and live rerun.
+- GitNexus route/symbol impact was retried before the product edit and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN and no HIGH/CRITICAL result.
+
 ## Existing-row report
 
 Read-only comparison against the issue's live Obsidian catalog found 16 phantom grants outside the now-repaired theologian row:
@@ -64,4 +76,4 @@ The report was read-only; no live `agent_configs` rows were changed.
 
 - The shared dev sandbox was deliberately not started or touched. Live fork endpoint and repair/report verification are deferred to the serial sandbox gate.
 - GitNexus `detect_changes(scope=all)` was invoked before each commit attempt but unavailable during the concurrent index rebuild.
-- This repair adds one focused third commit after the two issue commits. No push or PR was performed.
+- This repair adds focused commits after the two issue commits. No push or PR was performed.

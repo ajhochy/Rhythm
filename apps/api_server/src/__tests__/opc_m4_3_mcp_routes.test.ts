@@ -25,6 +25,7 @@ import { AppError } from '../errors/app_error';
 
 const {
   listMcpSpy,
+  listMcpToolIdsSpy,
   listToolIdsSpy,
   addMcpSpy,
   connectMcpSpy,
@@ -33,6 +34,7 @@ const {
   getPersistedMcpConfigsSpy,
 } = vi.hoisted(() => ({
   listMcpSpy: vi.fn(),
+  listMcpToolIdsSpy: vi.fn(),
   listToolIdsSpy: vi.fn(),
   addMcpSpy: vi.fn(),
   connectMcpSpy: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     isReady: true,
     listMcp: listMcpSpy,
+    listMcpToolIds: listMcpToolIdsSpy,
     listToolIds: listToolIdsSpy,
     addMcp: addMcpSpy,
     connectMcp: connectMcpSpy,
@@ -91,6 +94,7 @@ describe('issue-702-c1: MCP route contracts', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     getPersistedMcpConfigsSpy.mockResolvedValue({});
+    listMcpToolIdsSpy.mockResolvedValue([]);
     listToolIdsSpy.mockResolvedValue([]);
     setDb((() => {
       const db = new Database(':memory:');
@@ -430,13 +434,12 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
     expect(noEnvEntry!.needsCredentials).toBe(false);
   });
 
-  it('issue-1236-c3: GET /opencode/mcp groups granular tool ids by server', async () => {
+  it('issue-1479-c4: GET /opencode/mcp groups MCP tool ids from the MCP catalog by server', async () => {
     listMcpSpy.mockResolvedValueOnce({
       rhythm: { status: 'connected' },
       'pco-services': { status: 'connected' },
     });
-    listToolIdsSpy.mockResolvedValueOnce([
-      'read',
+    listMcpToolIdsSpy.mockResolvedValueOnce([
       'rhythm_list_tasks',
       'rhythm_create_task',
       'pco-services_list_services',
@@ -452,6 +455,8 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
     expect(body.find((entry) => entry.name === 'pco-services')?.tools).toEqual([
       'list_services',
     ]);
+    expect(listMcpToolIdsSpy).toHaveBeenCalledOnce();
+    expect(listToolIdsSpy).not.toHaveBeenCalled();
   });
 });
 
