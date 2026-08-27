@@ -45,6 +45,7 @@ describe('#1481 evidence-grounded workflow diagnosis', () => {
     const evidence = 'No single recurring error — likely a systemic profile/skill/config issue';
     const { generateDiagnosisProposals } = await import('../services/generators/workflow_signal_generator');
     const result = await generateDiagnosisProposals(snapshot([signal(evidence, 'unverified-claim')]), { diagnose });
+    expect(diagnose).toHaveBeenCalledTimes(1);
     expect(result.created.filter((p) => p.kind === 'workflow-prompt-fix')).toHaveLength(0);
   });
 

@@ -264,7 +264,13 @@ export async function runExternalDiscoveryGenerator(
       }
 
       if (candidate.kind === 'skill') {
-        const pinned = candidate.downloadUrl?.match(/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/([0-9a-f]{40})\//i);
+        const configuredDownloadOrigin = process.env.RHYTHM_SKILLS_DOWNLOAD_BASE?.replace(/\/$/, '');
+        const pinnedOrigin = configuredDownloadOrigin
+          ? configuredDownloadOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          : 'https://raw\\.githubusercontent\\.com';
+        const pinned = candidate.downloadUrl?.match(
+          new RegExp(`^${pinnedOrigin}/[^/]+/[^/]+/([0-9a-f]{40})/`, 'i'),
+        );
         if (!pinned || !/^[0-9a-f]{64}$/i.test(candidate.contentSha256 ?? '')) {
           result.droppedMissingProvenance++;
           logger.info(`[external-discovery-generator] dropped '${candidate.name}' — skill body is not commit-pinned and hashed`);

@@ -18,6 +18,7 @@ function retrySignal(sessionIds: string[]): WorkflowFailureSignal {
   return {
     category: 'retry-loop', sessionIds, agentConfigId: 'workflow-orchestrator', count: 3,
     confidence: 'high', dedupToken: 'workflow-orchestrator:gitnexus_query:input-hash',
+    retryTool: 'gitnexus_query', retryInputHash: 'input-hash',
     evidence: `tool=gitnexus_query inputHash=input-hash attempts=3 failedOrTimeout=3 sessionIds=${sessionIds.join(',')}`,
   };
 }
@@ -47,6 +48,20 @@ describe('#1480 optimizer recipe signal quality', () => {
     const { generateWorkflowSignalProposals } = await import('../services/generators/workflow_signal_generator');
     const { created } = await generateWorkflowSignalProposals(snapshot([retrySignal(['only-session'])]));
     expect(created.filter((p) => p.kind === 'create-recipe')).toHaveLength(0);
+  });
+
+  it('issue-1480-c4: aggregates the same retry operation across two distinct sessions into one recipe', async () => {
+    // Regression caught: per-session retry signals are each suppressed before recurrence can be established.
+    const { generateWorkflowSignalProposals } = await import('../services/generators/workflow_signal_generator');
+    const { created } = await generateWorkflowSignalProposals(snapshot([
+      retrySignal(['session-one']),
+      retrySignal(['session-two']),
+    ]));
+    const recipes = created.filter((p) => p.kind === 'create-recipe');
+
+    expect(recipes).toHaveLength(1);
+    const change = JSON.parse(recipes[0].changeJson!);
+    expect(JSON.parse(change.steps_json)).not.toEqual([{ action: 'prompt', text: change.title }]);
   });
 
   it('issue-1480-c3: refine-recipe skips a title-only shell without calling the critic', async () => {

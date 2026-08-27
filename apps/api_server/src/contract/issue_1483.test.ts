@@ -52,6 +52,21 @@ describe('#1483 safe external skill adoption', () => {
     expect(await new AgentOrgProposalsRepository().listByStatusAsync('proposed')).toHaveLength(0);
   });
 
+  it('issue-1483-c2: persists the pinned commit URL and reviewed content hash', async () => {
+    // Regression caught: an accepted immutable candidate loses its reviewed provenance before approval.
+    const downloadUrl = `https://raw.githubusercontent.com/owner/repo/${'c'.repeat(40)}/SKILL.md`;
+    const contentSha256 = 'd'.repeat(64);
+    const { runExternalDiscoveryGenerator } = await import('../services/generators/external_discovery_generator');
+    await runExternalDiscoveryGenerator({ auditRunId: 'issue-1483', gaps: [gap], installedSkills: [],
+      discoverCandidates: async () => [{ kind: 'skill', name: 'unique capability', gapId: gap.gapId,
+        provenance: { ...provenance, installCommand: 'npx skills add owner/repo/unique-capability' },
+        downloadUrl, contentSha256 }] });
+
+    const proposals = await new AgentOrgProposalsRepository().listByStatusAsync('proposed');
+    expect(proposals).toHaveLength(1);
+    expect(JSON.parse(proposals[0].changeJson!)).toMatchObject({ downloadUrl, contentSha256 });
+  });
+
   it('issue-1483-c3: the real installer fails closed when downloaded bytes differ from review', async () => {
     // Regression caught: approval installs changed upstream bytes after human review.
     const expected = createHash('sha256').update('reviewed').digest('hex');

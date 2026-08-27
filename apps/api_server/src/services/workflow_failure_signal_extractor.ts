@@ -101,6 +101,9 @@ export interface WorkflowFailureSignal {
   evidence: string;
   delegateOutcome?: DelegateOutcome;
   retryOutcome?: RetryOutcome;
+  /** Stable retry recurrence identity; present only for category='retry-loop'. */
+  retryTool?: string;
+  retryInputHash?: string;
   /**
    * #936 — STABLE identity of the specific pattern this signal represents:
    * the detector's own grouping key (issue number for stale-redo, profile for
@@ -406,6 +409,8 @@ function detectRetryLoopSignals(
         confidence: retryOutcome === 'unresolved' ? 'high' : 'medium',
         sessionIds: [session.id],
         retryOutcome,
+        retryTool: tool,
+        retryInputHash: inputHash,
         evidence: `tool='${tool}' inputHash=${inputHashPrefix} attempts=${group.length} failedOrTimeout=${badCount} outcome=${retryOutcome} agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
         // Keyed on session+tool+FULL inputHash — a single materially-repeated
         // (tool, equivalent-input) pair within one session is itself

@@ -260,8 +260,27 @@ export async function generateWorkflowSignalProposals(
   const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
   const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
   const created: AgentOrgProposal[] = [];
+  const retryGroups = new Map<string, WorkflowFailureSignal>();
+  const signals: WorkflowFailureSignal[] = [];
 
   for (const signal of snapshot.workflowFailureSignals ?? []) {
+    if (signal.category !== 'retry-loop' || !signal.retryTool || !signal.retryInputHash) {
+      signals.push(signal);
+      continue;
+    }
+    const key = `${signal.agentConfigId ?? '(unattributed)'}:${signal.retryTool}:${signal.retryInputHash}`;
+    const existing = retryGroups.get(key);
+    if (!existing) {
+      retryGroups.set(key, { ...signal, sessionIds: [...new Set(signal.sessionIds)], dedupToken: key });
+      continue;
+    }
+    existing.sessionIds = [...new Set([...existing.sessionIds, ...signal.sessionIds])];
+    existing.count += signal.count;
+    existing.evidence = `${existing.evidence}; ${signal.evidence}`;
+  }
+  signals.push(...retryGroups.values());
+
+  for (const signal of signals) {
     try {
       // Low-confidence/unknown delegate evidence must NEVER produce a
       // proposal — the ambiguity is real, not just under-evidenced.
@@ -1014,7 +1033,6 @@ function isInfraSignal(signal: WorkflowFailureSignal): boolean {
 
 function isDiagnosableSignal(signal: WorkflowFailureSignal): boolean {
   if (!signal.agentConfigId || !DIAGNOSABLE_CATEGORIES.has(signal.category) || isInfraSignal(signal)) return false;
-  if (signal.category === 'unverified-claim' && /no single recurring error/i.test(signal.evidence)) return false;
   return true;
 }
 
@@ -1232,6 +1250,13 @@ async function proposeFixFromSignals(
     }
 
     if (result.fixType === 'skill-edit') {
+      if (skillSignals.some((signal) =>
+        signal.category === 'unverified-claim' && /no single recurring error/i.test(signal.evidence))) {
+        logger.warn(
+          `[workflow-signal-generator] ${agentConfigId}: DROPPED weak-evidence skill diagnosis after diagnosis`,
+        );
+        continue;
+      }
       const evidence = skillSignals.map((signal) => signal.evidence);
       const quotes = result.evidenceQuotes ?? [];
       if (quotes.length === 0 || quotes.some((quote) => !evidence.some((line) => line.includes(quote)))) {

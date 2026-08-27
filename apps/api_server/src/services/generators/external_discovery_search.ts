@@ -30,7 +30,8 @@ import type {
 import { scoreSkillBody, KEEP_SCORE_BAR, type SkillPurpose } from '../skill_refiner';
 import { scanContextContent } from '../../security/context_scanner';
 
-const SKILLS_SH_SEARCH = 'https://skills.sh/api/search';
+const SKILLS_SH_SEARCH = process.env.RHYTHM_EXTERNAL_DISCOVERY_SEARCH_URL ?? 'https://skills.sh/api/search';
+const GITHUB_API_ORIGIN = (process.env.RHYTHM_EXTERNAL_DISCOVERY_GITHUB_ORIGIN ?? 'https://api.github.com').replace(/\/$/, '');
 /** skills.sh serves raw skill bodies from GitHub; overridable for a mirror/test double. */
 const DOWNLOAD_BASE_URL = process.env.RHYTHM_SKILLS_DOWNLOAD_BASE ?? 'https://raw.githubusercontent.com';
 const FETCH_TIMEOUT_MS = 8000;
@@ -135,7 +136,7 @@ async function buildSkillProvenance(
   const parts = src.split('/');
   if (parts.length < 2) return null;
   const repoSlug = `${parts[0]}/${parts[1]}`;
-  const meta = await fetchJson<GithubRepoMeta>(`https://api.github.com/repos/${repoSlug}`, {
+  const meta = await fetchJson<GithubRepoMeta>(`${GITHUB_API_ORIGIN}/repos/${repoSlug}`, {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'rhythm-external-discovery',
   });
@@ -144,7 +145,7 @@ async function buildSkillProvenance(
   const maintainer = meta.owner?.login ?? parts[0];
   if (!license || !maintainer || !meta.pushed_at) return null;
   const commit = await fetchJson<GithubCommitMeta>(
-    `https://api.github.com/repos/${repoSlug}/commits/${encodeURIComponent(meta.default_branch ?? 'HEAD')}`,
+    `${GITHUB_API_ORIGIN}/repos/${repoSlug}/commits/${encodeURIComponent(meta.default_branch ?? 'HEAD')}`,
     { Accept: 'application/vnd.github+json', 'User-Agent': 'rhythm-external-discovery' },
   );
   if (!commit || !/^[0-9a-f]{40}$/i.test(commit.sha)) return null;

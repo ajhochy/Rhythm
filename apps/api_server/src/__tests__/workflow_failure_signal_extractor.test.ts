@@ -463,7 +463,7 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     expect(signals.some((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id))).toBe(false);
   });
 
-  it('dedupToken carries the FULL input hash while evidence keeps only a short prefix', async () => {
+  it('exposes stable recurrence identity with profile, tool, and FULL input hash', async () => {
     const sessionsRepo = new AgentSessionsRepository();
     const s = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'full-hash-dedup', mcpRole: 'secretary' });
     const t0 = Date.now() - 60_000;
@@ -476,6 +476,7 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
 
     const signal = signals.find((s2) => s2.category === 'retry-loop' && s2.sessionIds.includes(s.id));
     expect(signal).toBeDefined();
+    expect(signal).toMatchObject({ agentConfigId: 'secretary', retryTool: 'bash' });
     const inputHashInEvidence = /inputHash=([0-9a-f]+)/.exec(signal!.evidence)?.[1];
     expect(inputHashInEvidence).toBeDefined();
     expect(inputHashInEvidence!.length).toBeLessThanOrEqual(12);
@@ -483,6 +484,7 @@ describe('issue-933-c4: retry-loop (structured tool attempts only, W3)', () => {
     const dedupSuffix = signal!.dedupToken.slice(`${s.id}:bash:`.length);
     expect(dedupSuffix.length).toBe(64); // full sha256 hex digest, not the 12-char evidence prefix
     expect(dedupSuffix.startsWith(inputHashInEvidence!)).toBe(true);
+    expect(signal!.retryInputHash).toBe(dedupSuffix);
   });
 
   it('a duplicate persisted record of the SAME call (callID) is deduped to one attempt, not counted as a retry', async () => {

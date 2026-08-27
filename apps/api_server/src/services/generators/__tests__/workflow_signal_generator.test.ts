@@ -186,6 +186,19 @@ describe('issue-935-c2: behavioral categories map to create-recipe', () => {
     expect(typeof change.title).toBe('string');
     expect(typeof change.steps_json).toBe('string');
   });
+
+  it('aggregates matching raw retry signals across sessions before applying the recurrence floor', async () => {
+    const retryIdentity = { retryTool: 'bash', retryInputHash: 'f'.repeat(64) };
+    const signals = [
+      makeSignal({ ...retryIdentity, sessionIds: ['s1'], dedupToken: `s1:bash:${'f'.repeat(64)}` }),
+      makeSignal({ ...retryIdentity, sessionIds: ['s2'], dedupToken: `s2:bash:${'f'.repeat(64)}` }),
+    ];
+
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+    const { created } = await generateWorkflowSignalProposals(baseSnapshot(signals));
+
+    expect(created.filter((proposal) => proposal.kind === 'create-recipe')).toHaveLength(1);
+  });
 });
 
 describe('post-apply regression diagnosis', () => {
