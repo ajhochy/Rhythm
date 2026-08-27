@@ -56,3 +56,27 @@ tags: [run, Rhythm]
 - `node_modules/.bin/tsc --noEmit`, `npm run build`, and `git diff --check` passed.
 - GitNexus pre-edit impact and final change detection were attempted but unavailable because the index is storage v42 while the connected reader supports v41; risk remained UNKNOWN, with no HIGH/CRITICAL result.
 - S2 owns the sandbox; no live sandbox command was run in this repair.
+
+## S4 deterministic diagnosis-provider harness repair
+
+### Files
+
+- `apps/api_server/src/__tests__/live_e2e_1480_1481_1483_1484.test.ts`: registers a unique Anthropic-compatible fixture provider/model in captured engine global config, seeds an exact far-future idle MRU row, serves Anthropic messages SSE, proves the positive evidence/model selection through real engine history, and restores sessions/rows/config/files in provider-safe order.
+- `apps/api_server/src/contract/task_s4_diagnosis_provider_harness.test.ts` and `docs/ai/contracts/task-s4-diagnosis-provider-harness.json`: executable static acceptance contract and S3 live handoff state.
+- Production-source diff: empty.
+
+### Checks
+
+- RED: `npx vitest run src/contract/task_s4_diagnosis_provider_harness.test.ts` — 1 file / 2 tests failed because the live harness lacked `@ai-sdk/anthropic` registration and `/v1/messages` SSE.
+- GREEN: `npx vitest run src/contract/task_s4_diagnosis_provider_harness.test.ts src/contract/issue_1480.test.ts src/contract/issue_1481.test.ts src/contract/issue_1483.test.ts src/contract/issue_1484.test.ts` — 5 files / 20 tests passed.
+- Normal live command: `npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism` — 1 file / 2 tests skipped.
+- Fail-closed command: `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism` — rejected by `assertLiveE2EIsolation` before either test; no server started.
+- `npx tsc --noEmit` — passed after one repair to make the static contract CommonJS-compatible.
+- `npm run build` — passed, including postbuild.
+- GitNexus impact (`startFixture`, `seedSession`) and final `detect_changes(scope=all)` were attempted but unavailable because the index is storage v42 while the connected reader supports v41. No HIGH/CRITICAL result was returned.
+
+### Notes
+
+- S3 owns the sandbox concurrently; this pass started no server and ran no sandbox command. Live contract clauses remain `UNVERIFIED` for S3.
+- Separate production robustness gap (documented only): `defaultDiagnose()` calls global `resolveRunModel()` without a stable dedicated diagnosis profile, so production diagnosis availability remains coupled to global MRU. No production resolver change is in S4 scope.
+- S3 live command must include `RHYTHM_LIVE_ENGINE_URL` in addition to the suite's existing isolated DB/HOME/skills/discovery variables.

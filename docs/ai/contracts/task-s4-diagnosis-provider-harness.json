@@ -1,0 +1,47 @@
+{
+  "issue": "task-s4-diagnosis-provider-harness",
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/task_s4_diagnosis_provider_harness.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "task-s4-diagnosis-provider-harness-c1",
+      "text": "Start unique Anthropic-compatible controlled provider; capture engine global config; PATCH unique provider/model using @ai-sdk/anthropic, fixture baseURL /v1; refresh.",
+      "mode": "integration",
+      "test": "src/contract/task_s4_diagnosis_provider_harness.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-s4-diagnosis-provider-harness-c2",
+      "text": "Seed deterministic newest idle MRU agent session row with unique providerId/modelId and far-future created_at only within sandbox DB, tracking exact ID for cleanup. Use actual schema/helper and ensure it is selected by resolveRunModel. Do not alter production resolver.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Static harness contract passes; S3 owns the sandbox and must execute the live suite."
+    },
+    {
+      "criterion_id": "task-s4-diagnosis-provider-harness-c3",
+      "text": "Convert responder to established Anthropic /v1/messages SSE shape and return deterministic positive, weak, unsupported, and infra-filtered diagnosis outcomes.",
+      "mode": "integration",
+      "test": "src/contract/task_s4_diagnosis_provider_harness.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "task-s4-diagnosis-provider-harness-c4",
+      "text": "After optimizer, locate diagnosis self_improvement session for positive profile, fetch real engine history, assert user info.model exactly {providerID,modelID}; assert provider received positive evidence.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Static harness contract passes; real engine history assertion awaits S3's sandbox run."
+    },
+    {
+      "criterion_id": "task-s4-diagnosis-provider-harness-c5",
+      "text": "Keep existing #1480/#1483/#1484 assertions and restore DB/files/global config after diagnosis-session cleanup while the provider remains live.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "Existing focused assertions pass and cleanup is statically present; baseline digest proof awaits S3's sandbox run."
+    }
+  ],
+  "not_tested": []
+}

@@ -23,9 +23,19 @@ let tamperExternalBody = false;
 let baselineRows: string;
 let baselineFiles: string;
 let baselineSessionIds = new Set<string>();
+let originalGlobalConfig: Record<string, unknown> | undefined;
+let mruSessionId: string | undefined;
+let positiveEvidenceReceived = false;
+let infraMarkerReceived = false;
+const providerId = `s4-diagnosis-${process.pid}-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
+const modelId = `s4-diagnosis-model-${randomUUID().replace(/-/g, '').slice(0, 8)}`;
 
 function baseUrl(): string {
   return (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
+}
+
+function engineUrl(): string {
+  return (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 }
 
 async function api(path: string, init?: RequestInit): Promise<Response> {
@@ -43,6 +53,21 @@ async function json<T>(response: Response, status: number): Promise<T> {
 
 function sha(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function anthropicTextStream(content: string): string {
+  const events = [
+    { type: 'message_start', message: { id: `msg_${randomUUID()}`, type: 'message', role: 'assistant', model: modelId,
+      content: [], stop_reason: null, stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 0, cache_creation_input_tokens: null, cache_read_input_tokens: null } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: content } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { input_tokens: 10, output_tokens: 10, cache_creation_input_tokens: null, cache_read_input_tokens: null } },
+    { type: 'message_stop' },
+  ];
+  return `${events.map((event) => `data: ${JSON.stringify(event)}`).join('\n\n')}\n\n`;
 }
 
 function rowDigest(): string {
@@ -178,27 +203,27 @@ async function startFixture(): Promise<Server> {
     if (url.pathname.includes('/owner/overlap/')) { response.end('# Live path repair\nRepair login-shell PATH configuration.'); return; }
     if (url.pathname.includes('/owner/unique/')) { response.end(uniqueBody); return; }
     if (url.pathname.includes('/owner/approval/')) { response.end(tamperExternalBody ? 'changed bytes' : reviewed); return; }
-    if (request.method === 'POST' && url.pathname === '/v1/chat/completions') {
+    if (request.method === 'POST' && url.pathname === '/v1/messages') {
       let body = '';
       request.setEncoding('utf8');
       request.on('data', (chunk) => { body += chunk; });
       request.on('end', () => {
+        positiveEvidenceReceived ||= body.includes('s4-positive-config-error');
+        infraMarkerReceived ||= body.includes('Cannot connect to API at http://127.0.0.1:4001');
         const content = body.includes('No single recurring error')
           ? JSON.stringify({ diagnosis: 'Replace the skill', rootCause: 'skill', fixType: 'skill-edit',
             concreteFix: 'replacement', confidence: 'high', evidenceQuotes: ['No single recurring error'] })
           : body.includes('s4-positive-config-error')
             ? JSON.stringify({ diagnosis: 'Use the configured model', rootCause: 'config', fixType: 'config-change',
               concreteFix: 'model: openai/gpt-5.6-sol', confidence: 'high',
+              evidenceQuotes: ['s4-positive-config-error'],
               configPatch: { agentConfigId: 'untrusted', field: 'model', value: 'openai/gpt-5.6-sol' } })
             : body.includes('s4-unsupported-cause')
               ? JSON.stringify({ diagnosis: 'Invented delegation cause', rootCause: 'skill', fixType: 'skill-edit',
                 concreteFix: 'replacement', confidence: 'high', evidenceQuotes: ['quote that is absent'] })
             : '95 relevant, actionable, and complete';
         response.writeHead(200, { 'content-type': 'text/event-stream' });
-        response.end(`data: ${JSON.stringify({ id: 's4', object: 'chat.completion.chunk', created: 1,
-          model: 'qwen/qwen3-coder-30b', choices: [{ index: 0, delta: { content }, finish_reason: null }] })}\n\n` +
-          `data: ${JSON.stringify({ id: 's4', object: 'chat.completion.chunk', created: 1,
-            model: 'qwen/qwen3-coder-30b', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+        response.end(anthropicTextStream(content));
       });
       return;
     }
@@ -225,6 +250,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     expect(resolve(dbPath)).toBe(resolve(process.env.RHYTHM_LIVE_DB_PATH ?? 'missing'));
     expect(process.env.RHYTHM_SANDBOX_HOME).toBeTruthy();
     expect(process.env.RHYTHM_MANAGED_SKILLS_DIR).toBeTruthy();
+    expect(engineUrl()).toBeTruthy();
     const sandboxRoot = resolve(process.env.RHYTHM_SANDBOX_DIR ?? 'missing');
     for (const path of [dbPath, process.env.RHYTHM_SANDBOX_HOME!, process.env.RHYTHM_MANAGED_SKILLS_DIR!]) {
       expect(resolve(path).startsWith(`${sandboxRoot}${sep}`)).toBe(true);
@@ -238,10 +264,47 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     baselineRows = rowDigest();
     baselineFiles = await fileDigest();
     baselineSessionIds = new Set((db.prepare('SELECT id FROM agent_sessions').all() as Array<{ id: string }>).map((row) => row.id));
+
+    const globalConfigResponse = await fetch(`${engineUrl()}/global/config`);
+    expect(globalConfigResponse.status, await globalConfigResponse.clone().text()).toBe(200);
+    originalGlobalConfig = await globalConfigResponse.json() as Record<string, unknown>;
+    const configured = structuredClone(originalGlobalConfig) as Record<string, unknown> & {
+      provider?: Record<string, unknown>;
+    };
+    configured.provider = configured.provider ?? {};
+    configured.provider[providerId] = {
+      npm: '@ai-sdk/anthropic',
+      name: 'S4 deterministic diagnosis provider',
+      options: { apiKey: 's4-fixture-key', baseURL: `${fixtureOrigin().origin}/v1` },
+      models: { [modelId]: { name: 'S4 deterministic diagnosis model', limit: { context: 200000, output: 4096 } } },
+    };
+    const configUpdate = await fetch(`${engineUrl()}/global/config`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(configured),
+    });
+    expect(configUpdate.status, await configUpdate.clone().text()).toBe(200);
+    expect((await api('/system/refresh', { method: 'POST' })).status).toBe(200);
+
+    mruSessionId = randomUUID();
+    db.prepare(`INSERT INTO agent_sessions
+      (id, name, agent_kind, status, cwd, provider_id, model_id, created_at, updated_at, is_system, category)
+      VALUES (?, 'S4 deterministic diagnosis MRU', 'general', 'idle', ?, ?, ?, ?, ?, 0, 'chat')`)
+      .run(mruSessionId, resolve(process.env.RHYTHM_SANDBOX_DIR!), providerId, modelId,
+        '9999-12-31T23:59:59.999Z', '9999-12-31T23:59:59.999Z');
+    expect(db.prepare(`SELECT provider_id, model_id FROM agent_sessions
+      WHERE provider_id IS NOT NULL AND model_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`).get())
+      .toEqual({ provider_id: providerId, model_id: modelId });
   });
 
   afterAll(async () => {
     if (!db) return;
+    const createdSessions = (db.prepare(`SELECT id, sdk_session_id, cwd, category FROM agent_sessions`).all() as Array<{
+      id: string; sdk_session_id: string | null; cwd: string; category: string;
+    }>).filter((row) => !baselineSessionIds.has(row.id));
+    for (const row of createdSessions.filter((candidate) => candidate.category === 'self_improvement' && candidate.sdk_session_id)) {
+      await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
+        method: 'DELETE', headers: { 'X-OpenCode-Directory': row.cwd },
+      }).catch(() => undefined);
+    }
     for (const id of ids) await api(`/agent-configs/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => undefined);
     for (const runId of auditRunIds) db.prepare('DELETE FROM agent_org_proposals WHERE audit_run_id = ?').run(runId);
     for (const id of ids) {
@@ -253,12 +316,17 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       db.prepare('DELETE FROM agent_skills WHERE id = ?').run(id);
       db.prepare('DELETE FROM agent_configs WHERE id = ?').run(id);
     }
-    const newSessions = (db.prepare('SELECT id FROM agent_sessions').all() as Array<{ id: string }>).filter(
-      (row) => !baselineSessionIds.has(row.id),
-    );
-    for (const { id } of newSessions) {
+    if (mruSessionId) db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(mruSessionId);
+    for (const { id } of createdSessions) {
       db.prepare('DELETE FROM agent_session_messages WHERE session_id = ?').run(id);
       db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(id);
+    }
+    if (originalGlobalConfig) {
+      const restored = await fetch(`${engineUrl()}/global/config`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(originalGlobalConfig),
+      });
+      expect(restored.status, await restored.clone().text()).toBe(200);
+      expect((await api('/system/refresh', { method: 'POST' })).status).toBe(200);
     }
     if (fixture?.listening) await new Promise<void>((done) => fixture.close(() => done()));
     expect(rowDigest()).toBe(baselineRows);
@@ -307,8 +375,21 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
     expect(diagnoses.filter((row) => row.kind === 'workflow-prompt-fix' && row.target_ref === `agent_config:${weakId}`)).toHaveLength(0);
     expect(diagnoses.filter((row) => row.kind === 'refine-config' && row.target_ref === `profile:${positiveId}`)).toHaveLength(1);
     expect(diagnoses.filter((row) => row.target_ref === `agent_config:${unsupportedId}`)).toHaveLength(0);
+    expect(positiveEvidenceReceived).toBe(true);
+    expect(infraMarkerReceived).toBe(false);
     expect((db.prepare(`SELECT COUNT(*) AS n FROM agent_sessions
       WHERE category = 'self_improvement' AND name LIKE ?`).get(`optimizer-diagnosis: ${weakId}%`) as { n: number }).n).toBeGreaterThan(0);
+    const positiveDiagnosis = db.prepare(`SELECT sdk_session_id, cwd FROM agent_sessions
+      WHERE category = 'self_improvement' AND name LIKE ? ORDER BY created_at DESC LIMIT 1`)
+      .get(`optimizer-diagnosis: ${positiveId}%`) as { sdk_session_id: string; cwd: string } | undefined;
+    expect(positiveDiagnosis?.sdk_session_id).toBeTruthy();
+    const historyResponse = await fetch(`${engineUrl()}/session/${encodeURIComponent(positiveDiagnosis!.sdk_session_id)}/message`, {
+      headers: { 'X-OpenCode-Directory': positiveDiagnosis!.cwd },
+    });
+    expect(historyResponse.status, await historyResponse.clone().text()).toBe(200);
+    const history = await historyResponse.json() as Array<{ info?: { role?: string; model?: unknown } }>;
+    expect(history.find((message) => message.info?.role === 'user')?.info?.model)
+      .toEqual({ providerID: providerId, modelID: modelId });
 
     const skill = await json<{ id: string }>(await api('/agent-skills', { method: 'POST', body: JSON.stringify({
       title: 'Live path repair', description: 'Repair login-shell PATH configuration.', status: 'published', source: 's4-live',
