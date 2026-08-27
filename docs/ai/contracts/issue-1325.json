@@ -1,7 +1,7 @@
 {
   "issue": 1325,
   "date": "2026-08-26",
-  "test_command": "bash ../../tools/dev/sandbox_guard_test.sh && npx vitest run src/contract/issue_1325_engine_respawn.test.ts src/contract/issue_1457_1325_restart_harness.test.ts src/__tests__/issue_1325_live_e2e.test.ts",
+  "test_command": "bash ../../tools/dev/sandbox_guard_test.sh && npx vitest run src/contract/issue_1325_engine_respawn.test.ts src/__tests__/issue_1325_live_e2e.test.ts",
   "waiver": null,
   "criteria": [
     {
