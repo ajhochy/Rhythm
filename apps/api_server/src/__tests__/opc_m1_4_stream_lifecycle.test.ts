@@ -5,11 +5,9 @@
  * Criteria covered:
  *   c1 — stopStream prevents broadcast + DB write for stopped session
  *   c2 — stopStream does not affect a second live session
- *   c3 — error status persisted in DB; survives bridge restart + timer advance (no setTimeout)
+ *   c3 — error status persisted in DB; survives bridge restart + timer advance
  *   c4 — new prompt to errored session transitions status away from error
- *   c5 — source inspection: no setTimeout in bridge error path (only the C2
- *        glob-watchdog setTimeout, unrelated to error handling), no
- *        pty_runner import
+ *   c5 — source inspection: no pty_runner import
  *   c6 — __pending__ never escapes the WS/REST boundary
  */
 
@@ -394,26 +392,15 @@ describe('issue-688-c4: erroredSessions — new prompt to errored session transi
 // c5 — source inspection
 // ---------------------------------------------------------------------------
 
-describe('issue-688-c5: source inspection — no setTimeout in bridge errored-session path, no pty_runner import', () => {
-  it('opencode_stream_bridge.ts has no setTimeout call in the session.error handler', () => {
-    const bridgePath = path.resolve(
-      __dirname,
-      '../services/opencode_stream_bridge.ts',
-    );
+describe('issue-688-c5: source inspection — only deliberate timers, no pty_runner import', () => {
+  it('keeps only the glob watchdog and global retry timers', () => {
+    const bridgePath = path.resolve(__dirname, '../services/opencode_stream_bridge.ts');
     const source = fs.readFileSync(bridgePath, 'utf-8');
-
-    // The #688 erroredSessions sentinel-timeout stays gone. Config-doctor C2
-    // (2026-08-03) later added ONE deliberate, unrelated setTimeout: a bounded
-    // per-call watchdog on `glob` (armGlobWatchdog), armed only after
-    // auto-accepting a glob permission and cleared by any subsequent event —
-    // nothing to do with the error path this test guards. Assert that
-    // specific, intentional call exists and nothing else crept in.
     const setTimeoutMatches = source.match(/setTimeout\s*\(/g) ?? [];
-    expect(
-      setTimeoutMatches,
-      'Expected exactly the C2 glob-watchdog setTimeout in opencode_stream_bridge.ts',
-    ).toHaveLength(1);
+
+    expect(setTimeoutMatches).toHaveLength(2);
     expect(source).toContain('armGlobWatchdog');
+    expect(source).toContain('scheduleGlobalRetry');
   });
 
   it('no non-test file in src/ imports pty_runner', () => {

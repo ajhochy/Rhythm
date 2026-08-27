@@ -115,7 +115,7 @@ assert_case 'writable source db rejected' fail 'must be read-only' \
   "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" "RHYTHM_SANDBOX_DIR=$SANDBOX_DIR"
 
 # ── 6. A sandbox dir outside /private/tmp or /var/folders is rejected ──────
-assert_case 'sandbox dir outside temp roots rejected' fail 'must resolve under /private/tmp or /var/folders' \
+assert_case 'sandbox dir outside temp roots rejected' fail 'RHYTHM_SANDBOX_DIR must resolve under /tmp, /private/tmp, or /var/folders' \
   "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" "RHYTHM_LIVE_DB_PATH=$DB" \
   "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" "RHYTHM_SANDBOX_DIR=$HOME/not-a-temp-dir"
 
@@ -172,6 +172,121 @@ assert_case 'safe fixture accepted when live-data parents do not exist' ok '' \
   "HOME=$FRESH_HOME" "RHYTHM_APPROVED_FIXTURE_ROOT=$FIXTURE_ROOT" \
   "RHYTHM_LIVE_DB_PATH=$DB" "RHYTHM_SANDBOX_OPENCODE_CONFIG=$CONFIG_DIR" \
   "RHYTHM_SANDBOX_DIR=$SANDBOX_DIR"
+
+# ── 13. restart-engine refuses an engine not owned by this sandbox ──────────
+RESTART_SB="$WORK/restart-refusal"
+FAKE_ENGINE_DIR="$WORK/fake-engine"
+mkdir -p "$RESTART_SB/home" "$FAKE_ENGINE_DIR/dist/opencode-darwin-arm64/bin"
+FAKE_ENGINE_BIN="$FAKE_ENGINE_DIR/dist/opencode-darwin-arm64/bin/opencode"
+cat >"$FAKE_ENGINE_BIN" <<'SH'
+#!/usr/bin/env bash
+exit 99
+SH
+chmod +x "$FAKE_ENGINE_BIN"
+out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
+  bash -c '
+    source "$1"
+    printf "4242\n" >"$PID_FILE"
+    trap "[[ -f $SB/fake-listener.pid ]] && builtin kill \$(< $SB/fake-listener.pid) 2>/dev/null || true" EXIT
+    printf "5252\n" >"$ENGINE_PID_FILE"
+    kill() { [[ "$1" == "-0" ]]; }
+    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    listener() { [[ "$1" == "$ENGINE_PORT" ]] && printf "5252\n"; }
+    process_executable() { printf "/not-this-sandbox/opencode\n"; }
+    restart_engine
+  ' bash "$SANDBOX_SH" 2>&1)"
+status=$?
+if [[ "$status" -ne 0 && "$out" == *"no longer uses this sandbox"* ]]; then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (restart-engine ownership refusal): exit %s:\n%s\n' "$status" "$out" >&2
+fi
+
+# ── 14. restart-engine preserves API, isolates env, rewrites PID, and cleans ─
+RESTART_SB="$WORK/restart-success"
+mkdir -p "$RESTART_SB/home" "$RESTART_SB/vault" "$RESTART_SB/live-artifacts"
+printf 'prior-log-line\n' >"$RESTART_SB/api_server.log"
+cat >"$FAKE_ENGINE_BIN" <<'SH'
+#!/usr/bin/env bash
+sb="$(dirname "$HOME")"
+printf '%s\n' "$$" >"$sb/fake-listener.pid"
+printf '%s\n' "$HOME|$OPENCODE_DB|$RHYTHM_API_BASE|${OPENCODE_CONFIG_CONTENT-unset}|$OPENCODE_DISABLE_EXTERNAL_SKILLS|$PWD" >"$sb/engine.env"
+printf '%s\n' "$*" >"$sb/engine.args"
+exec sleep 300
+SH
+chmod +x "$FAKE_ENGINE_BIN"
+out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
+  bash -c '
+    source "$1"
+    : >"$SB/api.alive"
+    printf "4242\n" >"$PID_FILE"
+    sleep 300 & old_engine=$!
+    trap "builtin kill $old_engine 2>/dev/null || true; [[ -f $SB/fake-listener.pid ]] && builtin kill \$(< $SB/fake-listener.pid) 2>/dev/null || true" EXIT
+    printf "%s\n" "$old_engine" >"$SB/fake-listener.pid"
+    printf "%s\n" "$old_engine" >"$ENGINE_PID_FILE"
+    kill() {
+      if [[ "$1" == "-0" && "$2" == "4242" ]]; then [[ -e "$SB/api.alive" ]]; return; fi
+      if [[ "$1" == "4242" ]]; then rm -f "$SB/api.alive"; printf "api\n" >>"$SB/kills"; return; fi
+      builtin kill "$@"
+    }
+    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    listener() {
+      [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
+      local pid="$(<"$SB/fake-listener.pid")"
+      builtin kill -0 "$pid" 2>/dev/null && printf "%s\n" "$pid"
+    }
+    process_executable() { printf "%s\n" "$ENGINE_BIN"; }
+    curl() { [[ -n "$(listener "$ENGINE_PORT")" ]]; }
+    restart_engine
+    new_engine="$(<"$ENGINE_PID_FILE")"
+    [[ "$(<"$PID_FILE")" == "4242" && "$new_engine" != "$old_engine" ]]
+    [[ "$(<"$SB/engine.env")" == "$SB/home|opencode-rhythm-sandbox.db|http://127.0.0.1:4098|unset|1|$ROOT" ]]
+    [[ "$(<"$SB/engine.args")" == "serve --hostname 127.0.0.1 --port 4097 --cors http://127.0.0.1:4175" ]]
+    [[ "$(<"$LOG_FILE")" == "prior-log-line" ]]
+    down
+    [[ ! -e "$SB" ]]
+    ! builtin kill -0 "$new_engine" 2>/dev/null
+  ' bash "$SANDBOX_SH" 2>&1)"
+status=$?
+if [[ "$status" -eq 0 ]]; then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (restart-engine lifecycle): exit %s:\n%s\n' "$status" "$out" >&2
+fi
+
+# ── 15. failed replacement readiness remains owned and cleanable ────────────
+RESTART_SB="$WORK/restart-timeout"
+mkdir -p "$RESTART_SB/home" "$RESTART_SB/live-artifacts"
+out="$(env RHYTHM_SANDBOX_DIR="$RESTART_SB" RHYTHM_SANDBOX_ENGINE_DIR="$FAKE_ENGINE_DIR" \
+  bash -c '
+    source "$1"
+    printf "4242\n" >"$PID_FILE"
+    kill() {
+      if [[ "$1" == "-0" && "$2" == "4242" ]]; then return 0; fi
+      builtin kill "$@"
+    }
+    ps() { printf "node server.js --rhythm-sandbox=%s\n" "$SB"; }
+    listener() {
+      [[ "$1" == "$ENGINE_PORT" && -f "$SB/fake-listener.pid" ]] || return 0
+      local pid="$(<"$SB/fake-listener.pid")"
+      builtin kill -0 "$pid" 2>/dev/null && printf "%s\n" "$pid"
+    }
+    process_executable() { printf "%s\n" "$ENGINE_BIN"; }
+    wait_for_engine_ready() { return 1; }
+    launch_engine || true
+    [[ -f "$ENGINE_PID_FILE" ]] || exit 91
+    down
+    [[ ! -e "$SB" ]]
+  ' bash "$SANDBOX_SH" 2>&1)"
+status=$?
+if [[ "$status" -eq 0 ]]; then
+  pass=$((pass + 1))
+else
+  fail_count=$((fail_count + 1))
+  printf 'FAIL (restart-engine readiness timeout cleanup): exit %s:\n%s\n' "$status" "$out" >&2
+fi
 
 printf '\nsandbox_guard_test: %d passed, %d failed\n' "$pass" "$fail_count"
 [[ "$fail_count" -eq 0 ]]

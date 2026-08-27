@@ -1,6 +1,8 @@
 {
   "issue": 1325,
-  "generated": "2026-08-10",
+  "date": "2026-08-26",
+  "test_command": "bash ../../tools/dev/sandbox_guard_test.sh && npx vitest run src/contract/issue_1325_engine_respawn.test.ts src/__tests__/issue_1325_live_e2e.test.ts",
+  "waiver": null,
   "criteria": [
     {
       "criterion_id": "issue-1325-c1",
@@ -32,6 +34,23 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1325_engine_respawn.test.ts",
       "test_id": "issue-1325-c4: client reads pid and bootId from global health",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1325-c5",
+      "text": "The live test must invoke the sandbox-owned restart-engine command after bridge degradation, preserve the api_server PID, replace engine PID and boot identity, and observe bridge health recover.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/issue_1325_live_e2e.test.ts",
+      "test_id": "issue-1325-c5: supported engine-only restart preserves API and restores bridge",
+      "status": "pass",
+      "reason": "Live sandbox file passed 2/2: the API PID stayed unchanged while engine PID and bootId changed, then /opencode/health returned bridgeLive true."
+    },
+    {
+      "criterion_id": "issue-1325-c6",
+      "text": "The sandbox restart-engine command refuses unowned processes, preserves the API PID, replaces and records the owned engine PID with isolated runtime environment, appends logs, and remains cleanable by down.",
+      "mode": "integration",
+      "test_file": "tools/dev/sandbox_guard_test.sh",
+      "test_id": "issue-1325-c6: engine-only sandbox restart is owned and isolated",
       "status": "pass"
     }
   ],

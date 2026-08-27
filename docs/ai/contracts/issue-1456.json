@@ -1,0 +1,14 @@
+{
+  "issue": 1456,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/contract/issue_1455_1456_idle_finalization.test.ts src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "issue-1456-c1", "text": "A turn delivered entirely via message.part.updated (zero message.part.delta events) finalizes normally: no error broadcast, transcript.append sent, session preview updated.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts", "status": "pass", "reason": "The full live file passed 2/2; the #1456 case observed transcript.append and the updated idle preview for the part.updated-only response." },
+    { "criterion_id": "issue-1456-c2", "text": "A turn with genuinely zero assistant text still produces the error branch (see #1455 for what that message should say).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1456-c3", "text": "No duplicate DB rows: the structured path must still skip the legacy messagesRepo.append.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts", "status": "pass", "reason": "The full live file passed 2/2; the #1456 case observed exactly one structured persisted output and no duplicate legacy row." },
+    { "criterion_id": "issue-1456-c4", "text": "Tests covering both: delta-only turn (existing behavior, unchanged) and part.updated-only turn (currently failing).", "mode": "integration", "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts", "status": "pass", "reason": "" },
+    { "criterion_id": "issue-1456-c5", "text": "The #1456 live case independently starts a unique Anthropic-compatible provider, creates a temporary bound agent profile, sends the matching modelOverride, and asserts the real engine user message info.model exactly matches providerID/modelID before append/persistence/preview/no-duplicate assertions.", "mode": "live", "test": "apps/api_server/src/__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts", "status": "pass", "reason": "The full live file passed 2/2 with the controlled provider/profile binding assertion before append, preview, persistence, and no-duplicate checks." }
+  ],
+  "not_tested": []
+}

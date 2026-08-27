@@ -173,6 +173,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   String? _error;
   int? _lastErrorStatus;
   bool _reconnecting = false;
+  String? _bridgeStatusMessage;
 
   /// True while an instant-create session call is in-flight (OPC-#713).
   /// The session-list view shows an optimistic loading row while this is set.
@@ -462,6 +463,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------------------
 
   AgentsLoadStatus get status => _status;
+
+  String? get bridgeStatusMessage => _bridgeStatusMessage;
 
   /// True while an instant-create session call is in-flight (OPC-#713).
   bool get isCreating => _creating;
@@ -3273,6 +3276,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (wasWorking && !msg.working) {
         _fireArmedNotifications(msg.id);
       }
+    } else if (msg is BridgeStatusMessage) {
+      _bridgeStatusMessage = msg.isReconnecting ? msg.message : null;
     } else if (msg is OutputMessage) {
       // OPC-M1-3: PTY output buffer removed. Legacy `output` frames still
       // arrive during a transition period; we only use them to clear stuck

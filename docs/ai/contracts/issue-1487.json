@@ -1,0 +1,89 @@
+{
+  "issue": 1487,
+  "date": "2026-08-27",
+  "test_command": "cd apps/api_server && npx vitest run src/contract/issue_1458_bypass_engine_permission.test.ts src/services/opencode_client_service.test.ts src/contract/issue_1457_global_stream_retry.test.ts src/contract/issue_1455_1456_idle_finalization.test.ts src/__tests__/opc_m1_4_stream_lifecycle.test.ts src/__tests__/opencode_stream_bridge.test.ts; cd ../opencode_fork/packages/opencode && bun test test/agent/plan-mode-subagent-bypass.test.ts; cd ../../../.. && bash tools/dev/sandbox_guard_test.sh",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1487-c1",
+      "text": "F1 SECURITY: bypassPermissions must allow non-bash tools engine-side while forcing bash through permission.asked so every hardline destructive command remains denied.",
+      "mode": "integration",
+      "test": "apps/api_server/src/contract/issue_1458_bypass_engine_permission.test.ts; apps/api_server/src/__tests__/opencode_stream_bridge.test.ts",
+      "status": "pass",
+      "reason": "Creation/update rules keep bash on ask; the real engine permission payload test rejects curl|sh under bypassPermissions."
+    },
+    {
+      "criterion_id": "issue-1487-c2",
+      "text": "F2: assistant finalization must ignore user message.part.updated rows, including a user-only turn that is genuinely empty on the assistant side.",
+      "mode": "integration",
+      "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts",
+      "status": "pass",
+      "reason": "Selection is role-filtered and both mixed-role and user-only contracts pass."
+    },
+    {
+      "criterion_id": "issue-1487-c3",
+      "text": "F3: the current structured assistant turn must finalize after more than 200 older messages.",
+      "mode": "integration",
+      "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts",
+      "status": "pass",
+      "reason": "Current-turn message IDs are queried directly; the 201-older-row contract passes."
+    },
+    {
+      "criterion_id": "issue-1487-c4",
+      "text": "F4: global event relay must not await an unbounded listMessages lookup during idle finalization.",
+      "mode": "integration",
+      "test": "apps/api_server/src/contract/issue_1455_1456_idle_finalization.test.ts",
+      "status": "pass",
+      "reason": "Relay is synchronous and no longer performs an engine history lookup."
+    },
+    {
+      "criterion_id": "issue-1487-c5",
+      "text": "F5: concurrent ensureGlobalStream calls must create exactly one subscription.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/issue_1457_global_stream_retry.test.ts",
+      "status": "pass",
+      "reason": "An in-flight boolean serializes subscription creation."
+    },
+    {
+      "criterion_id": "issue-1487-c6",
+      "text": "F6: live permission-mode changes must apply bypass rules, clear them on downgrade, and preserve the parent ruleset for subagents.",
+      "mode": "integration",
+      "test": "apps/api_server/src/services/opencode_client_service.test.ts; apps/opencode_fork/packages/opencode/test/agent/plan-mode-subagent-bypass.test.ts",
+      "status": "pass",
+      "reason": "Mode switches apply/clear the rules and fork subagents inherit the ordered parent ruleset."
+    },
+    {
+      "criterion_id": "issue-1487-c7",
+      "text": "F11: retain the #688 timer tripwire for exactly the glob watchdog and global retry timer.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "status": "pass",
+      "reason": "Restored test already passes against the intended two timers."
+    },
+    {
+      "criterion_id": "issue-1487-c8",
+      "text": "F12: restart-engine must record the replacement PID before readiness and remain cleanable when readiness times out.",
+      "mode": "integration",
+      "test": "tools/dev/sandbox_guard_test.sh",
+      "status": "pass",
+      "reason": "Replacement PID is recorded at spawn and the readiness-timeout cleanup guard passes."
+    },
+    {
+      "criterion_id": "issue-1487-c9",
+      "text": "F13: restore the four security-rationale comment blocks and full sandbox guard literal; explain or remove OPENCODE_CONFIG_CONTENT={}.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Final diff review found the #1332, D4.4, and gateway/tailnet rationale blocks, the full sandbox guard environment literal, and no no-op OPENCODE_CONFIG_CONTENT={} assignment."
+    },
+    {
+      "criterion_id": "issue-1487-c10",
+      "text": "Evidence hygiene: delete source-regex/stub-only artifacts and make live criteria honest about unproven stream-down and user-visible behavior.",
+      "mode": "manual",
+      "test": null,
+      "status": "pass",
+      "reason": "Final diff and file review found no restart regex harness; physical stream-down and shipping Flutter behavior are now bound to executable live/widget evidence, and the serial run passed."
+    }
+  ],
+  "not_tested": []
+}

@@ -68,6 +68,8 @@ const QUESTION_RECOVERY_POLL_MS = 1500;
  */
 const HEARTBEAT_WATCHDOG_MS = 30_000;
 const ENGINE_HEALTH_POLL_MS = 10_000;
+const GLOBAL_RETRY_INITIAL_MS = 1_000;
+const GLOBAL_RETRY_MAX_MS = 30_000;
 const DEFAULT_PERSISTENCE_STALE_MS = 5 * 60_000;
 
 /** Parse a positive-integer env override, falling back when absent/invalid. */
@@ -208,6 +210,23 @@ function extractErrorMessage(errorInfo: unknown): string {
   }
 }
 
+function emptyResponseMessage(stopReason: string | undefined): string {
+  switch (stopReason) {
+    case 'content-filter':
+      return 'The provider stopped this turn: content filter. The conversation context is likely tripping a safety classifier — start a new session.';
+    case 'aborted':
+    case 'abort':
+      return 'The provider aborted this turn. Try again; if it repeats, start a new session.';
+    case 'length':
+    case 'max_tokens':
+      return 'The provider stopped because the token limit was reached. Start a new session or shorten the conversation context.';
+    case 'error':
+      return 'The provider stopped this turn with an error. Retry once; if it repeats, check the provider status or start a new session.';
+    default:
+      return 'The model returned an empty response.';
+  }
+}
+
 /** Shape of a pending permission stored in-memory. */
 export interface PendingPermission {
   permissionId: string;
@@ -258,6 +277,12 @@ export class OpencodeStreamBridge {
   private lastGlobalActivity = 0;
   /** Guards against overlapping resubscribes from the watchdog. */
   private globalResubscribing = false;
+  private globalSubscribeInFlight = false;
+  private globalRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private globalRetryAttempt = 0;
+  private globalBridgeStatus: 'ready' | 'reconnecting' = 'ready';
+  private globalStreamSuspendedForLiveTest = false;
+  private disposed = false;
   private engineHealthCheckInFlight = false;
   private engineIdentityKey: string | null = null;
   private persistenceBaselineAt = Date.now();
@@ -272,7 +297,7 @@ export class OpencodeStreamBridge {
   /** True only while the bridge has a current subscription receiving frames. */
   get isLive(): boolean {
     if (useGlobalStream()) {
-      return this.globalStream !== null &&
+      return !this.globalStreamSuspendedForLiveTest && this.globalStream !== null &&
         Date.now() - this.lastGlobalActivity <= HEARTBEAT_WATCHDOG_MS;
     }
     return this.streamsByDirectory.size > 0;
@@ -283,6 +308,8 @@ export class OpencodeStreamBridge {
   // arrives empty. We append on session.idle (end of turn) to keep the
   // agent_session_messages history populated.
   private pendingText = new Map<string, string>();
+  /** Structured assistant message ids touched during the current turn. */
+  private pendingStructuredMessageIds = new Map<string, Set<string>>();
 
   /**
    * C2-D (S3) — the runEpisodeId a `session.input` WS frame supplied for
@@ -332,17 +359,6 @@ export class OpencodeStreamBridge {
   // with a diagnostic naming the tool, instead of waiting out the full
   // inactivity window.
   private globWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
-
-  // In-memory accumulator for message.part.delta events, keyed by
-  // `${sdkMessageId}:${partId}`. Deltas are written-through to the DB via
-  // applyPartDelta immediately (so a bridge restart loses at most in-flight
-  // deltas). This accumulator is only used to assemble the full text for
-  // the legacy transcript.append broadcast on session.idle.
-  //
-  // Flush points: next message.part.updated for the same part (bridge
-  // receives the authoritative full-text version — accumulator discarded),
-  // message.updated for the same message, or session.idle (turn boundary).
-  private pendingPartDeltas = new Map<string, { sdkMessageId: string; partId: string; text: string }>();
 
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
@@ -766,19 +782,30 @@ export class OpencodeStreamBridge {
    * every session start; a no-op once the stream is live.
    */
   async ensureGlobalStream(): Promise<void> {
-    if (!useGlobalStream()) return;
-    if (this.globalStream) return;
+    if (!useGlobalStream() || this.disposed || this.globalStreamSuspendedForLiveTest) return;
+    if (this.globalStream || this.globalRetryTimer || this.globalSubscribeInFlight) return;
+    this.globalSubscribeInFlight = true;
     let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
     try {
       sub = await opencodeClient.subscribeToGlobalEvents();
     } catch (err) {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream subscribe threw:', err);
+      this.scheduleGlobalRetry();
       return;
+    } finally {
+      this.globalSubscribeInFlight = false;
     }
     if (!sub) {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream: no global stream available');
+      this.scheduleGlobalRetry();
       return;
     }
+    if (this.globalStreamSuspendedForLiveTest) {
+      sub.abort();
+      return;
+    }
+    const recovered = this.globalBridgeStatus === 'reconnecting';
+    this.globalRetryAttempt = 0;
     this.lastGlobalActivity = Date.now();
     // Watchdog: if no frame (incl. the engine's 10s heartbeat) arrives within
     // the window, the stream is dead — resubscribe. unref so it never keeps the
@@ -801,6 +828,15 @@ export class OpencodeStreamBridge {
     // resubscribe so a phone rides out an engine restart on a quiet stream
     // instead of falling back to hammering a dead engine.
     opencodeEventHub.setLive(true);
+    if (recovered) {
+      this.globalBridgeStatus = 'ready';
+      broadcast({
+        v: 1,
+        type: 'bridge.status',
+        status: 'ready',
+        message: 'Agent updates reconnected.',
+      });
+    }
     // Relay uplink (plan S1.1): a (re)established engine stream can mean new
     // health/fingerprint values — push a fresh health frame to the relay so
     // its passthrough never serves a stale contract. Fire-and-forget.
@@ -808,7 +844,46 @@ export class OpencodeStreamBridge {
     this._listenGlobal(sub.stream).catch((err) =>
       logger.error('[OpencodeStreamBridge] global listener crashed:', err),
     );
+    this.recoverAfterGlobalSubscribe();
     logger.info('[OpencodeStreamBridge] subscribed to consolidated /global/event stream');
+  }
+
+  private scheduleGlobalRetry(): void {
+    opencodeEventHub.setLive(false);
+    if (this.disposed || this.globalStreamSuspendedForLiveTest || this.globalRetryTimer) return;
+    const delay = Math.min(
+      GLOBAL_RETRY_INITIAL_MS * (2 ** this.globalRetryAttempt),
+      GLOBAL_RETRY_MAX_MS,
+    );
+    this.globalRetryAttempt += 1;
+    if (this.globalBridgeStatus !== 'reconnecting') {
+      this.globalBridgeStatus = 'reconnecting';
+      broadcast({
+        v: 1,
+        type: 'bridge.status',
+        status: 'reconnecting',
+        message: 'Agent updates interrupted — reconnecting…',
+        retryDelayMs: delay,
+        attempt: this.globalRetryAttempt,
+      });
+    }
+    logger.warn(
+      '[OpencodeStreamBridge] global stream unavailable — retrying in %sms',
+      delay,
+    );
+    this.globalRetryTimer = setTimeout(() => {
+      this.globalRetryTimer = null;
+      void this.ensureGlobalStream();
+    }, delay);
+    if (typeof this.globalRetryTimer.unref === 'function') this.globalRetryTimer.unref();
+  }
+
+  private recoverAfterGlobalSubscribe(): void {
+    void this.reconcileSessionStatuses();
+    for (const dir of this.activeDirectories()) {
+      void this.recoverPendingQuestions(dir);
+      void this.recoverPendingPermissions(dir);
+    }
   }
 
   private async _listenGlobal(
@@ -875,16 +950,48 @@ export class OpencodeStreamBridge {
         this.globalStream = null;
       }
       await this.ensureGlobalStream();
-      // Soft dependency on OCU-03/OCU-04 recovery: reconcile stuck statuses and
-      // recover orphaned permission/question asks against every active dir.
-      void this.reconcileSessionStatuses();
-      for (const dir of this.activeDirectories()) {
-        void this.recoverPendingQuestions(dir);
-        void this.recoverPendingPermissions(dir);
-      }
     } finally {
       this.globalResubscribing = false;
     }
+  }
+
+  suspendGlobalStreamForLiveTest(): void {
+    if (
+      process.env.RHYTHM_LIVE_E2E !== '1' ||
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1'
+    ) {
+      throw new Error('isolated live E2E bridge control is disabled');
+    }
+    this.globalStreamSuspendedForLiveTest = true;
+    if (this.globalRetryTimer) {
+      clearTimeout(this.globalRetryTimer);
+      this.globalRetryTimer = null;
+    }
+    const active = this.globalStream;
+    this.globalStream = null;
+    if (active) {
+      clearInterval(active.watchdog);
+      active.abort();
+    }
+    opencodeEventHub.setLive(false);
+    this.globalBridgeStatus = 'reconnecting';
+    broadcast({
+      v: 1,
+      type: 'bridge.status',
+      status: 'reconnecting',
+      message: 'Agent updates interrupted — reconnecting…',
+    });
+  }
+
+  async resumeGlobalStreamForLiveTest(): Promise<void> {
+    if (
+      process.env.RHYTHM_LIVE_E2E !== '1' ||
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1'
+    ) {
+      throw new Error('isolated live E2E bridge control is disabled');
+    }
+    this.globalStreamSuspendedForLiveTest = false;
+    await this.ensureGlobalStream();
   }
 
   /**
@@ -1145,6 +1252,15 @@ export class OpencodeStreamBridge {
     );
   }
 
+  private lastStepFinishReason(parts: unknown[]): string | undefined {
+    const finish = [...parts].reverse().find((part) =>
+      typeof part === 'object' && part !== null &&
+      (part as { type?: unknown }).type === 'step-finish') as
+      | { reason?: unknown }
+      | undefined;
+    return typeof finish?.reason === 'string' ? finish.reason : undefined;
+  }
+
   private _relayEvent(
     event: import('@opencode-ai/sdk').RhythmEvent,
   ): void {
@@ -1350,13 +1466,9 @@ export class OpencodeStreamBridge {
             const sdkMessageId = part.messageID as string | undefined;
             if (sdkMessageId) {
               try {
-                // When part.updated arrives, the authoritative text is in the
-                // part object — discard any in-memory delta accumulator for
-                // this part since the full value supersedes it.
-                const partId = part.id as string | undefined;
-                if (partId) {
-                  this.pendingPartDeltas.delete(`${sdkMessageId}:${partId}`);
-                }
+                const turnMessageIds = this.pendingStructuredMessageIds.get(localSessionId) ?? new Set<string>();
+                turnMessageIds.add(sdkMessageId);
+                this.pendingStructuredMessageIds.set(localSessionId, turnMessageIds);
                 this.messagesRepo.upsertPart(localSessionId, sdkMessageId, part);
               } catch (err) {
                 logger.error('[OpencodeStreamBridge] Failed to persist part:', err);
@@ -1377,11 +1489,8 @@ export class OpencodeStreamBridge {
         // overwrites the accumulated value, making delta accumulation lossless
         // across a normal turn.
         //
-        // Flush points for pendingPartDeltas in-memory accumulator (used only
-        // for the legacy transcript.append broadcast on session.idle):
-        //   1. Next message.part.updated for the same part — full value replaces.
-        //   2. message.updated for the same message — delta discarded.
-        //   3. session.idle — full turn boundary flush.
+        // pendingText exists only for the legacy transcript.append broadcast;
+        // structured parts are written through directly to the repository.
         const messageID = props?.messageID as string | undefined;
         const partID = props?.partID as string | undefined;
         const field = props?.field as string | undefined;
@@ -1392,16 +1501,6 @@ export class OpencodeStreamBridge {
             localSessionId,
             (this.pendingText.get(localSessionId) ?? '') + delta,
           );
-          // Keep per-part accumulator for structured transcript.
-          if (messageID && partID) {
-            const key = `${messageID}:${partID}`;
-            const existing = this.pendingPartDeltas.get(key);
-            if (existing) {
-              existing.text += delta;
-            } else {
-              this.pendingPartDeltas.set(key, { sdkMessageId: messageID, partId: partID, text: delta });
-            }
-          }
         }
         if (messageID && partID && typeof delta === 'string') {
           broadcast({
@@ -1467,6 +1566,9 @@ export class OpencodeStreamBridge {
             const cost = typeof info.cost === 'number' ? info.cost : null;
 
             if (sdkMessageId && role) {
+              if (role === 'user') {
+                this.pendingStructuredMessageIds.delete(localSessionId);
+              }
               const dbRole: 'output' | 'input' | 'system' =
                 role === 'assistant' ? 'output' : role === 'user' ? 'input' : 'system';
               // upsertMessageInfo preserves existing parts_json — does NOT clobber
@@ -1652,7 +1754,28 @@ export class OpencodeStreamBridge {
           // create a duplicate row. We still broadcast transcript.append so the
           // Flutter client finalizes the live preview. Legacy sessions (no SDK
           // message IDs) still use the append path for DB persistence.
-          const text = this.pendingText.get(localSessionId);
+          const pendingText = this.pendingText.get(localSessionId) ?? '';
+          let structuredText = '';
+          let structuredParts: unknown[] = [];
+          const turnMessageIds = this.pendingStructuredMessageIds.get(localSessionId);
+          if (turnMessageIds?.size) {
+            try {
+              structuredParts = this.messagesRepo
+                .listBySessionStructuredForMessageIds(localSessionId, turnMessageIds)
+                .filter((message) => message.role === 'output')
+                .flatMap((message) => message.parts);
+              structuredText = structuredParts
+                .filter((part): part is { type: 'text'; text: string } =>
+                  typeof part === 'object' && part !== null &&
+                  (part as { type?: unknown }).type === 'text' &&
+                  typeof (part as { text?: unknown }).text === 'string')
+                .map((part) => part.text)
+                .join('\n');
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to read structured turn text:', err);
+            }
+          }
+          const text = structuredText.trim().length > 0 ? structuredText : pendingText;
           if (text && text.length > 0) {
             const hasStructured = this.messagesRepo.hasStructuredMessages(localSessionId);
             if (!hasStructured) {
@@ -1694,9 +1817,7 @@ export class OpencodeStreamBridge {
               text,
             });
             this.pendingText.delete(localSessionId);
-            // Clear per-part delta accumulators — turn boundary reached.
-            this.pendingPartDeltas.clear();
-
+            this.pendingStructuredMessageIds.delete(localSessionId);
             // P2-2: fire-and-forget background skill extraction now that the
             // assistant turn has been persisted. This is the WS/interactive
             // turn-completion point (the >= 2 rounds gate is enforced inside
@@ -1761,12 +1882,15 @@ export class OpencodeStreamBridge {
               logger.warn(`[OpencodeStreamBridge] lazy-deps turn scan failed (non-fatal): ${String(err)}`);
             }
           } else {
-            // Zero tokens streamed this turn — surface as user-visible error (#636)
+            const stopReason = this.lastStepFinishReason(structuredParts);
+            // Zero assistant text — preserve #636's fallback while surfacing a
+            // provider stop reason when the structured turn supplied one.
             broadcast({
               v: 1,
               type: 'error',
               id: localSessionId,
-              message: 'The model returned an empty response.',
+              message: emptyResponseMessage(stopReason),
+              ...(stopReason ? { stopReason } : {}),
             });
             // W4 — still a terminal turn, just one that produced nothing.
             void recordTerminalOutcome({
@@ -1776,6 +1900,8 @@ export class OpencodeStreamBridge {
               // C2-D (S3) — see the sibling call above.
               runEpisodeId: this.consumeRunEpisodeId(localSessionId),
             });
+            this.pendingText.delete(localSessionId);
+            this.pendingStructuredMessageIds.delete(localSessionId);
           }
           // #1123 — callback boundary for additive interactive async
           // delegation. Run only AFTER the existing assistant persistence and
@@ -2219,11 +2345,11 @@ export class OpencodeStreamBridge {
         // because `!dbSession` had made it "unattended".
         const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
 
-        // #878 — command-approval classification for the bash tool. This runs
-        // BEFORE the permissionMode auto-accept check below so a hardline-
-        // blocked or high-risk command is never let through by
-        // `bypassPermissions`/`acceptEdits` — approval gating for destructive
-        // commands must not be weaker than the default prompt-driven flow.
+        // #878 — command-approval classification for bash. bypassPermissions
+        // sessions deliberately keep a later engine-side bash:ask rule so this
+        // handler remains reachable; the earlier wildcard allow still covers
+        // read/edit/external_directory without depending on SSE. Hardline denies
+        // remain absolute once the ask reaches this handler.
         // Low-risk / explicitly-allowed commands fall through unchanged to the
         // existing permissionMode logic (no behavior change for safe commands).
         if (toolName.toLowerCase() === 'bash') {
@@ -2471,6 +2597,7 @@ export class OpencodeStreamBridge {
     // Also clean up the pending-text accumulator for this session so stale
     // deltas don't linger in memory after the session is closed.
     this.pendingText.delete(localSessionId);
+    this.pendingStructuredMessageIds.delete(localSessionId);
     // C2-D (S3) — a stopped turn never reaches a terminal event, so its
     // pending runEpisodeId must not linger and bind some unrelated later turn.
     this.pendingRunEpisodeId.delete(localSessionId);
@@ -2502,6 +2629,7 @@ export class OpencodeStreamBridge {
 
   /** Clean up all streams. */
   dispose(): void {
+    this.disposed = true;
     for (const [, entry] of this.streamsByDirectory) {
       if (entry.questionPoll) clearInterval(entry.questionPoll);
       entry.abort.abort();
@@ -2517,6 +2645,10 @@ export class OpencodeStreamBridge {
       clearInterval(this.globalStream.watchdog);
       this.globalStream = null;
     }
+    if (this.globalRetryTimer) {
+      clearTimeout(this.globalRetryTimer);
+      this.globalRetryTimer = null;
+    }
     // #1379 Phase 2 — a deliberate shutdown (unlike a watchdog resubscribe)
     // really does end the fan-out, so new mobile streams must go back to their
     // own engine transport rather than subscribing to a hub nobody feeds.
@@ -2524,6 +2656,7 @@ export class OpencodeStreamBridge {
     this.engineIdentityKey = null;
     this.stoppedSessions.clear();
     this.pendingText.clear();
+    this.pendingStructuredMessageIds.clear();
     this.pendingPermissions.clear();
     this.repliedPermissions.clear();
     this.pendingQuestions.clear();

@@ -35,6 +35,8 @@ abstract class AgentWsMessage {
         return SessionRemovedMessage.fromJson(json);
       case 'agent-configs.changed':
         return const AgentConfigsChangedMessage();
+      case 'bridge.status':
+        return BridgeStatusMessage.fromJson(json);
       case 'trigger.fired':
         return TriggerFiredMessage.fromJson(json);
       case 'notification.push':
@@ -160,6 +162,22 @@ class SessionStatusMessage extends AgentWsMessage {
       status: asString(json['status']),
       attempt: asInt(json['attempt']),
       reason: asString(json['reason']),
+    );
+  }
+}
+
+class BridgeStatusMessage extends AgentWsMessage {
+  const BridgeStatusMessage({required this.status, required this.message});
+
+  final String status;
+  final String message;
+
+  bool get isReconnecting => status == 'reconnecting';
+
+  factory BridgeStatusMessage.fromJson(Map<String, dynamic> json) {
+    return BridgeStatusMessage(
+      status: asString(json['status']) ?? '',
+      message: asString(json['message']) ?? '',
     );
   }
 }

@@ -192,37 +192,65 @@ class _AgentsViewState extends State<AgentsView> {
       ],
     );
 
-    if (!showCollapsedAffordance) return row;
-
-    // Collapsed: overlay a floating expand button at the top-right edge where
-    // the inspector panel used to sit.
-    return Stack(
-      children: [
-        row,
-        Positioned(
-          top: 0,
-          right: 0,
-          child: Material(
-            color: context.rhythm.surfaceRaised,
-            elevation: 2,
-            borderRadius: BorderRadius.circular(RhythmRadius.md),
-            child: IconButton(
-              key: const ValueKey('inspector-expand-button'),
-              icon: const Icon(Icons.chevron_left, size: 18),
-              tooltip: 'Show inspector',
-              onPressed: () =>
-                  context.read<AgentsController>().setPanelCollapsed(false),
-              style: IconButton.styleFrom(
-                minimumSize: const Size(32, 32),
-                padding: EdgeInsets.zero,
-                foregroundColor: context.rhythm.textMuted,
-                shape: RoundedRectangleBorder(
+    final workspace = !showCollapsedAffordance
+        ? row
+        : Stack(
+            children: [
+              row,
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Material(
+                  color: context.rhythm.surfaceRaised,
+                  elevation: 2,
                   borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  child: IconButton(
+                    key: const ValueKey('inspector-expand-button'),
+                    icon: const Icon(Icons.chevron_left, size: 18),
+                    tooltip: 'Show inspector',
+                    onPressed: () => context
+                        .read<AgentsController>()
+                        .setPanelCollapsed(false),
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(32, 32),
+                      padding: EdgeInsets.zero,
+                      foregroundColor: context.rhythm.textMuted,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                      ),
+                    ),
+                  ),
                 ),
               ),
+            ],
+          );
+
+    final bridgeStatusMessage = controller.bridgeStatusMessage;
+    if (bridgeStatusMessage == null) return workspace;
+
+    return Column(
+      children: [
+        Semantics(
+          liveRegion: true,
+          child: Container(
+            key: const ValueKey('bridge-reconnecting-banner'),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: context.rhythm.warning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.sync, size: 16, color: context.rhythm.warning),
+                const SizedBox(width: 8),
+                Expanded(child: Text(bridgeStatusMessage)),
+              ],
             ),
           ),
         ),
+        const SizedBox(height: 8),
+        Expanded(child: workspace),
       ],
     );
   }

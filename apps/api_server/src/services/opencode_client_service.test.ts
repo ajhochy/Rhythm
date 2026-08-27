@@ -88,7 +88,7 @@ describe('RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge', () => {
   });
 
   it('does not fabricate an engine CORS allowlist when the host supplied none', () => {
-    expect(resolveOpencodeCorsOrigins(undefined)).toEqual([]);
+    expect(resolveOpencodeCorsOrigins('')).toEqual([]);
     expect(buildOpencodeServerOptions(4096, [])).toEqual({ port: 4096 });
   });
 });
@@ -578,7 +578,7 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
   });
 
   it('issue-1322-c2: non-plan modes do not add a session permission override', async () => {
-    for (const mode of ['default', 'acceptEdits', 'bypassPermissions']) {
+    for (const mode of ['default', 'acceptEdits']) {
       capturedBody = {};
       await Reflect.apply(svc.createSession, svc, [
         `Non-plan ${mode}`,
@@ -592,10 +592,27 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
       expect(capturedBody).not.toHaveProperty('permission');
     }
   });
+
+  it('bypassPermissions allows non-bash tools but keeps bash on the security bridge', async () => {
+    await Reflect.apply(svc.createSession, svc, [
+      'Bypass permissions',
+      '/workspace',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'bypassPermissions',
+    ]);
+
+    expect(capturedBody.permission).toEqual([
+      { permission: '*', pattern: '*', action: 'allow' },
+      { permission: 'bash', pattern: '*', action: 'ask' },
+    ]);
+  });
 });
 
 describe('issue #1322 — updateSessionPermissionMode', () => {
-  it('updates the live engine session with bash deny for plan and clears it outside plan', async () => {
+  it('updates bypass in both directions and clears its rules on downgrade', async () => {
     const svc = new OpencodeClientService();
     const update = vi.fn().mockResolvedValue({ data: { id: 'sdk-plan' } });
     (svc as unknown as Record<string, unknown>)['v2Client'] = vi.fn().mockResolvedValue({
@@ -606,16 +623,24 @@ describe('issue #1322 — updateSessionPermissionMode', () => {
     }).updateSessionPermissionMode;
 
     expect(typeof method).toBe('function');
-    await method!.call(svc, 'sdk-plan', 'plan');
+    await method!.call(svc, 'sdk-bypass', 'bypassPermissions');
     await method!.call(svc, 'sdk-default', 'default');
+    await method!.call(svc, 'sdk-plan', 'plan');
 
     expect(update).toHaveBeenNthCalledWith(1, {
-      sessionID: 'sdk-plan',
-      permission: [{ permission: 'bash', pattern: '*', action: 'deny' }],
+      sessionID: 'sdk-bypass',
+      permission: [
+        { permission: '*', pattern: '*', action: 'allow' },
+        { permission: 'bash', pattern: '*', action: 'ask' },
+      ],
     });
     expect(update).toHaveBeenNthCalledWith(2, {
       sessionID: 'sdk-default',
       permission: [],
+    });
+    expect(update).toHaveBeenNthCalledWith(3, {
+      sessionID: 'sdk-plan',
+      permission: [{ permission: 'bash', pattern: '*', action: 'deny' }],
     });
   });
 });
