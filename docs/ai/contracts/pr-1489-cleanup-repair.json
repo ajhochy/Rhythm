@@ -1,0 +1,41 @@
+{
+  "issue": "pr-1489-cleanup-repair",
+  "date": "2026-08-27",
+  "test_command": "npx vitest run src/__tests__/agent_configs_routes.test.ts src/repositories/agent_configs_repository.test.ts && npx vitest run src/contract/pr_1489_adversarial_review.test.ts && npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "pr-1489-cleanup-c1",
+      "text": "Deleting a projected temporary profile removes its agent_configs and agent_profile_projections rows atomically, removes its projected file, and does not modify unrelated profiles.",
+      "mode": "integration",
+      "test": "src/__tests__/agent_configs_routes.test.ts",
+      "status": "pass",
+      "reason": ""
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c2",
+      "text": "Invalid provenance rejection preserves the exact whole-row digest, profile bytes, managed files, and zero-network-request proof.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "PR #1487 owns the sandbox; this repair must preserve the executable assertions without running a sandbox."
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c3",
+      "text": "The positive valid install control snapshots only agent_configs, agent_skills, agent_profile_projections, and managed files; cleanup restores that exact scoped surface.",
+      "mode": "live",
+      "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
+      "status": "UNVERIFIED",
+      "reason": "PR #1487 owns the sandbox; static live-test execution must skip while preserving the executable positive control."
+    },
+    {
+      "criterion_id": "pr-1489-cleanup-c4",
+      "text": "SQLite migrations and Postgres bootstrap both retain the structurally equivalent agent_profile_projections ledger.",
+      "mode": "unit",
+      "test": "src/repositories/agent_configs_repository.test.ts",
+      "status": "pass",
+      "reason": ""
+    }
+  ],
+  "not_tested": []
+}
