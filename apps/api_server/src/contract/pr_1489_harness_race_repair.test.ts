@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -73,5 +75,32 @@ describe('PR #1489 final harness race repair', () => {
   it('compares declared install snapshots byte-for-byte', () => {
     const before = snapshotTables(db, INSTALL_TABLES);
     expect(snapshotBytes(snapshotTables(db, INSTALL_TABLES))).toBe(snapshotBytes(before));
+  });
+
+  it('pr-1489-final-c1: live external-adoption candidate is unique per run', () => {
+    const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
+
+    expect(source).not.toContain('Unique deployment audit');
+    expect(source).toMatch(/candidateSlug.*randomUUID/s);
+    expect(source).toMatch(/candidateBody/);
+    expect(source).toMatch(/contentSha256.*candidateBody/s);
+  });
+
+  it('pr-1489-final-c2: teardown stops producers before bounded settlement and always aggregates cleanup errors', () => {
+    const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
+    const teardown = source.slice(source.indexOf('afterAll(async () =>'));
+    const firstSettlement = teardown.indexOf('waitForBroadRowsToSettle');
+    const sessionStop = teardown.indexOf('/session/${encodeURIComponent');
+    const providerRestore = teardown.indexOf("attempt('restore anthropic provider'");
+
+    expect(sessionStop).toBeGreaterThan(-1);
+    expect(providerRestore).toBeGreaterThan(sessionStop);
+    expect(firstSettlement).toBeGreaterThan(sessionStop);
+    expect(teardown).toMatch(/Promise\.allSettled/);
+    expect(teardown).toMatch(/AggregateError/);
+    expect(teardown).toMatch(/timeoutMs:\s*10_000/);
+    expect(teardown).toMatch(/timeoutMs:\s*2_500/);
+    expect(teardown).toMatch(/finally\s*{[\s\S]*db\.close\(\)/);
+    expect(teardown).toMatch(/},\s*45_000\);/);
   });
 });

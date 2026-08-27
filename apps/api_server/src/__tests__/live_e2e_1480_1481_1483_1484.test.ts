@@ -20,6 +20,7 @@ import {
   type TableRows,
   waitForBroadRowsToSettle,
 } from './_s4_harness_rows';
+import { titleSimilarity } from '../services/org_audit_service';
 
 const enabled = process.env.RHYTHM_LIVE_E2E === '1';
 const describeLive = enabled ? describe.sequential : describe.skip;
@@ -29,8 +30,8 @@ const auditRunIds = new Set<string>();
 let db: Database.Database;
 let fixture: Server;
 let tamperExternalBody = false;
-let baselineRows: TableRows;
-let baselineFiles: string;
+let baselineRows: TableRows | undefined;
+let baselineFiles: string | undefined;
 let baselineSessionIds = new Set<string>();
 let sandboxConfigPath: string | undefined;
 let originalAnthropicPresent = false;
@@ -41,9 +42,40 @@ let positiveEvidenceReceived = false;
 let infraMarkerReceived = false;
 let candidateScoreReceived = false;
 let draftScoreReceived = false;
+const candidateScoreRequests: string[] = [];
+const draftScoreRequests: string[] = [];
 let skillDownloadRequests = 0;
 const providerId = 'anthropic';
 const modelId = 'claude-haiku-4-5';
+const candidateSlug = randomUUID().replace(/-/g, '');
+const candidateName = `S4 deployment audit ${candidateSlug}`;
+const candidateBody = `# ${candidateName}\nInspect deployment provenance for run ${candidateSlug} and verify immutable release inputs.`;
+const candidateDedupKey = `external-adoption:skill:${candidateName.toLowerCase()}`;
+
+interface OptimizerResult {
+  auditRunId: string;
+  skipped: boolean;
+  capped: boolean;
+  proposalsCreated: number;
+  byKind: Record<string, number>;
+  erroredReason?: string;
+}
+
+const optimizerResults = new Map<string, OptimizerResult>();
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(() => rejectPromise(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolvePromise(value); },
+      (error) => { clearTimeout(timer); rejectPromise(error); },
+    );
+  });
+}
+
+function requestRecord(body: string): string {
+  return body.replace(/\s+/g, ' ').slice(0, 800);
+}
 
 function baseUrl(): string {
   return (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
@@ -155,11 +187,12 @@ function seedSession(agentId: string, statusMessage: string, tools: ToolSpec[] =
 async function runOptimizer(maxLlmCallsPerRun: number): Promise<string> {
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
-    const result = await json<{ auditRunId: string; skipped: boolean }>(await api('/agent-org-optimizer/run', {
+    const result = await json<OptimizerResult>(await api('/agent-org-optimizer/run', {
       method: 'POST', body: JSON.stringify({ maxProposalsPerRun: 500, maxLlmCallsPerRun }),
     }), 200);
     if (!result.skipped) {
       auditRunIds.add(result.auditRunId);
+      optimizerResults.set(result.auditRunId, result);
       return result.auditRunId;
     }
     await new Promise((wait) => setTimeout(wait, 5_000));
@@ -183,14 +216,13 @@ async function startFixture(): Promise<Server> {
   expect(['127.0.0.1', 'localhost']).toContain(origin.hostname);
   const commit = 'c'.repeat(40);
   const reviewed = 'reviewed bytes';
-  const uniqueBody = '# Unique deployment audit\nInspect deployment provenance and verify immutable release inputs.';
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', origin.origin);
     if (url.pathname === '/api/search') {
       response.setHeader('content-type', 'application/json');
       response.end(JSON.stringify({ skills: [
         { name: 'Live path repair', id: 'owner/overlap/live-path-repair', source: 'owner/overlap', installs: 20 },
-        { name: 'Unique deployment audit', id: 'owner/unique/unique-deployment-audit', source: 'owner/unique', installs: 20 },
+        { name: candidateName, id: `owner/unique/${candidateSlug}`, source: 'owner/unique', installs: 20 },
       ] }));
       return;
     }
@@ -205,7 +237,7 @@ async function startFixture(): Promise<Server> {
       response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ sha: commit })); return;
     }
     if (url.pathname.includes('/owner/overlap/')) { response.end('# Live path repair\nRepair login-shell PATH configuration.'); return; }
-    if (url.pathname.includes('/owner/unique/')) { response.end(uniqueBody); return; }
+    if (url.pathname.includes('/owner/unique/')) { response.end(candidateBody); return; }
     if (url.pathname.includes('/owner/approval/')) {
       skillDownloadRequests += 1;
       response.end(tamperExternalBody ? 'changed bytes' : reviewed);
@@ -220,12 +252,16 @@ async function startFixture(): Promise<Server> {
         infraMarkerReceived ||= body.includes('Cannot connect to API at http://127.0.0.1:4001');
         let content: string;
         if (body.includes('Score (0-100)')) {
-          if (body.includes('## Problem')) {
+          if (body.includes('## Problem') && body.includes(candidateName)) {
             draftScoreReceived = true;
+            if (draftScoreRequests.length < 5) draftScoreRequests.push(requestRecord(body));
             content = '20 skeletal intent stub without an actionable procedure';
-          } else {
+          } else if (body.includes(candidateName) || body.includes(candidateBody)) {
             candidateScoreReceived = true;
+            if (candidateScoreRequests.length < 5) candidateScoreRequests.push(requestRecord(body));
             content = '95 precise, complete, reusable, and actionable';
+          } else {
+            content = '95 relevant, actionable, and complete';
           }
         } else if (body.includes('No single recurring error')) {
           content = JSON.stringify({ diagnosis: 'Replace the skill', rootCause: 'skill', fixType: 'skill-edit',
@@ -327,68 +363,138 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
   });
 
   afterAll(async () => {
-    if (!db) return;
-    await waitForBroadRowsToSettle(db);
-    const createdSessions = (db.prepare(`SELECT id, sdk_session_id, cwd, category FROM agent_sessions`).all() as Array<{
-      id: string; sdk_session_id: string | null; cwd: string; category: string;
-    }>).filter((row) => !baselineSessionIds.has(row.id));
-    for (const row of createdSessions.filter((candidate) => candidate.sdk_session_id)) {
-      await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
-        method: 'DELETE', headers: { 'X-OpenCode-Directory': row.cwd },
-      }).catch(() => undefined);
-    }
-    for (const id of ids) await api(`/agent-configs/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => undefined);
-    for (const runId of auditRunIds) db.prepare('DELETE FROM agent_org_proposals WHERE audit_run_id = ?').run(runId);
-    for (const id of ids) {
-      db.prepare('DELETE FROM agent_session_messages WHERE session_id = ?').run(id);
-      db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(id);
-      db.prepare('DELETE FROM agent_capability_gaps WHERE id = ? OR dedup_key = ?').run(id, id);
-      db.prepare('DELETE FROM agent_org_proposals WHERE id = ? OR target_ref LIKE ? OR signal_ref LIKE ?').run(id, `%${id}%`, `%${id}%`);
-      db.prepare('DELETE FROM agent_cookbook WHERE id = ?').run(id);
-      db.prepare('DELETE FROM agent_skills WHERE id = ?').run(id);
-      db.prepare('DELETE FROM agent_configs WHERE id = ?').run(id);
-    }
-    if (mruSessionId) db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(mruSessionId);
-    for (const { id } of createdSessions) {
-      db.prepare('DELETE FROM agent_session_messages WHERE session_id = ?').run(id);
-      db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(id);
-    }
-    if (sandboxConfigPath) {
-      const sandboxRootPath = await realpath(resolve(process.env.RHYTHM_SANDBOX_DIR!));
-      const sandboxHomePath = await realpath(resolve(process.env.RHYTHM_SANDBOX_HOME!));
-      expect(sandboxHomePath).toBe(join(sandboxRootPath, 'home'));
-      const verifiedConfigPath = await realpath(sandboxConfigPath);
-      expect(verifiedConfigPath.startsWith(`${join(sandboxRootPath, 'home')}${sep}`)).toBe(true);
-      const config = JSON.parse(await readFile(verifiedConfigPath, 'utf8')) as {
-        provider?: Record<string, unknown>;
-      };
-      config.provider = config.provider ?? {};
-      if (originalAnthropicPresent) config.provider.anthropic = structuredClone(originalAnthropicProvider);
-      else delete config.provider.anthropic;
-      const temporaryPath = `${verifiedConfigPath}.s4-${process.pid}-${randomUUID()}.tmp`;
+    const cleanupErrors: Error[] = [];
+    const attempt = async (label: string, operation: () => Promise<unknown> | unknown): Promise<void> => {
       try {
-        await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-        await rename(temporaryPath, verifiedConfigPath);
-      } finally {
-        await unlink(temporaryPath).catch(() => undefined);
+        await operation();
+      } catch (error) {
+        cleanupErrors.push(new Error(`${label}: ${String(error)}`, { cause: error }));
       }
-      expect((await api('/system/refresh', { method: 'POST' })).status).toBe(200);
-      const restoredResponse = await fetch(`${engineUrl()}/global/config`);
-      expect(restoredResponse.status, await restoredResponse.clone().text()).toBe(200);
-      const restored = await restoredResponse.json() as { provider?: Record<string, unknown> };
-      const restoredProviders = restored.provider ?? {};
-      if (originalAnthropicPresent) expect(restoredProviders.anthropic).toEqual(originalAnthropicProvider);
-      else expect(Object.hasOwn(restoredProviders, 'anthropic')).toBe(false);
-      expect(Object.fromEntries(Object.entries(restoredProviders).filter(([id]) => id !== providerId)))
-        .toEqual(originalOtherProviders);
+    };
+    let createdSessions: Array<{ id: string; sdk_session_id: string | null; cwd: string }> = [];
+
+    try {
+      if (db) {
+        await attempt('enumerate owned sessions', () => {
+          createdSessions = (db.prepare('SELECT id, sdk_session_id, cwd FROM agent_sessions').all() as typeof createdSessions)
+            .filter((row) => !baselineSessionIds.has(row.id));
+        });
+      }
+
+      await attempt('stop owned engine sessions', async () => {
+        const stopped = await withTimeout(Promise.allSettled(
+          createdSessions.filter((row) => row.sdk_session_id).map(async (row) => {
+            const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
+              method: 'DELETE',
+              headers: { 'X-OpenCode-Directory': row.cwd },
+              signal: AbortSignal.timeout(4_500),
+            });
+            if (!response.ok && response.status !== 404) {
+              throw new Error(`${row.sdk_session_id}: HTTP ${response.status}`);
+            }
+          }),
+        ), 5_000, 'owned engine session cleanup');
+        const failures = stopped.filter((result) => result.status === 'rejected');
+        if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'engine session deletes failed');
+      });
+
+      await attempt('restore anthropic provider', async () => {
+        if (!sandboxConfigPath) return;
+        await withTimeout((async () => {
+          const sandboxRootPath = await realpath(resolve(process.env.RHYTHM_SANDBOX_DIR!));
+          const sandboxHomePath = await realpath(resolve(process.env.RHYTHM_SANDBOX_HOME!));
+          expect(sandboxHomePath).toBe(join(sandboxRootPath, 'home'));
+          const verifiedConfigPath = await realpath(sandboxConfigPath);
+          expect(verifiedConfigPath.startsWith(`${join(sandboxRootPath, 'home')}${sep}`)).toBe(true);
+          const config = JSON.parse(await readFile(verifiedConfigPath, 'utf8')) as { provider?: Record<string, unknown> };
+          config.provider = config.provider ?? {};
+          if (originalAnthropicPresent) config.provider.anthropic = structuredClone(originalAnthropicProvider);
+          else delete config.provider.anthropic;
+          const temporaryPath = `${verifiedConfigPath}.s4-${process.pid}-${randomUUID()}.tmp`;
+          try {
+            await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+            await rename(temporaryPath, verifiedConfigPath);
+          } finally {
+            await unlink(temporaryPath).catch(() => undefined);
+          }
+          expect((await api('/system/refresh', { method: 'POST', signal: AbortSignal.timeout(4_000) })).status).toBe(200);
+          const restoredResponse = await fetch(`${engineUrl()}/global/config`, { signal: AbortSignal.timeout(4_000) });
+          expect(restoredResponse.status, await restoredResponse.clone().text()).toBe(200);
+          const restored = await restoredResponse.json() as { provider?: Record<string, unknown> };
+          const restoredProviders = restored.provider ?? {};
+          if (originalAnthropicPresent) expect(restoredProviders.anthropic).toEqual(originalAnthropicProvider);
+          else expect(Object.hasOwn(restoredProviders, 'anthropic')).toBe(false);
+          expect(Object.fromEntries(Object.entries(restoredProviders).filter(([id]) => id !== providerId)))
+            .toEqual(originalOtherProviders);
+        })(), 5_000, 'anthropic provider restoration');
+      });
+
+      await attempt('close fixture server', async () => {
+        if (!fixture?.listening) return;
+        await withTimeout(new Promise<void>((done, fail) => fixture.close((error) => error ? fail(error) : done())), 2_000, 'fixture close');
+      });
+
+      if (db) await attempt('full producer settlement', () => waitForBroadRowsToSettle(db, { timeoutMs: 10_000 }));
+
+      await attempt('delete owned configs', async () => {
+        const deleted = await withTimeout(Promise.allSettled([...ids].map(async (id) => {
+          const response = await api(`/agent-configs/${encodeURIComponent(id)}`, {
+            method: 'DELETE', signal: AbortSignal.timeout(3_000),
+          });
+          if (!response.ok && response.status !== 404) throw new Error(`${id}: HTTP ${response.status}`);
+        })), 5_000, 'owned config cleanup');
+        const failures = deleted.filter((result) => result.status === 'rejected');
+        if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'config deletes failed');
+      });
+
+      if (db) {
+        for (const runId of auditRunIds) {
+          await attempt(`delete proposals for run ${runId}`, () => {
+            db.prepare('DELETE FROM agent_org_proposals WHERE audit_run_id = ?').run(runId);
+          });
+        }
+        await attempt('delete candidate exact dedup row', () => {
+          db.prepare('DELETE FROM agent_org_proposals WHERE dedup_key = ?').run(candidateDedupKey);
+        });
+        const deletes: Array<[string, string, unknown[]]> = [];
+        for (const id of ids) {
+          deletes.push(
+            [`messages ${id}`, 'DELETE FROM agent_session_messages WHERE session_id = ?', [id]],
+            [`session ${id}`, 'DELETE FROM agent_sessions WHERE id = ?', [id]],
+            [`gap ${id}`, 'DELETE FROM agent_capability_gaps WHERE id = ? OR dedup_key = ?', [id, id]],
+            [`proposal refs ${id}`, 'DELETE FROM agent_org_proposals WHERE id = ? OR target_ref LIKE ? OR signal_ref LIKE ?', [id, `%${id}%`, `%${id}%`]],
+            [`cookbook ${id}`, 'DELETE FROM agent_cookbook WHERE id = ?', [id]],
+            [`skill ${id}`, 'DELETE FROM agent_skills WHERE id = ?', [id]],
+            [`config row ${id}`, 'DELETE FROM agent_configs WHERE id = ?', [id]],
+          );
+        }
+        if (mruSessionId) deletes.push(['MRU session', 'DELETE FROM agent_sessions WHERE id = ?', [mruSessionId]]);
+        for (const { id } of createdSessions) {
+          deletes.push(
+            [`created messages ${id}`, 'DELETE FROM agent_session_messages WHERE session_id = ?', [id]],
+            [`created session ${id}`, 'DELETE FROM agent_sessions WHERE id = ?', [id]],
+          );
+        }
+        for (const [label, sql, parameters] of deletes) {
+          await attempt(`delete ${label}`, () => { db.prepare(sql).run(...parameters); });
+        }
+
+        await attempt('final short settlement and baseline assertions', async () => {
+          if (!baselineRows || baselineFiles === undefined) return;
+          const settledRows = await waitForBroadRowsToSettle(db, { timeoutMs: 2_500 });
+          expect(diffTableRows(baselineRows, settledRows, BROAD_TABLES)).toEqual([]);
+          expect(snapshotBytes(settledRows)).toBe(snapshotBytes(baselineRows));
+          expect(await fileDigest()).toBe(baselineFiles);
+        });
+      }
+    } finally {
+      if (db?.open) {
+        try { db.close(); } catch (error) { cleanupErrors.push(new Error(`close database: ${String(error)}`, { cause: error })); }
+      }
     }
-    if (fixture?.listening) await new Promise<void>((done) => fixture.close(() => done()));
-    const settledRows = await waitForBroadRowsToSettle(db);
-    expect(diffTableRows(baselineRows, settledRows, BROAD_TABLES)).toEqual([]);
-    expect(snapshotBytes(settledRows)).toBe(snapshotBytes(baselineRows));
-    expect(await fileDigest()).toBe(baselineFiles);
-    db.close();
-  });
+
+    if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'S4 teardown failed');
+  }, 45_000);
 
   it('optimizer generation covers recurrence, diagnosis filtering, and immutable external discovery', async () => {
     const retryId = await createConfig('retry');
@@ -457,16 +563,45 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       (id, dedup_key, intent_title, intent_problem, intent_tags_json, status, created_at, updated_at)
       VALUES (?, ?, 'deployment audit', 'Verify immutable deployment provenance', '["deployment"]', 'open', ?, ?)`)
       .run(gapId, gapId, now, now);
+    const installedOverlapMatches = (db.prepare('SELECT id, title, body FROM agent_skills').all() as Array<{
+      id: string; title: string; body: string | null;
+    }>).filter((installed) =>
+      titleSimilarity(installed.title, candidateName) >= 0.5 ||
+      titleSimilarity(`${installed.title} ${installed.body ?? ''}`, `${candidateName} ${candidateBody}`) >= 0.5,
+    ).map(({ id, title }) => ({ id, title }));
+    expect(installedOverlapMatches, 'candidate must not collide with installed overlap veto').toEqual([]);
+    expect(db.prepare('SELECT id, audit_run_id, status FROM agent_org_proposals WHERE dedup_key = ?').get(candidateDedupKey),
+      'candidate exact dedup key must be unused before optimizer run').toBeUndefined();
+
     const discoveryRun = await runOptimizer(0);
     const external = proposals(discoveryRun).filter((row) => row.kind === 'external-adoption');
-    expect(candidateScoreReceived).toBe(true);
-    expect(draftScoreReceived).toBe(true);
     expect(external.some((row) => row.change_json?.includes('Live path repair'))).toBe(false);
-    const unique = external.filter((row) => row.change_json?.includes('Unique deployment audit'));
-    expect(unique).toHaveLength(1);
+    const unique = db.prepare(`SELECT id, kind, target_ref, change_json, dedup_key FROM agent_org_proposals
+      WHERE audit_run_id = ? AND dedup_key = ?`).all(discoveryRun, candidateDedupKey) as Array<{
+        id: string; kind: string; target_ref: string | null; change_json: string | null; dedup_key: string;
+      }>;
+    const globalMatchingDedupRow = db.prepare(`SELECT id, audit_run_id, status, kind, target_ref, dedup_key
+      FROM agent_org_proposals WHERE dedup_key = ?`).get(candidateDedupKey);
+    const runResult = optimizerResults.get(discoveryRun);
+    const failureDiagnostics = JSON.stringify({
+      run: runResult && {
+        capped: runResult.capped,
+        proposalsCreated: runResult.proposalsCreated,
+        error: runResult.erroredReason,
+        byKind: runResult.byKind,
+      },
+      scorer: { candidate: candidateScoreRequests, draft: draftScoreRequests },
+      currentRunProposals: proposals(discoveryRun),
+      globalMatchingDedupRow,
+      installedOverlapMatches,
+    });
+    expect(candidateScoreReceived, failureDiagnostics).toBe(true);
+    expect(draftScoreReceived, failureDiagnostics).toBe(true);
+    expect(unique, failureDiagnostics).toHaveLength(1);
     const change = JSON.parse(unique[0].change_json!);
     expect(change.downloadUrl).toMatch(new RegExp(`/owner/unique/${'c'.repeat(40)}/`));
-    expect(change.contentSha256).toBe(sha('# Unique deployment audit\nInspect deployment provenance and verify immutable release inputs.'));
+    expect(change.skillName).toBe(candidateName);
+    expect(change.contentSha256).toBe(sha(candidateBody));
   }, timeout);
 
   it('pr-1489-c16-c20: real install boundary rejects invalid provenance before fetch or mutation', async () => {

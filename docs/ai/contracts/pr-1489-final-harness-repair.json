@@ -1,8 +1,25 @@
 {
   "issue": "pr-1489-final-harness-repair",
   "date": "2026-08-27",
-  "test_command": "npx vitest run src/contract/pr_1489_harness_race_repair.test.ts src/contract/pr_1489_adversarial_review.test.ts && npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism",
-  "waiver": "WAIVED: test-harness-only race repair with no production behavior change; verification is static harness/adversarial/focused tests, live normal skip/fail-closed checks, build/tsc/diff gates, and the sandbox owner’s final live rerun.",
-  "criteria": [],
+  "test_command": "npx vitest run src/contract/pr_1489_harness_race_repair.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "pr-1489-final-c1",
+      "text": "RED harness contract should detect fixed candidate; GREEN after repair.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
+      "status": "pass",
+      "reason": "The static contract proves the fixed candidate is gone and per-run candidate identity/body drive hashing."
+    },
+    {
+      "criterion_id": "pr-1489-final-c2",
+      "text": "RED harness contract should detect unsafe cleanup ordering; GREEN after repair.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
+      "status": "pass",
+      "reason": "The static contract proves producer stop precedes settlement and teardown is bounded with aggregate errors."
+    }
+  ],
   "not_tested": []
 }
