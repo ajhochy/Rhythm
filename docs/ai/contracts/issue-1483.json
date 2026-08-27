@@ -41,8 +41,8 @@
       "text": "The S4 harness routes cheap-tier scoring and diagnosis through anthropic/claude-haiku-4-5, observes distinct draft/candidate scores, and atomically restores only sandbox provider.anthropic without changing other providers.",
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "The real live suite asserts distinct draft/candidate scoring at lines 462-463 and exact provider restoration at lines 356-383. Historical evidence passed at 9bb8dc7f, but the latest full invocation failed during HOME isolation setup, so the current final rerun is pending."
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with exact candidate/draft/overlap scorer assertions and provider restoration."
     }
   ],
   "not_tested": []

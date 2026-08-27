@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/optimizer-generator-lanes
 pr: 1489
 issues: [1480, 1481, 1483, 1484]
-status: ready-for-verification
+status: pass
 tags: [run, Rhythm]
 ---
 
@@ -18,7 +18,7 @@ WAIVED: test/docs-only PR-gate repair with no product behavior change; verificat
 
 - `apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts` — supplies the evidence quote now required by the production diagnosis parser.
 - `apps/api_server/src/services/opencode_client_service.test.ts` — passes an explicit empty host value so inherited `RHYTHM_LOCAL_RENDERER_ORIGINS` cannot affect the empty-input case.
-- `docs/ai/contracts/{issue-1483,pr-1489-adversarial-review,pr-1489-cleanup-repair}.json` — removes the deleted harness reference, points maintained criteria at executable tests, and leaves the current live rerun criteria `UNVERIFIED`.
+- `docs/ai/contracts/{issue-1483,pr-1489-adversarial-review,pr-1489-cleanup-repair}.json` — removes the deleted harness reference, points maintained criteria at executable tests, and records the final isolated rerun.
 
 ## Checks
 
@@ -34,7 +34,7 @@ WAIVED: test/docs-only PR-gate repair with no product behavior change; verificat
 
 ## Latest live invocation and corrected rerun
 
-The latest full live invocation was not green: Vitest was launched with `HOME="$RHYTHM_SANDBOX_HOME"`. That made Vitest compute HOME-relative defaults inside the sandbox HOME and failed isolation setup before the three live cases ran. It is not evidence for c16-c20, cleanup c2/c3/c5, or issue-1483-c5; those criteria remain `UNVERIFIED`.
+The corrected final invocation left Vitest on the operator HOME and passed all three live cases at `ef7bf436`. It supplied the live evidence for c16-c20, cleanup c2/c3/c5, and issue-1483-c5.
 
 The sandbox process keeps its own sandbox HOME. The verifier must leave Vitest on the agent/operator HOME and pass the sandbox paths explicitly. Before invoking Vitest, validate both separations:
 

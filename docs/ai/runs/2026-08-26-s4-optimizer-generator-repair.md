@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/optimizer-generator-lanes
 pr: null
 issues: [1480, 1481, 1483, 1484]
-status: ready_for_verification
+status: pass
 tags: [run, Rhythm]
 ---
 
@@ -16,7 +16,7 @@ tags: [run, Rhythm]
 - `workflow_signal_generator.ts`: aggregates matching retry signals across sessions for the deterministic recipe lane and defers weak-evidence skill-edit suppression until after diagnosis.
 - `external_discovery_{search,generator}.ts`: adds default-preserving loopback origin seams and accepts commit-pinned configured download origins.
 - Focused extractor/generator/contracts plus `live_e2e_1480_1481_1483_1484.test.ts`.
-- Four contract JSON files remain `UNVERIFIED` pending S3's sandbox run.
+- The final isolated sandbox rerun passed all three live cases at `ef7bf436`; the four issue contracts are reconciled.
 
 ## Checks
 
@@ -40,7 +40,7 @@ tags: [run, Rhythm]
 ## Notes
 
 - S3 owns the sandbox. No server or sandbox command will be run in this pass.
-- Live contract statuses remain `UNVERIFIED` until S3 runs the env-gated suite.
+- Live contract statuses were reconciled after the final 3/3 isolated rerun at `ef7bf436`.
 - Pre-edit GitNexus impacts attempted for `isDiagnosableSignal`, `proposeFixFromSignals`, `detectRetryLoopSignals`, and `generateWorkflowSignalProposals`; all returned risk `UNKNOWN` because the index is v42 while the connected reader supports v41. No HIGH/CRITICAL result was returned.
 - Additional pre-edit impacts for `searchSkillCandidates`, `buildSkillProvenance`, and `runExternalDiscoveryGenerator` hit the same blocker.
 - S3 live prerequisites: sandbox-only `DB_PATH`/`RHYTHM_LIVE_DB_PATH`, `RHYTHM_SANDBOX_DIR`, `RHYTHM_SANDBOX_HOME`, and `RHYTHM_MANAGED_SKILLS_DIR`; loopback `RHYTHM_EXTERNAL_DISCOVERY_SEARCH_URL=<origin>/api/search`, `RHYTHM_EXTERNAL_DISCOVERY_GITHUB_ORIGIN=<origin>`, and `RHYTHM_SKILLS_DOWNLOAD_BASE=<origin>/raw`; configure the sandbox engine's LM Studio-compatible deterministic model at that same origin. Then run `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 npx vitest run src/__tests__/live_e2e_1480_1481_1483_1484.test.ts --no-file-parallelism` from `apps/api_server`.
@@ -77,6 +77,6 @@ tags: [run, Rhythm]
 
 ### Notes
 
-- S3 owns the sandbox concurrently; this pass started no server and ran no sandbox command. Live contract clauses remain `UNVERIFIED` for S3.
+- This repair pass started no server; the later final isolated rerun passed 3/3 at `ef7bf436` and reconciled the live clauses.
 - Separate production robustness gap (documented only): `defaultDiagnose()` calls global `resolveRunModel()` without a stable dedicated diagnosis profile, so production diagnosis availability remains coupled to global MRU. No production resolver change is in S4 scope.
 - S3 live command must include `RHYTHM_LIVE_ENGINE_URL` in addition to the suite's existing isolated DB/HOME/skills/discovery variables.

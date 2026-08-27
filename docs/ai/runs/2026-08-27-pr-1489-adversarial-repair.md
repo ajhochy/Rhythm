@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/optimizer-generator-lanes
 pr: 1489
 issues: [1480, 1481, 1483, 1484]
-status: ready-for-final-sandbox-rerun
+status: pass
 tags: [run, Rhythm]
 ---
 
@@ -37,7 +37,7 @@ tags: [run, Rhythm]
 - `node_modules/.bin/tsc --noEmit` — exit 0.
 - `npm run build` — exit 0.
 - `git diff --check` — exit 0; only the S4 live test, PR #1489 contract, and this run note changed.
-- Final live result remains `UNVERIFIED`: PR #1487 owns the sandbox, so this run did not start or use it. The next verifier should rerun the contract command in the already-isolated S4 sandbox; the maintained suite now contains the executable proof instead of the invalid `require()` + top-level-await probe.
+- Final isolated live result: 3/3 passed at `ef7bf436`, including the real install boundary, zero-request rejection, positive pinned install, exact cleanup, and manager projections.
 
 ## GitNexus
 

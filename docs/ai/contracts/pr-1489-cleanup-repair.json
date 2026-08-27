@@ -17,16 +17,16 @@
       "text": "After prior broad optimizer rows settle, invalid provenance rejection makes zero fixture requests and preserves the exact target profile row, zero target skill rows, byte-identical declared install tables, and byte-identical managed/projected files; unrelated broad session/message convergence is diagnostic only.",
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Executable zero-request and exact target/install/file preservation assertions are at lines 472-511; the latest full invocation failed during HOME isolation setup before this case, so a corrected final rerun is pending."
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with zero requests and exact target/install/file preservation."
     },
     {
       "criterion_id": "pr-1489-cleanup-c3",
       "text": "The positive valid install control snapshots only agent_configs, agent_skills, agent_profile_projections, and managed files; cleanup restores that exact scoped surface.",
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "The executable positive install control and scoped row/file restoration are at lines 517-532; the latest full invocation failed during HOME isolation setup before this case, so a corrected final rerun is pending."
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with the positive install control and exact scoped restoration."
     },
     {
       "criterion_id": "pr-1489-cleanup-c4",
@@ -41,8 +41,8 @@
       "text": "Final cleanup settles broad rows, enumerates and deletes every suite-created engine session, row, and file, settles again, and then requires byte-identical original broad-table and file baselines.",
       "mode": "live",
       "test": "src/__tests__/live_e2e_1480_1481_1483_1484.test.ts",
-      "status": "UNVERIFIED",
-      "reason": "Executable settled cleanup and strict broad-row/file baseline equality are at lines 329-389; the latest full invocation failed because Vitest HOME was incorrectly set to sandbox HOME, so a corrected final rerun is pending."
+      "status": "pass",
+      "reason": "Final isolated S4 live suite passed 3/3 at ef7bf436 with two-second stable windows, zero residual rows, exact broad/file baselines, integrity ok, and no AggregateError."
     }
   ],
   "not_tested": []

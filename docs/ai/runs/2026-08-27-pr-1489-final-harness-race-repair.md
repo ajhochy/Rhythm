@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/optimizer-generator-lanes
 pr: 1489
 issues: [1480, 1481, 1483, 1484]
-status: awaiting-final-sandbox
+status: pass
 tags: [run, Rhythm]
 ---
 
@@ -46,5 +46,5 @@ WAIVED: test-harness-only race repair with no production behavior change; verifi
 ## Handoff
 
 - PR #1488 owns the sandbox; this run neither started nor used it.
-- Live criteria remain `UNVERIFIED` / awaiting final sandbox. The existing S4 live command is ready for the owner’s final serial rerun.
+- Final isolated S4 live rerun passed 3/3 at `ef7bf436`; teardown restored provider, rows, and files with zero residual rows and no `AggregateError`.
 - No production code, push, merge, or sandbox lifecycle change is included.
