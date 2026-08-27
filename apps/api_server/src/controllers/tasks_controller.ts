@@ -16,11 +16,11 @@ import { normalizeTaskTags } from '../models/task';
 // Re-export so callers that previously imported from this module still work.
 export type { TaskFilter };
 
-const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
+const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done', 'deferred'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
 
 /** Status values accepted by the filter param (superset of task statuses; 'all' means no filter). */
-const VALID_FILTER_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done', 'all'] as const;
+const VALID_FILTER_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done', 'deferred', 'all'] as const;
 
 /** Discriminated union returned by parseTaskFilters. */
 type ParseResult =

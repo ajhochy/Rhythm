@@ -380,7 +380,7 @@ class _PlannerBody extends StatelessWidget {
 
     final visibleBacklog = showCompleted
         ? plan.backlog
-        : plan.backlog.where((t) => t.status != TaskStatus.done).toList();
+        : plan.backlog.where((t) => t.status.isActive).toList();
     final showBacklogPane = visibleBacklog.isNotEmpty;
 
     return LayoutBuilder(
@@ -461,7 +461,7 @@ class _BacklogPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final backlog = showCompleted
         ? plan.backlog
-        : plan.backlog.where((t) => t.status != TaskStatus.done).toList();
+        : plan.backlog.where((t) => t.status.isActive).toList();
     final colors = context.rhythm;
     return RhythmSurface(
       tone: RhythmSurfaceTone.muted,
@@ -772,7 +772,7 @@ class _DayColumnState extends State<_DayColumn> {
     final colors = context.rhythm;
     final displayTasks = widget.showCompleted
         ? widget.tasks
-        : widget.tasks.where((t) => t.status != TaskStatus.done).toList();
+        : widget.tasks.where((t) => t.status.isActive).toList();
     final addButton = Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: InkWell(

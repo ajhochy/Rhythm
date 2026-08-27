@@ -1,0 +1,11 @@
+{
+  "issue": 1476,
+  "date": "2026-08-26",
+  "test_command": "cd apps/web && npx playwright test --config tests/post-m1-phase-5-fixture-playwright.config.ts tests/post-m1-phase-5-approvals-delegation.redspec.ts -g issue-1476",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"issue-1476-c1","text":"Child sessions appear nested under their parent in Electron/web, not interleaved into Active.","mode":"ui","test":"apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts","status":"pass","reason":"Rendered parent-tree locator contained the child with greater x/y geometry while Active contained the root; the normal Playwright comparator verifies apps/web/tests/post-m1-phase-5-approvals-delegation.redspec.ts-snapshots/issue-1476-nested-session-darwin.png."},
+    {"criterion_id":"issue-1476-c2","text":"Visual grouping is reasonably consistent with Flutter's existing session rail behavior.","mode":"manual","test":null,"status":"not_tested","reason":"Final cross-client visual-parity judgment remains a human manual-smoke item; automated web nesting and Flutter grouping contracts passed."}
+  ],
+  "not_tested": ["issue-1476-c2"]
+}

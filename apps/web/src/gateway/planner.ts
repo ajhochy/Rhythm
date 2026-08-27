@@ -1,6 +1,6 @@
 import type { GatewayMode } from '.';
 
-export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done';
+export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done' | 'deferred';
 
 export interface TaskCollaborator {
   userId: number;

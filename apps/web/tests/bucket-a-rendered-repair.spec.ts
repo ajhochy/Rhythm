@@ -64,6 +64,45 @@ test('bucket-a-rendered-profile: asset icon renders initials and unrelated PATCH
   await page.screenshot({ path: screenshotPath(testInfo, 'bucket-a-profile-asset-fallback.png') });
 });
 
+test('issue-1477-c1: session header asset, title, branch, and connection text do not collide', async ({ page }) => {
+  // Regression caught: the raw Flutter asset path overflows its fixed avatar
+  // and paints across the session title/header metadata.
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await installLiveRoutes(page);
+  await page.goto('/#/agents');
+
+  const header = page.locator('.session-header');
+  await expect(header).not.toContainText(assetIcon);
+  const avatar = header.locator('.profile-avatar');
+  await expect(avatar).toHaveText('AP');
+  const avatarContainment = await avatar.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      overflow: style.overflow,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    };
+  });
+  expect(avatarContainment.overflow).toBe('hidden');
+  expect(avatarContainment.scrollWidth).toBeLessThanOrEqual(avatarContainment.clientWidth);
+  const title = header.locator('h1');
+  const branch = header.locator('.session-meta > span').first();
+  const status = header.getByTestId('connection-status');
+  for (const pair of [[avatar, title], [title, branch], [branch, status]] as const) {
+    const [left, right] = await Promise.all(pair.map((locator) => locator.boundingBox()));
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    const overlaps = left!.x < right!.x + right!.width
+      && left!.x + left!.width > right!.x
+      && left!.y < right!.y + right!.height
+      && left!.y + left!.height > right!.y;
+    expect(overlaps).toBe(false);
+  }
+  await expect(page).toHaveScreenshot('issue-1477-constrained-session-header.png', {
+    animations: 'disabled',
+  });
+});
+
 test('bucket-a-rendered-session: cwd edit resets branch and omits it from POST', async ({ page }, testInfo) => {
   // Regression caught: a non-current branch selected for one cwd leaks into a session created in another cwd.
   let createBody: Record<string, unknown> | undefined;

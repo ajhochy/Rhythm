@@ -64,3 +64,37 @@ test('post-m1-p5-c2d: child identity remains separate and its isolated transcrip
   await expect(page.getByTestId('composer-input')).toBeDisabled();
   await expect(page.getByText('Child-agent transcripts are read only.')).toBeVisible();
 });
+
+test('issue-1476-c1: canonical nested API children render beneath their parent, never as Active roots', async ({ page }) => {
+  // Regression caught: the live mapper/rail ignores nested children and either
+  // drops them or interleaves them into the top-level Active list.
+  const child = {
+    ...canonicalSession,
+    id: 'issue-1476-child',
+    sdkSessionId: 'issue-1476-child-sdk',
+    parentSessionId: localSessionId,
+    name: 'Nested delegated child',
+  };
+  await openInterceptedLiveApp(page, '/#/agents', {
+    sessions: [{ ...canonicalSession, children: [child] }],
+  });
+
+  const active = page.getByTestId('group-active').locator('..');
+  await expect(active.getByTestId(`session-${localSessionId}`)).toBeVisible();
+  const nestedChild = page.getByTestId('session-issue-1476-child');
+  await expect(nestedChild).toBeVisible();
+  await expect(nestedChild).toHaveClass(/child-session/);
+  await expect(active.locator('.session-row').filter({ hasText: 'Nested delegated child' })).toHaveCount(0);
+  const parent = page.getByTestId(`session-${localSessionId}`);
+  const [parentBox, childBox] = await Promise.all([
+    parent.boundingBox(),
+    nestedChild.boundingBox(),
+  ]);
+  expect(parentBox).not.toBeNull();
+  expect(childBox).not.toBeNull();
+  expect(childBox!.x).toBeGreaterThan(parentBox!.x);
+  expect(childBox!.y).toBeGreaterThan(parentBox!.y);
+  await expect(page).toHaveScreenshot('issue-1476-nested-session.png', {
+    animations: 'disabled',
+  });
+});

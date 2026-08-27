@@ -194,6 +194,47 @@ void main() {
 
   tearDown(() => ctrl.dispose());
 
+  testWidgets(
+    'issue-1477-c2: constrained transcript header keeps badge and ellipsized title separate',
+    (tester) async {
+      final configsCtrl = await _makeConfigsController();
+      addTearDown(configsCtrl.dispose);
+      final agentServerCtrl = _ReadyAgentServerController();
+      addTearDown(agentServerCtrl.dispose);
+      const longTitle =
+          'A deliberately long transcript title that must stay inside its allocated header space';
+      final session = AgentSession(
+        id: 'issue-1477-header',
+        agentId: 'claude-code',
+        name: longTitle,
+        cwd: '/tmp',
+        status: AgentSessionStatus.idle,
+        createdAt: _kEpoch,
+        updatedAt: _kEpoch,
+      );
+
+      await tester.pumpWidget(_wrapWithProviders(
+        configsCtrl: configsCtrl,
+        agentsCtrl: ctrl,
+        agentServerCtrl: agentServerCtrl,
+        child: SizedBox(
+          width: 520,
+          child: TranscriptHeaderTestHarness(session: session),
+        ),
+      ));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      final title = find.text(longTitle);
+      expect(tester.widget<Text>(title).overflow, TextOverflow.ellipsis);
+      final badge = find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == 'AgentKindBadge',
+      );
+      expect(badge, findsOneWidget);
+      expect(tester.getRect(badge).overlaps(tester.getRect(title)), isFalse);
+    },
+  );
+
   // ── OCU-22 (#1063): branch badge ──────────────────────────────────────────
 
   group('OCU-22 (#1063): branch badge + dirty count', () {

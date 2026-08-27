@@ -182,9 +182,7 @@ describe('issue-751: bridge resolves events via DB sdk_session_id when the in-me
       },
     });
 
-    const child = sessionsRepo
-      .listAll(50)
-      .find((s) => s.sdkSessionId === CHILD_SDK);
+    const child = sessionsRepo.findBySdkSessionId(CHILD_SDK);
     expect(child, 'child session row should be created').toBeTruthy();
     expect(child!.parentSessionId).toBe(parent.id);
   });

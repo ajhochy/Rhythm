@@ -356,4 +356,25 @@ describe('GET /dashboard/summary', () => {
     expect(summary.tasks.pastDeadlineCount).toBe(0);
     expect(summary.tasks.pastDeadlineTasks).toHaveLength(0);
   });
+
+  it('deferred tasks are excluded from past-due and past-deadline dashboard counts', async () => {
+    const owner = usersRepo.create({ name: 'Deferred', email: 'deferred@example.com' });
+    const headers = await authHeaderFor(owner.id);
+    const tz = 'America/Los_Angeles';
+    const yesterday = dateInTimezone(tz, -1);
+    const task = tasksRepo.create({
+      title: 'Deferred old task',
+      dueDate: yesterday,
+      scheduledDate: yesterday,
+      ownerId: owner.id,
+    });
+    tasksRepo.update(task.id, { status: 'deferred' }, owner.id);
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    const summary = await readJson(res) as {
+      tasks: { pastDueCount: number; pastDeadlineCount: number };
+    };
+    expect(summary.tasks.pastDueCount).toBe(0);
+    expect(summary.tasks.pastDeadlineCount).toBe(0);
+  });
 });

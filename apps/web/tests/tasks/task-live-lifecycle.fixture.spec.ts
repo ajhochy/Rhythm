@@ -35,3 +35,24 @@ test('task-live-lifecycle-c7: shared and owner tasks discriminate delete availab
   await page.getByTestId('task-menu-task-service-handoff').click();
   await expect(page.getByTestId('task-delete-task-service-handoff')).toBeEnabled();
 });
+
+test('issue-1475-c6: Electron/web moves tasks to Deferred after Done and excludes them from Open', async ({ page }) => {
+  // Regression caught: the renderer omits Deferred, orders it incorrectly, or
+  // continues counting parked tasks as Open.
+  await page.setViewportSize({ width: 2000, height: 900 });
+  await openPage(page, 'tasks');
+  await page.getByTestId('tasks-tag-filter').selectOption('worship');
+  await page.getByTestId('tasks-view-board').click();
+  const done = page.getByTestId('kanban-column-done');
+  const deferred = page.getByTestId('kanban-column-deferred');
+  await expect(deferred).toBeVisible();
+  expect((await deferred.boundingBox())!.x).toBeGreaterThan((await done.boundingBox())!.x);
+
+  await deferred.scrollIntoViewIfNeeded();
+  await page.getByTestId('task-card-task-service-handoff').dragTo(deferred);
+  await expect(deferred).toContainText('Prepare Sunday service handoff');
+  await page.getByTestId('tasks-view-list').click();
+  await expect(page.getByTestId('task-row-task-service-handoff')).toHaveCount(0);
+  await page.getByTestId('tasks-completion-filter').selectOption('all');
+  await expect(page.getByTestId('task-row-task-service-handoff')).toBeVisible();
+});

@@ -1,0 +1,11 @@
+{
+  "issue": 1477,
+  "date": "2026-08-26",
+  "test_command": "cd apps/web && npx playwright test --config tests/bucket-a-rendered-repair-playwright.config.ts -g issue-1477; cd ../desktop_flutter && flutter test test/features/agents/ocu_1063_1066_header_actions_test.dart --plain-name issue-1477-c2",
+  "waiver": null,
+  "criteria": [
+    {"criterion_id":"issue-1477-c1","text":"Session header asset/title and branch/connection text do not overlap.","mode":"ui","test":"apps/web/tests/bucket-a-rendered-repair.spec.ts","status":"pass","reason":"Rendered proof now asserts computed overflow:hidden and scrollWidth <= clientWidth on the fixed avatar cell, in addition to header geometry."},
+    {"criterion_id":"issue-1477-c2","text":"Check whether the equivalent Flutter view reproduces the collision and report the result.","mode":"ui","test":"apps/desktop_flutter/test/features/agents/ocu_1063_1066_header_actions_test.dart","status":"pass","reason":"Constrained 520px real-header widget rendered without exception, kept the typed badge separate, and ellipsized the title."}
+  ],
+  "not_tested": []
+}

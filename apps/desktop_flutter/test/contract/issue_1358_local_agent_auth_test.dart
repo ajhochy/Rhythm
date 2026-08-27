@@ -57,4 +57,35 @@ void main() {
       'Content-Type': 'application/json',
     });
   });
+
+  test('issue-1466-c3: nested API children feed Flutter session grouping',
+      () async {
+    // Regression caught: the API switches to nested children but Flutter only
+    // decodes the root array, making every delegated child disappear.
+    final client = MockClient((_) async => http.Response(
+          jsonEncode({
+            'sessions': [
+              {
+                'id': 'root-session',
+                'name': 'Root session',
+                'children': [
+                  {
+                    'id': 'child-session',
+                    'name': 'Child session',
+                    'parentSessionId': 'root-session',
+                  },
+                ],
+              },
+            ],
+          }),
+          200,
+        ));
+
+    final sessions = await AgentsDataSource(client: client).listSessions();
+    expect(sessions.map((session) => session.id), [
+      'root-session',
+      'child-session',
+    ]);
+    expect(sessions.last.parentId, 'root-session');
+  });
 }

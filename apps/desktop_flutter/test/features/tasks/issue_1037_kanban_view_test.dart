@@ -19,7 +19,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'issue-1037-c1: four columns group every existing task by status',
+    'issue-1475-c2: five columns place Deferred after Done',
     (tester) async {
       final dataSource = _FakeTasksDataSource(tasks: _tasksByStatus());
       final controller = TasksController(TasksRepository(dataSource));
@@ -37,6 +37,17 @@ void main() {
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('kanban-column-done')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('kanban-column-deferred')),
+        findsOneWidget,
+      );
+      final doneX = tester
+          .getTopLeft(find.byKey(const ValueKey('kanban-column-done')))
+          .dx;
+      final deferredX = tester
+          .getTopLeft(find.byKey(const ValueKey('kanban-column-deferred')))
+          .dx;
+      expect(deferredX, greaterThan(doneX));
       for (final task in _tasksByStatus()) {
         expect(
           find.byKey(ValueKey('kanban-card-${task.id}')),
@@ -117,6 +128,32 @@ void main() {
     },
   );
 
+  testWidgets(
+    'issue-1475-c3: a Flutter task card can move into Deferred',
+    (tester) async {
+      // Regression caught: the fifth column renders but does not serialize the
+      // deferred status through the existing update path.
+      final dataSource = _FakeTasksDataSource(
+        tasks: [_task('defer-me', TaskStatus.open, title: 'Defer me')],
+      );
+      final controller = TasksController(TasksRepository(dataSource));
+      await controller.load();
+      await _pumpBoard(tester, controller);
+
+      final card = find.byKey(const ValueKey('kanban-draggable-defer-me'));
+      final target = find.byKey(const ValueKey('kanban-column-deferred'));
+      final gesture = await tester.startGesture(tester.getCenter(card));
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+      await gesture.moveTo(tester.getCenter(target));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      expect(dataSource.updatedStatus, 'deferred');
+      expect(controller.tasks.single.status.name, 'deferred');
+    },
+  );
+
   testWidgets('issue-1037-c3: controller loading state is rendered', (
     tester,
   ) async {
@@ -170,6 +207,7 @@ void main() {
     expect(find.text('No tasks in In progress'), findsOneWidget);
     expect(find.text('No tasks in Waiting for reply'), findsOneWidget);
     expect(find.text('No tasks in Done'), findsOneWidget);
+    expect(find.text('No tasks in Deferred'), findsOneWidget);
   });
 
   testWidgets('issue-1037-c6: no task card appears in more than one column', (

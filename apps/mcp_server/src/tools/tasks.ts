@@ -255,10 +255,10 @@ export function registerTaskTools(
         .optional()
         .describe("New due date (YYYY-MM-DD) or null to clear it."),
       status: z
-        .enum(["open", "in_progress", "waiting_for_reply", "done"])
+        .enum(["open", "in_progress", "waiting_for_reply", "done", "deferred"])
         .optional()
         .describe(
-          "New status. Values: open, in_progress, waiting_for_reply, done.",
+          "New status. Values: open, in_progress, waiting_for_reply, done, deferred.",
         ),
       approval_id: z
         .string()

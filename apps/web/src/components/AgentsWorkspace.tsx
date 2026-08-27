@@ -5,6 +5,7 @@ import { emptyLiveProfile, useFixtures } from '../store';
 import { Composer } from './Composer';
 import { FocusDialog } from './FocusDialog';
 import { Inspector } from './Inspector';
+import { ProfileAvatar } from './Profiles';
 import { SessionRail } from './SessionRail';
 import { Transcript } from './Transcript';
 
@@ -28,7 +29,8 @@ export function AgentsWorkspace() {
   // (fresh install, all profiles deleted) — fall back to a placeholder instead of crashing on
   // undefined.icon/.label when `profiles` resolves empty.
   const profile = profiles.find((item) => item.id === selected.profileId) ?? profiles[0] ?? emptyLiveProfile();
-  const parent = selected.parentId ? sessions.find((session) => session.id === selected.parentId) : undefined;
+  const parentId = selected.parentId;
+  const parent = parentId ? sessions.find((session) => session.id === parentId) : undefined;
   const readOnlyChild = Boolean(parent) || Boolean(liveChildView);
   const backToParent = () => { if (liveChildView) closeLiveChildView(); else if (parent) selectSession(parent.id); };
   const presentation = sessionPresentation(selected);
@@ -119,7 +121,7 @@ export function AgentsWorkspace() {
       <section className="conversation-pane" aria-label="Active agent session" data-od-id="active-agent-session">
         <header className="session-header">
           <div className="session-identity">
-            <span className="profile-avatar">{profile.icon}</span>
+            <ProfileAvatar profile={profile} />
             <div className="session-title-copy">
               {readOnlyChild && <button className="child-breadcrumb" type="button" onClick={backToParent} aria-label={`Back to parent session ${parent ? parent.name : selected.name}`} data-testid="child-back"><Icon name="chevronRight" className="rotate-180" size={12} />{parent ? parent.name : selected.name}</button>}
               <div className="identity-line"><strong>{profile.label}</strong>{selected.account && <button type="button" onClick={() => setSessionSettings(true)}>{selected.account}<Icon name="chevronDown" size={11} /></button>}<span className={`status-label ${presentation.tone}`}><i />{presentation.label}</span></div>

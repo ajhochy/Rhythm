@@ -46,7 +46,7 @@
  */
 
 import { logger } from '../utils/logger';
-import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentSessionsRepository, flattenAgentSessionTree } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -712,7 +712,11 @@ export async function extractWorkflowFailureSignals(
     const deniedRepo = deps.deniedToolEventsRepo ?? new DeniedToolEventsRepository();
     const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
 
-    const sessions = sessionsRepo.listAll(WORKFLOW_SIGNAL_SESSION_SCAN_LIMIT, { includeArchived: true });
+    // Delegate-result failures live on child sessions; listAll publishes those
+    // children beneath roots for UI consumers, so restore the flat scan here.
+    const sessions = flattenAgentSessionTree(
+      sessionsRepo.listAll(WORKFLOW_SIGNAL_SESSION_SCAN_LIMIT, { includeArchived: true }),
+    );
 
     const messageCache = new Map<string, AgentSessionMessage[]>();
     const getMessages = (sessionId: string): AgentSessionMessage[] => {

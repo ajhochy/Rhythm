@@ -24,6 +24,7 @@ class TasksKanbanView extends StatelessWidget {
       Icons.hourglass_top_outlined,
     ),
     (TaskStatus.done, 'Done', Icons.check_circle_outline),
+    (TaskStatus.deferred, 'Deferred', Icons.pause_circle_outline),
   ];
 
   @override

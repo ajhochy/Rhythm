@@ -39,6 +39,7 @@ import { AgentCookbookRepository } from '../repositories/agent_cookbook_reposito
 import { AgentWebhookEndpointsRepository } from '../repositories/agent_webhook_endpoints_repository';
 import {
   AgentSessionsRepository,
+  flattenAgentSessionTree,
   type SessionOwnershipFacet,
 } from '../repositories/agent_sessions_repository';
 import {
@@ -516,7 +517,9 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const webhookEndpoints = await webhookRepo.listAsync();
   const delegationEdges = buildDelegationEdges(profiles);
 
-  const sessions = sessionsRepo.listAll(1000, { includeArchived: true });
+  const sessions = flattenAgentSessionTree(
+    sessionsRepo.listAll(1000, { includeArchived: true }),
+  );
 
   // W2: scheduled ownership beats mcp_role. A session tied to a scheduled
   // task (agent_scheduled_tasks.agent_config_id) belongs ONLY to that task's

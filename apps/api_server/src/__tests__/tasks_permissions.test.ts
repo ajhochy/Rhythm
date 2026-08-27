@@ -163,12 +163,14 @@ describe('Tasks permissions', () => {
     });
   });
 
-  it('accepts in_progress and waiting_for_reply as valid task statuses', async () => {
+  it('issue-1475-c1: accepts and persists every task board status including deferred', async () => {
+    // Regression caught: clients can show Deferred but PATCH rejects it or a
+    // fresh API read loses the persisted status.
     const user = usersRepo.create({ name: 'User', email: 'u@x.com' });
     const task = tasksRepo.create({ title: 'T', ownerId: user.id });
     const headers = await authHeaderFor(user.id);
 
-    for (const status of ['in_progress', 'waiting_for_reply', 'done']) {
+    for (const status of ['in_progress', 'waiting_for_reply', 'done', 'deferred']) {
       const res = await fetch(`${baseUrl}/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { ...headers, 'Content-Type': 'application/json' },
@@ -177,6 +179,8 @@ describe('Tasks permissions', () => {
       expect(res.status).toBe(200);
       const updated = await readJson(res);
       expect(updated.status).toBe(status);
+      const fresh = await fetch(`${baseUrl}/tasks/${task.id}`, { headers });
+      expect((await readJson(fresh)).status).toBe(status);
     }
   });
 

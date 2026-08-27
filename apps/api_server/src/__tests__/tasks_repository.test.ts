@@ -344,7 +344,7 @@ describe('TasksRepository.findByFilter', () => {
   });
 
   it('overdue-first: open overdue tasks sort before non-overdue, then by priority date, then nulls last', async () => {
-    // Overdue open tasks (priority date < TODAY and status != done)
+    // Overdue active tasks (priority date < TODAY and status is neither terminal state)
     await seed({ title: 'Overdue A', dueDate: '2020-01-01' });
     await seed({ title: 'Overdue B', scheduledDate: '2021-06-15' });
     // Non-overdue open tasks
@@ -352,6 +352,8 @@ describe('TasksRepository.findByFilter', () => {
     await seed({ title: 'Future task', dueDate: FUTURE });
     // Overdue but DONE → not overdue per the CASE; should fall in non-overdue tier
     await seed({ title: 'Overdue done', dueDate: PAST, status: 'done' });
+    // Deferred is also inactive and must not be promoted as overdue.
+    await seed({ title: 'Overdue deferred', dueDate: PAST, status: 'deferred' });
     // No date at all → NULLS LAST within non-overdue tier
     await seed({ title: 'No date open' });
 
@@ -363,6 +365,7 @@ describe('TasksRepository.findByFilter', () => {
     const idxToday = titles.indexOf('Today task');
     const idxFuture = titles.indexOf('Future task');
     const idxOverdueDone = titles.indexOf('Overdue done');
+    const idxOverdueDeferred = titles.indexOf('Overdue deferred');
     const idxNoDate = titles.indexOf('No date open');
 
     // Both overdue open tasks must come before any non-overdue tasks
@@ -382,6 +385,8 @@ describe('TasksRepository.findByFilter', () => {
     // so it must come after both overdue-open tasks
     expect(idxOverdueA).toBeLessThan(idxOverdueDone);
     expect(idxOverdueB).toBeLessThan(idxOverdueDone);
+    expect(idxOverdueA).toBeLessThan(idxOverdueDeferred);
+    expect(idxOverdueB).toBeLessThan(idxOverdueDeferred);
   });
 
   // ── empty results ─────────────────────────────────────────────────────────

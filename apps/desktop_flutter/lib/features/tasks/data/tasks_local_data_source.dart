@@ -13,7 +13,7 @@ class TasksLocalDataSource {
 
   Future<List<Task>> fetchAll() async {
     final response = await http.get(
-      Uri.parse('$_baseUrl/tasks'),
+      Uri.parse('$_baseUrl/tasks?status=all'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);

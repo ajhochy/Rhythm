@@ -3322,9 +3322,8 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     // rebuilds on capability changes (branch loading etc.).
     context.watch<AgentServerController>();
     context.watch<AgentConfigsController>();
-    final tasks = tasksController.tasks
-        .where((t) => t.status != TaskStatus.done)
-        .toList();
+    final tasks =
+        tasksController.tasks.where((t) => t.status.isActive).toList();
 
     return AlertDialog(
       backgroundColor: context.rhythm.surfaceRaised,
