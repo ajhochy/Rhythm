@@ -27,6 +27,13 @@
       "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
       "status": "UNVERIFIED",
       "reason": "Focused skill/tools-map contract is green; real sandbox optimizer evidence has not run because S2 owns the sandbox."
+    },
+    {
+      "criterion_id": "issue-1482-c4",
+      "text": "The live harness filters the exact audit run and exact tighten-scope kind, requires exactly the control target/payload/signal, and excludes protected IDs only among parsed tighten-scope payloads.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1482_live_harness_contract.test.ts",
+      "status": "pass"
     }
   ],
   "not_tested": ["issue-1482-c1", "issue-1482-c2", "issue-1482-c3"]

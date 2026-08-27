@@ -27,6 +27,7 @@ type Proposal = {
   kind: string;
   changeJson: string | null;
   targetRef: string | null;
+  signalRef: string | null;
 };
 
 function apiUrl(): string {
@@ -376,22 +377,24 @@ describeLive('issues #1479/#1482 optimizer scope live behavior', () => {
 
       const proposalsResponse = await api('/agent-org-proposals?status=proposed');
       expect(proposalsResponse.status).toBe(200);
-      const proposals = (await proposalsResponse.json() as Proposal[])
+      const tightenProposals = (await proposalsResponse.json() as Proposal[])
         .filter((proposal) => proposal.auditRunId === auditRunId)
-        .filter((proposal) => profileIds.some((id) =>
-          proposal.targetRef?.includes(id) || proposal.changeJson?.includes(id)));
-      expect(proposals.length).toBeGreaterThan(0);
-      for (const proposal of proposals) {
-        expect(proposal.auditRunId).toBe(auditRunId);
-        expect(proposal.kind).toBe('tighten-scope');
-      }
-      const tightenIds = proposals
-        .flatMap((proposal) => profileIds.filter((id) =>
-          proposal.targetRef?.includes(id) || proposal.changeJson?.includes(id)));
-      expect(tightenIds).not.toContain(ids.used);
-      expect(tightenIds).not.toContain(ids.charter);
-      expect(tightenIds).not.toContain(ids.explicit);
-      expect(tightenIds).toContain(ids.control);
+        .filter((proposal) => proposal.kind === 'tighten-scope');
+      expect(tightenProposals).toHaveLength(1);
+      expect(tightenProposals[0]).toEqual(expect.objectContaining({
+        auditRunId,
+        kind: 'tighten-scope',
+        targetRef: `agent_config:${ids.control}:mcp:${secondaryTool.serverName}`,
+        changeJson: JSON.stringify({ agentConfigId: ids.control, field: 'allowedMcpsJson', remove: [secondaryTool.serverName] }),
+        signalRef: expect.stringMatching(/^tighten-scope:[0-9a-f]+$/),
+      }));
+      const tightenChanges = tightenProposals.map((proposal) => JSON.parse(proposal.changeJson ?? 'null') as {
+        agentConfigId?: string;
+      });
+      const tightenedAgentConfigIds = tightenChanges.map((change) => change.agentConfigId);
+      expect(tightenedAgentConfigIds).not.toContain(ids.used);
+      expect(tightenedAgentConfigIds).not.toContain(ids.charter);
+      expect(tightenedAgentConfigIds).not.toContain(ids.explicit);
       expect(scopeDigest()).toEqual(before);
     } finally {
       if (auditRunId) {

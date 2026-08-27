@@ -87,6 +87,18 @@ tags: [run, Rhythm]
 - GitNexus impact/context were attempted before the live-test edit and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN, not HIGH/CRITICAL.
 - Contract status remains `UNVERIFIED`; final live verification must start the sandbox with `RHYTHM_OPTIMIZER_MODE=shadow` and `RHYTHM_OPTIMIZER_DISABLED_FAMILIES` unset.
 
+### S3 exact proposal-predicate harness repair
+
+- RED acceptance contract: `cd apps/api_server && npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts` — existing baseline 5/5 passed and 3 new exact-predicate checks failed.
+- Repaired only the live test harness: proposal mapping includes `signalRef`; rows are filtered by exact audit id and then exact `tighten-scope` kind; the positive control requires one exact target/payload and a `tighten-scope:<hex>` signal. Protected IDs are checked only through parsed tighten payloads. Cleanup order and audit-scoped deletion are unchanged.
+- GREEN acceptance contract: same command — 8/8 passed (baseline 5/5 plus 3 additions).
+- Focused API/harness regression command: `npx vitest run src/__tests__/issue_1482_live_harness_contract.test.ts src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts src/__tests__/issue_1482_contract.test.ts src/services/__tests__/org_exercised_tools_resolver.test.ts src/__tests__/scope_hygiene_generator.test.ts src/services/__tests__/org_audit_service.test.ts --no-file-parallelism` — 81 passed, 2 live tests skipped normally.
+- Fail-closed command: `RHYTHM_LIVE_E2E=1 npx vitest run src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts --no-file-parallelism` — expected nonzero refusal from `assertLiveE2EIsolation`; 2 tests skipped and no server/sandbox started.
+- API checks: `npm run build && npx tsc --noEmit` — exit 0.
+- Fork checks: `bun test test/server/httpapi-mcp-oauth.test.ts` — 1/1 passed; `bun run typecheck` — exit 0; `bun run build --single` — standalone smoke test passed.
+- No sandbox or server command was run. GitNexus impact was attempted before the harness edit but unavailable due LadybugDB file v42/client v41; risk UNKNOWN, not HIGH/CRITICAL.
+- Final `detect_changes(scope=all)` was attempted before commit and failed for the same index-version mismatch.
+
 ## Existing-row report
 
 Read-only comparison against the issue's live Obsidian catalog found 16 phantom grants outside the now-repaired theologian row:

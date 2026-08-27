@@ -34,8 +34,29 @@ describe('issue #1482 live harness contract', () => {
   });
 
   it('binds proposal assertions and cleanup to the exact audit run', () => {
-    expect(source).toContain("expect(proposal.auditRunId).toBe(auditRunId)");
-    expect(source).toContain("expect(proposal.kind).toBe('tighten-scope')");
+    expect(source).toContain(".filter((proposal) => proposal.auditRunId === auditRunId)");
+    expect(source).toContain(".filter((proposal) => proposal.kind === 'tighten-scope')");
     expect(source).toContain("DELETE FROM agent_org_proposals WHERE audit_run_id = ?");
+  });
+
+  it('maps signalRef and filters the exact audit before the exact proposal kind', () => {
+    expect(source).toContain('signalRef: string | null;');
+    expect(source).toContain(".filter((proposal) => proposal.auditRunId === auditRunId)\n        .filter((proposal) => proposal.kind === 'tighten-scope')");
+    expect(source).not.toContain("proposal.targetRef?.includes(id) || proposal.changeJson?.includes(id)");
+  });
+
+  it('requires exactly the control tighten proposal with its exact target, payload, and signal', () => {
+    expect(source).toContain('expect(tightenProposals).toHaveLength(1)');
+    expect(source).toContain('targetRef: `agent_config:${ids.control}:mcp:${secondaryTool.serverName}`');
+    expect(source).toContain("changeJson: JSON.stringify({ agentConfigId: ids.control, field: 'allowedMcpsJson', remove: [secondaryTool.serverName] })");
+    expect(source).toContain("signalRef: expect.stringMatching(/^tighten-scope:[0-9a-f]+$/)");
+  });
+
+  it('checks protected IDs only through parsed tighten-scope payloads', () => {
+    expect(source).toContain("const tightenChanges = tightenProposals.map((proposal) => JSON.parse(proposal.changeJson ?? 'null')");
+    expect(source).toContain('const tightenedAgentConfigIds = tightenChanges.map((change) => change.agentConfigId)');
+    expect(source).toContain('expect(tightenedAgentConfigIds).not.toContain(ids.used)');
+    expect(source).toContain('expect(tightenedAgentConfigIds).not.toContain(ids.charter)');
+    expect(source).toContain('expect(tightenedAgentConfigIds).not.toContain(ids.explicit)');
   });
 });
