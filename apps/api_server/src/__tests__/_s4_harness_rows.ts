@@ -22,6 +22,84 @@ export const INSTALL_TABLES: readonly TableSpec[] = [
 
 export type TableRows = Record<string, Array<Record<string, unknown>>>;
 
+export interface ScoringPrompt {
+  purpose: string;
+  body: string;
+}
+
+function contentText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join('\n');
+  if (!value || typeof value !== 'object') return '';
+  const part = value as { text?: unknown; content?: unknown };
+  if (typeof part.text === 'string') return part.text;
+  return contentText(part.content);
+}
+
+export function parseScoringPrompt(requestBody: string): ScoringPrompt | undefined {
+  let request: { system?: unknown; messages?: unknown };
+  try {
+    request = JSON.parse(requestBody) as typeof request;
+  } catch {
+    return undefined;
+  }
+  const messages = Array.isArray(request.messages)
+    ? request.messages.map((message) => contentText((message as { content?: unknown }).content))
+    : [];
+  const prompt = [contentText(request.system), ...messages].filter(Boolean).join('\n');
+  const match = prompt.match(/(?:^|\n)PURPOSE:\n([\s\S]*?)\n\nBODY:\n([\s\S]*?)\n\nScore \(0-100\) \+ one-sentence reason:(?:\n|$)/);
+  return match ? { purpose: match[1].trim(), body: match[2].trim() } : undefined;
+}
+
+export function classifyScoringPrompt(
+  prompt: ScoringPrompt,
+  candidateBody: string,
+  draftPurpose = 'deployment audit',
+): 'candidate' | 'draft' | undefined {
+  if (prompt.body === candidateBody.trim()) return 'candidate';
+  if (prompt.purpose === draftPurpose && prompt.body) return 'draft';
+  return undefined;
+}
+
+export interface BoundedPhaseOptions<T> {
+  maxConcurrency: number;
+  phaseTimeoutMs: number;
+  requestTimeoutMs: number;
+  operation: (item: T, signal: AbortSignal) => Promise<void>;
+}
+
+export async function runBoundedPhase<T>(
+  items: readonly T[],
+  options: BoundedPhaseOptions<T>,
+): Promise<Array<PromiseSettledResult<void>>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('phase deadline exceeded', 'TimeoutError')), options.phaseTimeoutMs);
+  const results = new Array<PromiseSettledResult<void>>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next++;
+      try {
+        controller.signal.throwIfAborted();
+        await options.operation(items[index], AbortSignal.any([
+          controller.signal,
+          AbortSignal.timeout(options.requestTimeoutMs),
+        ]));
+        results[index] = { status: 'fulfilled', value: undefined };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  };
+  try {
+    const concurrency = Math.min(4, Math.max(1, options.maxConcurrency), items.length);
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    return results;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function snapshotTables(db: Database.Database, tables: readonly TableSpec[]): TableRows {
   return Object.fromEntries(tables.map(({ name, key }) => [
     name,

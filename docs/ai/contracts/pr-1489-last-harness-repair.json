@@ -1,0 +1,41 @@
+{
+  "issue": "pr-1489-last-harness-repair",
+  "date": "2026-08-27",
+  "test_command": "npx vitest run src/contract/pr_1489_harness_race_repair.test.ts",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "pr-1489-last-c1",
+      "text": "Parse controlled Anthropic request JSON into a normalized scoring prompt and extract the exact BODY section.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
+      "status": "pass",
+      "reason": "Controlled Anthropic JSON proves metadata decoys are ignored and only the exact BODY section is returned."
+    },
+    {
+      "criterion_id": "pr-1489-last-c2",
+      "text": "Classify candidate only by exact UUID candidate body, classify the deployment-audit draft by purpose and a different body, and require exactly one request each.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
+      "status": "pass",
+      "reason": "Executable classification covers exact candidate equality, fixture-purpose draft selection, unrelated-purpose rejection, and static one-request assertions."
+    },
+    {
+      "criterion_id": "pr-1489-last-c3",
+      "text": "Abort owned SDK sessions before delete with bounded phase deadlines, request deadlines, concurrency four, and DELETE 404 success.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
+      "status": "pass",
+      "reason": "Executable workers prove peak concurrency does not exceed four; teardown assertions bind abort/delete ordering, both deadlines, request timeouts, and 404 success."
+    },
+    {
+      "criterion_id": "pr-1489-last-c4",
+      "text": "Provider restoration and remaining strict cleanup always run and cleanup failures aggregate after all phases.",
+      "mode": "unit",
+      "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
+      "status": "pass",
+      "reason": "Static teardown contract proves restoration follows independent session attempts and all fatal cleanup errors aggregate at the end."
+    }
+  ],
+  "not_tested": []
+}

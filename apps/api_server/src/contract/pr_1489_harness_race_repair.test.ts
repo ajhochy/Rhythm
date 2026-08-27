@@ -11,6 +11,7 @@ import {
   snapshotTables,
   waitForBroadRowsToSettle,
 } from '../__tests__/_s4_harness_rows';
+import * as harnessRows from '../__tests__/_s4_harness_rows';
 
 describe('PR #1489 final harness race repair', () => {
   let db: Database.Database;
@@ -102,5 +103,75 @@ describe('PR #1489 final harness race repair', () => {
     expect(teardown).toMatch(/timeoutMs:\s*2_500/);
     expect(teardown).toMatch(/finally\s*{[\s\S]*db\.close\(\)/);
     expect(teardown).toMatch(/},\s*45_000\);/);
+  });
+
+  it('pr-1489-last-c1: parses only the exact scoring body from controlled Anthropic JSON', async () => {
+    expect(typeof harnessRows.parseScoringPrompt).toBe('function');
+    const request = JSON.stringify({
+      system: [{ type: 'text', text: 'Judge only the body.' }],
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: 'PURPOSE:\ndeployment audit\n\nBODY:\nfirst body\nwith title text elsewhere\n\nScore (0-100) + one-sentence reason:' },
+      ] }],
+      metadata: { decoy: 'BODY:\nwrong\n\nScore (0-100) + one-sentence reason:' },
+    });
+
+    expect(harnessRows.parseScoringPrompt(request)).toEqual({
+      purpose: 'deployment audit',
+      body: 'first body\nwith title text elsewhere',
+    });
+  });
+
+  it('pr-1489-last-c2: classifies candidate by exact UUID body and draft by fixture purpose', async () => {
+    expect(typeof harnessRows.classifyScoringPrompt).toBe('function');
+    const candidate = '# S4 deployment audit 0123456789abcdef\nInspect deployment provenance for run 0123456789abcdef.';
+    expect(harnessRows.classifyScoringPrompt({ purpose: 'deployment audit', body: candidate }, candidate))
+      .toBe('candidate');
+    expect(harnessRows.classifyScoringPrompt({ purpose: 'deployment audit', body: '# unrelated title\n\nA different body' }, candidate))
+      .toBe('draft');
+    expect(harnessRows.classifyScoringPrompt({ purpose: 'another purpose', body: '# unrelated title\n\nA different body' }, candidate))
+      .toBeUndefined();
+
+    const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
+    expect(source).toMatch(/candidateScoreRequests[^\n]*toHaveLength\(1\)/s);
+    expect(source).toMatch(/draftScoreRequests[^\n]*toHaveLength\(1\)/s);
+  });
+
+  it('pr-1489-last-c3: teardown aborts before bounded deletes with four-worker limits and 404 success', async () => {
+    let active = 0;
+    let peak = 0;
+    const results = await harnessRows.runBoundedPhase([1, 2, 3, 4, 5, 6, 7, 8], {
+      maxConcurrency: 4,
+      phaseTimeoutMs: 1_000,
+      requestTimeoutMs: 500,
+      operation: async () => {
+        peak = Math.max(peak, ++active);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        active -= 1;
+      },
+    });
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(peak).toBeLessThanOrEqual(4);
+
+    const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
+    const teardown = source.slice(source.indexOf('afterAll(async () =>'));
+    const abort = teardown.indexOf('/abort');
+    const remove = teardown.indexOf("method: 'DELETE'");
+
+    expect(abort).toBeGreaterThan(-1);
+    expect(remove).toBeGreaterThan(abort);
+    expect(teardown).toMatch(/maxConcurrency:\s*4/g);
+    expect(teardown).toMatch(/phaseTimeoutMs:\s*6_000/);
+    expect(teardown).toMatch(/requestTimeoutMs:\s*2_000/);
+    expect(teardown).toMatch(/phaseTimeoutMs:\s*12_000/);
+    expect(teardown).toMatch(/requestTimeoutMs:\s*3_000/);
+    expect(teardown).toMatch(/response\.status\s*!==\s*404/);
+  });
+
+  it('pr-1489-last-c4: provider restoration remains independent and fatal after session cleanup failures', () => {
+    const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
+    const teardown = source.slice(source.indexOf('afterAll(async () =>'));
+    expect(teardown.indexOf("attempt('restore anthropic provider'")).toBeGreaterThan(teardown.indexOf("attempt('delete owned engine sessions'"));
+    expect(teardown).toMatch(/cleanupErrors\.push/);
+    expect(teardown).toMatch(/throw new AggregateError\(cleanupErrors/);
   });
 });

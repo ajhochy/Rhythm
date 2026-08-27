@@ -18,6 +18,9 @@ import {
   snapshotBytes,
   snapshotTables,
   type TableRows,
+  classifyScoringPrompt,
+  parseScoringPrompt,
+  runBoundedPhase,
   waitForBroadRowsToSettle,
 } from './_s4_harness_rows';
 import { titleSimilarity } from '../services/org_audit_service';
@@ -44,6 +47,7 @@ let candidateScoreReceived = false;
 let draftScoreReceived = false;
 const candidateScoreRequests: string[] = [];
 const draftScoreRequests: string[] = [];
+const extractedScoredBodies: string[] = [];
 let skillDownloadRequests = 0;
 const providerId = 'anthropic';
 const modelId = 'claude-haiku-4-5';
@@ -51,6 +55,7 @@ const candidateSlug = randomUUID().replace(/-/g, '');
 const candidateName = `S4 deployment audit ${candidateSlug}`;
 const candidateBody = `# ${candidateName}\nInspect deployment provenance for run ${candidateSlug} and verify immutable release inputs.`;
 const candidateDedupKey = `external-adoption:skill:${candidateName.toLowerCase()}`;
+const deploymentAuditPurpose = 'name: deployment audit\ndescription: Verify immutable deployment provenance\nwhenToUse: deployment';
 
 interface OptimizerResult {
   auditRunId: string;
@@ -71,10 +76,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
       (error) => { clearTimeout(timer); rejectPromise(error); },
     );
   });
-}
-
-function requestRecord(body: string): string {
-  return body.replace(/\s+/g, ' ').slice(0, 800);
 }
 
 function baseUrl(): string {
@@ -251,14 +252,17 @@ async function startFixture(): Promise<Server> {
         positiveEvidenceReceived ||= body.includes('s4-positive-config-error');
         infraMarkerReceived ||= body.includes('Cannot connect to API at http://127.0.0.1:4001');
         let content: string;
-        if (body.includes('Score (0-100)')) {
-          if (body.includes('## Problem') && body.includes(candidateName)) {
+        const scoringPrompt = parseScoringPrompt(body);
+        if (scoringPrompt) {
+          extractedScoredBodies.push(scoringPrompt.body);
+          const scoringKind = classifyScoringPrompt(scoringPrompt, candidateBody, deploymentAuditPurpose);
+          if (scoringKind === 'draft') {
             draftScoreReceived = true;
-            if (draftScoreRequests.length < 5) draftScoreRequests.push(requestRecord(body));
+            draftScoreRequests.push(scoringPrompt.body);
             content = '20 skeletal intent stub without an actionable procedure';
-          } else if (body.includes(candidateName) || body.includes(candidateBody)) {
+          } else if (scoringKind === 'candidate') {
             candidateScoreReceived = true;
-            if (candidateScoreRequests.length < 5) candidateScoreRequests.push(requestRecord(body));
+            candidateScoreRequests.push(scoringPrompt.body);
             content = '95 precise, complete, reusable, and actionable';
           } else {
             content = '95 relevant, actionable, and complete';
@@ -381,21 +385,56 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         });
       }
 
-      await attempt('stop owned engine sessions', async () => {
-        const stopped = await withTimeout(Promise.allSettled(
-          createdSessions.filter((row) => row.sdk_session_id).map(async (row) => {
+      const sdkSessions = createdSessions.filter((row) => row.sdk_session_id);
+      const successfullyAborted = new Set<string>();
+      await attempt('abort owned engine sessions', async () => {
+        const aborted = await runBoundedPhase(sdkSessions, {
+          maxConcurrency: 4,
+          phaseTimeoutMs: 6_000,
+          requestTimeoutMs: 2_000,
+          operation: async (row, signal) => {
+            const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}/abort`, {
+              method: 'POST',
+              headers: { 'X-OpenCode-Directory': row.cwd },
+              signal,
+            });
+            if (!response.ok) throw new Error(`${row.sdk_session_id}: abort HTTP ${response.status}`);
+            successfullyAborted.add(row.sdk_session_id!);
+          },
+        });
+        const failures = aborted.filter((result) => result.status === 'rejected');
+        if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'engine session aborts failed');
+      });
+
+      await attempt('delete owned engine sessions', async () => {
+        const deleted = await runBoundedPhase(sdkSessions, {
+          maxConcurrency: 4,
+          phaseTimeoutMs: 12_000,
+          requestTimeoutMs: 3_000,
+          operation: async (row, signal) => {
             const response = await fetch(`${engineUrl()}/session/${encodeURIComponent(row.sdk_session_id!)}`, {
               method: 'DELETE',
               headers: { 'X-OpenCode-Directory': row.cwd },
-              signal: AbortSignal.timeout(4_500),
+              signal,
             });
             if (!response.ok && response.status !== 404) {
               throw new Error(`${row.sdk_session_id}: HTTP ${response.status}`);
             }
-          }),
-        ), 5_000, 'owned engine session cleanup');
-        const failures = stopped.filter((result) => result.status === 'rejected');
-        if (failures.length) throw new AggregateError(failures.map((result) => result.reason), 'engine session deletes failed');
+          },
+        });
+        const fatal: unknown[] = [];
+        deleted.forEach((result, index) => {
+          if (result.status !== 'rejected') return;
+          const sessionId = sdkSessions[index].sdk_session_id!;
+          const reason = result.reason as { name?: string };
+          const timedOut = reason?.name === 'AbortError' || reason?.name === 'TimeoutError';
+          if (timedOut && successfullyAborted.has(sessionId)) {
+            console.warn(`[S4] engine session delete timed out after abort: ${sessionId}: ${String(result.reason)}`);
+          } else {
+            fatal.push(result.reason);
+          }
+        });
+        if (fatal.length) throw new AggregateError(fatal, 'engine session deletes failed');
       });
 
       await attempt('restore anthropic provider', async () => {
@@ -590,13 +629,18 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         error: runResult.erroredReason,
         byKind: runResult.byKind,
       },
-      scorer: { candidate: candidateScoreRequests, draft: draftScoreRequests },
+      scorer: { candidate: candidateScoreRequests, draft: draftScoreRequests, extractedScoredBodies },
+      preProviderSessionErrors: (db.prepare(`SELECT id, name, status, status_message FROM agent_sessions
+        WHERE category = 'self_improvement' AND status = 'error' ORDER BY created_at`).all() as Array<Record<string, unknown>>)
+        .filter((row) => !baselineSessionIds.has(String(row.id))),
       currentRunProposals: proposals(discoveryRun),
       globalMatchingDedupRow,
       installedOverlapMatches,
     });
     expect(candidateScoreReceived, failureDiagnostics).toBe(true);
     expect(draftScoreReceived, failureDiagnostics).toBe(true);
+    expect(candidateScoreRequests, failureDiagnostics).toHaveLength(1);
+    expect(draftScoreRequests, failureDiagnostics).toHaveLength(1);
     expect(unique, failureDiagnostics).toHaveLength(1);
     const change = JSON.parse(unique[0].change_json!);
     expect(change.downloadUrl).toMatch(new RegExp(`/owner/unique/${'c'.repeat(40)}/`));
