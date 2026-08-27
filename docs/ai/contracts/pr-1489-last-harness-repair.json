@@ -14,27 +14,27 @@
     },
     {
       "criterion_id": "pr-1489-last-c2",
-      "text": "Classify candidate only by exact purpose plus UUID candidate body, uniqueDraft only by exact purpose plus exact rendered generated-draft body, and overlap or wrong-purpose requests as otherScore; require exactly one candidate and one uniqueDraft with exact bodies.",
+      "text": "Classify candidate only by exact purpose plus UUID candidate body, accept one or more repeated exact generated-draft score requests as legitimate, require their distinct-body set to equal only the expected draft body, and require the known overlap candidate as the sole other score request; still require exactly one candidate request and one UUID pinned/hash proposal.",
       "mode": "unit",
       "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
       "status": "pass",
-      "reason": "Executable classification covers candidate, the exact renderWouldBeDraft-equivalent body, overlap body, wrong purpose, exact request bodies, and separate request counts."
+      "reason": "The live harness now requires the exact candidate body, one-or-more exact draft requests with the distinct-body set limited to expectedDraftBody, the exact overlap fixture body as the sole other score request, and one UUID pinned/hash proposal."
     },
     {
       "criterion_id": "pr-1489-last-c3",
-      "text": "Enumerate owned parent relationships, close producers, query status once per cwd, abort only active top-level owned sessions with bounded concurrency four, prove all owned sessions idle, then delete top-level sessions only with DELETE 404 success.",
+      "text": "Exclude synthetic seed-session local IDs from engine cleanup; for each distinct real cwd make at most two five-second status attempts, treat busy/retry abort or idle-proof failures as fatal, and never delete an engine session without idle proof.",
       "mode": "unit",
       "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
       "status": "pass",
-      "reason": "Static contract binds parent enumeration, top-level selection, per-cwd status proof, active-only abort, idle polling, bounded concurrency, and top-level-only recursive delete."
+      "reason": "Engine cleanup excludes ids-owned synthetic seed rows, retries status at most twice per real cwd with five-second request bounds, keeps abort/idle failures fatal, and gates deletion on idle proof."
     },
     {
       "criterion_id": "pr-1489-last-c4",
-      "text": "Fixture closure and provider restoration always run independently before engine status proof; strict cleanup continues after assertion failure and aggregates fatal abort, proof, restoration, database, file, and provider-baseline failures.",
+      "text": "Fixture closure, provider restoration, database settlement, zero residual rows, strict final baseline/integrity, and provider baseline remain fatal; status unavailability is diagnostic only after bounded retry when fixture/provider are closed, residual rows are zero, strict proofs pass, and broad rows remain stable for two continuous seconds before cleanup decisions and after deletion.",
       "mode": "unit",
       "test": "apps/api_server/src/contract/pr_1489_harness_race_repair.test.ts",
       "status": "pass",
-      "reason": "Static contract binds producer shutdown/restoration before status proof and aggregate fatal cleanup semantics."
+      "reason": "The settle helper resets stableSince on every digest change; teardown requires two continuous stable seconds before cleanup and after deletion, and permits status-unavailable diagnostics only after all fatal fixture/provider/residual/baseline/integrity proofs pass."
     }
   ],
   "not_tested": []

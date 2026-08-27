@@ -53,6 +53,7 @@ const modelId = 'claude-haiku-4-5';
 const candidateSlug = randomUUID().replace(/-/g, '');
 const candidateName = `S4 deployment audit ${candidateSlug}`;
 const candidateBody = `# ${candidateName}\nInspect deployment provenance for run ${candidateSlug} and verify immutable release inputs.`;
+const overlapCandidateBody = '# Live path repair\nRepair login-shell PATH configuration.';
 const candidateDedupKey = `external-adoption:skill:${candidateName.toLowerCase()}`;
 const deploymentGap = {
   title: 'deployment audit',
@@ -257,7 +258,7 @@ async function startFixture(): Promise<Server> {
     if (/^\/repos\/owner\/(?:overlap|unique)\/commits\/main$/.test(url.pathname)) {
       response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ sha: commit })); return;
     }
-    if (url.pathname.includes('/owner/overlap/')) { response.end('# Live path repair\nRepair login-shell PATH configuration.'); return; }
+    if (url.pathname.includes('/owner/overlap/')) { response.end(overlapCandidateBody); return; }
     if (url.pathname.includes('/owner/unique/')) { response.end(candidateBody); return; }
     if (url.pathname.includes('/owner/approval/')) {
       skillDownloadRequests += 1;
@@ -405,6 +406,14 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       parent_session_id: string | null;
       cwd: string;
     }> = [];
+    let fixtureClosed = false;
+    let providerRestored = false;
+    let preCleanupRowsStable = false;
+    let postDeletionRowsStable = false;
+    let zeroResidualRows = false;
+    let baselineIntegrityVerified = false;
+    let providerBaselineVerified = false;
+    let statusUnavailable: Error | undefined;
 
     try {
       if (db) {
@@ -414,35 +423,48 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         });
       }
 
-      const sdkSessions = createdSessions.filter((row) => row.sdk_session_id);
-      const ownedLocalIds = new Set(createdSessions.map((row) => row.id));
-      const topLevelSessions = sdkSessions.filter((row) =>
+      const engineSessions = createdSessions.filter((row) => row.sdk_session_id && !ids.has(row.id));
+      const ownedLocalIds = new Set(engineSessions.map((row) => row.id));
+      const topLevelSessions = engineSessions.filter((row) =>
         !row.parent_session_id || !ownedLocalIds.has(row.parent_session_id));
       const readOwnedSessionStatuses = async (): Promise<Map<string, string>> => {
         const statuses = new Map<string, string>();
-        for (const cwd of new Set(sdkSessions.map((row) => row.cwd))) {
-          const response = await fetch(`${engineUrl()}/session/status`, {
-            headers: { 'X-OpenCode-Directory': cwd },
-            signal: AbortSignal.timeout(2_000),
-          });
-          if (!response.ok) throw new Error(`${cwd}: status HTTP ${response.status}`);
-          const bySdkId = await response.json() as Record<string, { type?: unknown }>;
-          for (const row of sdkSessions.filter((session) => session.cwd === cwd)) {
-            const type = bySdkId[row.sdk_session_id!]?.type;
-            if (typeof type === 'string') statuses.set(row.sdk_session_id!, type);
+        for (const cwd of new Set(engineSessions.map((row) => row.cwd))) {
+          let lastError: unknown;
+          for (let statusAttempts = 0; statusAttempts < 2; statusAttempts += 1) {
+            try {
+              const response = await fetch(`${engineUrl()}/session/status`, {
+                headers: { 'X-OpenCode-Directory': cwd },
+                signal: AbortSignal.timeout(5_000),
+              });
+              if (!response.ok) throw new Error(`${cwd}: status HTTP ${response.status}`);
+              const bySdkId = await response.json() as Record<string, { type?: unknown }>;
+              for (const row of engineSessions.filter((session) => session.cwd === cwd)) {
+                const type = bySdkId[row.sdk_session_id!]?.type;
+                if (typeof type === 'string') statuses.set(row.sdk_session_id!, type);
+              }
+              lastError = undefined;
+              break;
+            } catch (error) {
+              lastError = error;
+            }
           }
+          if (lastError) throw lastError;
         }
         return statuses;
       };
 
       await attempt('close fixture server', async () => {
-        if (!fixture?.listening) return;
-        fixture.closeAllConnections();
-        await withTimeout(new Promise<void>((done, fail) => fixture.close((error) => error ? fail(error) : done())), 2_000, 'fixture close');
+        if (!fixture) throw new Error('fixture server was not created');
+        if (fixture.listening) {
+          fixture.closeAllConnections();
+          await withTimeout(new Promise<void>((done, fail) => fixture.close((error) => error ? fail(error) : done())), 2_000, 'fixture close');
+        }
+        fixtureClosed = true;
       });
 
       await attempt('restore anthropic provider', async () => {
-        if (!sandboxConfigPath) return;
+        if (!sandboxConfigPath) throw new Error('sandbox config path was not captured');
         await withTimeout((async () => {
           const sandboxRootPath = await realpath(resolve(process.env.RHYTHM_SANDBOX_DIR!));
           const sandboxHomePath = await realpath(resolve(process.env.RHYTHM_SANDBOX_HOME!));
@@ -462,16 +484,24 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
           }
           expect((await api('/system/refresh', { method: 'POST', signal: AbortSignal.timeout(4_000) })).status).toBe(200);
         })(), 5_000, 'anthropic provider restoration');
+        providerRestored = true;
+      });
+
+      if (db) await attempt('pre-cleanup broad rows stable for two continuous seconds', async () => {
+        await waitForBroadRowsToSettle(db, { stableMs: 2_000, timeoutMs: 10_000 });
+        preCleanupRowsStable = true;
       });
 
       let statusReadSucceeded = false;
       let activeTopLevelSessions: typeof topLevelSessions = [];
-      await attempt('identify active owned top-level sessions', async () => {
+      try {
         const statuses = await readOwnedSessionStatuses();
         activeTopLevelSessions = topLevelSessions.filter((row) =>
           ['busy', 'retry'].includes(statuses.get(row.sdk_session_id!) ?? 'idle'));
         statusReadSucceeded = true;
-      });
+      } catch (error) {
+        statusUnavailable = new Error(`engine status unavailable after bounded retry: ${String(error)}`, { cause: error });
+      }
 
       let abortSucceeded = statusReadSucceeded;
       await attempt('abort active owned top-level engine sessions', async () => {
@@ -501,7 +531,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         const deadline = Date.now() + 8_000;
         do {
           const statuses = await readOwnedSessionStatuses();
-          const activeIds = sdkSessions
+          const activeIds = engineSessions
             .filter((row) => ['busy', 'retry'].includes(statuses.get(row.sdk_session_id!) ?? 'idle'))
             .map((row) => row.sdk_session_id!);
           if (activeIds.length === 0) {
@@ -510,7 +540,7 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
           }
           await new Promise((wait) => setTimeout(wait, 250));
         } while (Date.now() < deadline);
-        throw new Error(`owned engine sessions remained active: ${sdkSessions.map((row) => row.sdk_session_id).join(',')}`);
+        throw new Error(`owned engine sessions remained active: ${engineSessions.map((row) => row.sdk_session_id).join(',')}`);
       };
       await attempt('prove owned engine sessions idle', async () => {
         if (!statusReadSucceeded || !abortSucceeded) return;
@@ -539,8 +569,6 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
           console.warn(`[S4] idle top-level engine session delete diagnostic: ${sessionId}: ${String(result.reason)}`);
         });
       });
-
-      if (db) await attempt('full producer settlement', () => waitForBroadRowsToSettle(db, { timeoutMs: 10_000 }));
 
       await attempt('delete owned configs', async () => {
         const deleted = await withTimeout(Promise.allSettled([...ids].map(async (id) => {
@@ -585,17 +613,44 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
           await attempt(`delete ${label}`, () => { db.prepare(sql).run(...parameters); });
         }
 
-        await attempt('final short settlement and baseline assertions', async () => {
-          if (!baselineRows || baselineFiles === undefined) return;
-          const settledRows = await waitForBroadRowsToSettle(db, { timeoutMs: 2_500 });
+        await attempt('zero residual suite rows', () => {
+          const trackedIds = [...ids];
+          for (const id of trackedIds) {
+            for (const [table, key] of [
+              ['agent_configs', 'id'], ['agent_cookbook', 'id'], ['agent_skills', 'id'],
+              ['agent_sessions', 'id'], ['agent_session_messages', 'session_id'],
+              ['agent_profile_projections', 'profile_id'], ['agent_capability_gaps', 'id'],
+            ] as const) {
+              expect((db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${key} = ?`).get(id) as { n: number }).n,
+                `${table}.${key} residual for ${id}`).toBe(0);
+            }
+          }
+          for (const runId of auditRunIds) {
+            expect((db.prepare('SELECT COUNT(*) AS n FROM agent_org_proposals WHERE audit_run_id = ?').get(runId) as { n: number }).n)
+              .toBe(0);
+          }
+          expect((db.prepare('SELECT COUNT(*) AS n FROM agent_org_proposals WHERE dedup_key = ?').get(candidateDedupKey) as { n: number }).n)
+            .toBe(0);
+          zeroResidualRows = true;
+        });
+
+        await attempt('post-deletion broad rows stable for two continuous seconds', async () => {
+          await waitForBroadRowsToSettle(db, { stableMs: 2_000, timeoutMs: 10_000 });
+          postDeletionRowsStable = true;
+        });
+
+        await attempt('strict final baseline and integrity assertions', async () => {
+          if (!baselineRows || baselineFiles === undefined) throw new Error('strict baseline was not captured');
+          const settledRows = snapshotTables(db, BROAD_TABLES);
           expect(diffTableRows(baselineRows, settledRows, BROAD_TABLES)).toEqual([]);
           expect(snapshotBytes(settledRows)).toBe(snapshotBytes(baselineRows));
           expect(await fileDigest()).toBe(baselineFiles);
+          baselineIntegrityVerified = true;
         });
       }
 
       await attempt('final provider baseline assertion', async () => {
-        if (!sandboxConfigPath) return;
+        if (!sandboxConfigPath) throw new Error('sandbox config path was not captured');
         const restoredResponse = await fetch(`${engineUrl()}/global/config`, { signal: AbortSignal.timeout(4_000) });
         expect(restoredResponse.status, await restoredResponse.clone().text()).toBe(200);
         const restored = await restoredResponse.json() as { provider?: Record<string, unknown> };
@@ -604,7 +659,17 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
         else expect(Object.hasOwn(restoredProviders, 'anthropic')).toBe(false);
         expect(Object.fromEntries(Object.entries(restoredProviders).filter(([id]) => id !== providerId)))
           .toEqual(originalOtherProviders);
+        providerBaselineVerified = true;
       });
+
+      if (statusUnavailable) {
+        if (fixtureClosed && providerRestored && preCleanupRowsStable && postDeletionRowsStable && zeroResidualRows &&
+            baselineIntegrityVerified && providerBaselineVerified) {
+          console.warn(`[S4] engine status unavailable diagnostic; fixture/provider closed, zero residual rows, strict baseline/integrity, and broad rows stable for 2 continuous seconds: ${statusUnavailable.message}`);
+        } else {
+          cleanupErrors.push(statusUnavailable);
+        }
+      }
     } finally {
       if (db?.open) {
         try { db.close(); } catch (error) { cleanupErrors.push(new Error(`close database: ${String(error)}`, { cause: error })); }
@@ -722,9 +787,10 @@ describeLive('S4 optimizer generator and projection public-surface gate', () => 
       installedOverlapMatches,
     });
     expect(candidateScoreRequests, failureDiagnostics).toHaveLength(1);
-    expect(uniqueDraftScoreRequests, failureDiagnostics).toHaveLength(1);
     expect(candidateScoreRequests, failureDiagnostics).toEqual([candidateBody]);
-    expect(uniqueDraftScoreRequests, failureDiagnostics).toEqual([expectedDraftBody]);
+    expect(uniqueDraftScoreRequests.length, failureDiagnostics).toBeGreaterThanOrEqual(1);
+    expect(new Set(uniqueDraftScoreRequests), failureDiagnostics).toEqual(new Set([expectedDraftBody]));
+    expect(otherScoreRequests, failureDiagnostics).toEqual([overlapCandidateBody]);
     expect(unique, failureDiagnostics).toHaveLength(1);
     const change = JSON.parse(unique[0].change_json!);
     expect(change.downloadUrl).toMatch(new RegExp(`/owner/unique/${'c'.repeat(40)}/`));

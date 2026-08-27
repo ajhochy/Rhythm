@@ -147,20 +147,26 @@ export function diffTableRows(before: TableRows, after: TableRows, tables: reado
 
 export async function waitForBroadRowsToSettle(
   db: Database.Database,
-  options: { intervalMs?: number; timeoutMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  options: { intervalMs?: number; stableMs?: number; timeoutMs?: number; sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<TableRows> {
   const intervalMs = options.intervalMs ?? 250;
+  const stableMs = options.stableMs ?? intervalMs;
   const timeoutMs = options.timeoutMs ?? 10_000;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const deadline = Date.now() + timeoutMs;
   let previous = snapshotTables(db, BROAD_TABLES);
+  let stableSince = Date.now();
   let lastDiff: RowDiff[] = [];
   do {
     await sleep(intervalMs);
     const current = snapshotTables(db, BROAD_TABLES);
-    if (snapshotBytes(current) === snapshotBytes(previous)) return current;
+    if (snapshotBytes(current) === snapshotBytes(previous)) {
+      if (Date.now() - stableSince >= stableMs) return current;
+      continue;
+    }
     lastDiff = diffTableRows(previous, current, BROAD_TABLES);
     previous = current;
+    stableSince = Date.now();
   } while (Date.now() < deadline);
   throw new Error(`broad rows did not settle: ${JSON.stringify(lastDiff)}`);
 }

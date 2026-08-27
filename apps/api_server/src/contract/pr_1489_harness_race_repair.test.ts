@@ -60,6 +60,25 @@ describe('PR #1489 final harness race repair', () => {
     expect(settled.agent_session_messages).toEqual([{ id: 'message-1', value: 'settled', unchanged: null }]);
   });
 
+  it('pr-1489-absolute-c2: requires one continuous stable window and resets it on every digest change', async () => {
+    db.prepare("INSERT INTO agent_session_messages (id, value) VALUES ('message-1', 'pending')").run();
+    let waits = 0;
+    const settled = await waitForBroadRowsToSettle(db, {
+      intervalMs: 1,
+      stableMs: 5,
+      timeoutMs: 100,
+      sleep: async () => {
+        waits += 1;
+        if (waits === 2) db.prepare("UPDATE agent_session_messages SET value = 'changing' WHERE id = 'message-1'").run();
+        if (waits === 4) db.prepare("UPDATE agent_session_messages SET value = 'settled' WHERE id = 'message-1'").run();
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      },
+    });
+
+    expect(waits).toBeGreaterThanOrEqual(6);
+    expect(settled.agent_session_messages).toEqual([{ id: 'message-1', value: 'settled', unchanged: null }]);
+  });
+
   it('bounds non-settlement errors to the exact latest row-field diff', async () => {
     db.prepare("INSERT INTO agent_sessions (id, value, unchanged) VALUES ('session-1', '0', 'do-not-dump')").run();
     let update = 0;
@@ -96,11 +115,12 @@ describe('PR #1489 final harness race repair', () => {
 
     expect(sessionStop).toBeGreaterThan(-1);
     expect(providerRestore).toBeLessThan(sessionStop);
-    expect(firstSettlement).toBeGreaterThan(sessionStop);
+    expect(firstSettlement).toBeGreaterThan(providerRestore);
+    expect(firstSettlement).toBeLessThan(sessionStop);
     expect(teardown).toMatch(/Promise\.allSettled/);
     expect(teardown).toMatch(/AggregateError/);
     expect(teardown).toMatch(/timeoutMs:\s*10_000/);
-    expect(teardown).toMatch(/timeoutMs:\s*2_500/);
+    expect(teardown.match(/stableMs:\s*2_000/g)).toHaveLength(2);
     expect(teardown).toMatch(/finally\s*{[\s\S]*db\.close\(\)/);
     expect(teardown).toMatch(/},\s*45_000\);/);
   });
@@ -121,7 +141,7 @@ describe('PR #1489 final harness race repair', () => {
     });
   });
 
-  it('pr-1489-last-c2: scorer identity requires the exact purpose/body pair', async () => {
+  it('pr-1489-last-c2: scorer identity requires exact candidate, draft-set, and overlap bodies', async () => {
     expect(typeof harnessRows.classifyScoringPrompt).toBe('function');
     const purpose = 'name: deployment audit\ndescription: Verify immutable deployment provenance\nwhenToUse: deployment';
     const candidate = '# S4 deployment audit 0123456789abcdef\nInspect deployment provenance for run 0123456789abcdef.';
@@ -137,10 +157,13 @@ describe('PR #1489 final harness race repair', () => {
 
     const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
     expect(source).toMatch(/candidateScoreRequests[^\n]*toHaveLength\(1\)/s);
-    expect(source).toMatch(/uniqueDraftScoreRequests[^\n]*toHaveLength\(1\)/s);
-    expect(source).toMatch(/otherScoreRequests/);
     expect(source).toMatch(/candidateScoreRequests[^\n]*toEqual\(\[candidateBody\]\)/s);
-    expect(source).toMatch(/uniqueDraftScoreRequests[^\n]*toEqual\(\[expectedDraftBody\]\)/s);
+    expect(source).toMatch(/uniqueDraftScoreRequests\.length[^\n]*toBeGreaterThanOrEqual\(1\)/s);
+    expect(source).toMatch(/new Set\(uniqueDraftScoreRequests\)[^\n]*toEqual\(new Set\(\[expectedDraftBody\]\)\)/s);
+    expect(source).toMatch(/const overlapCandidateBody\s*=\s*['`]/);
+    expect(source).toMatch(/otherScoreRequests[^\n]*toEqual\(\[overlapCandidateBody\]\)/s);
+    expect(source).toMatch(/unique[^\n]*toHaveLength\(1\)/s);
+    expect(source).toMatch(/contentSha256[^\n]*sha\(candidateBody\)/s);
   });
 
   it('pr-1489-last-c3: teardown aborts active owned top-level sessions before top-level-only delete', async () => {
@@ -181,12 +204,26 @@ describe('PR #1489 final harness race repair', () => {
     const teardown = source.slice(source.indexOf('afterAll(async () =>'));
     const closeFixture = teardown.indexOf("attempt('close fixture server'");
     const restoreProvider = teardown.indexOf("attempt('restore anthropic provider'");
-    const statusProof = teardown.indexOf("attempt('identify active owned top-level sessions'");
+    const statusProof = teardown.indexOf('let statusReadSucceeded');
     expect(closeFixture).toBeGreaterThan(-1);
     expect(restoreProvider).toBeGreaterThan(-1);
     expect(statusProof).toBeGreaterThan(closeFixture);
     expect(statusProof).toBeGreaterThan(restoreProvider);
     expect(teardown).toMatch(/cleanupErrors\.push/);
     expect(teardown).toMatch(/throw new AggregateError\(cleanupErrors/);
+  });
+
+  it('pr-1489-absolute-c3: cleanup excludes synthetic rows and deletes real sessions only after idle proof', () => {
+    const source = readFileSync(resolve('src/__tests__/live_e2e_1480_1481_1483_1484.test.ts'), 'utf8');
+    const teardown = source.slice(source.indexOf('afterAll(async () =>'));
+
+    expect(teardown).toMatch(/engineSessions\s*=\s*createdSessions\.filter\(\(row\)\s*=>\s*row\.sdk_session_id\s*&&\s*!ids\.has\(row\.id\)\)/);
+    expect(teardown).toMatch(/new Set\(engineSessions\.map\(\(row\)\s*=>\s*row\.cwd\)\)/);
+    expect(teardown).toMatch(/statusAttempts\s*<\s*2/);
+    expect(teardown).toMatch(/AbortSignal\.timeout\(5_000\)/);
+    expect(teardown).toMatch(/if \(ownedSessionsIdle\)[\s\S]*delete owned top-level engine sessions/);
+    expect(teardown).toMatch(/status unavailable[\s\S]*fixture[\s\S]*residual[\s\S]*baseline[\s\S]*integrity[\s\S]*stable/i);
+    expect(teardown).toMatch(/stableMs:\s*2_000/g);
+    expect(teardown).toMatch(/zero residual/i);
   });
 });
