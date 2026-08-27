@@ -392,7 +392,17 @@ describe('issue-688-c4: erroredSessions — new prompt to errored session transi
 // c5 — source inspection
 // ---------------------------------------------------------------------------
 
-describe('issue-688-c5: source inspection — no pty_runner import', () => {
+describe('issue-688-c5: source inspection — only deliberate timers, no pty_runner import', () => {
+  it('keeps only the glob watchdog and global retry timers', () => {
+    const bridgePath = path.resolve(__dirname, '../services/opencode_stream_bridge.ts');
+    const source = fs.readFileSync(bridgePath, 'utf-8');
+    const setTimeoutMatches = source.match(/setTimeout\s*\(/g) ?? [];
+
+    expect(setTimeoutMatches).toHaveLength(2);
+    expect(source).toContain('armGlobWatchdog');
+    expect(source).toContain('scheduleGlobalRetry');
+  });
+
   it('no non-test file in src/ imports pty_runner', () => {
     const srcDir = path.resolve(__dirname, '..');
     // Recursive file listing.

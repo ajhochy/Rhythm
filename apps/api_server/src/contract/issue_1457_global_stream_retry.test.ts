@@ -101,7 +101,7 @@ describe('issue #1457 global stream retry contract', () => {
     bridge.dispose();
   });
 
-  it('issue-1457-c5: failed subscription is health-visible as reconnecting', async () => {
+  it('issue-1457-c5: failed subscription is health-visible as unavailable', async () => {
     subscribeSpy.mockRejectedValue(new Error('ECONNRESET'));
     const bridge = new OpencodeStreamBridge();
 
@@ -113,7 +113,7 @@ describe('issue #1457 global stream retry contract', () => {
     )).toMatchObject({
       status: 'unavailable',
       bridgeLive: false,
-      message: expect.stringContaining('reconnecting'),
+      message: expect.stringContaining('bridge unavailable'),
     });
     bridge.dispose();
   });
@@ -126,6 +126,21 @@ describe('issue #1457 global stream retry contract', () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(bridge.isLive).toBe(true);
+    bridge.dispose();
+  });
+
+  it('serializes concurrent subscription attempts so only one stream is created', async () => {
+    let resolveSubscribe!: (value: ReturnType<typeof subscription>) => void;
+    subscribeSpy.mockReturnValue(new Promise((resolve) => { resolveSubscribe = resolve; }));
+    const bridge = new OpencodeStreamBridge();
+
+    const first = bridge.ensureGlobalStream();
+    const second = bridge.ensureGlobalStream();
+    expect(subscribeSpy).toHaveBeenCalledTimes(1);
+
+    resolveSubscribe(subscription());
+    await Promise.all([first, second]);
+    expect(subscribeSpy).toHaveBeenCalledTimes(1);
     bridge.dispose();
   });
 });

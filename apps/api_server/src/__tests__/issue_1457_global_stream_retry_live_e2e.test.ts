@@ -89,7 +89,7 @@ describeLive('issue #1457 live global stream recovery', () => {
         bridgeLive: boolean;
         message: string;
       };
-      return !health.bridgeLive && /reconnecting/i.test(health.message) ? health : null;
+      return !health.bridgeLive ? health : null;
     });
     expect(degraded).toMatchObject({ status: 'unavailable', bridgeLive: false });
 

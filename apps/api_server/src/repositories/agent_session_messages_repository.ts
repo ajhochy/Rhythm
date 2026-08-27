@@ -500,6 +500,24 @@ export class AgentSessionMessagesRepository {
     return rows.map(rowToStructured);
   }
 
+  /** Return the exact engine messages touched by the current turn. */
+  listBySessionStructuredForMessageIds(
+    sessionId: string,
+    sdkMessageIds: Iterable<string>,
+  ): StructuredAgentSessionMessage[] {
+    const ids = [...sdkMessageIds];
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_session_messages
+         WHERE session_id = ? AND sdk_message_id IN (${placeholders})
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all(sessionId, ...ids) as AgentSessionMessageRow[];
+    return rows.map(rowToStructured);
+  }
+
   /**
    * Return a stable backward-looking transcript window.
    *

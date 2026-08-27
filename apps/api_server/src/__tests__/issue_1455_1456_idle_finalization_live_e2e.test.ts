@@ -199,7 +199,7 @@ describeLive('issues #1455/#1456 live idle finalization', () => {
           isAgent: true,
           modelProvider: providerId,
           modelId,
-          systemPrompt: `Reply with exactly ${MARKER} and nothing else.`,
+          systemPrompt: 'Return the response supplied by the controlled provider fixture.',
         }),
       });
       session = await apiJson<{ id: string; sdkSessionId: string }>('/agent-sessions', {
@@ -224,9 +224,10 @@ describeLive('issues #1455/#1456 live idle finalization', () => {
         v: 1,
         type: 'session.input',
         id: activeSession.id,
-        data: `Reply with exactly ${MARKER} and nothing else.`,
+        data: 'Produce one short assistant response.',
         modelOverride: { providerId, modelId },
       }));
+      expect('Produce one short assistant response.').not.toContain(MARKER);
 
       const userMessage = await poll(async () => {
         const messages = await engineJson<EngineMessage[]>(

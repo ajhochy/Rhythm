@@ -277,6 +277,7 @@ export class OpencodeStreamBridge {
   private lastGlobalActivity = 0;
   /** Guards against overlapping resubscribes from the watchdog. */
   private globalResubscribing = false;
+  private globalSubscribeInFlight = false;
   private globalRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private globalRetryAttempt = 0;
   private disposed = false;
@@ -298,10 +299,6 @@ export class OpencodeStreamBridge {
         Date.now() - this.lastGlobalActivity <= HEARTBEAT_WATCHDOG_MS;
     }
     return this.streamsByDirectory.size > 0;
-  }
-
-  get isReconnecting(): boolean {
-    return this.globalRetryTimer !== null || this.globalResubscribing;
   }
 
   // Accumulate assistant text deltas keyed by local session id. The SDK
@@ -360,17 +357,6 @@ export class OpencodeStreamBridge {
   // with a diagnostic naming the tool, instead of waiting out the full
   // inactivity window.
   private globWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
-
-  // In-memory accumulator for message.part.delta events, keyed by
-  // `${sdkMessageId}:${partId}`. Deltas are written-through to the DB via
-  // applyPartDelta immediately (so a bridge restart loses at most in-flight
-  // deltas). This accumulator is only used to assemble the full text for
-  // the legacy transcript.append broadcast on session.idle.
-  //
-  // Flush points: next message.part.updated for the same part (bridge
-  // receives the authoritative full-text version — accumulator discarded),
-  // message.updated for the same message, or session.idle (turn boundary).
-  private pendingPartDeltas = new Map<string, { sdkMessageId: string; partId: string; text: string }>();
 
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
@@ -795,7 +781,8 @@ export class OpencodeStreamBridge {
    */
   async ensureGlobalStream(): Promise<void> {
     if (!useGlobalStream() || this.disposed) return;
-    if (this.globalStream || this.globalRetryTimer) return;
+    if (this.globalStream || this.globalRetryTimer || this.globalSubscribeInFlight) return;
+    this.globalSubscribeInFlight = true;
     let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
     try {
       sub = await opencodeClient.subscribeToGlobalEvents();
@@ -803,6 +790,8 @@ export class OpencodeStreamBridge {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream subscribe threw:', err);
       this.scheduleGlobalRetry();
       return;
+    } finally {
+      this.globalSubscribeInFlight = false;
     }
     if (!sub) {
       logger.error('[OpencodeStreamBridge] ensureGlobalStream: no global stream available');
@@ -888,7 +877,7 @@ export class OpencodeStreamBridge {
           this._publishHeartbeatToHub(event);
           continue;
         }
-        await this._relayEvent(event);
+        this._relayEvent(event);
         // Relay rows are the durable record and must precede the corresponding
         // lossy envelope on the single uplink socket. Replication is fail-soft:
         // a later reconnect/resync replays anything this live flush misses.
@@ -1023,7 +1012,7 @@ export class OpencodeStreamBridge {
     try {
       for await (const event of entry.eventStream) {
         if (entry.abort.signal.aborted) break;
-        await this._relayEvent(event);
+        this._relayEvent(event);
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
@@ -1206,31 +1195,9 @@ export class OpencodeStreamBridge {
     return typeof finish?.reason === 'string' ? finish.reason : undefined;
   }
 
-  /** #1455: recover a finish event that engine persistence won before SSE conversion. */
-  private async resolveEmptyTurnStopReason(
-    localSessionId: string,
-    sdkSessionId: string,
-    turnMessageIds: Set<string> | undefined,
-  ): Promise<string | undefined> {
-    try {
-      const cwd = this.sessionsRepo.findById(localSessionId)?.cwd;
-      const messages = await opencodeClient.listMessages(sdkSessionId, cwd);
-      const assistants = messages.filter((message) => message.info.role === 'assistant');
-      const current = turnMessageIds?.size
-        ? [...assistants].reverse().find((message) => turnMessageIds.has(message.info.id))
-        : assistants.at(-1);
-      return current ? this.lastStepFinishReason(current.parts) : undefined;
-    } catch (err) {
-      logger.warn(
-        `[OpencodeStreamBridge] Failed to recover empty-turn stop reason for ${localSessionId}: ${String(err)}`,
-      );
-      return undefined;
-    }
-  }
-
-  private async _relayEvent(
+  private _relayEvent(
     event: import('@opencode-ai/sdk').RhythmEvent,
-  ): Promise<void> {
+  ): void {
     // Extract the Opencode session ID — different event types nest it
     // differently:
     //   session.*           → properties.sessionID
@@ -1436,13 +1403,6 @@ export class OpencodeStreamBridge {
                 const turnMessageIds = this.pendingStructuredMessageIds.get(localSessionId) ?? new Set<string>();
                 turnMessageIds.add(sdkMessageId);
                 this.pendingStructuredMessageIds.set(localSessionId, turnMessageIds);
-                // When part.updated arrives, the authoritative text is in the
-                // part object — discard any in-memory delta accumulator for
-                // this part since the full value supersedes it.
-                const partId = part.id as string | undefined;
-                if (partId) {
-                  this.pendingPartDeltas.delete(`${sdkMessageId}:${partId}`);
-                }
                 this.messagesRepo.upsertPart(localSessionId, sdkMessageId, part);
               } catch (err) {
                 logger.error('[OpencodeStreamBridge] Failed to persist part:', err);
@@ -1463,11 +1423,8 @@ export class OpencodeStreamBridge {
         // overwrites the accumulated value, making delta accumulation lossless
         // across a normal turn.
         //
-        // Flush points for pendingPartDeltas in-memory accumulator (used only
-        // for the legacy transcript.append broadcast on session.idle):
-        //   1. Next message.part.updated for the same part — full value replaces.
-        //   2. message.updated for the same message — delta discarded.
-        //   3. session.idle — full turn boundary flush.
+        // pendingText exists only for the legacy transcript.append broadcast;
+        // structured parts are written through directly to the repository.
         const messageID = props?.messageID as string | undefined;
         const partID = props?.partID as string | undefined;
         const field = props?.field as string | undefined;
@@ -1478,16 +1435,6 @@ export class OpencodeStreamBridge {
             localSessionId,
             (this.pendingText.get(localSessionId) ?? '') + delta,
           );
-          // Keep per-part accumulator for structured transcript.
-          if (messageID && partID) {
-            const key = `${messageID}:${partID}`;
-            const existing = this.pendingPartDeltas.get(key);
-            if (existing) {
-              existing.text += delta;
-            } else {
-              this.pendingPartDeltas.set(key, { sdkMessageId: messageID, partId: partID, text: delta });
-            }
-          }
         }
         if (messageID && partID && typeof delta === 'string') {
           broadcast({
@@ -1748,8 +1695,8 @@ export class OpencodeStreamBridge {
           if (turnMessageIds?.size) {
             try {
               structuredParts = this.messagesRepo
-                .listBySessionStructured(localSessionId)
-                .filter((message) => message.sdkMessageId && turnMessageIds.has(message.sdkMessageId))
+                .listBySessionStructuredForMessageIds(localSessionId, turnMessageIds)
+                .filter((message) => message.role === 'output')
                 .flatMap((message) => message.parts);
               structuredText = structuredParts
                 .filter((part): part is { type: 'text'; text: string } =>
@@ -1805,9 +1752,6 @@ export class OpencodeStreamBridge {
             });
             this.pendingText.delete(localSessionId);
             this.pendingStructuredMessageIds.delete(localSessionId);
-            // Clear per-part delta accumulators — turn boundary reached.
-            this.pendingPartDeltas.clear();
-
             // P2-2: fire-and-forget background skill extraction now that the
             // assistant turn has been persisted. This is the WS/interactive
             // turn-completion point (the >= 2 rounds gate is enforced inside
@@ -1872,17 +1816,7 @@ export class OpencodeStreamBridge {
               logger.warn(`[OpencodeStreamBridge] lazy-deps turn scan failed (non-fatal): ${String(err)}`);
             }
           } else {
-            let stopReason = this.lastStepFinishReason(structuredParts);
-            if (
-              !stopReason && opencodeSessionId &&
-              typeof opencodeClient.listMessages === 'function'
-            ) {
-              stopReason = await this.resolveEmptyTurnStopReason(
-                localSessionId,
-                opencodeSessionId,
-                turnMessageIds,
-              );
-            }
+            const stopReason = this.lastStepFinishReason(structuredParts);
             // Zero assistant text — preserve #636's fallback while surfacing a
             // provider stop reason when the structured turn supplied one.
             broadcast({
@@ -1902,7 +1836,6 @@ export class OpencodeStreamBridge {
             });
             this.pendingText.delete(localSessionId);
             this.pendingStructuredMessageIds.delete(localSessionId);
-            this.pendingPartDeltas.clear();
           }
           // #1123 — callback boundary for additive interactive async
           // delegation. Run only AFTER the existing assistant persistence and
@@ -2346,11 +2279,11 @@ export class OpencodeStreamBridge {
         // because `!dbSession` had made it "unattended".
         const isUnattended = Boolean(dbSession?.parentSessionId) || isScheduledRun;
 
-        // #878 — command-approval classification for the bash tool. This runs
-        // BEFORE the permissionMode auto-accept check below so a hardline-
-        // blocked or high-risk command is never let through by
-        // `bypassPermissions`/`acceptEdits` — approval gating for destructive
-        // commands must not be weaker than the default prompt-driven flow.
+        // #878 — command-approval classification for bash. bypassPermissions
+        // sessions deliberately keep a later engine-side bash:ask rule so this
+        // handler remains reachable; the earlier wildcard allow still covers
+        // read/edit/external_directory without depending on SSE. Hardline denies
+        // remain absolute once the ask reaches this handler.
         // Low-risk / explicitly-allowed commands fall through unchanged to the
         // existing permissionMode logic (no behavior change for safe commands).
         if (toolName.toLowerCase() === 'bash') {

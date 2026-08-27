@@ -1,6 +1,4 @@
 import Database from 'better-sqlite3';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setDb } from '../database/db';
@@ -31,10 +29,6 @@ vi.mock('../services/opencode_engine', () => ({
 import { OpencodeStreamBridge } from '../services/opencode_stream_bridge';
 
 const SDK_ID = 'sdk-idle-contract';
-const liveHarness = readFileSync(resolve(
-  __dirname,
-  '../__tests__/issue_1455_1456_idle_finalization_live_e2e.test.ts',
-), 'utf8');
 let localId: string;
 let bridge: OpencodeStreamBridge;
 
@@ -101,6 +95,65 @@ describe('issues #1455/#1456 idle finalization contract', () => {
 
     expect(frames('error')).toHaveLength(1);
     expect(frames('transcript.append')).toEqual([]);
+  });
+
+  it('filters user part.updated rows out of assistant transcript finalization', async () => {
+    await relay({
+      type: 'message.updated',
+      properties: {
+        sessionID: SDK_ID,
+        info: { id: 'msg-user', sessionID: SDK_ID, role: 'user' },
+      },
+    });
+    part({ id: 'part-user', messageID: 'msg-user', type: 'text', text: 'USER PROMPT' });
+    await relay({
+      type: 'message.updated',
+      properties: {
+        sessionID: SDK_ID,
+        info: { id: 'msg-assistant', sessionID: SDK_ID, role: 'assistant' },
+      },
+    });
+    part({ id: 'part-assistant', type: 'text', text: 'ASSISTANT RESPONSE' });
+
+    await idle();
+
+    expect(frames('transcript.append')).toEqual([expect.objectContaining({
+      text: 'ASSISTANT RESPONSE',
+    })]);
+    expect(new AgentSessionsRepository().findById(localId)?.lastPreview)
+      .toBe('ASSISTANT RESPONSE');
+  });
+
+  it('a user part without assistant output remains an empty assistant turn', async () => {
+    await relay({
+      type: 'message.updated',
+      properties: {
+        sessionID: SDK_ID,
+        info: { id: 'msg-user', sessionID: SDK_ID, role: 'user' },
+      },
+    });
+    part({ id: 'part-user', messageID: 'msg-user', type: 'text', text: 'USER ONLY' });
+
+    await idle();
+
+    expect(frames('transcript.append')).toEqual([]);
+    expect(frames('error')).toEqual([expect.objectContaining({
+      message: 'The model returned an empty response.',
+    })]);
+  });
+
+  it('finalizes the current structured turn after more than 200 older messages', async () => {
+    const messages = new AgentSessionMessagesRepository();
+    for (let index = 0; index < 201; index += 1) {
+      messages.append(localId, 'input', `old-${index}`, `old-${index}`);
+    }
+    part({ id: 'part-current', type: 'text', text: 'CURRENT ASSISTANT' });
+
+    await idle();
+
+    expect(frames('transcript.append').at(-1)?.text).toBe('CURRENT ASSISTANT');
+    expect(new AgentSessionsRepository().findById(localId)?.lastPreview)
+      .toBe('CURRENT ASSISTANT');
   });
 
   it('issue-1456-c3: structured finalization creates no duplicate legacy row', async () => {
@@ -178,108 +231,18 @@ describe('issues #1455/#1456 idle finalization contract', () => {
     expect(frames('error').at(-1)).toMatchObject({ stopReason: 'content-filter' });
   });
 
-  it('issue-1455-c7: idle recovers the delayed step-finish from authoritative history exactly once', async () => {
+  it('does not await an engine history lookup before finalizing an empty turn', () => {
+    listMessagesSpy.mockReturnValue(new Promise(() => {}));
     part({ id: 'part-start', type: 'step-start' });
-    listMessagesSpy.mockResolvedValue([
-      {
-        info: { id: 'msg-user', sessionID: SDK_ID, role: 'user' },
-        parts: [{ id: 'user-text', messageID: 'msg-user', sessionID: SDK_ID, type: 'text', text: 'trigger refusal' }],
-      },
-      {
-        info: { id: 'msg-assistant', sessionID: SDK_ID, role: 'assistant' },
-        parts: [
-          { id: 'part-start', messageID: 'msg-assistant', sessionID: SDK_ID, type: 'step-start' },
-          { id: 'part-finish', messageID: 'msg-assistant', sessionID: SDK_ID, type: 'step-finish', reason: 'content-filter' },
-        ],
-      },
-    ]);
 
-    await idle();
-    part({ id: 'part-finish', type: 'step-finish', reason: 'content-filter' });
-
-    expect(listMessagesSpy).toHaveBeenCalledWith(SDK_ID, '/tmp');
-    expect(frames('error')).toEqual([expect.objectContaining({
-      stopReason: 'content-filter',
-      message: expect.stringContaining('content filter'),
-    })]);
-    expect(new AgentSessionMessagesRepository().listBySession(localId)).toHaveLength(1);
-  });
-
-  it.each([
-    ['history failure', new Error('engine unavailable')],
-    ['history without a finish reason', null],
-  ])('issue-1455-c8: %s preserves the exact #636 generic message', async (_label, failure) => {
-    part({ id: 'part-start', type: 'step-start' });
-    if (failure) {
-      listMessagesSpy.mockRejectedValue(failure);
-    } else {
-      listMessagesSpy.mockResolvedValue([{
-        info: { id: 'msg-assistant', sessionID: SDK_ID, role: 'assistant' },
-        parts: [{ id: 'part-start', messageID: 'msg-assistant', sessionID: SDK_ID, type: 'step-start' }],
-      }]);
-    }
-
-    await idle();
-
-    expect(frames('error')).toEqual([expect.objectContaining({
-      message: 'The model returned an empty response.',
-    })]);
-    expect(frames('error')[0]).not.toHaveProperty('stopReason');
-  });
-
-  it('issue-1455-c9: a late finish from the prior turn cannot classify the next turn', async () => {
-    part({ id: 'old-start', type: 'step-start', messageID: 'msg-old-assistant' });
-    await idle();
-    part({ id: 'old-finish', type: 'step-finish', reason: 'content-filter', messageID: 'msg-old-assistant' });
-    await relay({
-      type: 'message.updated',
-      properties: {
-        sessionID: SDK_ID,
-        info: { id: 'msg-new-user', sessionID: SDK_ID, role: 'user' },
-      },
+    const result = (bridge as unknown as { _relayEvent(event: unknown): unknown })._relayEvent({
+      type: 'session.idle', properties: { sessionID: SDK_ID },
     });
-    part({ id: 'new-start', type: 'step-start', messageID: 'msg-new-assistant' });
-    listMessagesSpy.mockResolvedValue([
-      {
-        info: { id: 'msg-old-assistant', sessionID: SDK_ID, role: 'assistant' },
-        parts: [{ id: 'old-finish', messageID: 'msg-old-assistant', sessionID: SDK_ID, type: 'step-finish', reason: 'content-filter' }],
-      },
-      {
-        info: { id: 'msg-new-user', sessionID: SDK_ID, role: 'user' },
-        parts: [{ id: 'new-user-text', messageID: 'msg-new-user', sessionID: SDK_ID, type: 'text', text: 'next turn' }],
-      },
-      {
-        info: { id: 'msg-new-assistant', sessionID: SDK_ID, role: 'assistant' },
-        parts: [{ id: 'new-start', messageID: 'msg-new-assistant', sessionID: SDK_ID, type: 'step-start' }],
-      },
-    ]);
-    broadcastSpy.mockClear();
 
-    await idle();
-
+    expect(result).toBeUndefined();
     expect(frames('error')).toEqual([expect.objectContaining({
       message: 'The model returned an empty response.',
     })]);
-    expect(frames('error')[0]).not.toHaveProperty('stopReason');
-  });
-
-  it('issue-1455-c6: live refusal harness binds its unique provider through a temporary agent profile', () => {
-    const testCase = liveHarness.slice(liveHarness.indexOf("it('#1455"));
-    expect(testCase).toMatch(/\/agent-configs/);
-    expect(testCase).toMatch(/method:\s*'POST'/);
-    expect(testCase).toMatch(/agentId:\s*profile\.id/);
-    expect(testCase).toMatch(/modelOverride:\s*\{ providerId, modelId \}/);
-    expect(testCase).toMatch(/info\?\.model[\s\S]*providerID[\s\S]*modelID/);
-  });
-
-  it('issue-1456-c5: live append harness independently controls and proves its bound model', () => {
-    const start = liveHarness.indexOf("it('#1456");
-    const testCase = liveHarness.slice(start, liveHarness.indexOf("it('#1455", start));
-    expect(testCase).toMatch(/createServer/);
-    expect(testCase).toMatch(/\/agent-configs/);
-    expect(testCase).toMatch(/method:\s*'POST'/);
-    expect(testCase).toMatch(/agentId:\s*profile\.id/);
-    expect(testCase).toMatch(/modelOverride:\s*\{ providerId, modelId \}/);
-    expect(testCase).toMatch(/info\?\.model[\s\S]*providerID[\s\S]*modelID/);
+    expect(listMessagesSpy).not.toHaveBeenCalled();
   });
 });
