@@ -60,7 +60,7 @@
 import { logger } from '../../utils/logger';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import type { AgentOrgProposal } from '../../models/agent_org_proposal';
-import { findSkillOverlapCandidates, type OrgAuditGap } from '../org_audit_service';
+import { titleSimilarity, type OrgAuditGap } from '../org_audit_service';
 import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
 import type { AgentSkill } from '../../models/agent_skill';
 import type {
@@ -119,6 +119,8 @@ export interface ExternalCandidate {
   categories?: string[];
   /** SHA-256 of the exact SKILL.md bytes reviewed by the discovery lane. */
   contentSha256?: string;
+  /** Exact downloaded body used for installed-library overlap checks; never persisted in the proposal. */
+  body?: string;
 }
 
 /**
@@ -264,25 +266,14 @@ export async function runExternalDiscoveryGenerator(
       }
 
       if (candidate.kind === 'skill') {
-        const configuredDownloadOrigin = process.env.RHYTHM_SKILLS_DOWNLOAD_BASE?.replace(/\/$/, '');
-        const pinnedOrigin = configuredDownloadOrigin
-          ? configuredDownloadOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-          : 'https://raw\\.githubusercontent\\.com';
-        const pinned = candidate.downloadUrl?.match(
-          new RegExp(`^${pinnedOrigin}/[^/]+/[^/]+/([0-9a-f]{40})/`, 'i'),
+        const overlaps = installedSkills.some((skill) =>
+          titleSimilarity(skill.title, candidate.name) >= 0.5 ||
+          (!!candidate.body && titleSimilarity(
+            `${skill.title} ${skill.body ?? ''}`,
+            `${candidate.name} ${candidate.body}`,
+          ) >= 0.5),
         );
-        if (!pinned || !/^[0-9a-f]{64}$/i.test(candidate.contentSha256 ?? '')) {
-          result.droppedMissingProvenance++;
-          logger.info(`[external-discovery-generator] dropped '${candidate.name}' — skill body is not commit-pinned and hashed`);
-          continue;
-        }
-        const candidateId = '__external_candidate__';
-        const candidateTitle = `${candidate.name} ${gap.intentTitle ?? ''}`.trim();
-        const overlaps = findSkillOverlapCandidates([
-          ...installedSkills.map(({ id, title }) => ({ id, title })),
-          { id: candidateId, title: candidateTitle },
-        ]);
-        if (overlaps.some((pair) => pair.skillIdA === candidateId || pair.skillIdB === candidateId)) {
+        if (overlaps) {
           result.droppedInstalledOverlap++;
           logger.info(`[external-discovery-generator] dropped '${candidate.name}' — overlaps an installed local skill`);
           continue;

@@ -9,7 +9,10 @@ import type { AgentSkill } from '../models/agent_skill';
 import { useTempManagedSkillsRoot } from '../__tests__/_managed_skills_temp_root';
 
 const { downloadSkillBody } = vi.hoisted(() => ({ downloadSkillBody: vi.fn() }));
-vi.mock('../services/generators/external_discovery_search', () => ({ downloadSkillBody }));
+vi.mock('../services/generators/external_discovery_search', () => ({
+  downloadSkillBody,
+  RHYTHM_SKILLS_DOWNLOAD_BASE: 'https://raw.githubusercontent.com',
+}));
 useTempManagedSkillsRoot('issue-1483');
 
 const provenance = { source: 'skills.sh', stars: 10, lastUpdated: '2026-08-01', maintainer: 'owner',
@@ -35,21 +38,26 @@ describe('#1483 safe external skill adoption', () => {
   it('issue-1483-c1: drops an external skill overlapping an installed local skill', async () => {
     // Regression caught: zsh-path is proposed despite equivalent installed PATH-repair skills.
     const { runExternalDiscoveryGenerator } = await import('../services/generators/external_discovery_generator');
+    const installed = localSkill();
     const result = await runExternalDiscoveryGenerator({ auditRunId: 'issue-1483', gaps: [gap],
-      installedSkills: [localSkill()], discoverCandidates: async () => [{ kind: 'skill', name: 'zsh path',
+      installedSkills: [installed], discoverCandidates: async () => [{ kind: 'skill', name: 'zsh path',
         gapId: gap.gapId, provenance, downloadUrl: `https://raw.githubusercontent.com/owner/repo/${'a'.repeat(40)}/SKILL.md`,
-        contentSha256: createHash('sha256').update('body').digest('hex') }] });
+        contentSha256: createHash('sha256').update('body').digest('hex'),
+        body: installed.body ?? '' }] });
     expect(result.emitted).toBe(0);
     expect(result.droppedInstalledOverlap).toBe(1);
   });
 
-  it('issue-1483-c2: rejects HEAD URLs and records the reviewed content hash', async () => {
-    // Regression caught: proposal approval downloads mutable HEAD content.
-    const { runExternalDiscoveryGenerator } = await import('../services/generators/external_discovery_generator');
-    await runExternalDiscoveryGenerator({ auditRunId: 'issue-1483', gaps: [gap], installedSkills: [],
-      discoverCandidates: async () => [{ kind: 'skill', name: 'candidate', gapId: gap.gapId, provenance,
-        downloadUrl: 'https://raw.githubusercontent.com/owner/repo/HEAD/SKILL.md' }] });
-    expect(await new AgentOrgProposalsRepository().listByStatusAsync('proposed')).toHaveLength(0);
+  it('issue-1483-c2: the install boundary rejects mutable HEAD URLs even with a matching hash', async () => {
+    // Regression caught: a caller bypasses generator validation and installs mutable HEAD content.
+    const body = 'reviewed body';
+    downloadSkillBody.mockResolvedValue(body);
+    const { buildRealExternalAdoptionDeps } = await import('../services/org_proposal_appliers_wiring');
+    await expect(buildRealExternalAdoptionDeps().installSkill({
+      skillName: 'candidate',
+      downloadUrl: 'https://raw.githubusercontent.com/owner/repo/HEAD/SKILL.md',
+      contentSha256: createHash('sha256').update(body).digest('hex'),
+    })).rejects.toThrow(/commit-pinned/);
   });
 
   it('issue-1483-c2: persists the pinned commit URL and reviewed content hash', async () => {

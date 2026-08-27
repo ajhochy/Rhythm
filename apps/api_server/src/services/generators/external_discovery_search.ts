@@ -33,7 +33,9 @@ import { scanContextContent } from '../../security/context_scanner';
 const SKILLS_SH_SEARCH = process.env.RHYTHM_EXTERNAL_DISCOVERY_SEARCH_URL ?? 'https://skills.sh/api/search';
 const GITHUB_API_ORIGIN = (process.env.RHYTHM_EXTERNAL_DISCOVERY_GITHUB_ORIGIN ?? 'https://api.github.com').replace(/\/$/, '');
 /** skills.sh serves raw skill bodies from GitHub; overridable for a mirror/test double. */
-const DOWNLOAD_BASE_URL = process.env.RHYTHM_SKILLS_DOWNLOAD_BASE ?? 'https://raw.githubusercontent.com';
+export const RHYTHM_SKILLS_DOWNLOAD_BASE = (
+  process.env.RHYTHM_SKILLS_DOWNLOAD_BASE ?? 'https://raw.githubusercontent.com'
+).replace(/\/$/, '');
 const FETCH_TIMEOUT_MS = 8000;
 /** Per-gap cap on candidates pulled from each source before the generator's own cap. */
 const MAX_PER_GAP = 3;
@@ -109,7 +111,7 @@ function skillDownloadUrlCandidates(hit: SkillsShHit, commitSha: string): string
   const parts = src.split('/');
   const owner = parts[0];
   const repo = parts[1];
-  const base = `${DOWNLOAD_BASE_URL}/${owner}/${repo}/${commitSha}`;
+  const base = `${RHYTHM_SKILLS_DOWNLOAD_BASE}/${owner}/${repo}/${commitSha}`;
   // The skills.sh `source` is usually just owner/repo; the skill lives in a
   // subdirectory named by the skill (`hit.name`), commonly nested under skills/
   // (e.g. github/awesome-copilot -> skills/<name>/SKILL.md). `source` may also
@@ -239,6 +241,7 @@ export async function searchSkillCandidates(
       sampleSessionId: gap.sampleSessionId,
       categories: gap.intentTags,
       contentSha256: createHash('sha256').update(body).digest('hex'),
+      body,
     });
   }
   return out;
