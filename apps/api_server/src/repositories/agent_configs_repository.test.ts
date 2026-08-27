@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { getDb, setDb } from '../database/db';
 import { AgentConfigsRepository } from './agent_configs_repository';
@@ -381,15 +383,43 @@ describe('AgentConfigsRepository', () => {
   });
 
   describe('remove()', () => {
+    it('defines the projection ledger in both database schemas', () => {
+      const sqlite = readFileSync(join(__dirname, '..', 'database', 'migrations.ts'), 'utf8');
+      const postgres = readFileSync(join(__dirname, '..', 'database', 'postgres_bootstrap.ts'), 'utf8');
+      for (const source of [sqlite, postgres]) {
+        expect(source).toMatch(/CREATE TABLE IF NOT EXISTS agent_profile_projections\s*\(/);
+        expect(source).toMatch(/profile_id\s+TEXT PRIMARY KEY/);
+      }
+    });
+
     it('deletes a custom config and returns true', () => {
       const created = repo.insert({
         label: 'To Delete',
         icon: 'assets/agents/delete.png',
       });
+      getDb().prepare(
+        `INSERT INTO agent_profile_projections (profile_id, projection_state) VALUES (?, 'projected')`,
+      ).run(created.id);
 
       const result = repo.remove(created.id);
       expect(result).toBe(true);
       expect(repo.getById(created.id)).toBeNull();
+      expect(getDb().prepare('SELECT * FROM agent_profile_projections WHERE profile_id = ?').get(created.id))
+        .toBeUndefined();
+    });
+
+    it('rolls back config deletion when projection cleanup fails', () => {
+      const created = repo.insert({ label: 'Atomic Delete', icon: 'delete' });
+      getDb().prepare(
+        `INSERT INTO agent_profile_projections (profile_id, projection_state) VALUES (?, 'projected')`,
+      ).run(created.id);
+      getDb().exec(`CREATE TRIGGER reject_projection_delete BEFORE DELETE ON agent_profile_projections
+        BEGIN SELECT RAISE(ABORT, 'projection cleanup failed'); END`);
+
+      expect(() => repo.remove(created.id)).toThrow(/projection cleanup failed/);
+      expect(repo.getById(created.id)).not.toBeNull();
+      expect(getDb().prepare('SELECT profile_id FROM agent_profile_projections WHERE profile_id = ?').get(created.id))
+        .toEqual({ profile_id: created.id });
     });
 
     it('refuses to delete a built-in preset and returns false', () => {

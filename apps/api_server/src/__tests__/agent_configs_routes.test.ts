@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { startTestServer } from './helpers/real_server';
@@ -664,6 +664,40 @@ describe('DELETE /agent-configs/:id', () => {
       headers: authHeaders,
     });
     expect(getRes.status).toBe(404);
+  });
+
+  it('pr-1489-cleanup-c1: deletes its projection without touching another profile', async () => {
+    const create = async (id: string) => {
+      const response = await fetch(`${baseUrl}/agent-configs`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ id, label: id, isAgent: true }),
+      });
+      expect(response.status).toBe(201);
+    };
+    await create('projection-delete-target');
+    await create('projection-delete-bystander');
+    expect(getDb().prepare('SELECT profile_id FROM agent_profile_projections ORDER BY profile_id').all())
+      .toEqual([
+        { profile_id: 'projection-delete-bystander' },
+        { profile_id: 'projection-delete-target' },
+      ]);
+    const deleteFile = vi.spyOn(writer, 'deleteAgentProfileFile');
+
+    try {
+      const response = await fetch(`${baseUrl}/agent-configs/projection-delete-target`, {
+        method: 'DELETE',
+        headers: authHeaders,
+      });
+      expect(response.status).toBe(204);
+      expect(deleteFile).toHaveBeenCalledWith('projection-delete-target');
+      expect(getDb().prepare('SELECT id FROM agent_configs WHERE id = ?').get('projection-delete-target'))
+        .toBeUndefined();
+      expect(getDb().prepare('SELECT profile_id FROM agent_profile_projections ORDER BY profile_id').all())
+        .toEqual([{ profile_id: 'projection-delete-bystander' }]);
+    } finally {
+      deleteFile.mockRestore();
+    }
   });
 
   it('returns 400 when trying to delete a preset row', async () => {
