@@ -1255,10 +1255,12 @@ export class OpencodeClientService {
           { permission: 'bash', pattern: '*', action: 'deny' },
         ];
       } else if (permissionMode === 'bypassPermissions') {
-        // Engine-side bypass keeps permission-gated tools independent of SSE;
-        // `*` includes external_directory as well as bash/edit.
+        // Keep read/edit/external_directory independent of SSE, but force bash
+        // through the bridge where #878's hardline command blocklist runs.
+        // The fork evaluates with findLast, so this ordering is security-critical.
         body.permission = [
           { permission: '*', pattern: '*', action: 'allow' },
+          { permission: 'bash', pattern: '*', action: 'ask' },
         ];
       }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
@@ -1306,7 +1308,12 @@ export class OpencodeClientService {
       const client = await this.v2Client();
       const permission = permissionMode === 'plan'
         ? [{ permission: 'bash' as const, pattern: '*', action: 'deny' as const }]
-        : [];
+        : permissionMode === 'bypassPermissions'
+          ? [
+              { permission: '*' as const, pattern: '*', action: 'allow' as const },
+              { permission: 'bash' as const, pattern: '*', action: 'ask' as const },
+            ]
+          : [];
       const raw = await client.session.update({ sessionID: sessionId, permission });
       if (raw.error) {
         logger.warn(

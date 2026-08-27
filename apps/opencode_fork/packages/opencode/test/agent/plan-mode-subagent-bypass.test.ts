@@ -210,3 +210,30 @@ it.effect("subagent inherits parent session deny rules as hard runtime ceilings"
     expect(Permission.evaluate("bash", "git status", effective).action).toBe("deny")
   }),
 )
+
+it.effect("subagent inherits bypass allow plus the later bash ask security rule", () =>
+  Effect.sync(() => {
+    const executor = testAgent({
+      name: "executor",
+      mode: "subagent",
+      permission: { read: "ask", bash: "allow" },
+    })
+    const parentSessionPermission: Permission.Ruleset = [
+      { permission: "*", pattern: "*", action: "allow" },
+      { permission: "bash", pattern: "*", action: "ask" },
+    ]
+    const effective = Permission.merge(
+      executor.permission,
+      deriveSubagentSessionPermission({
+        parentSessionPermission,
+        parentAgent: undefined,
+        subagent: executor,
+      }),
+    )
+
+    expect(Permission.evaluate("read", "README.md", effective).action).toBe("allow")
+    expect(Permission.evaluate("edit", "file.ts", effective).action).toBe("allow")
+    expect(Permission.evaluate("external_directory", "/tmp", effective).action).toBe("allow")
+    expect(Permission.evaluate("bash", "rm -rf /", effective).action).toBe("ask")
+  }),
+)

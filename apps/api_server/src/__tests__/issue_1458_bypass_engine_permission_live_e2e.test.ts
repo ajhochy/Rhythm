@@ -181,7 +181,10 @@ describeLive('issue #1458 live engine-side permission bypass', () => {
       expect(engineSession.permission).toContainEqual({
         permission: '*', pattern: '*', action: 'allow',
       });
-      expect(['bash', 'external_directory', 'edit'].every((permission) =>
+      expect(engineSession.permission).toContainEqual({
+        permission: 'bash', pattern: '*', action: 'ask',
+      });
+      expect(['external_directory', 'edit'].every((permission) =>
         engineSession.permission?.some((rule) =>
           (rule.permission === '*' || rule.permission === permission) &&
           rule.pattern === '*' && rule.action === 'allow'),
