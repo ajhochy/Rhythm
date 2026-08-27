@@ -32,7 +32,7 @@ export interface McpAllowlist {
  * Preserves alphanumerics, underscores, and hyphens.
  * Replaces all other characters (dots, colons, slashes, spaces, …) with '_'.
  */
-const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
+export const sanitizeMcpNameSegment = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 
 // ── Type for the internal per-server config shape ─────────────────────────────
 
@@ -104,9 +104,9 @@ export function expandMcpAllowlist(roleConfig: McpRoleConfig): McpAllowlist {
       servers.push(serverName);
     } else {
       // Explicit list: emit "<sanitize(server)>_<sanitize(tool)>" for each tool.
-      const sanitizedServer = sanitize(serverName);
+      const sanitizedServer = sanitizeMcpNameSegment(serverName);
       for (const tool of allowedTools) {
-        tools.push(`${sanitizedServer}_${sanitize(tool)}`);
+        tools.push(`${sanitizedServer}_${sanitizeMcpNameSegment(tool)}`);
       }
     }
   }

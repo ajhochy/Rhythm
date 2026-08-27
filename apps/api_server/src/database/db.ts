@@ -62,7 +62,9 @@ export async function initDb(): Promise<void> {
   runMigrations(_db);
 }
 
-/** For tests only — inject a pre-configured in-memory database instance. */
-export function setDb(db: Database.Database): void {
+/** Swap the global SQLite handle; callers that temporarily replace it must restore the returned handle. */
+export function setDb(db: Database.Database | null): Database.Database | null {
+  const previous = _db;
   _db = db;
+  return previous;
 }

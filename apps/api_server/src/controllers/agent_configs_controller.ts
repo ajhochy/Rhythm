@@ -23,6 +23,7 @@ import {
 } from '../services/agent_skill_wiring';
 import { broadcastAgentConfigsChanged } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
+import { assertMcpToolGrantsKnown } from '../services/mcp_tool_catalog_validation';
 
 const repo = new AgentConfigsRepository();
 
@@ -360,6 +361,13 @@ export class AgentConfigsController {
         }
         id = body.id;
       }
+      if (typeof body.allowedMcpsJson === 'string') {
+        try {
+          await assertMcpToolGrantsKnown(body.allowedMcpsJson, id ?? 'new-agent-config');
+        } catch (error) {
+          throw AppError.badRequest(error instanceof Error ? error.message : String(error));
+        }
+      }
 
       const input: AgentConfigInput = {
         id,
@@ -446,6 +454,13 @@ export class AgentConfigsController {
 
       // Validate the patch body (don't require label/command presence, but validate if provided)
       validateBody(body, false);
+      if (typeof body.allowedMcpsJson === 'string') {
+        try {
+          await assertMcpToolGrantsKnown(body.allowedMcpsJson, existing.id);
+        } catch (error) {
+          throw AppError.badRequest(error instanceof Error ? error.message : String(error));
+        }
+      }
 
       const patch: Partial<AgentConfigInput> = {};
       if (body.label !== undefined) patch.label = (body.label as string).trim();

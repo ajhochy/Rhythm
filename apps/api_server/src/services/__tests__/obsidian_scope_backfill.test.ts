@@ -60,6 +60,11 @@ afterEach(() => {
 });
 
 describe('grantObsidianScope (pure)', () => {
+  it('never seeds phantom per-tool grants', () => {
+    // Regression caught: the marker-gated backfill re-injected fifteen nonexistent tools.
+    expect(OBSIDIAN_READ_TOOLS).toEqual(['obsidian_simple_search']);
+  });
+
   it('appends "obsidian" to an array scope, preserving order + members', () => {
     expect(grantObsidianScope('["rhythm"]')).toBe('["rhythm","obsidian"]');
     expect(grantObsidianScope('["rhythm","gmail-work"]')).toBe(

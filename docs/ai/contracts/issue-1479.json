@@ -1,0 +1,33 @@
+{
+  "issue": 1479,
+  "date": "2026-08-26",
+  "test_command": "npx vitest run src/__tests__/issue_1479_contract.test.ts src/__tests__/scope_hygiene_generator.test.ts src/cli/mcp_tool_grant_drift.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1479-c1",
+      "text": "Validate per-tool entries at write time: when a proposal apply or PATCH writes a tools-map, resolve each entry against the live server's tools/list.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts",
+      "status": "pass",
+      "reason": "Connected-only status handling, cold-engine fail-open editing, stored-key composition, and shared sanitization contracts pass."
+    },
+    {
+      "criterion_id": "issue-1479-c2",
+      "text": "Extend drift detection to tool granularity: emit prune-scope gaps for per-tool entries that match no live tool.",
+      "mode": "unit",
+      "test": "apps/api_server/src/__tests__/issue_1479_contract.test.ts",
+      "status": "pass",
+      "reason": "The binding drift-row assertion remains green; proposal generation is separately constrained to report-only."
+    },
+    {
+      "criterion_id": "issue-1479-c3",
+      "text": "One-time repair pass over existing agent_configs rows to report phantom entries.",
+      "mode": "unit",
+      "test": "apps/api_server/src/cli/mcp_tool_grant_drift.test.ts",
+      "status": "pass",
+      "reason": "Read-only reporting and in-process restoration of the prior global DB handle pass."
+    }
+  ],
+  "not_tested": []
+}

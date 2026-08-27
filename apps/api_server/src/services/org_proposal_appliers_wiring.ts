@@ -128,6 +128,7 @@ import {
   type ScopeProposalKind,
   type ScopeRemovalKind,
 } from './scope_mutation_contract';
+import { assertMcpToolGrantsKnown } from './mcp_tool_catalog_validation';
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
 import { resolveKnownMcpServerName } from './mcp_scope_name';
@@ -976,13 +977,16 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
 };
 
 // ── refine-scope ──
-function validateRefineScope(proposal: AgentOrgProposal): ProposalValidationResult {
+async function validateRefineScope(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
   try {
     const exactChangeJson = proposal.changeJson ?? '';
     const parsed = parseScopeMutation('refine-scope', exactChangeJson);
     const config = new AgentConfigsRepository().getById(parsed.agentConfigId);
     if (!config) return { valid: false, reason: `refine-scope target agent_config '${parsed.agentConfigId}' no longer exists` };
-    prepareScopeMutation('refine-scope', exactChangeJson, readAgentConfigField(config, parsed.field));
+    const prepared = prepareScopeMutation('refine-scope', exactChangeJson, readAgentConfigField(config, parsed.field));
+    if (parsed.field === 'allowedMcpsJson') {
+      await assertMcpToolGrantsKnown(prepared.expectedAppliedValue, parsed.agentConfigId);
+    }
     return { valid: true };
   } catch (error) {
     return { valid: false, reason: String(error instanceof Error ? error.message : error) };
@@ -1065,7 +1069,10 @@ async function validateBroadenScope(proposal: AgentOrgProposal): Promise<Proposa
     const patch = parseScopeMutation('broaden-scope', exactChangeJson);
     const config = new AgentConfigsRepository().getById(patch.agentConfigId);
     if (!config) return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
-    prepareScopeMutation('broaden-scope', exactChangeJson, readAgentConfigField(config, patch.field));
+    const prepared = prepareScopeMutation('broaden-scope', exactChangeJson, readAgentConfigField(config, patch.field));
+    if (patch.field === 'allowedMcpsJson') {
+      await assertMcpToolGrantsKnown(prepared.expectedAppliedValue, patch.agentConfigId);
+    }
     if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.add!);
     return { valid: true };
   } catch (error) {
@@ -1135,8 +1142,12 @@ async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<Proposa
     const patch = parseScopeMutation(kind, exactChangeJson);
     const config = new AgentConfigsRepository().getById(patch.agentConfigId);
     if (!config) return { valid: false, reason: `${proposal.kind} target agent_config '${patch.agentConfigId}' no longer exists` };
-    prepareScopeMutation(kind, exactChangeJson, readAgentConfigField(config, patch.field));
-    if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.remove!);
+    const prepared = prepareScopeMutation(kind, exactChangeJson, readAgentConfigField(config, patch.field));
+    if (patch.field === 'allowedMcpsJson') {
+      const serverValidation = await validateMcpScopeNames(patch.remove!);
+      if (!serverValidation.valid) return serverValidation;
+      await assertMcpToolGrantsKnown(prepared.expectedAppliedValue, patch.agentConfigId);
+    }
     return { valid: true };
   } catch (error) {
     return { valid: false, reason: String(error instanceof Error ? error.message : error) };

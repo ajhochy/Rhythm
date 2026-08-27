@@ -75,8 +75,9 @@ import type { OrgAuditSnapshot, OrgAuditGap, SkillOverlapCandidate } from '../or
 import type { AgentOrgProposalInput } from '../../models/agent_org_proposal';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
+import { resolveProfileMcpScope } from '../agent_profile_scope';
 
-export type ScopeKind = 'mcp' | 'skill';
+export type ScopeKind = 'mcp' | 'mcp-tool' | 'skill';
 
 /** Shape written to `change_json` for a scope mutation — mirrors org_proposal_apply.ts's AgentConfigScopeChange. */
 interface AgentConfigScopeChangePayload {
@@ -107,12 +108,41 @@ function defaultIsUserAuthoredScopeEntry(): boolean {
   return false;
 }
 
+function mcpRequirementAliases(serverName: string): string[] {
+  const lower = serverName.toLowerCase();
+  const withoutSuffix = lower.replace(/[-_]mcp$/, '');
+  return [...new Set([
+    lower,
+    lower.replaceAll('-', '_'),
+    lower.replaceAll('_', '-'),
+    withoutSuffix,
+    withoutSuffix.replaceAll('-', '_'),
+    withoutSuffix.replaceAll('_', '-'),
+  ].filter(Boolean))];
+}
+
 function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): boolean {
   try {
     const config = new AgentConfigsRepository().getById(profileId);
-    if (config?.systemPrompt?.includes(serverName)) return true;
+    if (!config) return false;
+    const aliases = mcpRequirementAliases(serverName);
+    const mentionsServer = (text: string | null | undefined) => {
+      const lower = text?.toLowerCase() ?? '';
+      return aliases.some((alias) => lower.includes(alias));
+    };
+    if (mentionsServer(config.systemPrompt)) return true;
 
-    const allowedSkills = config?.allowedSkillsJson
+    const scope = resolveProfileMcpScope(config.allowedMcpsJson, config.id, config.label);
+    if (
+      scope.shape === 'tools-map' &&
+      Object.entries(scope.toolsByServer).some(
+        ([storedServer, tools]) =>
+          tools.length > 0 &&
+          mcpRequirementAliases(storedServer).some((alias) => aliases.includes(alias)),
+      )
+    ) return true;
+
+    const allowedSkills = config.allowedSkillsJson
       ? new Set(
           (JSON.parse(config.allowedSkillsJson) as unknown[]).filter(
             (name): name is string => typeof name === 'string',
@@ -123,7 +153,7 @@ function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): b
       .list()
       .some(
         (skill) =>
-          allowedSkills.has(skill.title) && (skill.body?.includes(serverName) ?? false),
+          allowedSkills.has(skill.title) && mentionsServer(skill.body),
       );
   } catch {
     return false;
@@ -131,17 +161,22 @@ function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): b
 }
 
 function scopeField(scopeKind: ScopeKind): 'allowedMcpsJson' | 'allowedSkillsJson' {
-  return scopeKind === 'mcp' ? 'allowedMcpsJson' : 'allowedSkillsJson';
+  return scopeKind === 'skill' ? 'allowedSkillsJson' : 'allowedMcpsJson';
 }
 
-/** Parses `profile=<id> scopeKind=<mcp|skill> deadName=<name>` (org_audit_service's detectPruneGaps evidence format). */
+/** Parses org_audit_service's server-, tool-, and skill-level prune evidence. */
 function parsePruneEvidence(
   evidence: string,
-): { profileId: string; scopeKind: ScopeKind; name: string } | null {
+): { profileId: string; scopeKind: ScopeKind; name: string; serverName?: string } | null {
   const match = /^profile=(\S+) scopeKind=(mcp|skill) deadName=(\S+)$/.exec(evidence);
-  if (!match) return null;
-  const [, profileId, scopeKind, name] = match;
-  return { profileId, scopeKind: scopeKind as ScopeKind, name };
+  if (match) {
+    const [, profileId, scopeKind, name] = match;
+    return { profileId, scopeKind: scopeKind as ScopeKind, name };
+  }
+  const toolMatch = /^profile=(\S+) scopeKind=(mcp-tool) serverName=(\S+) deadName=(\S+)$/.exec(evidence);
+  if (!toolMatch) return null;
+  const [, profileId, scopeKind, serverName, name] = toolMatch;
+  return { profileId, scopeKind: scopeKind as ScopeKind, serverName, name };
 }
 
 /**
@@ -250,7 +285,13 @@ export async function generateScopeHygieneProposals(
   for (const gap of snapshot.gaps) {
     try {
       if (gap.kind === 'prune-scope') {
-        await handlePruneGap(gap, snapshot, proposalsRepo, isUserAuthoredScopeEntry);
+        await handlePruneGap(
+          gap,
+          snapshot,
+          proposalsRepo,
+          isUserAuthoredScopeEntry,
+          isMcpRequiredByProfile,
+        );
       } else if (gap.kind === 'tighten-scope') {
         await handleTightenGap(gap, snapshot, proposalsRepo, isMcpRequiredByProfile);
       }
@@ -278,10 +319,25 @@ async function handlePruneGap(
   snapshot: OrgAuditSnapshot,
   proposalsRepo: NonNullable<ScopeHygieneDeps['proposalsRepo']>,
   isUserAuthoredScopeEntry: NonNullable<ScopeHygieneDeps['isUserAuthoredScopeEntry']>,
+  isMcpRequiredByProfile: NonNullable<ScopeHygieneDeps['isMcpRequiredByProfile']>,
 ): Promise<void> {
   const parsed = parsePruneEvidence(gap.evidence);
   if (!parsed) {
     logger.warn(`[scope-hygiene-generator] unparseable prune-scope evidence for gap '${gap.gapId}': '${gap.evidence}'`);
+    return;
+  }
+
+  // Per-tool phantom grants remain visible in drift/gap reports, but the
+  // current mutation contract can only remove whole server keys.
+  if (parsed.scopeKind === 'mcp-tool') return;
+
+  if (
+    parsed.scopeKind === 'mcp' &&
+    isMcpRequiredByProfile(parsed.profileId, parsed.serverName ?? parsed.name)
+  ) {
+    logger.info(
+      `[scope-hygiene-generator] skipped prune-scope for '${parsed.name}' on '${parsed.profileId}' because the profile prompt/skills require it`,
+    );
     return;
   }
 

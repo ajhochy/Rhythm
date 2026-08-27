@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   // server.ts's own `loadDotenv` call; done here (not at module load) so
   // importing doctor.ts/setup.ts for tests stays side-effect-free.
   const { config: loadDotenv } = await import('dotenv');
-  loadDotenv();
+  loadDotenv({ quiet: true });
 
   const [, , subcommand, ...rest] = process.argv;
 
@@ -37,10 +37,15 @@ async function main(): Promise<void> {
       await runSessionBindingCleanupCli(rest);
       return;
     }
+    case 'mcp-tool-grant-drift': {
+      const { runMcpToolGrantDriftCli } = await import('./mcp_tool_grant_drift');
+      await runMcpToolGrantDriftCli(rest);
+      return;
+    }
     default: {
       // eslint-disable-next-line no-console
       console.log(
-        'Usage: rhythm <doctor|setup|session-binding-cleanup> [options]',
+        'Usage: rhythm <doctor|setup|session-binding-cleanup|mcp-tool-grant-drift> [options]',
       );
       process.exitCode = 1;
     }

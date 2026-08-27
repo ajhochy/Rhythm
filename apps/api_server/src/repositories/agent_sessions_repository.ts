@@ -24,6 +24,7 @@ import {
  * uncapped read stays cheap.
  */
 export interface SessionOwnershipFacet {
+  id: string;
   status: AgentSessionStatus;
   scheduledTaskId: string | null;
   mcpRole: string | null;
@@ -552,7 +553,7 @@ export class AgentSessionsRepository {
    * didn't look" indistinguishable from "nothing to improve". A count must be
    * taken over the whole population, so this read has no cap.
    *
-   * Only the four columns the ownership resolver actually reads are selected,
+   * Only the five columns the ownership resolver actually reads are selected,
    * so the uncapped row set stays small even on a database with hundreds of
    * thousands of sessions. Callers needing full session rows should keep using
    * the bounded `listAll`.
@@ -560,7 +561,7 @@ export class AgentSessionsRepository {
   listOwnershipFacets(): SessionOwnershipFacet[] {
     return getDb()
       .prepare(
-        `SELECT status, scheduled_task_id, mcp_role, agent_kind
+        `SELECT id, status, scheduled_task_id, mcp_role, agent_kind
            FROM agent_sessions
           WHERE category = 'chat' AND is_system = 0`,
       )
@@ -568,9 +569,10 @@ export class AgentSessionsRepository {
       .map((row) => {
         const r = row as Pick<
           AgentSessionRow,
-          'status' | 'scheduled_task_id' | 'mcp_role' | 'agent_kind'
+          'id' | 'status' | 'scheduled_task_id' | 'mcp_role' | 'agent_kind'
         >;
         return {
+          id: r.id,
           status: r.status as AgentSessionStatus,
           scheduledTaskId: r.scheduled_task_id ?? null,
           mcpRole: r.mcp_role ?? null,

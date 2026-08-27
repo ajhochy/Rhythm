@@ -85,7 +85,7 @@ opencodeMcpRouter.get(
       const persistedConfigs = await opencodeClient.getPersistedMcpConfigs();
       let toolIds: string[] = [];
       try {
-        toolIds = await opencodeClient.listToolIds();
+        toolIds = await opencodeClient.listMcpToolIds();
       } catch {
         // Tool discovery is an editor enhancement; server status remains useful
         // when an older/unready engine cannot expose the experimental catalog.

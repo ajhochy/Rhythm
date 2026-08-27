@@ -3021,6 +3021,20 @@ export class OpencodeClientService {
     return reconciled;
   }
 
+  /** Lists composed tool IDs from connected MCP servers, not built-in tools. */
+  async listMcpToolIds(): Promise<string[]> {
+    if (!this.isReady) throw new AppError(503, 'ENGINE_UNAVAILABLE', 'OpenCode engine is not ready');
+    const response = await fetch(`${this.serverUrl}/mcp/tools`);
+    if (!response.ok) {
+      throw new AppError(502, 'SDK_ERROR', `listMcpToolIds failed: HTTP ${response.status}`);
+    }
+    const data: unknown = await response.json();
+    if (!Array.isArray(data) || !data.every((value) => typeof value === 'string')) {
+      throw new AppError(502, 'SDK_ERROR', 'listMcpToolIds returned an invalid response');
+    }
+    return data;
+  }
+
   /** Lists the live engine tool ids used by the profile capability editor. */
   async listToolIds(): Promise<string[]> {
     const client = this.requireClient();
