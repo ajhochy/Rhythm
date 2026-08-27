@@ -29,6 +29,7 @@ import type { AgentConfig, AgentConfigInput } from '../repositories/agent_config
 import { projectAgentProfileAfterWrite } from './agent_profile_projection_service';
 import { syncOpencodeAgentProfiles } from './agent_profile_sync';
 import { logger } from '../utils/logger';
+import { assertMcpToolGrantsKnown } from './mcp_tool_catalog_validation';
 
 /** Current bundle schema version. Bump on any breaking shape change. */
 export const AGENT_CONFIG_BUNDLE_VERSION = 1;
@@ -265,6 +266,14 @@ function toInput(incoming: AgentConfigBundleProfile): AgentConfigInput {
 export async function importAgentConfigBundle(bundle: AgentConfigBundle): Promise<ImportResult[]> {
   const repo = new AgentConfigsRepository();
   const results: ImportResult[] = [];
+
+  // Validate every row that could write before the first synchronous mutation.
+  // A later invalid grant therefore rejects the whole bundle without partial persistence.
+  for (const incoming of bundle.profiles) {
+    const existing = repo.getById(incoming.id);
+    if ((existing && existing.presetId !== null) || (existing && isNoopImport(existing, incoming))) continue;
+    await assertMcpToolGrantsKnown(incoming.allowedMcpsJson, incoming.id);
+  }
 
   for (const incoming of bundle.profiles) {
     try {

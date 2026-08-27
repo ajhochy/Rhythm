@@ -7,6 +7,7 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import { computeNextRun } from '../services/agentSchedulerService';
+import { assertMcpToolGrantsKnown } from '../services/mcp_tool_catalog_validation';
 
 const repo = new AgentScheduledTasksRepository();
 const runsRepo = new AgentScheduledTaskRunsRepository();
@@ -48,6 +49,17 @@ function assertSchedulableProfile(configId: string | null | undefined): void {
       `"${config.label}" is a delegation-only subagent and can't be scheduled — ` +
         `make it schedulable (or session-selectable) in the agent designer to run it standalone.`,
     );
+  }
+}
+
+async function assertKnownScheduleMcpToolGrants(
+  allowedMcpsJson: string | null,
+  profileId: string,
+): Promise<void> {
+  try {
+    await assertMcpToolGrantsKnown(allowedMcpsJson, profileId);
+  } catch (error) {
+    throw AppError.badRequest(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -112,6 +124,16 @@ export class AgentSchedulesController {
             : null,
       );
 
+      const allowedMcpsJson = allowedMcps != null ? (JSON.stringify(allowedMcps) ?? null) : null;
+      await assertKnownScheduleMcpToolGrants(
+        allowedMcpsJson,
+        typeof agentConfigId === 'string'
+          ? agentConfigId
+          : typeof agentKind === 'string'
+            ? agentKind
+            : 'scheduled-task',
+      );
+
       const tz = (typeof timezone === 'string' ? timezone : undefined) ?? 'America/Los_Angeles';
 
       const nextRunAt = computeNextRun({
@@ -136,7 +158,7 @@ export class AgentSchedulesController {
         prompt,
         agentKind: typeof agentKind === 'string' ? agentKind : (typeof agentConfigId === 'string' ? agentConfigId : 'opencode'),
         agentConfigId: typeof agentConfigId === 'string' ? agentConfigId : (typeof agentKind === 'string' ? agentKind : null),
-        allowedMcpsJson: allowedMcps != null ? JSON.stringify(allowedMcps) : undefined,
+        allowedMcpsJson: allowedMcpsJson ?? undefined,
         allowedSkillsJson: allowedSkills != null ? JSON.stringify(allowedSkills) : undefined,
         modelProvider: typeof modelProvider === 'string' ? modelProvider : undefined,
         modelId: typeof modelId === 'string' ? modelId : undefined,
@@ -186,8 +208,16 @@ export class AgentSchedulesController {
       }
 
       if ('allowedMcps' in patch) {
-        patch.allowedMcpsJson = JSON.stringify(patch.allowedMcps);
+        patch.allowedMcpsJson = JSON.stringify(patch.allowedMcps) ?? null;
         delete patch.allowedMcps;
+        await assertKnownScheduleMcpToolGrants(
+          patch.allowedMcpsJson as string | null,
+          typeof patch.agentConfigId === 'string'
+            ? patch.agentConfigId
+            : typeof patch.agentKind === 'string'
+              ? patch.agentKind
+              : (existing.agentConfigId ?? existing.agentKind),
+        );
       }
       if ('allowedSkills' in patch) {
         patch.allowedSkillsJson = JSON.stringify(patch.allowedSkills);

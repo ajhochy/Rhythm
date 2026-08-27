@@ -1,0 +1,49 @@
+{
+  "issue": 1488,
+  "date": "2026-08-27",
+  "test_command": "npx vitest run src/__tests__/issue_1488_f5_contract.test.ts --no-file-parallelism",
+  "waiver": null,
+  "criteria": [
+    {
+      "criterion_id": "issue-1488-c1",
+      "text": "A connected server's unknown per-tool grant is rejected before schedule create/update persistence and the previous row remains byte-identical.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1488_f5_contract.test.ts",
+      "status": "pass",
+      "reason": "The HTTP contract proves rejected create adds no row and rejected update leaves the raw SQLite row byte-identical."
+    },
+    {
+      "criterion_id": "issue-1488-c2",
+      "text": "Import validation fails the whole profile import before persistence, leaving all previous rows byte-identical.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1488_f5_contract.test.ts",
+      "status": "pass",
+      "reason": "All would-write profiles are catalog-validated before the first synchronous repository mutation."
+    },
+    {
+      "criterion_id": "issue-1488-c3",
+      "text": "Valid connected grants pass through schedule and import persistence.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1488_f5_contract.test.ts",
+      "status": "pass",
+      "reason": "The connected catalog's exact composed tool ID persists through both HTTP surfaces."
+    },
+    {
+      "criterion_id": "issue-1488-c4",
+      "text": "Non-connected servers do not falsely reject legitimate schedule or import writes.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1488_f5_contract.test.ts",
+      "status": "pass",
+      "reason": "A needs_auth server is excluded from judgment at both boundaries."
+    },
+    {
+      "criterion_id": "issue-1488-c5",
+      "text": "Catalog-unavailable servers fail open for schedule and import writes, matching profile-edit semantics.",
+      "mode": "integration",
+      "test": "apps/api_server/src/__tests__/issue_1488_f5_contract.test.ts",
+      "status": "pass",
+      "reason": "A rejected live catalog request does not block either write path."
+    }
+  ],
+  "not_tested": []
+}

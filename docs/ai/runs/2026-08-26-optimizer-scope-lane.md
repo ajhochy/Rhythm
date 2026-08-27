@@ -3,7 +3,7 @@ date: 2026-08-26
 repo: Rhythm
 branch: fix/optimizer-scope-lane
 pr: pending
-issues: [1479, 1482]
+issues: [1479, 1482, 1488]
 status: verified
 tags: [run, Rhythm]
 ---
@@ -156,3 +156,23 @@ The report was read-only; no live `agent_configs` rows were changed.
 - `git diff --check` and contract JSON parse — exit 0.
 - Sandbox/live gate: **not run**, per dispatch; the shared sandbox remained reserved for later serial verification.
 - GitNexus impact for every edited symbol and final `detect_changes(scope=all)` were attempted. Both failed with: `Database file version: 42, Current build storage version: 41`; risk remained UNKNOWN rather than being skipped or inferred.
+
+## 2026-08-27 F5 async-producer completion
+
+### Files / behavior
+
+- `apps/api_server/src/controllers/agentSchedulesController.ts`: schedule create and update now run `assertMcpToolGrantsKnown` after request normalization and before repository persistence; validation errors are the same HTTP 400 used by profile edits.
+- `apps/api_server/src/services/agent_config_export_import.ts`: every non-preset, non-noop profile that could write is validated before the importer enters its synchronous write loop. A later invalid profile therefore rejects the HTTP import before any earlier profile changes; no async engine dependency was added to `AgentConfigsRepository`.
+- `apps/api_server/src/__tests__/issue_1488_f5_contract.test.ts` and `docs/ai/contracts/issue-1488.json`: connected unknown create/update/import rejection, raw-row nonmutation, valid connected persistence, non-connected fail-open, and unavailable-catalog fail-open contracts.
+- Both async trust boundaries safely host validation; no path was rejected and no follow-up issue is required.
+
+### Acceptance / checks
+
+- RED: `cd apps/api_server && npx vitest run src/__tests__/issue_1488_f5_contract.test.ts --no-file-parallelism` — **2 failed, 3 passed**; schedule update and multi-profile import both persisted/returned success without catalog rejection.
+- Repair attempt 1: same command — **1 failed, 4 passed**; persistence was blocked, but schedule surfaced the validator as HTTP 500 rather than profile-edit-compatible 400.
+- GREEN: same command — **5/5 passed**.
+- Focused regressions: `npx vitest run src/__tests__/issue_1488_f5_contract.test.ts src/__tests__/agent_configs_export_import.test.ts src/__tests__/agent_schedules_delegation_guard.test.ts src/__tests__/issue_1479_contract.test.ts --no-file-parallelism` — final rerun **28/28 passed**, including rejected schedule create non-persistence.
+- `npm run build` and `node_modules/.bin/tsc --noEmit` — exit 0.
+- `git diff --check` — exit 0; changed scope is the two async producers, one focused contract test, contract JSON, and this run note.
+- GitNexus impact for `AgentSchedulesController.create`, `AgentSchedulesController.update`, and `importAgentConfigBundle`, plus final `detect_changes(scope=all)`, were attempted. All were unavailable with LadybugDB file **v42** / client storage **v41**; risk is UNKNOWN, with no HIGH/CRITICAL result.
+- Sandbox was not started, per dispatch. Re-verification remains the next external gate.
