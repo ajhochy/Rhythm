@@ -335,7 +335,8 @@ describe('#747 — Background activity indicator', () => {
 
       // Child appears in listAll.
       const all = agentSessionsRepo.listAll();
-      expect(all.some((s) => s.id === child!.id)).toBe(true);
+      const listedParent = all.find((s) => s.id === parent.id);
+      expect(listedParent?.children?.some((s) => s.id === child!.id)).toBe(true);
     });
   });
 

@@ -13,7 +13,10 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
-import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  AgentSessionsRepository,
+  flattenAgentSessionTree,
+} from '../repositories/agent_sessions_repository';
 import { startTestServer } from './helpers/real_server';
 
 // Mock opencode engine — we never need a real engine in these tests.
@@ -129,7 +132,7 @@ describe('#743 — upsertChildSession (repository)', () => {
     expect(child1!.id).toBe(child2!.id);
 
     // Only one row should exist for sdk-child-2.
-    const allSessions = repo.listAll(50);
+    const allSessions = flattenAgentSessionTree(repo.listAll(50));
     const childRows = allSessions.filter((s) => s.sdkSessionId === 'sdk-child-2');
     expect(childRows).toHaveLength(1);
   });

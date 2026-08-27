@@ -67,6 +67,25 @@ tags: [run, Rhythm]
 - The env-gated `issue_1466_1475_live_e2e.test.ts` was extended to seed 100 newer roots around one old root with newest activity, while retaining the 101-child nesting proof.
 - It was not run because the user reserved the single shared sandbox for later serial verification.
 
+### Clean-main full-suite test repair
+
+- `WAIVED: test-only assertion repair with no product behavior change; verification is the focused four-test run, clean-environment full API suite, build/tsc, and product-source-empty diff.`
+- Repaired only inherited test assumptions: explicit empty CORS input, nested child visibility, flattened duplicate counting, and direct persisted SDK-session lookup. The nested repository contract and product consumers were unchanged.
+- `cd apps/api_server && RHYTHM_LOCAL_RENDERER_ORIGINS='' npx vitest run src/services/opencode_client_service.test.ts src/__tests__/background_status.test.ts src/__tests__/issue_743_child_session_persistence.test.ts src/__tests__/issue_751_session_mapping.test.ts`
+  - PASS: 4 files, 86 tests.
+- `cd apps/api_server && /usr/bin/env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMPDIR" npm test`
+  - PASS: 636 files / 5,970 tests; 118 files / 207 tests skipped by their existing gates; 754 files / 6,177 tests total.
+- `cd apps/api_server && npm run build`
+  - PASS: TypeScript build and postbuild.
+- `cd apps/api_server && npx tsc --noEmit`
+  - PASS.
+- `git diff --check`
+  - PASS.
+- `git diff --exit-code -- ':(glob)apps/api_server/src/**/*.ts' ':(glob,exclude)apps/api_server/src/**/*.test.ts'`
+  - PASS: product-source diff empty.
+- GitNexus impact attempts for `resolveOpencodeCorsOrigins`, `listAll`, `flattenAgentSessionTree`, and `findBySdkSessionId`, plus `detect_changes(scope=all)`, returned the expected index storage v42/runtime storage v41 incompatibility. Risk remained `UNKNOWN`; no HIGH or CRITICAL result was returned.
+- Sandbox/live gate intentionally not run: this change is test-only and PR #1489 owns sandbox verification. Existing PR #1486 live evidence remains ready for that serial gate.
+
 ## Finding disposition
 
 - **F1 fixed.** Root queries use `COALESCE(last_activity_at, updated_at, created_at) DESC`. #1466 AC4 is `pass` on executable evidence, not the former contradicted rationale.
@@ -87,4 +106,4 @@ tags: [run, Rhythm]
 
 - Sandbox intentionally not started: the shared serial sandbox is reserved while sibling worktrees are active.
 - GitNexus query and every planned symbol impact call failed with the requested recorded compatibility error: index storage v42, current runtime storage v41. Risk therefore remained `UNKNOWN`; exact caller/file inspection was used as the fallback. No HIGH or CRITICAL result was returned.
-- No commits or pushes performed. Commit SHAs: none.
+- This run is included in the single test-only repair commit; no push performed.

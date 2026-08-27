@@ -88,7 +88,7 @@ describe('RHYTHM_LOCAL_RENDERER_ORIGINS engine bridge', () => {
   });
 
   it('does not fabricate an engine CORS allowlist when the host supplied none', () => {
-    expect(resolveOpencodeCorsOrigins(undefined)).toEqual([]);
+    expect(resolveOpencodeCorsOrigins('')).toEqual([]);
     expect(buildOpencodeServerOptions(4096, [])).toEqual({ port: 4096 });
   });
 });
