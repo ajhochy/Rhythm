@@ -4,7 +4,7 @@ repo: Rhythm
 branch: fix/bridge-stream-reliability-repair
 pr: 1487
 issues: [1455, 1456, 1457, 1458]
-status: ready_for_verification
+status: pass
 tags: [run, Rhythm]
 ---
 
@@ -43,7 +43,18 @@ tags: [run, Rhythm]
 - F11 fixed: restored the #688 timer tripwire at exactly two timers plus `scheduleGlobalRetry`.
 - F12 fixed: replacement PID is written immediately after spawn; readiness timeout remains owned and cleanable; API survival uses `kill -0 "$api_pid"`.
 - F13 fixed: restored the #1332, D4.4, and gateway/tailnet rationale blocks, restored the full guard literal, and removed no-op `OPENCODE_CONFIG_CONTENT={}`.
-- Evidence hygiene fixed: deleted the restart regex harness and two cross-file regex assertions; #1456's emitted marker is absent from both prompts; #1458 AC1/AC4 are explicitly UNVERIFIED for physical stream loss; #1457 AC5 is UNVERIFIED because no shipping client consumes `/opencode/health`.
+- Evidence hygiene fixed: deleted the restart regex harness and two cross-file regex assertions; #1456's emitted marker is absent from both prompts; #1458 AC1/AC4 are bound to physical stream loss; #1457 AC5 is bound to the shipping Flutter bridge-status parser/controller/widget.
 - Ponytail cleanup: removed the unused per-part delta accumulator and the unconsumed reconnecting health copy.
 - Commits: `34c6d3c0` security permission reachability; `20e5e64d` synchronous/turn-scoped bridge; `8e152d38` replacement-engine ownership.
-- AJ/later serial verifier: run the reserved sandbox live suites. No live claim was added in this concurrent code-and-tests pass.
+- The reserved serial sandbox verification is recorded below; no product or test source changed during that verification.
+
+## Final serial verification — HEAD `35048c53`
+
+- Worktree started clean on `fix/bridge-stream-reliability-repair`; sandbox used canonical read-only fixture v2 and `/private/var/folders/f0/kwf9lqtx57qgt3j4rbtvg1ym0000gn/T/opencode/rhythm-s2-review-final` with the two live-isolation flags present for the full lifecycle.
+- Focused API: 200 passed / 6 skipped; reconnect contracts: 57/57; fork permissions: 6/6; sandbox guards: 18/18; focused hardline denial: 2/2; Flutter bridge banner: 1/1; API build/typecheck, Dart format, Flutter analyze, shell syntax, JSON parse, and `git diff --check` exited zero.
+- #1458 physical stream-down: 1/1. The bridge-only suspension produced API `status: unavailable`, `bridgeLive: false`, and one reconnecting transition while engine health remained true. Real read, edit, and external-directory read completed through the engine permission path; the edit reached disk; engine `GET /permission` and bridge permission frames stayed empty. Resume restored ready/live and emitted ready. Static engine-shaped hardline tests kept bash on `ask` and denied `curl … | sh` as `curl-pipe-shell`.
+- #1457: 1/1 live engine replacement plus 1/1 shipping Flutter widget. API PID stayed stable across engine replacement; bridge recovery completed; the backend contract emitted one deduplicated reconnecting/ready pair; the production Flutter parser/controller rendered the accessible reconnecting copy without failing sessions and cleared it on ready.
+- #1457 visual artifact: `apps/desktop_flutter/test/features/agents/goldens/issue_1457_bridge_reconnecting.png` — 1400x900 PNG, SHA-256 `cc440da5b35eb79c921c45e507d1580b2e574e7cdc24f6d5a28774d0cd24263e`; the normal (non-update) comparator passed at HEAD `b71c69b0`.
+- #1455/#1456: 2/2 live; #1325: 2/2 live. Focused contracts separately passed role isolation, a current structured turn behind more than 200 older messages, synchronous no-history relay, one subscription in flight, permission-mode upgrade/downgrade clearing, and inherited fork rules.
+- Cleanup: final API/engine health was ready/healthy, engine permission queue empty, sandbox SQLite integrity `ok`, sandbox ports `4097/4098/4099` clear after `down`, and protected live PIDs `3458`/`3496` remained alive on `4001`/`4096`. Source fixture hashes remained DB `132e19c989ff33eda219440ede8a643b15ad28bf5c32c96a097be5ab8e3daa64` and config `d72041ee724d79aa83a9f2261e5429840de63827e36df71a9075336444846e10`.
+- GitNexus manager MCP was unavailable in this verification session, so no worktree-local CLI was substituted. Earlier branch attempts consistently failed on index storage v42 versus connected client v41; scope risk remains UNKNOWN.

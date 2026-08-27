@@ -73,17 +73,17 @@
       "text": "F13: restore the four security-rationale comment blocks and full sandbox guard literal; explain or remove OPENCODE_CONFIG_CONTENT={}.",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
-      "reason": "Comment/evidence restoration is verified by review of the final diff, not behavior."
+      "status": "pass",
+      "reason": "Final diff review found the #1332, D4.4, and gateway/tailnet rationale blocks, the full sandbox guard environment literal, and no no-op OPENCODE_CONFIG_CONTENT={} assignment."
     },
     {
       "criterion_id": "issue-1487-c10",
       "text": "Evidence hygiene: delete source-regex/stub-only artifacts and make live criteria honest about unproven stream-down and user-visible behavior.",
       "mode": "manual",
       "test": null,
-      "status": "UNVERIFIED",
-      "reason": "Artifact deletion and criterion wording are final-diff review items."
+      "status": "pass",
+      "reason": "Final diff and file review found no restart regex harness; physical stream-down and shipping Flutter behavior are now bound to executable live/widget evidence, and the serial run passed."
     }
   ],
-  "not_tested": ["issue-1487-c9", "issue-1487-c10"]
+  "not_tested": []
 }
