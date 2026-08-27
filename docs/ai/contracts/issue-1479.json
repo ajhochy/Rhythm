@@ -1,7 +1,7 @@
 {
   "issue": 1479,
   "date": "2026-08-26",
-  "test_command": "npx vitest run src/__tests__/opc_m4_3_mcp_routes.test.ts src/__tests__/issue_1479_contract.test.ts && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts --no-file-parallelism",
+  "test_command": "(cd ../opencode_fork/packages/opencode && bun run typecheck) && npx vitest run src/__tests__/opc_m4_3_mcp_routes.test.ts src/__tests__/issue_1479_contract.test.ts && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db RHYTHM_LIVE_DB_PATH=$RHYTHM_SANDBOX_DIR/rhythm.db npx vitest run src/__tests__/issue_1479_1482_optimizer_scope_live_e2e.test.ts --no-file-parallelism",
   "waiver": null,
   "criteria": [
     {

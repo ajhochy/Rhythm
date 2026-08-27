@@ -61,6 +61,18 @@ tags: [run, Rhythm]
 - No deterministic fixture was added: this S3 repair is the one-line product wiring defect found by S4's real sandbox run; S4 retains ownership of the sandbox and live rerun.
 - GitNexus route/symbol impact was retried before the product edit and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN and no HIGH/CRITICAL result.
 
+### S3 fork test-only typecheck repair
+
+- WAIVED: test-only exhaustive mock typing repair with no production behavior change; verification is the focused fork test plus fork typecheck and a production-source diff against 03dd5e62.
+- Dependency proof: `apps/opencode_fork/node_modules` was an absolute symlink to `/Users/ajhochhalter/Documents/Rhythm/apps/opencode_fork/node_modules`. Only that ignored S3-worktree symlink was removed; `cd apps/opencode_fork && bun install --frozen-lockfile` created a worktree-local directory, and tracked manifests/lockfiles remained unchanged.
+- Added the exhaustive MCP `tools` test handler with the endpoint's exact `string[]` response typing in `httpapi-mcp-oauth.test.ts`; no production fork source changed.
+- `cd apps/opencode_fork/packages/opencode && bun test test/server/httpapi-mcp-oauth.test.ts` — 1/1 passed.
+- `cd apps/opencode_fork/packages/opencode && bun run typecheck` — exit 0; all three previously triaged errors are gone.
+- `cd apps/api_server && npx vitest run src/__tests__/opc_m4_3_mcp_routes.test.ts src/__tests__/issue_1479_contract.test.ts` — 23/23 passed.
+- `cd apps/api_server && npm run build && npx tsc --noEmit` — exit 0.
+- No sandbox or server command was run; S2 owns the sandbox. Criteria c1-c3 remain `UNVERIFIED` and listed in `not_tested` pending the serial live rerun.
+- GitNexus impact and final `detect_changes(scope=all)` were retried and remained unavailable with LadybugDB file v42/client storage v41; risk UNKNOWN, not HIGH/CRITICAL. Git diff checks independently confirmed the three-file test/docs scope.
+
 ## Existing-row report
 
 Read-only comparison against the issue's live Obsidian catalog found 16 phantom grants outside the now-repaired theologian row:
