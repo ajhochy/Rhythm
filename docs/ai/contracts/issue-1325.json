@@ -42,8 +42,8 @@
       "mode": "live",
       "test_file": "apps/api_server/src/__tests__/issue_1325_live_e2e.test.ts",
       "test_id": "issue-1325-c5: supported engine-only restart preserves API and restores bridge",
-      "status": "UNVERIFIED",
-      "reason": "S5 owns the sole sandbox; the supported replacement path is implemented and statically guarded but awaits the third serial live gate."
+      "status": "pass",
+      "reason": "Live sandbox file passed 2/2: the API PID stayed unchanged while engine PID and bootId changed, then /opencode/health returned bridgeLive true."
     },
     {
       "criterion_id": "issue-1325-c6",
@@ -55,5 +55,5 @@
     }
   ],
   "stack": "typescript",
-  "not_tested": ["issue-1325-c5"]
+  "not_tested": []
 }
