@@ -1,92 +1,44 @@
 # Rhythm — Project State
 
-Two active, unrelated threads on this repo right now (no file overlap):
+## Current focus
 
-1. **Mobile smart-client rebuild** — PR #1383, awaiting manual smoke + merge.
-2. **Numbat OpenCode observability (#1452)** — draft PR pending, awaiting AJ's manual smoke + merge decision.
+The six-stream open-issue workflow is complete. Four implementation draft PRs await AJ review/manual smoke, and the docs-only #1485 recipe-workflow plan is finalized for a fifth draft PR. No PR from this workflow is merged.
 
----
+## Active branch / PR
 
-## Thread 1 — Mobile smart-client rebuild
+- `fix/session-list-and-task-board` → draft PR #1486; fixes #1466, #1476, #1477, and #1475.
+- `fix/bridge-stream-reliability-repair` → draft PR #1487; fixes #1457, #1458, #1455, #1456, and #1325.
+- `fix/optimizer-scope-lane` → draft PR #1488; fixes #1479 and #1482.
+- `fix/optimizer-generator-lanes` → draft PR #1489; fixes #1480, #1481, #1483, and #1484.
+- `plan/recipes-1485` → docs-only #1485 plan/review/state branch; draft PR not yet opened.
 
-**Focus:** Mobile smart-client rebuild — **complete, PR open, awaiting manual smoke + merge.**
-**Branch:** `mobile/smart-client-rebuild` → **PR #1383** (https://github.com/ajhochy/Rhythm/pull/1383). **Do NOT merge** — AJ merges after manual testing.
+## In progress
 
-## What shipped
-MEGA PR #1368 **merged** (all 59 issues; new surfaces off by default:
-`RHYTHM_RESEARCH_PROJECTS_ENABLED=off`, `RHYTHM_MCP_APPS_MODE=off`).
+- AJ-owned review, manual smoke, and merge decisions for draft PRs #1486–#1489.
+- #1485 implementation has not started. The approved order is S0 durability probe → S1a migration/default-off plus S1b validator → S2 `dispatchAgentStage()` seam → S3 runner/completion/DTO → S4 dedicated-repo E2E → S5 Flutter editor. S0–S3 are unblocked.
+- Verification workflow corrections are recorded in Rhythm-owned `verification-gate` and `workflow-orchestrator` skills: pre-run `UNVERIFIED` triggers execution, and exact worktree, fixture variables, launch ownership, and readiness are mandatory.
 
-#1368 lifted the **React Native** halves of the mobile workstream off its branch
-(`f4c7c352`) while the server halves landed. PR #1383 restores that RN transport:
-#1270 profile fallback · #1308/#1311 attachment-limit constant · #1364/#1366
-session-lifecycle fencing · #1247 SSE permission replay. Five commits, one per issue.
+## Risks / known issues
 
-#1363 (binding-repair CLI) was never reverted — server-side, already on main, verified intact.
+- GitNexus impact/detect calls were repeatedly attempted, but client v41 cannot read index v42. Risk remains UNKNOWN; there was no HIGH/CRITICAL result. This is a tooling follow-up, not a product gate pass.
+- PR #1486 still needs subjective Electron/web versus Flutter child-session visual-parity smoke. Deferred tasks are excluded from Open after Done.
+- Optimizer diagnosis still selects the global MRU profile rather than a named dedicated profile; this is documented in PR #1489 and intentionally not expanded there.
+- Optional validator cleanup remains for a missing `find` MCP grant and a coding-agent contract-path variant.
+- S4 requires private `ajhochy/rhythm-workflow-e2e` on `main`, a required `workflow-e2e` check, and observable OpenAI plus Anthropic provider metadata before it can run.
 
-## Test status (PR #1383)
-- mobile: tsc clean, eslint 0 errors, **Jest 61/61**, **Playwright 71/71**, `test:ci:static` exit 0,
-  contract green (**136 ops**) — matches mega-HEAD parity exactly.
-- api_server: mobile gateway + proxy 17/17; `session_binding_cleanup` 3/3.
-- **Contract anchors untouched → no fingerprint bump, no re-pair.**
+## Test status
 
-## Two regressions found during the rebuild
-1. `eas.json` lost `ascAppId` (revert reset it pre-#1175) — non-interactive TestFlight submit would
-   prompt and fail. Restored + the iOS preflight now requires a non-empty `ascAppId` (it previously
-   accepted an empty `ios: {}`).
-2. `issue-1247.test.mjs` was orphaned (no npm script ever ran it). Wired into `test:ci:static`.
+- Initial triage: 60 open issues and 0 PRs. Twenty-three applicable D1–D4/C2-D issues in #1426–#1451, including tracker #1448, were verified on `main` and closed with evidence; backlog was 35 afterward.
+- PR #1486: automated API, web, Flutter, and live gates pass; only subjective visual-parity smoke remains.
+- PR #1487: 33/33 criteria; full API suite 5,999 passing; all live gates pass.
+- PR #1488: 8/8 criteria and live 10/10. Read-only diagnosis found 16 phantom Obsidian grants across four profiles; no live rows changed.
+- PR #1489: 24/24 criteria, 165 focused tests, live 2/2, and cleanup/integrity checks pass.
+- #1485: OpenAI-authored plan completed Anthropic Opus 5 contrarian review; required repairs are incorporated. This branch is docs-only.
+- All sandboxes were cleaned; live ports 4001/4096 were preserved. Synthetic fixture v2 uses DELETE journaling, is read-only, and contains no secrets.
 
-## NOT started — #1378 / #1379 smart-client plan
-`docs/ai/plan-mobile-smart-client.md` is a **proposed** plan to make the phone a client of the
-api_server mirror instead of a raw-engine proxy (Phases 0–4). It is unrelated to PR #1383's six
-issues and is **unimplemented**. Its four open decisions still need a call before Phase 1/2 —
-chiefly mirror authority vs. live backfill, and whether new mobile-native DTOs get a contract
-version separate from the engine fingerprint.
+## Next step
 
-## Flaky note (pre-existing, out of scope)
-api_server vitest + mobile Playwright each surface ~1 parallel-execution flake per full run (shared
-DB/port), always a *different* test, all passing in isolation. CI re-run clears transient reds.
-(Both full mobile suites ran clean on #1383.)
-
-## Next step (Thread 1)
-AJ: manual-smoke PR #1383 on-device. The specific check is #1364's ready state — create a new chat
-and confirm it reaches "Start a new task" rather than flashing missing-session. Then merge.
-```bash
-cd apps/mobile && npm run test:ci:static   # full automated gate, exit 0
-```
-
----
-
-## Thread 2 — Numbat OpenCode observability (#1452)
-
-**Focus:** Wire observe-only Numbat OpenCode monitoring into api_server startup — **verification-gate PASSED, draft PR open, awaiting AJ's manual smoke + merge decision.**
-**Branch:** `numbat-opencode-observability` → **PR #1453** (https://github.com/ajhochy/Rhythm/pull/1453). **Do NOT merge** — AJ merges after manual testing.
-
-### What it does
-New `apps/api_server/src/services/numbat_observability_service.ts` spawns
-`numbat hook install --agent opencode --emit all --content preview` at
-api_server startup, wired into the existing `agentExecutionEnabled` block in
-`server.ts` (own try/catch, no change to existing calls). Gated by
-`RHYTHM_NUMBAT_MONITORING_DISABLED=1` (checked first) and best-effort binary
-resolution (`RHYTHM_NUMBAT_BIN_PATH` → `/opt/homebrew/bin/numbat` →
-`/usr/local/bin/numbat` → bare `numbat` on PATH). **Observe-only, local-only,
-no enforcement, no HTTP sink** — numbat's own upstream constraint for the
-`opencode` agent (no `--enforce` flag accepted). Captured data lands in
-numbat's own `$HOME/.numbat/records.ndjson`, wholly separate from Rhythm's
-`run_quality` telemetry (#1069) — no schema/write-path collision.
-
-### Test status
-All 6 automatable acceptance criteria (AC1-AC6) pass with live-sandbox
-evidence: real `numbat` v0.2.0 binary installed and independently
-reproduced by verification-gate (real WS session + tool call → bounded
-`content_preview` NDJSON records, no `enforcement` records, turn completes
-without error). 13/13 unit tests, `tsc --noEmit` clean. AC7/AC8 are
-structural/doc-inspection criteria, recorded `not_tested` with reasoning in
-the contract — not silently marked green.
-
-### Next step (Thread 2)
-AJ: manual-smoke PR #1453 per `docs/testing/manual-smoke.md` §15 ("Numbat
-OpenCode observability hook"), then merge decision.
-
-Full detail: contract `docs/ai/contracts/issue-1452.json`, run note
-`docs/ai/runs/2026-08-18-numbat-opencode-observability.md`, decision record
-`docs/ai/decisions/2026-08-18-numbat-observability-integration.md`.
+1. AJ manually smokes #1486, then reviews/smokes #1487–#1489; merge decisions remain AJ-owned.
+2. Decide when to begin #1485 S0 and independently shippable S1a.
+3. Fix the GitNexus client/index version mismatch.
+4. Optionally resolve the validator warnings for the missing `find` grant and coding-agent contract path.
