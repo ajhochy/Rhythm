@@ -93,9 +93,9 @@
       "criterion_id": "org-reviewer-c11",
       "text": "Update `docs/ai/` run/state records and open a draft PR only.",
       "mode": "manual",
-      "status": "pending",
+      "status": "pass",
       "reason": "Artifact/repository handoff verification: inspect docs/ai run/state records, gh pr view isDraft=true, baseRefName=main, and confirm no merge/deployment. Record exact URL in run log.",
-      "evidence_note": "Run/state records now document final automated verification PASS and manual smoke pending. Draft PR creation and verification of its URL, isDraft=true and baseRefName=main are still pending; no merge or deployment."
+      "evidence_note": "Run/state records updated and draft PR https://github.com/ajhochy/Rhythm/pull/1492 opened. gh pr view verified isDraft=true, baseRefName=main, headRefName=feature/org-reviewer and headRefOid=2c1eaa9c6720e666eaa22250d89931f1de9b8565. Manual smoke pending; remote CI still running. No merge or deployment."
     },
     {
       "criterion_id": "org-reviewer-c12",
@@ -167,5 +167,6 @@
     "org-reviewer-c9",
     "org-reviewer-c10",
     "org-reviewer-c11"
-  ]
+  ],
+  "pr_url": "https://github.com/ajhochy/Rhythm/pull/1492"
 }

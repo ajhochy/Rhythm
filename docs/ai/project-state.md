@@ -2,18 +2,18 @@
 
 ## Current focus
 
-Org Reviewer replacement is implemented and automated verification passed on `feature/org-reviewer`. All 14 live acceptance checks passed, including the actual scheduled `openai/gpt-5.6-sol` reviewer. Draft PR creation and AJ's manual smoke remain pending.
+Org Reviewer replacement is implemented and automated verification passed on `feature/org-reviewer`. All 14 live acceptance checks passed, including the actual scheduled `openai/gpt-5.6-sol` reviewer. Draft PR [#1492](https://github.com/ajhochy/Rhythm/pull/1492) is open; AJ's manual smoke remains pending. GitHub CI results are tracked on the PR.
 
 ## Active branch / PR
 
-- `feature/org-reviewer`, based on `origin/main` at `0bc46a5e`; draft PR pending.
+- `feature/org-reviewer` → draft PR [#1492](https://github.com/ajhochy/Rhythm/pull/1492), targeting `main`; verified head `2c1eaa9c6720e666eaa22250d89931f1de9b8565`.
 - Evidence: [run](runs/2026-09-07-org-reviewer.md), [decision](decisions/2026-09-07-org-reviewer.md), [contract](contracts/org-reviewer.json).
 - No merge, deployment, main edits, or direct live database access. The temporary sandbox and its authorized OpenAI credential copy were removed.
 
 ## In progress
 
-- Commit/push and draft PR handoff; contract criterion c11 stays pending until the actual draft PR is recorded.
-- AJ's review and [manual smoke](../testing/org-reviewer-manual-smoke.md).
+- AJ's review and [manual smoke](../testing/org-reviewer-manual-smoke.md) for draft PR #1492.
+- GitHub CI status is available on the draft PR; this snapshot records the local and sandbox verification results.
 
 ## Risks / known issues
 
@@ -31,4 +31,4 @@ Org Reviewer replacement is implemented and automated verification passed on `fe
 
 ## Next step
 
-Open a draft PR, record its URL and draft status in the run/contract, and hand off the manual smoke checklist to AJ. Merge and deployment remain outside this task.
+AJ reviews draft PR #1492 and completes the manual smoke checklist. Check the latest GitHub CI results before any merge decision. Merge and deployment remain outside this task.

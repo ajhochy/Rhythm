@@ -3,15 +3,15 @@ date: 2026-09-07
 index: "[[Rhythm]]"
 repo: Rhythm
 branch: feature/org-reviewer
-pr: null
+pr: 1492
 issues: []
-status: verification_passed
+status: draft_pr/manual_smoke_pending
 tags: [run, rhythm]
 ---
 
 # Org Reviewer replacement
 
-Automated verification passed on 2026-09-08. Draft PR creation and AJ's manual smoke remain pending; contract c11 is not complete. No merge, deployment, main edits, or direct live database access occurred.
+Automated verification passed on 2026-09-08. Draft PR [#1492](https://github.com/ajhochy/Rhythm/pull/1492) is open and contract c11 passed. AJ's manual smoke remains pending; GitHub CI results are tracked on the PR. No merge, deployment, main edits, or direct live database access occurred.
 
 ## Files
 
@@ -42,7 +42,7 @@ All final source checks below exited 0. Normal-suite skipped tests are not used 
 - Signed live checks also proved ownership, closed fields, core `search` rejection as an MCP grant, deduplication, stale-proof refusal, weekly retirement, exact scheduled skill scope, a successful scheduled context read, and separate denials for unrelated MCP mutation, shell approval, and delegation. Forbidden actions left target and proposal state unchanged.
 - Existing human lifecycle baseline: `npx vitest run src/__tests__/org_proposals_routes.test.ts src/__tests__/org_proposal_apply.test.ts` passed 138/138 before implementation; these tests are included in the final passing API suite. The live human rejection path also passed.
 - Auto-promotion regression: authorized `npx vitest run src/services/__tests__/auto_promotion_gate.test.ts src/services/__tests__/auto_promotion_all_kinds.integration.test.ts` passed 36/36. Verified outcomes and enabled global trust do not auto-apply reviewer proposals.
-- Final API lint command exited 0, but remains the existing TODO placeholder rather than additional lint coverage. Final gate logs are retained in `/private/tmp/org-reviewer-gate-api-final.log`, `/private/tmp/org-reviewer-gate-mcp-final.log`, and `/private/tmp/org-reviewer-gate-report.md`.
+- Final API lint command exited 0, but remains the existing TODO placeholder rather than additional lint coverage. Final gate logs are retained in `/private/tmp/org-reviewer-gate-api-latest.log`, `/private/tmp/org-reviewer-gate-mcp-latest.log`, and `/private/tmp/org-reviewer-gate-report.md`.
 
 ## Notes
 
@@ -51,7 +51,7 @@ All final source checks below exited 0. Normal-suite skipped tests are not used 
 - Base: `origin/main` at `0bc46a5e`; clean checkout before creating `feature/org-reviewer`. Existing proposal helpers were inspected before product edits. The mandatory workflow used acceptance-contract, coding-agent, verification-gate, failure-triage, smoke-test-writer, and project-state-updater.
 - Initial route RED: `npx vitest run src/__tests__/org_reviewer_routes.test.ts` executed after loopback access was authorized: 2/2 failed with 404 instead of 401/403, before product implementation. The real sandbox c12 baseline independently failed on the same missing seam. Restricted `listen EPERM` attempts were infrastructure failures, not product RED evidence.
 - GitNexus upstream impact was LOW for seed/registration/projection/retirement helpers, with dynamic startup callers also inspected manually. Shared AgentRunner `_runOnce` and `run` impact was HIGH; the user was warned before the reviewer-only identity/permission changes.
-- `node .gitnexus/run.cjs detect-changes --scope staged --repo Rhythm --limit 80` and `--scope compare --base-ref main` exited 0: 42 files, 16 indexed symbols, zero indexed affected processes, LOW reported change risk. New reviewer symbols are absent from the index; manual review and real behavioral checks supply their scope evidence. This does not supersede the HIGH AgentRunner warning.
+- `node .gitnexus/run.cjs detect-changes --scope staged --repo Rhythm --limit 30` and `--scope compare --base-ref main` exited 0: 42 files, 16 indexed symbols, zero indexed affected processes, LOW reported change risk. New reviewer symbols are absent from the index; manual review and real behavioral checks supply their scope evidence. This does not supersede the HIGH AgentRunner warning.
 
 ### Repair-loop findings
 
@@ -70,4 +70,4 @@ All final source checks below exited 0. Normal-suite skipped tests are not used 
 
 - Sandbox cleanup command: `source /private/tmp/org-reviewer-sandbox.env; tools/dev/sandbox.sh status; tools/dev/sandbox.sh down` exited 0, reported no sandbox listeners, and removed the temporary sandbox. The copied OpenAI credential is absent; the original credential was unchanged.
 - Human smoke remains pending in [the manual checklist](../../testing/org-reviewer-manual-smoke.md). Ordinary desktop launch uses the live API port and is not the isolated sandbox test.
-- Draft PR remains pending. Record its actual URL and `isDraft=true`/`baseRefName=main` before marking contract c11 passed. Merge and deployment remain outside this task.
+- Draft PR [#1492](https://github.com/ajhochy/Rhythm/pull/1492) verified at creation with `gh pr view`: `isDraft=true`, `baseRefName=main`, `headRefName=feature/org-reviewer`, `headRefOid=2c1eaa9c6720e666eaa22250d89931f1de9b8565`. Contract c11 passed. Remote CI was running at PR creation; subsequent results are available on the PR. Merge and deployment remain outside this task.
