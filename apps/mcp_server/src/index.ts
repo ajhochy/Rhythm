@@ -20,6 +20,7 @@ import { registerAgentMemoryTools } from './tools/agentMemory.js';
 import { registerAgentSessionTools } from './tools/agentSessions.js';
 import { registerAgentResearchTools } from './tools/agentResearch.js';
 import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
+import { registerOrgReviewerTools } from './tools/orgReviewer.js';
 import { registerAgentApprovalTools } from './tools/agentApprovals.js';
 import { registerFeedbackSensorTools } from './tools/feedbackSensors.js';
 import { registerAgentProfileTools } from './tools/agentProfiles.js';
@@ -91,11 +92,11 @@ registerCreativePlatformTools(server, RHYTHM_AGENT_URL);
 registerSetupReadinessTool(server, RHYTHM_AGENT_URL);
 registerLiveArtifactTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN, RHYTHM_AGENT_URL);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
-// #850 (org-optimizer-16) — the run-loop trigger is an agent-execution
-// surface backed by local SQLite (agent_org_proposals), routed at
-// RHYTHM_AGENT_URL like the scheduler/session/memory tools above, never
-// serverConfig.url (dual-endpoint rule).
+// Legacy manual optimizer entry points remain local and unscheduled. The Org
+// Reviewer adds only an owner-scoped context read and proposal-only submit;
+// both route to the local review queue and require an engine-signed reviewer.
 registerOrgOptimizerTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+registerOrgReviewerTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #944 — rhythm_create_issue (GitHub) was removed: agents file issues via the
 // `gh` CLI in their bash tool, which is already authenticated; the MCP tool
 // needed its own token plumbing and duplicated that path.

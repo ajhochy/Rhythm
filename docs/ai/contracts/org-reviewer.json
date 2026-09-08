@@ -1,0 +1,171 @@
+{
+  "issue": null,
+  "generated": "2026-09-07",
+  "criteria": [
+    {
+      "criterion_id": "org-reviewer-c1",
+      "text": "duplicate failure sessions become one proposal;",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_semantic_live.test.ts",
+      "test_id": "org-reviewer-c1: duplicate failure sessions become one proposal",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c2",
+      "text": "stale/already-fixed findings create no proposal;",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_semantic_live.test.ts",
+      "test_id": "org-reviewer-c2: stale and already-fixed findings create no proposal",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c3",
+      "text": "a core tool such as `search` is not written into `allowedMcpsJson`;",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c3: core search cannot be proposed as an MCP grant",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c4",
+      "text": "a current-model mismatch is traced through dispatch overrides before suggesting a profile model change;",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_semantic_live.test.ts",
+      "test_id": "org-reviewer-c4: model mismatch is diagnosed at the dispatch override",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c5",
+      "text": "a proposal contains evidence, current-state validation, concrete repair, rollback, and verification;",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_semantic_live.test.ts",
+      "test_id": "org-reviewer-c5: verified proposal retains actionable evidence and repair",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c6",
+      "text": "the scheduled reviewer cannot approve/apply proposals or perform unrelated mutations.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c6: scheduled reviewer cannot approve apply or mutate unrelated resources",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c7",
+      "text": "Existing review queue approval/reject/revert behavior remains unchanged.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c7: human queue approval rejection and reversion remain available",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c8",
+      "text": "API build/tests pass",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Standalone verification-gate command, not a nested Vitest subprocess: cd apps/api_server && npm run build && npm test. Must record exit status and output in the run log.",
+      "evidence_note": "Final API gate on 2026-09-08: npx vitest run --fileParallelism=false exited 0; 6,102 tests passed/245 skipped, 654 files passed/125 skipped, 439.26 seconds (10:22:05 PDT). API typecheck/build exited 0. See docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c9",
+      "text": "MCP tool schemas pass",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Standalone MCP build/schema gate: run the existing apps/mcp_server package build and schema tests; record command and output in run log.",
+      "evidence_note": "Final MCP gate on 2026-09-08: 188 tests passed/2 skipped, 32 files passed/2 skipped, 3.98 seconds (10:22:18 PDT); typecheck/build exited 0. See docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c10",
+      "text": "the required live behavioral test runs in the isolated sandbox.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Execution evidence requires tools/dev/sandbox.sh up/status/down with sanitized fixture plus RHYTHM_LIVE_E2E=1 contract run. A skipped normal-suite result does not satisfy this criterion. Real-provider semantic tests must pass; a scripted provider proves transport/security only.",
+      "evidence_note": "Actual isolated API4098/fork4097 run of both signed-boundary and real openai/gpt-5.6-sol semantic suites exited 0: 14/14 passed, 206.73 seconds (2026-09-08 10:18:41 PDT). Sandbox was removed afterward. Exact command in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c11",
+      "text": "Update `docs/ai/` run/state records and open a draft PR only.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Artifact/repository handoff verification: inspect docs/ai run/state records, gh pr view isDraft=true, baseRefName=main, and confirm no merge/deployment. Record exact URL in run log.",
+      "evidence_note": "Run/state records now document final automated verification PASS and manual smoke pending. Draft PR creation and verification of its URL, isDraft=true and baseRefName=main are still pending; no merge or deployment."
+    },
+    {
+      "criterion_id": "org-reviewer-c12",
+      "text": "Add a narrowly scoped, authenticated API/MCP operation that lets an authorized org-review agent submit a normal proposal to the existing review queue.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_routes.test.ts",
+      "test_id": "org-reviewer-c12: proposal submission requires authenticated reviewer authority",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c13",
+      "text": "Enforce existing proposal kinds/risk policy, ownership/auth boundaries, deduplication, provenance/security requirements, and input-size limits.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c13: signed context honors reviewer identity and evidence ownership",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c14",
+      "text": "Validate a closed payload: kind, title, rationale, signal/evidence references, target, proposed change, confidence, dedup key, and verification plan.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c14: signed submission rejects open lifecycle fields and incomplete evidence",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c15",
+      "text": "Create a least-privilege `Org Reviewer` profile using `openai/gpt-5.6-sol`, granting only the new skill and the exact read/proposal tools required.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c15: seeded reviewer exposes only review tools and its owned skill",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c16",
+      "text": "Replace or disable the old daily Org Self-Optimizer schedule so both systems do not generate competing proposals. Create one weekly scheduled task for the Org Reviewer, default Monday at 08:30 America/Los_Angeles unless repository conventions indicate a better non-conflicting time.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c16: weekly reviewer replaces competing legacy schedules",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c17",
+      "text": "It must create only `status=proposed` records.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c17: submission deduplicates without applying or mutating targets",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    },
+    {
+      "criterion_id": "org-reviewer-c18",
+      "text": "emit no proposal when the current state cannot validate the diagnosis.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_reviewer_live.test.ts",
+      "test_id": "org-reviewer-c18: stale current state proof refuses submission without queue mutation",
+      "status": "pass",
+      "evidence_note": "Final signed boundary and real openai/gpt-5.6-sol semantic suites: 14/14 passed in the isolated API/fork sandbox, 206.73 seconds. API/MCP regression/build evidence is in docs/ai/runs/2026-09-07-org-reviewer.md."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "org-reviewer-c8",
+    "org-reviewer-c9",
+    "org-reviewer-c10",
+    "org-reviewer-c11"
+  ]
+}

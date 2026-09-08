@@ -291,8 +291,9 @@ async function main() {
       logger.warn('[server] post-apply lifecycle wiring failed (non-fatal)');
     }
 
-    // Agent subsystem: scheduler + memory consolidation seed
-    agentSchedulerJob = startAgentSchedulerJob();
+    // Seed background definitions before the scheduler's immediate sweep.
+    // The reviewer seed retires legacy optimizer generators; starting first
+    // leaves a boot-time window where an obsolete task can still execute.
     agentMemoryService.seedConsolidationTask().catch((err) => {
       logger.warn(`[server] Memory consolidation seed failed (non-fatal): ${String(err)}`);
     });
@@ -459,9 +460,11 @@ async function main() {
       logger.warn(`[server] ministry recipes agent-binding repair failed (non-fatal): ${String(err)}`);
     }
 
+    let legacyOrgSchedulesRetired = false;
     try {
       const { seedOrgOptimizerTask } = await import('./services/org_optimizer_seed');
       const r = await seedOrgOptimizerTask();
+      legacyOrgSchedulesRetired = r.legacyRetired;
       logger.info(
         `[server] org-optimizer seed: auditTaskSeeded=${r.auditTaskSeeded}` +
           `${r.auditTaskSkippedReason ? ` (${r.auditTaskSkippedReason})` : ''} ` +
@@ -470,6 +473,11 @@ async function main() {
       );
     } catch (err) {
       logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
+    }
+    if (legacyOrgSchedulesRetired) {
+      agentSchedulerJob = startAgentSchedulerJob();
+    } else {
+      logger.error('[server] agent scheduler not started because legacy org schedules were not safely retired');
     }
 
     // Gallery is a first-run surface: seed its backing profile instead of

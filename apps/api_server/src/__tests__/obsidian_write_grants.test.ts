@@ -139,8 +139,9 @@ describe('issue-834: obsidian write grant is opt-in to secretary + worship-plann
     // (org-optimizer.mcp.json, org-external-discovery.mcp.json), bringing the
     // count to 15. #1134 later added exactly one disjoint read-free
     // email-outbound role, bringing the expected inventory to 16. Pin the
-    // count so an UNEXPECTED add/remove is still caught.
-    expect(files.length).toBe(16);
+    // Org Reviewer adds one role with no Obsidian grants, bringing it to 17.
+    // Pin the count so an UNEXPECTED add/remove is still caught.
+    expect(files.length).toBe(17);
 
     const readSet = new Set<string>(ROLE_FILE_READ_TOOLS);
 

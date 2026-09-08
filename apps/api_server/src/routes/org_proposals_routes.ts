@@ -2,9 +2,11 @@ import { Router } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { OrgProposalsController } from '../controllers/org_proposals_controller';
+import { OrgReviewerController } from '../controllers/org_reviewer_controller';
 
 const router = Router();
 const controller = new OrgProposalsController();
+const reviewerController = new OrgReviewerController();
 
 /**
  * Local agent-server auth posture — same as agent-webhooks/agent-cookbook:
@@ -14,6 +16,10 @@ const controller = new OrgProposalsController();
 if (!env.agentLocal) router.use(requireAuth);
 
 router.get('/', (req, res, next) => controller.list(req, res, next));
+// Signed reviewer endpoints authenticate independently of the local operator
+// bypass above. They accept only the engine-signed trustedCall envelope.
+router.post('/reviewer/context', (req, res, next) => reviewerController.context(req, res, next));
+router.post('/reviewer', (req, res, next) => reviewerController.submit(req, res, next));
 router.post('/tool-install', (req, res, next) => controller.createToolInstall(req, res, next));
 router.post('/:id/approve', (req, res, next) => controller.approve(req, res, next));
 router.post('/:id/reject', (req, res, next) => controller.reject(req, res, next));

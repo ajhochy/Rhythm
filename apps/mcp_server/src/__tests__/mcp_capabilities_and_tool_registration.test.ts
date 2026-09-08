@@ -56,6 +56,7 @@ import { registerSetupReadinessTool } from '../tools/setupReadiness.js';
 import { registerLiveArtifactTools } from '../tools/liveArtifacts.js';
 import { registerAgentResearchTools } from '../tools/agentResearch.js';
 import { registerOrgOptimizerTools } from '../tools/orgOptimizer.js';
+import { registerOrgReviewerTools } from '../tools/orgReviewer.js';
 
 const API_URL = 'http://x.invalid';
 const API_TOKEN = 'test-token';
@@ -89,17 +90,18 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
   (s) => registerLiveArtifactTools(s, API_URL, API_TOKEN, AGENT_URL),
   (s) => registerAgentResearchTools(s, API_URL, API_TOKEN),
   (s) => registerOrgOptimizerTools(s, AGENT_URL, API_TOKEN),
+  (s) => registerOrgReviewerTools(s, AGENT_URL, API_TOKEN),
 ];
 
 /**
  * Registrar calls (one `register*(server…)` line per tool GROUP) and tool NAMES
  * are different counts and drift apart: one new registrar can add five tools.
- * AV-03 added 1 registrar (23 → 24) and 5 tool names (85 → 90); #1339 adds one (90 → 91). Both are pinned
- * from a measured run — a stale mirror here passes vacuously and guards nothing.
+ * Org Reviewer adds one registrar and two narrowly scoped tools. Both counts
+ * are pinned from registration — a stale mirror here passes vacuously and
+ * guards nothing.
  */
-const EXPECTED_REGISTRAR_CALLS = 24;
-// #1299 adds rhythm_discuss_research_report to the previously 99-tool surface.
-const EXPECTED_TOOL_NAMES = 100;
+const EXPECTED_REGISTRAR_CALLS = 25;
+const EXPECTED_TOOL_NAMES = 102;
 
 /** Builds a fresh McpServer, applies `registrars` in order, and returns it. */
 function buildServer(registrars: Registrar[]): McpServer {

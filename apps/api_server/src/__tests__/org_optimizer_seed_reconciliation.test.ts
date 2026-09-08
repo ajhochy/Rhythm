@@ -1,149 +1,94 @@
-/**
- * #1111 (Discovery-003) — boot-time reconciliation of the seeded discovery
- * scheduled tasks. See docs/ai/generated-issues/discovery-003-unbreak-crons.md
- * for the live-`rhythm.db` snapshot this reproduces:
- *
- *   - "Org Self-Optimizer" (daily): enabled=0, last run errored (the
- *     historical NULL-model "no route in catalog" stall — already fixed by
- *     the model backfill in this same file, commits a9c92bed6/5c4af4ae8 — but
- *     that fix never restored `enabled`).
- *   - "Org External Discovery" (weekly): enabled=0.
- *   - "Org External Discovery v2" (weekly): enabled=1, a stray duplicate.
- *
- * These tests hand-craft that exact broken state in a fresh in-memory DB
- * (bypassing the seed, mirroring "an existing install") and assert
- * `seedOrgOptimizerTask()` reconciles it: exactly one enabled row per task
- * family, the canonical name preferred as survivor, and re-running is
- * idempotent (does not clobber a later, deliberate user disable).
- */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { UsersRepository } from '../repositories/users_repository';
+import { seedOrgOptimizerTask } from '../services/org_optimizer_seed';
+import { ORG_REVIEWER_ALLOWED_MCPS_JSON, ORG_REVIEWER_ALLOWED_SKILLS_JSON } from '../services/org_reviewer_seed';
+import { useTempManagedSkillsRoot } from './_managed_skills_temp_root';
 
-const AUDIT_TASK_NAME = 'Org Self-Optimizer';
-const EXTERNAL_TASK_NAME = 'Org External Discovery';
-
-function makeDb() {
-  const db = new Database(':memory:');
+vi.mock('../services/agent_profile_projection_service', () => ({
+  projectAgentProfileAfterWrite: vi.fn(() => ({ kind: 'projected', revision: 0, write: 'written' })),
+}));
+useTempManagedSkillsRoot('org-reviewer-reconciliation');
+let db: Database.Database;
+beforeEach(() => {
+  db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
-}
-
-beforeEach(() => {
-  setDb(makeDb());
+  setDb(db);
 });
+afterEach(() => { vi.restoreAllMocks(); setDb(null); db.close(); });
+const repo = new AgentScheduledTasksRepository();
+const reviewerInput = {
+  name: 'Org Reviewer', scheduleType: 'weekly', agentKind: 'opencode', agentConfigId: 'org-reviewer',
+  prompt: 'Review recent evidence', allowedMcpsJson: ORG_REVIEWER_ALLOWED_MCPS_JSON,
+  allowedSkillsJson: ORG_REVIEWER_ALLOWED_SKILLS_JSON,
+};
 
-afterEach(() => {
-  delete process.env.MCP_ROLES_DIR;
-});
-
-describe('org_optimizer_seed boot-time reconciliation (#1111)', () => {
-  it('a fresh boot seeds exactly one enabled weekly discovery task and the daily task enabled', async () => {
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-    await seedOrgOptimizerTask();
-
-    const schedRepo = new AgentScheduledTasksRepository();
-    const tasks = await schedRepo.listAllAsync();
-
-    const externalTasks = tasks.filter((t) => t.name.startsWith(EXTERNAL_TASK_NAME));
-    expect(externalTasks.filter((t) => t.enabled)).toHaveLength(1);
-
-    const audit = tasks.find((t) => t.name === AUDIT_TASK_NAME);
-    expect(audit).toBeDefined();
-    expect(audit!.enabled).toBe(true);
-  });
-
-  it('re-invoking the seed is idempotent: no duplicates, enabled flags unchanged', async () => {
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-    await seedOrgOptimizerTask();
-    await seedOrgOptimizerTask();
-
-    const schedRepo = new AgentScheduledTasksRepository();
-    const tasks = await schedRepo.listAllAsync();
-    expect(tasks.filter((t) => t.name === AUDIT_TASK_NAME)).toHaveLength(1);
-    expect(tasks.filter((t) => t.name === EXTERNAL_TASK_NAME)).toHaveLength(1);
-    expect(tasks.find((t) => t.name === AUDIT_TASK_NAME)!.enabled).toBe(true);
-    expect(tasks.find((t) => t.name === EXTERNAL_TASK_NAME)!.enabled).toBe(true);
-  });
-
-  it('reconciles a disabled canonical row + an enabled "v2" duplicate down to exactly one enabled row, preferring the canonical name', async () => {
-    const schedRepo = new AgentScheduledTasksRepository();
-    const canonical = await schedRepo.createAsync({
-      name: EXTERNAL_TASK_NAME,
-      scheduleType: 'weekly',
-      prompt: 'legacy prompt',
-    });
-    await schedRepo.updateAsync(canonical.id, { enabled: false });
-    const v2 = await schedRepo.createAsync({
-      name: `${EXTERNAL_TASK_NAME} v2`,
-      scheduleType: 'weekly',
-      prompt: 'stray duplicate prompt',
-    });
-    expect(v2.enabled).toBe(true); // sanity: DB default is enabled
-
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+describe('Org Reviewer retirement and schedule reconciliation', () => {
+  it('reports retirement failure so startup can keep the scheduler stopped', async () => {
+    const old = await repo.createAsync({ name: 'Org Self-Optimizer', scheduleType: 'daily', prompt: 'legacy' });
+    vi.spyOn(AgentScheduledTasksRepository.prototype, 'updateAsync').mockRejectedValueOnce(new Error('synthetic unavailable write'));
     const result = await seedOrgOptimizerTask();
-
-    // Name-guard already sees "Org External Discovery" so no third row is created.
-    expect(result.externalTaskSeeded).toBe(false);
-
-    const tasks = await schedRepo.listAllAsync();
-    const related = tasks.filter((t) => t.name.startsWith(EXTERNAL_TASK_NAME));
-    expect(related).toHaveLength(2); // no rows deleted — disabled, not removed
-    expect(related.filter((t) => t.enabled)).toHaveLength(1);
-
-    const survivor = related.find((t) => t.enabled)!;
-    expect(survivor.name).toBe(EXTERNAL_TASK_NAME); // canonical name wins over "v2"
-
-    const strayDup = related.find((t) => t.id === v2.id)!;
-    expect(strayDup.enabled).toBe(false);
+    expect(result.legacyRetired).toBe(false);
+    expect(result.reviewerTaskSeeded).toBe(false);
+    expect(await repo.findByIdAsync(old.id)).toMatchObject({ enabled: true });
+    expect(await repo.listAllAsync()).toHaveLength(1);
   });
 
-  it('re-enables a lone disabled "Org Self-Optimizer" row exactly once (the historical NULL-model bug repair), then respects a later deliberate user disable', async () => {
-    const schedRepo = new AgentScheduledTasksRepository();
-    const row = await schedRepo.createAsync({
-      name: AUDIT_TASK_NAME,
-      scheduleType: 'daily',
-      scheduledTime: '02:00',
-      prompt: 'legacy prompt',
-    });
-    await schedRepo.updateAsync(row.id, {
-      enabled: false,
-      lastRunAt: '2026-07-10T02:00:00.000Z',
-      lastRunStatus: 'error',
-    } as never);
-
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-
-    // First seed after the historical-bug state: repaired back to enabled.
+  it('disables every old daily/external duplicate and renamed legacy-profile task without deleting rows', async () => {
+    const legacy = [];
+    for (const name of ['Org Self-Optimizer', 'Org Self-Optimizer v2', 'Org External Discovery', 'Org External Discovery v2']) {
+      legacy.push(await repo.createAsync({ name, scheduleType: 'daily', prompt: 'legacy' }));
+    }
+    legacy.push(await repo.createAsync({ name: 'Renamed legacy job', scheduleType: 'daily', prompt: 'legacy', agentConfigId: '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f' }));
+    const unrelated = await repo.createAsync({ name: 'Facilities summary', scheduleType: 'daily', prompt: 'Leave alone' });
     await seedOrgOptimizerTask();
-    let after = await (await schedRepo.findByIdAsync(row.id))!;
-    expect(after.enabled).toBe(true);
-
-    // A human now deliberately turns it back off.
-    await schedRepo.updateAsync(row.id, { enabled: false });
-
-    // Re-running the seed must NOT clobber that deliberate disable a second time.
     await seedOrgOptimizerTask();
-    after = await (await schedRepo.findByIdAsync(row.id))!;
-    expect(after.enabled).toBe(false);
+    const all = await repo.listAllAsync();
+    for (const old of legacy) expect(all.find(task => task.id === old.id)).toMatchObject({ enabled: false, prompt: 'legacy' });
+    expect(all.find(task => task.id === unrelated.id)).toEqual(unrelated);
+    expect(all.filter(task => task.name === 'Org Reviewer' && task.enabled)).toHaveLength(1);
+    expect(all).toHaveLength(legacy.length + 2);
   });
 
-  it('an already-enabled task is not clobbered by re-seeding', async () => {
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+  it('preserves the old audit task owner on the replacement', async () => {
+    const user = new UsersRepository().create({ name: 'Synthetic owner', email: 'owner@example.invalid' });
+    await repo.createAsync({ name: 'Org Self-Optimizer', scheduleType: 'daily', prompt: 'legacy', createdByUserId: user.id });
     await seedOrgOptimizerTask();
+    expect((await repo.listAllAsync()).find(task => task.name === 'Org Reviewer')!.createdByUserId).toBe(user.id);
+  });
 
-    const schedRepo = new AgentScheduledTasksRepository();
-    const before = await schedRepo.listAllAsync();
-    expect(before.every((t) => t.enabled)).toBe(true);
-
+  it('preserves deliberate task disable and deletion across subsequent boots', async () => {
     await seedOrgOptimizerTask();
-    const after = await schedRepo.listAllAsync();
-    expect(after.every((t) => t.enabled)).toBe(true);
-    expect(after).toHaveLength(before.length);
+    const first = (await repo.listAllAsync())[0];
+    await repo.updateAsync(first.id, { enabled: false, scheduledTime: '09:45' });
+    await seedOrgOptimizerTask();
+    expect(await repo.findByIdAsync(first.id)).toMatchObject({ enabled: false, scheduledTime: '09:45' });
+    await repo.deleteAsync(first.id);
+    expect((await seedOrgOptimizerTask()).reviewerTaskSkippedReason).toContain('deleted by user');
+    expect(await repo.listAllAsync()).toHaveLength(0);
+  });
+
+  it('disables reviewer duplicates and never re-enables a disabled canonical task', async () => {
+    await seedOrgOptimizerTask();
+    const original = (await repo.listAllAsync())[0];
+    const duplicate = await repo.createAsync({ ...reviewerInput, name: 'Org Reviewer v2' });
+    await seedOrgOptimizerTask();
+    expect((await repo.listAllAsync()).filter(task => task.enabled).map(task => task.id)).toEqual([original.id]);
+    await repo.updateAsync(original.id, { enabled: false });
+    await repo.updateAsync(duplicate.id, { enabled: true });
+    await seedOrgOptimizerTask();
+    expect((await repo.listAllAsync()).filter(task => task.enabled)).toHaveLength(0);
+  });
+
+  it('disables a reviewer task with widened scope or model override without rewriting it', async () => {
+    await seedOrgOptimizerTask();
+    const task = (await repo.listAllAsync())[0];
+    await repo.updateAsync(task.id, { allowedMcpsJson: '{}', modelProvider: 'anthropic', modelId: 'unexpected' });
+    await seedOrgOptimizerTask();
+    expect(await repo.findByIdAsync(task.id)).toMatchObject({ enabled: false, allowedMcpsJson: '{}', modelProvider: 'anthropic', modelId: 'unexpected' });
   });
 });

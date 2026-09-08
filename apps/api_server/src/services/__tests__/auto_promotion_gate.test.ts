@@ -94,6 +94,30 @@ async function reportToolSafety(proposal: Awaited<ReturnType<typeof verifiedTool
 const available = { isAvailable: () => true };
 
 describe('D4.3 auto promotion gate', () => {
+  it.each([
+    { source: 'org-reviewer' },
+    { humanReviewRequired: true },
+    { source: 'org-reviewer', humanReviewRequired: true },
+  ])('keeps reviewer proposals human-only despite verified outcomes and enabled trust (%j)', async (provenance) => {
+    const created = await proposals.createAsync({
+      kind: 'refine-config', risk: 'high', status: 'proposed', title: 'Human review only',
+      targetRef: 'agent_config:d4-profile',
+      changeJson: JSON.stringify({ configPatch: { agentConfigId: 'd4-profile', field: 'system_prompt', value: 'after' } }),
+      provenanceJson: JSON.stringify(provenance),
+    });
+    await proposals.setOutcomeStatusAtRevisionAsync({
+      proposalId: created.id, expectedRevision: created.revision, outcomeStatus: 'verified',
+    });
+    await enableTrust();
+
+    const result = await attemptAutoPromotionAsync(created.id, { availability: available });
+
+    expect(result.status).toBe('ineligible');
+    expect((await proposals.findByIdAsync(created.id))?.status).toBe('proposed');
+    expect(configs.getById('d4-profile')?.systemPrompt).toBe('before');
+    expect(await new PostApplyEventsRepository(db).findByProposalIdAsync(created.id)).toBeNull();
+  });
+
   it('preserves human review when static/default availability is disabled', async () => {
     const proposal = await verifiedConfigProposal();
     await enableTrust();
