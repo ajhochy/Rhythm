@@ -58,8 +58,9 @@ interface FixtureContextValue {
   selectSession(id: string): void; setScope(scope: SessionScope): void; setTheme(theme: Theme): void; setInspectorTab(tab: InspectorTab): void;
   setDemo(demo: DemoState): void; notify(message: string): void; createSession(input?: Partial<NewSessionInput>): string;
   updateSession(id: string, patch: Partial<Session>): void; archiveSession(id: string): void; unarchiveSession(id: string): void;
-  deleteSession(id: string): void; resumeSession(id: string): void; cancelSession(id: string): void; forkSession(id: string): void;
-  revertSession(id: string, messageId: string): void; unrevertSession(id: string): void; summarizeSession(id: string): void;
+  deleteSession(id: string): void; resumeSession(id: string): void; cancelSession(id: string): void; forkSession(id: string, messageId?: string): void;
+  revertSession(id: string, messageId: string): Promise<boolean>; unrevertSession(id: string): Promise<boolean>; summarizeSession(id: string): Promise<boolean>;
+  prepareLiveSession(id: string): Promise<boolean>; startFreshSession(id: string): Promise<boolean>; reconnectLiveSession(): Promise<void>;
   loadOlder(id: string): Promise<void>; replyPermission(reply: 'once' | 'always' | 'reject', reason?: string): void;
   answerQuestion(answer: string): void; rejectQuestion(): void; sendInput(input: string, attachments?: ComposerAttachment[]): void; reconnect(): void;
   runShell(command: string): void; setActiveFile(path: string): void; resetWorktree(): void; removeWorktree(): void;
@@ -774,15 +775,38 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateSession = (id: string, patch: Partial<Session>) => setSessions((current) => current.map((session) => session.id === id ? { ...session, ...patch, updatedAt: FIXED_NOW } : session));
-  const archiveSession = (id: string) => { updateSession(id, { group: 'archived', status: 'closed' }); notify('Session archived'); };
-  const unarchiveSession = (id: string) => { updateSession(id, { group: 'resumable', status: 'resumable' }); notify('Session restored'); };
+  // ponytail: serialize lifecycle writes per session; independent sessions stay independent.
+  const lifecycleWrites = useRef(new Map<string, Promise<boolean>>()).current;
+  const liveLifecycle = (id: string, operation: () => Promise<void>, success: string) => {
+    const pending = (lifecycleWrites.get(id) ?? Promise.resolve(true)).then(async () => {
+      try { await operation(); notify(success); return true; }
+      catch (error) { notify(error instanceof Error ? error.message : 'Session operation failed'); return false; }
+    });
+    lifecycleWrites.set(id, pending);
+    void pending.finally(() => { if (lifecycleWrites.get(id) === pending) lifecycleWrites.delete(id); });
+    return pending;
+  };
+  const readLifecycleSession = async (id: string, boundary?: { revertedMessageId?: string }) => {
+    const detail = await gateway.domains.sessions!.detail(id);
+    setSessions(current => current.some(session => session.id === id)
+      ? current.map(session => session.id === id ? { ...session, ...detail, revertedMessageId: boundary ? boundary.revertedMessageId : session.revertedMessageId } : session)
+      : [detail, ...current]);
+  };
+  const archiveSession = (id: string) => {
+    if (live) { void liveLifecycle(id, async () => { await gateway.domains.sessions!.archive!(id, true); await readLifecycleSession(id); }, 'Session archived'); return; }
+    updateSession(id, { group: 'archived', status: 'closed' }); notify('Session archived');
+  };
+  const unarchiveSession = (id: string) => {
+    if (live) { void liveLifecycle(id, async () => { await gateway.domains.sessions!.archive!(id, false); await readLifecycleSession(id); }, 'Session restored'); return; }
+    updateSession(id, { group: 'resumable', status: 'resumable' }); notify('Session restored');
+  };
   const deleteSession = (id: string) => { setSessions((current) => current.filter((session) => session.id !== id)); setSelectedId('session-sunday-handoff'); notify('Session permanently deleted'); };
   const resumeSession = (id: string) => {
     if (live) {
       setResumeGone(null);
       void gateway.domains.sessions!.resume(id).then((updated) => {
         replaceLiveSession(updated);
-        setRunMessage(`${updated.name} resumed and is working`);
+        setRunMessage(`${updated.name} resumed · ${updated.status}`);
         notify('Session resumed');
       }).catch((error) => {
         // c3d: an honest 410 — the persisted sdkSessionId no longer exists on the engine.
@@ -817,10 +841,56 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     }
   };
   const closeLiveChildView = () => setLiveChildView(null);
-  const forkSession = (id: string) => { const source = sessions.find((session) => session.id === id); if (!source) return; const nextId = createSession({ name: `${source.name} · fork`, cwd: source.cwd, branch: `${source.branch}-fork`, isolateWorktree: true }); updateSession(nextId, { messages: structuredClone(source.messages), profileId: source.profileId, model: source.model }); notify('Fork created in an isolated worktree'); };
-  const revertSession = (id: string, messageId: string) => { updateSession(id, { revertedMessageId: messageId }); notify('History reverted after selected message'); };
-  const unrevertSession = (id: string) => { updateSession(id, { revertedMessageId: undefined }); notify('Reverted history restored'); };
-  const summarizeSession = (id: string) => { updateSession(id, { inputTokens: Math.max(0, selected.inputTokens - 4200) }); notify('Context compacted'); };
+  const forkSession = (id: string, messageId?: string) => {
+    if (live) {
+      if (!messageId) { notify('Choose a persisted message to fork'); return; }
+      void liveLifecycle(id, async () => {
+        const child = await gateway.domains.sessions!.fork!(id, messageId);
+        await readLifecycleSession(child.id);
+        if (selectedIdRef.current === id) { setScope('chats'); rememberLiveSelection(child.id); }
+      }, 'Fork created');
+      return;
+    }
+    const source = sessions.find((session) => session.id === id); if (!source) return; const nextId = createSession({ name: `${source.name} · fork`, cwd: source.cwd, branch: `${source.branch}-fork`, isolateWorktree: true }); updateSession(nextId, { messages: structuredClone(source.messages), profileId: source.profileId, model: source.model }); notify('Fork created in an isolated worktree');
+  };
+  const revertSession = async (id: string, messageId: string) => {
+    if (live) return liveLifecycle(id, async () => {
+      const result = await gateway.domains.sessions!.revert(id, messageId);
+      if (!result) throw new Error('Engine did not confirm reverted history');
+      await readLifecycleSession(id, result);
+    }, 'History reverted after selected message');
+    updateSession(id, { revertedMessageId: messageId }); notify('History reverted after selected message'); return true;
+  };
+  const unrevertSession = async (id: string) => {
+    if (live) return liveLifecycle(id, async () => {
+      const result = await gateway.domains.sessions!.unrevert(id);
+      if (!result) throw new Error('Engine did not confirm restored history');
+      await readLifecycleSession(id, result);
+    }, 'Reverted history restored');
+    updateSession(id, { revertedMessageId: undefined }); notify('Reverted history restored'); return true;
+  };
+  const summarizeSession = async (id: string) => {
+    if (live) return liveLifecycle(id, async () => { await gateway.domains.sessions!.summarize!(id); await readLifecycleSession(id); }, 'Compaction request completed; session refreshed');
+    updateSession(id, { inputTokens: Math.max(0, selected.inputTokens - 4200) }); notify('Context compacted'); return true;
+  };
+  const prepareLiveSession = (id: string) => liveLifecycle(id, async () => { await gateway.domains.sessions!.init!(id); await readLifecycleSession(id); }, 'Project initialization confirmed; session refreshed');
+  const startFreshSession = (id: string) => liveLifecycle(id, async () => {
+    const source = sessions.find(session => session.id === id);
+    if (!source?.profileId || !source.cwd) throw new Error('Start fresh requires the original profile and working directory');
+    await createLiveSession({ profileId: source.profileId, cwd: source.cwd, name: `${source.name} · fresh`, isolateWorktree: source.isolateWorktree });
+    setResumeGone(null);
+  }, 'Fresh session created');
+  const reconnectLiveSession = async () => {
+    setConnectionMessage('Reconciling session…');
+    try {
+      if (!reconcileLiveSessionsRef.current) throw new Error('Session service unavailable');
+      await reconcileLiveSessionsRef.current();
+      setLiveSessionError(null); setConnectionMessage('Session reconciled');
+    } catch (error) {
+      setLiveSessionError('Session service unavailable'); setConnectionMessage('Session service unavailable');
+      throw error;
+    }
+  };
   const loadOlder = async (id: string) => {
     if (live) {
       // c2f: canonical cursor pagination — exclusive `before`, follow `pageInfo.nextCursor`
@@ -986,7 +1056,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
+  const value = useMemo<FixtureContextValue>(() => ({ prepareLiveSession, startFreshSession, reconnectLiveSession, models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

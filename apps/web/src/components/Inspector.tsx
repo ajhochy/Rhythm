@@ -376,7 +376,7 @@ function LiveFilesPanel() {
 // post-m1-phase-6 c2c-c3e: live Changes panel — session diff, VCS git/branch diff, raw-patch
 // export, revert/restore, and worktree reset/remove, all against the real session boundary.
 function LiveChangesPanel() {
-  const { selected, notify } = useFixtures();
+  const { selected, notify, revertSession, unrevertSession } = useFixtures();
   const gateway = useGateway();
   const sessions = gateway.domains.sessions!;
   const [scope, setScope] = useState<'session' | 'git' | 'branch'>('session');
@@ -426,8 +426,8 @@ function LiveChangesPanel() {
     const boundedError = (fallback: string) => (err: unknown) => setError(err instanceof SessionGatewayError ? err.message : fallback);
     if (action === 'reset') sessions.resetWorktree(selected.id).then(() => notify('Worktree changes reset')).catch(boundedError('Worktree reset failed'));
     if (action === 'remove') sessions.removeWorktreeSession(selected.id).then(() => notify('Worktree removed')).catch(boundedError('Worktree removal failed'));
-    if (action === 'revert' && firstUserMessage) sessions.revert(selected.id, firstUserMessage.id).then(() => { notify('History reverted'); loadSessionDiff(); }).catch(boundedError('Revert failed'));
-    if (action === 'restore') sessions.unrevert(selected.id).then(() => { notify('Reverted history restored'); loadSessionDiff(); }).catch(boundedError('Restore failed'));
+    if (action === 'revert' && firstUserMessage) void revertSession(selected.id, firstUserMessage.id).then(ok => { if (ok) loadSessionDiff(); else setError('Revert failed; see session operation error'); });
+    if (action === 'restore') void unrevertSession(selected.id).then(ok => { if (ok) loadSessionDiff(); else setError('Restore failed; see session operation error'); });
   };
 
   const entries = scope === 'session' ? sessionEntries : vcsEntries;

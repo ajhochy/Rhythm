@@ -99,6 +99,10 @@ export interface SessionGateway {
   models?(): Promise<ModelChoice[]>;
   accounts?(): Promise<AccountChoice[]>;
   patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
+  archive?(localId: string, archived: boolean): Promise<void>;
+  fork?(localId: string, messageId: string): Promise<Session>;
+  summarize?(localId: string): Promise<void>;
+  init?(localId: string): Promise<void>;
   list(): Promise<Session[]>;
   listPage?(query: SessionListQuery): Promise<SessionListPage>;
   projectLabels?(): Promise<{ id: string; name: string }[]>;
@@ -119,8 +123,8 @@ export interface SessionGateway {
   // GET /:id/vcs/diff/raw — raw text/x-diff patch, never re-encoded (post-m1-p6-c2e).
   vcsDiffRaw(localId: string): Promise<string>;
   // POST /:id/revert {messageId} / POST /:id/unrevert (post-m1-p6-c2f).
-  revert(localId: string, messageId: string): Promise<void>;
-  unrevert(localId: string): Promise<void>;
+  revert(localId: string, messageId: string): Promise<{ revertedMessageId?: string } | void>;
+  unrevert(localId: string): Promise<{ revertedMessageId?: string } | void>;
   // POST /:id/worktree/reset — surfaces the bounded 502 WORKTREE_RESET_FAILED (post-m1-p6-c3d).
   resetWorktree(localId: string): Promise<void>;
   // POST /:id/worktree/remove — surfaces the bounded 502 WORKTREE_REMOVE_FAILED; returns the
@@ -361,6 +365,13 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',
+    archive: async (id, archived) => { await response('Archive session', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ archived }) })); },
+    fork: async (id, messageId) => toSessionViewModel(await response('Fork session', request(`/agent-sessions/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify({ messageId }) }))),
+    summarize: async id => { await response('Compact session', request(`/agent-sessions/${encodeURIComponent(id)}/summarize`, { method: 'POST' })); },
+    init: async id => {
+      const result = await response<{ ok?: boolean }>('Prepare project', request(`/agent-sessions/${encodeURIComponent(id)}/init`, { method: 'POST' }));
+      if (result.ok !== true) throw new Error('Project initialization was not confirmed by the engine');
+    },
     models: async () => {
       const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
       const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
@@ -400,7 +411,12 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
     },
     detail: async (localId) => {
       const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Load session', request(`/agent-sessions/${encodeURIComponent(localId)}?transcriptLimit=50`));
-      return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
+      // Context usage is the latest persisted model response, not a guessed subtraction.
+      // The API supplies parsed SDK tokens on structured messages; no budget is invented.
+      const latest = [...(body.messages ?? [])].reverse().map(record).find(message => message.tokens && (message.role === 'output' || message.role === 'assistant'));
+      const tokens = record(latest?.tokens);
+      const count = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+      return { ...toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage), inputTokens: count(tokens.input), outputTokens: count(tokens.output), cachedTokens: count(record(tokens.cache).read) };
     },
     // post-m1-phase-4 c2f: exclusive `before` cursor, canonical `pageInfo.nextCursor`/`hasMore`.
     pageOlder: async (localId, before) => {
@@ -459,8 +475,17 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
       if (!result.ok) throw new SessionGatewayError(result.status, failureText(result.status, 'Export patch'));
       return result.text();
     },
-    revert: async (localId, messageId) => { await response<void>('Revert session', request(`/agent-sessions/${encodeURIComponent(localId)}/revert`, { method: 'POST', body: JSON.stringify({ messageId }) })); },
-    unrevert: async (localId) => { await response<void>('Restore session', request(`/agent-sessions/${encodeURIComponent(localId)}/unrevert`, { method: 'POST' })); },
+    revert: async (localId, messageId) => {
+      const result = record(await response('Revert session', request(`/agent-sessions/${encodeURIComponent(localId)}/revert`, { method: 'POST', body: JSON.stringify({ messageId }) })));
+      const boundary = string(record(result.revert).messageID);
+      if (!boundary) throw new Error('Engine did not confirm a reverted message boundary');
+      return { revertedMessageId: boundary };
+    },
+    unrevert: async (localId) => {
+      const result = record(await response('Restore session', request(`/agent-sessions/${encodeURIComponent(localId)}/unrevert`, { method: 'POST' })));
+      if (!string(result.id) || result.revert != null) throw new Error('Engine did not confirm restored history');
+      return { revertedMessageId: undefined };
+    },
     // c3d/c3e: both surface the server's bounded 502 (WORKTREE_RESET_FAILED/WORKTREE_REMOVE_FAILED)
     // as a SessionGatewayError instead of swallowing it into a false "success".
     resetWorktree: async (localId) => { await response<void>('Reset worktree', request(`/agent-sessions/${encodeURIComponent(localId)}/worktree/reset`, { method: 'POST' })); },
