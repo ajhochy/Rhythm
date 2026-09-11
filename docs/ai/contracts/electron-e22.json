@@ -1,0 +1,20 @@
+{
+  "issue": "E22",
+  "date": "2026-09-11",
+  "test_command": "cd apps/web && npm run typecheck && npx playwright test --config tests/electron-e22-playwright.config.ts && RHYTHM_LIVE_E2E=1 npx playwright test --config tests/electron-e22-playwright.config.ts && npx playwright test --config tests/electron-e21-playwright.config.ts && npx playwright test --config tests/electron-e20-playwright.config.ts",
+  "waiver": null,
+  "criteria": [
+    { "criterion_id": "E22-c1", "text": "real enabled profile/model/provider/account catalogs; Empty catalog safe. remove fixed fixture choices in live.", "mode": "ui", "test": "apps/web/tests/electron-e22-identity.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c2", "text": "profile create/edit/delete/default/duplicate with one authoritative canonical policy representation; Duplicate is POST create draft, not PATCH nonexistent.", "mode": "ui", "test": "apps/web/tests/electron-e22-identity.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c3", "text": "Session settings PATCH actual name/profile/model/reasoning/permission/fast using canonical values and readback.", "mode": "ui", "test": "apps/web/tests/electron-e22-identity.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c4", "text": "Separate one-turn agent/model override consumed exactly once from persisted session defaults; outgoing session.input uses explicit selected override, not profile fallback; next turn reverts.", "mode": "ui", "test": "apps/web/tests/electron-e22-identity.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c5", "text": "Agent picker and advanced create submit actual profile/account/task/cwd/branch/worktree values; Default profile actually used for instant create. If server has no default-profile preference, retain explicit local account-scoped limitation and do not claim persistence.", "mode": "ui", "test": "apps/web/tests/electron-e22-identity.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c6", "text": "managed skills/delegates/permissions/auto-approve/account IDs round-trip or unsupported field visibly disabled without success.", "mode": "ui", "test": "apps/web/tests/electron-e22-identity.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c7", "text": "one live sandbox behavior: create/update/readback profile/session and capture two input frames proving turn-only then default without forwarding a provider prompt", "mode": "live", "test": "apps/web/tests/electron-e22-live.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c8", "text": "Preserve E21 reconciliation/E20 history", "mode": "ui", "test": "apps/web/tests/electron-e20-session-ordering.spec.ts; apps/web/tests/electron-e21-reconciliation.spec.ts", "status": "pass" },
+    { "criterion_id": "E22-c9", "text": "Preserve E50-52 accessibility", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Existing accessibility markup retained; accessibility reruns/manual UI smoke not completed before repair-budget stop." },
+    { "criterion_id": "E22-c10", "text": "not_tested provider execution", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Input frames intercepted deliberately; real provider execution deferred by dispatch." },
+    { "criterion_id": "E22-c11", "text": "not_tested packaged", "mode": "manual", "test": null, "status": "UNVERIFIED", "reason": "Packaged Electron execution/build excluded by dispatch." }
+  ],
+  "not_tested": ["E22-c9", "E22-c10", "E22-c11"]
+}

@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FIXED_NOW, seedDiff, seedFiles, seedProfiles, seedSessions, seedTodos } from './fixtures';
 import { useGateway } from './gateway/context';
 import type { GatewayMode } from './gateway';
-import { mapPart, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent } from './gateway/sessions';
+import { mapPart, SessionGatewayError, toSessionViewModel, type ProfileMutation, type SessionSocket, type SessionWireEvent, type IdentityProfile, type ModelChoice, type AccountChoice, type SessionSettings, type TurnOverride } from './gateway/sessions';
+import { useAuthUser } from './gateway/auth';
 import type { DomainNotification } from './gateway/notifications';
 import type { MessageThread } from './gateway/messages';
 import { ApprovalGatewayError, type PendingApproval } from './gateway/approvals';
@@ -21,6 +22,8 @@ interface NewSessionInput {
 }
 
 interface LiveSessionInput {
+  taskId?: string;
+  anthropicAccountId?: string;
   name: string;
   cwd: string;
   profileId: string;
@@ -42,7 +45,10 @@ interface LiveChildView {
 }
 
 interface FixtureContextValue {
-  sessions: Session[]; profiles: Profile[]; todos: TodoItem[]; files: FixtureFile[]; diff: string;
+  sessions: Session[]; profiles: IdentityProfile[]; todos: TodoItem[]; files: FixtureFile[]; diff: string;
+  models: ModelChoice[]; accounts: AccountChoice[]; catalogError: string;
+  turnOverride: TurnOverride; stageTurnOverride(patch: TurnOverride): void;
+  saveSessionSettings(id: string, input: SessionSettings): Promise<void>;
   selectedId: string; selected: Session; scope: SessionScope; theme: Theme; inspectorTab: InspectorTab; demo: DemoState;
   toast: { message: string; id: number }; connectionMessage: string; runMessage: string; activeFile: string; terminalOutput: string[]; loading: boolean;
   unreadThreads: number; setUnreadThreads(count: number): void;
@@ -57,7 +63,7 @@ interface FixtureContextValue {
   loadOlder(id: string): Promise<void>; replyPermission(reply: 'once' | 'always' | 'reject', reason?: string): void;
   answerQuestion(answer: string): void; rejectQuestion(): void; sendInput(input: string, attachments?: ComposerAttachment[]): void; reconnect(): void;
   runShell(command: string): void; setActiveFile(path: string): void; resetWorktree(): void; removeWorktree(): void;
-  createProfile(): string; updateProfile(id: string, patch: Partial<Profile>): Promise<string>; duplicateProfile(id: string): string;
+  createProfile(): string; updateProfile(id: string, patch: Partial<IdentityProfile>): Promise<string>; duplicateProfile(id: string): string;
   deleteProfile(id: string): Promise<void>; setDefaultProfile(id: string): void; resetFixtures(): void;
   sessionGatewayMode: GatewayMode; liveSessionError: string | null;
   createLiveSession(input: LiveSessionInput): Promise<string>; deleteLiveSession(id: string): Promise<void>;
@@ -173,9 +179,29 @@ function persistLocallyReadIds(ids: Set<number>) {
 
 export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const gateway = useGateway();
+  const auth = useAuthUser();
+  const accountId = auth?.user.id ?? null;
   const live = gateway.mode === 'live';
   const [sessions, setSessions] = useState<Session[]>(() => live ? [] : readStoredFixtureSessions());
-  const [profiles, setProfiles] = useState<Profile[]>(() => live ? [emptyLiveProfile()] : cloneProfiles());
+  const [profileRows, setProfiles] = useState<IdentityProfile[]>(() => live ? [] : cloneProfiles());
+  // Local to this signed-in account and renderer lifetime. The API has no default-profile preference.
+  const [localDefault, setLocalDefault] = useState<{ accountId: number | null; profileId: string } | null>(null);
+  const profiles = useMemo(() => live ? profileRows.map(profile => ({ ...profile, isDefault: localDefault?.accountId === accountId && localDefault?.profileId === profile.id })) : profileRows, [profileRows, live, localDefault, accountId]);
+  const [models, setModels] = useState<ModelChoice[]>([]);
+  const [accounts, setAccounts] = useState<AccountChoice[]>([]);
+  const [catalogError, setCatalogError] = useState('');
+  const turnOverrides = useRef<Record<string, TurnOverride>>({});
+  const [overrideVersion, setOverrideVersion] = useState(0);
+  const stageTurnOverride = (patch: TurnOverride) => { const id = selectedIdRef.current; if (!id) return; turnOverrides.current[id] = { ...turnOverrides.current[id], ...patch }; setOverrideVersion(v => v + 1); };
+  const settingsWrites = useRef(new Map<string, Promise<void>>());
+  useEffect(() => {
+    if (!live) return;
+    let active = true;
+    setModels([]); setAccounts([]); setCatalogError('');
+    void gateway.domains.sessions?.models?.().then(rows => { if (active) setModels(rows); }).catch(() => { if (active) setCatalogError('Model catalog unavailable'); });
+    void gateway.domains.sessions?.accounts?.().then(rows => { if (active) setAccounts(rows); }).catch(() => { if (active) setCatalogError(value => `${value} Account catalog unavailable`.trim()); });
+    return () => { active = false; };
+  }, [gateway, live]);
   const [todos, setTodos] = useState<TodoItem[]>(() => structuredClone(seedTodos));
   const [selectedId, setSelectedId] = useState(() => {
     if (!live) {
@@ -284,6 +310,19 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
         livePermission: session.livePermission, liveQuestion: session.liveQuestion, revertedMessageId: session.revertedMessageId,
       } : session)
       : [incoming, ...current]);
+  };
+
+  const saveSessionSettings = (id: string, input: SessionSettings): Promise<void> => {
+    if (!id) return Promise.reject(new Error('Choose a session first'));
+    const save = async () => {
+      if (!live) return;
+      const patch = gateway.domains.sessions?.patchSettings;
+      if (!patch) throw new Error('Session settings unavailable');
+      replaceLiveSession(await patch(id, input));
+    };
+    const pending = (settingsWrites.current.get(id) ?? Promise.resolve()).catch(() => {}).then(save);
+    settingsWrites.current.set(id, pending);
+    return pending.finally(() => { if (settingsWrites.current.get(id) === pending) settingsWrites.current.delete(id); });
   };
 
   const rememberLiveSelection = (id: string) => {
@@ -682,10 +721,14 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       }],
       pendingAttachments: [],
     } : session));
-    const selectedProfile = profiles.find((profile) => profile.id === selected.profileId);
-    const modelOverride = selectedProfile?.modelProvider && selectedProfile.modelId
-      ? { providerId: selectedProfile.modelProvider, modelId: selectedProfile.modelId }
-      : undefined;
+    const override = turnOverrides.current[selected.id] ?? {};
+    delete turnOverrides.current[selected.id];
+    setOverrideVersion(v => v + 1);
+    const turnProfile = profiles.find(profile => profile.id === override.profileId && profile.enabled && profile.selectable);
+    const agent = turnProfile ? turnProfile.ocAgent || turnProfile.id : undefined;
+    const modelOverride = override.modelOverride ?? (selected.providerId && selected.modelId
+      ? { providerId: selected.providerId, modelId: selected.modelId }
+      : undefined);
     // c2e: real attachments travel as canonical `parts` (resolved text content / file data:
     // URL), never dropped in favor of `data` alone — apps/api_server/src/services/ws_gateway.ts:287-350
     // accepts either `{data}` or `{parts:[{type:'text',text}, {type:'file',mime,filename,url}]}`.
@@ -699,8 +742,8 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
     // canonical `data` (not `parts`) — the same wire alternative the API already accepts.
     // Only route through `parts` when there is a real attachment to carry.
     sessionSocketRef.current?.send(attachments.length > 0
-      ? { v: 1, type: 'session.input', id: selected.id, parts, ...(modelOverride ? { modelOverride } : {}) }
-      : { v: 1, type: 'session.input', id: selected.id, data: trimmed, ...(modelOverride ? { modelOverride } : {}) });
+      ? { v: 1, type: 'session.input', id: selected.id, parts, ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) }
+      : { v: 1, type: 'session.input', id: selected.id, data: trimmed, ...(agent ? { agent } : {}), ...(modelOverride ? { modelOverride } : {}) });
     setRunMessage('Message delivered · agent is working');
     notify('Message sent');
   };
@@ -886,22 +929,24 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   const resetWorktree = () => { updateSession(selected.id, { dirtyCount: 0 }); notify('Fixture worktree reset'); };
   const removeWorktree = () => { updateSession(selected.id, { isolateWorktree: false }); notify('Fixture worktree removed'); };
 
-  const createProfile = () => { const id = `profile-created-${profiles.length + 1}`; const profile: Profile = { id, icon: 'NP', label: 'New profile', systemPrompt: '', managerAgent: false, allowedDelegates: [], selectable: true, enabled: true, modelProvider: 'openai', modelId: 'gpt-5.6', provider: 'OpenAI', model: 'gpt-5.6', defaultAccount: 'Rhythm workspace', mcps: [], skills: [], permissionRules: { shell: 'ask', files: 'ask', network: 'deny' }, managedSkills: false, isDefault: false, updatedAt: FIXED_NOW }; setProfiles((current) => [...current, profile]); notify(live ? 'New profile draft' : 'Profile created'); return id; };
-  const profileMutation = (profile: Profile): ProfileMutation => ({
+  const createProfile = () => { const id = `profile-created-${crypto.randomUUID()}`; const profile: Profile = live ? { ...emptyLiveProfile(), id, label: 'New profile', enabled: true, selectable: true, allowedMcpsJson: '{}', allowedSkillsJson: '[]', corePermissionsJson: '{}', allowedDelegatesJson: '[]' } : { id, icon: 'NP', label: 'New profile', systemPrompt: '', managerAgent: false, allowedDelegates: [], selectable: true, enabled: true, modelProvider: 'openai', modelId: 'gpt-5.6', provider: 'OpenAI', model: 'gpt-5.6', defaultAccount: 'Rhythm workspace', mcps: [], skills: [], permissionRules: { shell: 'ask', files: 'ask', network: 'deny' }, managedSkills: false, isDefault: false, updatedAt: FIXED_NOW }; setProfiles((current) => [...current, profile]); notify(live ? 'New profile draft' : 'Profile created'); return id; };
+  const profileMutation = (profile: IdentityProfile): ProfileMutation => ({
     label: profile.label, icon: profile.icon, enabled: profile.enabled,
-    isAgent: profile.isAgent ?? true, isManager: profile.managerAgent,
+    isAgent: profile.isAgent ?? true, isManager: live ? profile.isManager === true : profile.managerAgent,
     systemPrompt: profile.systemPrompt || null,
-    allowedMcpsJson: profile.allowedMcpsJson ?? JSON.stringify(profile.mcps),
-    allowedSkillsJson: profile.allowedSkillsJson ?? JSON.stringify(profile.skills),
-    corePermissionsJson: JSON.stringify(profile.permissionRules),
-    allowedDelegatesJson: JSON.stringify(profile.allowedDelegates),
+    allowedMcpsJson: live ? profile.allowedMcpsJson ?? null : JSON.stringify(profile.mcps),
+    allowedSkillsJson: live ? profile.allowedSkillsJson ?? null : JSON.stringify(profile.skills),
+    corePermissionsJson: live ? profile.corePermissionsJson ?? null : JSON.stringify(profile.permissionRules),
+    allowedDelegatesJson: live ? profile.allowedDelegatesJson ?? null : JSON.stringify(profile.allowedDelegates),
+    autoApproveActions: profile.autoApproveActions ?? false,
+    reasoningEffort: profile.reasoningEffort ?? null,
     presetId: profile.presetId ?? null, sortOrder: profile.sortOrder ?? 0,
     modelProvider: profile.modelProvider, modelId: profile.modelId,
     ocAgent: profile.ocAgent ?? null, sessionSelectable: profile.selectable,
     modelTierHint: profile.modelTierHint ?? null,
     defaultAnthropicAccountId: profile.defaultAnthropicAccountId ?? null,
   });
-  const updateProfile = async (id: string, patch: Partial<Profile>) => {
+  const updateProfile = async (id: string, patch: Partial<IdentityProfile>) => {
     const existing = profiles.find((profile) => profile.id === id);
     if (!existing) return id;
     const next = { ...existing, ...patch, updatedAt: FIXED_NOW };
@@ -910,16 +955,22 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
       notify('Profile changes saved');
       return id;
     }
+    const mutation = profileMutation(next);
+    const previous = profileMutation(existing);
+    // PATCH only edited canonical fields: preset identity is protected even when unchanged.
+    const changed = Object.fromEntries(Object.entries(mutation).filter(([key, value]) => value !== previous[key as keyof ProfileMutation]));
     const saved = id.startsWith('profile-created-')
-      ? await gateway.domains.sessions!.createProfile(profileMutation(next))
-      : await gateway.domains.sessions!.patchProfile(id, profileMutation(next));
-    setProfiles((current) => current.map((profile) => profile.id === id ? saved : profile));
+      ? await gateway.domains.sessions!.createProfile(mutation)
+      : await gateway.domains.sessions!.patchProfile(id, changed);
+    const readback = (await gateway.domains.sessions!.profiles()).find(profile => profile.id === saved.id);
+    if (!readback) throw new Error('Saved profile missing from readback');
+    setProfiles((current) => current.map((profile) => profile.id === id ? readback : profile));
     notify('Profile changes saved');
     return saved.id;
   };
-  const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = `${id}-copy-${profiles.length}`; setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify('Profile duplicated'); return nextId; };
+  const duplicateProfile = (id: string) => { const source = profiles.find((profile) => profile.id === id); if (!source) return id; const nextId = `profile-created-${crypto.randomUUID()}`; setProfiles((current) => [...current, { ...structuredClone(source), id: nextId, presetId: null, ocAgent: null, label: `${source.label} copy`, isDefault: false, updatedAt: FIXED_NOW }]); notify(live ? 'Duplicate profile draft — save to create' : 'Profile duplicated'); return nextId; };
   const deleteProfile = async (id: string) => { if (profiles.find((profile) => profile.id === id)?.isDefault) { notify('Choose another default before deleting this profile'); return; } if (live && !id.startsWith('profile-created-')) await gateway.domains.sessions!.deleteProfile(id); setProfiles((current) => current.filter((profile) => profile.id !== id)); notify('Profile deleted'); };
-  const setDefaultProfile = (id: string) => { setProfiles((current) => current.map((profile) => ({ ...profile, isDefault: profile.id === id }))); notify('Default profile updated'); };
+  const setDefaultProfile = (id: string) => { if (live) { if (id.startsWith('profile-created-')) { notify('Save this profile before choosing it as default'); return; } setLocalDefault({ accountId, profileId: id }); notify('Default profile updated locally for this account; resets on reload'); return; } setProfiles((current) => current.map((profile) => ({ ...profile, isDefault: profile.id === id }))); notify('Default profile updated'); };
   const resetFixtures = () => { setSessions(cloneSessions()); setProfiles(cloneProfiles()); setTodos(structuredClone(seedTodos)); setUnreadThreads(live ? 0 : 6); setSelectedId('session-sunday-handoff'); setScope('chats'); setInspectorTab('context'); setDemoState('running'); setConnectionMessage('Desktop connected'); setRunMessage('Sunday service handoff is working'); setActiveFile(seedFiles[0].path); setTerminalOutput(['$ pwd', '/workspace/rhythm']); setLoading(false); notify('Workspace reset'); };
 
   const setDemo = (next: DemoState) => {
@@ -935,7 +986,7 @@ export function FixtureProvider({ children }: { children: React.ReactNode }) {
   };
 
   const notificationUnreadCount = notifications.length + pushNotifications.length;
-  const value = useMemo<FixtureContextValue>(() => ({ sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
+  const value = useMemo<FixtureContextValue>(() => ({ models, accounts, catalogError, turnOverride: turnOverrides.current[selectedId] ?? {}, stageTurnOverride, saveSessionSettings, sessions, profiles, todos, files: seedFiles, diff: seedDiff, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, setUnreadThreads, liveMessageThreads, setLiveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, selectSession, setScope, setTheme, setInspectorTab, setDemo, notify, createSession, updateSession, archiveSession, unarchiveSession, deleteSession, resumeSession, cancelSession, forkSession, revertSession, unrevertSession, summarizeSession, loadOlder, replyPermission, answerQuestion, rejectQuestion, sendInput, reconnect, runShell, setActiveFile, resetWorktree, removeWorktree, createProfile, updateProfile, duplicateProfile, deleteProfile, setDefaultProfile, resetFixtures, sessionGatewayMode: gateway.mode, liveSessionError, createLiveSession, deleteLiveSession, refreshLiveSessions, selectLiveSession, sendLiveInput, sendLiveCommand, resumeGone, dismissResumeGone, liveChildView, openLiveChildSession, closeLiveChildView, notifications, pushNotifications, notificationUnreadCount, markNotificationRead, markAllNotificationsRead, replyLivePermission, replyLiveQuestion, rejectLiveQuestion, updatePermissionMode, pendingApprovals, decideApproval }), [models, accounts, catalogError, overrideVersion, sessions, profiles, todos, selectedId, selected, scope, theme, inspectorTab, demo, toast, connectionMessage, runMessage, activeFile, terminalOutput, loading, unreadThreads, liveMessageThreads, liveMessagesLoading, liveMessagesError, refreshLiveMessageThreads, gateway.mode, liveSessionError, resumeGone, liveChildView, notifications, pushNotifications, notificationUnreadCount, pendingApprovals]);
   return <FixtureContext.Provider value={value}>{children}</FixtureContext.Provider>;
 }
 

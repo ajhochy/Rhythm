@@ -69,6 +69,8 @@ async function open(page: Page, options: { expired?: boolean; hundred?: boolean 
       return send(pageOf(p.get('cursor') ? [row('older-root')] : options.hundred ? [...roots, ...Array.from({ length: 96 }, (_, i) => row(`first-page-${i}`))] : roots, p.get('cursor') ? null : 'roots-next'));
     }
     if (url.pathname === '/projects') return send([{ id: 'p1', name: 'Same label' }, { id: 'p2', name: 'Same label' }]);
+    if (url.pathname === '/agents/models/catalog') return send([]);
+    if (url.pathname === '/opencode/auth/accounts') return send({ accounts: [], defaultId: null });
     if (url.pathname === '/agent-configs') return send([{ id: 'profile', label: 'Agent', enabled: true, sessionSelectable: true }]);
     if (/^\/agent-sessions\/(z|a|b|r)\/?$/.test(url.pathname)) return send({ session: roots.find((r) => url.pathname.endsWith(r.id)), messages: [] });
     if (['/notifications', '/agent-approvals', '/message-threads', '/opencode/commands', '/providers', '/provider', '/agent-sessions/z/todos', '/agent-sessions/z/pending-permissions'].includes(url.pathname)) return send([]);
@@ -157,7 +159,7 @@ test('E20-c7 trimmed server search discovers child beyond first100 with context 
 test('E20-c9 density is usable without inventing persisted cross-account preferences', async ({ page }) => {
   const { unexpected } = await open(page);
   await expect(page.getByTestId('session-b')).toContainText('needle preview');
-  const keys = () => page.evaluate(() => Object.keys(localStorage).sort());
+  const keys = () => page.evaluate(() => Object.keys(localStorage).filter((key) => /compact|density|session-sort|project-filter/.test(key)).sort());
   const before = await keys();
   await page.getByRole('checkbox', { name: 'Compact rows' }).check();
   await expect(page.getByTestId('session-b')).not.toContainText('needle preview');

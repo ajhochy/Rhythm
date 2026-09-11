@@ -56,6 +56,11 @@ export type SessionListQuery = {
 };
 export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
 export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
+export type IdentityProfile = Profile & { autoApproveActions?: boolean; reasoningEffort?: string | null };
+export type ModelChoice = { providerId: string; modelId: string; label: string };
+export type AccountChoice = { id: string; label: string; status: string };
+export type SessionSettings = { name?: string; profileId?: string | null; providerId?: string | null; modelId?: string | null; thinkingBudget?: number | null; permissionMode?: string; fastMode?: boolean; anthropicAccountId?: string };
+export type TurnOverride = { profileId?: string; modelOverride?: { providerId: string; modelId: string } };
 const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 const timestamp = (value: string) => Date.parse(value) || 0;
@@ -90,12 +95,15 @@ export interface ProjectBranches { current: string | null; local: string[]; rece
 
 export interface SessionGateway {
   readonly mode: GatewayMode;
-  profiles(): Promise<Profile[]>;
+  profiles(): Promise<IdentityProfile[]>;
+  models?(): Promise<ModelChoice[]>;
+  accounts?(): Promise<AccountChoice[]>;
+  patchSettings?(localId: string, input: SessionSettings): Promise<Session>;
   list(): Promise<Session[]>;
   listPage?(query: SessionListQuery): Promise<SessionListPage>;
   projectLabels?(): Promise<{ id: string; name: string }[]>;
   detail(localId: string): Promise<Session>;
-  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard' }): Promise<Session>;
+  create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard'; taskId?: string; anthropicAccountId?: string }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
   findFiles(localId: string, query: string, opts?: { limit?: number; type?: 'file' | 'directory' }): Promise<string[]>;
   // GET /:id/files/list?path — engine-shaped entries scoped to the session/worktree directory.
@@ -131,8 +139,8 @@ export interface SessionGateway {
   // services/mobile_opencode_operations.generated.ts). Honest rejection here, not a fabricated
   // success, until the engine gains that capability.
   dispatchMcp(localId: string, server: string, tool: string, args: Record<string, unknown>): Promise<never>;
-  createProfile(input: ProfileMutation): Promise<Profile>;
-  patchProfile(id: string, input: ProfileMutation): Promise<Profile>;
+  createProfile(input: ProfileMutation): Promise<IdentityProfile>;
+  patchProfile(id: string, input: Partial<ProfileMutation>): Promise<IdentityProfile>;
   deleteProfile(id: string): Promise<void>;
   hardDelete(localId: string): Promise<void>;
   cancel(localId: string): Promise<void>;
@@ -151,6 +159,8 @@ export interface SessionGateway {
 }
 
 export interface ProfileMutation {
+  autoApproveActions?: boolean;
+  reasoningEffort?: string | null;
   label: string;
   icon: string;
   enabled: boolean;
@@ -278,7 +288,7 @@ export function toSessionViewModel(value: unknown, messages: unknown[] = [], tra
     worktreeName: typeof source.worktreeName === 'string' && source.worktreeName ? source.worktreeName : undefined,
     worktreePath: typeof source.worktreePath === 'string' && source.worktreePath ? source.worktreePath : undefined,
     worktreeBranch: typeof source.worktreeBranch === 'string' && source.worktreeBranch ? source.worktreeBranch : undefined,
-    model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: 'Medium', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
+    model: string(source.modelId, 'Configured model'), modelId: string(source.modelId) || undefined, providerId: string(source.providerId) || undefined, sdkSessionId: string(source.sdkSessionId) || undefined, thinkingBudget: typeof source.thinkingBudget === 'number' ? String(source.thinkingBudget) : '', permissionMode: string(source.permissionMode, 'default'), fastMode: source.fastMode === true,
     createdAt: string(source.createdAt, new Date(0).toISOString()), updatedAt: string(source.updatedAt, string(source.createdAt, new Date(0).toISOString())), cost: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalBudget: 0,
     // post-m1-phase-5 c2d: preserve canonical delegation identity instead of dropping it — a
     // child's canonical parentSessionId is normalized into the web model's parentId; both fields
@@ -300,7 +310,7 @@ function flattenSessionTree(value: unknown): Session[] {
   return [session, ...children.flatMap(flattenSessionTree)];
 }
 
-function mapProfile(value: unknown): Profile {
+function mapProfile(value: unknown): IdentityProfile {
   const source = record(value);
   const modelProvider = typeof source.modelProvider === 'string' ? source.modelProvider : null;
   const modelId = typeof source.modelId === 'string' ? source.modelId : null;
@@ -313,6 +323,8 @@ function mapProfile(value: unknown): Profile {
     catch { return {}; }
   };
   return {
+    autoApproveActions: source.autoApproveActions === true,
+    reasoningEffort: typeof source.reasoningEffort === 'string' ? source.reasoningEffort : null,
     id: string(source.id), icon: string(source.icon, 'AG'), label: string(source.label, string(source.id)),
     systemPrompt: string(source.systemPrompt), managerAgent: source.isManager === true,
     allowedDelegates: parseList(source.allowedDelegatesJson), selectable: source.sessionSelectable !== false,
@@ -349,6 +361,21 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',
+    models: async () => {
+      const rows = await response<unknown[]>('Load models', request('/agents/models/catalog'));
+      const choices = rows.map(record).filter(row => row.authorized === true && string(row.provider) && string(row.modelId))
+        .map(row => ({ providerId: string(row.provider), modelId: string(row.modelId), label: string(row.displayName, string(row.modelId)) }));
+      return [...new Map(choices.map(row => [`${row.providerId}/${row.modelId}`, row])).values()];
+    },
+    accounts: async () => {
+      const body = await response<{ accounts?: unknown[] }>('Load accounts', request('/opencode/auth/accounts'));
+      return (body.accounts ?? []).map(record).map(row => ({ id: string(row.id), label: string(row.label, string(row.id)), status: string(row.status) }));
+    },
+    patchSettings: async (id, input) => {
+      await response<unknown>('Save session settings', request(`/agent-sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }));
+      const body = await response<{ session: unknown; messages?: unknown[]; transcriptPage?: unknown }>('Read session settings', request(`/agent-sessions/${encodeURIComponent(id)}?transcriptLimit=50`));
+      return toSessionViewModel(body.session, body.messages ?? [], body.transcriptPage);
+    },
     projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
       .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
     listPage: async (query) => {

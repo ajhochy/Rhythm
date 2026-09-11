@@ -12,7 +12,15 @@ import { Transcript } from './Transcript';
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
 export function AgentsWorkspace() {
-  const { selected, sessions, profiles, connectionMessage, updateSession, archiveSession, resumeSession, selectSession, notify, resumeGone, dismissResumeGone, liveChildView, closeLiveChildView } = useFixtures();
+  const { selected, sessions, profiles, models, accounts, sessionGatewayMode, saveSessionSettings, connectionMessage, updateSession: updateFixtureSession, archiveSession, resumeSession, selectSession, notify, resumeGone, dismissResumeGone, liveChildView, closeLiveChildView } = useFixtures();
+  const live = sessionGatewayMode === 'live';
+  const [settingsError, setSettingsError] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const updateSession: typeof updateFixtureSession = (id, patch) => {
+    if (!live) { updateFixtureSession(id, patch); return; }
+    // The actions menu only uses this path for Fast; all form fields use the canonical submit below.
+    void saveSessionSettings(id, { fastMode: patch.fastMode }).catch(error => setSettingsError(error instanceof Error ? error.message : 'Settings failed'));
+  };
   const [compactLayout, setCompactLayout] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const [railWidth, setRailWidth] = useState(280);
   const [inspectorWidth, setInspectorWidth] = useState(336);
@@ -169,14 +177,27 @@ export function AgentsWorkspace() {
       <span className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="panel-resize-status">{resizeAnnouncement}</span>
 
       <FocusDialog open={sessionSettings} onClose={() => setSessionSettings(false)} title="Session settings" description="Update the fields supported by PATCH /agent-sessions/:id." testId="session-settings-dialog" wide>
-        <form className="form-grid" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); updateSession(selected.id, { name: String(data.get('name')), model: String(data.get('model')), thinkingBudget: String(data.get('thinking')), permissionMode: String(data.get('permission')), fastMode: data.get('fast') === 'on' }); setSessionSettings(false); notify('Session settings applied'); }}>
-          <label className="field span-2">Session name<input name="name" defaultValue={selected.name} /></label>
-          <label className="field">Agent<select name="profile" defaultValue={selected.profileId}>{profiles.filter((item) => item.enabled).map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
-          <label className="field">Model<select name="model" defaultValue={selected.model}><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></select></label>
-          <label className="field">Reasoning<select name="thinking" defaultValue={selected.thinkingBudget}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select></label>
-          <label className="field">Permissions<select name="permission" defaultValue={selected.permissionMode}><option>Default</option><option>Accept Edits</option><option>Plan</option><option>Bypass</option></select></label>
+        <form className="form-grid" onSubmit={(event) => {
+          event.preventDefault(); if (savingSettings) return;
+          const data = new FormData(event.currentTarget);
+          if (!live) { updateFixtureSession(selected.id, { name: String(data.get('name')), profileId: String(data.get('profile')), model: String(data.get('model')), thinkingBudget: String(data.get('thinking')), permissionMode: String(data.get('permission')), fastMode: data.get('fast') === 'on' }); setSessionSettings(false); notify('Session settings applied'); return; }
+          const key = String(data.get('model')); const model = models.find(m => `${m.providerId}/${m.modelId}` === key);
+          const account = String(data.get('account') ?? '');
+          setSavingSettings(true); setSettingsError('');
+          void saveSessionSettings(selected.id, { name: String(data.get('name')).trim(), profileId: String(data.get('profile')) || null, ...(model ? { providerId: model.providerId, modelId: model.modelId } : key === '' ? { providerId: null, modelId: null } : {}), thinkingBudget: data.get('thinking') === '' ? null : Number(data.get('thinking')), permissionMode: String(data.get('permission')), fastMode: data.get('fast') === 'on', ...(account && account !== selected.account ? { anthropicAccountId: account } : {}) })
+            .then(() => { setSessionSettings(false); notify('Session settings saved and read back'); })
+            .catch(error => setSettingsError(error instanceof Error ? error.message : 'Session settings failed'))
+            .finally(() => setSavingSettings(false));
+        }}>
+          {settingsError && <p className="span-2" role="alert">{settingsError}</p>}
+          <label className="field span-2">Session name<input name="name" required defaultValue={selected.name} /></label>
+          <label className="field">Agent<select name="profile" defaultValue={selected.profileId}><option value="">Session default</option>{profiles.filter((item) => item.enabled && item.selectable && (!live || !item.id.startsWith('profile-created-'))).map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label>
+          <label className="field">Model<select name="model" defaultValue={live ? selected.providerId && selected.modelId ? `${selected.providerId}/${selected.modelId}` : '' : selected.model}>{live ? <><option value="">Profile default</option>{selected.providerId && selected.modelId && !models.some(m => m.providerId === selected.providerId && m.modelId === selected.modelId) && <option value={`${selected.providerId}/${selected.modelId}`}>{selected.modelId} (unavailable; retain)</option>}{models.map(m => <option key={`${m.providerId}/${m.modelId}`} value={`${m.providerId}/${m.modelId}`}>{m.label} · {m.providerId}</option>)}</> : <><option>gpt-5.6</option><option>gpt-5.6-codex</option><option>claude-sonnet-4</option></>}</select></label>
+          <label className="field">Reasoning{live ? <><input type="number" min="0" step="1" name="thinking" defaultValue={selected.thinkingBudget} /><span>Token budget; blank uses the default.</span></> : <select name="thinking" defaultValue={selected.thinkingBudget}><option>Off</option><option>Low</option><option>Medium</option><option>High</option><option>X-High</option><option>Max</option></select>}</label>
+          <label className="field">Permissions<select name="permission" defaultValue={selected.permissionMode}>{live ? <><option value="default">Default</option><option value="acceptEdits">Accept Edits</option><option value="plan">Plan</option><option value="bypassPermissions">Bypass permissions (trusted workspaces only)</option></> : <><option>Default</option><option>Accept Edits</option><option>Plan</option><option>Bypass</option></>}</select></label>
+          {live && <label className="field">Anthropic account<select name="account" defaultValue={selected.account ?? ''}><option value="">Keep current account</option>{selected.account && !accounts.some(a => a.id === selected.account) && <option value={selected.account}>{selected.account} (unavailable; retain)</option>}{accounts.map(a => <option value={a.id} key={a.id} disabled={!!a.status && a.status !== 'ok'}>{a.label} · {a.id}</option>)}</select></label>}
           <label className="check-label"><input name="fast" type="checkbox" defaultChecked={selected.fastMode} />Fast mode</label>
-          <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setSessionSettings(false)}>Cancel</button><button className="primary-button" type="submit" data-testid="save-session-settings">Save settings</button></footer>
+          <footer className="dialog-actions span-2"><button className="secondary-button" type="button" onClick={() => setSessionSettings(false)}>Cancel</button><button className="primary-button" type="submit" disabled={savingSettings || live && (!selected.id || readOnlyChild)} data-testid="save-session-settings">{savingSettings ? 'Saving…' : 'Save settings'}</button></footer>
         </form>
       </FocusDialog>
       <FocusDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} title="Prepare project for agents" description="Initialize project instructions through POST /agent-sessions/:id/init." testId="prepare-project-dialog"><div className="prepare-list"><span><Icon name="check" />Git repository available</span><span><Icon name="check" />Worktree can be isolated</span><span><Icon name="check" />AGENTS.md discovered</span></div><div className="dialog-actions"><button className="secondary-button" type="button" onClick={() => setPrepareOpen(false)}>Cancel</button><button className="primary-button" type="button" onClick={() => { setPrepareOpen(false); notify('Project prepared for agents'); }} data-testid="confirm-prepare-project">Prepare project</button></div></FocusDialog>
