@@ -6,7 +6,7 @@ import { AppError } from '../errors/app_error';
 import { env } from '../config/env';
 import { getDb } from '../database/db';
 import { canonicalize, containsReal } from '../utils/path_containment';
-import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentSessionsRepository, listPage, listChildrenPage } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import {
   AgentConfigsRepository,
@@ -562,6 +562,45 @@ export class AgentSessionsController {
 
   list(req: Request, res: Response, next: NextFunction): void {
     try {
+      if (['limit', 'cursor', 'search', 'parentId'].some(key => req.query[key] !== undefined)) {
+        // Opt-in only: the no-pagination branch below stays byte-for-byte compatible.
+        if (env.dbClient !== 'sqlite') throw AppError.badRequest('Session history requires local SQLite');
+        const text = (key: string, max = 200): string | undefined => {
+          const value = req.query[key];
+          if (value === undefined) return undefined;
+          if (typeof value !== 'string' || value.length > max || (key !== 'search' && !value)) {
+            throw AppError.badRequest(`Invalid ${key}`);
+          }
+          return value;
+        };
+        const rawLimit = text('limit', 3);
+        if (rawLimit !== undefined && !/^[1-9]\d*$/.test(rawLimit)) throw AppError.badRequest('Invalid limit');
+        const scope = text('scope');
+        if (scope !== undefined && !SESSION_SCOPES.includes(scope as SessionScope)) throw AppError.badRequest('Invalid scope');
+        const boolean = (key: string): boolean => {
+          const value = text(key, 5);
+          if (value !== undefined && value !== 'true' && value !== 'false') throw AppError.badRequest(`Invalid ${key}`);
+          return value === 'true';
+        };
+        const projectId = text('projectId');
+        const options = {
+          limit: rawLimit === undefined ? 50 : Number(rawLimit),
+          cursor: text('cursor', 256),
+          search: text('search', 500),
+          scope: scope as SessionScope | undefined,
+          projectId: projectId === 'null' ? null : projectId,
+          scheduledTaskId: text('scheduledTaskId'),
+          includeArchived: boolean('includeArchived'),
+          archivedOnly: boolean('archivedOnly'),
+          ownerUserId: req.auth?.user.id,
+        };
+        const parentId = text('parentId');
+        const page = parentId === undefined ? listPage(options) : listChildrenPage(parentId, options);
+        // Resumables are already represented in the paged catalog. Do not append
+        // the legacy unbounded/global resumable list to explicit query responses.
+        res.json({ ...page, resumable: [] });
+        return;
+      }
       const projectIdParam = req.query.projectId;
       const scheduledTaskIdParam = req.query.scheduledTaskId;
       const includeArchived = req.query.includeArchived === 'true';

@@ -6,6 +6,10 @@ import { useFixtures } from '../store';
 import type { FixtureFile, InspectorTab, Session } from '../types';
 import { FocusDialog } from './FocusDialog';
 import { navigate } from './Shell';
+import { Terminal } from '@xterm/xterm';
+import type { PtyGateway } from '../gateway/pty';
+import '@xterm/xterm/css/xterm.css';
+import './terminal.css';
 
 const tabs: { id: InspectorTab; label: string; icon: 'activity' | 'diff' | 'terminal' | 'file' | 'artifact' }[] = [
   { id: 'context', label: 'Context', icon: 'activity' }, { id: 'changes', label: 'Changes', icon: 'diff' }, { id: 'terminal', label: 'Terminal', icon: 'terminal' }, { id: 'files', label: 'Files', icon: 'file' }, { id: 'artifacts', label: 'Artifacts', icon: 'artifact' },
@@ -106,7 +110,7 @@ function terminalResult(command: string) {
   return results[command] ?? `fixture: ${command} completed`;
 }
 
-function TerminalPanel({ pty, updatePty, trace, setTrace, live }: { pty: PtyFixture; updatePty(next: PtyFixture): void; trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void; live: boolean }) {
+function TerminalPanel({ pty, updatePty, trace, setTrace, live, terminals }: { pty: PtyFixture; updatePty(next: PtyFixture): void; trace: InspectorTrace | null; setTrace(trace: InspectorTrace): void; live: boolean; terminals: Map<string, LocalTerminal> }) {
   const { selected, notify } = useFixtures();
   const [command, setCommand] = useState('git status --short');
   const runCommand = () => {
@@ -130,14 +134,131 @@ function TerminalPanel({ pty, updatePty, trace, setTrace, live }: { pty: PtyFixt
     updatePty({ id: nextId, status: 'connected', output: ['$ pwd', selected.cwd] });
     setTrace({ method: 'POST', route: `/agent-sessions/${selected.id}/pty` });
   };
+  if (live) return <LocalTerminalPanel key={selected.id} sessionId={selected.id} terminals={terminals} />;
   return <section className="inspector-panel terminal-panel" aria-label="Session terminal" data-testid="terminal-panel">
-    <header><span><span className={`status-dot ${live ? 'offline' : pty.status === 'connected' ? 'working' : pty.status === 'connecting' ? 'retrying' : 'offline'}`} />{live ? 'Not yet live' : `PTY · ${pty.status}`}</span>{live && <span className="kind-badge">Fixture</span>}</header>
+    <header><span><span className={`status-dot ${pty.status === 'connected' ? 'working' : pty.status === 'connecting' ? 'retrying' : 'offline'}`} />PTY · {pty.status}</span><span className="kind-badge">Fixture</span></header>
     <pre aria-live="polite" data-testid="terminal-output">{pty.output.join('\n')}</pre>
     {pty.status === 'connected' && <><form onSubmit={(event) => { event.preventDefault(); runCommand(); }}><label><span aria-hidden="true">$</span><input value={command} onChange={(event) => setCommand(event.target.value)} aria-label="Terminal command" placeholder="Enter terminal command" data-testid="terminal-input" /></label><button className="primary-button" type="submit" data-testid="terminal-run">Run</button></form><div className="command-chips"><button type="button" onClick={() => setCommand('pwd')}>pwd</button><button type="button" onClick={() => setCommand('git status --short')}>git status</button><button type="button" onClick={() => setCommand('npm test')}>npm test</button><button type="button" onClick={() => setCommand('exit')}>exit</button></div></>}
     {pty.status === 'exited' && <div className="terminal-recovery"><p>[process exited]</p><button className="secondary-button" type="button" onClick={openTerminal} data-testid="terminal-new">New terminal</button></div>}
     {pty.status === 'error' && <div className="terminal-recovery"><p>Terminal connection failed.</p><button className="secondary-button" type="button" onClick={() => { updatePty({ ...pty, status: 'connected' }); setTrace({ method: 'WS', route: `/ws/pty/${pty.id}` }); }} data-testid="terminal-retry">Retry</button></div>}
     {pty.status === 'connecting' && <p className="inspector-state" aria-live="polite">Connecting to terminal…</p>}
     <Trace trace={trace} />
+  </section>;
+}
+
+// Inspector owns these resources; tab/collapse/session navigation only detaches their DOM.
+// ponytail: one bounded xterm scrollback per opened session; explicit Close releases it.
+class LocalTerminal {
+  readonly terminal = new Terminal({ fontSize: 13, fontFamily: 'monospace', scrollback: 2000, screenReaderMode: true, disableStdin: true, theme: { background: '#111318', foreground: '#e4e6eb' } });
+  readonly mount = document.createElement('div');
+  readonly listeners = new Set<() => void>();
+  status: 'connecting' | 'connected' | 'exited' | 'error' | 'closed' = 'connecting';
+  error = '';
+  private id = '';
+  private socket?: WebSocket;
+  private disposed = false;
+  private ready: Promise<void>;
+  private resizeQueue = Promise.resolve();
+  private lastSize = '';
+  constructor(private gateway: PtyGateway, sessionId: string) {
+    this.mount.className = 'terminal-mount';
+    this.terminal.onData((data) => { if (this.status === 'connected' && this.socket?.readyState === WebSocket.OPEN) this.socket.send(data); });
+    this.ready = this.start(sessionId);
+  }
+  private notify() { for (const listener of this.listeners) listener(); }
+  private async start(sessionId: string) {
+    try {
+      this.id = await this.gateway.create(sessionId);
+      if (this.disposed) return;
+      const socket = this.socket = this.gateway.connect(this.id);
+      socket.onmessage = (event) => {
+        if (this.disposed || typeof event.data !== 'string') return;
+        // First output proves the API proxy has attached the engine (upgrade alone does not).
+        this.status = 'connected'; this.terminal.options.disableStdin = false;
+        this.terminal.write(event.data); this.fit(); this.notify();
+      };
+      socket.onerror = () => { if (!this.disposed) { this.status = 'error'; this.error = 'Terminal connection failed'; this.notify(); } };
+      socket.onclose = (event) => {
+        if (this.disposed) return;
+        this.status = event.code === 1000 || event.code === 1005 ? 'exited' : 'error';
+        if (this.status === 'error') this.error = 'Terminal connection lost';
+        this.terminal.options.disableStdin = true; this.notify();
+      };
+    } catch (error) {
+      if (!this.disposed) { this.status = 'error'; this.error = error instanceof Error ? error.message : 'Terminal failed'; this.notify(); }
+    }
+  }
+  attach(host: HTMLElement) {
+    host.append(this.mount);
+    if (!this.terminal.element) {
+      this.terminal.open(this.mount);
+      const probe = document.createElement('span'); probe.className = 'terminal-size-probe'; probe.textContent = 'W'; this.mount.append(probe);
+    }
+    this.fit(); this.terminal.focus();
+  }
+  fit = () => {
+    if (this.disposed || !this.mount.isConnected) return;
+    const bounds = this.mount.getBoundingClientRect();
+    const cell = this.mount.querySelector('.terminal-size-probe')?.getBoundingClientRect();
+    if (!cell?.width || !cell.height || !bounds.width || !bounds.height) return;
+    const cols = Math.max(2, Math.min(500, Math.floor((bounds.width - 16) / cell.width)));
+    const rows = Math.max(2, Math.min(200, Math.floor(bounds.height / Math.ceil(cell.height))));
+    this.terminal.resize(cols, rows);
+    const size = `${cols}:${rows}`;
+    if (!this.id || this.status !== 'connected' || this.lastSize === size) return;
+    this.lastSize = size;
+    this.resizeQueue = this.resizeQueue.then(async () => { if (!this.disposed) await this.gateway.resize(this.id, cols, rows); }).catch((error) => {
+      if (!this.disposed) { this.lastSize = ''; this.error = error instanceof Error ? error.message : 'Terminal resize failed'; this.notify(); }
+    });
+  };
+  async close() {
+    this.disposed = true;
+    if (this.socket) { this.socket.onmessage = null; this.socket.onerror = null; this.socket.onclose = null; this.socket.close(); this.socket = undefined; }
+    this.terminal.dispose(); this.mount.remove();
+    await this.ready; await this.resizeQueue;
+    if (this.id) { await this.gateway.remove(this.id); this.id = ''; }
+    this.status = 'closed'; this.error = ''; this.notify();
+  }
+}
+
+function LocalTerminalPanel({ sessionId, terminals }: { sessionId: string; terminals: Map<string, LocalTerminal> }) {
+  const gateway = useGateway().domains.pty;
+  const host = useRef<HTMLDivElement>(null);
+  const [, redraw] = useState(0);
+  const [generation, setGeneration] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  useEffect(() => {
+    if (!gateway || !host.current) return;
+    let resource = terminals.get(sessionId);
+    if (!resource) { resource = new LocalTerminal(gateway, sessionId); terminals.set(sessionId, resource); }
+    const refresh = () => redraw((value) => value + 1);
+    resource.listeners.add(refresh);
+    if (resource.status !== 'closed') resource.attach(host.current);
+    const observer = new ResizeObserver(resource.fit); observer.observe(host.current);
+    refresh();
+    return () => { observer.disconnect(); resource.listeners.delete(refresh); resource.mount.remove(); };
+  }, [gateway, sessionId, terminals, generation]);
+  const resource = terminals.get(sessionId);
+  const change = async (restart: boolean) => {
+    setBusy(true); setActionError('');
+    try {
+      await resource?.close();
+      if (restart) { terminals.delete(sessionId); setGeneration((value) => value + 1); }
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Terminal cleanup failed'); }
+    finally { setBusy(false); }
+  };
+  if (!gateway) return <section className="inspector-panel" role="status">Local terminal unavailable.</section>;
+  const status = resource?.status ?? 'connecting';
+  return <section className="inspector-panel terminal-panel local-pty" aria-label="Session terminal" data-testid="terminal-panel">
+    <header><span role="status">Local PTY · {status}</span></header>
+    {(actionError || resource?.error) && <p role="alert">{actionError || resource?.error}</p>}
+    <div className="terminal-host" ref={host} data-testid="terminal-output" />
+    <div className="terminal-controls">
+      {(status === 'error' || actionError || resource?.error) && <button type="button" className="secondary-button" disabled={busy} onClick={() => void change(true)} data-testid="terminal-retry">Retry</button>}
+      {(status === 'exited' || status === 'closed') && <button type="button" className="secondary-button" disabled={busy} onClick={() => void change(true)} data-testid="terminal-new">New terminal</button>}
+      {status !== 'closed' && <button type="button" className="secondary-button" disabled={busy} onClick={() => void change(false)} data-testid="terminal-close">Close terminal</button>}
+    </div>
   </section>;
 }
 
@@ -364,6 +485,8 @@ function ArtifactsPanel({ trace, setTrace }: { trace: InspectorTrace | null; set
 
 export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggle(): void }) {
   const { inspectorTab, setInspectorTab, todos, selected, sessionGatewayMode } = useFixtures();
+  const terminals = useRef(new Map<string, LocalTerminal>()).current;
+  useEffect(() => () => { for (const terminal of terminals.values()) void terminal.close().catch((error) => console.warn('Terminal cleanup failed', error)); terminals.clear(); }, [terminals]);
   const [trace, setTrace] = useState<InspectorTrace | null>(null);
   const [ptySessions, setPtySessions] = useState<Record<string, PtyFixture>>({});
   const [collapsedTodos, setCollapsedTodos] = useState<Record<string, boolean>>({});
@@ -379,7 +502,7 @@ export function Inspector({ collapsed, onToggle }: { collapsed: boolean; onToggl
   const pty = ptySessions[selected.id] ?? { id: `pty-${selected.id}`, status: 'connected' as const, output: ['$ pwd', selected.cwd] };
   const updatePty = (next: PtyFixture) => setPtySessions((current) => ({ ...current, [selected.id]: next }));
   const live = sessionGatewayMode === 'live';
-  const panel = inspectorTab === 'context' ? <ContextPanel /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
+  const panel = inspectorTab === 'context' ? <ContextPanel /> : inspectorTab === 'changes' ? (live ? <LiveChangesPanel /> : <ChangesPanel trace={trace} setTrace={setTrace} />) : inspectorTab === 'terminal' ? <TerminalPanel pty={pty} updatePty={updatePty} trace={trace} setTrace={setTrace} live={live} terminals={terminals} /> : inspectorTab === 'files' ? (live ? <LiveFilesPanel /> : <FilesPanel trace={trace} setTrace={setTrace} />) : <ArtifactsPanel trace={trace} setTrace={setTrace} />;
   const moveTab = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
     event.preventDefault();

@@ -78,6 +78,16 @@ export interface AuthContext {
   user: User;
 }
 
+export async function resolveLocalOrCloudBearer(sessionToken: string): Promise<User | null> {
+  let user: User | null = null;
+  try {
+    user = await authService.getUserForSessionToken(sessionToken);
+  } catch {
+    // Cloud fallback below owns unavailable/invalid handling.
+  }
+  return user ?? authenticateCloudBearer(sessionToken, tokenDigest(sessionToken));
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -144,18 +154,7 @@ export async function requireLocalOrCloudAuth(
     }
 
     const sessionToken = match[1].trim();
-    let user: User | null = null;
-    try {
-      user = await authService.getUserForSessionToken(sessionToken);
-    } catch {
-      // The Cloud verifier owns the fail-closed fallback and 503 conversion.
-    }
-    if (!user) {
-      user = await authenticateCloudBearer(
-        sessionToken,
-        tokenDigest(sessionToken),
-      );
-    }
+    const user = await resolveLocalOrCloudBearer(sessionToken);
     if (!user) {
       throw AppError.unauthorized('Invalid session token');
     }
@@ -196,19 +195,7 @@ export async function authenticateIfPresent(
   }
 
   try {
-    let user: User | null = null;
-    try {
-      user = await authService.getUserForSessionToken(sessionToken);
-    } catch {
-      // MobileCloudIdentityService owns the fail-closed local/Cloud fallback
-      // policy, including conversion of identity-store failures to 503.
-    }
-    if (!user) {
-      user = await authenticateCloudBearer(
-        sessionToken,
-        tokenDigest(sessionToken),
-      );
-    }
+    const user = await resolveLocalOrCloudBearer(sessionToken);
     if (!user) {
       throw AppError.unauthorized('Invalid session token');
     }

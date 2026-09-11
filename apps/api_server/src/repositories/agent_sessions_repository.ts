@@ -1,4 +1,6 @@
 import { getDb } from '../database/db';
+import { randomUUID } from 'node:crypto';
+import { AppError } from '../errors/app_error';
 import { initializeMobileOpenCodeOwnershipSchema } from './mobile_opencode_ownership_repository';
 import type {
   AgentSession,
@@ -156,6 +158,147 @@ export function flattenAgentSessionTree(sessions: AgentSession[]): AgentSession[
     session,
     ...flattenAgentSessionTree(session.children ?? []),
   ]);
+}
+
+export interface SessionHistoryQuery {
+  limit?: number;
+  cursor?: string;
+  search?: string;
+  scope?: SessionScope;
+  projectId?: string | null;
+  scheduledTaskId?: string;
+  includeArchived?: boolean;
+  archivedOnly?: boolean;
+  ownerUserId?: number;
+  parentId?: string;
+}
+
+type HistorySession = AgentSession & { hasChildren: boolean };
+export interface SessionHistoryPage {
+  sessions: HistorySession[];
+  ancestors: HistorySession[];
+  pageInfo: { limit: number; hasMore: boolean; nextCursor: string | null; expiresAt: string };
+}
+
+// ponytail: freeze only IDs, not full rows or a long-lived SQLite transaction.
+// O(matches) memory per snapshot, max 32 for 10 minutes; durable snapshots if
+// catalogs/concurrency outgrow local desktop use. Eviction/restart returns 400.
+const historySnapshots = new Map<string, {
+  db: ReturnType<typeof getDb>;
+  key: string;
+  ids: string[];
+  expires: number;
+}>();
+
+/** Explicit history mode only. Never changes the legacy tree/list callers. */
+export function listPage(opts: SessionHistoryQuery = {}): SessionHistoryPage {
+  const limit = opts.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw AppError.badRequest('limit must be an integer from 1 to 100');
+  }
+  const search = (opts.search ?? '').trim();
+  if (search.length > 500) throw AppError.badRequest('search must be at most 500 characters');
+  const scope = opts.scope ?? (opts.scheduledTaskId !== undefined ? 'scheduled' : 'chats');
+  if (!['chats', 'scheduled', 'self_improvement'].includes(scope)) {
+    throw AppError.badRequest('Invalid scope');
+  }
+  const db = getDb();
+  const clauses = [scope === 'chats' ? "category = 'chat' AND is_system = 0" : 'category = ?'];
+  const params: unknown[] = scope === 'chats' ? [] : [scope];
+  if (opts.archivedOnly) clauses.push('archived_at IS NOT NULL');
+  else if (!opts.includeArchived) clauses.push('archived_at IS NULL');
+  if (opts.projectId === null) clauses.push('project_id IS NULL');
+  else if (opts.projectId !== undefined) { clauses.push('project_id = ?'); params.push(opts.projectId); }
+  if (opts.scheduledTaskId !== undefined) { clauses.push('scheduled_task_id = ?'); params.push(opts.scheduledTaskId); }
+  if (opts.ownerUserId !== undefined) {
+    clauses.push('(owner_user_id IS NULL OR owner_user_id = ?)');
+    params.push(opts.ownerUserId);
+  }
+  const filter = clauses.join(' AND ');
+  const parent = opts.parentId;
+  if (parent !== undefined) {
+    if (!parent || parent.length > 200) throw AppError.badRequest('Invalid parentId');
+    const row = db.prepare(`SELECT id FROM agent_sessions WHERE id = ? AND ${filter}`).get(parent, ...params);
+    if (!row) throw AppError.notFound('AgentSession');
+  }
+  const matchClauses = [...clauses];
+  const matchParams = [...params];
+  if (parent !== undefined) { matchClauses.push('parent_session_id = ?'); matchParams.push(parent); }
+  else if (!search) matchClauses.push('parent_session_id IS NULL');
+  if (search) {
+    // instr is literal (%, _ are not wildcards); SQLite lower provides ASCII folding.
+    matchClauses.push(`(${['name', 'last_preview', 'cwd', 'task_title', 'project_id'].map(column =>
+      `instr(lower(COALESCE(${column}, '')), lower(?)) > 0`).join(' OR ')}
+      OR project_id IN (SELECT id FROM projects WHERE instr(lower(name), lower(?)) > 0 OR instr(lower(cwd), lower(?)) > 0))`);
+    matchParams.push(...Array(7).fill(search));
+  }
+  const key = JSON.stringify([matchClauses, matchParams]);
+  const now = Date.now();
+  for (const [id, snapshot] of historySnapshots) {
+    if (snapshot.expires <= now || snapshot.db !== db) historySnapshots.delete(id);
+  }
+  let snapshotId: string;
+  let offset = 0;
+  if (opts.cursor !== undefined) {
+    const invalid = () => AppError.badRequest('Invalid or expired history cursor; restart pagination');
+    if (typeof opts.cursor !== 'string' || opts.cursor.length > 256 || !/^[A-Za-z0-9_-]+$/.test(opts.cursor)) throw invalid();
+    let decoded: unknown;
+    try { decoded = JSON.parse(Buffer.from(opts.cursor, 'base64url').toString('utf8')); } catch { throw invalid(); }
+    if (!Array.isArray(decoded) || decoded.length !== 2 || typeof decoded[0] !== 'string' || !Number.isSafeInteger(decoded[1]) || decoded[1] < 1) throw invalid();
+    [snapshotId, offset] = decoded as [string, number];
+    const snapshot = historySnapshots.get(snapshotId);
+    if (!snapshot || snapshot.key !== key || offset >= snapshot.ids.length) throw invalid();
+  } else {
+    snapshotId = randomUUID();
+    const ids = db.prepare(`SELECT id FROM agent_sessions WHERE ${matchClauses.join(' AND ')}
+      ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC, id DESC`).all(...matchParams) as { id: string }[];
+    while (historySnapshots.size >= 32) historySnapshots.delete(historySnapshots.keys().next().value!);
+    historySnapshots.set(snapshotId, { db, key, ids: ids.map(row => row.id), expires: now + 600_000 });
+  }
+  const snapshot = historySnapshots.get(snapshotId)!;
+  const read = db.prepare(`SELECT * FROM agent_sessions WHERE id = ? AND ${matchClauses.join(' AND ')}`);
+  const childExists = db.prepare(`SELECT 1 FROM agent_sessions WHERE parent_session_id = ? AND ${filter} LIMIT 1`);
+  const model = (row: AgentSessionRow): HistorySession => ({
+    ...rowToModel(row), hasChildren: !!childExists.get(row.id, ...params),
+  });
+  const sessions: HistorySession[] = [];
+  let nextOffset = offset;
+  // Recheck filters/access on each read. Deletions/changed eligibility may remove
+  // snapshot members, but inserts or activity reordering cannot add duplicates.
+  for (; offset < snapshot.ids.length; offset++) {
+    const row = read.get(snapshot.ids[offset], ...matchParams) as AgentSessionRow | undefined;
+    if (!row) continue;
+    if (sessions.length === limit) break;
+    sessions.push(model(row));
+    nextOffset = offset + 1;
+  }
+  const hasMore = offset < snapshot.ids.length;
+  const ancestors = new Map<string, HistorySession>();
+  const seen = new Set(sessions.map(session => session.id));
+  const readAncestor = db.prepare(`SELECT * FROM agent_sessions WHERE id = ? AND ${filter}`);
+  for (const session of sessions) {
+    let ancestorId = session.parentSessionId;
+    while (ancestorId && !seen.has(ancestorId)) {
+      seen.add(ancestorId);
+      const row = readAncestor.get(ancestorId, ...params) as AgentSessionRow | undefined;
+      if (!row) break;
+      ancestors.set(row.id, model(row));
+      ancestorId = row.parent_session_id;
+    }
+  }
+  return {
+    sessions,
+    ancestors: [...ancestors.values()],
+    pageInfo: {
+      limit, hasMore,
+      nextCursor: hasMore ? Buffer.from(JSON.stringify([snapshotId, nextOffset])).toString('base64url') : null,
+      expiresAt: new Date(snapshot.expires).toISOString(),
+    },
+  };
+}
+
+export function listChildrenPage(parentId: string, opts: Omit<SessionHistoryQuery, 'parentId'> = {}): SessionHistoryPage {
+  return listPage({ ...opts, parentId });
 }
 
 export class AgentSessionsRepository {

@@ -2,6 +2,7 @@ export type GatewayMode = 'fixture' | 'live';
 export type GatewayService = 'api' | 'engine';
 
 export interface GatewayDomainContracts {
+  pty?: ReturnType<typeof createLivePtyGateway>;
   tasks?: TaskGateway;
   sessions?: SessionGateway;
   dashboard?: ReturnType<typeof createLiveDashboardGateway>;
@@ -145,6 +146,7 @@ export function createLiveGateway(config: LiveGatewayConfig, fetcher: Fetcher = 
     // Flutter's localHeaders() trust boundary: a present cloud bearer must be omitted because
     // AGENT_LOCAL fails closed on invalid Authorization instead of using the local bypass.
     domains: {
+      pty: createLivePtyGateway(apiBase, localFetcher),
       tasks: createLiveTasksGateway(productionApiBase, config.taskToken, fetcher),
       sessions: createLiveSessionsGateway(apiBase, config.taskToken, localFetcher),
       dashboard: createLiveDashboardGateway(productionApiBase, config.taskToken, fetcher),
@@ -198,6 +200,7 @@ export function composeGateway(environment: GatewayEnvironment): RendererGateway
   });
 }
 import { createLiveTasksGateway, type TaskGateway } from './tasks';
+import { createLivePtyGateway } from './pty';
 import { createLiveSessionsGateway, type SessionGateway } from './sessions';
 import { createLiveDashboardGateway } from './dashboard';
 import { createLivePlannerGateway } from './planner';

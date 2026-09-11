@@ -38,6 +38,35 @@ export type SessionWireEvent = {
 };
 export type SessionSocket = { send(frame: unknown): void; close(): void };
 export type TranscriptPageInfo = { nextCursor: string | null; hasMore: boolean };
+// E20 extends the existing view model locally, without changing shared store contracts.
+export type SessionCatalogEntry = Session & {
+  lastActivityAt?: string | null;
+  lastPreview?: string | null;
+  category?: string;
+  archivedAt?: string | null;
+  hasChildren?: boolean;
+};
+export type SessionListQuery = {
+  scope?: Session['scope'] | 'self_improvement';
+  projectId?: string;
+  search?: string;
+  archivedOnly?: boolean;
+  parentId?: string;
+  cursor?: string;
+};
+export type SessionListPage = { sessions: SessionCatalogEntry[]; ancestors: SessionCatalogEntry[]; pageInfo: TranscriptPageInfo };
+export type SessionSort = 'newest' | 'oldest' | 'name' | 'activity' | 'status';
+const statusOrder: Record<Session['status'], number> = { working: 0, starting: 1, idle: 2, error: 3, closed: 4, resumable: 5 };
+const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+const timestamp = (value: string) => Date.parse(value) || 0;
+export function compareSessions(a: SessionCatalogEntry, b: SessionCatalogEntry, sort: SessionSort): number {
+  const activity = () => timestamp(b.lastActivityAt ?? b.createdAt) - timestamp(a.lastActivityAt ?? a.createdAt);
+  const order = sort === 'name' ? compareText(a.name.toLowerCase(), b.name.toLowerCase())
+    : sort === 'status' ? statusOrder[a.status] - statusOrder[b.status] || activity()
+      : sort === 'activity' ? activity()
+        : (timestamp(a.createdAt) - timestamp(b.createdAt)) * (sort === 'oldest' ? 1 : -1);
+  return order || compareText(a.id, b.id);
+}
 // apps/api_server/src/services/tool_surface_estimator.ts:39-52.
 export type ToolSurfaceServerEntry = { name: string; toolCount: number; estimatedTokens: number };
 export type ToolSurfaceReport = { mcpRole: string | null; servers: ToolSurfaceServerEntry[]; builtins: ToolSurfaceServerEntry; totalToolCount: number; totalEstimatedTokens: number };
@@ -63,6 +92,8 @@ export interface SessionGateway {
   readonly mode: GatewayMode;
   profiles(): Promise<Profile[]>;
   list(): Promise<Session[]>;
+  listPage?(query: SessionListQuery): Promise<SessionListPage>;
+  projectLabels?(): Promise<{ id: string; name: string }[]>;
   detail(localId: string): Promise<Session>;
   create(input: { profileId: string; cwd: string; name: string; isolateWorktree: boolean; worktreeName?: string; branch?: string; createBranch?: boolean; stash?: 'stash' | 'discard' }): Promise<Session>;
   // post-m1-phase-6 c1b/c2a: GET /:id/files/find-files?query&limit&type — returns relative paths.
@@ -225,16 +256,21 @@ function mapMessage(value: unknown): TranscriptMessage {
   };
 }
 
-export function toSessionViewModel(value: unknown, messages: unknown[] = [], transcriptPage?: unknown): Session {
+export function toSessionViewModel(value: unknown, messages: unknown[] = [], transcriptPage?: unknown): SessionCatalogEntry {
   const source = record(value);
   const status = string(source.status, source.working === true ? 'working' : 'idle');
   const page = record(transcriptPage);
   const parentSessionId = typeof source.parentSessionId === 'string' && source.parentSessionId ? source.parentSessionId : undefined;
+  const category = string(source.category, string(source.scope, 'chats'));
   return {
-    id: string(source.id), name: string(source.name, 'Untitled session'), scope: source.scope === 'scheduled' || source.scope === 'background' ? source.scope : 'chats',
-    group: source.archived === true ? 'archived' : status === 'resumable' || status === 'closed' ? 'resumable' : 'active',
+    id: string(source.id), name: string(source.name, 'Untitled session'), scope: category === 'scheduled' ? 'scheduled' : category === 'self_improvement' || category === 'background' ? 'background' : 'chats',
+    category, lastActivityAt: typeof source.lastActivityAt === 'string' ? source.lastActivityAt : null,
+    lastPreview: typeof source.lastPreview === 'string' ? source.lastPreview : null,
+    archivedAt: typeof source.archivedAt === 'string' ? source.archivedAt : null,
+    hasChildren: source.hasChildren === true || Array.isArray(source.children) && source.children.length > 0,
+    group: source.archivedAt != null || source.archived === true ? 'archived' : status === 'resumable' ? 'resumable' : 'active',
     status: ['starting', 'working', 'idle', 'resumable', 'closed', 'error'].includes(status) ? status as Session['status'] : 'idle',
-    connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName, 'Live workspace'),
+    connectionState: 'online', profileId: string(source.profileId, string(source.profile_id)), projectId: string(source.projectId, string(source.project_id)), projectName: string(source.projectName),
     cwd: string(source.cwd), branch: string(source.branch, 'main'), dirtyCount: 0, isolateWorktree: source.isolateWorktree === true || Boolean(source.worktreePath), account: string(source.anthropicAccountId),
     // post-m1-phase-6 c3b/c3d/c3e: the resolved isolated-worktree identity — never defaulted
     // to 'main' or synthesized client-side. apps/api_server/src/__tests__/post_m1_phase_6_files_worktrees_contract.test.ts:96-100.
@@ -312,6 +348,23 @@ export function createLiveSessionsGateway(apiBase: string, token: string | undef
   const request = (path: string, init: RequestInit = {}) => fetcher(`${apiBase}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
   return {
     mode: 'live',
+    projectLabels: async () => (await response<unknown[]>('Load projects', request('/projects?includeArchived=true')))
+      .map((value) => ({ id: string(record(value).id), name: string(record(value).name) })),
+    listPage: async (query) => {
+      const params = new URLSearchParams({ limit: '100', scope: query.scope === 'background' ? 'self_improvement' : query.scope ?? 'chats' });
+      if (query.projectId) params.set('projectId', query.projectId);
+      if (query.search?.trim()) params.set('search', query.search.trim());
+      if (query.archivedOnly) params.set('archivedOnly', 'true');
+      if (query.parentId) params.set('parentId', query.parentId);
+      if (query.cursor) params.set('cursor', query.cursor);
+      const body = await response<{ sessions?: unknown[]; resumable?: unknown[]; ancestors?: unknown[]; pageInfo?: TranscriptPageInfo }>('Load session history', request(`/agent-sessions?${params}`));
+      const rows = [...(body.sessions ?? []), ...(body.resumable ?? [])].flatMap(flattenSessionTree);
+      return {
+        sessions: [...new Map(rows.map((session) => [session.id, session])).values()],
+        ancestors: (body.ancestors ?? []).map((value) => toSessionViewModel(value)),
+        pageInfo: body.pageInfo ?? { nextCursor: null, hasMore: false },
+      };
+    },
     profiles: async () => (await response<unknown[]>('Load profiles', request('/agent-configs'))).map(mapProfile),
     list: async () => {
       const body = await response<{ sessions?: unknown[] }>('Load sessions', request('/agent-sessions?scope=chats'));
