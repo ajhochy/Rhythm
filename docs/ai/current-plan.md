@@ -1,3 +1,5 @@
+> Current execution plan (2026-09-10): [Electron replacement and Flutter retirement](plans/2026-09-10-electron-flutter-retirement.md), branch `feature/electron-flutter-retirement`, base `0bc46a5ece1a937c484c0054493c75b0299eafef`. Execution authorized; bounded Phase 0 baseline, capability inventory and isolated sandbox bootstrap are complete. Product implementation has not started. Historical plan below is preserved unchanged.
+
 # Current Plan — Cloud Live Artifacts / Worship Calendar
 
 **Date:** 2026-08-10

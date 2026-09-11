@@ -18,8 +18,26 @@ SHUTDOWN_FILE="$SB/shutdown.requested"
 FOREGROUND_PID_FILE="$SB/foreground_holder.pid"
 SHUTDOWN_ACK_FILE="$SB/shutdown.acknowledged"
 ENGINE_BIN="$ENGINE_DIR/dist/opencode-darwin-arm64/bin/opencode"
+# Capture the caller's Node before sanitizing PATH; an explicit override wins.
+NODE_BIN="${RHYTHM_SANDBOX_NODE_BIN-$(command -v node || true)}"
 runtime_env=(
+  # Include the engine's PATH additions here so it cannot prepend them ahead
+  # of the sandbox Keychain blocker during initialization.
+  "PATH=$SB/bin:${ENGINE_BIN%/opencode}:${NODE_BIN%/*}:$SB/home/.opencode/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
   "HOME=$SB/home"
+  "XDG_CONFIG_HOME=$SB/home/.config"
+  "XDG_DATA_HOME=$SB/home/.local/share"
+  "XDG_CACHE_HOME=$SB/home/.cache"
+  "TMPDIR=$SB/tmp"
+  "RHYTHM_MCP_SERVER_BIN=$ROOT/apps/mcp_server/dist/index.js"
+  "npm_config_offline=true" "npm_config_registry=http://127.0.0.1:9" "npm_config_cache=$SB/npm-cache"
+  "DB_CLIENT=sqlite"
+  "RHYTHM_OPTIMIZER_MODE=shadow"
+  "OPENCODE_DISABLE_MODELS_FETCH=1"
+  "OPENCODE_DISABLE_AUTOUPDATE=1"
+  "OPENCODE_DISABLE_PROJECT_CONFIG=1"
+  "RHYTHM_MANAGED_CHROME=0"
+  "PROD_API_URL=http://127.0.0.1:$API_PORT"
   "PORT=$API_PORT"
   "DB_PATH=$SB/rhythm.db"
   "LIVE_ARTIFACT_STORAGE_DIR=$SB/live-artifacts"
@@ -44,11 +62,11 @@ runtime_env=(
   "OPENCODE_DB=opencode-rhythm-sandbox.db"
   "OPENCODE_DISABLE_EXTERNAL_SKILLS=1"
   "RHYTHM_API_BASE=http://127.0.0.1:$API_PORT"
+  "RHYTHM_AGENT_URL=http://127.0.0.1:$API_PORT"
   "MAX_CONCURRENT_AGENT_RUNS=2"
   "AGENT_LOCAL=true"
-  # D4.4: forward only the explicit availability kill switch. Durable user
-  # consent stays in the copied sandbox database and is never an env default.
-  "AUTO_PROMOTION_FEATURE_AVAILABLE=${AUTO_PROMOTION_FEATURE_AVAILABLE:-false}"
+  # Synthetic harness runs never inherit an operator's promotion opt-in.
+  "AUTO_PROMOTION_FEATURE_AVAILABLE=false"
   "RHYTHM_LOCAL_RENDERER_ORIGINS=http://127.0.0.1:4175"
   # The gateway port is a THIRD listener and was previously unset, so the
   # sandbox bound the default 4002 — the port `tailscale serve` publishes to
@@ -57,10 +75,72 @@ runtime_env=(
 )
 
 fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
+# Evidence is a sibling of the disposable runtime, never part of teardown.
+preserve_diagnostics() {
+  [[ -d "$SB" && ! -L "$SB" && -O "$SB" ]] || return 0
+  local evidence
+  evidence="$(mktemp -d "$SB.evidence.XXXXXX")" || return 1
+  if [[ -f "$PID_FILE" ]]; then
+    curl --max-time 3 -sS "http://127.0.0.1:$API_PORT/opencode/health" >"$SB/opencode-health.log" 2>&1 || true
+  fi
+  python3 -I - "$SB" "$evidence" <<'PY'
+import pathlib, re, sys
+root, out = map(pathlib.Path, sys.argv[1:])
+for path in root.rglob('*.log'):
+    if path.is_symlink() or not path.is_file():
+        continue
+    text = path.read_text(errors='replace')
+    text = re.sub(r'(?i)(bearer\s+)\S+', r'\1[REDACTED]', text)
+    text = re.sub(r'(?i)([\"\w-]*(?:token|password|secret|api[_-]?key)[\"\w-]*\s*[:=]\s*)(\"[^\"]*\"|\S+)', r'\1[REDACTED]', text)
+    dest = out / path.relative_to(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text)
+PY
+  printf 'sandbox: sanitized diagnostics preserved: %s\n' "$evidence" >&2
+}
+validate_node() {
+  [[ "$NODE_BIN" = /* && -f "$NODE_BIN" && -x "$NODE_BIN" ]] ||
+    fail 'RHYTHM_SANDBOX_NODE_BIN (or command -v node) must resolve to an absolute executable file'
+  # Loading the JS wrapper alone is lazy: require the native addon, without a DB.
+  env -i "${runtime_env[@]}" "$NODE_BIN" -e '
+    require(require.resolve("better-sqlite3/build/Release/better_sqlite3.node", {paths: [process.argv[1]]}));
+  ' "$API_DIR" || fail "Node $NODE_BIN cannot load installed api_server better-sqlite3; select a compatible RHYTHM_SANDBOX_NODE_BIN"
+}
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
 require_free_port() { [[ -z "$(listener "$1")" ]] || fail "port :$1 is occupied; refusing to touch it"; }
 process_executable() {
   lsof -a -p "$1" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+}
+
+# Ordinary synthetic runs never qualify real Keychain behavior. That remains
+# a separate test tier in a dedicated disposable macOS account.
+security_shim_content() {
+  printf '#!/bin/sh\nprintf "sandbox: Keychain blocked\\n" >&2\nexit 1\n'
+}
+
+validate_security_shim() {
+  python3 -I - "$SB" <<'PY' || fail 'security shim missing, unowned, or modified; refusing runtime launch'
+import os, pathlib, stat, sys
+root = pathlib.Path(sys.argv[1])
+for path, mode in ((root, 0o700), (root / 'bin', 0o700), (root / 'bin/security', 0o500)):
+    info = path.lstat()
+    expected_type = stat.S_ISREG if path.name == 'security' else stat.S_ISDIR
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != mode or not expected_type(info.st_mode):
+        raise ValueError('unsafe security shim ownership, type, or permissions')
+if (root / 'bin/security').read_bytes() != b'#!/bin/sh\nprintf "sandbox: Keychain blocked\\n" >&2\nexit 1\n':
+    raise ValueError('unexpected security shim content')
+PY
+}
+
+prepare_security_shim() {
+  [[ -d "$SB" && ! -L "$SB" && -O "$SB" ]] || fail 'security shim requires an owned sandbox directory'
+  # Never repair an existing shim silently: tampering must remain a failure.
+  if [[ ! -e "$SB/bin" && ! -L "$SB/bin" ]]; then
+    mkdir -m 700 "$SB/bin"
+    (umask 077; set -o noclobber; security_shim_content >"$SB/bin/security")
+    chmod 500 "$SB/bin/security"
+  fi
+  validate_security_shim
 }
 
 # ── Copied-data preflight guard (issue-c6 item 6) ───────────────────────────
@@ -105,9 +185,10 @@ validate_sanitized_config() {
   [[ -f "$json_file" ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG has no opencode.json: $config_path"
   command -v jq >/dev/null || fail 'jq is required to validate the sandbox opencode config'
   jq -e . "$json_file" >/dev/null 2>&1 || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG's opencode.json is not valid JSON: $json_file"
-  local mcp_count
-  mcp_count="$(jq '(.mcp // {}) | length' "$json_file")"
-  [[ "$mcp_count" -gt 0 ]] || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG's opencode.json declares an empty MCP map: $json_file"
+  jq -e '.mcp | type == "object" and length > 0 and all(.[];
+    type == "object" and .type == "local" and
+    (.command | type == "array" and length > 0 and all(.[]; type == "string" and test("\\S"))))
+  ' "$json_file" >/dev/null 2>&1 || fail "RHYTHM_SANDBOX_OPENCODE_CONFIG requires a safe MCP map with local command arrays: $json_file"
 }
 
 # The single preflight gate `up` calls before touching a process or a file
@@ -193,7 +274,7 @@ safe_sandbox_path() {
 
 copy_runtime_files() {
   local sandbox_home="$SB/home"
-  mkdir -p "$sandbox_home/.config/opencode" "$sandbox_home/.local/share/opencode" "$SB/vault" "$SB/live-artifacts"
+  mkdir -p "$sandbox_home/.config/opencode" "$sandbox_home/.local/share/opencode" "$SB/vault" "$SB/live-artifacts" "$SB/tmp"
   chmod 700 "$SB" "$sandbox_home"
 
   # Copied ONLY from the approved, read-only, operator-sanitized
@@ -237,25 +318,14 @@ record_engine_identity() {
 wait_for_ready() {
   for _ in {1..60}; do
     if curl -fsS "http://127.0.0.1:$API_PORT/health" >/dev/null &&
-      curl -fsS "http://127.0.0.1:$API_PORT/opencode/health" >/dev/null; then
+      curl -fsS "http://127.0.0.1:$API_PORT/opencode/health" | jq -e '.status == "ready"' >/dev/null; then
       record_engine_identity
       printf 'Sandbox ready: http://127.0.0.1:%s (engine :%s)\n' "$API_PORT" "$ENGINE_PORT"
       return 0
     fi
     sleep 1
   done
-  # `down` deletes $SB, so a copy that outlives teardown is the only way the
-  # cause survives. Surface the tail inline too: the common failure is a port
-  # bind (EADDRINUSE) that is otherwise invisible.
-  local rescued="${TMPDIR:-/tmp}/rhythm-sandbox-failure-$(date +%Y%m%dT%H%M%S).log"
-  if [[ -f "$LOG_FILE" ]]; then
-    cp "$LOG_FILE" "$rescued" 2>/dev/null || true
-    printf 'sandbox: last 20 log lines ------------------------------------\n' >&2
-    tail -n 20 "$LOG_FILE" >&2 || true
-    printf 'sandbox: ---------------------------------------------------------\n' >&2
-    fail "sandbox did not become healthy; log copied to $rescued"
-  fi
-  fail "sandbox did not become healthy; no log at $LOG_FILE"
+  fail 'sandbox did not become engine-ready; see preserved diagnostics'
 }
 
 ensure_rhythm_mcp() {
@@ -296,30 +366,38 @@ up() {
   local mode="${1:-background}"
   local api_pid
 
+  validate_node
+  [[ -f "$ROOT/apps/mcp_server/dist/index.js" ]] || fail 'local MCP payload missing; refusing npx fallback'
   validate_copied_data_inputs
   safe_sandbox_path
+  [[ ! -e "$SB" && ! -L "$SB" ]] || fail 'sandbox directory already exists; refusing to reuse unverified runtime files'
   [[ ! -e "$PID_FILE" ]] || fail "sandbox already has $PID_FILE; run '$0 status' or '$0 down'"
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
   require_free_port "$GATEWAY_PORT"
+  require_free_port 4175
   command -v sqlite3 >/dev/null || fail 'sqlite3 is required'
 
-  mkdir -p "$SB"
+  trap 'rc=$?; if ((rc != 0)); then preserve_diagnostics; fi' EXIT
+  mkdir -m 700 "$SB"
+  prepare_security_shim
   copy_runtime_files
   sqlite3 "$RHYTHM_LIVE_DB_PATH" ".backup '$SB/rhythm.db'"
   if [[ "$(sqlite3 "$SB/rhythm.db" "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_scheduled_tasks';")" == "1" ]]; then
     sqlite3 "$SB/rhythm.db" 'UPDATE agent_scheduled_tasks SET enabled=0;'
   fi
 
-  (cd "$ENGINE_DIR" && bun run build --single)
+  (cd "$ENGINE_DIR" && MODELS_DEV_API_JSON="$ROOT/apps/opencode_fork/packages/opencode/test/tool/fixtures/models-api.json" bun run build --single --skip-install --skip-embed-web-ui) >"$SB/engine-build.log" 2>&1
   (cd "$API_DIR" && npm run build)
+  (cd "$ROOT/apps/mcp_server" && npm run build)
 
+  validate_security_shim
   if [[ "$mode" == foreground ]]; then
-    env "${runtime_env[@]}" \
-      node "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
+    env -i "${runtime_env[@]}" \
+      "$NODE_BIN" "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
   else
-    nohup env "${runtime_env[@]}" \
-      node "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
+    nohup env -i "${runtime_env[@]}" \
+      "$NODE_BIN" "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
   fi
   api_pid="$!"
   printf '%s\n' "$api_pid" >"$PID_FILE"
@@ -402,7 +480,10 @@ stop() {
 restart() {
   local api_pid
 
+  validate_node
+  [[ -f "$ROOT/apps/mcp_server/dist/index.js" ]] || fail 'local MCP payload missing; refusing npx fallback'
   safe_sandbox_path
+  validate_security_shim
   [[ -f "$SB/rhythm.db" ]] || fail "sandbox DB is missing; run '$0 up' first"
   [[ -d "$SB/home" && -d "$SB/vault" && -d "$SB/live-artifacts" ]] ||
     fail "sandbox runtime directories are incomplete; refusing a partial restart"
@@ -413,8 +494,8 @@ restart() {
   require_free_port "$API_PORT"
   require_free_port "$ENGINE_PORT"
   require_free_port "$GATEWAY_PORT"
-  nohup env "${runtime_env[@]}" \
-    node "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
+  nohup env -i "${runtime_env[@]}" \
+    "$NODE_BIN" "$API_DIR/dist/server.js" --parent-pid=1 --rhythm-sandbox="$SB" >"$LOG_FILE" 2>&1 &
   api_pid="$!"
   printf '%s\n' "$api_pid" >"$PID_FILE"
   wait_for_ready
@@ -446,9 +527,10 @@ wait_for_engine_ready() {
 }
 
 launch_engine() {
+  validate_security_shim
   (
     cd "$ROOT"
-    nohup env "${runtime_env[@]}" "$ENGINE_BIN" serve \
+    nohup env -i "${runtime_env[@]}" "$ENGINE_BIN" serve \
       --hostname 127.0.0.1 --port "$ENGINE_PORT" \
       --cors http://127.0.0.1:4175 >>"$LOG_FILE" 2>&1 &
     printf '%s\n' "$!" >"$ENGINE_PID_FILE"
@@ -471,6 +553,7 @@ restart_engine() {
 }
 
 down() {
+  preserve_diagnostics
   stop
   rm -rf "$SB"
   printf 'Sandbox removed: %s\n' "$SB"
@@ -478,6 +561,7 @@ down() {
 
 status() {
   safe_sandbox_path
+  validate_security_shim
   [[ -d "$SB/live-artifacts" ]] || fail "live-artifact storage root is missing"
   printf 'sandbox: %s\nlive-artifact storage: %s\napi :%s listener: %s\nengine :%s listener: %s\ngateway :%s listener: %s\n' \
     "$SB" "$SB/live-artifacts" "$API_PORT" "$(listener "$API_PORT" || true)" "$ENGINE_PORT" "$(listener "$ENGINE_PORT" || true)" "$GATEWAY_PORT" "$(listener "$GATEWAY_PORT" || true)"
