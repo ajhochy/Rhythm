@@ -11,7 +11,6 @@ test('isolated Electron HOME is overridden only for the macOS Keychain subproces
 
   assert.deepEqual(env, {
     HOME: '/Users/rhythm-user',
-    PATH: '/usr/bin',
-    RHYTHM_LOCAL_SMOKE: '1',
+    PATH: '/usr/bin:/bin',
   });
 });

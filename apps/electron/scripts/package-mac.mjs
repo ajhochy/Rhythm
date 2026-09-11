@@ -4,6 +4,8 @@ import { constants } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { buildAndStageApprovalHelper } from './build-approval-helper.mjs';
+import { hardenElectronFuses } from './harden-electron-fuses.mjs';
 
 const run = promisify(execFile);
 
@@ -90,6 +92,7 @@ await run('npm', ['--prefix', '../web', 'run', 'build'], {
 });
 await run('npm', ['--prefix', '../api_server', 'run', 'build'], { cwd: electronRoot });
 await cp(sourceApp, stagingArtifact, { recursive: true, verbatimSymlinks: true });
+await buildAndStageApprovalHelper({ electronRoot, resources });
 await mkdir(resolve(packagedApp, 'src'), { recursive: true });
 await mkdir(packagedShared, { recursive: true });
 await mkdir(packagedApiServer, { recursive: true });
@@ -166,6 +169,10 @@ for (const [key, value] of [
   await run('plutil', ['-replace', key, '-string', value, infoPlist]);
 }
 
+const approvalHelper = resolve(resources, 'human-approval/rhythm-approval-signer');
+await hardenElectronFuses(resolve(stagingArtifact, 'Contents/MacOS/Rhythm'));
+await run('codesign', ['--force', '--identifier', 'com.rhythm.desktop.approval-signer', '--sign', '-', approvalHelper]);
+await run('codesign', ['--verify', '--strict', approvalHelper]);
 await run('codesign', ['--force', '--deep', '--sign', '-', stagingArtifact]);
 await rename(stagingArtifact, artifact);
 process.stdout.write(`Packaged ${artifact} with an ad-hoc signature.\n`);
